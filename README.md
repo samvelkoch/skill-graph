@@ -8,7 +8,7 @@ An open, structured taxonomy of **what children learn** across the primary/eleme
 
 ![The taxonomy as a rotating 3D graph: every dot a micro-topic, colored by subject, wired by prerequisites](media/curriculum-viz.gif)
 
-Every dot is a micro-topic, colored by subject; height is age; each thread is a prerequisite ([full-quality video](media/curriculum-viz.mp4)). Explore it interactively at [withmarble.com/curriculum](https://withmarble.com/curriculum) — tap any concept to trace everything a learner must master before it.
+Every dot is a micro-topic, colored by subject; height is age; each thread is a prerequisite ([full-quality video](media/curriculum-viz.mp4)). Explore it interactively at [withmarble.com/curriculum](https://withmarble.com/curriculum), or in this fork's own viewer with English, Russian and Hungarian text: [samvelkoch.github.io/skill-graph](https://samvelkoch.github.io/skill-graph/) (source: [`index.html`](index.html)) — tap any concept to trace everything a learner must master before it.
 
 
 ## What this is

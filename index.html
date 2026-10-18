@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skill Graph</title>
+<meta name="description" content="Interactive 3D prerequisite graph of the Marble Skill Taxonomy in English, Russian and Hungarian.">
+<style>
+  :root {
+    --bg: #0b0d12; --panel: rgba(20, 23, 31, 0.94); --text: #e8eaf0; --muted: #9aa1b2;
+    --border: #2a2f3c; --accent: #f5c84c; --chip: #1c2030;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  #graph { position: fixed; inset: 0; }
+  .bar { position: fixed; top: 12px; left: 12px; right: 12px; display: flex; gap: 8px; align-items: flex-start;
+    flex-wrap: wrap; pointer-events: none; z-index: 2; }
+  .bar > * { pointer-events: auto; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; }
+  #title { padding: 8px 12px; }
+  #title b { font-size: 15px; }
+  #title span { color: var(--muted); font-size: 12px; display: block; }
+  #searchWrap { position: relative; flex: 1 1 220px; max-width: 360px; }
+  #search { width: 100%; padding: 9px 12px; background: var(--panel); color: var(--text);
+    border: 1px solid var(--border); border-radius: 10px; font: inherit; }
+  #results { position: absolute; top: 42px; left: 0; right: 0; max-height: 50vh; overflow: auto; display: none; }
+  #results div { padding: 7px 12px; cursor: pointer; border-bottom: 1px solid var(--border); }
+  #results div:hover { background: var(--chip); }
+  #results small { color: var(--muted); }
+  #langs { display: flex; padding: 3px; }
+  #langs button { background: none; border: 0; color: var(--muted); padding: 6px 10px; border-radius: 7px;
+    font: inherit; cursor: pointer; }
+  #langs button.on { background: var(--chip); color: var(--text); }
+  #legend { position: fixed; left: 12px; bottom: 12px; padding: 8px 10px; z-index: 2; max-width: calc(100vw - 24px); }
+  #legend label { display: inline-flex; align-items: center; gap: 6px; margin: 2px 10px 2px 0; cursor: pointer;
+    font-size: 12px; user-select: none; }
+  #legend i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  #legend label.off { opacity: 0.35; }
+  #legend .hint { color: var(--muted); font-size: 11px; margin-top: 4px; }
+  #panel { position: fixed; top: 64px; right: 12px; width: min(400px, calc(100vw - 24px)); max-height: calc(100vh - 140px);
+    overflow: auto; padding: 14px 16px; display: none; z-index: 3; }
+  #panel h2 { font-size: 17px; margin: 0 24px 4px 0; }
+  #panel .meta { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+  #panel h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 14px 0 6px; }
+  #panel ul { margin: 0; padding-left: 18px; }
+  #panel .prompt { background: var(--chip); border-radius: 8px; padding: 8px 10px; font-style: italic; }
+  #panel .link { color: var(--accent); cursor: pointer; }
+  #panel .link small { color: var(--muted); }
+  #close { position: absolute; top: 8px; right: 10px; background: none; border: 0; color: var(--muted);
+    font-size: 20px; cursor: pointer; }
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; color: var(--muted); z-index: 1; }
+  @media (max-width: 600px) {
+    #panel { top: auto; bottom: 12px; max-height: 55vh; }
+    #legend { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="graph"></div>
+<div id="loading">Loading…</div>
+<div class="bar">
+  <div id="title" class="card"><b>Skill Graph</b><span id="subtitle"></span></div>
+  <div id="searchWrap"><input id="search" autocomplete="off"><div id="results" class="card"></div></div>
+  <div id="langs" class="card"></div>
+</div>
+<div id="legend" class="card"></div>
+<div id="panel" class="card"><button id="close" aria-label="Close">×</button><div id="panelBody"></div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/3d-force-graph@1.77.0/dist/3d-force-graph.min.js"></script>
+<script>
+// Data lives next to this page: data/*.json (EN) and data/i18n/<lang>/*.json.
+const LANGS = { en: 'EN', ru: 'RU', hu: 'HU' };
+const ruPlural = (n, one, few, many) => {
+  const m10 = n % 10, m100 = n % 100;
+  return m10 === 1 && m100 !== 11 ? one : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? few : many;
+};
+const UI = {
+  en: { search: 'Search topics…', sub: (n, e) => `${n} topics · ${e} prerequisites`, age: 'Age', prereq: 'Requires',
+        unlocks: 'Unlocks', evidence: 'Evidence of mastery', check: 'Quick check', child: 'your child',
+        hint: 'Height = age · click a topic to trace its prerequisite chain · click a subject to hide it',
+        chain: (n) => `${n} topics in the prerequisite chain`, hard: 'hard', soft: 'soft' },
+  ru: { search: 'Поиск по темам…', sub: (n, e) => `${n} ${ruPlural(n, 'тема', 'темы', 'тем')} · ${e} ${ruPlural(e, 'связь', 'связи', 'связей')}`, age: 'Возраст', prereq: 'Нужно знать',
+        unlocks: 'Открывает', evidence: 'Признаки освоения', check: 'Быстрая проверка', child: 'ребёнок',
+        hint: 'Высота = возраст · клик по теме подсвечивает цепочку пререквизитов · клик по предмету скрывает его',
+        chain: (n) => `${n} ${ruPlural(n, 'тема', 'темы', 'тем')} в цепочке пререквизитов`, hard: 'обязательно', soft: 'желательно' },
+  hu: { search: 'Témák keresése…', sub: (n, e) => `${n} téma · ${e} előfeltétel`, age: 'Életkor', prereq: 'Előfeltételek',
+        unlocks: 'Erre épül', evidence: 'Az elsajátítás jelei', check: 'Gyors ellenőrzés', child: 'a gyerek',
+        hint: 'Magasság = életkor · kattints egy témára az előfeltétel-lánchoz · kattints egy tantárgyra az elrejtéséhez',
+        chain: (n) => `${n} téma az előfeltétel-láncban`, hard: 'kötelező', soft: 'ajánlott' },
+};
+const COLORS = {
+  'Mathematics': '#4e9cff', 'Science': '#3fcf8e', 'English': '#f5c84c', 'History': '#e8833a',
+  'Personal & Social Development': '#e264a8', 'Life Skills': '#a78bfa', 'Computing': '#38d1d1',
+  'Learning to Learn': '#f87171',
+};
+const AGE_SCALE = 45; // world units per year of age
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const cache = {};
+let lang = new URLSearchParams(location.search).get('lang');
+if (!LANGS[lang]) lang = 'en';
+let data, byId, prereqs, dependents, labels, focus = null, chain = new Set(), hidden = new Set();
+
+async function loadLang(l) {
+  if (cache[l]) return cache[l];
+  const base = l === 'en' ? 'data/' : `data/i18n/${l}/`;
+  const get = (f) => fetch(base + f).then((r) => { if (!r.ok) throw new Error(`${base + f}: ${r.status}`); return r.json(); });
+  const [topics, deps, lab] = await Promise.all([
+    get('topics.json'), get('dependencies.json'), l === 'en' ? Promise.resolve(null) : get('labels.json'),
+  ]);
+  return (cache[l] = { topics: topics.topics, deps: deps.dependencies, labels: lab });
+}
+
+function index(d) {
+  byId = new Map(d.topics.map((t) => [t.id, t]));
+  prereqs = new Map(); dependents = new Map();
+  for (const e of d.deps) {
+    (prereqs.get(e.topicId) ?? prereqs.set(e.topicId, []).get(e.topicId)).push(e);
+    (dependents.get(e.prerequisiteId) ?? dependents.set(e.prerequisiteId, []).get(e.prerequisiteId)).push(e);
+  }
+  labels = d.labels ?? { subjects: {}, domains: {} };
+}
+const subj = (s) => labels.subjects[s] ?? s;
+const dom = (s) => labels.domains[s] ?? s;
+
+function ancestors(id) {
+  const seen = new Set([id]), stack = [id];
+  while (stack.length) for (const e of prereqs.get(stack.pop()) ?? []) {
+    if (!seen.has(e.prerequisiteId)) { seen.add(e.prerequisiteId); stack.push(e.prerequisiteId); }
+  }
+  return seen;
+}
+
+// --- graph -------------------------------------------------------------------
+const Graph = ForceGraph3D()($('graph'))
+  .backgroundColor('#0b0d12')
+  .nodeId('id')
+  .nodeLabel((n) => `<b>${esc(byId.get(n.id).name)}</b><br>${esc(subj(n.subject))} · ${n.age}`)
+  .nodeVal((n) => 1 + 6 * (n.centrality ?? 0))
+  .nodeColor((n) => {
+    if (focus && !chain.has(n.id)) return 'rgba(120,128,150,0.06)';
+    if (focus && n.id === focus) return '#ffffff';
+    return COLORS[n.subject] ?? '#999';
+  })
+  .nodeVisibility((n) => !hidden.has(n.subject))
+  .linkVisibility((l) => !hidden.has(l.source.subject ?? l.sourceSubject) && !hidden.has(l.target.subject ?? l.targetSubject))
+  .linkColor((l) => (focus && chain.has(l.source.id) && chain.has(l.target.id) ? '#f5c84c' : 'rgba(150,160,190,0.18)'))
+  .linkWidth((l) => (focus && chain.has(l.source.id) && chain.has(l.target.id) ? 1.2 : 0))
+  .linkDirectionalArrowLength((l) => (focus && chain.has(l.source.id) && chain.has(l.target.id) ? 3 : 0))
+  .linkDirectionalArrowRelPos(1)
+  .onNodeClick((n) => select(n.id, true))
+  .onBackgroundClick(() => select(null));
+
+function buildGraph(d) {
+  const nodes = d.topics.map((t) => {
+    const age = (t.ageRangeStart + t.ageRangeEnd) / 2;
+    return { id: t.id, subject: t.subject, centrality: t.centrality, age: `${t.ageRangeStart}–${t.ageRangeEnd}`,
+             fy: (age - 9) * AGE_SCALE };
+  });
+  const subjOf = new Map(d.topics.map((t) => [t.id, t.subject]));
+  // edge points prerequisite → topic, so arrows read "leads to"
+  const links = d.deps.map((e) => ({ source: e.prerequisiteId, target: e.topicId,
+    sourceSubject: subjOf.get(e.prerequisiteId), targetSubject: subjOf.get(e.topicId) }));
+  Graph.graphData({ nodes, links });
+}
+
+function refresh() { Graph.nodeColor(Graph.nodeColor()).linkColor(Graph.linkColor()).linkWidth(Graph.linkWidth())
+  .linkDirectionalArrowLength(Graph.linkDirectionalArrowLength()); }
+
+// --- panel -------------------------------------------------------------------
+function select(id, fly) {
+  focus = id; chain = id ? ancestors(id) : new Set();
+  refresh();
+  if (!id) { $('panel').style.display = 'none'; setUrl(); return; }
+  const t = byId.get(id), u = UI[lang];
+  const linkTo = (e, other) => {
+    const o = byId.get(other);
+    return `<li><span class="link" data-id="${other}">${esc(o.name)}</span> <small>· ${esc(u[e.strength] ?? e.strength)}</small>` +
+      (e.reason ? `<br><small style="color:var(--muted)">${esc(e.reason)}</small>` : '') + '</li>';
+  };
+  const pre = prereqs.get(id) ?? [], post = dependents.get(id) ?? [];
+  $('panelBody').innerHTML = `
+    <h2>${esc(t.name)}</h2>
+    <div class="meta"><span style="color:${COLORS[t.subject]}">●</span> ${esc(subj(t.subject))} · ${esc(dom(t.domain))} ·
+      ${u.age} ${t.ageRangeStart}–${t.ageRangeEnd}<br>${u.chain(chain.size - 1)}</div>
+    <div>${esc(t.description)}</div>
+    ${t.evidence?.length ? `<h3>${u.evidence}</h3><ul>${t.evidence.map((e) => `<li>${esc(e)}</li>`).join('')}</ul>` : ''}
+    ${t.assessmentPrompt ? `<h3>${u.check}</h3><div class="prompt">${esc(t.assessmentPrompt.replaceAll('{{name}}', u.child))}</div>` : ''}
+    ${pre.length ? `<h3>${u.prereq} (${pre.length})</h3><ul>${pre.map((e) => linkTo(e, e.prerequisiteId)).join('')}</ul>` : ''}
+    ${post.length ? `<h3>${u.unlocks} (${post.length})</h3><ul>${post.map((e) => linkTo(e, e.topicId)).join('')}</ul>` : ''}`;
+  $('panel').style.display = 'block';
+  $('panel').scrollTop = 0;
+  if (fly) flyTo(id);
+  setUrl();
+}
+
+function flyTo(id) {
+  const n = Graph.graphData().nodes.find((x) => x.id === id);
+  if (!n || n.x === undefined) return;
+  const d = 280, r = 1 + d / Math.hypot(n.x, n.y, n.z || 1);
+  Graph.cameraPosition({ x: n.x * r, y: n.y * r, z: n.z * r }, n, 1200);
+}
+
+$('panelBody').addEventListener('click', (ev) => {
+  const el = ev.target.closest('.link');
+  if (el) select(el.dataset.id, true);
+});
+$('close').onclick = () => select(null);
+
+// --- search ------------------------------------------------------------------
+$('search').addEventListener('input', () => {
+  const q = $('search').value.trim().toLowerCase(), box = $('results');
+  if (q.length < 2) { box.style.display = 'none'; return; }
+  const hits = [];
+  for (const t of byId.values()) {
+    if (t.name.toLowerCase().includes(q)) hits.push(t);
+    if (hits.length >= 12) break;
+  }
+  box.innerHTML = hits.map((t) => `<div data-id="${t.id}">${esc(t.name)}<br><small>${esc(subj(t.subject))} · ${t.ageRangeStart}–${t.ageRangeEnd}</small></div>`).join('');
+  box.style.display = hits.length ? 'block' : 'none';
+});
+$('results').addEventListener('click', (ev) => {
+  const el = ev.target.closest('[data-id]');
+  if (!el) return;
+  $('results').style.display = 'none'; $('search').value = '';
+  select(el.dataset.id, true);
+});
+
+// --- language + legend -------------------------------------------------------
+function setUrl() {
+  const p = new URLSearchParams();
+  if (lang !== 'en') p.set('lang', lang);
+  if (focus) p.set('topic', focus);
+  history.replaceState(null, '', p.toString() ? `?${p}` : location.pathname);
+}
+
+function renderChrome() {
+  const u = UI[lang];
+  document.documentElement.lang = lang;
+  $('search').placeholder = u.search;
+  $('subtitle').textContent = u.sub(data.topics.length, data.deps.length);
+  $('langs').innerHTML = Object.entries(LANGS)
+    .map(([k, v]) => `<button data-lang="${k}" class="${k === lang ? 'on' : ''}">${v}</button>`).join('');
+  const counts = {};
+  for (const t of data.topics) counts[t.subject] = (counts[t.subject] ?? 0) + 1;
+  $('legend').innerHTML = Object.keys(COLORS).filter((s) => counts[s])
+    .map((s) => `<label data-s="${esc(s)}" class="${hidden.has(s) ? 'off' : ''}"><i style="background:${COLORS[s]}"></i>${esc(subj(s))} ${counts[s]}</label>`)
+    .join('') + `<div class="hint">${u.hint}</div>`;
+}
+
+$('langs').addEventListener('click', async (ev) => {
+  const k = ev.target.dataset?.lang;
+  if (!k || k === lang) return;
+  lang = k;
+  await setLang(false);
+});
+$('legend').addEventListener('click', (ev) => {
+  const el = ev.target.closest('label');
+  if (!el) return;
+  const s = el.dataset.s;
+  hidden.has(s) ? hidden.delete(s) : hidden.add(s);
+  el.classList.toggle('off');
+  Graph.nodeVisibility(Graph.nodeVisibility()).linkVisibility(Graph.linkVisibility());
+});
+
+async function setLang(first) {
+  try {
+    data = await loadLang(lang);
+  } catch (err) {
+    $('loading').textContent = `Failed to load data (${err.message})`;
+    return;
+  }
+  index(data);
+  // graph structure is identical across languages, so build it once and only swap text
+  if (first) buildGraph(data);
+  renderChrome();
+  $('loading').style.display = 'none';
+  if (focus) select(focus, false); else setUrl();
+}
+
+(async () => {
+  await setLang(true);
+  const t = new URLSearchParams(location.search).get('topic');
+  if (t && byId.has(t)) setTimeout(() => select(t, true), 2500);
+})();
+addEventListener('resize', () => Graph.width(innerWidth).height(innerHeight));
+</script>
+</body>
+</html>
