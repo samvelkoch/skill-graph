@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fractions Lab · Skill Graph</title>
+<meta name="description" content="Share a pizza with more and more friends and watch the slices shrink: fractions as equal parts of a whole, on a pizza, a chocolate bar, a bag of 12 candies and a fraction wall. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  .frac { display: inline-flex; flex-direction: column; align-items: center; line-height: 1; vertical-align: middle; font-weight: 900; }
+  .frac span:first-child { border-bottom: 3px solid currentColor; padding: 0 4px 3px; }
+  .frac span:last-child { padding-top: 3px; }
+  .readout .val .frac { font-size: 30px; }
+  .words { color: var(--soft); font-weight: 800; }
+  .stepper { display: inline-flex; align-items: center; gap: 4px; }
+  .stepper button { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 900; font-size: 16px; cursor: pointer; }
+  .stepper button:hover { background: rgba(130, 145, 190, .25); }
+  .stepper b { min-width: 22px; text-align: center; color: #fff; }
+  .tip { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); font-size: 12.5px; color: var(--mut); font-weight: 700;
+    white-space: nowrap; pointer-events: none; }
+  .eq { color: var(--ok); font-weight: 900; }
+  @media (max-width: 760px) { .readout .val .frac { font-size: 24px; } .tip { font-size: 11.5px; } }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, lang } from '../lab.js';
+
+// --- words -------------------------------------------------------------------------------------------------
+const EN_NUM = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
+const EN_DEN = [null, ['whole', 'wholes'], ['half', 'halves'], ['third', 'thirds'], ['quarter', 'quarters'], ['fifth', 'fifths'], ['sixth', 'sixths'],
+  ['seventh', 'sevenths'], ['eighth', 'eighths'], ['ninth', 'ninths'], ['tenth', 'tenths'], ['eleventh', 'elevenths'], ['twelfth', 'twelfths']];
+const RU_NUM = ['ноль', 'одна', 'две', 'три', 'четыре', 'пять', 'шесть', 'семь', 'восемь', 'девять', 'десять', 'одиннадцать', 'двенадцать'];
+const RU_DEN = [null, ['целая', 'целых'], ['вторая', 'вторых'], ['третья', 'третьих'], ['четвёртая', 'четвёртых'], ['пятая', 'пятых'], ['шестая', 'шестых'],
+  ['седьмая', 'седьмых'], ['восьмая', 'восьмых'], ['девятая', 'девятых'], ['десятая', 'десятых'], ['одиннадцатая', 'одиннадцатых'], ['двенадцатая', 'двенадцатых']];
+const HU_NUM = ['nulla', 'egy', 'két', 'három', 'négy', 'öt', 'hat', 'hét', 'nyolc', 'kilenc', 'tíz', 'tizenegy', 'tizenkét'];
+const HU_DEN = [null, 'egész', 'ketted', 'harmad', 'negyed', 'ötöd', 'hatod', 'heted', 'nyolcad', 'kilenced', 'tized', 'tizenegyed', 'tizenketted'];
+function say(a, b) {
+  if (lang === 'ru') {
+    const w = `${RU_NUM[a]} ${RU_DEN[b][a === 1 ? 0 : 1]}`;
+    return a === 1 && b === 2 ? `${w} (половина)` : a === 1 && b === 4 ? `${w} (четверть)` : a === 3 && b === 4 ? `${w} (три четверти)` : w;
+  }
+  if (lang === 'hu') {
+    if (b === 1 || a === 0) return `${HU_NUM[a] === 'két' ? 'kettő' : HU_NUM[a]} ${HU_DEN[b]}`;
+    const w = HU_NUM[a] + HU_DEN[b];
+    return a === 1 && b === 2 ? `${w} (fél)` : w;
+  }
+  if (b === 2 && a === 1) return 'one half';
+  return `${EN_NUM[a]} ${EN_DEN[b][a === 1 ? 0 : 1]}`;
+}
+// Hungarian article before a number: "az" before 1 (egy) and 5 (öt)
+const az = (n) => (n === 1 || n === 5 ? 'az' : 'a');
+const F = (a, b) => `<span class="frac"><span>${a}</span><span>${b}</span></span>`;
+const f = (a, b) => `${a}/${b}`;
+
+const T = {
+  en: {
+    name: 'Fractions Lab', title: 'Sharing a pizza',
+    lines: [['More friends,', 'smaller slices: drag to invite them.'], ['Tap the pieces', 'you want to take.'], ['Try the chocolate, the candies and the wall', '— it is the same fraction.']],
+    views: { pizza: '🍕 Pizza', choc: '🍫 Chocolate', candy: '🍬 Candies', wall: '🧱 Wall' },
+    gaugeCap: 'How much', parts: 'Equal parts', take: 'You take', ends: ['1 part', '12 parts'],
+    pill: { none: 'nothing', less: 'less than half', half: 'exactly half', more: 'more than half', whole: 'one whole', unfair: 'not equal!' },
+    friends: (b) => b === 1 ? 'Just you: the whole pizza' : `Shared by ${b} friends`,
+    tapTip: 'Tap a piece to take it',
+    lead: (a, b) => `${a} of ${b} equal pieces`,
+    body: (a, b) => `Each piece is ${f(1, b)}: one of ${b} equal parts of the whole. You have ${a} of them, so you have ${f(a, b)}.`,
+    smaller: (b) => `The more equal parts, the smaller each one: ${f(1, b)} is smaller than ${f(1, b - 1)}, even though ${b} is bigger than ${b - 1}.`,
+    candyLead: (a, b, n) => `${f(a, b)} of 12 candies = ${n} candies`,
+    candyBody: (a, b) => `Share 12 candies into ${b} equal groups: ${12 / b} in each. Take ${a} ${a === 1 ? 'group' : 'groups'}: ${a} × ${12 / b} = ${a * 12 / b}.`,
+    candyNo: (b) => `12 candies can’t be shared into ${b} equal groups: something is always left over. Try 2, 3, 4, 6 or 12 parts.`,
+    candyNoLead: 'Not a fair share',
+    wallLead: (a, b, list) => list.length ? `${f(a, b)} lines up with ${list.join(', ')}` : `${f(a, b)} lines up with no other row`,
+    wallBody: 'Each row of the wall is one whole, cut into more and more equal parts. Fractions that end at the same place are equal: the same amount, just cut differently. And look down any column: the more parts, the smaller each one.',
+    wallTip: 'Tap a row to cut the whole that way',
+    unfairLead: 'Four pieces, but not quarters!',
+    unfairBody: 'These four pieces are all different sizes, so none of them is a quarter. A fraction only works when every part is exactly the same size.',
+    dblBody: (a, b) => `You cut every piece in two: twice as many pieces, each half as big. The amount stays the same: ${f(a / 2, b / 2)} = ${f(a, b)}.`,
+    dblLead: 'Same amount, more pieces!',
+    dblNo: 'Already 12 pieces: cutting again would go past 12.',
+    secrets: { unfair: ['Unfair cut', 'Are these quarters?'], double: ['Cut in two', 'Cut every piece again'] },
+    quiz: [
+      { q: 'Which piece is bigger?', opts: ['1/4 of a pizza', '1/8 of the same pizza', 'They are the same'], ok: 0 },
+      { q: 'What does 3/4 mean?', opts: ['3 pieces, each 1/4 of the whole', '3 wholes and 4 pieces', '4 pieces, each 1/3 of the whole'], ok: 0 },
+      { q: 'How many candies is 1/4 of 12 candies?', opts: ['3', '4', '8'], ok: 0 },
+    ],
+  },
+  ru: {
+    name: 'Дроби', title: 'Делим пиццу',
+    lines: [['Больше друзей —', 'меньше кусочки: тяни, чтобы позвать их.'], ['Нажимай на кусочки,', 'которые берёшь себе.'], ['Попробуй шоколадку, конфеты и стену', '— дробь та же самая.']],
+    views: { pizza: '🍕 Пицца', choc: '🍫 Шоколадка', candy: '🍬 Конфеты', wall: '🧱 Стена' },
+    gaugeCap: 'Сколько', parts: 'Равных частей', take: 'Берёшь', ends: ['1 часть', '12 частей'],
+    pill: { none: 'ничего', less: 'меньше половины', half: 'ровно половина', more: 'больше половины', whole: 'целое', unfair: 'части не равны!' },
+    friends: (b) => b === 1 ? 'Только ты: вся пицца твоя' : `Делят ${b} ${b < 5 ? 'друга' : 'друзей'}`,
+    tapTip: 'Нажми на кусочек, чтобы взять его',
+    lead: (a, b) => `${a} из ${b} равных кусочков`,
+    body: (a, b) => `Каждый кусочек — это ${f(1, b)}: одна из ${b} равных частей целого. У тебя их ${a}, значит, у тебя ${f(a, b)}.`,
+    smaller: (b) => `Чем больше равных частей, тем меньше каждая: ${f(1, b)} меньше, чем ${f(1, b - 1)}, хотя ${b} больше, чем ${b - 1}.`,
+    candyLead: (a, b, n) => `${f(a, b)} от 12 конфет = ${n} ${n % 10 === 1 && n !== 11 ? 'конфета' : n % 10 >= 2 && n % 10 <= 4 && (n < 10 || n > 20) ? 'конфеты' : 'конфет'}`,
+    candyBody: (a, b) => `Разложи 12 конфет на ${b} ${b === 1 ? 'кучку' : b < 5 ? 'равные кучки' : 'равных кучек'}: по ${12 / b} в каждой. Возьми ${a} ${a === 1 ? 'кучку' : a > 1 && a < 5 ? 'кучки' : 'кучек'}: ${a} × ${12 / b} = ${a * 12 / b}.`,
+    candyNo: (b) => `12 конфет нельзя поровну разложить на ${b} кучек: всегда что-то остаётся. Попробуй 2, 3, 4, 6 или 12 частей.`,
+    candyNoLead: 'Поровну не получится',
+    wallLead: (a, b, list) => list.length ? `${f(a, b)} совпадает с ${list.join(', ')}` : `${f(a, b)} не совпадает ни с одним рядом`,
+    wallBody: 'Каждый ряд стены — одно целое, разрезанное на всё большее число равных частей. Дроби, которые заканчиваются в одном месте, равны: это то же количество, просто нарезанное по-другому. А сверху вниз видно: чем больше частей, тем каждая меньше.',
+    wallTip: 'Нажми на ряд, чтобы разрезать целое так же',
+    unfairLead: 'Четыре куска, но не четверти!',
+    unfairBody: 'Эти четыре куска разного размера, поэтому ни один из них не четверть. Дробь работает, только когда все части одинаковые.',
+    dblBody: (a, b) => `Ты разрезал каждый кусочек пополам: кусочков вдвое больше, но каждый вдвое меньше. Сколько было, столько и осталось: ${f(a / 2, b / 2)} = ${f(a, b)}.`,
+    dblLead: 'Столько же, но кусочков больше!',
+    dblNo: 'Уже 12 кусочков: если резать дальше, будет больше 12.',
+    secrets: { unfair: ['Нечестный разрез', 'Это четверти?'], double: ['Пополам', 'Разрезать каждый кусочек'] },
+    quiz: [
+      { q: 'Какой кусочек больше?', opts: ['1/4 пиццы', '1/8 той же пиццы', 'Они одинаковые'], ok: 0 },
+      { q: 'Что значит 3/4?', opts: ['3 кусочка, каждый — 1/4 целого', '3 целых и 4 кусочка', '4 кусочка, каждый — 1/3 целого'], ok: 0 },
+      { q: 'Сколько конфет составляет 1/4 от 12 конфет?', opts: ['3', '4', '8'], ok: 0 },
+    ],
+  },
+  hu: {
+    name: 'Törtlabor', title: 'Osztozzunk a pizzán',
+    lines: [['Több barát,', 'kisebb szeletek: húzd, és hívd meg őket.'], ['Koppints a szeletekre,', 'amelyeket elveszel.'], ['Próbáld ki a csokit, a cukrot és a falat', '— ugyanaz a tört.']],
+    views: { pizza: '🍕 Pizza', choc: '🍫 Csoki', candy: '🍬 Cukorka', wall: '🧱 Törtfal' },
+    gaugeCap: 'Mennyi', parts: 'Egyenlő rész', take: 'Elveszel', ends: ['1 rész', '12 rész'],
+    pill: { none: 'semmi', less: 'kevesebb a felénél', half: 'pont a fele', more: 'több a felénél', whole: 'egy egész', unfair: 'nem egyformák!' },
+    friends: (b) => b === 1 ? 'Csak te: tiéd az egész pizza' : `${b} barát osztozik`,
+    tapTip: 'Koppints egy szeletre, hogy elvedd',
+    lead: (a, b) => `${b} egyenlő részből ${a}`,
+    body: (a, b) => `Minden szelet ${f(1, b)}: az egész ${b} egyenlő részének egyike. Neked ${a} jutott, tehát ${f(a, b)} a tiéd.`,
+    smaller: (b) => `Minél több az egyenlő rész, annál kisebb mindegyik: ${f(1, b)} kisebb, mint ${f(1, b - 1)}, pedig ${az(b)} ${b} nagyobb, mint ${az(b - 1)} ${b - 1}.`,
+    candyLead: (a, b, n) => `12 cukorka ${f(a, b)} része = ${n} cukorka`,
+    candyBody: (a, b) => `Oszd szét a 12 cukorkát ${b} egyenlő csoportba: mindegyikben ${12 / b} van. Vegyél el ${a} csoportot: ${a} × ${12 / b} = ${a * 12 / b}.`,
+    candyNo: (b) => `12 cukorkát nem lehet ${b} egyenlő csoportba osztani: mindig marad valami. Próbáld 2, 3, 4, 6 vagy 12 résszel.`,
+    candyNoLead: 'Nem lesz igazságos',
+    wallLead: (a, b, list) => list.length ? `${f(a, b)} egy vonalban van ezekkel: ${list.join(', ')}` : `${f(a, b)} egyik sorral sincs egy vonalban`,
+    wallBody: 'A fal minden sora egy egész, egyre több egyenlő részre vágva. Az egy helyen végződő törtek egyenlők: ugyanannyi, csak másképp felvágva. Fentről lefelé pedig látszik: minél több a rész, annál kisebb mindegyik.',
+    wallTip: 'Koppints egy sorra, hogy úgy vágd fel az egészet',
+    unfairLead: 'Négy darab, de nem negyedek!',
+    unfairBody: 'Ez a négy darab mind különböző méretű, ezért egyikük sem negyed. A tört csak akkor működik, ha minden rész pontosan egyforma.',
+    dblBody: (a, b) => `Minden szeletet kettévágtál: kétszer annyi szelet lett, mindegyik fele akkora. A mennyiség nem változott: ${f(a / 2, b / 2)} = ${f(a, b)}.`,
+    dblLead: 'Ugyanannyi, csak több szelet!',
+    dblNo: 'Már 12 szelet van: ha tovább vágnánk, több lenne 12-nél.',
+    secrets: { unfair: ['Igazságtalan vágás', 'Ezek negyedek?'], double: ['Kettévágás', 'Vágj ketté minden szeletet'] },
+    quiz: [
+      { q: 'Melyik szelet nagyobb?', opts: ['A pizza 1/4 része', 'Ugyanannak a pizzának az 1/8 része', 'Egyformák'], ok: 0 },
+      { q: 'Mit jelent a 3/4?', opts: ['3 szelet, mindegyik az egész 1/4 része', '3 egész és 4 szelet', '4 szelet, mindegyik az egész 1/3 része'], ok: 0 },
+      { q: 'Hány cukorka 12 cukorka 1/4 része?', opts: ['3', '4', '8'], ok: 0 },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_ndGqFPWyen', en: 'Fractions of a whole', ru: 'Дроби целого', hu: 'Az egész törtrészei' },
+  { id: 'mt_k2WE0-22-4', en: 'Unit fractions', ru: 'Доли (дроби с числителем 1)', hu: 'Törzstörtek' },
+  { id: 'mt_IfEgu0X449', en: 'Comparing fractions', ru: 'Сравнение дробей', hu: 'Törtek összehasonlítása' },
+];
+const PRESETS = [[1, 2], [1, 3], [1, 4], [3, 4], [2, 3], [3, 5], [5, 8]];
+
+// --- state -------------------------------------------------------------------------------------------------
+const S = { b: 4, sel: new Set([0]), unfair: false, doubled: false, lastB: 4 };
+const a = () => S.sel.size;
+const lab = shell({ key: 'fractions', T, topics: TOPICS, views: ['pizza', 'choc', 'candy', 'wall'], onLang: render, onView: render });
+const secret = secretLab('fractions', () => ({
+  secrets: [{ emo: '🔪', title: T[lang].secrets.unfair[0], desc: T[lang].secrets.unfair[1] }, { emo: '✂️', title: T[lang].secrets.double[0], desc: T[lang].secrets.double[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div class="row2" style="margin:0 0 6px"><span class="lbl" id="lblParts"></span></div>
+  <input type="range" class="big" id="slider" min="1" max="12" step="1" value="${S.b}" aria-label="parts">
+  <div class="ends"><span id="endL"></span><span id="endR"></span></div>
+  <div class="chips" id="chips"></div>
+  <div class="row2"><span class="lbl" id="lblTake"></span><span class="stepper"><button id="minus" aria-label="−">−</button><b id="aNum"></b><button id="plus" aria-label="+">+</button></span>
+    <span class="words" id="words"></span></div>`;
+$('slider').style.setProperty('--track', 'linear-gradient(90deg, #ffb347, #ff3b30)');
+const tipEl = Object.assign(document.createElement('div'), { className: 'tip' });
+$('overlay').append(tipEl);
+
+function setB(b, keepAmount = true) {
+  b = clamp(Math.round(b), 1, 12);
+  if (b === S.b) return;
+  const share = a() / S.b;
+  S.lastB = S.b; S.b = b; S.unfair = false; S.doubled = false;
+  const na = keepAmount ? clamp(Math.round(share * b), 0, b) : clamp(a(), 0, b);
+  S.sel = new Set(Array.from({ length: na }, (_, i) => i));
+  sfx.tick(); render();
+}
+function setA(n) { n = clamp(n, 0, S.b); S.sel = new Set(Array.from({ length: n }, (_, i) => i)); S.doubled = false; sfx.click(); render(); }
+$('slider').addEventListener('input', () => setB(+$('slider').value, false));
+$('minus').onclick = () => setA(a() - 1);
+$('plus').onclick = () => setA(a() + 1);
+$('chips').addEventListener('click', (ev) => {
+  const b = ev.target.closest('.chip'); if (!b) return;
+  const k = b.dataset.k;
+  if (k === 'unfair' || k === 'double') {
+    if (!secret.unlocked()) return secret.open();
+    if (k === 'unfair') { S.unfair = !S.unfair; if (S.unfair) { S.b = 4; S.sel = new Set(); } lab.view = lab.view === 'pizza' || lab.view === 'choc' ? lab.view : 'pizza'; lab.renderChrome(); }
+    else if (S.b * 2 <= 12) {
+      // keep exactly the same region: on the pizza each slice splits into two neighbours,
+      // on the bar the grid changes shape, so take the new pieces that lie inside the old ones
+      const old = chocCells(S.b), was = [...S.sel];
+      S.lastB = S.b; S.b *= 2; S.unfair = false; S.doubled = true;
+      S.sel = new Set(lab.view === 'choc'
+        ? chocCells(S.b).map(([x, y, w, h], i) => [x + w / 2, y + h / 2, i]).filter(([cx, cy]) => was.some((j) => { const [ox, oy, ow, oh] = old[j]; return cx > ox && cx < ox + ow && cy > oy && cy < oy + oh; })).map(([, , i]) => i)
+        : was.flatMap((i) => [2 * i, 2 * i + 1]));
+    }
+    else S.doubled = 'no';
+    sfx.snap(); return render();
+  }
+  const [na, nb] = k.split('/').map(Number);
+  S.lastB = S.b; S.b = nb; S.unfair = false; S.doubled = false; S.sel = new Set(Array.from({ length: na }, (_, i) => i)); sfx.click(); render();
+});
+
+// equal fractions of a/b among the wall rows (in lowest-first order)
+const equals = (na, nb) => Array.from({ length: 12 }, (_, i) => i + 1).filter((d) => d !== nb && (na * d) % nb === 0).map((d) => f(na * d / nb, d));
+
+function render() {
+  const t = T[lang], n = a(), b = S.b;
+  $('slider').value = String(b);
+  $('lblParts').textContent = `${t.parts}: ${b}`;
+  $('lblTake').textContent = t.take;
+  $('aNum').textContent = S.unfair ? '?' : String(n);
+  $('endL').textContent = t.ends[0]; $('endR').textContent = t.ends[1];
+  $('words').textContent = S.unfair ? '' : say(n, b);
+  const open = secret.unlocked();
+  const sc = (k, emo) => `<button class="chip secret ${open ? 'open' : ''} ${(k === 'unfair' && S.unfair) || (k === 'double' && S.doubled === true) ? 'on' : ''}" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  $('chips').innerHTML = [sc('unfair', '🔪'), ...PRESETS.map(([x, y]) => `<button class="chip ${!S.unfair && x === n && y === b ? 'on' : ''}" data-k="${x}/${y}">${x}/${y}</button>`), sc('double', '✂️')].join('');
+
+  // readout + gauge
+  const val = n / b;
+  const pill = S.unfair ? t.pill.unfair : n === 0 ? t.pill.none : n === b ? t.pill.whole : 2 * n < b ? t.pill.less : 2 * n === b ? t.pill.half : t.pill.more;
+  lab.setReadout(S.unfair ? F('?', 4) : F(n, b), S.unfair ? '' : say(n, b), pill, S.unfair ? '#ff3b30' : 2 * n === b ? '#3ddc97' : '#ff8a3d');
+  lab.setGauge(S.unfair ? 0 : val, [[0, '0'], [0.25, '1/4'], [0.5, '1/2'], [0.75, '3/4'], [1, '1']].map(([x, l]) => ({ f: x, label: l })), t.gaugeCap);
+  lab.setGlow(`rgba(255, ${Math.round(lerp(150, 90, val))}, 60, ${(0.14 + 0.22 * val).toFixed(2)})`);
+
+  // the explanation
+  let lead = t.lead(n, b), body = t.body(n, b), extra = esc(t.smaller(Math.max(2, b)));
+  if (lab.view === 'candy') {
+    if (12 % b === 0) { lead = t.candyLead(n, b, n * 12 / b); body = t.candyBody(n, b); }
+    else { lead = t.candyNoLead; body = t.candyNo(b); }
+    extra = '';
+  }
+  if (lab.view === 'wall') { const eq = equals(n, b); lead = t.wallLead(n, b, eq); body = t.wallBody; extra = eq.length ? `<span class="eq">${esc([f(n, b), ...eq].join(' = '))}</span>` : ''; }
+  if (S.unfair) { lead = t.unfairLead; body = t.unfairBody; extra = ''; }
+  if (S.doubled === true) { lead = t.dblLead; body = t.dblBody(n, b); }
+  if (S.doubled === 'no') { lead = t.dblLead; body = t.dblNo; }
+  const emo = { pizza: '🍕', choc: '🍫', candy: '🍬', wall: '🧱' }[lab.view];
+  lab.setState({ emo, title: S.unfair ? '¼ ?' : `${f(n, b)} · ${say(n, b)}`, lead, body, extra });
+  tipEl.textContent = lab.view === 'wall' ? t.wallTip : lab.view === 'candy' ? '' : S.unfair ? '' : `${t.friends(b)} · ${t.tapTip}`;
+}
+
+// --- drawing ------------------------------------------------------------------------------------------------
+// slice i of b spans [start, end] angles; the unfair cut uses 40/30/20/10 %
+const UNFAIR = [0.4, 0.3, 0.2, 0.1];
+function sliceAngles(i) {
+  if (S.unfair) { const s = UNFAIR.slice(0, i).reduce((x, y) => x + y, 0); return [-Math.PI / 2 + s * 2 * Math.PI, -Math.PI / 2 + (s + UNFAIR[i]) * 2 * Math.PI]; }
+  return [-Math.PI / 2 + i / S.b * 2 * Math.PI, -Math.PI / 2 + (i + 1) / S.b * 2 * Math.PI];
+}
+const lift = new Float32Array(12); // animated lift-out of taken slices
+const PEPS = Array.from({ length: 19 }, (_, i) => { const r = Math.sqrt((i + 0.6) / 19) * 0.88, th = i * 2.39996 + 0.7; return [r * Math.cos(th), r * Math.sin(th)]; });
+const FRIENDS = ['😀', '😄', '🙂', '😎', '🤓', '😊', '🥳', '😺', '🐶', '🦊', '🐼', '🐸'];
+let geo = {};
+
+function drawPizza(c, w, h, dt) {
+  const R = Math.min(w * 0.36, h * 0.36), cx = w / 2, cy = h * 0.54;
+  geo = { cx, cy, R };
+  const parts = S.unfair ? 4 : S.b;
+  // friends around the table
+  if (!S.unfair) {
+    c.font = `${clamp(R * 0.2, 16, 30)}px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+    for (let i = 0; i < parts; i++) {
+      const [s0, s1] = sliceAngles(i), m = (s0 + s1) / 2;
+      c.globalAlpha = S.sel.has(i) ? 1 : 0.55;
+      c.fillText(i === 0 ? '🧒' : FRIENDS[i % FRIENDS.length], cx + Math.cos(m) * R * 1.3, cy + Math.sin(m) * R * 1.3);
+    }
+    c.globalAlpha = 1;
+  }
+  // plate
+  c.fillStyle = 'rgba(237,239,247,.07)'; c.beginPath(); c.arc(cx, cy, R * 1.08, 0, 7); c.fill();
+  for (let i = 0; i < parts; i++) {
+    const on = S.sel.has(i);
+    lift[i] += ((on ? 1 : 0) - lift[i]) * Math.min(1, dt * 10);
+    const [s0, s1] = sliceAngles(i), m = (s0 + s1) / 2, off = lift[i] * R * 0.12;
+    const ox = cx + Math.cos(m) * off, oy = cy + Math.sin(m) * off;
+    c.save();
+    c.beginPath(); c.moveTo(ox, oy); c.arc(ox, oy, R, s0, s1); c.closePath(); c.clip();
+    c.fillStyle = '#d98b3a'; c.beginPath(); c.arc(ox, oy, R, 0, 7); c.fill(); // crust
+    c.fillStyle = '#c4321f'; c.beginPath(); c.arc(ox, oy, R * 0.88, 0, 7); c.fill(); // sauce
+    c.fillStyle = '#f6d36b'; c.beginPath(); c.arc(ox, oy, R * 0.84, 0, 7); c.fill(); // cheese
+    for (const [px, py] of PEPS) { c.fillStyle = '#b3261e'; c.beginPath(); c.arc(ox + px * R * 0.8, oy + py * R * 0.8, R * 0.075, 0, 7); c.fill(); }
+    if (!on) { c.fillStyle = 'rgba(10,12,20,.38)'; c.fillRect(ox - R, oy - R, 2 * R, 2 * R); }
+    c.restore();
+    c.strokeStyle = on ? '#fff' : 'rgba(10,12,20,.9)'; c.lineWidth = on ? 3 : 2.5;
+    c.beginPath(); c.moveTo(ox, oy); c.arc(ox, oy, R, s0, s1); c.closePath(); c.stroke();
+    if (parts > 1 || on) {
+      // label each piece with its size
+      c.fillStyle = on ? '#fff' : 'rgba(255,255,255,.75)'; c.font = `900 ${clamp(R * 0.11, 11, 18)}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+      const lr = parts === 1 ? 0 : R * 0.62;
+      if (!S.unfair) c.fillText(`1/${parts}`, ox + Math.cos(m) * lr, oy + Math.sin(m) * lr);
+      else c.fillText(`${Math.round(UNFAIR[i] * 100)}%`, ox + Math.cos(m) * lr, oy + Math.sin(m) * lr);
+    }
+  }
+}
+function pizzaHit(x, y) {
+  const { cx, cy, R } = geo, dx = x - cx, dy = y - cy, r = Math.hypot(dx, dy);
+  if (r > R * 1.15) return -1;
+  let ang = Math.atan2(dy, dx); if (ang < -Math.PI / 2) ang += 2 * Math.PI;
+  const parts = S.unfair ? 4 : S.b;
+  for (let i = 0; i < parts; i++) { const [s0, s1] = sliceAngles(i); if (ang >= s0 && ang < s1) return i; }
+  return -1;
+}
+
+// chocolate: the most square grid that splits into b equal pieces
+function grid(b) { let r = 1; for (let k = 1; k * k <= b; k++) if (b % k === 0) r = k; return [r, b / r]; }
+function drawChoc(c, w, h, dt) {
+  const parts = S.unfair ? 4 : S.b;
+  const BW = Math.min(w * 0.78, h * 1.25), BH = BW * 0.56, x0 = (w - BW) / 2, y0 = h * 0.52 - BH / 2;
+  geo = { x0, y0, BW, BH };
+  // wrapper
+  c.fillStyle = '#7a1f2b'; c.beginPath(); c.roundRect ? c.roundRect(x0 - 10, y0 - 10, BW + 20, BH + 20, 10) : c.rect(x0 - 10, y0 - 10, BW + 20, BH + 20); c.fill();
+  c.fillStyle = '#c9a75a'; c.fillRect(x0 - 10, y0 + BH * 0.45, BW + 20, 4);
+  const cells = chocCells(parts);
+  cells.forEach(([x, y, cw, ch], i) => {
+    const on = S.sel.has(i);
+    lift[i] += ((on ? 1 : 0) - lift[i]) * Math.min(1, dt * 10);
+    const oy = lift[i] * -BH * 0.12, px = x0 + x * BW, py = y0 + y * BH + oy, pw = cw * BW, ph = ch * BH;
+    const g = c.createLinearGradient(px, py, px, py + ph); g.addColorStop(0, on ? '#8a5131' : '#5a321e'); g.addColorStop(1, on ? '#6b3a21' : '#43251a');
+    c.fillStyle = g; c.fillRect(px + 2, py + 2, pw - 4, ph - 4);
+    c.strokeStyle = on ? '#fff' : 'rgba(0,0,0,.45)'; c.lineWidth = on ? 3 : 1.5; c.strokeRect(px + 2, py + 2, pw - 4, ph - 4);
+    c.fillStyle = 'rgba(255,255,255,.08)'; c.fillRect(px + 6, py + 6, pw - 12, Math.max(2, ph * 0.12));
+    c.fillStyle = on ? '#fff' : 'rgba(255,255,255,.6)'; c.font = `900 ${clamp(Math.min(pw, ph) * 0.24, 10, 18)}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillText(S.unfair ? `${Math.round(UNFAIR[i] * 100)}%` : `1/${parts}`, px + pw / 2, py + ph / 2);
+  });
+}
+function chocCells(parts) {
+  if (S.unfair) { let x = 0; return UNFAIR.map((u) => { const cell = [x, 0, u, 1]; x += u; return cell; }); }
+  const [r, cN] = grid(parts);
+  return Array.from({ length: parts }, (_, i) => [(i % cN) / cN, Math.floor(i / cN) / r, 1 / cN, 1 / r]);
+}
+function chocHit(x, y) {
+  const { x0, y0, BW, BH } = geo, u = (x - x0) / BW, v = (y - y0) / BH;
+  if (u < 0 || u > 1 || v < -0.15 || v > 1) return -1;
+  return chocCells(S.unfair ? 4 : S.b).findIndex(([cx, cy, cw, ch]) => u >= cx && u < cx + cw && v >= Math.max(0, cy) - (cy === 0 ? 0.15 : 0) && v < cy + ch);
+}
+
+// candies: 12 candies in b equal groups (when 12 can be shared that way)
+const CANDY = ['#ff5a4f', '#ffb347', '#3ddc97', '#4ea8ff', '#a855f7', '#ff8fa3'];
+function drawCandy(c, w, h, time) {
+  const b = S.b, fair = 12 % b === 0, per = fair ? 12 / b : 0, r = clamp(Math.min(w, h) * 0.04, 7, 18);
+  geo = { groups: [] };
+  if (!fair) {
+    // deal the candies round-robin into b heaps and show what is left over
+    const base = Math.floor(12 / b), left = 12 - base * b;
+    const gw = w / Math.min(b, 6), rows = Math.ceil(b / 6);
+    for (let g = 0; g < b; g++) {
+      const gx = (g % 6 + 0.5) * gw, gy = h * (rows === 1 ? 0.45 : 0.3 + 0.32 * Math.floor(g / 6));
+      for (let k = 0; k < base; k++) candy(c, gx + (k - (base - 1) / 2) * r * 2.3, gy, r, CANDY[g % 6], 1);
+    }
+    for (let k = 0; k < left; k++) candy(c, w / 2 + (k - (left - 1) / 2) * r * 2.6, h * 0.86, r, '#98A0B8', 0.9 + 0.1 * Math.sin(time * 6 + k));
+    c.fillStyle = '#98A0B8'; c.font = '800 12px Nunito, sans-serif'; c.textAlign = 'center'; c.fillText(`+ ${left}`, w / 2, h * 0.86 + r * 2.4);
+    return;
+  }
+  const cols = b <= 4 ? b : b === 6 ? 3 : 4, rows = Math.ceil(b / cols);
+  const gw = w / cols, gh = Math.min(h / rows, gw * 0.9);
+  for (let g = 0; g < b; g++) {
+    const gx = (g % cols) * gw, gy = (h - gh * rows) / 2 + Math.floor(g / cols) * gh, on = S.sel.has(g);
+    geo.groups.push([gx + 4, gy + 4, gw - 8, gh - 8]);
+    c.strokeStyle = on ? '#fff' : 'rgba(130,145,190,.35)'; c.lineWidth = on ? 3 : 1.5; c.setLineDash(on ? [] : [5, 5]);
+    c.beginPath(); c.roundRect ? c.roundRect(gx + 6, gy + 6, gw - 12, gh - 12, 16) : c.rect(gx + 6, gy + 6, gw - 12, gh - 12); c.stroke(); c.setLineDash([]);
+    if (on) { c.fillStyle = 'rgba(255,255,255,.07)'; c.fill(); }
+    const pc = Math.ceil(Math.sqrt(per)), pr = Math.ceil(per / pc);
+    for (let k = 0; k < per; k++) {
+      const x = gx + gw / 2 + ((k % pc) - (pc - 1) / 2) * r * 3.5, y = gy + gh / 2 + (Math.floor(k / pc) - (pr - 1) / 2) * r * 2.4;
+      candy(c, x, y, r, CANDY[g % 6], on ? 1 : 0.45);
+    }
+  }
+}
+function candy(c, x, y, r, col, alpha) {
+  c.save(); c.globalAlpha = alpha; c.fillStyle = col;
+  c.beginPath(); c.moveTo(x - r * 0.9, y); c.lineTo(x - r * 1.6, y - r * 0.55); c.lineTo(x - r * 1.6, y + r * 0.55); c.fill();
+  c.beginPath(); c.moveTo(x + r * 0.9, y); c.lineTo(x + r * 1.6, y - r * 0.55); c.lineTo(x + r * 1.6, y + r * 0.55); c.fill();
+  c.beginPath(); c.arc(x, y, r, 0, 7); c.fill();
+  c.fillStyle = 'rgba(255,255,255,.45)'; c.beginPath(); c.arc(x - r * 0.3, y - r * 0.3, r * 0.3, 0, 7); c.fill();
+  c.restore();
+}
+function candyHit(x, y) { return (geo.groups ?? []).findIndex(([gx, gy, gw, gh]) => x >= gx && x < gx + gw && y >= gy && y < gy + gh); }
+
+// the fraction wall: 12 rows, row d cut into d equal parts; a/b marked by a line that shows which rows line up
+function drawWall(c, w, h, time) {
+  const n = a(), b = S.b, pad = 8, top = 34, L = 38, W = w - L - pad * 2, rh = (h - top - 8) / 12;
+  geo = { top, rh, L: L + pad, W };
+  const val = n / b, xv = L + pad + val * W;
+  for (let d = 1; d <= 12; d++) {
+    const y = top + (d - 1) * rh, cur = d === b, lines = (n * d) % b === 0;
+    c.fillStyle = cur ? '#fff' : lines ? '#3ddc97' : '#646C84'; c.font = `900 ${clamp(rh * 0.42, 9, 14)}px Nunito, sans-serif`; c.textAlign = 'right'; c.textBaseline = 'middle';
+    c.fillText(`1/${d}`, L, y + rh / 2);
+    for (let k = 0; k < d; k++) {
+      const x = L + pad + k / d * W, cw = W / d, filled = (k + 1) / d <= val + 1e-9;
+      c.fillStyle = filled ? (cur ? '#ff8a3d' : lines ? 'rgba(61,220,151,.55)' : 'rgba(255,138,61,.28)') : 'rgba(130,145,190,.10)';
+      c.fillRect(x + 1, y + 1, cw - 2, rh - 2);
+      if (cw > 22 && rh > 14) { c.fillStyle = filled ? 'rgba(255,255,255,.9)' : 'rgba(152,160,184,.6)'; c.font = `800 ${clamp(Math.min(cw * 0.3, rh * 0.42), 8, 12)}px Nunito, sans-serif`; c.textAlign = 'center'; c.fillText(`1/${d}`, x + cw / 2, y + rh / 2); }
+    }
+    if (cur) { c.strokeStyle = '#fff'; c.lineWidth = 2; c.strokeRect(L + pad, y + 0.5, W, rh - 1); }
+  }
+  c.strokeStyle = `rgba(255,255,255,${0.7 + 0.3 * Math.sin(time * 4)})`; c.lineWidth = 2; c.setLineDash([6, 4]);
+  c.beginPath(); c.moveTo(xv, top - 10); c.lineTo(xv, top + 12 * rh + 4); c.stroke(); c.setLineDash([]);
+  c.fillStyle = '#fff'; c.font = '900 13px Nunito, sans-serif'; c.textAlign = 'center'; c.fillText(`${n}/${b}`, clamp(xv, 20, w - 20), top - 18);
+}
+function wallHit(x, y) {
+  const row = Math.floor((y - geo.top) / geo.rh) + 1;
+  return row >= 1 && row <= 12 ? row : -1;
+}
+
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  if (lab.view === 'pizza') drawPizza(c, w, h, dt);
+  else if (lab.view === 'choc') drawChoc(c, w, h, dt);
+  else if (lab.view === 'candy') drawCandy(c, w, h, time);
+  else drawWall(c, w, h, time);
+});
+$('cv').addEventListener('pointerdown', (ev) => {
+  const r = $('cv').getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+  if (lab.view === 'wall') { const d = wallHit(x, y); if (d > 0) setB(d, true); return; }
+  if (S.unfair) { sfx.bad(); return; }
+  const i = lab.view === 'pizza' ? pizzaHit(x, y) : lab.view === 'choc' ? chocHit(x, y) : candyHit(x, y);
+  if (i < 0) return;
+  S.sel.has(i) ? S.sel.delete(i) : S.sel.add(i);
+  S.doubled = false; sfx.click(); render();
+});
+render();
+</script>
+</body>
+</html>
