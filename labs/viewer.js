@@ -16,7 +16,7 @@
   // the viewer's own top-level `let lang` / `let focus` are visible to this classic script
   const cur = () => { try { return UI[lang] ? lang : 'en'; } catch { return 'en'; } };
   const topic = () => { try { return focus; } catch { return null; } };
-  const href = (l) => l.path + (cur() !== 'en' ? `?lang=${cur()}` : '');
+  const href = (l) => `${l.path}?lang=${cur()}`; // always explicit: a lab otherwise falls back to the browser language
   const tx = (o) => o?.[cur()] ?? o?.en ?? '';
   let labs = [];
   const byTopic = new Map();
@@ -56,7 +56,7 @@
     $('labsMenu').innerHTML = `<h3>${esc(u.title)}<span style="color:var(--red)">.</span></h3><p class="s">${esc(u.sub)}</p>
       ${labs.map((l) => `<a class="labcard" href="${href(l)}"><span class="e">${l.emoji}</span><span><b>${esc(tx(l.title))}</b>
         <small>${esc(tx(l.blurb))}</small><span class="m">${esc(u.topics(l.topics.length))}</span></span></a>`).join('')}
-      <div class="foot"><span>${esc(u.more)}</span><a href="labs/${cur() !== 'en' ? `?lang=${cur()}` : ''}">${esc(u.all)} →</a></div>`;
+      <div class="foot"><span>${esc(u.more)}</span><a href="labs/?lang=${cur()}">${esc(u.all)} →</a></div>`;
   }
   function decoratePanel() {
     const body = $('panelBody'), l = byTopic.get(topic());
