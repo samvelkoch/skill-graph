@@ -1,6 +1,8 @@
 // Shared shell for the Skill Graph labs: page chrome, languages, sound, the gauge, the canvas loop
 // and the "secret lab" challenge. Each lab (labs/<name>/index.html) builds its own scene on top of it.
 
+import './switcher.js'; // the "Other labs" menu in the top bar
+
 export const LANGS = { en: 'EN', ru: 'RU', hu: 'HU' };
 const params = new URLSearchParams(location.search);
 export let lang = LANGS[params.get('lang')] ? params.get('lang') : (navigator.language || '').slice(0, 2);

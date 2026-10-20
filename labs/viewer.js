@@ -1,15 +1,16 @@
 // Quick access to the labs from the viewer (../index.html), driven by labs/registry.json:
-// a "Labs" button with a menu in the top bar, an "Open the explorer" card in a topic's panel and a 🧪 mark in the list.
-// It only reads the viewer's globals (lang, focus) and decorates what the viewer renders, so the viewer needs no other change.
+// a "Labs" button with a menu in the top bar, an "Open the explorer" card in a topic's panel, a 🧪 mark in the list
+// and the topic set behind the viewer's "only topics with a lab" filter.
+// It reads the viewer's globals (lang, focus), fills labTopics and decorates what the viewer renders.
 (() => {
   const UI = {
     en: { labs: 'Labs', title: 'Interactive explainers', sub: 'Learn a topic by playing with it.', open: 'Open the explorer',
-          topics: (n) => `${n} ${n === 1 ? 'topic' : 'topics'}`, all: 'All labs', subj: { Science: 'Science', Mathematics: 'Mathematics', Computing: 'Computing', Other: 'Other' }, more: 'More explainers are on the way.', has: 'Has an interactive explainer' },
+          topics: (n) => `${n} ${n === 1 ? 'topic' : 'topics'}`, all: 'All labs', show: (n) => `Show all ${n} topics with a lab`, subj: { Science: 'Science', Mathematics: 'Mathematics', Computing: 'Computing', Other: 'Other' }, more: 'More explainers are on the way.', has: 'Has an interactive explainer' },
     ru: { labs: 'Лаборатории', title: 'Интерактивные объяснения', sub: 'Разберись в теме, играя с ней.', open: 'Открыть лабораторию',
           topics: (n) => `${n} ${n % 10 === 1 && n % 100 !== 11 ? 'тема' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'темы' : 'тем'}`,
-          all: 'Все лаборатории', subj: { Science: 'Естествознание', Mathematics: 'Математика', Computing: 'Информатика', Other: 'Другое' }, more: 'Скоро будут и другие.', has: 'Есть интерактивное объяснение' },
+          all: 'Все лаборатории', show: (n) => `Показать все темы с лабораториями (${n})`, subj: { Science: 'Естествознание', Mathematics: 'Математика', Computing: 'Информатика', Other: 'Другое' }, more: 'Скоро будут и другие.', has: 'Есть интерактивное объяснение' },
     hu: { labs: 'Laborok', title: 'Interaktív magyarázók', sub: 'Értsd meg a témát játék közben.', open: 'A labor megnyitása',
-          topics: (n) => `${n} téma`, all: 'Minden labor', subj: { Science: 'Természettudomány', Mathematics: 'Matematika', Computing: 'Informatika', Other: 'Egyéb' }, more: 'Hamarosan jönnek az újak.', has: 'Interaktív magyarázó tartozik hozzá' },
+          topics: (n) => `${n} téma`, all: 'Minden labor', show: (n) => `Mind a ${n} laboros téma mutatása`, subj: { Science: 'Természettudomány', Mathematics: 'Matematika', Computing: 'Informatika', Other: 'Egyéb' }, more: 'Hamarosan jönnek az újak.', has: 'Interaktív magyarázó tartozik hozzá' },
   };
   const SUBJ_ORDER = ['Science', 'Mathematics', 'Computing', 'Other'];
   const $ = (id) => document.getElementById(id);
@@ -36,6 +37,7 @@
     .labcard .e { font-size: 26px; line-height: 1.1; }
     .labcard b { display: block; font-size: 14px; }
     .labcard small { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--mut); font-size: 12px; line-height: 1.45; margin-top: 2px; }
+    #labsShow { width: 100%; justify-content: center; margin-bottom: 4px; white-space: normal; }
     #labsMenu .grp { font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); font-weight: 700; margin: 12px 2px 6px; }
     .labcard .m { display: flex; gap: 8px; align-items: center; margin-top: 6px; font-size: 11px; color: var(--faint); font-weight: 700; }
     #labsMenu .foot { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; font-size: 12px; color: var(--faint); }
@@ -56,6 +58,7 @@
     $('labsBtn').innerHTML = `🧪 <span class="t">${esc(u.labs)}</span> <span class="n">${labs.length}</span>`;
     $('labsBtn').title = u.title;
     $('labsMenu').innerHTML = `<h3>${esc(u.title)}<span style="color:var(--red)">.</span></h3><p class="s">${esc(u.sub)}</p>
+      <button class="btn" id="labsShow">🗺 ${esc(u.show(byTopic.size))}</button>
       ${SUBJ_ORDER.filter((sj) => labs.some((l) => (l.subject ?? 'Other') === sj)).map((sj) => `<div class="grp">${esc(u.subj[sj] ?? sj)}</div>${
         labs.filter((l) => (l.subject ?? 'Other') === sj).map((l) => `<a class="labcard" href="${href(l)}"><span class="e">${l.emoji}</span><span><b>${esc(tx(l.title))}</b>
         <small>${esc(tx(l.blurb))}</small></span></a>`).join('')}`).join('')}
@@ -85,6 +88,11 @@
     bar.insertBefore(btn, $('views'));
     document.body.append(Object.assign(document.createElement('div'), { id: 'labsMenu', className: 'card' }));
     btn.onclick = (ev) => { ev.stopPropagation(); $('labsMenu').classList.toggle('open'); };
+    $('labsMenu').addEventListener('click', (ev) => {
+      if (!ev.target.closest('#labsShow')) return;
+      $('labsMenu').classList.remove('open');
+      try { f.labs = true; select(null); applyFilters(); } catch { /* viewer not ready yet */ }
+    });
     document.addEventListener('click', (ev) => { if (!ev.target.closest('#labsMenu')) $('labsMenu').classList.remove('open'); });
     addEventListener('keydown', (ev) => { if (ev.key === 'Escape') $('labsMenu').classList.remove('open'); });
     new MutationObserver(decoratePanel).observe($('panelBody'), { childList: true });
@@ -96,6 +104,9 @@
   fetch('labs/registry.json').then((r) => r.json()).then((j) => {
     labs = j.labs ?? [];
     for (const l of labs) for (const t of l.topics) byTopic.set(t, l);
-    if (labs.length) init();
+    if (!labs.length) return;
+    // the viewer's "only topics with a lab" filter reads this set
+    try { labTopics = new Set(byTopic.keys()); if (byId) applyFilters(); } catch { /* data not loaded yet: setLang() applies it */ }
+    init();
   }).catch(() => { /* no labs: the viewer works as before */ });
 })();
