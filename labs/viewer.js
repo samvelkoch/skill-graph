@@ -50,7 +50,7 @@
     #labsMenu .foot { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; font-size: 12px; color: var(--faint); }
     #labsMenu .foot a { color: var(--soft); font-weight: 700; text-decoration: none; }
     #labsMenu .foot a:hover { color: #fff; }
-    .labcta { display: flex; align-items: center; gap: 12px; margin: 2px 0 14px; padding: 12px 14px; border-radius: 14px; text-decoration: none;
+    .labcta { display: flex; align-items: center; gap: 12px; margin: 10px 0 14px; padding: 12px 14px; border-radius: 14px; text-decoration: none;
       color: #fff; background: linear-gradient(120deg, rgba(255, 59, 48, .22), rgba(130, 145, 190, .1)); border: 1px solid rgba(255, 59, 48, .45); }
     .labcta:hover { background: linear-gradient(120deg, rgba(255, 59, 48, .34), rgba(130, 145, 190, .16)); }
     .labcta .e { font-size: 26px; }
@@ -91,9 +91,9 @@
   function decoratePanel() {
     const body = $('panelBody'), l = byTopic.get(topic());
     if (!l || !body || body.querySelector('.labcta')) return;
-    const h2 = body.querySelector('h2');
-    if (!h2) return;
-    h2.insertAdjacentHTML('afterend', `<a class="labcta" href="${href(l)}"><span class="e">${l.emoji}</span>
+    const anchor = body.querySelector('#markAll') || body.querySelector('.status') || body.querySelector('h2');
+    if (!anchor) return;
+    anchor.insertAdjacentHTML('afterend', `<a class="labcta" href="${href(l)}"><span class="e">${l.emoji}</span>
       <span><b>${esc(UI[cur()].open)}</b><small>${esc(tx(l.title))}</small></span><span class="go">→</span></a>`);
   }
   function decorateList() {
