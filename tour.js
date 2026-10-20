@@ -20,7 +20,7 @@
         search: ['Search', '<p>Find a topic by name or description, e.g. “fractions” or “photosynthesis”.</p>'],
         views: ['Map or list', '<p>The <b>list</b> groups topics by subject and section, with a short summary of each section for parents.</p>'],
         langs: ['Language', '<p>Switch between English, Russian and Hungarian. Topics, cards and labs are all translated.</p>'],
-        end: ['That’s it', '<p>A good start: pick your child’s school and grade in the filters, then mark a few topics they know.</p><p>This tour is always behind the <b>?</b> button.</p>'],
+        end: ['That’s it', '<p>A good start: pick your child’s school and grade in the filters, then press the button that assumes the lower grades are known. “Ready to learn” then answers “what next?”.</p><p>This tour is always behind the <b>?</b> button.</p>'],
       },
     },
     ru: {
@@ -39,7 +39,7 @@
         search: ['Поиск', '<p>Найдите тему по названию или описанию, например «дроби» или «фотосинтез».</p>'],
         views: ['Карта или список', '<p>В <b>списке</b> темы сгруппированы по предметам и разделам, у каждого раздела есть короткое описание для родителей.</p>'],
         langs: ['Язык', '<p>Русский, венгерский или английский. Переведены темы, карточки и лаборатории.</p>'],
-        end: ['Готово', '<p>Хорошее начало: выберите в фильтрах школу и класс ребёнка и отметьте несколько тем, которые он уже знает.</p><p>Эта справка всегда под кнопкой <b>?</b>.</p>'],
+        end: ['Готово', '<p>Хорошее начало: выберите в фильтрах школу и класс ребёнка и одной кнопкой отметьте младшие классы как пройденные. «Можно изучать» сразу ответит, что дальше.</p><p>Эта справка всегда под кнопкой <b>?</b>.</p>'],
       },
     },
     hu: {
@@ -58,7 +58,7 @@
         search: ['Keresés', '<p>Keress témát név vagy leírás szerint, például „törtek” vagy „fotoszintézis”.</p>'],
         views: ['Térkép vagy lista', '<p>A <b>listában</b> a témák tantárgyak és fejezetek szerint csoportosítva, minden fejezethez rövid összefoglaló szülőknek.</p>'],
         langs: ['Nyelv', '<p>Magyar, orosz vagy angol. A témák, kártyák és laborok is le vannak fordítva.</p>'],
-        end: ['Kész', '<p>Jó kezdés: a szűrőkben válaszd ki a gyerek iskoláját és osztályát, majd jelölj meg néhány témát, amit már tud.</p><p>Ez a bemutató mindig elérhető a <b>?</b> gombbal.</p>'],
+        end: ['Kész', '<p>Jó kezdés: válaszd ki a szűrőkben a gyerek iskoláját és osztályát, majd egy gombbal jelöld tudottnak az alsóbb osztályokat. A „Tanulható” rögtön megmondja, mi jön.</p><p>Ez a bemutató mindig elérhető a <b>?</b> gombbal.</p>'],
       },
     },
   };
