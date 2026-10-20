@@ -4,12 +4,12 @@
 // It reads the viewer's globals (lang, focus), fills labTopics and decorates what the viewer renders.
 (() => {
   const UI = {
-    en: { labs: 'Labs', title: 'Interactive explainers', sub: 'Learn a topic by playing with it.', open: 'Open the explorer',
+    en: { done: 'Done ✓', labs: 'Labs', title: 'Interactive explainers', sub: 'Learn a topic by playing with it.', open: 'Open the explorer',
           topics: (n) => `${n} ${n === 1 ? 'topic' : 'topics'}`, all: 'All labs', show: (n) => `Show all ${n} topics with a lab`, subj: { Science: 'Science', Mathematics: 'Mathematics', Computing: 'Computing', Other: 'Other' }, more: 'More explainers are on the way.', has: 'Has an interactive explainer', find: 'Find a lab…', none: 'No labs found.', moreIn: (n) => `${n} more →` },
-    ru: { labs: 'Лаборатории', title: 'Интерактивные объяснения', sub: 'Разберись в теме, играя с ней.', open: 'Открыть лабораторию',
+    ru: { done: 'Пройдена ✓', labs: 'Лаборатории', title: 'Интерактивные объяснения', sub: 'Разберись в теме, играя с ней.', open: 'Открыть лабораторию',
           topics: (n) => `${n} ${n % 10 === 1 && n % 100 !== 11 ? 'тема' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'темы' : 'тем'}`,
           all: 'Все лаборатории', show: (n) => `Показать все темы с лабораториями (${n})`, subj: { Science: 'Естествознание', Mathematics: 'Математика', Computing: 'Информатика', Other: 'Другое' }, more: 'Скоро будут и другие.', has: 'Есть интерактивное объяснение', find: 'Найти лабораторию…', none: 'Ничего не нашлось.', moreIn: (n) => `ещё ${n} →` },
-    hu: { labs: 'Laborok', title: 'Interaktív magyarázók', sub: 'Értsd meg a témát játék közben.', open: 'A labor megnyitása',
+    hu: { done: 'Kész ✓', labs: 'Laborok', title: 'Interaktív magyarázók', sub: 'Értsd meg a témát játék közben.', open: 'A labor megnyitása',
           topics: (n) => `${n} téma`, all: 'Minden labor', show: (n) => `Mind a ${n} laboros téma mutatása`, subj: { Science: 'Természettudomány', Mathematics: 'Matematika', Computing: 'Informatika', Other: 'Egyéb' }, more: 'Hamarosan jönnek az újak.', has: 'Interaktív magyarázó tartozik hozzá', find: 'Labor keresése…', none: 'Nincs találat.', moreIn: (n) => `még ${n} →` },
   };
   const SUBJ_ORDER = ['Science', 'Mathematics', 'Computing', 'Other'];
@@ -23,6 +23,7 @@
   const href = (l) => `${l.path}?lang=${cur()}`; // always explicit: a lab otherwise falls back to the browser language
   const tx = (o) => o?.[cur()] ?? o?.en ?? '';
   let labs = [];
+  const labDone = (l) => { try { return localStorage.getItem('sg-lab:unlocked:' + l.id) === 'true'; } catch { return false; } };
   const byTopic = new Map();
 
   const css = `
@@ -57,6 +58,8 @@
     .labcta b { display: block; font-size: 13.5px; }
     .labcta small { display: block; color: var(--soft); font-size: 12px; }
     .labcta .go { margin-left: auto; font-size: 18px; color: var(--red); }
+    .labcta.done { border-color: rgba(61, 220, 151, .5); }
+    .labcta .go.ok, .labcard .ok { color: var(--ok, #3ddc97); }
     .labmark { margin-left: 4px; font-size: 12px; }
     @media (max-width: 720px) { #labsBtn .t { display: none; } #labsMenu { top: 60px; right: 14px; } }`;
 
@@ -73,7 +76,7 @@
   // the full, filterable collection is the gallery (labs/index.html)
   function renderLabs() {
     const u = UI[cur()], s = fold($('labsQ').value.trim()), cap = labs.length <= ALL_UP_TO ? Infinity : PER_SUBJ;
-    const card = (l) => `<a class="labcard" href="${href(l)}"><span class="e">${l.emoji}</span><span><b>${esc(tx(l.title))}</b>
+    const card = (l) => `<a class="labcard" href="${href(l)}"><span class="e">${l.emoji}</span><span><b>${esc(tx(l.title))}${labDone(l) ? ' <span class="ok">✓</span>' : ''}</b>
         <small>${esc(tx(l.blurb))}</small></span></a>`;
     const subjOf = (l) => (SUBJ_ORDER.includes(l.subject) ? l.subject : 'Other');
     let html;
@@ -93,8 +96,9 @@
     if (!l || !body || body.querySelector('.labcta')) return;
     const anchor = body.querySelector('#markAll') || body.querySelector('.status') || body.querySelector('h2');
     if (!anchor) return;
-    anchor.insertAdjacentHTML('afterend', `<a class="labcta" href="${href(l)}"><span class="e">${l.emoji}</span>
-      <span><b>${esc(UI[cur()].open)}</b><small>${esc(tx(l.title))}</small></span><span class="go">→</span></a>`);
+    const u = UI[cur()], ok = labDone(l);
+    anchor.insertAdjacentHTML('afterend', `<a class="labcta${ok ? ' done' : ''}" href="${href(l)}"><span class="e">${l.emoji}</span>
+      <span><b>${esc(u.open)}</b><small>${esc(tx(l.title))}${ok ? ` · ${esc(u.done)}` : ''}</small></span>${ok ? '<span class="go ok">✓</span>' : '<span class="go">→</span>'}</a>`);
   }
   function decorateList() {
     const title = UI[cur()].has;
