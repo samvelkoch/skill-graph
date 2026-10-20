@@ -1,0 +1,816 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Plates on the move · Skill Graph</title>
+<meta name="description" content="Dig through Earth’s layers, push plates together for millions of years, then squeeze rock until it snaps. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  @media (min-width: 1101px) { .lab { grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); grid-template-areas: 'hero stage' 'state stage' 'state ctrl'; } }
+  .ask { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); width: min(560px, calc(100% - 16px)); padding: 14px 16px; text-align: center; }
+  .ask .q { font: 500 21px/1.2 var(--serif); color: #fff; margin-bottom: 10px; }
+  .ask .opts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .ask button { padding: 9px 14px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130,145,190,.1); font-weight: 800; cursor: pointer; }
+  .fine { margin-top: 8px; font-size: 11px; color: var(--faint); line-height: 1.4; }
+  .now { margin-top: 8px; padding: 8px 10px; border-left: 3px solid var(--accent); background: rgba(255,255,255,.04); border-radius: 8px; font-size: 14px; line-height: 1.4; color: var(--soft); }
+  .legend { margin-top: 8px; font-size: 12.5px; line-height: 1.45; color: var(--mut); }
+  #ctrlBody .chips { margin-top: 8px; }
+  #ctrlBody .chips:first-of-type { margin-top: 10px; }
+  @media (max-width: 760px) { .ask .q { font-size: 17px; } }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, store, ruPlural, lang } from '../lab.js';
+
+// ---------------------------------------------------------------------------------------------------------------
+// 1. Words
+// ---------------------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Plates on the move', title: 'Plates on the move',
+    lines: [['Drag the sliders', 'to dig into the Earth and fast-forward millions of years.'], ['Pick a plate edge', 'and squeeze the rock until it snaps.']],
+    views: { inside: '🌍 Inside', edges: '🌋 Edges', quake: '💥 Quake' },
+    ask: 'Do the continents move?',
+    opts: ['No, they stay put', 'Yes, but too slowly to feel', 'Yes, many metres a day'],
+    right: 'Yes! Just a few centimetres a year.', wrong: 'Not quite. Let us find out!', go: 'Show me',
+    u: { cm: 'cm', m: 'm', km: 'km' },
+    secrets: { s1: ['Nail race', 'Plate or fingernail: who is faster?'], s2: ['Pangaea', 'Rewind the continents.'] },
+    // inside
+    layer: {
+      crust: { n: 'Crust', pill: 'solid rock', title: 'You are in the crust', lead: 'This is Earth’s thin outer skin.',
+        body: 'It is only about 5 to 70 km thick, while the centre of the Earth is {r} km down. Shrink the Earth to an apple and the crust is about as thin as the apple’s skin.' },
+      mantle: { n: 'Mantle', pill: 'hot, slowly flowing rock', title: 'You are in the mantle', lead: 'Most of the Earth is mantle.',
+        body: 'It is hot rock, about 2 900 km thick. The inside of the Earth is so hot that rock can melt, and the mantle creeps along very slowly, like thick syrup.' },
+      outer: { n: 'Outer core', pill: 'liquid metal', title: 'You are in the outer core', lead: 'Here the metal is melted into a liquid.',
+        body: 'It is mostly iron and nickel, and it swirls around the middle of the Earth. This layer is about 2 300 km thick.' },
+      inner: { n: 'Inner core', pill: 'solid metal ball', title: 'You are in the inner core', lead: 'A solid ball of metal sits at the very centre.',
+        body: 'It is about as hot as the surface of the Sun. The huge pressure squeezes the metal so hard that it stays solid.' },
+    },
+    depthSub: 'below the surface (the centre is {r} km down)',
+    dig: { surf: 'Surface', mantle: 'Mantle', outer: 'Outer core', centre: 'Centre' },
+    big: 'Crust ×15', bigNote: 'Crust drawn 15 times too thick',
+    kola: 'The deepest hole people ever drilled (Kola, Russia) reaches about 12 km. It never got through the crust.',
+    fineIn: 'Layer depths: standard Earth model (USGS). The crust is about 5 km under oceans and up to 70 km under big mountains; the lab draws 35 km. A simplified model.',
+    // edges
+    modes: {
+      dive: { chip: 'One dives', title: 'One plate dives under the other', lead: 'Where plates push together, the heavier one sinks.',
+        body: 'The ocean plate slides down into the hot mantle. Rock above it melts, the melted rock rises, and a volcano grows. All the grinding makes earthquakes.',
+        ph: ['Hardly anything has changed yet. A few centimetres a year takes a very long time to add up.', 'The ocean plate is sinking into the hot mantle. Earthquakes start along the sinking plate.', 'Melted rock rose through the other plate, and a volcano has grown!'] },
+      mount: { chip: 'Mountains', title: 'Two continents crash', lead: 'Neither plate is heavy enough to sink, so the rock piles up.',
+        body: 'Both plates are light continent rock. They crumple and rise like a rug pushed from both ends. The Himalayas grew this way.',
+        ph: ['Hardly anything has changed yet. A few centimetres a year takes a very long time to add up.', 'The land is folding and cracking, and the ground slowly rises.', 'A mountain range has grown, with a thick root of crust underneath.'] },
+      apart: { chip: 'Pull apart', title: 'The plates pull apart', lead: 'Where plates move away from each other, hot rock rises to fill the gap.',
+        body: 'The rising rock cools and becomes new crust, so the sea floor grows. Volcanoes and earthquakes happen along the crack.',
+        ph: ['Hardly anything has changed yet. A few centimetres a year takes a very long time to add up.', 'A crack opens and hot rock rises into it.', 'A ridge of brand new crust has grown. The youngest rock sits right in the middle.'] },
+      slide: { chip: 'Slide past', title: 'Plates slide past each other', lead: 'Where plates grind sideways, nothing is built, but they get stuck.',
+        body: 'The rock catches, stress builds up, then it suddenly slips: an earthquake! The San Andreas fault in California is like this.',
+        ph: ['Hardly anything has changed yet. A few centimetres a year takes a very long time to add up.', 'Both sides keep moving, and a road across the fault is pulled out of line.', 'The road has been dragged far out of line. Every sudden slip was an earthquake.'] },
+    },
+    lbl: { ocean: 'Ocean plate', cont: 'Continent plate', mantle: 'Hot mantle', volcano: 'Volcano', mount: 'Mountains', gap: '{d} of new crust', fault: 'Fault', road: 'Road', top: 'Seen from above' },
+    formula: '{r} a year × {y} = {d}',
+    play: '▶ Play', pause: '⏸ Pause',
+    fineEd: 'Typical plate speeds are a few cm a year (USGS); the lab uses 4 cm. The drawings are simplified: heights are stretched, and real plates are far bigger.',
+    // quake
+    qk: {
+      idle: { title: 'The rock is stuck', lead: 'The plates keep pushing, but the edge of the rock is stuck.', body: 'Drag the slider to stretch the rock like a spring. The strain builds up, sometimes for years, and nothing moves yet.' },
+      build: { title: 'Strain is building', lead: 'The rock bends like a spring and stores energy.', body: 'The ground bends only a tiny bit, so you feel nothing yet. The stuck spot deep underground is called the focus.' },
+      slip: { title: 'Snap! The rock slips', lead: 'Stuck rock suddenly slides, and the shaking spreads outward.', body: 'The quake starts deep underground at the focus. Shaking runs through the rock in rings. At the surface it is strongest right above, at the epicentre, and houses there feel it most.' },
+      small: { title: 'A small slip', lead: 'Not much strain was stored, so the shake is small.' },
+      pills: { stuck: 'stuck', build: 'building', sizes: ['small shake', 'medium shake', 'big shake'] },
+      slipNow: 'Let it slip', squeeze: '▶ Squeeze', pause: '⏸ Pause',
+      focus: 'Focus', epi: 'Epicentre', spring: 'rock spring',
+      legend: '<b>Focus:</b> the underground spot where the rock slips. <b>Epicentre:</b> the spot on the surface right above it. The damage happens at the surface.',
+      strainSub: 'strain stored in the rock',
+      fine: 'A simplified stick-slip model. The percentages belong to this toy, not to real earthquake sizes.',
+    },
+    // secrets
+    nails: { title: 'Plate versus fingernail', lead: 'Your fingernail grows about 3.5 cm a year. A typical plate moves about as fast!',
+      body: 'Nails grow roughly 3 to 4 cm a year (an approximate average). So continents drift at about the speed your nails grow.',
+      result: 'nail {n} · plate {p}', rate: '{r} cm/yr', nail: 'Your nail', plate: 'A plate', zero: 'They start together.', winN: 'The nail is ahead!', winP: 'The plate is ahead!',
+      fine: 'Nail growth is an approximate average and differs between people. Plates move a few cm a year; the fastest about 10 (USGS).' },
+    pang: { title: 'Pangaea: one giant land', lead: 'About 200 million years ago the continents were joined together.',
+      body: 'A few centimetres a year, for millions and millions of years, pulled them apart into today’s map. At 4 cm a year, 200 million years add up to {d}.',
+      ago: 'million years ago', today: 'Today', sub: 'a plate at 4 cm a year travels {d} in that time', name: 'Pangaea',
+      fine: 'Rough blobs, not real coastlines: a simplified picture. Pangaea existed about 200 million years ago (dates are approximate).' },
+    quiz: [
+      { q: 'Which layer of the Earth is the thinnest?', opts: ['The mantle', 'The crust', 'The outer core'], ok: 1 },
+      { q: 'Where do volcanoes often appear?', opts: ['Only where it is very cold', 'Wherever the ground is flat', 'Where one plate dives under another'], ok: 2 },
+      { q: 'What is an earthquake?', opts: ['Wind blowing under the ground', 'Stuck rock suddenly slipping', 'The Moon pulling the soil'], ok: 1 },
+    ],
+  },
+
+  ru: {
+    name: 'Плиты в движении', title: 'Плиты в движении',
+    lines: [['Двигай ползунки,', 'чтобы копнуть вглубь Земли и промотать миллионы лет.'], ['Выбери край плиты', 'и сжимай породу, пока она не лопнет.']],
+    views: { inside: '🌍 Внутри', edges: '🌋 Границы', quake: '💥 Толчок' },
+    ask: 'Движутся ли материки?',
+    opts: ['Нет, стоят на месте', 'Да, но слишком медленно, чтобы почувствовать', 'Да, на много метров в день'],
+    right: 'Да! Всего на несколько сантиметров в год.', wrong: 'Не совсем. Давай проверим!', go: 'Покажи',
+    u: { cm: 'см', m: 'м', km: 'км' },
+    secrets: { s1: ['Гонка с ногтем', 'Плита или ноготь: кто быстрее?'], s2: ['Пангея', 'Отмотай материки назад.'] },
+    layer: {
+      crust: { n: 'Кора', pill: 'твёрдая порода', title: 'Ты в земной коре', lead: 'Это тонкая внешняя «кожура» Земли.',
+        body: 'Её толщина всего около 5–70 км, а до центра Земли {r} км. Если уменьшить Землю до яблока, кора будет не толще кожуры яблока.' },
+      mantle: { n: 'Мантия', pill: 'горячая порода, медленно течёт', title: 'Ты в мантии', lead: 'Большую часть Земли занимает мантия.',
+        body: 'Это горячая порода толщиной около 2 900 км. Внутри Земли так жарко, что камень может плавиться, а мантия очень медленно ползёт, как густой сироп.' },
+      outer: { n: 'Внешнее ядро', pill: 'жидкий металл', title: 'Ты во внешнем ядре', lead: 'Здесь металл расплавлен и стал жидким.',
+        body: 'Это в основном железо и никель, они перемешиваются вокруг центра Земли. Толщина слоя около 2 300 км.' },
+      inner: { n: 'Внутреннее ядро', pill: 'твёрдый металлический шар', title: 'Ты во внутреннем ядре', lead: 'В самом центре лежит твёрдый шар из металла.',
+        body: 'Он почти такой же горячий, как поверхность Солнца. Огромное давление так сильно сжимает металл, что он остаётся твёрдым.' },
+    },
+    depthSub: 'под поверхностью (до центра {r} км)',
+    dig: { surf: 'Поверхность', mantle: 'Мантия', outer: 'Внешнее ядро', centre: 'Центр' },
+    big: 'Кора ×15', bigNote: 'Кора нарисована в 15 раз толще',
+    kola: 'Самая глубокая скважина, которую пробурили люди (Кольская, Россия), около 12 км. Она так и не прошла сквозь кору.',
+    fineIn: 'Глубины слоёв: стандартная модель Земли (USGS). Кора около 5 км под океанами и до 70 км под большими горами; в лаборатории нарисовано 35 км. Упрощённая модель.',
+    modes: {
+      dive: { chip: 'Одна ныряет', title: 'Одна плита ныряет под другую', lead: 'Где плиты давят друг на друга, более тяжёлая тонет.',
+        body: 'Океаническая плита уходит вниз, в горячую мантию. Порода над ней плавится, расплав поднимается, и вырастает вулкан. От трения случаются землетрясения.',
+        ph: ['Пока почти ничего не изменилось. Несколько сантиметров в год складываются очень долго.', 'Океаническая плита погружается в горячую мантию. Вдоль неё начинаются землетрясения.', 'Расплавленная порода поднялась сквозь другую плиту, и вырос вулкан!'] },
+      mount: { chip: 'Горы', title: 'Сталкиваются два материка', lead: 'Ни одна плита не тяжела настолько, чтобы утонуть, и порода громоздится вверх.',
+        body: 'Обе плиты из лёгкой материковой породы. Они сминаются и поднимаются, как ковёр, который толкают с двух концов. Так выросли Гималаи.',
+        ph: ['Пока почти ничего не изменилось. Несколько сантиметров в год складываются очень долго.', 'Земля сминается в складки и трескается, поверхность медленно поднимается.', 'Вырос горный хребет, а под ним толстый «корень» коры.'] },
+      apart: { chip: 'Расходятся', title: 'Плиты расходятся', lead: 'Где плиты движутся в разные стороны, горячая порода поднимается и заполняет щель.',
+        body: 'Поднявшаяся порода остывает и становится новой корой, так что морское дно растёт. Вдоль трещины бывают вулканы и землетрясения.',
+        ph: ['Пока почти ничего не изменилось. Несколько сантиметров в год складываются очень долго.', 'Открывается трещина, и в неё поднимается горячая порода.', 'Вырос хребет из совсем новой коры. Самая молодая порода лежит посередине.'] },
+      slide: { chip: 'Скользят', title: 'Плиты скользят друг мимо друга', lead: 'Где плиты трутся боками, ничего не строится, но они застревают.',
+        body: 'Порода цепляется, напряжение растёт, а потом она вдруг проскакивает: землетрясение! Разлом Сан-Андреас в Калифорнии именно такой.',
+        ph: ['Пока почти ничего не изменилось. Несколько сантиметров в год складываются очень долго.', 'Обе стороны движутся, и дорога через разлом смещается и перестаёт быть ровной.', 'Дорогу утащило далеко в сторону. Каждый внезапный рывок был землетрясением.'] },
+    },
+    lbl: { ocean: 'Океаническая плита', cont: 'Материковая плита', mantle: 'Горячая мантия', volcano: 'Вулкан', mount: 'Горы', gap: '{d} новой коры', fault: 'Разлом', road: 'Дорога', top: 'Вид сверху' },
+    formula: '{r} в год × {y} = {d}',
+    play: '▶ Пуск', pause: '⏸ Пауза',
+    fineEd: 'Обычная скорость плит — несколько сантиметров в год (USGS), здесь взято 4 см. Рисунки упрощены: высота растянута, а настоящие плиты гораздо больше.',
+    qk: {
+      idle: { title: 'Порода застряла', lead: 'Плиты продолжают давить, но край породы застрял.', body: 'Двигай ползунок и растягивай породу, как пружину. Напряжение копится, иногда годами, а пока ничего не движется.' },
+      build: { title: 'Напряжение растёт', lead: 'Порода изгибается, как пружина, и копит энергию.', body: 'Земля гнётся лишь чуть-чуть, поэтому ты пока ничего не чувствуешь. Застрявшее место глубоко под землёй называют очагом.' },
+      slip: { title: 'Щёлк! Порода проскальзывает', lead: 'Застрявшая порода вдруг сдвигается, и тряска расходится вокруг.', body: 'Землетрясение начинается глубоко под землёй, в очаге. Дрожь идёт по породе кругами. На поверхности она сильнее всего прямо над очагом, в эпицентре, и там дома трясёт сильнее всего.' },
+      small: { title: 'Небольшой сдвиг', lead: 'Накопилось мало напряжения, поэтому тряска слабая.' },
+      pills: { stuck: 'застряла', build: 'копится', sizes: ['слабая тряска', 'средняя тряска', 'сильная тряска'] },
+      slipNow: 'Отпустить', squeeze: '▶ Сжимать', pause: '⏸ Пауза',
+      focus: 'Очаг', epi: 'Эпицентр', spring: 'пружина из породы',
+      legend: '<b>Очаг:</b> место под землёй, где порода проскальзывает. <b>Эпицентр:</b> точка на поверхности прямо над ним. Вред приносит тряска на поверхности.',
+      strainSub: 'напряжение, накопленное в породе',
+      fine: 'Упрощённая модель «застряла — проскочила». Проценты относятся к этой игрушечной модели, а не к настоящей силе землетрясений.',
+    },
+    nails: { title: 'Плита против ногтя', lead: 'Ноготь растёт примерно на 3,5 см в год. Обычная плита движется почти так же быстро!',
+      body: 'Ногти вырастают примерно на 3–4 см в год (это приблизительное среднее). Значит, материки плывут примерно с той скоростью, с какой растут ногти.',
+      result: 'ноготь {n} · плита {p}', rate: '{r} см/год', nail: 'Твой ноготь', plate: 'Плита', zero: 'Они стартуют вместе.', winN: 'Ноготь впереди!', winP: 'Плита впереди!',
+      fine: 'Рост ногтя — приблизительное среднее, у людей по-разному. Плиты движутся на несколько сантиметров в год, самые быстрые около 10 (USGS).' },
+    pang: { title: 'Пангея: одна огромная суша', lead: 'Около 200 миллионов лет назад материки были соединены вместе.',
+      body: 'Несколько сантиметров в год, но миллионы и миллионы лет, и материки разошлись до нынешней карты. При 4 см в год за 200 миллионов лет набегает {d}.',
+      ago: 'млн лет назад', today: 'Сегодня', sub: 'столько проходит плита за это время при 4 см в год: {d}', name: 'Пангея',
+      fine: 'Грубые пятна, а не настоящие берега: упрощённая картинка. Пангея существовала около 200 миллионов лет назад (даты приблизительные).' },
+    quiz: [
+      { q: 'Какой слой Земли самый тонкий?', opts: ['Мантия', 'Кора', 'Внешнее ядро'], ok: 1 },
+      { q: 'Где часто появляются вулканы?', opts: ['Только там, где очень холодно', 'Везде, где ровная земля', 'Там, где одна плита ныряет под другую'], ok: 2 },
+      { q: 'Что такое землетрясение?', opts: ['Ветер дует под землёй', 'Застрявшая порода вдруг сдвигается', 'Луна тянет почву'], ok: 1 },
+    ],
+  },
+
+  hu: {
+    name: 'Mozgó kőzetlemezek', title: 'Mozgó kőzetlemezek',
+    lines: [['Húzd a csúszkákat,', 'hogy lefúrj a Föld mélyére, és előretekerj millió évet.'], ['Válassz lemezhatárt,', 'aztán feszítsd a kőzetet, amíg el nem reped.']],
+    views: { inside: '🌍 Belül', edges: '🌋 Határok', quake: '💥 Rengés' },
+    ask: 'Mozognak a kontinensek?',
+    opts: ['Nem, egy helyben állnak', 'Igen, de túl lassan ahhoz, hogy érezzük', 'Igen, naponta sok métert'],
+    right: 'Igen! Csak évente pár centit.', wrong: 'Nem egészen. Nézzük meg!', go: 'Mutasd',
+    u: { cm: 'cm', m: 'm', km: 'km' },
+    secrets: { s1: ['Köröm-verseny', 'Lemez vagy köröm: ki a gyorsabb?'], s2: ['Pangea', 'Tekerd vissza a kontinenseket.'] },
+    layer: {
+      crust: { n: 'Kéreg', pill: 'szilárd kőzet', title: 'A kéregben vagy', lead: 'Ez a Föld vékony külső héja.',
+        body: 'Csak körülbelül 5–70 km vastag, pedig a Föld középpontja {r} km mélyen van. Ha a Földet almányira zsugorítanánk, a kéreg az alma héjánál sem lenne vastagabb.' },
+      mantle: { n: 'Köpeny', pill: 'forró, lassan folyó kőzet', title: 'A köpenyben vagy', lead: 'A Föld nagy része köpeny.',
+        body: 'Forró kőzet, körülbelül 2900 km vastag. A Föld belseje olyan forró, hogy a kőzet megolvadhat, és a köpeny nagyon lassan kúszik, mint a sűrű szirup.' },
+      outer: { n: 'Külső mag', pill: 'folyékony fém', title: 'A külső magban vagy', lead: 'Itt a fém megolvadt és folyékony.',
+        body: 'Többnyire vas és nikkel, és a Föld közepe körül kavarog. Ez a réteg körülbelül 2300 km vastag.' },
+      inner: { n: 'Belső mag', pill: 'szilárd fémgolyó', title: 'A belső magban vagy', lead: 'A legközepén egy szilárd fémgolyó van.',
+        body: 'Nagyjából olyan forró, mint a Nap felszíne. A hatalmas nyomás annyira összepréseli a fémet, hogy szilárd marad.' },
+    },
+    depthSub: 'a felszín alatt (a középpontig {r} km)',
+    dig: { surf: 'Felszín', mantle: 'Köpeny', outer: 'Külső mag', centre: 'Középpont' },
+    big: 'Kéreg ×15', bigNote: 'A kérget 15-szer vastagabbra rajzoltuk',
+    kola: 'A legmélyebb emberi fúrás (Kola, Oroszország) nagyjából 12 km mély. Még az sem jutott át a kérgen.',
+    fineIn: 'A rétegek mélysége: szabványos Föld-modell (USGS). A kéreg az óceánok alatt kb. 5 km, nagy hegyek alatt akár 70 km; a labor 35 km-t rajzol. Egyszerűsített modell.',
+    modes: {
+      dive: { chip: 'Alábukik', title: 'Az egyik lemez a másik alá bukik', lead: 'Ahol a lemezek egymásnak nyomódnak, a nehezebb süllyed.',
+        body: 'Az óceáni lemez lecsúszik a forró köpenybe. A fölötte lévő kőzet megolvad, az olvadék feltör, és vulkán nő. A súrlódástól földrengések lesznek.',
+        ph: ['Még alig változott valami. Évi pár centi nagyon sokáig tart, mire összeadódik.', 'Az óceáni lemez süllyed a forró köpenybe. Mentén földrengések kezdődnek.', 'Az olvadt kőzet átfúrta a másik lemezt, és vulkán nőtt!'] },
+      mount: { chip: 'Hegyek', title: 'Két kontinens ütközik', lead: 'Egyik lemez sem elég nehéz ahhoz, hogy lesüllyedjen, ezért a kőzet felhalmozódik.',
+        body: 'Mindkettő könnyű kontinentális kőzet. Összegyűrődnek és felemelkednek, mint a két végén összetolt szőnyeg. A Himalája így nőtt.',
+        ph: ['Még alig változott valami. Évi pár centi nagyon sokáig tart, mire összeadódik.', 'A föld ráncokba gyűrődik és megreped, a felszín lassan emelkedik.', 'Hegylánc nőtt, alatta a kéreg vastag gyökérrel.'] },
+      apart: { chip: 'Szétválnak', title: 'A lemezek szétválnak', lead: 'Ahol a lemezek eltávolodnak egymástól, forró kőzet tör fel a résbe.',
+        body: 'A feltörő kőzet kihűl, és új kéreg lesz belőle, így az óceán feneke nő. A repedés mentén vulkánok és földrengések vannak.',
+        ph: ['Még alig változott valami. Évi pár centi nagyon sokáig tart, mire összeadódik.', 'Repedés nyílik, és forró kőzet tör fel benne.', 'Teljesen új kéregből gerinc nőtt. A legfiatalabb kőzet pont középen van.'] },
+      slide: { chip: 'Elcsúsznak', title: 'A lemezek egymás mellett csúsznak el', lead: 'Ahol a lemezek oldalirányban súrlódnak, semmi sem épül, de beakadnak.',
+        body: 'A kőzet elakad, a feszültség nő, aztán hirtelen elmozdul: földrengés! A kaliforniai San Andreas-törés ilyen.',
+        ph: ['Még alig változott valami. Évi pár centi nagyon sokáig tart, mire összeadódik.', 'Mindkét oldal mozog, és a törésvonalon átvezető út elcsúszik.', 'Az utat messze elhúzta a törés. Minden hirtelen megmozdulás földrengés volt.'] },
+    },
+    lbl: { ocean: 'Óceáni lemez', cont: 'Kontinentális lemez', mantle: 'Forró köpeny', volcano: 'Vulkán', mount: 'Hegyek', gap: '{d} új kéreg', fault: 'Törés', road: 'Út', top: 'Felülnézet' },
+    formula: '{r} évente × {y} = {d}',
+    play: '▶ Indít', pause: '⏸ Szünet',
+    fineEd: 'A lemezek tipikus sebessége évi pár centi (USGS), itt 4 cm-t használunk. A rajzok egyszerűsítettek: a magasság nyújtott, a valódi lemezek sokkal nagyobbak.',
+    qk: {
+      idle: { title: 'A kőzet elakadt', lead: 'A lemezek tovább nyomják egymást, de a kőzet széle elakadt.', body: 'Húzd a csúszkát, és feszítsd a kőzetet, mint egy rugót. A feszültség nő, olykor évekig, és még semmi sem mozdul.' },
+      build: { title: 'Nő a feszültség', lead: 'A kőzet rugóként hajlik, és energiát tárol.', body: 'A talaj csak egészen kicsit hajlik, ezért még semmit sem érzel. Az elakadt pontot mélyen a föld alatt rengésfészeknek hívják.' },
+      slip: { title: 'Reccs! A kőzet elmozdul', lead: 'Az elakadt kőzet hirtelen megcsúszik, és a rázkódás szétterjed.', body: 'A rengés mélyen a föld alatt, a rengésfészekben indul. A rezgés gyűrűkben terjed a kőzetben. A felszínen közvetlenül fölötte, az epicentrumban a legerősebb, ott érzik a házak a legjobban.' },
+      small: { title: 'Kis elmozdulás', lead: 'Kevés feszültség gyűlt fel, ezért csak kicsit rázkódik.' },
+      pills: { stuck: 'elakadt', build: 'gyűlik', sizes: ['gyenge rázkódás', 'közepes rázkódás', 'erős rázkódás'] },
+      slipNow: 'Engedd el', squeeze: '▶ Feszítés', pause: '⏸ Szünet',
+      focus: 'Rengésfészek', epi: 'Epicentrum', spring: 'kőzetrugó',
+      legend: '<b>Rengésfészek:</b> a föld alatti hely, ahol a kőzet megcsúszik. <b>Epicentrum:</b> a felszíni pont közvetlenül fölötte. A kárt a felszíni rázkódás okozza.',
+      strainSub: 'a kőzetben tárolt feszültség',
+      fine: 'Egyszerűsített elakad-megcsúszik modell. A százalékok a játékmodellre vonatkoznak, nem valódi rengések erősségére.',
+    },
+    nails: { title: 'Lemez a köröm ellen', lead: 'A körmöd évente kb. 3,5 cm-t nő. Egy átlagos lemez nagyjából ilyen gyorsan mozog!',
+      body: 'A köröm évente nagyjából 3–4 cm-t nő (ez közelítő átlag). A kontinensek tehát nagyjából olyan gyorsan sodródnak, ahogy a körmeid nőnek.',
+      result: 'köröm {n} · lemez {p}', rate: '{r} cm/év', nail: 'A körmöd', plate: 'Egy lemez', zero: 'Együtt indulnak.', winN: 'A köröm vezet!', winP: 'A lemez vezet!',
+      fine: 'A körömnövekedés közelítő átlag, emberenként más. A lemezek évi pár centit mozognak, a leggyorsabbak kb. 10-et (USGS).' },
+    pang: { title: 'Pangea: egyetlen óriás szárazföld', lead: 'Körülbelül 200 millió éve a kontinensek egyben voltak.',
+      body: 'Évi pár centi, de millió és millió éven át: ez húzta szét őket a mai térképpé. Évi 4 cm-rel 200 millió év alatt {d} jön össze.',
+      ago: 'millió éve', today: 'Ma', sub: 'ennyit tesz meg ennyi idő alatt egy lemez évi 4 cm-rel: {d}', name: 'Pangea',
+      fine: 'Durva foltok, nem valódi partvonalak: egyszerűsített kép. A Pangea nagyjából 200 millió éve létezett (az évszámok közelítők).' },
+    quiz: [
+      { q: 'Melyik a Föld legvékonyabb rétege?', opts: ['A köpeny', 'A kéreg', 'A külső mag'], ok: 1 },
+      { q: 'Hol bukkannak fel gyakran vulkánok?', opts: ['Csak ahol nagyon hideg van', 'Bárhol, ahol sík a talaj', 'Ahol az egyik lemez a másik alá bukik'], ok: 2 },
+      { q: 'Mi a földrengés?', opts: ['A föld alatt fúj a szél', 'Az elakadt kőzet hirtelen elmozdul', 'A Hold húzza a talajt'], ok: 1 },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_jwElFY7Syd', en: 'Earth’s Layers', ru: 'Слои Земли', hu: 'A Föld rétegei' },
+  { id: 'mt_XrvPx5kUfO', en: 'Tectonic Plates', ru: 'Тектонические плиты', hu: 'Kőzetlemezek' },
+  { id: 'mt_-JnOhdei6F', en: 'Plate Boundaries', ru: 'Границы плит', hu: 'Lemezhatárok' },
+  { id: 'mt_NVr4AhsvIq', en: 'Why Earthquakes Happen', ru: 'Почему бывают землетрясения', hu: 'Miért történnek földrengések' },
+];
+
+// ---------------------------------------------------------------------------------------------------------------
+// 2. Constants, formatting helpers, state
+// ---------------------------------------------------------------------------------------------------------------
+const R_E = 6371, CRUST = 35, MANTLE_BASE = 2890, OUTER_BASE = 5150; // km: radius, drawn crust, mantle/outer-core bottoms (standard Earth model)
+const RATE = 4;       // cm per year: a typical plate speed (a few cm/yr)
+const NAIL = 3.5;     // cm per year: approximate fingernail growth
+const MAX_YEARS = 15e6, NAIL_YEARS = 20, PANG_MYR = 200;
+
+const nf = (n, d = 0) => new Intl.NumberFormat(lang, { maximumFractionDigits: d }).format(n);
+const fill = (s, o) => s.replace(/\{(\w+)\}/g, (_, k) => o[k]);
+function yrs(y) {
+  const n = (v) => nf(v, v < 10 ? 1 : 0);
+  if (y < 1000) { const k = Math.round(y); return lang === 'ru' ? `${nf(k)} ${ruPlural(k, 'год', 'года', 'лет')}` : lang === 'hu' ? `${nf(k)} év` : `${nf(k)} ${k === 1 ? 'year' : 'years'}`; }
+  if (y < 1e6) { const k = y / 1000; return lang === 'ru' ? `${n(k)} тыс. лет` : lang === 'hu' ? `${n(k)} ezer év` : `${n(k)} thousand years`; }
+  const m = y / 1e6; return lang === 'ru' ? `${n(m)} млн лет` : lang === 'hu' ? `${n(m)} millió év` : `${n(m)} million years`;
+}
+function dist(cm) {
+  const u = T[lang].u;
+  if (cm < 100) return `${nf(cm, cm < 10 ? 1 : 0)} ${u.cm}`;
+  const m = cm / 100; if (m < 1000) return `${nf(m, m < 10 ? 1 : 0)} ${u.m}`;
+  const km = m / 1000; return `${nf(km, km < 10 ? 1 : 0)} ${u.km}`;
+}
+const ease = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+const yearsOf = (x) => MAX_YEARS * x * x * x;
+const mixc = (a, b, t) => { const p = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)); const A = p(a), B = p(b); return `rgb(${A.map((v, i) => Math.round(lerp(v, B[i], t))).join(',')})`; };
+
+const S = { answered: store.get('plates:asked', false), answer: null, secret: null, play: false,
+  depth: 0, big: false, geo: null,
+  ex: 0.62, mode: 'dive',
+  strain: 0, vis: 0, off: null, wave: null, drag: null, wait: 0,
+  nx: 0.4, rate: 4, px: 0, ck: '' };
+const scene = () => S.secret === 's1' ? 'nails' : S.secret === 's2' ? 'pang' : lab.view;
+
+const lab = shell({ key: 'plates', T, topics: TOPICS, views: ['inside', 'edges', 'quake'], onLang: () => render(), onView: () => { S.play = false; S.secret = null; render(); } });
+const secret = secretLab('plates', () => ({
+  secrets: [{ emo: '💅', title: T[lang].secrets.s1[0], desc: T[lang].secrets.s1[1] }, { emo: '🌍', title: T[lang].secrets.s2[0], desc: T[lang].secrets.s2[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+// ---------------------------------------------------------------------------------------------------------------
+// 3. Controls
+// ---------------------------------------------------------------------------------------------------------------
+const SL = {
+  inside: { max: R_E, track: 'linear-gradient(90deg,#c58b5a,#e0662a 20%,#ffb43c 70%,#ffe9a0)', get: () => S.depth },
+  edges: { max: 1000, track: 'linear-gradient(90deg,#4ea8ff,#ff8a3d)', get: () => S.ex * 1000 },
+  quake: { max: 1000, track: 'linear-gradient(90deg,#3ddc97,#f5c84c,#ff5a3c)', get: () => S.strain * 1000 },
+  nails: { max: 1000, track: 'linear-gradient(90deg,#f6b8c8,#ff8a3d)', get: () => S.nx * 1000 },
+  pang: { max: 1000, track: 'linear-gradient(90deg,#4ea8ff,#3ddc97)', get: () => S.px * 1000 },
+};
+function buildCtrl() {
+  const sc = scene(), c = SL[sc];
+  $('ctrlBody').innerHTML = `<input type="range" class="big" id="slider" min="0" max="${c.max}" step="1" value="${Math.round(c.get())}"><div class="chips" id="chips2"></div><div class="chips" id="chips"></div>`;
+  $('slider').style.setProperty('--track', c.track);
+}
+function syncSlider() { const s = $('slider'); if (s) s.value = String(Math.round(SL[scene()].get())); }
+function renderChips() {
+  const t = T[lang], sc = scene(), open = secret.unlocked();
+  const sec = (k) => `<button class="chip secret ${open ? 'open' : ''} ${S.secret === k ? 'on' : ''}" data-k="${k}">${open ? esc(t.secrets[k][0]) : '🔒 ???'}</button>`;
+  const c = (k, label, on) => `<button class="chip ${on ? 'on' : ''}" data-k="${k}">${esc(label)}</button>`;
+  let row = [], row2 = [];
+  if (sc === 'inside') {
+    row = [sec('s1'), c('dig:0', t.dig.surf), c('dig:1500', t.dig.mantle), c('dig:4000', t.dig.outer), c(`dig:${R_E}`, t.dig.centre), c('big', t.big, S.big), sec('s2')];
+  } else if (sc === 'edges') {
+    row = [sec('s1'), ...Object.keys(t.modes).map((m) => c(`mode:${m}`, t.modes[m].chip, S.mode === m)), sec('s2')];
+    const y = yearsOf(S.ex);
+    row2 = [1, 1000, 1e6, 1e7].map((v) => c(`yr:${v}`, yrs(v), Math.abs(y - v) / v < 0.02)); row2.push(c('play', S.play ? t.pause : t.play, S.play));
+  } else if (sc === 'quake') {
+    row = [sec('s1'), c('slip', t.qk.slipNow), c('play', S.play ? t.qk.pause : t.qk.squeeze, S.play), sec('s2')];
+  } else if (sc === 'nails') {
+    row = [sec('s1'), ...[2, 4, 8].map((r) => c(`rate:${r}`, fill(t.nails.rate, { r }), S.rate === r)), c('play', S.play ? t.pause : t.play, S.play), sec('s2')];
+  } else {
+    row = [sec('s1'), c('play', S.play ? t.pause : t.play, S.play), sec('s2')];
+  }
+  $('chips').innerHTML = row.join(''); $('chips2').innerHTML = row2.join(''); $('chips2').hidden = !row2.length;
+}
+$('ctrlBody').addEventListener('input', (ev) => {
+  if (ev.target.id !== 'slider') return;
+  const v = +ev.target.value, sc = scene(), wasPlaying = S.play; S.play = false;
+  if (sc === 'inside') S.depth = v; else if (sc === 'edges') S.ex = v / 1000; else if (sc === 'quake') pull(v / 1000);
+  else if (sc === 'nails') S.nx = v / 1000; else S.px = v / 1000;
+  sfx.tick(); if (wasPlaying) renderChips();
+});
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('.chip'); if (!b) return;
+  const [a, v] = b.dataset.k.split(':'), sc = scene();
+  if (a === 's1' || a === 's2') {
+    if (!secret.unlocked()) return secret.open();
+    S.secret = S.secret === a ? null : a; S.play = false;
+  } else if (a === 'dig') S.depth = +v;
+  else if (a === 'big') S.big = !S.big;
+  else if (a === 'mode') S.mode = v;
+  else if (a === 'yr') { S.ex = Math.cbrt(+v / MAX_YEARS); S.play = false; }
+  else if (a === 'rate') S.rate = +v;
+  else if (a === 'slip') { if (S.strain < 0.04) S.strain = 0.3; slip(); }
+  else if (a === 'play') {
+    S.play = !S.play;
+    if (S.play) {
+      if (sc === 'edges' && S.ex >= 1) S.ex = 0;
+      if (sc === 'nails' && S.nx >= 1) S.nx = 0;
+      if (sc === 'pang' && S.px >= 1) S.px = 0;
+    }
+  }
+  sfx.click(); render();
+});
+
+// the opening prediction
+const ask = Object.assign(document.createElement('div'), { className: 'ask card' });
+$('overlay').append(ask);
+ask.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  if (b.dataset.a) { S.answer = +b.dataset.a; (S.answer === 1 ? sfx.good : sfx.bad)(); }
+  else { S.answered = true; store.set('plates:asked', true); }
+  render();
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// 4. Physics of the toys
+// ---------------------------------------------------------------------------------------------------------------
+function pull(s) {
+  if (S.off && S.off.t > 0.3) S.off = null;
+  S.strain = clamp(s, 0, 1);
+  if (S.strain >= 0.999) slip();
+}
+function slip() {
+  const m = S.strain; if (m < 0.04) return;
+  S.off = { mag: m, t: 0 }; S.wave = { mag: m, t: 0 }; S.strain = 0; S.drag = null;
+  sfx.snap(); syncSlider();
+}
+function tick(dt) {
+  const sc = scene();
+  if (S.off) S.off.t += dt;
+  if (S.wave) { S.wave.t += dt; if (S.wave.t > 5.5) S.wave = null; }
+  S.vis += (S.strain - S.vis) * (1 - Math.exp(-dt * (S.strain < S.vis ? 30 : 14)));
+  if (!S.play) return;
+  const stop = () => { S.play = false; renderChips(); };
+  if (sc === 'edges') { S.ex = Math.min(1, S.ex + dt * 0.13); if (S.ex >= 1) stop(); }
+  else if (sc === 'nails') { S.nx = Math.min(1, S.nx + dt * 0.12); if (S.nx >= 1) stop(); }
+  else if (sc === 'pang') { S.px = Math.min(1, S.px + dt * 0.1); if (S.px >= 1) stop(); }
+  else if (sc === 'quake') {
+    if (S.wait > 0) S.wait -= dt;
+    else { if (S.off) S.off = null; S.strain = Math.min(1, S.strain + dt * 0.22); if (S.strain >= 1) { slip(); S.wait = 2.8; } }
+  } else S.play = false;
+  syncSlider();
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// 5. Readout and state card (text), updated only when something changed
+// ---------------------------------------------------------------------------------------------------------------
+const layerAt = (d) => d < CRUST ? 'crust' : d < MANTLE_BASE ? 'mantle' : d < OUTER_BASE ? 'outer' : 'inner';
+const LCOL = { crust: '#c58b5a', mantle: '#e0662a', outer: '#ffb43c', inner: '#ffe9a0' };
+const LGLOW = { crust: 'rgba(197,139,90,.25)', mantle: 'rgba(224,102,42,.28)', outer: 'rgba(255,180,60,.28)', inner: 'rgba(255,233,160,.3)' };
+const pnOf = () => clamp(yearsOf(S.ex) * RATE * 1e-5 / 600, 0, 1); // km moved / 600 km of canvas
+function info() {
+  const t = T[lang], sc = scene();
+  if (sc === 'inside') {
+    const L = layerAt(S.depth), x = t.layer[L];
+    return { val: `${nf(S.depth)} ${t.u.km}`, sub: fill(t.depthSub, { r: nf(R_E) }), pill: x.pill, color: LCOL[L], glow: LGLOW[L],
+      st: { emo: '🌍', title: x.title, lead: x.lead, body: fill(x.body, { r: nf(R_E) }), extra: `<div class="fine">${L === 'crust' ? esc(t.kola) + '<br>' : ''}${esc(t.fineIn)}</div>` } };
+  }
+  if (sc === 'edges') {
+    const y = yearsOf(S.ex), D = RATE * y, M = t.modes[S.mode], pn = pnOf(), ph = pn < 0.03 ? 0 : pn < 0.5 ? 1 : 2;
+    const emo = { dive: '🌋', mount: '🏔️', apart: '🌊', slide: '↔️' }[S.mode];
+    return { val: dist(D), sub: `${fill(t.formula, { r: dist(RATE), y: yrs(y), d: dist(D) })}`, pill: M.chip, color: '#ff8a3d', glow: 'rgba(255,138,61,.22)',
+      st: { emo, title: M.title, lead: M.lead, body: M.body, extra: `<div class="now">${esc(M.ph[ph])}</div><div class="fine">${esc(t.fineEd)}</div>` } };
+  }
+  if (sc === 'quake') {
+    const q = t.qk, w = S.wave;
+    let x = S.strain > 0.04 ? q.build : q.idle, pill = S.strain > 0.04 ? q.pills.build : q.pills.stuck, col = S.strain > 0.5 ? '#ff5a3c' : '#f5c84c';
+    if (w) { x = { ...q.slip, ...(w.mag < 0.35 ? q.small : {}) }; pill = q.pills.sizes[w.mag < 0.35 ? 0 : w.mag < 0.7 ? 1 : 2]; col = '#ff5a3c'; }
+    return { val: `${Math.round(S.strain * 100)}%`, sub: q.strainSub, pill, color: col, glow: 'rgba(255,90,60,.22)',
+      st: { emo: w ? '💥' : '🪨', title: x.title, lead: x.lead, body: x.body, extra: `<div class="legend">⭐ ${q.legend}</div><div class="fine">${esc(q.fine)}</div>` } };
+  }
+  if (sc === 'nails') {
+    const n = t.nails, y = NAIL_YEARS * S.nx, nail = NAIL * y, plate = S.rate * y;
+    const verdict = y < 0.3 ? n.zero : S.rate < NAIL ? n.winN : n.winP;
+    return { val: yrs(y), sub: fill(n.result, { n: dist(nail), p: dist(plate) }), pill: fill(n.rate, { r: S.rate }), color: '#f6b8c8', glow: 'rgba(246,184,200,.2)',
+      st: { emo: '💅', title: n.title, lead: n.lead, body: n.body, extra: `<div class="now">${esc(verdict)}</div><div class="fine">${esc(n.fine)}</div>` } };
+  }
+  const p = t.pang, myr = PANG_MYR * (1 - S.px);
+  return { val: myr < 0.5 ? p.today : `${nf(Math.round(myr))} ${p.ago}`, sub: fill(p.sub, { d: dist(RATE * myr * 1e6) }), pill: myr >= 190 ? p.name : '', color: '#3ddc97', glow: 'rgba(61,220,151,.2)',
+    st: { emo: '🌍', title: p.title, lead: p.lead, body: fill(p.body, { d: dist(RATE * PANG_MYR * 1e6) }), extra: `<div class="fine">${esc(p.fine)}</div>` } };
+}
+let lastSig = '';
+function update() {
+  const i = info(), sig = JSON.stringify(i); if (sig === lastSig) return; lastSig = sig;
+  lab.setReadout(i.val, i.sub, i.pill, i.color); lab.setGlow(i.glow); lab.setState(i.st);
+}
+function render() {
+  const t = T[lang], key = `${scene()}|${lang}`;
+  if (key !== S.ck) { S.ck = key; buildCtrl(); }
+  renderChips(); syncSlider(); lastSig = ''; update();
+  ask.style.display = S.answered ? 'none' : '';
+  if (!S.answered) ask.innerHTML = S.answer === null
+    ? `<div class="q">${esc(t.ask)}</div><div class="opts">${t.opts.map((o, i) => `<button data-a="${i}">${esc(o)}</button>`).join('')}</div>`
+    : `<div class="q" style="color:${S.answer === 1 ? 'var(--ok)' : 'var(--wip)'}">${esc(S.answer === 1 ? t.right : t.wrong)}</div><div class="opts"><button>${esc(t.go)} →</button></div>`;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// 6. Drawing helpers
+// ---------------------------------------------------------------------------------------------------------------
+function txt(c, s, x, y, o = {}) {
+  const { size = 12, color = '#EDEFF7', align = 'left', weight = 800, base = 'alphabetic', maxW = 0, shadow = false } = o;
+  let sz = size; c.font = `${weight} ${sz}px Nunito, system-ui, sans-serif`;
+  if (maxW) { const mw = c.measureText(s).width; if (mw > maxW) { sz = Math.max(8, sz * maxW / mw); c.font = `${weight} ${sz}px Nunito, system-ui, sans-serif`; } }
+  c.textAlign = align; c.textBaseline = base;
+  if (shadow) { c.shadowColor = 'rgba(0,0,0,.75)'; c.shadowBlur = 4; }
+  c.fillStyle = color; c.fillText(s, x, y); c.shadowBlur = 0;
+}
+function arrow(c, x0, y0, x1, y1, col, lw = 3) {
+  const a = Math.atan2(y1 - y0, x1 - x0), hs = 8 + lw;
+  c.strokeStyle = col; c.fillStyle = col; c.lineWidth = lw; c.lineCap = 'round';
+  c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1 - Math.cos(a) * hs * 0.6, y1 - Math.sin(a) * hs * 0.6); c.stroke();
+  c.beginPath(); c.moveTo(x1, y1); c.lineTo(x1 - hs * Math.cos(a - 0.45), y1 - hs * Math.sin(a - 0.45)); c.lineTo(x1 - hs * Math.cos(a + 0.45), y1 - hs * Math.sin(a + 0.45)); c.closePath(); c.fill();
+  c.lineCap = 'butt';
+}
+const pulse = (time, i = 0, sp = 3) => 0.5 + 0.5 * Math.sin(time * sp + i * 1.7);
+function dot(c, x, y, r, col) { c.fillStyle = col; c.beginPath(); c.arc(x, y, r, 0, 7); c.fill(); }
+function quakeDots(c, pts, time) {
+  pts.forEach(([x, y], i) => {
+    const u = (time * 1.1 + i * 0.31) % 1;
+    c.strokeStyle = `rgba(255,90,70,${(1 - u) * 0.8})`; c.lineWidth = 1.5; c.beginPath(); c.arc(x, y, 3 + u * 9, 0, 7); c.stroke();
+    dot(c, x, y, 3, '#ff5a46');
+  });
+}
+function sky(c, w, h, a = '#0d1226', b = '#161e3b') { const g = c.createLinearGradient(0, 0, 0, h); g.addColorStop(0, a); g.addColorStop(1, b); c.fillStyle = g; c.fillRect(0, 0, w, h); }
+
+// ---------------------------------------------------------------------------------------------------------------
+// 7. Scene: inside the Earth
+// ---------------------------------------------------------------------------------------------------------------
+function drawInside(c, w, h, time) {
+  const t = T[lang];
+  const labW = clamp(w * 0.30, 98, 200), cx = (w - labW) / 2 + 2, R = Math.max(40, Math.min(cx - 6, h * 0.46)), cy = h * 0.5 + 2, k = R / R_E;
+  S.geo = { cx, cy, R, k };
+  const cp = (S.big ? CRUST * 15 : CRUST) * k, rC = R - cp, rOC = (R_E - MANTLE_BASE) * k, rIC = (R_E - OUTER_BASE) * k;
+  const hg = c.createRadialGradient(cx, cy, R * 0.9, cx, cy, R * 1.18); hg.addColorStop(0, 'rgba(255,140,60,.22)'); hg.addColorStop(1, 'rgba(255,140,60,0)');
+  c.fillStyle = hg; c.beginPath(); c.arc(cx, cy, R * 1.18, 0, 7); c.fill();
+  dot(c, cx, cy, R, LCOL.crust);
+  const mg = c.createRadialGradient(cx, cy, rOC, cx, cy, rC); mg.addColorStop(0, '#a8321a'); mg.addColorStop(1, '#e8792f');
+  c.fillStyle = mg; c.beginPath(); c.arc(cx, cy, rC, 0, 7); c.fill();
+  if (!S.big) { c.strokeStyle = '#e8b27e'; c.lineWidth = 1.6; c.beginPath(); c.arc(cx, cy, R - 0.8, 0, 7); c.stroke(); }
+  // slow mantle flow: rotating dashed rings
+  for (let i = 0; i < 7; i++) {
+    const rr = lerp(rOC * 1.1, rC * 0.96, (i + 0.5) / 7), dir = i % 2 ? 1 : -1;
+    c.strokeStyle = 'rgba(255,214,170,.17)'; c.lineWidth = 2; c.setLineDash([rr * 0.35, rr * 0.55]); c.lineDashOffset = -time * 5 * dir;
+    c.beginPath(); c.arc(cx, cy, rr, 0, 7); c.stroke();
+  }
+  c.setLineDash([]);
+  const og = c.createRadialGradient(cx, cy, rIC, cx, cy, rOC); og.addColorStop(0, '#ffcf55'); og.addColorStop(1, '#ff9a2a');
+  c.fillStyle = og; c.beginPath(); c.arc(cx, cy, rOC, 0, 7); c.fill();
+  for (let i = 0; i < 6; i++) {
+    const rr = lerp(rIC * 1.18, rOC * 0.94, (i + 0.5) / 6), dir = i % 2 ? 1 : -1;
+    c.strokeStyle = 'rgba(255,245,190,.4)'; c.lineWidth = 2; c.setLineDash([rr * 0.5, rr * 0.7]); c.lineDashOffset = -time * 22 * dir;
+    c.beginPath(); c.arc(cx, cy, rr, 0, 7); c.stroke();
+  }
+  c.setLineDash([]);
+  c.strokeStyle = 'rgba(40,10,0,.3)'; c.lineWidth = 1;
+  [rC, rOC].forEach((r) => { c.beginPath(); c.arc(cx, cy, r, 0, 7); c.stroke(); });
+  c.save(); c.shadowColor = 'rgba(255,240,170,.9)'; c.shadowBlur = 16;
+  const ig = c.createRadialGradient(cx, cy, 0, cx, cy, Math.max(2, rIC)); ig.addColorStop(0, '#fffdf0'); ig.addColorStop(1, '#ffe08a');
+  c.fillStyle = ig; c.beginPath(); c.arc(cx, cy, Math.max(2, rIC), 0, 7); c.fill(); c.restore();
+  // the drill
+  const y0 = cy - R, yd = y0 + clamp(S.depth, 0, R_E) * k, L = layerAt(S.depth);
+  c.strokeStyle = 'rgba(255,255,255,.92)'; c.lineWidth = 2; c.beginPath(); c.moveTo(cx, y0 - 10); c.lineTo(cx, yd); c.stroke();
+  const pr = 6 + pulse(time, 0, 4) * 2;
+  c.strokeStyle = LCOL[L]; c.lineWidth = 2; c.fillStyle = '#fff'; c.beginPath(); c.arc(cx, yd, pr, 0, 7); c.fill(); c.stroke();
+  // labels on the right, with leader lines
+  const lx = cx + R + 14, fs = clamp(w / 38, 11, 15), km = t.u.km;
+  const ang = (d) => d * Math.PI / 180;
+  const items = [
+    { k: 'crust', a: -55, r: R - 1, y: cy - 0.82 * R, rng: `5–70 ${km}` },
+    { k: 'mantle', a: -28, r: (rC + rOC) / 2, y: cy - 0.38 * R, rng: `35–${nf(MANTLE_BASE)} ${km}` },
+    { k: 'outer', a: 6, r: (rOC + rIC) / 2, y: cy + 0.1 * R, rng: `${nf(MANTLE_BASE)}–${nf(OUTER_BASE)} ${km}` },
+    { k: 'inner', a: 35, r: rIC * 0.45, y: cy + 0.58 * R, rng: `${nf(OUTER_BASE)}–${nf(R_E)} ${km}` },
+  ];
+  items.forEach((it) => {
+    const ax = cx + Math.cos(ang(it.a)) * it.r, ay = cy + Math.sin(ang(it.a)) * it.r;
+    c.strokeStyle = 'rgba(237,239,247,.5)'; c.lineWidth = 1; c.beginPath(); c.moveTo(ax, ay); c.lineTo(lx - 4, it.y); c.stroke();
+    dot(c, ax, ay, 2.2, '#fff');
+    const on = L === it.k, mw = w - lx - 4;
+    txt(c, t.layer[it.k].n, lx, it.y - 3, { size: fs, color: on ? LCOL[it.k] : '#EDEFF7', maxW: mw });
+    txt(c, it.rng, lx, it.y + fs - 1, { size: fs - 3, color: '#98A0B8', weight: 700, maxW: mw });
+  });
+  if (S.big) txt(c, t.bigNote, 8, 14, { size: 11, color: '#f5c84c', maxW: Math.max(120, cx - R * 0.5) });
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// 8. Scene: plate edges
+// ---------------------------------------------------------------------------------------------------------------
+function drawEdges(c, w, h, time) {
+  const t = T[lang], pn = pnOf(), fs = clamp(w / 36, 10, 13);
+  sky(c, w, h);
+  const mode = S.mode;
+  if (mode === 'dive') dive(c, w, h, time, pn, fs, t);
+  else if (mode === 'mount') mount(c, w, h, time, pn, fs, t);
+  else if (mode === 'apart') apart(c, w, h, time, pn, fs, t);
+  else slide(c, w, h, time, pn, fs, t);
+}
+function dive(c, w, h, time, pn, fs, t) {
+  const yW = h * 0.30, slabT = h * 0.075, slabC = h * 0.455, yTop = slabC - slabT / 2, yC = h * 0.25, xt = w * 0.42, th = 0.55, xv = xt + w * 0.30;
+  const Lmax = (h * 0.98 - slabC) / Math.sin(th), L = Math.min(pn * w * 0.7, Lmax), tipx = xt + L * Math.cos(th), tipy = slabC + L * Math.sin(th);
+  const mg = c.createLinearGradient(0, yTop, 0, h); mg.addColorStop(0, '#d0541f'); mg.addColorStop(1, '#6d1c12'); c.fillStyle = mg; c.fillRect(0, yTop, w, h - yTop);
+  const wg = c.createLinearGradient(0, yW, 0, yTop); wg.addColorStop(0, '#2a6db0'); wg.addColorStop(1, '#123a6a');
+  c.fillStyle = wg; c.beginPath(); c.moveTo(0, yW); c.lineTo(xt + w * 0.07, yW); c.lineTo(xt, yTop); c.lineTo(0, yTop); c.closePath(); c.fill();
+  c.strokeStyle = 'rgba(170,215,255,.6)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(0, yW); c.lineTo(xt + w * 0.07, yW); c.stroke();
+  // the plate: a thick path that lengthens as it sinks
+  const path = () => { c.beginPath(); c.moveTo(-10, slabC); c.lineTo(xt, slabC); c.lineTo(tipx, tipy); };
+  c.lineJoin = 'round'; c.lineWidth = slabT; c.strokeStyle = '#52678a'; path(); c.stroke();
+  c.setLineDash([w * 0.025, w * 0.045]); c.lineDashOffset = -(pn * w * 0.7); c.lineWidth = slabT * 0.5; c.strokeStyle = 'rgba(255,255,255,.17)'; path(); c.stroke(); c.setLineDash([]);
+  c.strokeStyle = '#b08a62'; c.lineWidth = 3; c.beginPath(); c.moveTo(0, yTop + 1.5); c.lineTo(xt, yTop + 1.5);
+  const hn = slabT / 2 - 1.5; c.lineTo(xt + Math.sin(th) * hn, slabC - Math.cos(th) * hn); c.lineTo(tipx + Math.sin(th) * hn, tipy - Math.cos(th) * hn); c.stroke();
+  // continent
+  const cg = c.createLinearGradient(0, yC, 0, yTop); cg.addColorStop(0, '#9a7a52'); cg.addColorStop(1, '#6b5238');
+  c.fillStyle = cg; c.beginPath(); c.moveTo(xt, yTop); c.lineTo(xt + w * 0.10, yC); c.lineTo(w + 2, yC); c.lineTo(w + 2, yTop); c.closePath(); c.fill();
+  c.strokeStyle = '#8aa05a'; c.lineWidth = 2; c.beginPath(); c.moveTo(xt + w * 0.10, yC); c.lineTo(w, yC); c.stroke();
+  // magma + volcano appear once the plate is deep enough under the continent
+  const grow = clamp((tipx - xv) / (w * 0.12), 0, 1), slabYv = slabC + (xv - xt) * Math.tan(th) - slabT / 2 / Math.cos(th), hv = h * 0.12 * grow;
+  if (grow > 0) {
+    const bw = w * 0.10 * grow, tw = w * 0.014;
+    c.fillStyle = '#7a5440'; c.beginPath(); c.moveTo(xv - bw, yC + 1); c.lineTo(xv - tw, yC - hv); c.lineTo(xv + tw, yC - hv); c.lineTo(xv + bw, yC + 1); c.closePath(); c.fill();
+    c.save(); c.strokeStyle = `rgba(255,120,40,${0.45 + 0.4 * grow})`; c.lineWidth = Math.max(3, w * 0.012) * (0.5 + 0.5 * grow); c.shadowColor = '#ff7a2a'; c.shadowBlur = 14;
+    c.beginPath(); c.moveTo(xv, slabYv); c.lineTo(xv, yC - hv + 5); c.stroke(); c.restore();
+    for (let i = 0; i < 3; i++) { const u = (time * 0.45 + i / 3) % 1; dot(c, xv, lerp(slabYv, yC - hv + 5, u), 3 + 2 * grow, '#ffd27a'); }
+    if (grow > 0.6) for (let i = 0; i < 8; i++) {
+      const u = (time * 0.9 + i * 0.125) % 1, x = xv + Math.sin(i * 5.1) * u * w * 0.05, y = yC - hv - Math.sin(u * Math.PI) * h * 0.10 + u * u * h * 0.03;
+      c.globalAlpha = 1 - u; dot(c, x, y, 2.2, '#ffb24a'); c.globalAlpha = 1;
+    }
+    if (grow > 0.5) txt(c, t.lbl.volcano, xv, yC - hv - 10, { size: fs, align: 'center', shadow: true });
+  }
+  if (L > 4) {
+    const n = Math.min(7, Math.floor(L / (w * 0.08)) + 1);
+    quakeDots(c, Array.from({ length: n }, (_, i) => { const s = L * (i + 0.5) / n; return [xt + s * Math.cos(th), slabC + s * Math.sin(th)]; }), time);
+  }
+  arrow(c, w * 0.05, yW + (yTop - yW) * 0.45, w * 0.19, yW + (yTop - yW) * 0.45, '#cfe3ff');
+  arrow(c, w * 0.95, yC + (yTop - yC) * 0.72, w * 0.83, yC + (yTop - yC) * 0.72, '#cfe3ff');
+  txt(c, t.lbl.ocean, w * 0.03, slabC + fs * 0.35, { size: fs, maxW: xt - w * 0.05, shadow: true });
+  txt(c, t.lbl.cont, w * 0.97, yC + (yTop - yC) * 0.38, { size: fs, align: 'right', maxW: w * 0.4, shadow: true });
+  txt(c, t.lbl.mantle, w * 0.97, h * 0.95, { size: fs, align: 'right', color: 'rgba(255,235,210,.85)', maxW: w * 0.4 });
+}
+function mount(c, w, h, time, pn, fs, t) {
+  const y0 = h * 0.40, th0 = h * 0.20, xm = w / 2, g = (x) => Math.exp(-(((x - xm) / (w * 0.17)) ** 2)), U = pn * h * 0.24, Rt = pn * h * 0.16;
+  const yk = [0, 0.25, 0.5, 0.75, 1].map((f) => y0 + th0 * f), cols = ['#8c7550', '#a3855a', '#7f6d5c', '#675a6b'];
+  const curve = (k, x) => k === 4 ? yk[4] + Rt * g(x) : yk[k] - U * g(x) * (1 - 0.12 * k) + pn * h * 0.018 * Math.sin((x - xm) / (w * 0.045) + k * 0.9) * Math.sqrt(g(x));
+  const mg = c.createLinearGradient(0, y0 + th0 * 0.5, 0, h); mg.addColorStop(0, '#d0541f'); mg.addColorStop(1, '#6d1c12'); c.fillStyle = mg; c.fillRect(0, y0 + th0 * 0.5, w, h);
+  const step = 6;
+  for (let k = 0; k < 4; k++) {
+    c.fillStyle = cols[k]; c.beginPath();
+    for (let x = 0; x <= w + step; x += step) { const X = Math.min(x, w); x === 0 ? c.moveTo(X, curve(k, X)) : c.lineTo(X, curve(k, X)); }
+    for (let x = w + step; x >= 0; x -= step) c.lineTo(Math.min(x, w), curve(k + 1, Math.min(x, w)));
+    c.closePath(); c.fill();
+    c.strokeStyle = 'rgba(0,0,0,.22)'; c.lineWidth = 1; c.beginPath();
+    for (let x = 0; x <= w + step; x += step) { const X = Math.min(x, w); x === 0 ? c.moveTo(X, curve(k + 1, X)) : c.lineTo(X, curve(k + 1, X)); } c.stroke();
+  }
+  c.strokeStyle = 'rgba(245,250,255,.95)'; c.lineWidth = 3.5; c.beginPath(); let pen = false;
+  for (let x = 0; x <= w; x += step) { if (g(x) * pn > 0.45) { pen ? c.lineTo(x, curve(0, x)) : c.moveTo(x, curve(0, x)); pen = true; } else pen = false; } c.stroke();
+  c.strokeStyle = '#8aa05a'; c.lineWidth = 2; c.beginPath(); pen = false;
+  for (let x = 0; x <= w; x += step) { if (g(x) * pn <= 0.45) { pen ? c.lineTo(x, curve(0, x)) : c.moveTo(x, curve(0, x)); pen = true; } else pen = false; } c.stroke();
+  arrow(c, w * 0.03, y0 + th0 * 0.45, w * 0.17, y0 + th0 * 0.45, '#cfe3ff');
+  arrow(c, w * 0.97, y0 + th0 * 0.45, w * 0.83, y0 + th0 * 0.45, '#cfe3ff');
+  if (pn > 0.05) quakeDots(c, [[0.36, 0.3], [0.46, 0.6], [0.55, 0.4], [0.64, 0.7]].map(([fx, fy]) => [w * fx, y0 + th0 * fy]), time);
+  if (pn > 0.35) { txt(c, t.lbl.mount, xm, curve(0, xm) - 12, { size: fs + 1, align: 'center', shadow: true }); }
+  txt(c, t.lbl.mantle, w * 0.97, h * 0.95, { size: fs, align: 'right', color: 'rgba(255,235,210,.85)', maxW: w * 0.4 });
+}
+function apart(c, w, h, time, pn, fs, t) {
+  const xc = w / 2, yW = h * 0.28, yS = h * 0.42, cT = h * 0.075, gh = Math.max(0.5, pn * 0.25 * w), hr = h * 0.035 * Math.min(1, 0.15 + pn * 6);
+  const wg = c.createLinearGradient(0, yW, 0, yS); wg.addColorStop(0, '#2a6db0'); wg.addColorStop(1, '#123a6a'); c.fillStyle = wg; c.fillRect(0, yW, w, yS - yW);
+  c.strokeStyle = 'rgba(170,215,255,.6)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(0, yW); c.lineTo(w, yW); c.stroke();
+  const mg = c.createLinearGradient(0, yS + cT, 0, h); mg.addColorStop(0, '#d0541f'); mg.addColorStop(1, '#6d1c12'); c.fillStyle = mg; c.fillRect(0, yS + cT, w, h - yS - cT);
+  const gl = c.createRadialGradient(xc, yS + cT, 0, xc, yS + cT, h * 0.4); gl.addColorStop(0, 'rgba(255,190,90,.6)'); gl.addColorStop(1, 'rgba(255,190,90,0)'); c.fillStyle = gl; c.fillRect(0, yS + cT, w, h);
+  const lg = c.createLinearGradient(0, 0, w, 0), e = clamp((xc - gh) / w, 0, 0.499);
+  lg.addColorStop(0, '#4d5368'); lg.addColorStop(e, '#6c5a66'); lg.addColorStop(0.5, '#e07a3a'); lg.addColorStop(1 - e, '#6c5a66'); lg.addColorStop(1, '#4d5368');
+  c.fillStyle = lg; c.fillRect(0, yS, w, cT);
+  c.strokeStyle = 'rgba(0,0,0,.3)'; c.lineWidth = 1; for (let j = 1; j <= 5; j++) for (const s of [-1, 1]) { const x = xc + s * gh * j / 6; c.beginPath(); c.moveTo(x, yS); c.lineTo(x, yS + cT); c.stroke(); }
+  c.fillStyle = '#a8623e'; c.beginPath(); c.moveTo(xc - w * 0.09, yS + 1); c.quadraticCurveTo(xc - w * 0.02, yS - hr, xc, yS - hr); c.quadraticCurveTo(xc + w * 0.02, yS - hr, xc + w * 0.09, yS + 1); c.closePath(); c.fill();
+  c.save(); c.shadowColor = '#ff7a2a'; c.shadowBlur = 10; dot(c, xc, yS - hr + 2, 3.5, '#ffb24a'); c.restore();
+  for (let i = 0; i < 6; i++) { const u = (time * 0.35 + i / 6) % 1; c.globalAlpha = 0.55 * (1 - u); dot(c, xc + Math.sin(i * 3 + time) * w * 0.012 * (u + 0.3), yS - hr - u * (yS - hr - yW) * 0.9, 1.5 + u * 2, '#dbefff'); c.globalAlpha = 1; }
+  for (const o of [-0.05, 0, 0.05]) { c.globalAlpha = 0.5 + 0.5 * pulse(time, o * 40); arrow(c, xc + o * w, yS + cT + h * 0.22, xc + o * w, yS + cT + h * 0.08, '#ffd27a', 2.5); } c.globalAlpha = 1;
+  const xa = xc - gh - w * 0.12; arrow(c, xa, yS - 9, xa - w * 0.10, yS - 9, '#cfe3ff'); arrow(c, 2 * xc - xa, yS - 9, 2 * xc - xa + w * 0.10, yS - 9, '#cfe3ff');
+  for (const s of [-1, 1]) { const fx = xc + s * (w * 0.12 + gh); c.strokeStyle = '#fff'; c.lineWidth = 2; c.beginPath(); c.moveTo(fx, yS); c.lineTo(fx, yS - h * 0.07); c.stroke(); c.fillStyle = '#ff5a3c'; c.beginPath(); c.moveTo(fx, yS - h * 0.07); c.lineTo(fx + s * h * 0.045, yS - h * 0.055); c.lineTo(fx, yS - h * 0.04); c.closePath(); c.fill(); }
+  quakeDots(c, [-0.8, 0, 0.8].map((f) => [xc + f * gh * 0.9, yS + cT * 0.5]), time);
+  if (gh > 14) { const yd = yS + cT + h * 0.045; c.strokeStyle = '#fff'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(xc - gh, yd); c.lineTo(xc + gh, yd); c.moveTo(xc - gh, yd - 5); c.lineTo(xc - gh, yd + 5); c.moveTo(xc + gh, yd - 5); c.lineTo(xc + gh, yd + 5); c.stroke(); }
+  txt(c, fill(t.lbl.gap, { d: dist(RATE * yearsOf(S.ex)) }), xc, yS + cT + h * 0.045 + fs + 6, { size: fs, align: 'center', maxW: w * 0.7, shadow: true });
+  txt(c, t.lbl.mantle, w * 0.97, h * 0.95, { size: fs, align: 'right', color: 'rgba(255,235,210,.85)', maxW: w * 0.4 });
+}
+function slide(c, w, h, time, pn, fs, t) {
+  const xf = w / 2, shift = pn * h * 0.32, sp = Math.max(18, h * 0.09);
+  c.fillStyle = '#35492f'; c.fillRect(0, 0, xf, h); c.fillStyle = '#54452f'; c.fillRect(xf, 0, w - xf, h);
+  const grid = (x0, x1, oy) => { c.fillStyle = 'rgba(255,255,255,.2)'; for (let y = oy - sp; y < h + sp; y += sp) for (let x = x0 + sp / 2; x < x1; x += sp) dot(c, x, y, 2, 'rgba(255,255,255,.2)'); };
+  grid(0, xf, ((-shift % sp) + sp) % sp); grid(xf, w, ((shift % sp) + sp) % sp);
+  const yl = h * 0.5 - shift, yr = h * 0.5 + shift, rd = yr - yl, zw = w * 0.08, ye1 = yl + 0.3 * rd, ye2 = yr - 0.3 * rd, rw = Math.max(8, h * 0.035);
+  const road = (dash) => {
+    c.beginPath(); c.moveTo(0, yl); c.lineTo(xf - zw, yl); c.quadraticCurveTo(xf - zw * 0.4, yl, xf - 2, ye1);
+    c.moveTo(xf + 2, ye2); c.quadraticCurveTo(xf + zw * 0.4, yr, xf + zw, yr); c.lineTo(w, yr);
+    if (dash) c.setLineDash([10, 8]);
+    c.stroke(); c.setLineDash([]);
+  };
+  c.lineCap = 'butt'; c.strokeStyle = '#2b2f3a'; c.lineWidth = rw; road(false); c.strokeStyle = '#f5c84c'; c.lineWidth = 2; road(true);
+  c.save(); c.strokeStyle = '#ff5a3c'; c.lineWidth = 3; c.shadowColor = '#ff5a3c'; c.shadowBlur = 8; c.beginPath(); c.moveTo(xf, 0);
+  for (let y = 0; y <= h; y += h / 14) c.lineTo(xf + ((Math.round(y / (h / 14)) % 2) ? 3 : -3), y); c.stroke(); c.restore();
+  if (pn > 0.001) quakeDots(c, [0.2, 0.45, 0.7, 0.9].map((f) => [xf, h * f]), time);
+  arrow(c, xf - w * 0.2, h * 0.64, xf - w * 0.2, h * 0.38, '#cfe3ff'); arrow(c, xf + w * 0.2, h * 0.36, xf + w * 0.2, h * 0.62, '#cfe3ff');
+  txt(c, t.lbl.fault, xf + 8, 16, { size: fs, color: '#ff8a70', shadow: true });
+  txt(c, t.lbl.road, w * 0.03, Math.max(14, yl - rw), { size: fs, shadow: true });
+  txt(c, t.lbl.top, 8, h - 8, { size: fs - 1, color: 'rgba(255,255,255,.65)', weight: 700 });
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// 9. Scene: earthquake
+// ---------------------------------------------------------------------------------------------------------------
+function drawQuake(c, w, h, time) {
+  const t = T[lang], q = t.qk, fs = clamp(w / 36, 10, 13);
+  const ys = h * 0.34, A = h * 0.07, xf = w * 0.5, lam = w * 0.16, fx = xf, fy = h * 0.76, v = w * 0.55;
+  sky(c, w, ys + 4, '#0b1024', '#1a2547');
+  const far = () => {
+    if (S.off) return S.off.mag * A * (1 - ease((S.off.t - 0.7) / 1.6));
+    return S.vis * A;
+  };
+  const F = far(), r = S.off ? ease(S.off.t / 0.22) : 0;
+  const disp = (x) => (x < xf ? -1 : 1) * F * (1 - (1 - r) * Math.exp(-Math.abs(x - xf) / lam));
+  const shake = (x, y) => {
+    if (!S.wave) return 0; const d = Math.hypot(x - fx, y - fy), tt = S.wave.t - d / v; if (tt < 0) return 0;
+    return S.wave.mag * h * 0.03 * Math.exp(-d / (w * 0.9)) * Math.exp(-tt * 1.8) * Math.sin(tt * 38);
+  };
+  const yb = [ys, ys + h * 0.07, ys + h * 0.19, ys + h * 0.33, h + 10], cols = ['#5f7d3f', '#8d6b49', '#7b6f66', '#5c4f5e'];
+  const cy = (k, x) => k === 4 ? yb[4] : yb[k] + disp(x) + shake(x, yb[k]) * (1 - 0.15 * k);
+  const block = (xa, xb) => {
+    for (let k = 0; k < 4; k++) {
+      c.fillStyle = cols[k]; c.beginPath();
+      for (let x = xa; x <= xb + 4; x += 5) { const X = Math.min(x, xb); x === xa ? c.moveTo(X, cy(k, X)) : c.lineTo(X, cy(k, X)); }
+      for (let x = xb + 4; x >= xa - 4; x -= 5) { const X = clamp(x, xa, xb); c.lineTo(X, cy(k + 1, X)); }
+      c.closePath(); c.fill();
+    }
+  };
+  block(0, xf - 1); block(xf + 1, w);
+  c.strokeStyle = '#140d18'; c.lineWidth = 2.5; c.beginPath(); c.moveTo(xf, ys - 4); c.lineTo(xf, h); c.stroke();
+  // seismic waves (rings) through the ground
+  if (S.wave) {
+    c.save(); c.beginPath(); c.rect(0, ys - 2, w, h); c.clip();
+    for (let i = 0; i < 3; i++) {
+      const rr = (S.wave.t - i * 0.17) * v; if (rr <= 0) continue;
+      const a = Math.max(0, 1 - rr / (w * 0.95)) * Math.exp(-S.wave.t * 0.45) * (0.45 + 0.55 * S.wave.mag);
+      c.strokeStyle = `rgba(255,222,130,${a})`; c.lineWidth = 3.2 - i; c.beginPath(); c.arc(fx, fy, rr, 0, 7); c.stroke();
+    }
+    c.restore();
+    if (S.wave.t < 0.15) { c.fillStyle = `rgba(255,255,255,${(0.15 - S.wave.t) / 0.15 * 0.22})`; c.fillRect(0, ys, w, h - ys); }
+  }
+  // focus (underground) and epicentre (surface)
+  c.setLineDash([4, 5]); c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(fx, fy - 8); c.lineTo(fx, ys + 6); c.stroke(); c.setLineDash([]);
+  const gl = 0.35 + 0.65 * S.vis + (S.wave ? 0.6 * Math.exp(-S.wave.t * 2) : 0), sr = 7 + 3 * pulse(time, 0, 5) * S.vis;
+  c.save(); c.shadowColor = '#ffcf55'; c.shadowBlur = 8 + 18 * gl; c.fillStyle = '#ffe08a'; c.beginPath();
+  for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? sr * 0.45 : sr; c.lineTo(fx + Math.cos(a) * rr, fy + Math.sin(a) * rr); } c.closePath(); c.fill(); c.restore();
+  txt(c, q.focus, fx + 14, fy + 4, { size: fs, color: '#ffe08a', maxW: w * 0.4, shadow: true });
+  const ye = ys + shake(xf, ys);
+  c.fillStyle = '#ff5a3c'; c.beginPath(); c.moveTo(xf, ye + 1); c.lineTo(xf - 6, ye - 11); c.lineTo(xf + 6, ye - 11); c.closePath(); c.fill();
+  txt(c, q.epi, xf, ye - 16, { size: fs, align: 'center', color: '#ff8a70', maxW: w * 0.26, shadow: true });
+  // crack at the surface after a big one
+  if (S.wave && S.wave.mag > 0.5) {
+    c.globalAlpha = Math.min(1, S.wave.t * 4) * Math.max(0, 1 - (S.wave.t - 3.5) / 2); c.strokeStyle = '#0c0710'; c.lineWidth = 2; c.beginPath(); c.moveTo(xf, ye + 2);
+    for (let i = 1; i <= 6; i++) c.lineTo(xf + (i % 2 ? 1 : -1) * w * 0.012 * i * S.wave.mag + (i * 2.7 % 3), ye + 3 + i * 1.6); c.stroke(); c.globalAlpha = 1;
+  }
+  // houses on the surface
+  const hw = clamp(w * 0.045, 14, 30), hh = hw * 0.8;
+  [0.1, 0.24, 0.38, 0.62, 0.76, 0.9].forEach((fxr, i) => {
+    const x = w * fxr, yy = ys + disp(x) + shake(x, ys), sh = shake(x, ys) * 0.7;
+    c.save(); c.translate(x + sh, yy); c.rotate(shake(x, ys) * 0.01);
+    c.fillStyle = ['#d9c9a6', '#c9d3d9', '#e0c3a0'][i % 3]; c.fillRect(-hw / 2, -hh, hw, hh);
+    c.fillStyle = '#c0563e'; c.beginPath(); c.moveTo(-hw * 0.62, -hh); c.lineTo(0, -hh - hw * 0.5); c.lineTo(hw * 0.62, -hh); c.closePath(); c.fill();
+    c.fillStyle = '#6a4a34'; c.fillRect(-hw * 0.12, -hh * 0.5, hw * 0.24, hh * 0.5);
+    c.restore();
+  });
+  // the "rock spring"
+  const sy = h * 0.115, len = w * (0.26 + 0.5 * S.vis), x0 = w / 2 - len / 2, x1 = w / 2 + len / 2, amp = h * 0.025 * (1 - 0.35 * S.vis), col = mixc('#3ddc97', '#ff5a3c', clamp(S.vis * 1.2, 0, 1));
+  c.strokeStyle = col; c.lineWidth = 2.5; c.lineJoin = 'round'; c.beginPath(); c.moveTo(x0, sy);
+  const n = 28; for (let i = 0; i <= n; i++) { const xx = lerp(x0 + 6, x1 - 6, i / n); c.lineTo(xx, sy + (i % 2 ? 1 : -1) * amp); } c.lineTo(x1, sy); c.stroke();
+  c.fillStyle = '#cfe3ff'; c.fillRect(x0 - 6, sy - amp * 1.2, 6, amp * 2.4); c.fillRect(x1, sy - amp * 1.2, 6, amp * 2.4);
+  if (S.vis > 0.03) { arrow(c, x0 - 9, sy, x0 - 9 - 14, sy, col, 2.5); arrow(c, x1 + 9, sy, x1 + 9 + 14, sy, col, 2.5); }
+  txt(c, q.spring, w / 2, sy + amp + fs + 3, { size: fs - 1, align: 'center', color: 'rgba(237,239,247,.65)', weight: 700, maxW: w * 0.5 });
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// 10. Secret scenes
+// ---------------------------------------------------------------------------------------------------------------
+function drawNails(c, w, h, time) {
+  const t = T[lang], n = t.nails, fs = clamp(w / 34, 11, 14);
+  sky(c, w, h);
+  const x0 = w * 0.12, x1 = w * 0.92, maxCm = 180, sc = (x1 - x0) / maxCm, y = NAIL_YEARS * S.nx, nail = NAIL * y, plate = S.rate * y;
+  const yb = h * 0.84; c.strokeStyle = 'rgba(237,239,247,.35)'; c.lineWidth = 1; c.beginPath(); c.moveTo(x0, yb); c.lineTo(x1, yb); c.stroke();
+  for (let cm = 0; cm <= maxCm; cm += 20) { const x = x0 + cm * sc; c.beginPath(); c.moveTo(x, yb); c.lineTo(x, yb + (cm % 60 === 0 ? 8 : 4)); c.stroke(); if (cm % 60 === 0) txt(c, `${cm}`, x, yb + 22, { size: fs - 1, align: 'center', color: '#98A0B8', weight: 700 }); }
+  txt(c, t.u.cm, x1 + 2, yb + 22, { size: fs - 1, color: '#98A0B8', weight: 700 });
+  c.setLineDash([4, 5]); c.strokeStyle = 'rgba(255,255,255,.3)'; c.beginPath(); c.moveTo(x0, h * 0.12); c.lineTo(x0, yb); c.stroke(); c.setLineDash([]);
+  const y1 = h * 0.33, y2 = h * 0.62, lh = h * 0.11;
+  // fingernail lane
+  c.fillStyle = '#d99a86'; c.beginPath(); c.roundRect(x0 - w * 0.07, y1 - lh * 0.6, w * 0.07 + 2, lh * 1.2, 8); c.fill();
+  const tipx = x0 + nail * sc, ng = c.createLinearGradient(x0, 0, x0 + Math.max(10, nail * sc), 0); ng.addColorStop(0, '#f1a9ba'); ng.addColorStop(1, '#fff3f6');
+  c.fillStyle = ng; c.beginPath(); c.roundRect(x0, y1 - lh / 2, Math.max(8, nail * sc), lh, 6); c.fill();
+  txt(c, n.nail, x0, y1 - lh * 0.8, { size: fs, maxW: w * 0.4 });
+  txt(c, dist(nail), clamp(x0 + Math.max(8, nail * sc), x0 + 30, w - 4), y1 + lh * 1.15 + 4, { size: fs, align: 'right', color: '#f6b8c8' });
+  // plate lane
+  const px = x0 + plate * sc, pw = clamp(w * 0.1, 30, 70), ph = lh * 1.2;
+  c.setLineDash([3, 6]); c.strokeStyle = 'rgba(217,138,74,.6)'; c.lineWidth = 2; c.beginPath(); c.moveTo(x0, y2); c.lineTo(px, y2); c.stroke(); c.setLineDash([]);
+  c.fillStyle = '#d98a4a'; c.strokeStyle = '#ffd7b0'; c.lineWidth = 1.5; c.beginPath();
+  const bump = [[-0.5, 0.1], [-0.35, -0.45], [-0.05, -0.5], [0.25, -0.4], [0.5, -0.05], [0.4, 0.4], [0.05, 0.5], [-0.3, 0.42]];
+  bump.forEach(([bx, by], i) => { const X = px + bx * pw, Y = y2 + by * ph; i ? c.lineTo(X, Y) : c.moveTo(X, Y); }); c.closePath(); c.fill(); c.stroke();
+  txt(c, n.plate, x0, y2 - ph * 0.85, { size: fs, maxW: w * 0.4 });
+  txt(c, dist(plate), clamp(px + pw * 0.5, x0 + 30, w - 4), y2 + ph * 0.5 + fs + 6, { size: fs, align: 'right', color: '#ffb87a' });
+  if (y > 0.3) txt(c, '🏆', S.rate < NAIL ? clamp(tipx, 20, w - 20) : clamp(px, 20, w - 20), (S.rate < NAIL ? y1 - lh * 0.8 : y2 - ph * 0.85) - 4, { size: fs + 5, align: 'center' });
+}
+const CONT = {
+  na: { c: '#d29a5f', p: [[8, 16], [22, 10], [38, 9], [52, 14], [66, 16], [70, 22], [60, 30], [54, 38], [48, 42], [42, 46], [37, 40], [30, 36], [22, 32], [14, 28], [8, 22]], to: { dx: 24, dy: 12, rot: 10, sc: 0.8 } },
+  sa: { c: '#b8864f', p: [[58, 46], [66, 45], [74, 50], [80, 56], [76, 64], [68, 72], [63, 80], [60, 76], [61, 66], [58, 58], [55, 52]], to: { dx: 6, dy: 2, rot: -5, sc: 0.9 } },
+  eu: { c: '#c9a15b', p: [[94, 18], [104, 12], [120, 8], [140, 8], [165, 10], [190, 14], [196, 22], [188, 30], [178, 38], [168, 40], [158, 36], [150, 42], [142, 40], [136, 36], [126, 34], [116, 34], [108, 36], [100, 32], [96, 26]], to: { dx: -24, dy: 8, rot: 0, sc: 0.75 } },
+  af: { c: '#d08b5b', p: [[92, 38], [104, 37], [116, 38], [124, 42], [128, 48], [122, 54], [118, 62], [112, 70], [106, 70], [102, 60], [98, 52], [92, 46], [90, 42]], to: { dx: -8, dy: 6, rot: 0, sc: 0.95 } },
+  in: { c: '#b9945a', p: [[130, 40], [142, 38], [146, 42], [139, 56], [136, 56]], to: { dx: -11, dy: 20, rot: -30, sc: 0.9 } },
+  au: { c: '#cf9d6d', p: [[160, 60], [168, 57], [176, 60], [180, 66], [176, 72], [168, 74], [161, 70]], to: { dx: -46, dy: 6, rot: -10, sc: 0.9 } },
+  an: { c: '#dfe8f2', p: [[30, 92], [60, 88], [100, 87], [140, 88], [170, 90], [190, 93], [190, 100], [30, 100]], to: { dx: 0, dy: -3, rot: 0, sc: 0.5 } },
+};
+Object.values(CONT).forEach((o) => { o.cen = [o.p.reduce((a, q) => a + q[0], 0) / o.p.length, o.p.reduce((a, q) => a + q[1], 0) / o.p.length]; });
+function drawPang(c, w, h, time) {
+  const t = T[lang], fs = clamp(w / 34, 11, 15), m = 1 - S.px;
+  sky(c, w, h);
+  const sc = Math.min(w * 0.96 / 200, h * 0.86 / 100), ox = (w - 200 * sc) / 2, oy = (h - 100 * sc) / 2;
+  c.fillStyle = '#10305a'; c.beginPath(); c.roundRect(ox, oy, 200 * sc, 100 * sc, 10); c.fill();
+  c.strokeStyle = 'rgba(160,200,255,.12)'; c.lineWidth = 1;
+  for (let i = 1; i < 8; i++) { c.beginPath(); c.moveTo(ox + i * 25 * sc, oy); c.lineTo(ox + i * 25 * sc, oy + 100 * sc); c.stroke(); }
+  for (let j = 1; j < 4; j++) { c.beginPath(); c.moveTo(ox, oy + j * 25 * sc); c.lineTo(ox + 200 * sc, oy + j * 25 * sc); c.stroke(); }
+  Object.values(CONT).forEach((o) => {
+    const [cx, cy] = o.cen, tr = o.to, a = m * tr.rot * Math.PI / 180, s = 1 + (tr.sc - 1) * m, ca = Math.cos(a), sa = Math.sin(a);
+    c.beginPath();
+    o.p.forEach(([x, y], i) => { const X = (x - cx) * s, Y = (y - cy) * s, px = cx + m * tr.dx + X * ca - Y * sa, py = cy + m * tr.dy + X * sa + Y * ca; i ? c.lineTo(ox + px * sc, oy + py * sc) : c.moveTo(ox + px * sc, oy + py * sc); });
+    c.closePath(); c.fillStyle = o.c; c.fill(); c.strokeStyle = 'rgba(255,255,255,.4)'; c.lineWidth = 1.2; c.stroke();
+  });
+  if (m > 0.9) txt(c, t.pang.name, ox + 100 * sc, oy + 6 * sc, { size: fs + 3, align: 'center', color: '#fff', shadow: true });
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// 11. Loop and pointer input
+// ---------------------------------------------------------------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  tick(dt); update();
+  const sc = scene();
+  if (sc === 'inside') { sky(c, w, h); drawInside(c, w, h, time); }
+  else if (sc === 'edges') drawEdges(c, w, h, time);
+  else if (sc === 'quake') drawQuake(c, w, h, time);
+  else if (sc === 'nails') drawNails(c, w, h, time);
+  else drawPang(c, w, h, time);
+});
+const cvEl = $('cv'), pos = (ev) => { const r = cvEl.getBoundingClientRect(); return { x: ev.clientX - r.left, y: ev.clientY - r.top }; };
+cvEl.addEventListener('pointerdown', (ev) => {
+  const sc = scene(); if (sc !== 'inside' && sc !== 'quake') return;
+  cvEl.setPointerCapture(ev.pointerId); S.play = false;
+  if (sc === 'quake') S.drag = { x: ev.clientX, s: S.strain }; else S.drag = { dig: true };
+  cvMove(ev);
+});
+function cvMove(ev) {
+  if (!S.drag) return;
+  if (S.drag.dig) { const g = S.geo; if (!g) return; S.depth = Math.round(clamp((pos(ev).y - (g.cy - g.R)) / g.k, 0, R_E)); }
+  else { pull(S.drag.s + (ev.clientX - S.drag.x) / (cvEl.clientWidth * 0.5)); }
+  syncSlider();
+}
+cvEl.addEventListener('pointermove', cvMove);
+['pointerup', 'pointercancel'].forEach((e) => cvEl.addEventListener(e, () => { S.drag = null; renderChips(); }));
+render();
+</script>
+</body>
+</html>

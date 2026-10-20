@@ -1,0 +1,637 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Shadows · Skill Graph</title>
+<meta name="description" content="Slide a toy toward a torch to see its shadow grow, then slide through a sunny day to watch a sundial shadow swing round. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  @media (min-width: 1101px) { .lab { grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); grid-template-areas: 'hero stage' 'state stage' 'state ctrl'; } }
+  .ask { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); width: min(560px, calc(100% - 16px)); padding: 14px 16px; text-align: center; z-index: 3; }
+  .ask .q { font: 500 21px/1.2 var(--serif); color: #fff; margin-bottom: 10px; }
+  .ask .opts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .ask button { padding: 9px 14px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1); font-weight: 800; cursor: pointer; }
+  .fine { margin-top: 8px; font-size: 11px; color: var(--faint); }
+  .rng { display: flex; align-items: center; gap: 10px; font-size: 16px; }
+  .rng input { flex: 1; min-width: 0; }
+  .rng span { color: var(--mut); font-size: 13px; font-weight: 800; white-space: nowrap; }
+  .grp { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+  .grp .lbl { font-size: 12px; font-weight: 800; color: var(--mut); margin-right: 2px; }
+  .ratio { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: rgba(130, 145, 190, .1); font: 800 14px/1.45 var(--sans); color: #fff; overflow-wrap: anywhere; }
+  .ratio b { color: #ffb347; }
+  .more { margin-top: 8px; color: var(--soft); font-size: 14px; line-height: 1.45; }
+  @media (max-width: 760px) { .ask .q { font-size: 17px; } }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, store, ruPlural, lang } from '../lab.js';
+
+// ---------------------------------------------------------------------------------------------------------
+// 1. Words
+// ---------------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Shadows', title: 'Why shadows grow and turn',
+    lines: [['Drag the toy', 'toward the torch and watch its shadow on the wall.'], ['Open the Sundial', 'and slide through the day to see a shadow swing round.']],
+    views: { torch: '🔦 Torch', sun: '☀️ Sundial' },
+    ask: 'You move a toy closer to the torch. What happens to its shadow on the wall?',
+    opts: ['It gets smaller', 'It gets bigger', 'It stays the same'],
+    right: 'Exactly! Let’s see why.', wrong: 'Lots of people guess that. Test it yourself!', go: 'Show me',
+    cm: 'cm', m: 'm',
+    lblToy: 'Toy:', lblMade: 'Made of:', lblDay: 'Day:',
+    shapes: { cat: 'Cat', star: 'Star', tree: 'Tree' },
+    mats: { opaque: 'Card', paper: 'Paper', glass: 'Glass' },
+    season: { summer: 'Summer', winter: 'Winter' }, play: 'Play the day', pause: 'Pause',
+    sliderD: 'Distance of the toy from the torch', sliderT: 'Time of day',
+    cv: { torch: 'torch', wall: 'wall', onWall: 'On the wall', dimToy: 'torch → toy', dimWall: 'torch → wall', drag: 'drag', shadow: 'shadow', stick: 'stick', sunAlt: 'Sun height', night: 'The Sun is below the horizon' },
+    fineTorch: 'A simplified model: a point-like torch, a thin toy, light in perfectly straight lines. The 10 cm toy and the 120 cm to the wall are example numbers. Shadow size = toy size × (torch→wall) ÷ (torch→toy), by similar triangles.',
+    fineSun: 'A simplified model: a 1 m stick on flat ground and “Sun time” (noon = Sun due south); equation of time and daylight saving are ignored. Budapest is at 47.5° N; the Sun’s declination is +23.44° at the June solstice and −23.44° at the December solstice (0° at the equinox). sin h = sin φ · sin δ + cos φ · cos δ · cos H, with hour angle H = 15° per hour. Shadow length = height ÷ tan h.',
+    torch: {
+      far: 'Far from the torch, the toy blocks only a narrow cone of light, so its shadow is not much bigger than the toy.',
+      mid: 'Slide the toy: the nearer it gets to the torch, the bigger its shadow grows.',
+      close: 'Close to the torch, the toy blocks a wide cone of light, so the shadow is huge.',
+      body: (r, sh, ho, d, L) => `Light travels in straight lines, and the toy stops the rays that hit it. The rays at its edges make the edges of the shadow. The wall is ${L} cm from the torch and the toy ${d} cm. That ratio is ${r}, so the shadow is ${r} times as big: ${sh} cm for a ${ho} cm toy.`,
+      matTitle: { opaque: 'Opaque card: dark shadow', paper: 'Tracing paper: pale shadow', glass: 'Clear glass: almost no shadow' },
+      mat: { opaque: 'Opaque card lets no light through, so the shadow is dark.', paper: 'Tracing paper lets a little scattered light through, so the shadow is pale.', glass: 'Clear glass lets almost all the light pass, so there is hardly a shadow, just faint edges.' },
+      pill: { opaque: 'dark shadow', paper: 'pale shadow', glass: 'faint edges' },
+      rdSub: (sh, ho) => `shadow ${sh} cm · toy ${ho} cm`,
+      two: { title: 'Two torches, two shadows', lead: 'Each torch makes its own shadow, and they fall in different places.', body: 'The upper torch throws its shadow lower on the wall. Where the toy blocks both torches it is darkest; where it blocks only one, the shadow is lighter.' },
+    },
+    sun: {
+      names: { summer: 'Summer day in Budapest', winter: 'Winter day in Budapest', eq: 'Equator at the equinox' },
+      noon: 'Noon: the Sun is highest and due south, so the shadow is shortest and points north.',
+      high: 'The Sun is high, so the shadow is short.', low: 'The Sun is low, so the shadow is long.',
+      mid: 'As the Sun climbs the shadow shortens; as it sinks it stretches out.',
+      down: 'The Sun is below the horizon: no sunlight, so no shadow.',
+      over: 'The Sun is straight overhead: the stick only shades the ground right under itself, so there is almost no shadow.',
+      body: (time, alt, at, len, to) => `At ${time} the Sun is ${alt}° above the horizon, ${at}. The shadow is 1 m ÷ tan(${alt}°) = ${len} m long and points ${to}, opposite the Sun.`,
+      bodyDown: (time) => `At ${time} the Sun has not risen yet, or has already set. Slide the time to find when the shadow appears.`,
+      earth: 'The Sun seems to move because the Earth turns 15° every hour (360° ÷ 24 h).',
+      eqNote: 'At the equator on the equinox, the Sun passes straight overhead at noon.',
+      sub: (alt, time) => `Sun height ${alt}° · ${time}`, subDown: (time) => `${time} · Sun is down`,
+      pill: (to) => `points ${to}`,
+      dirTo: ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'],
+      dirAt: ['in the north', 'in the north-east', 'in the east', 'in the south-east', 'in the south', 'in the south-west', 'in the west', 'in the north-west'],
+      compass: ['N', 'E', 'S', 'W'],
+    },
+    secrets: { two: ['Two torches', 'Add a second torch: two shadows!'], eq: ['Equator · equinox', 'At noon the Sun is straight overhead. What shadow?'] },
+    quiz: [
+      { q: 'A cat-shaped card blocks the torch. What does the shadow on the wall look like?', opts: ['A round blob', 'The outline of a cat', 'A straight line'], ok: 1 },
+      { q: 'Why can’t you see a friend standing round the corner of a wall?', opts: ['Light travels in straight lines', 'Light always bends round corners', 'Light only moves upwards'], ok: 0 },
+      { q: 'In Budapest, when is your shadow shortest on a sunny day?', opts: ['At sunrise', 'At sunset', 'Around noon'], ok: 2 },
+    ],
+  },
+  ru: {
+    name: 'Тени', title: 'Почему тени растут и поворачиваются',
+    lines: [['Тяни игрушку', 'к фонарику и смотри, как меняется её тень на стене.'], ['Открой солнечные часы', 'и двигай ползунок по дню: тень будет поворачиваться.']],
+    views: { torch: '🔦 Фонарик', sun: '☀️ Часы' },
+    ask: 'Ты придвигаешь игрушку ближе к фонарику. Что будет с её тенью на стене?',
+    opts: ['Станет меньше', 'Станет больше', 'Не изменится'],
+    right: 'Верно! Сейчас увидим почему.', wrong: 'Многие так думают. Проверь на опыте!', go: 'Покажи',
+    cm: 'см', m: 'м',
+    lblToy: 'Игрушка:', lblMade: 'Из чего:', lblDay: 'День:',
+    shapes: { cat: 'Кот', star: 'Звезда', tree: 'Ёлка' },
+    mats: { opaque: 'Картон', paper: 'Калька', glass: 'Стекло' },
+    season: { summer: 'Лето', winter: 'Зима' }, play: 'Пустить день', pause: 'Пауза',
+    sliderD: 'Расстояние от игрушки до фонарика', sliderT: 'Время суток',
+    cv: { torch: 'фонарик', wall: 'стена', onWall: 'На стене', dimToy: 'фонарик → игрушка', dimWall: 'фонарик → стена', drag: 'тяни', shadow: 'тень', stick: 'палка', sunAlt: 'Высота Солнца', night: 'Солнце за горизонтом' },
+    fineTorch: 'Упрощённая модель: точечный фонарик, тонкая игрушка, идеально прямые лучи. Игрушка 10 см и 120 см до стены — примерные числа. Размер тени = размер игрушки × (фонарик→стена) ÷ (фонарик→игрушка), по подобным треугольникам.',
+    fineSun: 'Упрощённая модель: палка 1 м на ровной земле и «солнечное время» (в полдень Солнце точно на юге); уравнение времени и переход на летнее время не учитываются. Будапешт — 47,5° с. ш.; склонение Солнца +23,44° в июньское солнцестояние и −23,44° в декабрьское (0° в равноденствие). sin h = sin φ · sin δ + cos φ · cos δ · cos H, часовой угол H — 15° в час. Длина тени = высота ÷ tg h.',
+    torch: {
+      far: 'Далеко от фонарика игрушка закрывает лишь узкий пучок света, поэтому тень лишь немного больше самой игрушки.',
+      mid: 'Двигай игрушку: чем ближе она к фонарику, тем больше её тень.',
+      close: 'Близко к фонарику игрушка закрывает широкий пучок света, поэтому тень огромная.',
+      body: (r, sh, ho, d, L) => `Свет идёт по прямым линиям, а игрушка останавливает лучи, которые на неё попали. Крайние лучи задают края тени. До стены от фонарика ${L} см, до игрушки ${d} см. Отношение ${r}, поэтому тень больше игрушки в ${r} раза: ${sh} см для игрушки высотой ${ho} см.`,
+      matTitle: { opaque: 'Картон: тёмная тень', paper: 'Калька: бледная тень', glass: 'Стекло: почти нет тени' },
+      mat: { opaque: 'Картон не пропускает свет, поэтому тень тёмная.', paper: 'Калька пропускает немного рассеянного света, поэтому тень бледная.', glass: 'Прозрачное стекло пропускает почти весь свет, поэтому тени почти нет — лишь слабые края.' },
+      pill: { opaque: 'тёмная тень', paper: 'бледная тень', glass: 'слабые края' },
+      rdSub: (sh, ho) => `тень ${sh} см · игрушка ${ho} см`,
+      two: { title: 'Два фонарика — две тени', lead: 'Каждый фонарик даёт свою тень, и падают они в разных местах.', body: 'Верхний фонарик бросает тень ниже на стене. Там, где игрушка закрывает оба фонарика, темнее всего; где только один — тень светлее.' },
+    },
+    sun: {
+      names: { summer: 'Летний день в Будапеште', winter: 'Зимний день в Будапеште', eq: 'Экватор в день равноденствия' },
+      noon: 'Полдень: Солнце выше всего и точно на юге, поэтому тень самая короткая и смотрит на север.',
+      high: 'Солнце высоко, поэтому тень короткая.', low: 'Солнце низко, поэтому тень длинная.',
+      mid: 'Чем выше поднимается Солнце, тем короче тень; чем ниже оно опускается, тем длиннее.',
+      down: 'Солнце за горизонтом: нет солнечного света, нет и тени.',
+      over: 'Солнце прямо над головой: палка затеняет только землю под собой, поэтому тени почти нет.',
+      body: (time, alt, at, len, to) => `В ${time} Солнце стоит на высоте ${alt}° над горизонтом, ${at}. Тень палки: 1 м ÷ tg(${alt}°) = ${len} м. Она направлена ${to} — в сторону, противоположную Солнцу.`,
+      bodyDown: (time) => `В ${time} Солнце ещё не взошло или уже зашло. Подвигай время и найди, когда появляется тень.`,
+      earth: 'Солнце «движется» по небу, потому что Земля поворачивается на 15° каждый час (360° ÷ 24 ч).',
+      eqNote: 'На экваторе в день равноденствия в полдень Солнце проходит точно над головой.',
+      sub: (alt, time) => `высота Солнца ${alt}° · ${time}`, subDown: (time) => `${time} · Солнца нет`,
+      pill: (to) => `смотрит ${to}`,
+      dirTo: ['на север', 'на северо-восток', 'на восток', 'на юго-восток', 'на юг', 'на юго-запад', 'на запад', 'на северо-запад'],
+      dirAt: ['на севере', 'на северо-востоке', 'на востоке', 'на юго-востоке', 'на юге', 'на юго-западе', 'на западе', 'на северо-западе'],
+      compass: ['С', 'В', 'Ю', 'З'],
+    },
+    secrets: { two: ['Два фонарика', 'Добавь второй фонарик: две тени!'], eq: ['Экватор · равноденствие', 'В полдень Солнце точно над головой. А тень?'] },
+    quiz: [
+      { q: 'Картонка в форме кота закрывает свет фонарика. Как выглядит тень на стене?', opts: ['Круглое пятно', 'Контур кота', 'Прямая линия'], ok: 1 },
+      { q: 'Почему нельзя увидеть друга, который стоит за углом стены?', opts: ['Свет идёт по прямым линиям', 'Свет всегда огибает углы', 'Свет движется только вверх'], ok: 0 },
+      { q: 'В Будапеште в солнечный день: когда твоя тень самая короткая?', opts: ['На рассвете', 'На закате', 'Около полудня'], ok: 2 },
+    ],
+  },
+  hu: {
+    name: 'Árnyékok', title: 'Miért nőnek és fordulnak az árnyékok',
+    lines: [['Húzd a játékot', 'a zseblámpa felé, és nézd az árnyékát a falon.'], ['Nyisd meg a napórát', 'és csúsztasd az időt: az árnyék elfordul.']],
+    views: { torch: '🔦 Zseblámpa', sun: '☀️ Napóra' },
+    ask: 'A játékot közelebb viszed a zseblámpához. Mi történik az árnyékával a falon?',
+    opts: ['Kisebb lesz', 'Nagyobb lesz', 'Ugyanakkora marad'],
+    right: 'Pontosan! Nézzük meg, miért.', wrong: 'Sokan ezt tippelik. Próbáld ki!', go: 'Mutasd',
+    cm: 'cm', m: 'm',
+    lblToy: 'Játék:', lblMade: 'Anyaga:', lblDay: 'Nap:',
+    shapes: { cat: 'Cica', star: 'Csillag', tree: 'Fa' },
+    mats: { opaque: 'Karton', paper: 'Pergamen', glass: 'Üveg' },
+    season: { summer: 'Nyár', winter: 'Tél' }, play: 'Játszd le a napot', pause: 'Szünet',
+    sliderD: 'A játék távolsága a zseblámpától', sliderT: 'Napszak',
+    cv: { torch: 'zseblámpa', wall: 'fal', onWall: 'A falon', dimToy: 'lámpa → játék', dimWall: 'lámpa → fal', drag: 'húzd', shadow: 'árnyék', stick: 'bot', sunAlt: 'A Nap magassága', night: 'A Nap a horizont alatt van' },
+    fineTorch: 'Egyszerűsített modell: pontszerű zseblámpa, vékony játék, tökéletesen egyenes fénysugarak. A 10 cm-es játék és a falig mért 120 cm csak példaszám. Az árnyék mérete = a játék mérete × (lámpa→fal) ÷ (lámpa→játék), hasonló háromszögek alapján.',
+    fineSun: 'Egyszerűsített modell: 1 m-es bot sík talajon és „napidő” (délben a Nap pontosan délen áll); az időegyenletet és a nyári időszámítást nem vesszük figyelembe. Budapest 47,5° É szélességen fekszik; a Nap deklinációja a júniusi napfordulón +23,44°, a decemberin −23,44° (napéjegyenlőségkor 0°). sin h = sin φ · sin δ + cos φ · cos δ · cos H, az óraszög H óránként 15°. Az árnyék hossza = magasság ÷ tg h.',
+    torch: {
+      far: 'Messze a zseblámpától a játék csak keskeny fénykúpot takar el, ezért az árnyéka alig nagyobb nála.',
+      mid: 'Húzd a játékot: minél közelebb kerül a zseblámpához, annál nagyobb lesz az árnyéka.',
+      close: 'A zseblámpa közelében a játék széles fénykúpot takar el, ezért az árnyék óriási.',
+      body: (r, sh, ho, d, L) => `A fény egyenes vonalban terjed, a játék pedig megállítja a rá eső sugarakat. A szélső sugarak adják az árnyék szélét. A fal ${L} cm-re van a zseblámpától, a játék ${d} cm-re. A kettő aránya ${r}, ezért az árnyék ${r}-szeres méretű: ${sh} cm egy ${ho} cm-es játékhoz.`,
+      matTitle: { opaque: 'Karton: sötét árnyék', paper: 'Pergamenpapír: halvány árnyék', glass: 'Üveg: alig van árnyék' },
+      mat: { opaque: 'A karton nem enged át fényt, ezért az árnyék sötét.', paper: 'A pergamenpapír kevés, szétszórt fényt átenged, ezért az árnyék halvány.', glass: 'Az átlátszó üveg szinte minden fényt átenged, ezért alig van árnyék, csak halvány szélek.' },
+      pill: { opaque: 'sötét árnyék', paper: 'halvány árnyék', glass: 'halvány szélek' },
+      rdSub: (sh, ho) => `árnyék ${sh} cm · játék ${ho} cm`,
+      two: { title: 'Két zseblámpa, két árnyék', lead: 'Mindegyik zseblámpa a saját árnyékát vetíti, és máshová esnek.', body: 'A felső zseblámpa árnyéka lejjebb esik a falon. Ahol a játék mindkét lámpa fényét eltakarja, ott a legsötétebb; ahol csak az egyikét, ott világosabb az árnyék.' },
+    },
+    sun: {
+      names: { summer: 'Nyári nap Budapesten', winter: 'Téli nap Budapesten', eq: 'Egyenlítő napéjegyenlőségkor' },
+      noon: 'Dél van: a Nap a legmagasabban áll, pontosan délen, ezért az árnyék a legrövidebb, és északra mutat.',
+      high: 'A Nap magasan áll, ezért az árnyék rövid.', low: 'A Nap alacsonyan áll, ezért az árnyék hosszú.',
+      mid: 'Ahogy a Nap emelkedik, az árnyék rövidül; ahogy lemegy, megnyúlik.',
+      down: 'A Nap a horizont alatt van: nincs napfény, ezért árnyék sincs.',
+      over: 'A Nap pontosan fejünk felett áll: a bot csak a közvetlenül alatta lévő talajt árnyékolja, ezért alig van árnyék.',
+      body: (time, alt, at, len, to) => `${time}-kor a Nap ${alt}° magasan van a horizont fölött, ${at}. Az árnyék 1 m ÷ tg(${alt}°) = ${len} m hosszú, és ${to} mutat, a Nappal ellentétes irányba.`,
+      bodyDown: (time) => `${time}-kor a Nap még fel sem kelt, vagy már lement. Csúsztasd az időt, és keresd meg, mikor jelenik meg az árnyék.`,
+      earth: 'A Nap azért látszik vándorolni, mert a Föld óránként 15°-ot fordul (360° ÷ 24 óra).',
+      eqNote: 'Az Egyenlítőn, napéjegyenlőségkor a Nap délben pontosan fejünk felett halad át.',
+      sub: (alt, time) => `a Nap magassága ${alt}° · ${time}`, subDown: (time) => `${time} · nincs Nap`,
+      pill: (to) => `${to} mutat`,
+      dirTo: ['északra', 'északkeletre', 'keletre', 'délkeletre', 'délre', 'délnyugatra', 'nyugatra', 'északnyugatra'],
+      dirAt: ['északon', 'északkeleten', 'keleten', 'délkeleten', 'délen', 'délnyugaton', 'nyugaton', 'északnyugaton'],
+      compass: ['É', 'K', 'D', 'Ny'],
+    },
+    secrets: { two: ['Két zseblámpa', 'Tegyél be egy második lámpát: két árnyék!'], eq: ['Egyenlítő · napéjegyenlőség', 'Délben a Nap fejünk felett áll. Mi lesz az árnyékkal?'] },
+    quiz: [
+      { q: 'Egy cica alakú karton eltakarja a zseblámpa fényét. Milyen az árnyék a falon?', opts: ['Kerek folt', 'A cica körvonala', 'Egyenes vonal'], ok: 1 },
+      { q: 'Miért nem látod a fal sarkán túl álló barátodat?', opts: ['A fény egyenes vonalban terjed', 'A fény mindig megkerüli a sarkokat', 'A fény csak felfelé halad'], ok: 0 },
+      { q: 'Budapesten egy napsütéses napon mikor a legrövidebb az árnyékod?', opts: ['Napfelkeltekor', 'Napnyugtakor', 'Dél körül'], ok: 2 },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_Oru08pKlxd', en: 'How Shadows Form', ru: 'Как образуются тени', hu: 'Hogyan keletkeznek az árnyékok' },
+  { id: 'mt_qZro923zvz', en: 'Light Travels in Straight Lines', ru: 'Свет распространяется по прямым линиям', hu: 'A fény egyenes vonalban terjed' },
+  { id: 'mt_tMLsTPQHwF', en: 'Shadows', ru: 'Тени', hu: 'Árnyékok' },
+];
+
+// ---------------------------------------------------------------------------------------------------------
+// 2. State, constants, helpers
+// ---------------------------------------------------------------------------------------------------------
+const HO = 10, LW = 120, D0 = 30, D1 = 108;        // toy height, torch→wall (cm), range of torch→toy
+const RM = 3.2;                                      // metres shown by the radius of the sundial ground
+const PHI = 47.5, DEC = 23.44;                       // Budapest latitude, solstice declination (degrees)
+const RAD = Math.PI / 180;
+const S = { view: 'torch', d: 80, shape: 'cat', mat: 'opaque', two: false, eq: false, season: 'summer', t: 10, play: false,
+  moved: false, drag: false, answered: store.get('shadows:asked', false), answer: null };
+const G = { torchX: 0, wallX: 1 };
+
+const nf = (n, d = 0) => new Intl.NumberFormat(lang, { minimumFractionDigits: d, maximumFractionDigits: d }).format(n);
+const hhmm = (t) => { const m = Math.round(t * 60); return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`; };
+const mix = (a, b, f) => a.map((v, i) => Math.round(lerp(v, b[i], f)));
+const rgb = (a) => `rgb(${a[0]},${a[1]},${a[2]})`;
+
+const cfgNow = () => S.eq ? { lat: 0, dec: 0 } : { lat: PHI, dec: S.season === 'summer' ? DEC : -DEC };
+// altitude, azimuth (from north, clockwise) and shadow length of a 1 m stick: the standard formulas
+function sunAt(t, { lat, dec }) {
+  const H = 15 * (t - 12) * RAD, f = lat * RAD, d = dec * RAD;
+  const alt = Math.asin(clamp(Math.sin(f) * Math.sin(d) + Math.cos(f) * Math.cos(d) * Math.cos(H), -1, 1));
+  const A = Math.atan2(Math.sin(H), Math.cos(H) * Math.sin(f) - Math.tan(d) * Math.cos(f)); // from south, towards west
+  const az = (((A / RAD + 180) % 360) + 360) % 360;
+  const altD = alt / RAD, up = altD > 0.6;
+  const len = up ? 1 / Math.tan(alt) : Infinity;
+  const sh = (az + 180) * RAD;
+  return { alt: altD, az, up, len, east: up ? len * Math.sin(sh) : 0, north: up ? len * Math.cos(sh) : 0 };
+}
+
+// silhouettes in a unit box (y down), normalised to height 1 and centred
+const star = Array.from({ length: 10 }, (_, i) => { const r = i % 2 ? 0.4 : 1, a = -Math.PI / 2 + i * Math.PI / 5; return [r * Math.cos(a), r * Math.sin(a)]; });
+const POLY = {
+  cat: [
+    [[0.24, 0], [0.35, 0.12], [0.53, 0.12], [0.64, 0], [0.69, 0.2], [0.66, 0.36], [0.75, 0.46], [0.77, 0.7], [0.82, 1], [0.14, 1], [0.17, 0.7], [0.25, 0.45], [0.2, 0.36], [0.19, 0.2]],
+    [[0.72, 0.78], [0.86, 0.8], [0.93, 0.72], [0.92, 0.52], [0.98, 0.52], [1, 0.74], [0.9, 0.9], [0.72, 0.88]],
+  ],
+  star: [star],
+  tree: [[[0.5, 0], [0.78, 0.34], [0.64, 0.34], [0.9, 0.68], [0.56, 0.68], [0.56, 1], [0.44, 1], [0.44, 0.68], [0.1, 0.68], [0.36, 0.34], [0.22, 0.34]]],
+};
+for (const k of Object.keys(POLY)) {
+  let x0 = 9, x1 = -9, y0 = 9, y1 = -9;
+  POLY[k].forEach((p) => p.forEach(([x, y]) => { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }));
+  const hh = y1 - y0, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  POLY[k] = POLY[k].map((p) => p.map(([x, y]) => [(x - cx) / hh, (y - cy) / hh]));
+}
+function shapePath(c, k, cx, cy, hp) {
+  c.beginPath();
+  for (const p of POLY[k]) { p.forEach(([x, y], i) => (i ? c.lineTo(cx + x * hp, cy + y * hp) : c.moveTo(cx + x * hp, cy + y * hp))); c.closePath(); }
+}
+const poly = (c, pts) => { c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.closePath(); };
+function halo(c, s, x, y, size, col = '#fff', align = 'center', wt = 800) {
+  c.font = `${wt} ${size}px Nunito, system-ui, sans-serif`; c.textAlign = align; c.textBaseline = 'middle';
+  c.lineJoin = 'round'; c.lineWidth = 3; c.strokeStyle = 'rgba(8,10,20,.85)'; c.strokeText(s, x, y);
+  c.fillStyle = col; c.fillText(s, x, y);
+}
+function rrect(c, x, y, w, h, r) { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
+
+// ---------------------------------------------------------------------------------------------------------
+// 3. Shell, controls, prediction
+// ---------------------------------------------------------------------------------------------------------
+const lab = shell({ key: 'shadows', T, topics: TOPICS, views: ['torch', 'sun'], onLang: () => render(), onView: (v) => { S.view = v; S.play = false; render(); } });
+const secret = secretLab('shadows', () => ({
+  secrets: [{ emo: '🔦', title: T[lang].secrets.two[0], desc: T[lang].secrets.two[1] }, { emo: '🌍', title: T[lang].secrets.eq[0], desc: T[lang].secrets.eq[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="cTorch">
+    <div class="rng"><span>🔦</span><input type="range" class="big" id="slD" min="${D0}" max="${D1}" step="1" value="${S.d}"><span>🧱</span></div>
+    <div id="chTorch"></div>
+  </div>
+  <div id="cSun" hidden>
+    <div class="rng"><span>6:00</span><input type="range" class="big" id="slT" min="6" max="20" step="0.05" value="${S.t}"><span>20:00</span></div>
+    <div id="chSun"></div>
+  </div>`;
+let lastTick = 0;
+$('slD').addEventListener('input', () => { S.d = +$('slD').value; S.moved = true; if (Math.abs(S.d - lastTick) >= 3) { sfx.tick(); lastTick = S.d; } update(); });
+$('slT').addEventListener('input', () => { S.t = +$('slT').value; S.play = false; if (Math.abs(S.t - lastTick) >= 0.25) { sfx.tick(); lastTick = S.t; } render(); });
+$('ctrlBody').addEventListener('click', (ev) => {
+  const k = ev.target.closest('.chip')?.dataset.k; if (!k) return;
+  if (k === 'two' || k === 'eq') {
+    if (!secret.unlocked()) return secret.open();
+    if (k === 'two') S.two = !S.two; else { S.eq = !S.eq; S.play = false; }
+  } else if (k.startsWith('shape:')) S.shape = k.slice(6);
+  else if (k.startsWith('mat:')) S.mat = k.slice(4);
+  else if (k === 'summer' || k === 'winter') { S.season = k; S.eq = false; }
+  else if (k === 'play') { S.play = !S.play; if (S.play && S.t >= 19.9) S.t = 6; }
+  sfx.click(); render();
+});
+
+const ask = Object.assign(document.createElement('div'), { className: 'ask card' });
+$('overlay').append(ask);
+ask.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  if (b.dataset.a) { S.answer = +b.dataset.a; (S.answer === 1 ? sfx.good : sfx.bad)(); }
+  else { S.answered = true; store.set('shadows:asked', true); }
+  render();
+});
+
+function render() {
+  const t = T[lang], open = secret.unlocked();
+  $('cTorch').hidden = S.view !== 'torch'; $('cSun').hidden = S.view !== 'sun';
+  const chip = (k, label, on, extra = '') => `<button class="chip ${extra} ${on ? 'on' : ''}" data-k="${k}">${esc(label)}</button>`;
+  const sc = (k, on) => `<button class="chip secret ${open ? 'open' : ''} ${on ? 'on' : ''}" data-k="${k}">${open ? esc(t.secrets[k][0]) : '🔒 ???'}</button>`;
+  const emo = { cat: '🐈', star: '⭐', tree: '🌲' };
+  $('chTorch').innerHTML =
+    `<div class="grp"><span class="lbl">${esc(t.lblToy)}</span>${['cat', 'star', 'tree'].map((k) => chip('shape:' + k, `${emo[k]} ${t.shapes[k]}`, S.shape === k)).join('')}</div>` +
+    `<div class="grp"><span class="lbl">${esc(t.lblMade)}</span>${['opaque', 'paper', 'glass'].map((k) => chip('mat:' + k, t.mats[k], S.mat === k)).join('')}${sc('two', S.two)}</div>`;
+  $('chSun').innerHTML =
+    `<div class="grp"><span class="lbl">${esc(t.lblDay)}</span>${chip('summer', '☀️ ' + t.season.summer, !S.eq && S.season === 'summer')}${chip('winter', '❄️ ' + t.season.winter, !S.eq && S.season === 'winter')}` +
+    `${chip('play', (S.play ? '⏸ ' + t.pause : '▶ ' + t.play), S.play)}${sc('eq', S.eq)}</div>`;
+  $('slD').setAttribute('aria-label', t.sliderD); $('slT').setAttribute('aria-label', t.sliderT);
+  $('slD').value = S.d; $('slT').value = S.t;
+  ask.style.display = S.answered || S.view !== 'torch' ? 'none' : '';
+  if (!S.answered) ask.innerHTML = S.answer === null
+    ? `<div class="q">${esc(t.ask)}</div><div class="opts">${t.opts.map((o, i) => `<button data-a="${i}">${esc(o)}</button>`).join('')}</div>`
+    : `<div class="q" style="color:${S.answer === 1 ? 'var(--ok)' : 'var(--wip)'}">${esc(S.answer === 1 ? t.right : t.wrong)}</div><div class="opts"><button>${esc(t.go)} →</button></div>`;
+  update();
+}
+
+function update() { (S.view === 'torch' ? updateTorch : updateSun)(); }
+
+function updateTorch() {
+  const t = T[lang], tt = t.torch, r = LW / S.d, sh = HO * r;
+  const rS = nf(r, 1), shS = nf(sh, 1), unit = t.cm;
+  lab.setReadout(`×${rS}`, tt.rdSub(nf(sh, 0), nf(HO)), tt.pill[S.mat], '#ffb347');
+  lab.setGlow('rgba(255,170,70,.22)');
+  const ratio = `<div class="ratio">${shS} ${unit} ÷ ${nf(HO)} ${unit} = ${nf(LW)} ${unit} ÷ ${nf(S.d)} ${unit} = <b>×${rS}</b></div>`;
+  const fine = `<div class="fine">${esc(t.fineTorch)}</div>`;
+  if (S.two) lab.setState({ emo: '🔦', title: tt.two.title, lead: tt.two.lead, body: tt.two.body, extra: fine });
+  else lab.setState({
+    emo: { opaque: '🌑', paper: '🌫️', glass: '💎' }[S.mat], title: tt.matTitle[S.mat],
+    lead: r >= 2.4 ? tt.close : r <= 1.6 ? tt.far : tt.mid,
+    body: tt.body(rS, shS, nf(HO), nf(S.d), nf(LW)),
+    extra: `<div class="more">${esc(tt.mat[S.mat])}</div>${ratio}${fine}`,
+  });
+}
+
+function updateSun() {
+  const t = T[lang], ts = t.sun, cfg = cfgNow(), sun = sunAt(S.t, cfg), time = hhmm(S.t);
+  const name = ts.names[S.eq ? 'eq' : S.season];
+  lab.setGlow('rgba(255,207,92,.2)');
+  const fine = `<div class="fine">${esc(t.fineSun)}</div>`;
+  if (!sun.up) {
+    lab.setReadout('—', ts.subDown(time), '', '#ffcf5c');
+    lab.setState({ emo: '🌙', title: name, lead: ts.down, body: ts.bodyDown(time), extra: `<div class="more">${esc(ts.earth)}</div>${fine}` });
+    return;
+  }
+  const i8 = Math.round(sun.az / 45) % 8, j8 = Math.round(((sun.az + 180) % 360) / 45) % 8;
+  const altS = nf(sun.alt, 0), len = sun.len < 0.005 ? '0' : sun.len > 99 ? '>99' : nf(sun.len, sun.len < 1 ? 2 : sun.len < 10 ? 1 : 0);
+  const noon = !S.eq && Math.abs(S.t - 12) < 0.11;
+  const lead = sun.alt > 85 ? ts.over : noon ? ts.noon : sun.alt > 50 ? ts.high : sun.alt < 25 ? ts.low : ts.mid;
+  lab.setReadout(`${len} ${t.m}`, ts.sub(altS, time), sun.len < 0.05 ? '' : ts.pill(ts.dirTo[j8]), '#ffcf5c');
+  lab.setState({ emo: '☀️', title: name, lead, body: ts.body(time, altS, ts.dirAt[i8], len, ts.dirTo[j8]),
+    extra: `<div class="more">${esc(ts.earth)}${S.eq ? ' ' + esc(ts.eqNote) : ''}</div>${fine}` });
+}
+
+// pointer: drag the toy along the beam
+function setD(x) {
+  const d = clamp(Math.round((x - G.torchX) / (G.wallX - G.torchX) * LW), D0, D1);
+  if (d === S.d) return;
+  S.d = d; S.moved = true; $('slD').value = d;
+  if (Math.abs(d - lastTick) >= 3) { sfx.tick(); lastTick = d; }
+  update();
+}
+const cv = $('cv');
+cv.addEventListener('pointerdown', (ev) => {
+  if (S.view !== 'torch') return;
+  const x = ev.clientX - cv.getBoundingClientRect().left;
+  if (x > G.wallX + 4) return;
+  S.drag = true; try { cv.setPointerCapture(ev.pointerId); } catch { /* fine */ }
+  setD(x);
+});
+cv.addEventListener('pointermove', (ev) => { if (S.drag) setD(ev.clientX - cv.getBoundingClientRect().left); });
+const endDrag = () => { S.drag = false; };
+cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
+
+// ---------------------------------------------------------------------------------------------------------
+// 4. Drawing: torch scene
+// ---------------------------------------------------------------------------------------------------------
+function drawTorch(c, w, h, time) {
+  const t = T[lang], fs = clamp(w / 34, 10, 13), sc = clamp(w / 480, 0.8, 1.3);
+  const axisY = h * 0.42, torchX = w * 0.11, wallX = w * 0.56, floorY = h * 0.8, wallTop = h * 0.05;
+  const Lpx = wallX - torchX, ox = torchX + Lpx * S.d / LW, oy = axisY, HoPx = h * 0.17, ratio = LW / S.d;
+  G.torchX = torchX; G.wallX = wallX;
+  const top = oy - HoPx / 2, bot = oy + HoPx / 2;
+  const al = { opaque: 0.88, paper: 0.4, glass: 0.06 }[S.mat];
+  const aeff = S.two ? 1 - Math.sqrt(1 - al) : al;
+  const lamps = [{ x: torchX, y: axisY, col: '255,196,100' }];
+  if (S.two) lamps.push({ x: torchX, y: axisY - h * 0.11, col: '150,210,255' });
+  for (const L of lamps) { const k = (wallX - L.x) / (ox - L.x); L.proj = (y) => L.y + (y - L.y) * k; L.wT = L.proj(top); L.wB = L.proj(bot); }
+
+  // floor
+  c.fillStyle = '#171b2e'; c.fillRect(0, floorY, wallX + 13, 6);
+  // light beams
+  for (const L of lamps) {
+    const g = c.createLinearGradient(L.x, 0, wallX, 0); g.addColorStop(0, `rgba(${L.col},.26)`); g.addColorStop(1, `rgba(${L.col},.08)`);
+    c.fillStyle = g; poly(c, [[L.x, L.y], [wallX, wallTop], [wallX, floorY]]); c.fill();
+  }
+  // shadow wedges (clipped to the wall's height)
+  c.save(); c.beginPath(); c.rect(0, wallTop, wallX + 13, floorY - wallTop); c.clip();
+  for (const L of lamps) {
+    poly(c, [[ox, top], [wallX, L.wT], [wallX, L.wB], [ox, bot]]);
+    c.fillStyle = `rgba(4,6,14,${aeff})`; c.fill();
+    if (S.mat === 'glass') { c.strokeStyle = 'rgba(190,235,255,.22)'; c.lineWidth = 1; c.stroke(); }
+  }
+  c.restore();
+
+  // rays
+  c.lineCap = 'round';
+  lamps.forEach((L, li) => {
+    const rays = [];
+    rays.push({ ex: wallX, ey: L.wT, a: 0.95, lw: 1.8 }, { ex: wallX, ey: L.wB, a: 0.95, lw: 1.8 });
+    if (!S.two) for (const f of [0.25, 0.5, 0.75]) {
+      const y = top + HoPx * f;
+      if (S.mat === 'opaque') rays.push({ ex: ox, ey: y, a: 0.6, lw: 1.2 });
+      else rays.push({ ex: wallX, ey: L.proj(y), a: S.mat === 'paper' ? 0.3 : 0.7, lw: 1.2 });
+    }
+    const lo = Math.min(L.wT, L.wB), hi = Math.max(L.wT, L.wB);
+    if (lo - wallTop > 16) rays.push({ ex: wallX, ey: lerp(wallTop + 3, lo, 0.35), a: 0.45, lw: 1 }, { ex: wallX, ey: lerp(wallTop + 3, lo, 0.75), a: 0.45, lw: 1 });
+    if (floorY - 3 - hi > 16) rays.push({ ex: wallX, ey: lerp(hi, floorY - 3, 0.3), a: 0.45, lw: 1 }, { ex: wallX, ey: lerp(hi, floorY - 3, 0.7), a: 0.45, lw: 1 });
+    rays.forEach((r, i) => {
+      c.strokeStyle = `rgba(${L.col},${r.a})`; c.lineWidth = r.lw;
+      c.beginPath(); c.moveTo(L.x, L.y); c.lineTo(r.ex, r.ey); c.stroke();
+      for (let j = 0; j < 2; j++) {
+        const u = (time * 0.32 + i * 0.37 + j * 0.5 + li * 0.2) % 1;
+        c.fillStyle = `rgba(255,248,220,${Math.min(1, r.a + 0.1)})`;
+        c.beginPath(); c.arc(lerp(L.x, r.ex, u), lerp(L.y, r.ey, u), 2.2 * sc, 0, 7); c.fill();
+      }
+    });
+  });
+
+  // wall + lit strip + shadow on the strip
+  c.fillStyle = '#272c47'; c.fillRect(wallX, wallTop, 13, floorY - wallTop);
+  c.fillStyle = 'rgba(255,226,160,.92)'; c.fillRect(wallX - 7, wallTop, 7, floorY - wallTop);
+  c.save(); c.beginPath(); c.rect(wallX - 7, wallTop, 7, floorY - wallTop); c.clip();
+  for (const L of lamps) { c.fillStyle = `rgba(4,6,14,${aeff})`; c.fillRect(wallX - 7, Math.min(L.wT, L.wB), 7, Math.abs(L.wB - L.wT)); }
+  c.restore();
+  halo(c, t.cv.wall, wallX + 6, Math.max(8, wallTop - 4), fs, '#98a0b8', 'center', 700);
+
+  // toy on a stand
+  c.strokeStyle = '#59618a'; c.lineWidth = 3; c.beginPath(); c.moveTo(ox, bot - 2); c.lineTo(ox, floorY); c.stroke();
+  c.fillStyle = '#59618a'; c.fillRect(ox - 9, floorY - 3, 18, 4);
+  shapePath(c, S.shape, ox, oy, HoPx);
+  if (S.mat === 'opaque') { c.fillStyle = '#232842'; c.strokeStyle = '#9fb0e6'; }
+  else if (S.mat === 'paper') { c.fillStyle = 'rgba(238,222,176,.55)'; c.strokeStyle = 'rgba(244,230,186,.95)'; }
+  else { c.fillStyle = 'rgba(160,220,255,.10)'; c.strokeStyle = 'rgba(190,235,255,.8)'; }
+  c.lineWidth = 1.6; c.lineJoin = 'round'; c.fill(); c.stroke();
+  // toy height bracket
+  const hw = Math.abs(POLY[S.shape].flat().reduce((m, p) => Math.max(m, Math.abs(p[0])), 0)) * HoPx;
+  const bx = ox - hw - 7;
+  if (bx - 40 > torchX + 14) {
+    c.strokeStyle = 'rgba(230,236,255,.7)'; c.lineWidth = 1.2; c.beginPath();
+    c.moveTo(bx + 3, top); c.lineTo(bx, top); c.lineTo(bx, bot); c.lineTo(bx + 3, bot); c.stroke();
+    halo(c, `${nf(HO)} ${t.cm}`, bx - 4, oy, fs, '#e6ecff', 'right');
+  }
+  if (!S.moved && S.answered) {
+    const a = 0.55 + 0.45 * Math.sin(time * 4);
+    halo(c, `◀ ${t.cv.drag} ▶`, ox, top - 14, fs + 1, `rgba(255,214,120,${a})`, 'center', 900);
+  }
+
+  // torches
+  lamps.forEach((L, li) => {
+    const g = c.createRadialGradient(L.x, L.y, 0, L.x, L.y, 64 * sc); g.addColorStop(0, `rgba(${L.col},.55)`); g.addColorStop(1, `rgba(${L.col},0)`);
+    c.fillStyle = g; c.beginPath(); c.arc(L.x, L.y, 64 * sc, 0, 7); c.fill();
+    const bg = c.createLinearGradient(0, L.y - 8 * sc, 0, L.y + 8 * sc); bg.addColorStop(0, '#8a93b8'); bg.addColorStop(1, '#3d4466');
+    c.fillStyle = bg; rrect(c, L.x - 38 * sc, L.y - 7 * sc, 28 * sc, 14 * sc, 3); c.fill();
+    poly(c, [[L.x - 12 * sc, L.y - 7 * sc], [L.x - 2 * sc, L.y - 11 * sc], [L.x - 2 * sc, L.y + 11 * sc], [L.x - 12 * sc, L.y + 7 * sc]]);
+    c.fillStyle = '#5a6390'; c.fill();
+    c.fillStyle = `rgb(${L.col})`; c.beginPath(); c.ellipse(L.x - 1, L.y, 3.2 * sc, 11 * sc, 0, 0, 7); c.fill();
+    if (li === 0) { c.strokeStyle = '#59618a'; c.lineWidth = 3; c.beginPath(); c.moveTo(L.x - 24 * sc, L.y + 8 * sc); c.lineTo(L.x - 24 * sc, floorY); c.stroke(); }
+  });
+  halo(c, t.cv.torch, torchX - 20 * sc, axisY + 24 * sc, fs, '#98a0b8', 'center', 700);
+
+  // shadow size bracket on the wall (single torch)
+  if (!S.two) {
+    const L = lamps[0], y0 = clamp(Math.min(L.wT, L.wB), wallTop, floorY), y1 = clamp(Math.max(L.wT, L.wB), wallTop, floorY), x = wallX + 20;
+    c.strokeStyle = 'rgba(255,214,120,.9)'; c.lineWidth = 1.4; c.beginPath();
+    c.moveTo(x - 3, y0); c.lineTo(x, y0); c.lineTo(x, y1); c.lineTo(x - 3, y1); c.stroke();
+    halo(c, `${nf(HO * ratio, 0)} ${t.cm}`, x + 5, (y0 + y1) / 2, fs, '#ffd678', 'left');
+  }
+
+  // distance lines under the floor
+  const y1 = floorY + (h - floorY) * 0.42, y2 = floorY + (h - floorY) * 0.86;
+  const dim = (x0, x1, y, label, col) => {
+    c.strokeStyle = col; c.lineWidth = 1.2; c.beginPath();
+    c.moveTo(x0, y); c.lineTo(x1, y); c.moveTo(x0, y - 4); c.lineTo(x0, y + 4); c.moveTo(x1, y - 4); c.lineTo(x1, y + 4); c.stroke();
+    halo(c, label, (x0 + x1) / 2, y - 8, fs, col);
+  };
+  dim(torchX, ox, y1, `${t.cv.dimToy} ${nf(S.d)} ${t.cm}`, '#9fd8ff');
+  dim(torchX, wallX, y2, `${t.cv.dimWall} ${nf(LW)} ${t.cm}`, '#c9b7ff');
+
+  // "on the wall": the same shadow seen face-on
+  const SI = Math.min(w * 0.26, h * 0.46), ix = w - SI - 8, iy = axisY - SI / 2 + 4, k = SI * 0.92 / (4 * HoPx), icy = iy + SI / 2;
+  halo(c, t.cv.onWall, ix + SI / 2, iy - 11, fs, '#c6cde0', 'center', 800);
+  c.save(); rrect(c, ix, iy, SI, SI, 10); c.clip();
+  const wg = c.createRadialGradient(ix + SI / 2, icy, 4, ix + SI / 2, icy, SI * 0.8); wg.addColorStop(0, '#ffe9b5'); wg.addColorStop(1, '#d9a95e');
+  c.fillStyle = wg; c.fillRect(ix, iy, SI, SI);
+  c.setLineDash([3, 3]); c.strokeStyle = 'rgba(60,40,10,.45)'; c.lineWidth = 1;
+  shapePath(c, S.shape, ix + SI / 2, icy, HoPx * k); c.stroke(); c.setLineDash([]);
+  for (const L of lamps) {
+    const cy = icy + (L.proj(oy) - axisY) * k;
+    shapePath(c, S.shape, ix + SI / 2, cy, HoPx * ratio * k);
+    c.fillStyle = `rgba(4,6,14,${aeff})`; c.fill();
+    if (S.mat === 'glass') { c.strokeStyle = 'rgba(70,100,130,.55)'; c.lineWidth = 1.2; c.stroke(); }
+  }
+  c.restore();
+  c.strokeStyle = 'rgba(130,145,190,.5)'; c.lineWidth = 1.5; rrect(c, ix, iy, SI, SI, 10); c.stroke();
+  halo(c, `${t.cv.shadow} ×${nf(ratio, 1)}`, ix + SI / 2, iy + SI + 12, fs + 1, '#ffd678');
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// 5. Drawing: sundial scene
+// ---------------------------------------------------------------------------------------------------------
+function trailPts(cfg) {
+  const pts = [];
+  for (let tt = 6; tt <= 20.0001; tt += 0.1) { const s = sunAt(tt, cfg); pts.push({ tt, s, ok: s.up && s.len < 14 }); }
+  return pts;
+}
+function drawSide(c, B, sun, t, fs) {
+  const { x: X, y: Y, w: W, h: H } = B;
+  c.save(); rrect(c, X, Y, W, H, 12); c.clip();
+  const a = sun.alt, night = [12, 16, 38];
+  const horizon = mix(night, mix([255, 150, 80], [150, 200, 235], clamp(a / 25, 0, 1)), clamp((a + 3) / 6, 0, 1));
+  const zenith = mix(night, [40, 96, 170], clamp(a / 18, 0, 1));
+  const sk = c.createLinearGradient(0, Y, 0, Y + H); sk.addColorStop(0, rgb(zenith)); sk.addColorStop(1, rgb(horizon));
+  c.fillStyle = sk; c.fillRect(X, Y, W, H);
+  const gy = Y + H - 14, hS = Math.min(H * 0.36, W * 0.2), sx = X + W * 0.34, topY = gy - hS;
+  c.fillStyle = '#3a3426'; c.fillRect(X, gy, W, 14); c.fillStyle = '#6d6445'; c.fillRect(X, gy, W, 2);
+  let tipX = null;
+  if (sun.up) {
+    const Rs = Math.max(24, Math.min(H * 0.45 - 9, W * 0.28)), sa = sun.alt * RAD;
+    const sunX = sx - Rs * Math.cos(sa), sunY = topY - Rs * Math.sin(sa);
+    tipX = sx + hS * sun.len;
+    // ray
+    c.setLineDash([5, 4]); c.strokeStyle = 'rgba(255,214,120,.85)'; c.lineWidth = 1.5;
+    c.beginPath(); c.moveTo(sunX, sunY); c.lineTo(tipX, gy); c.stroke(); c.setLineDash([]);
+    // shadow bar
+    c.fillStyle = 'rgba(0,0,0,.8)'; c.fillRect(sx, gy - 2, Math.min(tipX, X + W) - sx, 5);
+    // sun
+    const g = c.createRadialGradient(sunX, sunY, 0, sunX, sunY, 22); g.addColorStop(0, 'rgba(255,230,140,.9)'); g.addColorStop(1, 'rgba(255,200,80,0)');
+    c.fillStyle = g; c.beginPath(); c.arc(sunX, sunY, 22, 0, 7); c.fill();
+    c.fillStyle = '#ffe58a'; c.beginPath(); c.arc(sunX, sunY, 6.5, 0, 7); c.fill();
+    // angle arc at the tip
+    if (tipX < X + W - 40) {
+      c.strokeStyle = '#ffd678'; c.lineWidth = 1.4; c.beginPath(); c.arc(tipX, gy, 18, Math.PI, Math.PI + sa); c.stroke();
+      halo(c, `${nf(sun.alt, 0)}°`, tipX + 14, gy - 10, fs, '#ffd678', 'left');
+    } else halo(c, `${nf(sun.alt, 0)}°`, X + W - 8, topY - 8, fs, '#ffd678', 'right');
+  } else halo(c, t.cv.night, X + W / 2, Y + H * 0.38, fs + 1, '#c6cde0', 'center', 800);
+  // stick (1 m)
+  c.strokeStyle = '#c9985a'; c.lineWidth = 5; c.lineCap = 'round'; c.beginPath(); c.moveTo(sx, gy); c.lineTo(sx, topY); c.stroke();
+  c.strokeStyle = 'rgba(230,236,255,.7)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(sx - 10, topY); c.lineTo(sx - 13, topY); c.lineTo(sx - 13, gy); c.lineTo(sx - 10, gy); c.stroke();
+  halo(c, `1 ${t.m}`, sx - 17, (topY + gy) / 2, fs, '#e6ecff', 'right');
+  if (sun.up && sun.len > 0.08) halo(c, `${t.cv.shadow} ${sun.len > 99 ? '>99' : nf(sun.len, sun.len < 1 ? 2 : sun.len < 10 ? 1 : 0)} ${t.m}`, clamp((sx + Math.min(tipX, X + W)) / 2, X + 50, X + W - 50), gy + 8, fs - 1, '#e6e0cc', 'center', 700);
+  c.restore();
+}
+
+function drawPlan(c, B, cfg, sun, t, time, fs) {
+  const { x: X, y: Y, w: W, h: H } = B;
+  const cx = X + W / 2, cy = Y + H / 2, R = Math.max(30, Math.min(W, H) / 2 - 16), pm = R / RM;
+  const g = c.createRadialGradient(cx, cy, 0, cx, cy, R); g.addColorStop(0, '#5f573c'); g.addColorStop(1, '#3b3626');
+  c.fillStyle = g; c.beginPath(); c.arc(cx, cy, R, 0, 7); c.fill();
+  if (!sun.up) { c.fillStyle = 'rgba(6,8,24,.5)'; c.beginPath(); c.arc(cx, cy, R, 0, 7); c.fill(); }
+  c.strokeStyle = 'rgba(160,150,110,.7)'; c.lineWidth = 2; c.beginPath(); c.arc(cx, cy, R, 0, 7); c.stroke();
+  // metre rings + axes
+  c.save(); c.beginPath(); c.arc(cx, cy, R, 0, 7); c.clip();
+  c.setLineDash([3, 4]); c.strokeStyle = 'rgba(230,236,255,.2)'; c.lineWidth = 1;
+  for (const m of [1, 2, 3]) { c.beginPath(); c.arc(cx, cy, m * pm, 0, 7); c.stroke(); }
+  c.beginPath(); c.moveTo(cx, cy - R); c.lineTo(cx, cy + R); c.moveTo(cx - R, cy); c.lineTo(cx + R, cy); c.stroke(); c.setLineDash([]);
+  for (const m of [1, 2, 3]) halo(c, `${m} ${t.m}`, cx + m * pm * 0.72 + 2, cy + m * pm * 0.72 + 7, fs - 2, 'rgba(230,236,255,.5)', 'left', 700);
+
+  // trails
+  const pts = trailPts(cfg), P = (s) => [cx + s.east * pm, cy - s.north * pm];
+  const trace = (list, pred, style, lw, dash) => {
+    c.strokeStyle = style; c.lineWidth = lw; c.setLineDash(dash); c.beginPath();
+    let pen = false;
+    for (const p of list) { if (!p.ok || !pred(p)) { pen = false; continue; } const [x, y] = P(p.s); if (pen) c.lineTo(x, y); else { c.moveTo(x, y); pen = true; } }
+    c.stroke(); c.setLineDash([]);
+  };
+  if (!S.eq) {
+    const other = trailPts({ lat: PHI, dec: S.season === 'summer' ? -DEC : DEC });
+    trace(other, () => true, S.season === 'summer' ? 'rgba(130,190,255,.4)' : 'rgba(255,190,110,.4)', 1.2, [2, 4]);
+  }
+  trace(pts, () => true, 'rgba(255,230,160,.28)', 1.6, []);
+  trace(pts, (p) => p.tt <= S.t + 0.001, 'rgba(255,214,120,.95)', 2.4, []);
+  for (let hr = 6; hr <= 20; hr++) {
+    const s = sunAt(hr, cfg); if (!s.up || s.len > 14) continue;
+    const [x, y] = P(s);
+    c.fillStyle = hr <= S.t ? '#ffd678' : 'rgba(255,230,160,.45)'; c.beginPath(); c.arc(x, y, 2.6, 0, 7); c.fill();
+    if (hr % 2 === 0 && Math.hypot(x - cx, y - cy) < R - 10) halo(c, String(hr), x, y - 9, fs - 2, 'rgba(255,240,200,.85)', 'center', 800);
+  }
+
+  if (sun.up) {
+    // shadow
+    const ex = cx + sun.east * pm, ey = cy - sun.north * pm, dx = ex - cx, dy = ey - cy, L = Math.hypot(dx, dy);
+    const nx = L ? -dy / L : 0, ny = L ? dx / L : 1;
+    const far = L > R;
+    const sx2 = far ? cx + dx / L * R : ex, sy2 = far ? cy + dy / L * R : ey;
+    poly(c, [[cx + nx * 3.2, cy + ny * 3.2], [sx2 + nx * 1.2, sy2 + ny * 1.2], [sx2 - nx * 1.2, sy2 - ny * 1.2], [cx - nx * 3.2, cy - ny * 3.2]]);
+    c.fillStyle = 'rgba(4,5,12,.88)'; c.fill();
+    if (!far) { c.fillStyle = '#ffd678'; c.beginPath(); c.arc(ex, ey, 4.2, 0, 7); c.fill(); c.strokeStyle = 'rgba(255,214,120,.5)'; c.lineWidth = 2; c.beginPath(); c.arc(ex, ey, 8 + Math.sin(time * 4) * 1.5, 0, 7); c.stroke(); }
+  }
+  c.restore();
+  // stick seen from above
+  c.fillStyle = '#c9985a'; c.beginPath(); c.arc(cx, cy, 4, 0, 7); c.fill(); c.fillStyle = '#ffe2b0'; c.beginPath(); c.arc(cx - 1, cy - 1, 1.6, 0, 7); c.fill();
+  // sun direction marker
+  if (sun.up) {
+    const a = sun.az * RAD, sx = cx + Math.sin(a) * (R - 12), sy = cy - Math.cos(a) * (R - 12);
+    const gg = c.createRadialGradient(sx, sy, 0, sx, sy, 20); gg.addColorStop(0, 'rgba(255,230,140,.85)'); gg.addColorStop(1, 'rgba(255,200,80,0)');
+    c.fillStyle = gg; c.beginPath(); c.arc(sx, sy, 20, 0, 7); c.fill();
+    c.fillStyle = '#ffe58a'; c.beginPath(); c.arc(sx, sy, 6, 0, 7); c.fill();
+  }
+  // compass
+  const cp = t.sun.compass;
+  halo(c, cp[0], cx, cy - R - 8, fs + 1, '#ff7a70', 'center', 900);
+  halo(c, cp[1], cx + R + 8, cy, fs, '#c6cde0'); halo(c, cp[2], cx, cy + R + 8, fs, '#c6cde0'); halo(c, cp[3], cx - R - 8, cy, fs, '#c6cde0');
+  halo(c, S.eq ? '0°' : `${nf(PHI, 1)}° ${lang === 'hu' ? 'É' : lang === 'ru' ? 'с. ш.' : 'N'}`, X + W - 6, Y + H - 8, fs - 1, '#98a0b8', 'right', 700);
+}
+
+function drawSun(c, w, h, time) {
+  const t = T[lang], fs = clamp(w / 34, 10, 13), cfg = cfgNow(), sun = sunAt(S.t, cfg);
+  const wide = w > h * 1.5;
+  const sv = wide ? { x: 8, y: 8, w: w * 0.42 - 12, h: h - 16 } : { x: 8, y: 8, w: w - 16, h: Math.min(h * 0.34, 160) };
+  const pv = wide ? { x: w * 0.42, y: 0, w: w * 0.58, h } : { x: 0, y: sv.y + sv.h + 2, w, h: h - sv.y - sv.h - 2 };
+  drawSide(c, sv, sun, t, fs);
+  drawPlan(c, pv, cfg, sun, t, time, fs);
+}
+
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  if (S.view === 'sun' && S.play) {
+    S.t += dt * 1.3; if (S.t > 20) S.t = 6;
+    $('slT').value = S.t; updateSun();
+  }
+  if (S.view === 'torch') drawTorch(c, w, h, time); else drawSun(c, w, h, time);
+});
+render();
+</script>
+</body>
+</html>
