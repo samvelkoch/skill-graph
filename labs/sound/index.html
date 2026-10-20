@@ -1,0 +1,830 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sound Lab · Skill Graph</title>
+<meta name="description" content="Every sound is something shaking: pluck a string, make rice jump on a drum and hum with your vocal folds. Faster shaking sounds higher, bigger shaking sounds louder. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  .snd { border-color: var(--wip); color: var(--wip); }
+  .snd.on { border-color: var(--stroke2); color: var(--soft); }
+  #ctrlBody .btn { padding: 9px 18px; }
+  #ctrlBody .btn.ghost { color: var(--soft); }
+  .sec { display: none; }
+  .sec.show { display: block; }
+  .stats { display: grid; gap: 4px; }
+  .stats b { color: #fff; }
+  .fine { margin-top: 8px; font-size: 11px; color: var(--faint); }
+  .hl { color: var(--soft); }
+  .ask { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); width: min(560px, calc(100% - 16px)); padding: 14px 16px;
+    text-align: center; }
+  .ask .q { font: 500 22px/1.2 var(--serif); color: #fff; margin-bottom: 10px; text-wrap: balance; }
+  .ask .opts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .ask button { padding: 9px 14px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 800; cursor: pointer; }
+  .ask button:hover { background: rgba(130, 145, 190, .25); }
+  .ask p { margin: 0 0 10px; color: var(--soft); font-size: 13px; }
+  .ask .verdict { font-weight: 900; margin-bottom: 4px; }
+  @media (max-width: 760px) {
+    .ask .q { font-size: 18px; } .ask { padding: 10px 12px; top: 6px; }
+    .ask button { padding: 7px 11px; font-size: 12.5px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, store, ruPlural, lang } from '../lab.js';
+
+// --- the model ---------------------------------------------------------------------------------------------
+// A string obeys f = (1/2L)·√(T/μ). The whole thick string (65 cm, like a guitar) is tuned to 110 Hz, the
+// A string of a guitar. Thin = 2/3 of the thickness (μ ∝ d², so f × 1.5); tight = pulled 2.25× as hard (f × 1.5).
+const F0 = 110, L0 = 65, LMIN = 13, SLOW = 200, WINDOW = 0.02;
+const STRENGTHS = [0.3, 0.6, 1], LEVELS = [0.25, 0.55, 1];
+const SECRET = { low: { f: 15, slow: 10 }, high: { f: 25000, slow: 10000 } };
+const DRUM_F = 220, V_SOUND = 343, DIST = 1; // the drum is 1 m away; sound in air at 20 °C
+const ARRIVE = DIST / V_SOUND * SLOW, EMIT = 2.6; // seconds of slowed-down (on-screen) time
+
+// --- words -------------------------------------------------------------------------------------------------
+const ruSh = (n) => ruPlural(n, 'колебание', 'колебания', 'колебаний');
+const T = {
+  en: {
+    name: 'Sound Lab', title: 'Sound is a shake',
+    lines: [['Every sound', 'comes from something moving back and forth, very fast.'], ['Faster shaking, higher sound.', 'Bigger shaking, louder sound.'], ['Pluck a string, beat a drum and hum:', 'watch it and hear it.']],
+    views: { string: '🎸 String', drum: '🥁 Drum', voice: '🗣️ Voice' },
+    hz: 'Hz', perSec: () => 'shakes per second (hertz, Hz)',
+    sndOff: '🔈 Sound is off: tap to hear it', sndOn: '🔊 Sound on',
+    pill: { low: 'low sound', mid: 'middle sound', high: 'high sound', tooLow: 'too low to hear', tooHigh: 'too high to hear' },
+    gaugeCap: 'Loudness', ticks: ['silent', 'gentle', 'medium', 'strong'],
+    // string
+    lenLbl: 'String length', ends: ['short → high', 'long → low'], whole: 'Whole',
+    thickLbl: 'String', thick: { thick: 'Thick', thin: 'Thin' }, tightLbl: 'Pull', tight: { normal: 'Normal', tight: 'Tighter' },
+    strLbl: 'Pluck', str: ['Gentle', 'Medium', 'Strong'], pluck: '🎸 Pluck!',
+    slowed: (n) => `slowed down ×${n}`, screen: 'Sound screen', window: '0.02 seconds', last: 'last time', loud: 'loudness',
+    waves: (n) => `${n} waves`, size: 'size of the shake', tip: '👆 Tap the string or pull it', clampTip: '↔ drag', silent: '🔇 Silence: human ears can’t hear this',
+    notScale: 'not to scale',
+    sTitle: (f) => `${nf(f)} shakes every second`,
+    sIdle: 'Pluck the string and watch it shake.',
+    sPluck: 'The string shakes back and forth. That shaking is the sound.',
+    why: {
+      shorter: 'Shorter string, faster shaking, higher sound.', longer: 'Longer string, slower shaking, lower sound.',
+      thin: 'A thin string is lighter, so it shakes faster: a higher sound.', thick: 'A thick string is heavier, so it shakes more slowly: a lower sound.',
+      tight: 'Pulled tighter, the string snaps back faster: a higher sound.', normal: 'Less pull, slower shaking: a lower sound.',
+      stronger: 'A stronger pluck makes BIGGER shakes: louder, but not higher. On the sound screen the waves get taller, not closer together.',
+      weaker: 'A gentler pluck makes smaller shakes: quieter, but not lower. The waves get shorter, not further apart.',
+    },
+    sBody: (f) => `This string shakes back and forth ${nf(f)} times in one second. That is far too fast for your eyes, so here it is slowed down ×200. Every shake pushes the air, the air pushes on your eardrum, and you hear a sound.`,
+    note: 'Closest musical note', count: 'Counting the shakes of just ONE second, one number per second, would take you',
+    dur: (h, m, s) => [h && `${h} h`, m && `${m} min`, s && `${s} s`].filter(Boolean).join(' '),
+    octave: 'Exactly half the length gives exactly twice the shakes. Musicians call this jump an octave: the same note, only higher.',
+    fine: 'Model: f = (1/2L)·√(T/μ). Half the length → twice the shakes; a string 2/3 as thick, or pulled 2.25× as hard → 1.5× the shakes. The whole thick string (65 cm) is tuned to 110 Hz, like the A string of a guitar. The picture is slowed down and fades more slowly than the real sound; the sound screen shows only the main shake. Note names: A = 440 Hz.',
+    sec: {
+      low: { title: 'Too low to hear', lead: 'Only 15 shakes a second: your ears hear nothing.',
+        body: (len) => `People hear from about 20 to about 20,000 shakes per second. Below that, things still shake and push the air, but we can’t hear it. Elephants can call to each other with rumbles this low. To shake this slowly, our string would have to be ${len} long.` },
+      high: { title: 'Too high to hear', lead: '25,000 shakes a second: too fast for human ears.',
+        body: (len) => `Above about 20,000 shakes per second people hear nothing (and the older you get, the lower that limit). Bats use sounds this high to find their way in the dark. Our string would have to be just ${len} long.` },
+    },
+    secFine: 'Human hearing: about 20–20,000 Hz (the usual textbook range for young people). Bats: ultrasound calls (Griffin, 1958). Elephants: infrasound rumbles (Payne, Langbauer & Thomas, 1986). Nothing is played in this mode: the lab never plays sounds this low or this high.',
+    secrets: { low: ['Too low', 'An elephant rumble'], high: ['Too high', 'A bat squeak'] },
+    quiz: [
+      { q: 'What makes every sound?', opts: ['Something shaking back and forth', 'Something getting hot', 'Air standing still'], ok: 0 },
+      { q: 'Which string makes the higher sound?', opts: ['The longer one', 'The shorter one', 'They sound the same'], ok: 1 },
+      { q: 'You hit a drum harder. The sound gets…', opts: ['higher', 'louder', 'quieter'], ok: 1 },
+    ],
+    ask: 'You pluck the same string harder. What changes?', a: { higher: '⬆️ It sounds higher', louder: '🔊 It sounds louder', both: '🤷 Both' },
+    yesV: 'Right!', yesT: 'Bigger shakes, louder sound, and the pitch stays the same. Watch the sound screen: first gentle, then strong.',
+    noV: 'Lots of people mix up “high” and “loud”!', noT: 'Watch the sound screen: first gentle, then strong. Do the waves get closer together, or just taller?', go: 'Show me',
+    // drum
+    lvLbl: 'How loud', drumLv: ['🤫 Quiet', '🗣️ Medium', '📣 Loud'], voiceBtn: ['▶ Whisper', '▶ Talk', '▶ Shout'], hit: '🥁 Hit the drum',
+    meter: '1 m', drumTip: '👆 Tap the drum to hit it', rice: 'rice',
+    dIdle: { title: 'Rice on a drum', lead: 'Can a sound make something else shake?', body: 'Choose how loud, then make a sound next to the drum. Watch the rice!' },
+    dVoice: { title: 'Sound makes things shake', leads: ['A whisper makes tiny shakes: the rice hardly moves.', 'Talking shakes the drum skin a little: the rice hops.', 'A shout makes big shakes: the rice jumps high!'],
+      body: 'Your voice shakes the air. The shaking travels through the air to the drum and makes its skin shake too, just as fast. The louder the sound, the bigger the shakes, and the higher the rice jumps.' },
+    dHit: { title: 'The drum skin', leads: ['A gentle tap: small shakes, a quiet sound. The rice hardly moves.', 'A medium hit: the skin shakes more and the rice hops.', 'A hard hit: big shakes, a loud boom, and the rice jumps high!'],
+      body: 'The drum skin shakes up and down and pushes the air: that is the drum’s sound. A harder hit doesn’t make it shake faster. It makes it shake further.' },
+    dFine: 'Sound travels through air at about 343 m/s (at 20 °C), so it crosses 1 m in about 3 thousandths of a second. Here everything is slowed down ×200. The drum, the rice and the voice (a simple tone) are a simplified model.',
+    // voice
+    foldLbl: 'Vocal folds', foldEnds: ['loose → low', 'tight → high'], voiceLv: ['🤫 Soft', '🙂 Medium', '📣 Loud'], hum: '🎵 Hum',
+    folds: 'vocal folds', air: 'air from your lungs pushes up through the gap', topView: 'top view, inside your throat', front: 'front', voiceTip: '👆 Tap to hum',
+    vTitle: 'Your voice box',
+    vIdle: 'Put your fingers on your throat and hum. Feel the buzz? Those are your vocal folds shaking.',
+    vWhy: { higher: 'Tighter folds shake faster: a higher voice.', lower: 'Looser folds shake more slowly: a lower voice.',
+      louder: 'More air, bigger shakes: a louder voice, the same note.', softer: 'Less air, smaller shakes: a quieter voice, the same note.' },
+    vBody: (f) => `Inside your throat are two soft flaps called vocal folds. Air from your lungs makes them shake: here ${nf(f)} times a second. Stretch them tighter and they shake faster: a higher voice. Push more air and they shake further: a louder voice.`,
+    vFine: 'A simplified model: real vocal folds change their length, thickness and tightness together, and a real voice is richer than this simple tone. Slowed down ×200.',
+    units: { m: 'm', cm: 'cm', mm: 'mm' },
+    notes: ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'],
+  },
+  ru: {
+    name: 'Звуковая лаборатория', title: 'Звук — это дрожание',
+    lines: [['Любой звук', 'появляется, когда что-то очень быстро движется туда-сюда.'], ['Чаще дрожит — звук выше.', 'Сильнее дрожит — звук громче.'], ['Дёрни струну, ударь в барабан и спой «м-м-м»:', 'смотри и слушай.']],
+    views: { string: '🎸 Струна', drum: '🥁 Барабан', voice: '🗣️ Голос' },
+    hz: 'Гц', perSec: (f) => `${ruSh(Math.round(f))} в секунду (герц, Гц)`,
+    sndOff: '🔈 Звук выключен: нажми, чтобы услышать', sndOn: '🔊 Звук включён',
+    pill: { low: 'низкий звук', mid: 'средний звук', high: 'высокий звук', tooLow: 'слишком низко — не слышно', tooHigh: 'слишком высоко — не слышно' },
+    gaugeCap: 'Громкость', ticks: ['тишина', 'слабо', 'средне', 'сильно'],
+    lenLbl: 'Длина струны', ends: ['короткая → высоко', 'длинная → низко'], whole: 'Целая',
+    thickLbl: 'Струна', thick: { thick: 'Толстая', thin: 'Тонкая' }, tightLbl: 'Натяжение', tight: { normal: 'Обычное', tight: 'Сильнее' },
+    strLbl: 'Щипок', str: ['Слабый', 'Средний', 'Сильный'], pluck: '🎸 Дёрнуть!',
+    slowed: (n) => `замедлено в ${nf(n)} ${ruPlural(n, 'раз', 'раза', 'раз')}`, screen: 'Экран звука', window: '0,02 секунды', last: 'прошлый раз', loud: 'громкость',
+    waves: (n) => `волн: ${n}`, size: 'размах', tip: '👆 Нажми на струну или оттяни её', clampTip: '↔ двигай', silent: '🔇 Тишина: человеческое ухо этого не слышит',
+    notScale: 'не в масштабе',
+    sTitle: (f) => `${nf(f)} ${ruSh(Math.round(f))} в секунду`,
+    sIdle: 'Дёрни струну и посмотри, как она дрожит.',
+    sPluck: 'Струна дрожит туда-сюда. Это дрожание и есть звук.',
+    why: {
+      shorter: 'Короче струна — чаще колебания — выше звук.', longer: 'Длиннее струна — реже колебания — ниже звук.',
+      thin: 'Тонкая струна легче, поэтому дрожит чаще: звук выше.', thick: 'Толстая струна тяжелее, поэтому дрожит реже: звук ниже.',
+      tight: 'Сильнее натянутая струна быстрее возвращается назад: звук выше.', normal: 'Слабее натяжение — реже колебания — звук ниже.',
+      stronger: 'Сильный щипок делает колебания БОЛЬШЕ: звук громче, но не выше. На экране звука волны становятся выше, но не ближе друг к другу.',
+      weaker: 'Слабый щипок делает колебания меньше: звук тише, но не ниже. Волны становятся ниже, но не дальше друг от друга.',
+    },
+    sBody: (f) => `Эта струна делает ${nf(f)} ${ruSh(Math.round(f))} туда-сюда за одну секунду. Глаз не успевает это увидеть, поэтому здесь всё замедлено в 200 раз. Каждое колебание толкает воздух, воздух давит на барабанную перепонку в твоём ухе — и ты слышишь звук.`,
+    note: 'Ближайшая нота', count: 'Чтобы пересчитать колебания всего ОДНОЙ секунды, называя по числу в секунду, тебе понадобится',
+    dur: (h, m, s) => [h && `${h} ч`, m && `${m} мин`, s && `${s} с`].filter(Boolean).join(' '),
+    octave: 'Ровно вдвое короче — ровно вдвое больше колебаний. Музыканты называют такой скачок октавой: та же нота, только выше.',
+    fine: 'Модель: f = (1/2L)·√(T/μ). Вдвое короче → вдвое больше колебаний; струна толщиной в 2/3 или натянутая в 2,25 раза сильнее → в 1,5 раза больше колебаний. Целая толстая струна (65 см) настроена на 110 Гц, как струна ля у гитары. Картинка замедлена и затихает медленнее настоящего звука; экран звука показывает только основное колебание. Названия нот: ля первой октавы = 440 Гц.',
+    sec: {
+      low: { title: 'Слишком низко', lead: 'Всего 15 колебаний в секунду: ухо ничего не слышит.',
+        body: (len) => `Люди слышат примерно от 20 до 20 000 колебаний в секунду. Ниже этого предметы всё так же дрожат и толкают воздух, но мы этого не слышим. Слоны умеют переговариваться таким низким гулом. Чтобы дрожать так медленно, наша струна должна быть длиной ${len}.` },
+      high: { title: 'Слишком высоко', lead: '25 000 колебаний в секунду: слишком часто для человеческого уха.',
+        body: (len) => `Выше примерно 20 000 колебаний в секунду люди ничего не слышат (а с возрастом эта граница опускается). Летучие мыши находят дорогу в темноте с помощью таких высоких звуков. Для этого наша струна должна быть длиной всего ${len}.` },
+    },
+    secFine: 'Слух человека: примерно 20–20 000 Гц (обычное значение из учебников, для молодых людей). Летучие мыши: ультразвук (Griffin, 1958). Слоны: инфразвук (Payne, Langbauer, Thomas, 1986). В этом режиме ничего не звучит: лаборатория никогда не играет такие низкие или высокие звуки.',
+    secrets: { low: ['Слишком низко', 'Гул слона'], high: ['Слишком высоко', 'Писк летучей мыши'] },
+    quiz: [
+      { q: 'Откуда берётся любой звук?', opts: ['Что-то дрожит туда-сюда', 'Что-то нагревается', 'Воздух стоит неподвижно'], ok: 0 },
+      { q: 'Какая струна звучит выше?', opts: ['Длинная', 'Короткая', 'Одинаково'], ok: 1 },
+      { q: 'Ударь по барабану сильнее — и звук станет…', opts: ['выше', 'громче', 'тише'], ok: 1 },
+    ],
+    ask: 'Ты дёргаешь ту же струну сильнее. Что изменится?', a: { higher: '⬆️ Звук станет выше', louder: '🔊 Звук станет громче', both: '🤷 И то и другое' },
+    yesV: 'Верно!', yesT: 'Больше колебания — громче звук, а высота та же. Смотри на экран звука: сначала слабый щипок, потом сильный.',
+    noV: 'Многие путают «высокий» и «громкий»!', noT: 'Смотри на экран звука: сначала слабый щипок, потом сильный. Волны станут ближе друг к другу или просто выше?', go: 'Показать',
+    lvLbl: 'Насколько громко', drumLv: ['🤫 Тихо', '🗣️ Средне', '📣 Громко'], voiceBtn: ['▶ Прошептать', '▶ Сказать', '▶ Крикнуть'], hit: '🥁 Ударить',
+    meter: '1 м', drumTip: '👆 Нажми на барабан, чтобы ударить', rice: 'рис',
+    dIdle: { title: 'Рис на барабане', lead: 'Может ли звук заставить дрожать что-то другое?', body: 'Выбери громкость и издай звук рядом с барабаном. Следи за рисом!' },
+    dVoice: { title: 'Звук заставляет дрожать', leads: ['Шёпот даёт крошечные колебания: рис почти не двигается.', 'Обычный голос слегка раскачивает кожу барабана: рис подпрыгивает.', 'Крик даёт большие колебания: рис скачет высоко!'],
+      body: 'Твой голос заставляет дрожать воздух. Дрожание бежит по воздуху до барабана, и его кожа тоже начинает дрожать — так же часто. Чем громче звук, тем больше колебания и тем выше прыгает рис.' },
+    dHit: { title: 'Кожа барабана', leads: ['Лёгкий удар: маленькие колебания, тихий звук. Рис почти не двигается.', 'Удар посильнее: кожа дрожит сильнее, рис подпрыгивает.', 'Сильный удар: большие колебания, громкое «бум», и рис скачет высоко!'],
+      body: 'Кожа барабана дрожит вверх-вниз и толкает воздух — это и есть звук барабана. От сильного удара она дрожит не чаще, а размашистее.' },
+    dFine: 'Звук бежит по воздуху со скоростью около 343 м/с (при 20 °C), поэтому 1 метр он проходит примерно за 3 тысячные доли секунды. Здесь всё замедлено в 200 раз. Барабан, рис и голос (простой тон) — упрощённая модель.',
+    foldLbl: 'Голосовые складки', foldEnds: ['свободные → низко', 'тугие → высоко'], voiceLv: ['🤫 Тихо', '🙂 Средне', '📣 Громко'], hum: '🎵 Спеть «м-м-м»',
+    folds: 'голосовые складки', air: 'воздух из лёгких проходит через щель', topView: 'вид сверху, внутри горла', front: 'спереди', voiceTip: '👆 Нажми, чтобы спеть',
+    vTitle: 'Твой голос',
+    vIdle: 'Положи пальцы на горло и спой «м-м-м». Чувствуешь, как жужжит? Это дрожат голосовые складки.',
+    vWhy: { higher: 'Тугие складки дрожат чаще: голос выше.', lower: 'Свободные складки дрожат реже: голос ниже.',
+      louder: 'Больше воздуха — больше колебания: голос громче, а нота та же.', softer: 'Меньше воздуха — меньше колебания: голос тише, а нота та же.' },
+    vBody: (f) => `В горле есть две мягкие складки — голосовые складки. Воздух из лёгких заставляет их дрожать: здесь ${nf(f)} ${ruSh(Math.round(f))} в секунду. Натяни их туже — они дрожат чаще, и голос выше. Подуй сильнее — они дрожат размашистее, и голос громче.`,
+    vFine: 'Упрощённая модель: у настоящих голосовых складок меняются сразу длина, толщина и натяжение, а настоящий голос богаче этого простого тона. Замедлено в 200 раз.',
+    units: { m: 'м', cm: 'см', mm: 'мм' },
+    notes: ['до', 'до♯', 'ре', 'ре♯', 'ми', 'фа', 'фа♯', 'соль', 'соль♯', 'ля', 'ля♯', 'си'],
+  },
+  hu: {
+    name: 'Hanglabor', title: 'A hang rezgés',
+    lines: [['Minden hang', 'onnan ered, hogy valami nagyon gyorsan ide-oda mozog.'], ['Gyorsabb rezgés, magasabb hang.', 'Nagyobb rezgés, hangosabb hang.'], ['Pengess meg egy húrt, üsd meg a dobot, és dúdolj:', 'nézd és hallgasd.']],
+    views: { string: '🎸 Húr', drum: '🥁 Dob', voice: '🗣️ Hangod' },
+    hz: 'Hz', perSec: () => 'rezgés másodpercenként (hertz, Hz)',
+    sndOff: '🔈 A hang ki van kapcsolva: koppints ide', sndOn: '🔊 Hang bekapcsolva',
+    pill: { low: 'mély hang', mid: 'közepes hang', high: 'magas hang', tooLow: 'túl mély, nem halljuk', tooHigh: 'túl magas, nem halljuk' },
+    gaugeCap: 'Hangerő', ticks: ['csend', 'gyenge', 'közepes', 'erős'],
+    lenLbl: 'A húr hossza', ends: ['rövid → magas', 'hosszú → mély'], whole: 'Egész',
+    thickLbl: 'Húr', thick: { thick: 'Vastag', thin: 'Vékony' }, tightLbl: 'Feszítés', tight: { normal: 'Normál', tight: 'Feszesebb' },
+    strLbl: 'Pengetés', str: ['Gyenge', 'Közepes', 'Erős'], pluck: '🎸 Pengess!',
+    slowed: (n) => `${nf(n)}× lassítva`, screen: 'Hangképernyő', window: '0,02 másodperc', last: 'előző', loud: 'hangerő',
+    waves: (n) => `${n} hullám`, size: 'a rezgés mérete', tip: '👆 Koppints a húrra, vagy húzd meg', clampTip: '↔ húzd', silent: '🔇 Csend: az emberi fül ezt nem hallja',
+    notScale: 'nem méretarányos',
+    sTitle: (f) => `Másodpercenként ${nf(f)} rezgés`,
+    sIdle: 'Pengesd meg a húrt, és figyeld, ahogy rezeg.',
+    sPluck: 'A húr ide-oda rezeg. Ez a rezgés maga a hang.',
+    why: {
+      shorter: 'Rövidebb húr, gyorsabb rezgés, magasabb hang.', longer: 'Hosszabb húr, lassabb rezgés, mélyebb hang.',
+      thin: 'A vékony húr könnyebb, ezért gyorsabban rezeg: magasabb hang.', thick: 'A vastag húr nehezebb, ezért lassabban rezeg: mélyebb hang.',
+      tight: 'A feszesebb húr gyorsabban pattan vissza: magasabb hang.', normal: 'Kisebb feszítés, lassabb rezgés: mélyebb hang.',
+      stronger: 'Az erősebb pengetés NAGYOBB rezgést kelt: hangosabb, de nem magasabb hangot. A hangképernyőn a hullámok magasabbak lesznek, de nem kerülnek közelebb egymáshoz.',
+      weaker: 'A gyengébb pengetés kisebb rezgést kelt: halkabb, de nem mélyebb hangot. A hullámok alacsonyabbak lesznek, de nem távolodnak el egymástól.',
+    },
+    sBody: (f) => `Ez a húr egyetlen másodperc alatt ${nf(f)} rezgést végez ide-oda. Ez túl gyors a szemednek, ezért itt 200× lassítva látod. Minden rezgés meglöki a levegőt, a levegő megnyomja a dobhártyádat, és hangot hallasz.`,
+    note: 'Legközelebbi zenei hang', count: 'Ha egyetlen másodperc rezgéseit végigszámolnád, másodpercenként egy számot mondva, ennyi időbe telne:',
+    dur: (h, m, s) => [h && `${h} óra`, m && `${m} perc`, s && `${s} másodperc`].filter(Boolean).join(' '),
+    octave: 'Pontosan fele akkora hossz pontosan kétszer annyi rezgést ad. A zenészek ezt az ugrást oktávnak hívják: ugyanaz a hang, csak magasabban.',
+    fine: 'Modell: f = (1/2L)·√(T/μ). Fele hossz → kétszer annyi rezgés; kétharmad vastagságú vagy 2,25-ször erősebben feszített húr → 1,5-szer annyi rezgés. Az egész vastag húr (65 cm) 110 Hz-re van hangolva, mint a gitár A-húrja. A kép lassítva van, és lassabban halkul el, mint a valódi hang; a hangképernyő csak a fő rezgést mutatja. A hangok neve: az egyvonalas A = 440 Hz.',
+    sec: {
+      low: { title: 'Túl mély', lead: 'Másodpercenként csak 15 rezgés: a füled semmit sem hall.',
+        body: (len) => `Az ember nagyjából a másodpercenként 20 és 20 000 közötti rezgéseket hallja. Ez alatt a dolgok ugyanúgy rezegnek és lökdösik a levegőt, csak mi nem halljuk. Az elefántok ilyen mély morajlással is szólnak egymáshoz. Ilyen lassú rezgéshez a húrunknak ilyen hosszúnak kellene lennie: ${len}.` },
+      high: { title: 'Túl magas', lead: 'Másodpercenként 25 000 rezgés: túl gyors az emberi fülnek.',
+        body: (len) => `Másodpercenként nagyjából 20 000 rezgés fölött már semmit sem hallunk (és minél idősebb valaki, annál lejjebb van ez a határ). A denevérek ilyen magas hangokkal tájékozódnak a sötétben. Ehhez a húrunk mindössze ilyen hosszú lehetne: ${len}.` },
+    },
+    secFine: 'Az emberi hallás: nagyjából 20–20 000 Hz (a szokásos tankönyvi érték fiataloknál). Denevérek: ultrahangos hívások (Griffin, 1958). Elefántok: infrahangos morajlás (Payne, Langbauer és Thomas, 1986). Ebben a módban semmi sem szól: a labor sosem játszik le ilyen mély vagy magas hangot.',
+    secrets: { low: ['Túl mély', 'Elefántmorajlás'], high: ['Túl magas', 'Denevérhang'] },
+    quiz: [
+      { q: 'Mi kelt minden hangot?', opts: ['Valami, ami ide-oda rezeg', 'Valami, ami felmelegszik', 'A mozdulatlan levegő'], ok: 0 },
+      { q: 'Melyik húr szól magasabban?', opts: ['A hosszabb', 'A rövidebb', 'Egyformán szólnak'], ok: 1 },
+      { q: 'Erősebben ütöd meg a dobot. A hang…', opts: ['magasabb lesz', 'hangosabb lesz', 'halkabb lesz'], ok: 1 },
+    ],
+    ask: 'Ugyanazt a húrt erősebben pengeted. Mi változik?', a: { higher: '⬆️ Magasabb lesz', louder: '🔊 Hangosabb lesz', both: '🤷 Mindkettő' },
+    yesV: 'Így van!', yesT: 'Nagyobb rezgés, hangosabb hang, a hangmagasság pedig nem változik. Figyeld a hangképernyőt: előbb gyenge, aztán erős pengetés.',
+    noV: 'Sokan összekeverik a „magasat” és a „hangosat”!', noT: 'Figyeld a hangképernyőt: előbb gyenge, aztán erős pengetés. Közelebb kerülnek egymáshoz a hullámok, vagy csak magasabbak lesznek?', go: 'Mutasd',
+    lvLbl: 'Milyen hangosan', drumLv: ['🤫 Halkan', '🗣️ Közepesen', '📣 Hangosan'], voiceBtn: ['▶ Suttogj', '▶ Beszélj', '▶ Kiálts'], hit: '🥁 Üsd meg',
+    meter: '1 m', drumTip: '👆 Koppints a dobra, hogy megüsd', rice: 'rizs',
+    dIdle: { title: 'Rizs a dobon', lead: 'Meg tud rezegtetni a hang valami mást?', body: 'Válaszd ki, milyen hangosan, aztán adj ki egy hangot a dob mellett. Figyeld a rizst!' },
+    dVoice: { title: 'A hang megrezegtet', leads: ['A suttogás apró rezgést kelt: a rizs alig mozdul.', 'A beszéd kicsit megrezegteti a dob bőrét: a rizs ugrál.', 'A kiáltás nagy rezgést kelt: a rizs magasra ugrik!'],
+      body: 'A hangod megrezegteti a levegőt. A rezgés a levegőn át eljut a dobhoz, és a dob bőrét is megrezegteti, ugyanolyan gyorsan. Minél hangosabb a hang, annál nagyobb a rezgés, és annál magasabbra ugrik a rizs.' },
+    dHit: { title: 'A dob bőre', leads: ['Gyenge ütés: kis rezgés, halk hang. A rizs alig mozdul.', 'Közepes ütés: a bőr jobban rezeg, a rizs ugrál.', 'Erős ütés: nagy rezgés, hangos dobbanás, és a rizs magasra ugrik!'],
+      body: 'A dob bőre fel-le rezeg, és meglöki a levegőt: ez a dob hangja. Az erősebb ütéstől nem gyorsabban rezeg, hanem nagyobbat.' },
+    dFine: 'A hang a levegőben körülbelül 343 m/s sebességgel terjed (20 °C-on), így 1 métert nagyjából 3 ezredmásodperc alatt tesz meg. Itt minden 200× lassítva látszik. A dob, a rizs és a hang (egy egyszerű hang) egyszerűsített modell.',
+    foldLbl: 'Hangszalagok', foldEnds: ['lazák → mély', 'feszesek → magas'], voiceLv: ['🤫 Halkan', '🙂 Közepesen', '📣 Hangosan'], hum: '🎵 Dúdolj',
+    folds: 'hangszalagok', air: 'a tüdődből jövő levegő a résen át áramlik', topView: 'felülnézet, a torkodban', front: 'elöl', voiceTip: '👆 Koppints a dúdoláshoz',
+    vTitle: 'A gégéd',
+    vIdle: 'Tedd az ujjaidat a torkodra, és dúdolj. Érzed a zümmögést? A hangszalagjaid rezegnek.',
+    vWhy: { higher: 'A feszesebb hangszalag gyorsabban rezeg: magasabb hang.', lower: 'A lazább hangszalag lassabban rezeg: mélyebb hang.',
+      louder: 'Több levegő, nagyobb rezgés: hangosabb hang, ugyanazon a hangmagasságon.', softer: 'Kevesebb levegő, kisebb rezgés: halkabb hang, ugyanazon a hangmagasságon.' },
+    vBody: (f) => `A torkodban két puha redő van, ezek a hangszalagok. A tüdődből jövő levegő rezgésbe hozza őket: itt egy másodperc alatt ${nf(f)} rezgés. Ha feszesebbre húzod őket, gyorsabban rezegnek: magasabb lesz a hangod. Ha több levegőt fújsz, nagyobbat rezegnek: hangosabb lesz a hangod.`,
+    vFine: 'Egyszerűsített modell: a valódi hangszalagok hossza, vastagsága és feszessége együtt változik, és a valódi hang gazdagabb ennél az egyszerű hangnál. 200× lassítva.',
+    units: { m: 'm', cm: 'cm', mm: 'mm' },
+    notes: ['C', 'Cisz', 'D', 'Disz', 'E', 'F', 'Fisz', 'G', 'Gisz', 'A', 'B', 'H'],
+  },
+};
+const TOPICS = [
+  { id: 'mt_VBl1T1sFCM', en: 'Vibrations & Sound', ru: 'Вибрации и звук', hu: 'Rezgések és hang' },
+  { id: 'mt_KTSoXcO7OL', en: 'Pitch of Sounds', ru: 'Высота звука', hu: 'A hangok magassága' },
+  { id: 'mt__00ZSLnB7p', en: 'Volume & Vibrations', ru: 'Громкость и вибрации', hu: 'Hangerő és rezgések' },
+];
+
+function nf(x, d) {
+  const digits = d ?? (Math.abs(x) >= 100 ? 0 : 1);
+  return new Intl.NumberFormat(lang, { maximumFractionDigits: digits }).format(x);
+}
+const noteOf = (f) => { const m = Math.round(69 + 12 * Math.log2(f / 440)); return T[lang].notes[((m % 12) + 12) % 12]; };
+const lenTxt = (cm) => { const u = T[lang].units; return cm >= 100 ? `${nf(cm / 100, 1)} ${u.m}` : cm < 1 ? `${nf(cm * 10, 1)} ${u.mm}` : `${nf(cm, 1)} ${u.cm}`; };
+const durTxt = (sec) => { sec = Math.round(sec); return T[lang].dur(Math.floor(sec / 3600), Math.floor(sec / 60) % 60, sec % 60); };
+
+// --- audio: one context, one master gain, one voice at a time, only from the lab's own buttons --------------
+const MASTER = 0.12;
+const AU = { ctx: null, master: null, voice: null };
+const soundOn = () => $('sound').textContent === '🔊';
+function ensureAudio() {
+  try {
+    if (!AU.ctx) {
+      AU.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      AU.master = AU.ctx.createGain(); AU.master.gain.value = MASTER; AU.master.connect(AU.ctx.destination);
+    }
+    if (AU.ctx.state === 'suspended') AU.ctx.resume().catch(() => {});
+    return AU.ctx;
+  } catch { AU.ctx = null; return null; }
+}
+function stopVoice(fade = 0.04) {
+  const v = AU.voice; AU.voice = null;
+  if (!v || !AU.ctx) return;
+  try {
+    // the envelope keeps running; a separate gain that is only ever touched here fades the voice out
+    const t = AU.ctx.currentTime, g = v.out.gain;
+    g.setValueAtTime(1, t); g.linearRampToValueAtTime(0, t + fade);
+    v.o.stop(t + fade + 0.02);
+  } catch { /* already stopped */ }
+}
+// the only way this lab makes a tone: guarded here, so nothing outside 110–1760 Hz can ever play
+function play({ f, amp, type = 'triangle', attack = 0.008, hold = 0, decay = 1.4, slide = 0 }) {
+  if (!soundOn() || !(f >= 110 && f <= 1760)) return;
+  const ctx = ensureAudio(); if (!ctx) return;
+  stopVoice(0.03);
+  try {
+    const now = ctx.currentTime, t = now + 0.035, peak = clamp(amp, 0.05, 1);
+    const o = ctx.createOscillator(), g = ctx.createGain(), out = ctx.createGain();
+    out.gain.value = 1;
+    o.type = type; o.frequency.setValueAtTime(f, t);
+    if (slide) o.frequency.exponentialRampToValueAtTime(clamp(f + slide, 110, 1760), t + 0.3);
+    g.gain.setValueAtTime(0.0001, now); g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(peak, t + attack);
+    if (hold) g.gain.setValueAtTime(peak, t + attack + hold);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + attack + hold + decay);
+    o.connect(g).connect(out).connect(AU.master);
+    o.start(now); o.stop(t + attack + hold + decay + 0.05);
+    AU.voice = { o, out };
+  } catch { /* no audio: stay silent */ }
+}
+
+// --- state -------------------------------------------------------------------------------------------------
+const S = { L: L0, thin: false, tight: false, strength: 0.6, secret: null, amp: 0, ph: 0, pull: null, dragClamp: false,
+  why: null, plucked: false, last: null, ghost: null, asked: store.get('sound:asked', false), answer: null, timers: [] };
+const D = { level: 2, lv: 2, amp: 0, ph: 0, t0: -99, mode: null, last: null, ghost: null, grains: [] };
+const V = { s: 0.5, level: 1, amp: 0, ph: 0, humEnd: -99, target: 0, why: null, hummed: false, last: null, ghost: null };
+let clock = 0;
+const fString = () => S.secret ? SECRET[S.secret].f : F0 * (L0 / S.L) * (S.thin ? 1.5 : 1) * (S.tight ? 1.5 : 1);
+const slowString = () => S.secret ? SECRET[S.secret].slow : SLOW;
+const fVoice = () => Math.round(110 * Math.pow(4, V.s));
+const resetRice = () => { D.grains = Array.from({ length: 30 }, (_, i) => ({ x: (i / 29 * 2 - 1) * 0.74 + (Math.random() - 0.5) * 0.04, z: Math.random() * 2 - 1, y: 0, vy: 0, on: true, rot: Math.random() * Math.PI })); };
+resetRice();
+
+function stopAll() {
+  S.timers.forEach(clearTimeout); S.timers = [];
+  stopVoice(0.05);
+}
+
+const lab = shell({ key: 'sound', T, topics: TOPICS, views: ['string', 'drum', 'voice'], onLang: render,
+  onView: () => { stopAll(); S.amp = 0; S.pull = null; D.amp = 0; D.mode = null; V.amp = 0; V.humEnd = -99; resetRice(); render(); } });
+const secret = secretLab('sound', () => ({
+  secrets: ['low', 'high'].map((k) => ({ emo: k === 'low' ? '🐘' : '🦇', title: T[lang].secrets[k][0], desc: T[lang].secrets[k][1] })),
+  questions: T[lang].quiz,
+}), () => render());
+$('sound').addEventListener('click', () => { if (!soundOn()) stopAll(); render(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) stopAll(); });
+addEventListener('pagehide', stopAll);
+
+$('ctrlBody').innerHTML = `
+  <div class="row2" style="margin:0 0 10px"><button class="chip snd" id="snd"></button></div>
+  <div class="sec" id="cString">
+    <div class="row2" style="margin:0 0 4px"><span class="lbl" id="lenLbl"></span></div>
+    <input type="range" class="big" id="len" min="${LMIN}" max="${L0}" step="0.25" aria-label="length">
+    <div class="ends"><span id="lenL"></span><span id="lenR"></span></div>
+    <div class="chips" id="lenChips"></div>
+    <div class="row2"><span class="lbl" id="thickLbl"></span><div class="card seg small" id="thick"></div>
+      <span class="lbl" id="tightLbl"></span><div class="card seg small" id="tight"></div></div>
+    <div class="row2"><span class="lbl" id="strLbl"></span><div class="card seg small" id="str"></div><button class="btn" id="pluck"></button></div>
+  </div>
+  <div class="sec" id="cDrum">
+    <div class="row2" style="margin:0"><span class="lbl" id="dLvLbl"></span><div class="card seg small" id="dLv"></div></div>
+    <div class="row2"><button class="btn" id="voiceBtn"></button><button class="btn ghost" id="hitBtn"></button></div>
+  </div>
+  <div class="sec" id="cVoice">
+    <div class="row2" style="margin:0 0 4px"><span class="lbl" id="foldLbl"></span></div>
+    <input type="range" class="big" id="fold" min="0" max="1" step="0.01" aria-label="vocal folds">
+    <div class="ends"><span id="foldL"></span><span id="foldR"></span></div>
+    <div class="row2"><span class="lbl" id="vLvLbl"></span><div class="card seg small" id="vLv"></div><button class="btn" id="humBtn"></button></div>
+  </div>`;
+$('len').style.setProperty('--track', 'linear-gradient(90deg, #ff8a3d, #3ddc97 50%, #4ea8ff)');
+$('fold').style.setProperty('--track', 'linear-gradient(90deg, #4ea8ff, #3ddc97 50%, #ff8a3d)');
+$('snd').onclick = () => $('sound').click();
+
+// string controls
+function setString(change) {
+  const f0 = fString();
+  const wasSecret = S.secret;
+  S.secret = null; change();
+  const f1 = fString();
+  if (wasSecret || f1 !== f0) { stopVoice(0.06); S.amp *= 0.15; }
+  return f1;
+}
+$('len').addEventListener('input', () => {
+  const L = +$('len').value; let why = null;
+  setString(() => { why = L < S.L ? 'shorter' : L > S.L ? 'longer' : null; S.L = L; });
+  if (why) S.why = why; sfx.tick(); render();
+});
+$('lenChips').addEventListener('click', (ev) => {
+  const b = ev.target.closest('.chip'); if (!b) return;
+  const k = b.dataset.k;
+  if (k === 'low' || k === 'high') {
+    if (!secret.unlocked()) return secret.open();
+    stopVoice(0.06); S.secret = S.secret === k ? null : k; S.amp = 0; S.why = null; sfx.click(); return render();
+  }
+  const L = L0 / +k; let why = null;
+  setString(() => { why = L < S.L ? 'shorter' : L > S.L ? 'longer' : S.why; S.L = L; });
+  S.why = why; sfx.click(); render();
+});
+$('thick').addEventListener('click', (ev) => {
+  const k = ev.target.closest('button')?.dataset.k; if (!k) return;
+  setString(() => { S.thin = k === 'thin'; }); S.why = k; sfx.click(); render();
+});
+$('tight').addEventListener('click', (ev) => {
+  const k = ev.target.closest('button')?.dataset.k; if (!k) return;
+  setString(() => { S.tight = k === 'tight'; }); S.why = k; sfx.click(); render();
+});
+$('str').addEventListener('click', (ev) => {
+  const k = ev.target.closest('button')?.dataset.k; if (k === undefined) return;
+  S.strength = STRENGTHS[+k]; sfx.click(); render();
+});
+$('pluck').onclick = () => pluck(S.strength);
+
+function pluck(strength) {
+  const f = fString();
+  if (S.last) S.ghost = { ...S.last };
+  if (S.last && !S.secret && Math.abs(S.last.f - f) < 0.01 && Math.abs(S.last.amp - strength) > 0.08) S.why = strength > S.last.amp ? 'stronger' : 'weaker';
+  S.last = { f, amp: strength };
+  S.amp = strength; S.ph = 0; S.plucked = true;
+  play({ f, amp: strength, decay: clamp(1.9 - f / 900, 0.7, 1.8) });
+  render();
+}
+
+// drum controls
+$('dLv').addEventListener('click', (ev) => { const k = ev.target.closest('button')?.dataset.k; if (k === undefined) return; D.level = +k; sfx.click(); render(); });
+function drumAction(mode) {
+  D.ghost = D.last; D.last = { f: DRUM_F, amp: LEVELS[D.level] };
+  D.mode = mode; D.lv = D.level; D.t0 = clock;
+  if (mode === 'hit') {
+    D.amp = LEVELS[D.level]; D.ph = 0;
+    play({ f: DRUM_F, amp: LEVELS[D.level], decay: 0.6, slide: -30 });
+  } else {
+    play({ f: DRUM_F, amp: LEVELS[D.level], attack: 0.05, hold: 0.9, decay: 0.35 });
+  }
+  render();
+}
+$('voiceBtn').onclick = () => drumAction('voice');
+$('hitBtn').onclick = () => drumAction('hit');
+
+// voice controls
+$('fold').addEventListener('input', () => {
+  const s = +$('fold').value; V.why = s > V.s ? 'higher' : s < V.s ? 'lower' : V.why; V.s = s;
+  stopVoice(0.06); V.humEnd = Math.min(V.humEnd, clock); sfx.tick(); render();
+});
+$('vLv').addEventListener('click', (ev) => {
+  const k = ev.target.closest('button')?.dataset.k; if (k === undefined) return;
+  if (+k !== V.level) V.why = +k > V.level ? 'louder' : 'softer';
+  V.level = +k; sfx.click(); render();
+});
+function hum() {
+  const f = fVoice();
+  V.ghost = V.last; V.last = { f, amp: LEVELS[V.level] };
+  V.target = LEVELS[V.level]; V.humEnd = clock + 3.2; V.hummed = true;
+  play({ f, amp: LEVELS[V.level], attack: 0.05, hold: 1.1, decay: 0.3 });
+  render();
+}
+$('humBtn').onclick = hum;
+
+// the opening question: many children (and grown-ups) mix up "higher" and "louder"
+const askEl = Object.assign(document.createElement('div'), { className: 'ask card' });
+$('overlay').append(askEl);
+askEl.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  if (b.dataset.a) { S.answer = b.dataset.a; (S.answer === 'louder' ? sfx.good : sfx.bad)(); return render(); }
+  S.asked = true; store.set('sound:asked', true);
+  stopAll(); S.secret = null; S.ghost = null; S.last = null;
+  S.strength = STRENGTHS[0]; pluck(S.strength);
+  S.timers.push(setTimeout(() => { if (lab.view !== 'string') return; S.strength = STRENGTHS[2]; pluck(S.strength); }, 2200));
+});
+
+// --- render: words, controls, readout, state card -----------------------------------------------------------
+const PITCH_COLOR = { low: '#4ea8ff', mid: '#3ddc97', high: '#ff8a3d', tooLow: '#a855f7', tooHigh: '#f5c84c' };
+const pitchKey = (f) => f < 20 ? 'tooLow' : f > 20000 ? 'tooHigh' : f < 200 ? 'low' : f < 500 ? 'mid' : 'high';
+const seg = (opts, on) => opts.map(([k, label]) => `<button data-k="${k}" class="${String(k) === String(on) ? 'on' : ''}">${esc(label)}</button>`).join('');
+
+function render() {
+  const t = T[lang], v = lab.view;
+  $('snd').textContent = soundOn() ? t.sndOn : t.sndOff;
+  $('snd').classList.toggle('on', soundOn());
+  $('cString').classList.toggle('show', v === 'string');
+  $('cDrum').classList.toggle('show', v === 'drum');
+  $('cVoice').classList.toggle('show', v === 'voice');
+  lab.setGauge(0, t.ticks.map((label, i) => ({ f: [0, 0.3, 0.6, 1][i], label })), t.gaugeCap);
+  if (v === 'string') renderString(t); else if (v === 'drum') renderDrum(t); else renderVoice(t);
+
+  askEl.style.display = S.asked || v !== 'string' ? 'none' : '';
+  if (!S.asked) {
+    askEl.innerHTML = S.answer === null
+      ? `<div class="q">${esc(t.ask)}</div><div class="opts">${['higher', 'louder', 'both'].map((k) => `<button data-a="${k}">${esc(t.a[k])}</button>`).join('')}</div>`
+      : `<div class="verdict" style="color:${S.answer === 'louder' ? 'var(--ok)' : 'var(--wip)'}">${esc(S.answer === 'louder' ? t.yesV : t.noV)}</div>
+         <p>${esc(S.answer === 'louder' ? t.yesT : t.noT)}</p><div class="opts"><button>${esc(t.go)} →</button></div>`;
+  }
+}
+
+function renderString(t) {
+  const f = fString(), pk = pitchKey(f);
+  $('lenLbl').textContent = `${t.lenLbl}: ${S.secret ? lenTxt(L0 * F0 / f) : lenTxt(S.L)}`;
+  $('len').value = String(S.L);
+  $('lenL').textContent = t.ends[0]; $('lenR').textContent = t.ends[1];
+  const open = secret.unlocked();
+  const sc = (k) => `<button class="chip secret ${open ? 'open' : ''} ${S.secret === k ? 'on' : ''}" data-k="${k}">${open ? `${k === 'low' ? '🐘' : '🦇'} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  const lens = [[1, t.whole], [2, '½'], [3, '⅓'], [4, '¼']];
+  $('lenChips').innerHTML = [sc('low'), ...lens.map(([d, label]) => `<button class="chip ${!S.secret && Math.abs(S.L - L0 / d) < 0.13 ? 'on' : ''}" data-k="${d}">${esc(label)}</button>`), sc('high')].join('');
+  $('thickLbl').textContent = t.thickLbl; $('tightLbl').textContent = t.tightLbl; $('strLbl').textContent = t.strLbl;
+  $('thick').innerHTML = seg([['thick', t.thick.thick], ['thin', t.thick.thin]], S.thin ? 'thin' : 'thick');
+  $('tight').innerHTML = seg([['normal', t.tight.normal], ['tight', t.tight.tight]], S.tight ? 'tight' : 'normal');
+  $('str').innerHTML = seg(t.str.map((label, i) => [i, label]), STRENGTHS.indexOf(S.strength));
+  $('pluck').textContent = t.pluck;
+
+  lab.setReadout(`${esc(nf(f))} ${esc(t.hz)}`, t.perSec(f), t.pill[pk], PITCH_COLOR[pk]);
+  const glow = { low: 'rgba(78,168,255,.30)', mid: 'rgba(61,220,151,.26)', high: 'rgba(255,138,61,.30)', tooLow: 'rgba(168,85,247,.28)', tooHigh: 'rgba(245,200,76,.26)' };
+  lab.setGlow(glow[pk]);
+
+  if (S.secret) {
+    const s = t.sec[S.secret];
+    lab.setState({ emo: S.secret === 'low' ? '🐘' : '🦇', title: s.title, lead: s.lead, body: s.body(lenTxt(L0 * F0 / f)),
+      extra: `<div class="stats"><span>🔢 ${esc(t.count)} <b>${esc(durTxt(f))}</b></span></div><div class="fine">${esc(t.secFine)}</div>` });
+    return;
+  }
+  const ratio = L0 / S.L, oct = [2, 4].some((r) => Math.abs(ratio - r) < 0.01);
+  const lead = S.why ? t.why[S.why] : S.plucked ? t.sPluck : t.sIdle;
+  lab.setState({ emo: '🎸', title: t.sTitle(f), lead, body: t.sBody(f), extra: `<div class="stats">
+      <span>🎵 ${esc(t.note)}: <b>${esc(noteOf(f))}</b></span>
+      <span>🔢 ${esc(t.count)} <b>${esc(durTxt(f))}</b></span>
+      ${oct ? `<span class="hl">🎹 ${esc(t.octave)}</span>` : ''}
+    </div><div class="fine">${esc(t.fine)}</div>` });
+}
+
+function renderDrum(t) {
+  $('dLvLbl').textContent = t.lvLbl;
+  $('dLv').innerHTML = seg(t.drumLv.map((label, i) => [i, label]), D.level);
+  $('voiceBtn').textContent = t.voiceBtn[D.level]; $('hitBtn').textContent = t.hit;
+  lab.setReadout(`${esc(nf(DRUM_F))} ${esc(t.hz)}`, t.perSec(DRUM_F), t.drumLv[D.level].replace(/^\S+\s/, ''), ['#4ea8ff', '#3ddc97', '#ff8a3d'][D.level]);
+  lab.setGlow(['rgba(78,168,255,.22)', 'rgba(61,220,151,.26)', 'rgba(255,138,61,.32)'][D.level]);
+  const x = D.mode === 'voice' ? t.dVoice : D.mode === 'hit' ? t.dHit : null;
+  lab.setState({ emo: '🥁', title: x ? x.title : t.dIdle.title, lead: x ? x.leads[D.lv] : t.dIdle.lead, body: x ? x.body : t.dIdle.body,
+    extra: `<div class="fine">${esc(t.dFine)}</div>` });
+}
+
+function renderVoice(t) {
+  const f = fVoice(), pk = pitchKey(f);
+  $('foldLbl').textContent = t.foldLbl; $('fold').value = String(V.s);
+  $('foldL').textContent = t.foldEnds[0]; $('foldR').textContent = t.foldEnds[1];
+  $('vLvLbl').textContent = t.lvLbl;
+  $('vLv').innerHTML = seg(t.voiceLv.map((label, i) => [i, label]), V.level);
+  $('humBtn').textContent = t.hum;
+  lab.setReadout(`${esc(nf(f))} ${esc(t.hz)}`, t.perSec(f), t.pill[pk], PITCH_COLOR[pk]);
+  lab.setGlow({ low: 'rgba(78,168,255,.26)', mid: 'rgba(61,220,151,.26)', high: 'rgba(255,138,61,.30)' }[pk]);
+  lab.setState({ emo: '🗣️', title: t.vTitle, lead: V.why ? t.vWhy[V.why] : t.vIdle, body: t.vBody(f),
+    extra: `<div class="stats"><span>🎵 ${esc(t.note)}: <b>${esc(noteOf(f))}</b></span></div><div class="fine">${esc(t.vFine)}</div>` });
+}
+
+// --- drawing helpers ------------------------------------------------------------------------------------------
+const rr = (c, x, y, w, h, r) => { c.beginPath(); if (c.roundRect) c.roundRect(x, y, w, h, r); else c.rect(x, y, w, h); };
+const font = (wt, px) => `${wt} ${px}px Nunito, sans-serif`;
+
+// the "sound screen": a fixed 0.02 s window, so wave spacing shows how fast and wave height shows how big
+function soundScreen(c, x, y, w, h, f, amp, ghost, silent) {
+  const t = T[lang], fs = clamp(w * 0.024, 10, 12.5);
+  c.fillStyle = '#06130e'; rr(c, x, y, w, h, 14); c.fill();
+  c.strokeStyle = 'rgba(61,220,151,.35)'; c.lineWidth = 1.2; c.stroke();
+  c.save(); rr(c, x, y, w, h, 14); c.clip();
+  c.strokeStyle = 'rgba(61,220,151,.09)'; c.lineWidth = 1;
+  for (let i = 1; i < 10; i++) { c.beginPath(); c.moveTo(x + w * i / 10, y); c.lineTo(x + w * i / 10, y + h); c.stroke(); }
+  for (let j = 1; j < 4; j++) { c.beginPath(); c.moveTo(x, y + h * j / 4); c.lineTo(x + w, y + h * j / 4); c.stroke(); }
+  const top = y + fs * 2.2, mid = (top + y + h - fs * 1.6) / 2, A = (y + h - fs * 1.6 - top) / 2 - 2;
+  c.strokeStyle = 'rgba(61,220,151,.25)'; c.beginPath(); c.moveTo(x, mid); c.lineTo(x + w, mid); c.stroke();
+  const trace = (ff, a, style, lw, dash) => {
+    const cycles = ff * WINDOW, perPx = cycles / w;
+    if (perPx > 0.3) { // too many waves to draw one by one: a solid band
+      c.fillStyle = style; c.globalAlpha = 0.5; c.fillRect(x, mid - a * A, w, 2 * a * A); c.globalAlpha = 1; return;
+    }
+    c.strokeStyle = style; c.lineWidth = lw; c.setLineDash(dash); c.beginPath();
+    const n = Math.ceil(w);
+    for (let i = 0; i <= n; i++) { const yy = mid - a * A * Math.sin(2 * Math.PI * cycles * i / n); i ? c.lineTo(x + i, yy) : c.moveTo(x, yy); }
+    c.stroke(); c.setLineDash([]);
+  };
+  if (ghost) trace(ghost.f, ghost.amp, 'rgba(237,239,247,.38)', 1.5, [4, 4]);
+  c.shadowColor = 'rgba(61,220,151,.8)'; c.shadowBlur = 8;
+  trace(f, amp, '#3ddc97', 2.5, []);
+  c.shadowBlur = 0;
+  // labels
+  c.textBaseline = 'middle'; c.textAlign = 'left'; c.fillStyle = '#7fe6b9'; c.font = font(800, fs);
+  c.fillText(`${t.screen} · ${t.window}`, x + 10, y + fs * 1.1);
+  c.fillStyle = 'rgba(127,230,185,.75)'; c.font = font(700, fs * 0.95);
+  c.fillText(t.waves(nf(f * WINDOW, f * WINDOW >= 10 ? 0 : 1)), x + 10, y + h - fs * 0.9);
+  if (ghost) { c.textAlign = 'center'; c.fillStyle = 'rgba(237,239,247,.6)'; c.fillText(`- - ${t.last}: ${nf(ghost.f)} ${t.hz}`, x + w / 2, y + h - fs * 0.9); }
+  // loudness bar
+  const bw = clamp(w * 0.18, 44, 90), bx = x + w - bw - 10, by = y + fs * 1.1;
+  c.textAlign = 'right'; c.fillStyle = '#7fe6b9'; c.font = font(800, fs);
+  c.fillText(silent ? '🔇' : t.loud, bx - 6, by);
+  c.fillStyle = 'rgba(61,220,151,.15)'; rr(c, bx, by - 4, bw, 8, 4); c.fill();
+  c.fillStyle = '#3ddc97'; rr(c, bx, by - 4, Math.max(0, bw * (silent ? 0 : amp)), 8, 4); c.fill();
+  if (silent && amp > 0.02) {
+    c.textAlign = 'center'; c.fillStyle = '#f5c84c'; c.font = font(800, fs * 1.05);
+    c.fillText(t.silent, x + w / 2, top + 4);
+  }
+  c.restore();
+}
+
+// --- the string ---------------------------------------------------------------------------------------------
+let G = {};
+function drawString(c, w, h, dt) {
+  const t = T[lang], fs = clamp(w * 0.024, 10, 13), f = fString(), slow = slowString();
+  const pad = clamp(w * 0.05, 14, 40), xb = pad + 8, xn = w - pad - 22, ys = h * 0.3, mp = Math.min(h * 0.13, 48);
+  const xc = S.secret ? xn : xb + (S.L / L0) * (xn - xb);
+  G = { xb, xn, xc, ys, mp };
+  if (!S.pull) { S.ph += 2 * Math.PI * f / slow * dt; S.amp *= Math.exp(-dt / 4); if (S.amp < 0.003) S.amp = 0; }
+  // board
+  const by0 = ys - mp - 12, bh = 2 * mp + 24;
+  const wood = c.createLinearGradient(0, by0, 0, by0 + bh); wood.addColorStop(0, '#3b2717'); wood.addColorStop(1, '#2a1b10');
+  c.fillStyle = wood; rr(c, xb - 14, by0, xn - xb + 40, bh, 12); c.fill();
+  // fret marks at 1/2, 1/3, 1/4 of the length
+  if (!S.secret) for (const d of [2, 3, 4]) { const fx = xb + (xn - xb) / d; c.fillStyle = 'rgba(200,190,170,.18)'; c.fillRect(fx - 1, by0 + 4, 2, bh - 8); }
+  // the dead part beyond the clamp
+  const lw = S.thin ? 2.4 : 4.6;
+  if (xc < xn - 1) { c.strokeStyle = 'rgba(220,205,170,.35)'; c.lineWidth = lw; c.beginPath(); c.moveTo(xc, ys); c.lineTo(xn, ys); c.stroke(); }
+  // the shake envelope (how big the shake is) and the size arrow
+  const amp = S.pull ? Math.abs(S.pull.dy) / mp : S.amp;
+  if (!S.pull && amp > 0.03) {
+    c.strokeStyle = 'rgba(245,200,76,.35)'; c.lineWidth = 1; c.setLineDash([3, 5]);
+    for (const sgn of [-1, 1]) { c.beginPath(); for (let i = 0; i <= 60; i++) { const u = i / 60, x = lerp(xb, xc, u), y = ys + sgn * mp * amp * Math.sin(Math.PI * u); i ? c.lineTo(x, y) : c.moveTo(x, y); } c.stroke(); }
+    c.setLineDash([]);
+    const ax = (xb + xc) / 2 + Math.min(40, (xc - xb) * 0.18), a0 = ys - mp * amp, a1 = ys + mp * amp;
+    if (a1 - a0 > 14) {
+      c.strokeStyle = '#f5c84c'; c.fillStyle = '#f5c84c'; c.lineWidth = 1.5;
+      c.beginPath(); c.moveTo(ax, a0); c.lineTo(ax, a1); c.stroke();
+      for (const [yy, d] of [[a0, 1], [a1, -1]]) { c.beginPath(); c.moveTo(ax, yy); c.lineTo(ax - 4, yy + 6 * d); c.lineTo(ax + 4, yy + 6 * d); c.fill(); }
+      c.font = font(800, fs * 0.9); c.textBaseline = 'middle';
+      const right = ax + 7 + c.measureText(t.size).width < xc - 14;
+      c.textAlign = right ? 'left' : 'right'; c.fillText(t.size, right ? ax + 7 : ax - 7, a0 + 6);
+    }
+  }
+  // the string itself
+  const sg = c.createLinearGradient(0, ys - 3, 0, ys + 3); sg.addColorStop(0, '#fff6dc'); sg.addColorStop(1, '#c9b27a');
+  c.strokeStyle = sg; c.lineWidth = lw; c.lineCap = 'round'; c.beginPath();
+  if (S.pull) { c.moveTo(xb, ys); c.lineTo(clamp(S.pull.x, xb + 4, xc - 4), ys + S.pull.dy); c.lineTo(xc, ys); }
+  else for (let i = 0; i <= 90; i++) { const u = i / 90, x = lerp(xb, xc, u), y = ys + mp * S.amp * Math.sin(Math.PI * u) * Math.cos(S.ph); i ? c.lineTo(x, y) : c.moveTo(x, y); }
+  c.stroke(); c.lineCap = 'butt';
+  // bridge (left), clamp (movable), tuning peg (right)
+  c.fillStyle = '#d9cfb8'; c.beginPath(); c.moveTo(xb - 6, ys + 9); c.lineTo(xb + 6, ys + 9); c.lineTo(xb, ys - 2); c.fill();
+  if (!S.secret) {
+    c.fillStyle = '#c9ced9'; rr(c, xc - 6, ys - mp * 0.55, 12, mp * 1.1, 4); c.fill();
+    c.strokeStyle = 'rgba(10,12,20,.45)'; c.lineWidth = 1;
+    for (let k = -2; k <= 2; k++) { c.beginPath(); c.moveTo(xc - 3, ys + k * 6); c.lineTo(xc + 3, ys + k * 6); c.stroke(); }
+    c.fillStyle = 'rgba(237,239,247,.7)'; c.font = font(800, fs * 0.85); c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillText(t.clampTip, xc, ys - mp * 0.55 - 8);
+  }
+  const pegR = S.tight ? 8 : 7;
+  c.fillStyle = '#e2c27a'; c.beginPath(); c.arc(xn + 8, ys, pegR, 0, 7); c.fill();
+  c.strokeStyle = '#6b4f1d'; c.lineWidth = 2; c.beginPath(); c.moveTo(xn + 8, ys); c.lineTo(xn + 8 + Math.cos(S.tight ? 1.2 : 0.3) * pegR, ys - Math.sin(S.tight ? 1.2 : 0.3) * pegR); c.stroke();
+  // slowed-down label
+  c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillStyle = '#f5c84c'; c.font = font(800, fs);
+  c.fillText(`🐢 ${t.slowed(slow)}`, xb - 8, Math.max(fs * 0.8, by0 - fs * 0.9));
+  // ruler with the length of the shaking part
+  const ry = by0 + bh + 6;
+  if (!S.secret) {
+    c.strokeStyle = 'rgba(152,160,184,.5)'; c.lineWidth = 1; c.fillStyle = 'rgba(152,160,184,.8)'; c.font = font(700, fs * 0.8); c.textAlign = 'center'; c.textBaseline = 'top';
+    for (let cm = 0; cm <= L0; cm += 5) {
+      const x = xb + cm / L0 * (xn - xb), big = cm % 10 === 0;
+      c.beginPath(); c.moveTo(x, ry); c.lineTo(x, ry + (big ? 6 : 3)); c.stroke();
+      if (big && (w > 480 || cm % 20 === 0)) c.fillText(String(cm), x, ry + 7);
+    }
+  }
+  c.fillStyle = '#fff'; c.font = font(900, fs); c.textAlign = 'center'; c.textBaseline = 'top';
+  const lenLabel = S.secret ? `${lenTxt(L0 * F0 / f)} (${t.notScale})` : lenTxt(S.L);
+  c.fillText(lenLabel, S.secret ? (xb + xn) / 2 : (xb + xc) / 2, ry + fs * 1.6);
+  // a hint when it is quiet
+  if (!S.plucked && !S.pull && S.asked) { c.fillStyle = 'rgba(237,239,247,.75)'; c.font = font(800, fs); c.textBaseline = 'middle'; c.fillText(t.tip, (xb + xn) / 2, ys + mp * 0.62); }
+  // sound screen
+  const sy = Math.max(ry + fs * 3.2, h * 0.56);
+  soundScreen(c, pad * 0.6, sy, w - pad * 1.2, h - sy - 4, f, S.pull ? 0 : S.amp, S.ghost, !!S.secret);
+  lab.setGauge(S.secret ? 0 : S.amp);
+}
+
+// --- the drum with rice -------------------------------------------------------------------------------------
+let DG = {};
+function drawDrum(c, w, h, dt, time) {
+  const t = T[lang], fs = clamp(w * 0.024, 10, 13);
+  const kx = w * 0.13, ky = h * 0.3, ks = clamp(h * 0.14, 28, 60);
+  const cx = w * 0.64, Rw = Math.min(w * 0.24, h * 0.36), ry = Rw * 0.26, topY = h * 0.3, bodyH = h * 0.17;
+  DG = { cx, Rw, ry, topY, bodyH };
+  const A = Rw * 0.16, om = 2 * Math.PI * DRUM_F / SLOW, g = A * om * om / 2.8;
+  // drive and decay of the skin
+  const ta = clock - D.t0;
+  if (D.mode === 'voice' && ta > ARRIVE && ta < ARRIVE + EMIT) D.amp += (LEVELS[D.lv] - D.amp) * Math.min(1, dt * 2.5);
+  else D.amp *= Math.exp(-dt / (D.mode === 'hit' ? 2.2 : 1.2));
+  if (D.amp < 0.003) D.amp = 0;
+  // rice: a bouncing-ball-on-a-shaking-skin model, in small sub-steps so grains never fall through
+  const n = Math.max(1, Math.ceil(dt / 0.004)), hs = dt / n;
+  for (let k = 0; k < n; k++) {
+    D.ph += om * hs;
+    const sn = Math.sin(D.ph), cs = Math.cos(D.ph);
+    for (const gr of D.grains) {
+      const shape = Math.cos(Math.PI / 2 * Math.min(1, Math.hypot(gr.x, gr.z * 0.5)));
+      const sy = A * D.amp * shape * sn, sv = A * D.amp * shape * om * cs, sa = -A * D.amp * shape * om * om * sn;
+      if (gr.on) { gr.y = sy; gr.vy = sv; if (sa < -g) gr.on = false; }
+      else {
+        gr.vy -= g * hs; gr.y += gr.vy * hs;
+        if (gr.y <= sy) { gr.y = sy; gr.vy = sv; gr.on = true; gr.x = clamp(gr.x + (Math.random() - 0.5) * 0.03, -0.8, 0.8); gr.rot += (Math.random() - 0.5) * 1.5; }
+      }
+    }
+  }
+  // the child and the distance
+  c.font = `${ks}px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText('🧒', kx, ky);
+  const mx = kx + ks * 0.45, dx1 = cx - Rw - 6;
+  const dy = topY + bodyH + ry + fs * 1.2;
+  c.strokeStyle = 'rgba(152,160,184,.6)'; c.lineWidth = 1; c.setLineDash([4, 4]);
+  c.beginPath(); c.moveTo(kx, dy); c.lineTo(cx, dy); c.stroke(); c.setLineDash([]);
+  c.fillStyle = 'rgba(152,160,184,.9)'; c.font = font(800, fs); c.textBaseline = 'middle';
+  c.fillText(t.meter, (kx + cx) / 2, dy - fs * 0.8);
+  // sound waves in the air: pressure ridges spreading out from the mouth, one per shake
+  const v = (cx - kx) / ARRIVE, lam = v / (DRUM_F / SLOW);
+  if (D.mode === 'voice' && ta < ARRIVE + EMIT + (Rw * 2) / v) {
+    const L = LEVELS[D.lv];
+    c.strokeStyle = `rgba(245,200,76,${0.35 + 0.55 * L})`; c.lineWidth = 1 + 3.5 * L;
+    for (let j = 0; j < 8; j++) {
+      const r = v * ta - j * lam;
+      if (r <= 0 || r > v * (ta - 0) || r < v * (ta - EMIT) || r > cx + Rw - mx) continue;
+      c.beginPath(); c.arc(mx, ky, r, -0.42, 0.42); c.stroke();
+    }
+  }
+  // drum body
+  c.fillStyle = '#9e2a24'; c.fillRect(cx - Rw, topY, 2 * Rw, bodyH);
+  c.fillStyle = '#7d201b'; c.beginPath(); c.ellipse(cx, topY + bodyH, Rw, ry, 0, 0, Math.PI); c.fill();
+  c.strokeStyle = 'rgba(255,220,180,.5)'; c.lineWidth = 1.5;
+  for (let i = 0; i < 6; i++) { const x0 = cx - Rw + (i + 0.5) * 2 * Rw / 6; c.beginPath(); c.moveTo(x0 - Rw / 6, topY + 4); c.lineTo(x0 + Rw / 6, topY + bodyH - 2); c.stroke(); }
+  // skin
+  const disp = A * D.amp * Math.sin(D.ph);
+  c.fillStyle = '#eadcbc'; c.beginPath(); c.ellipse(cx, topY, Rw, ry, 0, 0, 2 * Math.PI); c.fill();
+  const sh = c.createRadialGradient(cx, topY, 2, cx, topY, Rw * 0.9);
+  sh.addColorStop(0, disp > 0 ? `rgba(255,255,255,${clamp(disp / A, 0, 1) * 0.5})` : `rgba(90,70,40,${clamp(-disp / A, 0, 1) * 0.45})`); sh.addColorStop(1, 'rgba(0,0,0,0)');
+  c.fillStyle = sh; c.beginPath(); c.ellipse(cx, topY, Rw, ry, 0, 0, 2 * Math.PI); c.fill();
+  // the skin's middle line, seen from the front: it bulges up and down
+  c.strokeStyle = '#b39a6a'; c.lineWidth = 2; c.beginPath();
+  for (let i = 0; i <= 40; i++) { const u = i / 40 * 2 - 1, y = topY - disp * Math.cos(Math.PI / 2 * Math.abs(u)); i ? c.lineTo(cx + u * Rw, y) : c.moveTo(cx + u * Rw, y); }
+  c.stroke();
+  c.strokeStyle = '#d9d2c4'; c.lineWidth = 3; c.beginPath(); c.ellipse(cx, topY, Rw, ry, 0, 0, 2 * Math.PI); c.stroke();
+  // rice
+  for (const gr of [...D.grains].sort((a, b) => a.z - b.z)) {
+    const shape = Math.cos(Math.PI / 2 * Math.min(1, Math.hypot(gr.x, gr.z * 0.5)));
+    const gx = cx + gr.x * Rw, gy = topY + gr.z * ry * 0.75 - gr.y - 2 + (1 - shape) * 0;
+    c.save(); c.translate(gx, gy); c.rotate(gr.rot); c.fillStyle = '#fbf7ec'; c.strokeStyle = 'rgba(120,100,70,.5)'; c.lineWidth = 0.6;
+    c.beginPath(); c.ellipse(0, 0, Math.max(2.2, Rw * 0.028), Math.max(1.1, Rw * 0.013), 0, 0, 2 * Math.PI); c.fill(); c.stroke(); c.restore();
+  }
+  c.fillStyle = 'rgba(237,239,247,.6)'; c.font = font(800, fs * 0.9); c.textAlign = 'left'; c.textBaseline = 'middle';
+  c.fillText(`← ${t.rice}`, cx + Rw + 6, topY - ry * 0.4);
+  // labels
+  c.textAlign = 'left'; c.fillStyle = '#f5c84c'; c.font = font(800, fs);
+  c.fillText(`🐢 ${t.slowed(SLOW)}`, 10, fs * 0.9);
+  if (!D.mode) { c.textAlign = 'center'; c.fillStyle = 'rgba(237,239,247,.75)'; c.fillText(t.drumTip, cx, topY - ry - A - fs * 1.4); }
+  const sy = Math.max(h * 0.58, dy + fs * 0.9);
+  soundScreen(c, 8, sy, w - 16, h - sy - 4, DRUM_F, D.amp, D.ghost, false);
+  lab.setGauge(D.amp);
+}
+
+// --- the voice box (vocal folds seen from above) -------------------------------------------------------------
+let VG = {};
+function drawVoice(c, w, h, dt) {
+  const t = T[lang], fs = clamp(w * 0.024, 10, 13), f = fVoice();
+  const cx = w / 2, cy = h * 0.29, R = Math.min(w * 0.2, h * 0.22);
+  VG = { cx, cy, R };
+  if (clock < V.humEnd) V.amp += (V.target - V.amp) * Math.min(1, dt * 6); else { V.amp *= Math.exp(-dt * 3); if (V.amp < 0.003) V.amp = 0; }
+  V.ph += 2 * Math.PI * f / SLOW * dt;
+  // throat
+  c.fillStyle = '#5a2633'; c.beginPath(); c.ellipse(cx, cy, R * 1.05, R, 0, 0, 2 * Math.PI); c.fill();
+  c.fillStyle = '#1c070c'; c.beginPath(); c.ellipse(cx, cy, R * 0.86, R * 0.84, 0, 0, 2 * Math.PI); c.fill();
+  // folds: tighter = longer and thinner
+  const open = V.amp * (0.5 - 0.5 * Math.cos(V.ph)), gap = 1 + R * 0.2 * open;
+  const Lf = R * (0.66 + 0.1 * V.s), tw = R * (0.5 - 0.2 * V.s);
+  for (const sgn of [-1, 1]) {
+    const gr = c.createLinearGradient(cx, 0, cx + sgn * tw * 1.4, 0); gr.addColorStop(0, '#ffd0d6'); gr.addColorStop(1, '#d9707f');
+    c.fillStyle = gr; c.beginPath();
+    c.moveTo(cx, cy - Lf);
+    c.quadraticCurveTo(cx + sgn * gap * 2, cy, cx, cy + Lf);
+    c.quadraticCurveTo(cx + sgn * tw * 2.1, cy, cx, cy - Lf);
+    c.fill();
+  }
+  c.fillStyle = '#e9a0ab'; c.beginPath(); c.ellipse(cx, cy - Lf, R * 0.12, R * 0.06, 0, 0, 2 * Math.PI); c.fill();
+  // labels
+  c.fillStyle = 'rgba(237,239,247,.8)'; c.font = font(800, fs * 0.9); c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText(`▲ ${t.front}`, cx, cy - R - fs * 0.9);
+  c.textAlign = 'left'; c.fillStyle = '#ffd0d6';
+  const lx = cx + R * 1.12;
+  const below = lx + c.measureText(`← ${t.folds}`).width > w - 6;
+  if (!below) c.fillText(`← ${t.folds}`, lx, cy);
+  else { c.textAlign = 'center'; c.fillText(t.folds, cx, cy + R + fs * 0.9); }
+  c.fillStyle = 'rgba(237,239,247,.6)'; c.textAlign = 'center'; c.font = font(700, fs * 0.85);
+  c.fillText(t.topView, cx, cy + R + fs * (below ? 2.1 : 1.1), w - 16);
+  c.fillText(t.air, cx, cy + R + fs * (below ? 3.1 : 2.1), w - 16);
+  c.textAlign = 'left'; c.fillStyle = '#f5c84c'; c.font = font(800, fs);
+  c.fillText(`🐢 ${t.slowed(SLOW)}`, 10, fs * 0.9);
+  if (!V.hummed) { c.textAlign = 'right'; c.fillStyle = 'rgba(237,239,247,.75)'; c.fillText(t.voiceTip, w - 10, fs * 0.9); }
+  const sy = Math.max(h * 0.58, cy + R + fs * 4);
+  soundScreen(c, 8, sy, w - 16, h - sy - 4, f, V.amp, V.ghost, false);
+  lab.setGauge(V.amp);
+}
+
+canvasLoop($('cv'), (c, w, h, dt) => {
+  clock += dt;
+  if (lab.view === 'string') drawString(c, w, h, dt);
+  else if (lab.view === 'drum') drawDrum(c, w, h, dt);
+  else drawVoice(c, w, h, dt);
+});
+
+// --- pointer: pull and release the string, drag the clamp, hit the drum, tap the throat ---------------------
+const pos = (ev) => { const r = $('cv').getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; };
+$('cv').addEventListener('pointerdown', (ev) => {
+  const [x, y] = pos(ev);
+  if (lab.view === 'drum') {
+    const { cx, Rw, ry, topY, bodyH } = DG;
+    if (Math.abs(x - cx) < Rw && y > topY - ry - Rw * 0.4 && y < topY + bodyH + ry) drumAction('hit');
+    return;
+  }
+  if (lab.view === 'voice') { if (Math.hypot(x - VG.cx, y - VG.cy) < VG.R * 1.1) hum(); return; }
+  const { xb, xc, ys, mp } = G;
+  if (!S.secret && Math.abs(x - xc) < 22 && Math.abs(y - ys) < mp) { S.dragClamp = true; $('cv').setPointerCapture?.(ev.pointerId); return; }
+  if (x > xb + 4 && x < xc - 4 && Math.abs(y - ys) < Math.max(34, mp * 1.1)) {
+    stopVoice(0.04);
+    S.pull = { x, y0: y, dy: 0 }; $('cv').setPointerCapture?.(ev.pointerId);
+  }
+});
+$('cv').addEventListener('pointermove', (ev) => {
+  const [x, y] = pos(ev), { xb, xn, mp } = G;
+  if (S.dragClamp) {
+    const L = clamp(Math.round((x - xb) / (xn - xb) * L0 * 4) / 4, LMIN, L0);
+    if (L !== S.L) { const why = L < S.L ? 'shorter' : 'longer'; setString(() => { S.L = L; }); S.why = why; sfx.tick(); render(); }
+  } else if (S.pull) { S.pull.x = x; S.pull.dy = clamp(y - S.pull.y0, -mp, mp); }
+});
+const release = () => {
+  if (S.dragClamp) { S.dragClamp = false; return; }
+  if (!S.pull) return;
+  const d = Math.abs(S.pull.dy) / G.mp; S.pull = null;
+  if (d < 0.12) pluck(S.strength);
+  else { S.strength = Math.round(d * 100) / 100; pluck(S.strength); }
+};
+$('cv').addEventListener('pointerup', release);
+$('cv').addEventListener('pointercancel', () => { S.pull = null; S.dragClamp = false; });
+
+render();
+</script>
+</body>
+</html>

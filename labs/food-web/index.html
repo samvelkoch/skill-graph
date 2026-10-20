@@ -1,0 +1,934 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Food Web Lab · Skill Graph</title>
+<meta name="description" content="A meadow food web: arrows show energy flowing from the eaten to the eater. Remove the foxes, spray a pesticide or mow the grass, and watch the effects ripple through the web. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  .lab { grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); grid-template-areas: 'hero stage' 'state stage' 'state ctrl'; }
+  #stage canvas { touch-action: pan-y; cursor: pointer; }
+  .readout .val small { font-size: 15px; font-weight: 800; color: var(--mut); letter-spacing: 0; }
+  .fine { margin-top: 8px; font-size: 11px; color: var(--faint); }
+  .ripples { display: grid; gap: 4px; }
+  .ripples .up { color: var(--ok); font-weight: 900; }
+  .ripples .down { color: #ff7a6b; font-weight: 900; }
+  .calm { color: var(--mut); }
+  .ask { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); width: min(560px, calc(100% - 16px)); padding: 14px 16px;
+    text-align: center; }
+  .ask .q { font: 500 22px/1.2 var(--serif); color: #fff; margin-bottom: 10px; text-wrap: balance; }
+  .ask .opts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .ask button { padding: 9px 14px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 800; cursor: pointer; }
+  .ask button:hover { background: rgba(130, 145, 190, .25); }
+  .ask button.link { border: 0; background: none; color: var(--mut); font-size: 12px; text-decoration: underline; padding: 6px 8px; margin-top: 4px; }
+  .ask p { margin: 0 0 10px; color: var(--soft); font-size: 13px; }
+  .ask .verdict { font-weight: 900; margin-bottom: 4px; }
+  .ask .nums { font-weight: 900; color: #fff; margin-bottom: 6px; }
+  .ask.mini { top: auto; bottom: 8px; padding: 8px 14px; font-size: 12.5px; color: var(--soft); font-weight: 700; }
+  .toast { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); width: max-content; max-width: calc(100% - 16px); padding: 9px 14px;
+    font-size: 12.5px; font-weight: 800; color: #fff; border-color: rgba(255, 59, 48, .55); text-align: center; transition: opacity .4s; }
+  .toast.hide { opacity: 0; pointer-events: none; }
+  .ask.mini ~ .toast { bottom: 52px; }
+  .lbl2 { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-weight: 700; margin: 12px 0 6px; }
+  .sp { margin-top: 12px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--stroke); background: rgba(20, 24, 38, .45); }
+  .sp .hint { color: var(--mut); font-size: 12.5px; font-weight: 700; }
+  .sp .top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .sp .nm { font-weight: 900; color: #fff; font-size: 15px; }
+  .sp .cnt { font-weight: 900; font-size: 15px; }
+  .sp .role { font-size: 12.5px; color: var(--soft); margin-top: 4px; }
+  .sp .rel { font-size: 12.5px; color: var(--mut); margin-top: 2px; }
+  .sp .rel b { color: var(--soft); font-weight: 800; }
+  .sp .acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 12px; font-size: 11.5px; color: var(--mut); font-weight: 700; }
+  .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+  #play { min-width: 92px; justify-content: center; }
+  @media (max-width: 1100px) {
+    .lab { grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); }
+  }
+  @media (max-width: 760px) {
+    #stage { height: min(118vw, 500px); }
+    .ask .q { font-size: 18px; } .ask { padding: 10px 12px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, store, lang } from '../lab.js';
+
+// --- words -------------------------------------------------------------------------------------------------
+// species forms: sg = one (label), A = heading form (plural), pl = plural in a sentence, low = one in a sentence,
+// subj = sentence subject; ru: gen = genitive plural ("лис стало меньше"); hu: q = after "kevesebb/több",
+// sa = singular with article, pa = plural with article (a/az by the first sound)
+const T = {
+  en: {
+    name: 'Food Web Lab', title: 'Who eats whom',
+    lines: [['Tap a plant or an animal', 'to see what it eats and who eats it.'], ['Arrows show energy:', 'they point from the eaten to the eater.'], ['Take a species away, press play', 'and watch the ripples.']],
+    views: { web: '🕸️ Web', chart: '📈 Chart', pyramid: '🔺 Energy' },
+    sp: {
+      grass: { sg: 'Grass', A: 'Grass', pl: 'grass', low: 'grass', subj: 'Grass' },
+      hopper: { sg: 'Grasshopper', A: 'Grasshoppers', pl: 'grasshoppers', low: 'grasshopper', subj: 'The grasshopper' },
+      mouse: { sg: 'Mouse', A: 'Mice', pl: 'mice', low: 'mouse', subj: 'The mouse' },
+      rabbit: { sg: 'Rabbit', A: 'Rabbits', pl: 'rabbits', low: 'rabbit', subj: 'The rabbit' },
+      bird: { sg: 'Bird', A: 'Birds', pl: 'birds', low: 'bird', subj: 'The bird' },
+      owl: { sg: 'Owl', A: 'Owls', pl: 'owls', low: 'owl', subj: 'The owl' },
+      fox: { sg: 'Fox', A: 'Foxes', pl: 'foxes', low: 'fox', subj: 'The fox' },
+      kelp: { sg: 'Kelp', A: 'Kelp', pl: 'kelp', low: 'kelp', subj: 'Kelp' },
+      urchin: { sg: 'Sea urchin', A: 'Sea urchins', pl: 'sea urchins', low: 'sea urchin', subj: 'The sea urchin' },
+      otter: { sg: 'Sea otter', A: 'Sea otters', pl: 'sea otters', low: 'sea otter', subj: 'The sea otter' },
+    },
+    roles: {
+      grass: 'Producer: makes its own food from sunlight', kelp: 'Producer: a giant seaweed that makes its own food from sunlight',
+      hopper: 'Primary consumer · herbivore (eats plants)', mouse: 'Primary consumer · herbivore (eats plants and seeds)', rabbit: 'Primary consumer · herbivore (eats plants)',
+      urchin: 'Primary consumer · herbivore (grazes on kelp)', bird: 'Secondary consumer · carnivore (eats insects)',
+      owl: 'Apex predator: a secondary consumer when it eats mice, a tertiary consumer when it eats birds', fox: 'Apex predator · secondary consumer (eats rabbits and mice)',
+      otter: 'Apex predator · secondary consumer · a keystone species',
+    },
+    food: 'Food', sun: '☀️ sunlight', eatenBy: 'Eaten by', nobody: 'nobody in this web', chainsHere: 'Chains',
+    lvl: ['Producer', 'Primary consumer', 'Secondary consumer', 'Apex predator'],
+    fewer: '− Fewer', more: '+ More', remove: '✕ Remove', back: '↺ Bring back', gone: 'gone',
+    tapHint: '👆 Tap a plant or an animal in the web to see what it eats, who eats it, and to change its numbers.',
+    play: '▶ Play', pause: '❚❚ Pause', reset: '↺ Reset', speed: 'Speed', exps: 'Experiments', chains: 'Food chains',
+    years: (x) => `${x} <small>years</small>`, inModel: 'time in the model', alive: (a, n) => `species alive: ${a} of ${n}`,
+    status: { calm: 'In balance', moving: 'Changing', settled: 'New balance' },
+    arrowNote: 'Arrows = energy flow: from the eaten → to the eater', normal: 'normal', pct: '% of normal', yrs: 'years',
+    exp: {
+      noFox: { chip: '🦊 No foxes', name: 'No foxes', did: 'All the foxes are gone.', q: 'No more foxes. What will happen to the grass?',
+        why: 'Without foxes, rabbits and mice multiplied. More plant-eaters ate more grass, so the grass went down. Then the hungry rabbits crashed, and the web slowly settled into a new balance.' },
+      noRabbit: { chip: '🐇 No rabbits', name: 'No rabbits', did: 'All the rabbits are gone.', q: 'No more rabbits. What will happen to the foxes?',
+        why: 'The foxes lost their main food, so fewer foxes can live here. They did not die out: they still eat mice. And the owls got a surprise: more mice for them.' },
+      pest: { chip: '🧪 Pesticide', name: 'Pesticide', did: 'A pesticide is sprayed on the meadow. It kills grasshoppers.', q: 'A pesticide kills the grasshoppers. What will happen to the birds?',
+        why: 'The pesticide was meant for insects, but the birds ate those insects. With almost nothing to eat, the birds starved and died out. The owls lost part of their food too. A change in one link travels along the arrows.' },
+      mow: { chip: '🚜 Mowing', name: 'Mowing', did: 'Three quarters of the grass was cut.', q: 'We mow most of the meadow. What will happen to the rabbits?',
+        why: 'Mowing took away most of the producer. With little grass, the rabbits went hungry and their numbers fell. The grass grew back fast, and the rabbits recovered later.' },
+      drought: { chip: 'Drought', name: 'Long drought', did: 'The grass grows only half as fast.', q: 'A long drought: the grass grows only half as fast. What will happen to the foxes?',
+        why: 'Less grass means less energy for the whole web. The rabbits went hungry first, and the foxes that hunt them followed. The mice did surprisingly well: with fewer foxes and owls hunting them, there were even more mice than before. Ripples can go in unexpected directions!' },
+      keystone: { chip: 'Keystone', name: 'Keystone species', did: 'A kelp forest in the sea. The sea otters are gone.', q: 'The sea otters disappear. What will happen to the kelp forest?',
+        why: 'Sea otters eat sea urchins, and urchins eat kelp. Without otters, the urchins multiplied and ate most of the kelp. A few otters protect a whole forest: that is why they are called a keystone species.' },
+    },
+    ans: { up: '⬆ Goes up', down: '⬇ Goes down', same: '↔ About the same' },
+    guess: 'Your guess', watching: (e, n) => `watching ${e} ${n}`, ok: 'OK', right: 'You got it!', wrong: 'Not this time.', lowest: 'lowest point', highest: 'highest point', hardly: 'hardly changed',
+    open: {
+      q: 'We take away all the foxes. What happens to the rabbits?', sub: 'Make a guess, then watch the model.',
+      opts: { happy: '😊 They live happily ever after', boom: '📈 They boom… then crash', die: '💀 They die out too' }, skip: 'Skip',
+      boomV: 'Boom… then crash!', dieV: 'They died out', happyV: 'They stayed happy',
+      why: 'With no foxes, the rabbits multiplied and ate the grass faster than it could grow back. Then there was not enough grass, and many rabbits starved. No hunters does not mean happy forever!',
+      yes: 'Exactly!', no: 'Lots of people guess that!',
+    },
+    ripple: {
+      predLess: (B, p) => `fewer ${B.pl} eat ${p ? 'it' : 'them'}`, predNone: (B, p) => `no ${B.pl} left to eat ${p ? 'it' : 'them'}`, predMore: (B, p) => `more ${B.pl} eat ${p ? 'it' : 'them'}`,
+      foodMore: (B) => `plenty of ${B.pl} to eat`, foodLess: (B) => `not enough ${B.pl} to eat`, foodNone: (B) => `no ${B.pl} left to eat`,
+      crowd: 'too crowded', room: 'room to recover', pest: 'the pesticide kills them', drought: 'the drought slows its growth',
+    },
+    calm: 'Every population stays about the same: births and deaths even out. The little wiggles are the seasons.',
+    settled: 'The web has settled into a new balance: the numbers have stopped changing, but they are not the old ones.',
+    extinct: (A) => `${A} died out: fewer than 1 was left, so the model counts 0.`,
+    whatNow: 'What is changing now, and why:',
+    intro: { title: 'A meadow food web', lead: 'Energy flows from the grass to the animals that eat it, and on to the predators.',
+      body: 'Producers (here, the grass) make their own food from sunlight. Consumers eat other living things. A predator hunts and eats other animals, its prey. One path from the grass to a top predator is a food chain. All the chains joined together make a food web.' },
+    kelpIntro: { title: 'A kelp forest', lead: 'Kelp is a giant seaweed. Sea urchins graze on it, and sea otters eat the urchins.', body: '' },
+    chainT: { title: 'A food chain', role: ['the producer: it makes its own food from sunlight', 'a primary consumer (a herbivore)', 'a secondary consumer (a carnivore)', 'a tertiary consumer'],
+      is: (S, r) => `${S} is ${r}.`, apex: (S, B) => `${S} is the apex predator: nothing in this web eats ${B.pl}.`,
+      tail: 'The arrows show the energy passing along the chain. Only about a tenth of it reaches each next step.',
+      web: 'Tap another chain: the same web holds several chains, and they share species. That is the difference between a chain and a web.' },
+    pyr: { title: 'Energy pyramid', lead: 'Each step up gets only about a tenth of the energy.',
+      body: 'Animals use most of the energy in their food to move, grow and keep warm, and it ends up as heat. Only about 10% is passed on to whoever eats them. That is why a meadow can feed hundreds of grasshoppers but only a few foxes and owls.',
+      top: 'Only about 10% of the energy passes up each step', units: 'energy units', heat: '≈90%: used for living, lost as heat',
+      levels: ['Producers', 'Primary consumers', 'Secondary consumers', 'Tertiary consumers'], also: 'The owl sits on two levels: it eats mice and birds.' },
+    fine: 'A simplified model — real ecosystems are more complex. Animal numbers and rates are made up for the model, not real counts; the plant is shown as % of its normal amount.',
+    finePyr: 'About 10% per step is a textbook rule of thumb (after R. Lindeman, 1942); the real share varies.',
+    fineKelp: 'The real story: where sea otters disappeared along the North Pacific coast, urchins multiplied and kelp forests vanished (Estes & Palmisano, 1974). The word “keystone species” comes from ecologist Robert Paine (1969).',
+    secrets: { drought: ['Long drought', 'The grass grows half as fast'], keystone: ['Keystone species', 'A kelp forest and its sea otters'] },
+    quiz: [
+      { q: 'Which way do the arrows in a food web point?', opts: ['From the eater to the eaten', 'From the eaten to the eater: the way energy flows', 'From the biggest animal to the smallest'], ok: 1 },
+      { q: 'In the chain grass → rabbit → fox, which one is the producer?', opts: ['The grass', 'The rabbit', 'The fox'], ok: 0 },
+      { q: 'If all the rabbits disappeared, what would happen to the foxes?', opts: ['There would be more foxes', 'There would be fewer foxes: they lose a food', 'Nothing would change'], ok: 1 },
+    ],
+  },
+  ru: {
+    name: 'Пищевая сеть', title: 'Кто кого ест',
+    lines: [['Нажми на растение или животное,', 'чтобы узнать, что оно ест и кто ест его.'], ['Стрелки показывают энергию:', 'они идут от того, кого едят, к тому, кто ест.'], ['Убери один вид, нажми «Пуск»', 'и смотри, как расходятся волны.']],
+    views: { web: '🕸️ Сеть', chart: '📈 График', pyramid: '🔺 Энергия' },
+    sp: {
+      grass: { sg: 'Трава', A: 'Трава', pl: 'трава', low: 'трава', subj: 'Трава', gen: 'травы' },
+      hopper: { sg: 'Кузнечик', A: 'Кузнечики', pl: 'кузнечики', low: 'кузнечик', subj: 'Кузнечик', gen: 'кузнечиков' },
+      mouse: { sg: 'Мышь', A: 'Мыши', pl: 'мыши', low: 'мышь', subj: 'Мышь', gen: 'мышей' },
+      rabbit: { sg: 'Кролик', A: 'Кролики', pl: 'кролики', low: 'кролик', subj: 'Кролик', gen: 'кроликов' },
+      bird: { sg: 'Птица', A: 'Птицы', pl: 'птицы', low: 'птица', subj: 'Птица', gen: 'птиц' },
+      owl: { sg: 'Сова', A: 'Совы', pl: 'совы', low: 'сова', subj: 'Сова', gen: 'сов' },
+      fox: { sg: 'Лиса', A: 'Лисы', pl: 'лисы', low: 'лиса', subj: 'Лиса', gen: 'лис' },
+      kelp: { sg: 'Ламинария', A: 'Ламинария', pl: 'ламинария', low: 'ламинария', subj: 'Ламинария', gen: 'ламинарии' },
+      urchin: { sg: 'Морской ёж', A: 'Морские ежи', pl: 'морские ежи', low: 'морской ёж', subj: 'Морской ёж', gen: 'морских ежей' },
+      otter: { sg: 'Калан', A: 'Каланы', pl: 'каланы', low: 'калан', subj: 'Калан', gen: 'каланов' },
+    },
+    roles: {
+      grass: 'Продуцент: сама делает себе пищу из солнечного света', kelp: 'Продуцент: огромная водоросль, сама делает себе пищу из солнечного света',
+      hopper: 'Консумент I порядка · растительноядный', mouse: 'Консумент I порядка · растительноядная (ест растения и семена)', rabbit: 'Консумент I порядка · растительноядный',
+      urchin: 'Консумент I порядка · растительноядный (объедает ламинарию)', bird: 'Консумент II порядка · хищник (ест насекомых)',
+      owl: 'Высший хищник: консумент II порядка, когда ест мышей, и III порядка, когда ест птиц', fox: 'Высший хищник · консумент II порядка (ест кроликов и мышей)',
+      otter: 'Высший хищник · консумент II порядка · ключевой вид',
+    },
+    food: 'Пища', sun: '☀️ солнечный свет', eatenBy: 'Кто ест', nobody: 'никто в этой сети', chainsHere: 'Цепи',
+    lvl: ['Продуцент', 'Консумент I порядка', 'Консумент II порядка', 'Высший хищник'],
+    fewer: '− Меньше', more: '+ Больше', remove: '✕ Убрать', back: '↺ Вернуть', gone: 'нет',
+    tapHint: '👆 Нажми на растение или животное в сети: увидишь, что оно ест, кто ест его, и сможешь менять его численность.',
+    play: '▶ Пуск', pause: '❚❚ Пауза', reset: '↺ Сначала', speed: 'Скорость', exps: 'Опыты', chains: 'Пищевые цепи',
+    years: (x) => `${x} <small>года</small>`, inModel: 'время в модели', alive: (a, n) => `живых видов: ${a} из ${n}`,
+    status: { calm: 'В равновесии', moving: 'Меняется', settled: 'Новое равновесие' },
+    arrowNote: 'Стрелки = поток энергии: от того, кого едят → к тому, кто ест', normal: 'норма', pct: '% от нормы', yrs: 'годы',
+    exp: {
+      noFox: { chip: '🦊 Без лис', name: 'Без лис', did: 'Все лисы исчезли.', q: 'Лис больше нет. Что будет с травой?',
+        why: 'Без лис кролики и мыши расплодились. Больше травоядных съели больше травы, и травы стало меньше. Потом голодных кроликов стало резко меньше, и сеть понемногу пришла к новому равновесию.' },
+      noRabbit: { chip: '🐇 Без кроликов', name: 'Без кроликов', did: 'Все кролики исчезли.', q: 'Кроликов больше нет. Что будет с лисами?',
+        why: 'Лисы потеряли главную пищу, поэтому прокормиться здесь может меньше лис. Но они не вымерли: у них остались мыши. А совам повезло: мышей для них стало больше.' },
+      pest: { chip: '🧪 Пестицид', name: 'Пестицид', did: 'Луг опрыскали пестицидом. Он убивает кузнечиков.', q: 'Пестицид убивает кузнечиков. Что будет с птицами?',
+        why: 'Пестицид был против насекомых, но птицы питались этими насекомыми. Есть стало почти нечего, и птицы вымерли от голода. Совы тоже потеряли часть пищи. Изменение в одном звене бежит дальше по стрелкам.' },
+      mow: { chip: '🚜 Покос', name: 'Покос', did: 'Скосили три четверти травы.', q: 'Мы скашиваем почти весь луг. Что будет с кроликами?',
+        why: 'Покос убрал большую часть продуцента. Травы стало мало, кролики голодали, и их стало меньше. Трава отросла быстро, а кролики восстановились позже.' },
+      drought: { chip: 'Засуха', name: 'Долгая засуха', did: 'Трава растёт вдвое медленнее.', q: 'Долгая засуха: трава растёт вдвое медленнее. Что будет с лисами?',
+        why: 'Меньше травы — меньше энергии для всей сети. Первыми стали голодать кролики, а за ними и лисы, которые на них охотятся. А мышам неожиданно повезло: лис и сов стало меньше, и мышей стало даже больше, чем раньше. Волны в сети иногда идут в неожиданную сторону!' },
+      keystone: { chip: 'Ключевой вид', name: 'Ключевой вид', did: 'Лес из ламинарии в море. Каланы исчезли.', q: 'Каланы исчезают. Что будет с лесом из ламинарии?',
+        why: 'Каланы едят морских ежей, а ежи едят ламинарию. Без каланов ежи расплодились и съели почти всю ламинарию. Немного каланов охраняют целый подводный лес — поэтому их называют ключевым видом.' },
+    },
+    ans: { up: '⬆ Станет больше', down: '⬇ Станет меньше', same: '↔ Почти не изменится' },
+    guess: 'Твой ответ', watching: (e, n) => `следим: ${e} ${n}`, ok: 'Понятно', right: 'Верно!', wrong: 'На этот раз нет.', lowest: 'минимум', highest: 'максимум', hardly: 'почти не изменилось',
+    open: {
+      q: 'Мы убираем всех лис. Что будет с кроликами?', sub: 'Сделай ставку, а потом смотри на модель.',
+      opts: { happy: '😊 Будут жить долго и счастливо', boom: '📈 Расплодятся… а потом рухнут', die: '💀 Тоже вымрут' }, skip: 'Пропустить',
+      boomV: 'Взлёт… и обвал!', dieV: 'Они вымерли', happyV: 'Они остались счастливы',
+      why: 'Без лис кролики расплодились и стали есть траву быстрее, чем она отрастает. Потом травы не хватило, и многие кролики погибли от голода. Нет охотников — ещё не значит «счастливы навсегда»!',
+      yes: 'Точно!', no: 'Так думают очень многие!',
+    },
+    ripple: {
+      predLess: (B, p) => `${p ? 'её' : 'их'} едят реже: ${B.gen} стало меньше`, predNone: (B, p) => `${B.gen} больше нет — ${p ? 'её' : 'их'} едят реже`,
+      predMore: (B, p) => `${B.gen} стало больше — ${p ? 'её' : 'их'} едят чаще`,
+      foodMore: (B) => `еды вдоволь: ${B.gen} стало больше`, foodLess: (B) => `еды не хватает: ${B.gen} стало меньше`, foodNone: (B) => `${B.gen} не осталось — еды стало меньше`,
+      crowd: 'слишком тесно', room: 'есть место, чтобы восстановиться', pest: 'их убивает пестицид', drought: 'из-за засухи она растёт медленнее',
+    },
+    calm: 'Численность всех видов почти не меняется: сколько рождается, столько и погибает. Небольшие колебания — это смена времён года.',
+    settled: 'Сеть пришла к новому равновесию: численность больше не меняется, но она уже не такая, как раньше.',
+    extinct: (A) => `${A} вымерли: осталось меньше одной особи, и модель считает 0.`,
+    whatNow: 'Что меняется сейчас и почему:',
+    intro: { title: 'Пищевая сеть луга', lead: 'Энергия идёт от травы к животным, которые её едят, а от них — к хищникам.',
+      body: 'Продуценты (здесь это трава) сами делают себе пищу из солнечного света. Консументы питаются другими живыми существами. Хищник охотится на других животных — свою добычу. Один путь от травы до высшего хищника — это пищевая цепь. Все цепи вместе образуют пищевую сеть.' },
+    kelpIntro: { title: 'Лес из ламинарии', lead: 'Ламинария — огромная водоросль. Её объедают морские ежи, а ежей едят каланы.', body: '' },
+    chainT: { title: 'Пищевая цепь', role: ['продуцент: сама делает себе пищу из солнечного света', 'консумент I порядка (растительноядный)', 'консумент II порядка (хищник)', 'консумент III порядка'],
+      is: (S, r) => `${S} — ${r}.`, apex: (S, B) => `${S} — высший хищник: в этой сети никто не ест ${B.gen}.`,
+      tail: 'Стрелки показывают, как энергия переходит по цепи. На каждое следующее звено доходит лишь около десятой части.',
+      web: 'Нажми на другую цепь: в одной сети много цепей, и у них общие виды. В этом и разница между цепью и сетью.' },
+    pyr: { title: 'Пирамида энергии', lead: 'На каждую следующую ступень доходит лишь около десятой части энергии.',
+      body: 'Большую часть энергии из пищи животные тратят на движение, рост и тепло тела, и она уходит в виде тепла. Тому, кто их съест, достаётся лишь около 10%. Поэтому луг может прокормить сотни кузнечиков, но лишь несколько лис и сов.',
+      top: 'На каждую ступень вверх переходит лишь около 10% энергии', units: 'ед. энергии', heat: '≈90% уходит на жизнь и в тепло',
+      levels: ['Продуценты', 'Консументы I порядка', 'Консументы II порядка', 'Консументы III порядка'], also: 'Сова стоит на двух ступенях: она ест и мышей, и птиц.' },
+    fine: 'Упрощённая модель — настоящие экосистемы сложнее. Численность животных и скорости придуманы для модели, это не настоящие подсчёты; растение показано в % от своей нормы.',
+    finePyr: 'Около 10% на ступень — учебное «правило десяти процентов» (по работам Р. Линдемана, 1942); на самом деле доля бывает разной.',
+    fineKelp: 'Настоящая история: там, где у северного побережья Тихого океана исчезли каланы, расплодились морские ежи и пропали леса ламинарии (Эстес и Палмисано, 1974). Понятие «ключевой вид» ввёл эколог Роберт Пейн (1969).',
+    secrets: { drought: ['Долгая засуха', 'Трава растёт вдвое медленнее'], keystone: ['Ключевой вид', 'Лес из ламинарии и каланы'] },
+    quiz: [
+      { q: 'Куда направлены стрелки в пищевой сети?', opts: ['От того, кто ест, к тому, кого едят', 'От того, кого едят, к тому, кто ест: так течёт энергия', 'От самого большого животного к самому маленькому'], ok: 1 },
+      { q: 'В цепи трава → кролик → лиса кто продуцент?', opts: ['Трава', 'Кролик', 'Лиса'], ok: 0 },
+      { q: 'Что будет с лисами, если исчезнут все кролики?', opts: ['Лис станет больше', 'Лис станет меньше: они теряют пищу', 'Ничего не изменится'], ok: 1 },
+    ],
+  },
+  hu: {
+    name: 'Táplálékháló-labor', title: 'Ki kit eszik',
+    lines: [['Koppints egy növényre vagy állatra,', 'és megtudod, mit eszik, és ki eszi meg.'], ['A nyilak az energiát mutatják:', 'a megevettől a megevő felé mutatnak.'], ['Vegyél ki egy fajt, indítsd el,', 'és figyeld, hogyan terjed a hatás.']],
+    views: { web: '🕸️ Háló', chart: '📈 Grafikon', pyramid: '🔺 Energia' },
+    sp: {
+      grass: { sg: 'Fű', A: 'Fű', pl: 'fű', low: 'fű', subj: 'A fű', q: 'fű', sa: 'a fű', pa: 'a fű' },
+      hopper: { sg: 'Szöcske', A: 'Szöcskék', pl: 'szöcskék', low: 'szöcske', subj: 'A szöcske', q: 'szöcske', sa: 'a szöcske', pa: 'a szöcskék' },
+      mouse: { sg: 'Egér', A: 'Egerek', pl: 'egerek', low: 'egér', subj: 'Az egér', q: 'egér', sa: 'az egér', pa: 'az egerek' },
+      rabbit: { sg: 'Nyúl', A: 'Nyulak', pl: 'nyulak', low: 'nyúl', subj: 'A nyúl', q: 'nyúl', sa: 'a nyúl', pa: 'a nyulak' },
+      bird: { sg: 'Madár', A: 'Madarak', pl: 'madarak', low: 'madár', subj: 'A madár', q: 'madár', sa: 'a madár', pa: 'a madarak' },
+      owl: { sg: 'Bagoly', A: 'Baglyok', pl: 'baglyok', low: 'bagoly', subj: 'A bagoly', q: 'bagoly', sa: 'a bagoly', pa: 'a baglyok' },
+      fox: { sg: 'Róka', A: 'Rókák', pl: 'rókák', low: 'róka', subj: 'A róka', q: 'róka', sa: 'a róka', pa: 'a rókák' },
+      kelp: { sg: 'Moszat', A: 'Moszat', pl: 'moszat', low: 'moszat', subj: 'A moszat', q: 'moszat', sa: 'a moszat', pa: 'a moszat' },
+      urchin: { sg: 'Tengeri sün', A: 'Tengeri sünök', pl: 'tengeri sünök', low: 'tengeri sün', subj: 'A tengeri sün', q: 'tengeri sün', sa: 'a tengeri sün', pa: 'a tengeri sünök' },
+      otter: { sg: 'Tengeri vidra', A: 'Tengeri vidrák', pl: 'tengeri vidrák', low: 'tengeri vidra', subj: 'A tengeri vidra', q: 'tengeri vidra', sa: 'a tengeri vidra', pa: 'a tengeri vidrák' },
+    },
+    roles: {
+      grass: 'Termelő: napfényből maga készíti a táplálékát', kelp: 'Termelő: óriási tengeri moszat, napfényből maga készíti a táplálékát',
+      hopper: 'Elsődleges fogyasztó · növényevő', mouse: 'Elsődleges fogyasztó · növényevő (növényeket és magvakat eszik)', rabbit: 'Elsődleges fogyasztó · növényevő',
+      urchin: 'Elsődleges fogyasztó · növényevő (a moszatot legeli)', bird: 'Másodlagos fogyasztó · ragadozó (rovarokat eszik)',
+      owl: 'Csúcsragadozó: másodlagos fogyasztó, amikor egeret eszik, és harmadlagos, amikor madarat', fox: 'Csúcsragadozó · másodlagos fogyasztó (nyulat és egeret eszik)',
+      otter: 'Csúcsragadozó · másodlagos fogyasztó · kulcsfaj',
+    },
+    food: 'Tápláléka', sun: '☀️ napfény', eatenBy: 'Ki eszi', nobody: 'senki ebben a hálóban', chainsHere: 'Láncok',
+    lvl: ['Termelő', 'Elsődleges fogyasztó', 'Másodlagos fogyasztó', 'Csúcsragadozó'],
+    fewer: '− Kevesebb', more: '+ Több', remove: '✕ Kivesszük', back: '↺ Visszahozzuk', gone: 'nincs',
+    tapHint: '👆 Koppints egy növényre vagy állatra a hálóban: megtudod, mit eszik, ki eszi meg, és változtathatsz a létszámán.',
+    play: '▶ Indít', pause: '❚❚ Szünet', reset: '↺ Újra', speed: 'Sebesség', exps: 'Kísérletek', chains: 'Táplálékláncok',
+    years: (x) => `${x} <small>év</small>`, inModel: 'idő a modellben', alive: (a, n) => `élő fajok: ${a}/${n}`,
+    status: { calm: 'Egyensúlyban', moving: 'Változik', settled: 'Új egyensúly' },
+    arrowNote: 'Nyíl = energiaáramlás: a megevettől → a megevő felé', normal: 'szokásos', pct: '% a szokásoshoz képest', yrs: 'év',
+    exp: {
+      noFox: { chip: '🦊 Rókák nélkül', name: 'Rókák nélkül', did: 'Eltűnt az összes róka.', q: 'Eltűnnek a rókák. Mi lesz a fűvel?',
+        why: 'Rókák nélkül elszaporodtak a nyulak és az egerek. Több növényevő több füvet evett, így a fű megfogyott. Aztán az éhes nyulak száma összeomlott, és a háló lassan új egyensúlyba került.' },
+      noRabbit: { chip: '🐇 Nyulak nélkül', name: 'Nyulak nélkül', did: 'Eltűnt az összes nyúl.', q: 'Eltűnnek a nyulak. Mi lesz a rókákkal?',
+        why: 'A rókák elvesztették a fő táplálékukat, ezért kevesebb róka tud itt megélni. Nem haltak ki: egeret még mindig esznek. A baglyok pedig meglepetést kaptak: több egér jutott nekik.' },
+      pest: { chip: '🧪 Rovarirtó', name: 'Rovarirtó', did: 'Rovarirtót permeteznek a rétre. Ez elpusztítja a szöcskéket.', q: 'A rovarirtó elpusztítja a szöcskéket. Mi lesz a madarakkal?',
+        why: 'A rovarirtó a rovaroknak szólt, de a madarak ezekből a rovarokból éltek. Szinte semmi ennivaló nem maradt, ezért a madarak éhen haltak és kipusztultak. A baglyok táplálékának egy része is eltűnt. Egy láncszem változása végigfut a nyilak mentén.' },
+      mow: { chip: '🚜 Kaszálás', name: 'Kaszálás', did: 'Levágták a fű háromnegyedét.', q: 'Lekaszáljuk a rét nagy részét. Mi lesz a nyulakkal?',
+        why: 'A kaszálás elvitte a termelő nagy részét. Kevés fű maradt, a nyulak éheztek, és megfogyatkoztak. A fű gyorsan visszanőtt, a nyulak pedig később helyreálltak.' },
+      drought: { chip: 'Szárazság', name: 'Hosszú szárazság', did: 'A fű feleolyan gyorsan nő.', q: 'Hosszú szárazság: a fű feleolyan gyorsan nő. Mi lesz a rókákkal?',
+        why: 'Kevesebb fű kevesebb energiát jelent az egész hálónak. Először a nyulak kezdtek éhezni, utánuk a rájuk vadászó rókák. Az egereknek viszont meglepően jól ment: kevesebb róka és bagoly vadászott rájuk, így még többen lettek, mint korábban. A hatás néha váratlan irányba terjed!' },
+      keystone: { chip: 'Kulcsfaj', name: 'Kulcsfaj', did: 'Moszaterdő a tengerben. Eltűntek a tengeri vidrák.', q: 'Eltűnnek a tengeri vidrák. Mi lesz a moszaterdővel?',
+        why: 'A tengeri vidrák tengeri sünöket esznek, a sünök pedig moszatot. Vidrák nélkül a sünök elszaporodtak, és szinte az egész moszatot megették. Néhány vidra egy egész erdőt véd meg: ezért nevezik őket kulcsfajnak.' },
+    },
+    ans: { up: '⬆ Több lesz', down: '⬇ Kevesebb lesz', same: '↔ Alig változik' },
+    guess: 'A tipped', watching: (e, n) => `figyeljük: ${e} ${n}`, ok: 'Rendben', right: 'Eltaláltad!', wrong: 'Most nem talált.', lowest: 'mélypont', highest: 'csúcs', hardly: 'alig változott',
+    open: {
+      q: 'Elvisszük az összes rókát. Mi lesz a nyulakkal?', sub: 'Tippelj, aztán figyeld a modellt.',
+      opts: { happy: '😊 Örökké boldogan élnek', boom: '📈 Elszaporodnak… aztán összeomlanak', die: '💀 Ők is kipusztulnak' }, skip: 'Kihagyom',
+      boomV: 'Fellendülés… aztán összeomlás!', dieV: 'Kipusztultak', happyV: 'Boldogok maradtak',
+      why: 'Rókák nélkül a nyulak elszaporodtak, és gyorsabban ették a füvet, mint ahogy az visszanőtt. Aztán nem maradt elég fű, és sok nyúl éhen pusztult. Ha nincs vadász, attól még nem lesz örök a boldogság!',
+      yes: 'Pontosan!', no: 'Nagyon sokan ezt tippelik!',
+    },
+    ripple: {
+      predLess: (B, p) => `kevesebb ${B.q} eszi${p ? '' : ' őket'}`, predNone: (B, p) => `eltűntek ${B.pa}, ritkábban eszik meg${p ? '' : ' őket'}`,
+      predMore: (B, p) => `több ${B.q} eszi${p ? '' : ' őket'}`,
+      foodMore: (B) => `bőven van ennivaló: több lett ${B.sa}`, foodLess: (B) => `kevés az ennivaló: kevesebb lett ${B.sa}`, foodNone: (B) => `elfogyott ${B.sa}, kevesebb az ennivaló`,
+      crowd: 'túl zsúfolt a hely', room: 'van hely, hogy újra gyarapodjon', pest: 'a rovarirtó elpusztítja őket', drought: 'a szárazság miatt lassabban nő',
+    },
+    calm: 'Minden faj létszáma nagyjából ugyanannyi marad: annyi születik, amennyi elpusztul. Az apró hullámzást az évszakok okozzák.',
+    settled: 'A háló új egyensúlyba került: a létszámok már nem változnak, de nem a régiek.',
+    extinct: (A) => `Kipusztultak ${A}: 1-nél kevesebb maradt, ezért a modell nullának veszi.`,
+    whatNow: 'Mi változik most, és miért:',
+    intro: { title: 'Egy rét táplálékhálója', lead: 'Az energia a fűtől az azt megevő állatokhoz, tőlük pedig a ragadozókhoz áramlik.',
+      body: 'A termelők (itt a fű) napfényből maguk készítik a táplálékukat. A fogyasztók más élőlényeket esznek. A ragadozó más állatokra vadászik: ezek a zsákmányai. Egy út a fűtől egy csúcsragadozóig a tápláléklánc. Az összekapcsolódó láncok együtt adják a táplálékhálót.' },
+    kelpIntro: { title: 'Moszaterdő', lead: 'A moszat óriási tengeri hínár. A tengeri sünök legelik, a sünöket pedig a tengeri vidrák eszik.', body: '' },
+    chainT: { title: 'Egy tápláléklánc', role: ['termelő: napfényből maga készíti a táplálékát', 'elsődleges fogyasztó (növényevő)', 'másodlagos fogyasztó (ragadozó)', 'harmadlagos fogyasztó'],
+      is: (S, r) => `${S} ${r}.`, apex: (S) => `${S} csúcsragadozó: ebben a hálóban semmi sem eszi meg.`,
+      tail: 'A nyilak mutatják, hogyan halad az energia a láncon. Minden következő lépcsőre csak nagyjából a tizede jut.',
+      web: 'Koppints egy másik láncra: egy hálóban sok lánc van, és közös fajaik vannak. Ez a különbség a lánc és a háló között.' },
+    pyr: { title: 'Energiapiramis', lead: 'Minden lépcsőfokra csak nagyjából a tizede jut az energiának.',
+      body: 'Az állatok a táplálékuk energiájának nagy részét mozgásra, növekedésre és a testük melegen tartására használják, és ez hőként távozik. Csak nagyjából 10% jut tovább annak, aki megeszi őket. Ezért tud egy rét több száz szöcskét eltartani, de csak néhány rókát és baglyot.',
+      top: 'Lépcsőnként csak kb. 10% energia jut feljebb', units: 'energiaegység', heat: '≈90% életműködésre megy, hőként távozik',
+      levels: ['Termelők', 'Elsődleges fogyasztók', 'Másodlagos fogyasztók', 'Harmadlagos fogyasztók'], also: 'A bagoly két szinten is ott van: egeret és madarat is eszik.' },
+    fine: 'Egyszerűsített modell — a valódi ökoszisztémák bonyolultabbak. Az állatok létszáma és a sebességek a modellhez kitaláltak, nem valódi számlálások; a növényt a szokásos mennyiségéhez képest, %-ban mutatjuk.',
+    finePyr: 'A lépcsőnkénti kb. 10% tankönyvi ökölszabály (R. Lindeman 1942-es munkája nyomán); a valódi arány változó.',
+    fineKelp: 'A valódi történet: ahol a Csendes-óceán északi partjain eltűntek a tengeri vidrák, elszaporodtak a tengeri sünök, és eltűntek a moszaterdők (Estes és Palmisano, 1974). A „kulcsfaj” kifejezést Robert Paine ökológus vezette be (1969).',
+    secrets: { drought: ['Hosszú szárazság', 'A fű feleolyan gyorsan nő'], keystone: ['Kulcsfaj', 'Moszaterdő és tengeri vidrák'] },
+    quiz: [
+      { q: 'Merre mutatnak a nyilak egy táplálékhálóban?', opts: ['A megevőtől a megevett felé', 'A megevettől a megevő felé: amerre az energia áramlik', 'A legnagyobb állattól a legkisebb felé'], ok: 1 },
+      { q: 'A fű → nyúl → róka láncban melyik a termelő?', opts: ['A fű', 'A nyúl', 'A róka'], ok: 0 },
+      { q: 'Mi lenne a rókákkal, ha eltűnne az összes nyúl?', opts: ['Több róka lenne', 'Kevesebb róka lenne: elveszítik az egyik táplálékukat', 'Semmi sem változna'], ok: 1 },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_EygMHKs8Ed', en: 'Simple Food Chains', ru: 'Простые пищевые цепи', hu: 'Egyszerű tápláléklánc' },
+  { id: 'mt_oB-L8EVdIP', en: 'Food Chains & Energy Transfer', ru: 'Пищевые цепи и передача энергии', hu: 'Tápláléklánc és energiaátadás' },
+  { id: 'mt_uVaS12lN1i', en: 'Reading Food Web Diagrams', ru: 'Чтение схем пищевых сетей', hu: 'Táplálékháló-ábrák olvasása' },
+  { id: 'mt_URTJbS3hhs', en: 'Food Webs & Interdependence', ru: 'Пищевые сети и взаимозависимость', hu: 'Táplálékhálók és kölcsönös függés' },
+];
+
+// --- the model ----------------------------------------------------------------------------------------------
+// Relative generalized Lotka–Volterra. y = count / normal count, so "normal" is y = 1 for every species.
+//   dy_i/dt = y_i · ( Σ_j M_ij (y_j − 1)  + seasons and drought for the plant − pesticide )
+// An eating link gives the eater +g·(y_prey − 1) and the eaten −l·(y_eater − 1), with l = w_eater·g / w_eaten.
+// Every species also limits itself (s > 0; for the plant this is the logistic cap). With these weights w the
+// matrix is Volterra-dissipative: populations settle down instead of exploding. Rates are per year, made up.
+const WEBS = {
+  meadow: {
+    sp: [
+      { k: 'grass', emo: '🌿', col: '#3ddc97', N: 100, s: 0.74, w: 1, prod: true, lvl: 0, x: 0.5, y: 0.88 },
+      { k: 'hopper', emo: '🦗', col: '#c3e84f', N: 400, s: 0.30, w: 0.08, lvl: 1, x: 0.14, y: 0.63 },
+      { k: 'mouse', emo: '🐁', col: '#b9a7ff', N: 120, s: 0.12, w: 0.16, lvl: 1, x: 0.5, y: 0.63 },
+      { k: 'rabbit', emo: '🐇', col: '#f5c84c', N: 60, s: 0.02, w: 0.27, lvl: 1, x: 0.86, y: 0.63 },
+      { k: 'bird', emo: '🐦', col: '#4ea8ff', N: 30, s: 0.5, w: 0.125, lvl: 2, x: 0.14, y: 0.38 },
+      { k: 'owl', emo: '🦉', col: '#d39a6a', N: 12, s: 0.55, w: 0.17, lvl: 3, x: 0.34, y: 0.13 },
+      { k: 'fox', emo: '🦊', col: '#ff6a3d', N: 14, s: 1.0, w: 0.22, lvl: 3, x: 0.72, y: 0.13 },
+    ],
+    ed: [['grass', 'hopper', 3.5], ['grass', 'mouse', 2.2], ['grass', 'rabbit', 3.1], ['hopper', 'bird', 1.6],
+      ['mouse', 'owl', 0.7], ['bird', 'owl', 0.6], ['mouse', 'fox', 0.8], ['rabbit', 'fox', 1.5]],
+    chains: [['grass', 'hopper', 'bird', 'owl'], ['grass', 'rabbit', 'fox'], ['grass', 'mouse', 'owl'], ['grass', 'mouse', 'fox']],
+    pyramid: [['grass'], ['hopper', 'mouse', 'rabbit'], ['bird', 'fox', 'owl'], ['owl']],
+  },
+  kelp: {
+    sp: [
+      { k: 'kelp', emo: '🌿', col: '#5fbf6a', N: 100, s: 0.5, w: 1, prod: true, lvl: 0, x: 0.5, y: 0.86 },
+      { k: 'urchin', emo: '🟣', col: '#b06ae8', N: 200, s: 0.05, w: 0.5, lvl: 1, x: 0.5, y: 0.5 },
+      { k: 'otter', emo: '🦦', col: '#d39a6a', N: 12, s: 0.4, w: 0.525, lvl: 3, x: 0.5, y: 0.14 },
+    ],
+    ed: [['kelp', 'urchin', 1.0], ['urchin', 'otter', 0.8]],
+    chains: [['kelp', 'urchin', 'otter']],
+    pyramid: [['kelp'], ['urchin'], ['otter']],
+  },
+};
+function compile(web) {
+  const n = web.sp.length, id = Object.fromEntries(web.sp.map((s, i) => [s.k, i]));
+  const M = web.sp.map((s, i) => web.sp.map((_, j) => (i === j ? -s.s : 0)));
+  web.links = web.ed.map(([a, b, g]) => {
+    const i = id[a], j = id[b], l = web.sp[j].w * g / web.sp[i].w;
+    M[j][i] += g; M[i][j] -= l;
+    return { from: i, to: j, g, l };
+  });
+  web.M = M; web.id = id; web.n = n;
+  web.b0 = M.map((row) => -row.reduce((a, v) => a + v, 0)); // own growth rate with nothing else around
+  web.chainIdx = web.chains.map((c) => c.map((k) => id[k]));
+  return web;
+}
+Object.values(WEBS).forEach(compile);
+const DT = 0.005, YPS = 0.35, SEASON = 0.08; // years per sub-step, model years per second at 1×, seasonal wiggle
+const K1 = new Float64Array(8), K2 = new Float64Array(8), TMP = new Float64Array(8);
+function rates(web, y, t, env, out) {
+  const { M, n, sp } = web;
+  for (let i = 0; i < n; i++) {
+    if (y[i] <= 0) { out[i] = 0; continue; }
+    let r = 0;
+    for (let j = 0; j < n; j++) if (M[i][j]) r += M[i][j] * (y[j] - 1);
+    if (sp[i].prod) r += (SEASON * Math.sin(2 * Math.PI * t) - env.drought) * web.b0[i];
+    if (env.kill[sp[i].k]) r -= env.kill[sp[i].k];
+    out[i] = y[i] * r;
+  }
+}
+// one Heun (RK2) sub-step of 0.005 years, clamped to [0, 5 × normal] as a backstop
+function step(web, y, t, env) {
+  const n = web.n;
+  rates(web, y, t, env, K1);
+  for (let i = 0; i < n; i++) TMP[i] = Math.min(5, Math.max(0, y[i] + DT * K1[i]));
+  rates(web, TMP, t + DT, env, K2);
+  for (let i = 0; i < n; i++) y[i] = Math.min(5, Math.max(0, y[i] + DT * 0.5 * (K1[i] + K2[i])));
+}
+
+// --- state -------------------------------------------------------------------------------------------------
+const S = {
+  webKey: 'meadow', y: null, t: 0, acc: 0, anim: 0, playing: false, speed: 1, sel: null, chain: null, exp: null,
+  env: { drought: 0, kill: {} }, hist: [], events: [], nextRec: 0, pred: null, toast: null, toastT: 0,
+  asked: store.get('food-web:asked', false), removed: new Set(),
+};
+const W = () => WEBS[S.webKey];
+const lab = shell({ key: 'food-web', T, topics: TOPICS, views: ['web', 'chart', 'pyramid'], onLang: render, onView: render });
+const secret = secretLab('food-web', () => ({
+  secrets: [{ emo: '🌵', title: T[lang].secrets.drought[0], desc: T[lang].secrets.drought[1] }, { emo: '🦦', title: T[lang].secrets.keystone[0], desc: T[lang].secrets.keystone[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+const html = (el, h) => { if (el._h !== h) { el._h = h; el.innerHTML = h; } };
+const nameOf = (i, f = 'sg') => T[lang].sp[W().sp[i].k][f];
+const nf = (x, d = 0) => new Intl.NumberFormat(lang, { maximumFractionDigits: d, minimumFractionDigits: d }).format(x);
+const countOf = (i, y = S.y[i]) => (W().sp[i].prod ? `${nf(Math.round(y * 100))}%` : nf(Math.floor(y * W().sp[i].N + 1e-9)));
+const ROLE_COL = ['#3ddc97', '#f5c84c', '#ff8a3d', '#ff3b30'];
+const EXP_EMO = { noFox: '🦊', noRabbit: '🐇', pest: '🧪', mow: '🚜', drought: '🌵', keystone: '🦦' };
+const EXPS = {
+  noFox: { web: 'meadow', target: 'grass', win: 5, apply: () => removeSp('fox', false) },
+  noRabbit: { web: 'meadow', target: 'fox', win: 5, apply: () => removeSp('rabbit', false) },
+  pest: { web: 'meadow', target: 'bird', win: 6, apply: () => { S.env.kill.hopper = 3; } },
+  mow: { web: 'meadow', target: 'rabbit', win: 3, apply: () => { S.y[0] *= 0.25; } },
+  drought: { web: 'meadow', target: 'fox', win: 6, apply: () => { S.env.drought = 0.5; } },
+  keystone: { web: 'kelp', target: 'kelp', win: 6, apply: () => removeSp('otter', false) },
+};
+
+function resetWeb(key = S.webKey) {
+  S.webKey = key; S.y = new Float64Array(W().n).fill(1); S.t = 0; S.acc = 0; S.nextRec = 0;
+  S.hist = []; S.events = []; S.env = { drought: 0, kill: {} }; S.exp = null; S.pred = null; S.removed = new Set(); parts.length = 0;
+  if (S.sel !== null && S.sel >= W().n) S.sel = null;
+  if (S.chain !== null && S.chain >= W().chains.length) S.chain = null;
+  record();
+}
+function record() { S.hist.push({ t: S.t, y: Array.from(S.y) }); if (S.hist.length > 320) S.hist.shift(); S.nextRec = S.t + 0.05; }
+function event(emo) { S.events.push({ t: S.t, emo }); if (S.events.length > 40) S.events.shift(); }
+function removeSp(k, cancel = true) {
+  const i = W().id[k]; if (S.y[i] <= 0) return;
+  S.y[i] = 0; S.removed.add(i); event('✕' + W().sp[i].emo);
+  if (cancel) S.pred = null;
+}
+function showToast(msg) { S.toast = msg; S.toastT = 5; renderOverlay(); }
+
+// run the model forward by `years`, in fixed 0.005-year sub-steps
+function advance(years) {
+  const web = W();
+  S.acc += years;
+  while (S.acc >= DT) {
+    step(web, S.y, S.t, S.env); S.t += DT; S.acc -= DT;
+    web.sp.forEach((s, i) => {
+      if (!s.prod && S.y[i] > 0 && S.y[i] * s.N < 1) { // below one individual: gone
+        S.y[i] = 0; event('💀' + s.emo); showToast(`💀 ${T[lang].extinct(lang === 'hu' ? T.hu.sp[s.k].pa : nameOf(i, 'A'))}`); sfx.bad();
+      }
+    });
+    if (S.t >= S.nextRec) record();
+  }
+  watchPrediction();
+}
+
+// --- predictions: the guess is checked against what the model actually does ----------------------------------
+function startPrediction(key, guess) {
+  const e = EXPS[key];
+  resetWeb(e.web); S.exp = key; e.apply(); event(EXP_EMO[key]);
+  const ti = W().id[e.target];
+  S.pred = { key, guess, ti, t0: S.t, y0: S.y[ti] || 1, min: S.y[ti], max: S.y[ti], done: false, opening: false };
+  if (key === 'mow') S.pred.y0 = 1;
+  S.playing = true; S.speed = Math.max(S.speed, 2); S.sel = null; S.chain = null; sfx.click();
+}
+function startOpening(guess) {
+  resetWeb('meadow'); S.exp = 'noFox'; removeSp('fox', false);
+  const ti = W().id.rabbit;
+  S.pred = { key: 'noFox', guess, ti, t0: S.t, y0: 1, peak: 1, low: 1, done: false, opening: true, min: 1, max: 1 };
+  S.playing = true; S.speed = Math.max(S.speed, 2); sfx.click();
+}
+function watchPrediction() {
+  const p = S.pred; if (!p || p.done) return;
+  const y = S.y[p.ti];
+  p.min = Math.min(p.min, y); p.max = Math.max(p.max, y);
+  if (p.opening) {
+    // the rabbits: boom, then wait until the crash has bottomed out
+    if (y > p.peak) { p.peak = y; p.low = y; }
+    if (y < p.low) p.low = y;
+    const crashed = p.peak > 1.3 && p.low < 0.8 * p.peak && y > p.low + 0.01;
+    if (crashed || y === 0 || S.t - p.t0 > 8) {
+      p.done = true; p.result = y === 0 ? 'die' : crashed ? 'boom' : 'happy';
+      p.ok = p.result === p.guess; (p.ok ? sfx.good : sfx.snap)(); render();
+    }
+    return;
+  }
+  if (S.t - p.t0 >= EXPS[p.key].win) {
+    const up = p.max / p.y0 - 1, down = 1 - p.min / p.y0;
+    p.result = Math.max(up, down) < 0.15 ? 'same' : up > down ? 'up' : 'down';
+    p.extreme = p.result === 'up' ? p.max : p.min;
+    p.done = true; p.ok = p.result === p.guess; (p.ok ? sfx.good : sfx.snap)(); render();
+  }
+}
+
+// --- why is each population changing? the biggest term in its growth rate, read off the model -----------------
+function ripples() {
+  const web = W(), y = S.y, out = [];
+  for (let i = 0; i < web.n; i++) {
+    if (y[i] <= 0) continue;
+    const terms = [];
+    for (let j = 0; j < web.n; j++) {
+      const m = web.M[i][j]; if (!m) continue;
+      if (j === i) terms.push({ kind: 'self', v: m * (y[i] - 1) });
+      else terms.push({ kind: m < 0 ? 'pred' : 'food', j, v: m * (y[j] - 1) });
+    }
+    if (web.sp[i].prod && S.env.drought) terms.push({ kind: 'drought', v: -S.env.drought * web.b0[i] });
+    if (S.env.kill[web.sp[i].k]) terms.push({ kind: 'pest', v: -S.env.kill[web.sp[i].k] });
+    const r = terms.reduce((a, x) => a + x.v, 0);
+    if (Math.abs(r) < 0.3) continue;
+    const top = terms.filter((x) => Math.sign(x.v) === Math.sign(r)).sort((a, b) => Math.abs(b.v) - Math.abs(a.v))[0];
+    out.push({ i, r, top });
+  }
+  return out.sort((a, b) => Math.abs(b.r) - Math.abs(a.r)).slice(0, 3);
+}
+function rippleText({ i, r, top }) {
+  const t = T[lang], R = t.ripple, prod = W().sp[i].prod;
+  let why = '';
+  if (top.kind === 'self') why = r < 0 ? R.crowd : R.room;
+  else if (top.kind === 'pest') why = R.pest;
+  else if (top.kind === 'drought') why = R.drought;
+  else {
+    const B = t.sp[W().sp[top.j].k], gone = S.y[top.j] <= 0;
+    if (top.kind === 'pred') why = r > 0 ? (gone ? R.predNone(B, prod) : R.predLess(B, prod)) : R.predMore(B, prod);
+    else why = r > 0 ? R.foodMore(B) : (gone ? R.foodNone(B) : R.foodLess(B));
+  }
+  return `<div>${W().sp[i].emo} <b>${esc(nameOf(i, 'A'))}</b> <span class="${r > 0 ? 'up' : 'down'}">${r > 0 ? '▲' : '▼'}</span> — ${esc(why)}</div>`;
+}
+function status() {
+  const web = W(), tmp = new Float64Array(web.n);
+  rates(web, S.y, 0, S.env, tmp); // at t = 0 the seasonal term is sin(0) = 0, so only the real pressures count
+  let rmax = 0, dev = 0;
+  for (let i = 0; i < web.n; i++) if (S.y[i] > 0) { rmax = Math.max(rmax, Math.abs(tmp[i] / S.y[i])); dev = Math.max(dev, Math.abs(S.y[i] - 1)); }
+  const lost = S.y.some((v) => v <= 0);
+  return rmax > 0.3 ? 'moving' : dev < 0.15 && !lost ? 'calm' : 'settled';
+}
+
+// --- controls ------------------------------------------------------------------------------------------------
+$('ctrlBody').innerHTML = `
+  <div class="row2" style="margin-top:0"><button class="chip" id="play"></button><span class="lbl" id="lblSpeed"></span><div class="card seg small" id="speed"></div><button class="chip" id="reset"></button></div>
+  <div class="lbl2" id="lblExp"></div><div class="chips" id="exps"></div>
+  <div class="lbl2" id="lblChains"></div><div class="chips" id="chains"></div>
+  <div class="sp" id="spPanel"></div>
+  <div class="legend" id="legend"></div>`;
+$('play').onclick = () => { S.playing = !S.playing; if (!S.asked) { S.asked = true; store.set('food-web:asked', true); } sfx.click(); render(); };
+$('reset').onclick = () => { resetWeb(S.webKey === 'kelp' ? 'meadow' : S.webKey); sfx.push(); render(); };
+$('speed').addEventListener('click', (ev) => { const v = +ev.target.closest('button')?.dataset.s; if (v) { S.speed = v; sfx.click(); render(); } });
+$('exps').addEventListener('click', (ev) => {
+  const k = ev.target.closest('.chip')?.dataset.k; if (!k) return;
+  if ((k === 'drought' || k === 'keystone') && !secret.unlocked()) return secret.open();
+  if (S.exp === k && !S.pred?.opening) { resetWeb('meadow'); sfx.push(); return render(); } // tap the active experiment again: back to a balanced meadow
+  S.asked = true; store.set('food-web:asked', true);
+  if (EXPS[k].web !== S.webKey) resetWeb(EXPS[k].web); // switch webs first: a reset clears any question
+  S.pred = { key: k, asking: true }; S.playing = false;
+  sfx.click(); render();
+});
+$('chains').addEventListener('click', (ev) => {
+  const c = ev.target.closest('.chip')?.dataset.c; if (c === undefined) return;
+  S.chain = S.chain === +c ? null : +c; S.sel = null; sfx.click(); render();
+});
+$('spPanel').addEventListener('click', (ev) => {
+  const d = ev.target.closest('button')?.dataset; if (!d) return;
+  if (d.pick !== undefined) { S.sel = +d.pick; S.chain = null; sfx.click(); return render(); }
+  const a = d.a; if (!a || S.sel === null) return;
+  if (a === 'close') { S.sel = null; sfx.click(); return render(); }
+  const i = S.sel, s = W().sp[i];
+  if (S.pred && !S.pred.done) S.pred = null; // a hand-made change ends the running prediction
+  if (a === 'remove') { removeSp(s.k); sfx.push(); }
+  else if (a === 'back') { S.y[i] = Math.max(0.3, s.prod ? 0.3 : 2.5 / s.N); S.removed.delete(i); event('↺' + s.emo); sfx.snap(); }
+  else if (a === 'more') { S.y[i] = Math.min(5, S.y[i] * 1.5); event('+' + s.emo); sfx.tick(); }
+  else if (a === 'fewer') {
+    S.y[i] *= 0.5; event('−' + s.emo); sfx.tick();
+    if (!s.prod && S.y[i] * s.N < 1) { S.y[i] = 0; showToast(`💀 ${T[lang].extinct(lang === 'hu' ? T.hu.sp[s.k].pa : nameOf(i, 'A'))}`); }
+  }
+  if (!S.playing) { S.playing = true; S.asked = true; store.set('food-web:asked', true); }
+  render();
+});
+// tap a species in the web
+$('cv').addEventListener('pointerdown', (ev) => {
+  if (lab.view !== 'web') return;
+  const r = $('cv').getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+  let best = null, bd = 1e9;
+  (geo.nodes || []).forEach((n, i) => { const d = Math.hypot(n.x - x, n.y - y); if (d < n.r * 1.6 && d < bd) { bd = d; best = i; } });
+  if (best === null) return;
+  S.sel = S.sel === best ? null : best; S.chain = null; sfx.click(); render();
+});
+
+// the question card and the extinction toast live in the overlay
+const askEl = Object.assign(document.createElement('div'), { className: 'ask card' });
+const toastEl = Object.assign(document.createElement('div'), { className: 'toast card hide' });
+$('overlay').append(askEl, toastEl);
+askEl.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  const p = S.pred;
+  if (b.dataset.skip) { S.asked = true; store.set('food-web:asked', true); S.playing = true; sfx.click(); return render(); }
+  if (b.dataset.open) { S.asked = true; store.set('food-web:asked', true); startOpening(b.dataset.open); return render(); }
+  if (b.dataset.g && p?.asking) { startPrediction(p.key, b.dataset.g); return render(); }
+  if (b.dataset.close) { if (p) p.closed = true; sfx.click(); return render(); }
+});
+function renderOverlay() {
+  const t = T[lang], p = S.pred;
+  toastEl.textContent = S.toast || ''; toastEl.classList.toggle('hide', !S.toast);
+  askEl.classList.remove('mini');
+  if (!S.asked) {
+    askEl.style.display = '';
+    html(askEl, `<div class="q">${esc(t.open.q)}</div><p>${esc(t.open.sub)}</p>
+      <div class="opts">${Object.entries(t.open.opts).map(([k, v]) => `<button data-open="${k}">${esc(v)}</button>`).join('')}</div>
+      <button class="link" data-skip="1">${esc(t.open.skip)}</button>`);
+    return;
+  }
+  if (!p || p.closed) { askEl.style.display = 'none'; html(askEl, ''); return; }
+  askEl.style.display = '';
+  if (p.asking) {
+    html(askEl, `<div class="q">${esc(t.exp[p.key].q)}</div>
+      <div class="opts">${['up', 'down', 'same'].map((g) => `<button data-g="${g}">${esc(t.ans[g])}</button>`).join('')}</div>`);
+    return;
+  }
+  const tgt = W().sp[p.ti], tName = nameOf(p.ti, 'A');
+  const guessTxt = p.opening ? t.open.opts[p.guess] : t.ans[p.guess];
+  if (!p.done) {
+    askEl.classList.add('mini');
+    html(askEl, `${esc(t.guess)}: <b>${esc(guessTxt)}</b> · ${esc(t.watching(tgt.emo, tName.toLowerCase()))}… ${nf(S.t - p.t0, 1)}`);
+    return;
+  }
+  if (p.opening) {
+    const n0 = countOf(p.ti, 1), np = countOf(p.ti, p.peak), nl = countOf(p.ti, p.low);
+    const title = p.result === 'boom' ? t.open.boomV : p.result === 'die' ? t.open.dieV : t.open.happyV;
+    const nums = p.result === 'boom' ? `${tgt.emo} ${n0} → ${np} → ${nl}` : `${tgt.emo} ${n0} → ${countOf(p.ti)}`;
+    html(askEl, `<div class="verdict" style="color:${p.ok ? 'var(--ok)' : 'var(--wip)'}">${esc(p.ok ? t.open.yes : t.open.no)}</div>
+      <div class="q">${esc(title)}</div><div class="nums">${esc(nums)}</div><p>${esc(t.open.why)}</p>
+      <div class="opts"><button data-close="1">${esc(t.ok)}</button></div>`);
+    return;
+  }
+  const nums = p.result === 'same' ? `${tgt.emo} ${tName}: ${t.hardly}` : `${tgt.emo} ${tName}: ${countOf(p.ti, p.y0)} → ${countOf(p.ti, p.extreme)} (${p.result === 'up' ? t.highest : t.lowest})`;
+  html(askEl, `<div class="verdict" style="color:${p.ok ? 'var(--ok)' : 'var(--wip)'}">${esc(p.ok ? t.right : t.wrong)}</div>
+    <div class="nums">${esc(nums)}</div><p>${esc(t.exp[p.key].why)}</p>
+    <div class="opts"><button data-close="1">${esc(t.ok)}</button></div>`);
+}
+
+// --- render: everything outside the canvas -------------------------------------------------------------------
+function render() {
+  const t = T[lang], web = W(), open = secret.unlocked();
+  $('play').textContent = S.playing ? t.pause : t.play;
+  $('reset').textContent = t.reset;
+  $('lblSpeed').textContent = t.speed;
+  html($('speed'), [1, 2, 4].map((v) => `<button data-s="${v}" class="${S.speed === v ? 'on' : ''}">${v}×</button>`).join(''));
+  $('lblExp').textContent = t.exps; $('lblChains').textContent = t.chains;
+  const sc = (k, emo) => `<button class="chip secret ${open ? 'open' : ''} ${S.exp === k ? 'on' : ''}" data-k="${k}">${open ? `${emo} ${esc(t.exp[k].chip)}` : '🔒 ???'}</button>`;
+  html($('exps'), [sc('drought', '🌵'), ...['noFox', 'noRabbit', 'pest', 'mow'].map((k) => `<button class="chip ${S.exp === k ? 'on' : ''}" data-k="${k}">${esc(t.exp[k].chip)}</button>`), sc('keystone', '🦦')].join(''));
+  html($('chains'), web.chainIdx.map((c, ci) => `<button class="chip ${S.chain === ci ? 'on' : ''}" data-c="${ci}">${c.map((i) => web.sp[i].emo).join(' → ')}</button>`).join(''));
+  html($('legend'), t.lvl.map((l, i) => `<span><i style="background:${ROLE_COL[i]}"></i>${esc(l)}</span>`).join(''));
+
+  // the selected species
+  if (S.sel === null) html($('spPanel'), `<div class="hint">${esc(t.tapHint)}</div>
+    <div class="acts">${web.sp.map((s, i) => `<button class="chip" data-pick="${i}">${s.emo} ${esc(nameOf(i))}</button>`).join('')}</div>`);
+  else {
+    const i = S.sel, s = web.sp[i], alive = S.y[i] > 0;
+    const eats = web.links.filter((l) => l.to === i).map((l) => `${web.sp[l.from].emo} ${nameOf(l.from, 'pl')}`);
+    const eaten = web.links.filter((l) => l.from === i).map((l) => `${web.sp[l.to].emo} ${nameOf(l.to, 'pl')}`);
+    const chains = web.chainIdx.filter((c) => c.includes(i)).map((c) => c.map((j) => web.sp[j].emo).join('→'));
+    html($('spPanel'), `<div class="top"><span style="font-size:24px">${s.emo}</span><span class="nm">${esc(nameOf(i))}</span>
+        <span class="cnt" id="spCnt" style="color:${ROLE_COL[s.lvl]}"></span><button class="chip" data-a="close" style="margin-left:auto" aria-label="close">×</button></div>
+      <div class="role">${esc(t.roles[s.k])}</div>
+      <div class="rel"><b>${esc(t.food)}:</b> ${esc(s.prod ? t.sun : eats.join(', '))}</div>
+      <div class="rel"><b>${esc(t.eatenBy)}:</b> ${esc(eaten.length ? eaten.join(', ') : t.nobody)}</div>
+      <div class="rel"><b>${esc(t.chainsHere)}:</b> ${esc(chains.join('  ·  '))}</div>
+      <div class="acts">${alive ? `<button class="chip" data-a="fewer">${esc(t.fewer)}</button><button class="chip" data-a="more">${esc(t.more)}</button><button class="chip" data-a="remove">${esc(t.remove)}</button>`
+        : `<button class="chip" data-a="back">${esc(t.back)}</button>`}</div>`);
+    $('spCnt').textContent = alive ? countOf(i) : t.gone;
+  }
+
+  // readout
+  const st = status(), alive = Array.from(S.y).filter((v) => v > 0).length;
+  const COL = { calm: '#3ddc97', moving: '#f5a524', settled: '#4ea8ff' };
+  lab.setReadout(t.years(nf(S.t, 1)), `${t.inModel} · ${t.alive(alive, web.n)}`, t.status[st], COL[st]);
+  lab.setGlow(S.webKey === 'kelp' ? 'rgba(40,120,200,.32)' : st === 'moving' ? 'rgba(245,165,36,.24)' : 'rgba(61,220,151,.20)');
+
+  // state card: a chain, an experiment, the pyramid or the meadow — plus what is changing right now and why
+  const rip = ripples();
+  const ripHtml = rip.length ? `<div class="ripples"><div class="calm">${esc(t.whatNow)}</div>${rip.map(rippleText).join('')}</div>` : `<div class="calm">${esc(st === 'settled' ? t.settled : t.calm)}</div>`;
+  let fine = t.fine;
+  if (lab.view === 'pyramid') fine += ' ' + t.finePyr;
+  if (S.webKey === 'kelp') fine += ' ' + t.fineKelp;
+  const fineHtml = `<div class="fine">${esc(fine)}</div>`;
+  let emo = '🕸️', title, lead, body;
+  if (S.chain !== null) {
+    const c = web.chainIdx[S.chain], C = t.chainT, last = c[c.length - 1];
+    const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+    title = C.title; emo = '⛓️';
+    lead = cap(c.map((i) => nameOf(i, 'low')).join(' → '));
+    const parts = c.map((i, pos) => C.is(nameOf(i, 'subj'), C.role[pos]));
+    if (!web.links.some((l) => l.from === last)) parts.push(C.apex(nameOf(last, 'subj'), t.sp[web.sp[last].k]));
+    body = `${parts.join(' ')} ${C.tail} ${web.chains.length > 1 ? C.web : ''}`;
+  } else if (S.exp && S.pred?.key === S.exp && !S.pred.asking) {
+    const E = t.exp[S.exp]; emo = EXP_EMO[S.exp]; title = E.name; lead = E.did;
+    body = S.pred.done ? (S.pred.opening ? t.open.why : E.why) : '';
+  } else if (S.exp && !S.pred) {
+    const E = t.exp[S.exp]; emo = EXP_EMO[S.exp]; title = E.name; lead = E.did; body = '';
+  } else if (lab.view === 'pyramid') { emo = '🔺'; ({ title, lead, body } = t.pyr); body += ' ' + (S.webKey === 'meadow' ? t.pyr.also : ''); }
+  else { const I = S.webKey === 'kelp' ? t.kelpIntro : t.intro; emo = S.webKey === 'kelp' ? '🌊' : '🌾'; ({ title, lead, body } = I); }
+  lab.setState({ emo, title, lead, body, extra: ripHtml + fineHtml });
+  renderOverlay();
+}
+
+// --- drawing ------------------------------------------------------------------------------------------------
+const EMOJI = (px) => `${px}px system-ui, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+let geo = {};
+function hash(i) { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
+function drawUrchin(c, x, y, r) {
+  c.strokeStyle = '#c58cf2'; c.lineWidth = Math.max(1, r * 0.08);
+  for (let k = 0; k < 18; k++) { const a = k / 18 * 2 * Math.PI; c.beginPath(); c.moveTo(x + Math.cos(a) * r * 0.5, y + Math.sin(a) * r * 0.5); c.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r); c.stroke(); }
+  c.fillStyle = '#8b3fd0'; c.beginPath(); c.arc(x, y, r * 0.55, 0, 7); c.fill();
+}
+function icon(c, s, x, y, px) {
+  if (s.k === 'urchin') return drawUrchin(c, x, y, px * 0.55);
+  c.font = EMOJI(px); c.fillText(s.emo, x, y + px * 0.05);
+}
+function inChain(i) { return S.chain === null || W().chainIdx[S.chain].includes(i); }
+function linkInChain(l) {
+  if (S.chain === null) return true;
+  const c = W().chainIdx[S.chain];
+  return c.some((v, p) => v === l.from && c[p + 1] === l.to);
+}
+
+function drawWeb(c, w, h, time) {
+  const t = T[lang], web = W(), kelp = S.webKey === 'kelp';
+  const strip = h >= 470 && w >= 420, webH = strip ? h * 0.74 : h;
+  // background: meadow ground or sea
+  const bg = c.createLinearGradient(0, 0, 0, webH);
+  if (kelp) { bg.addColorStop(0, 'rgba(40,110,190,.18)'); bg.addColorStop(1, 'rgba(10,40,90,.35)'); }
+  else { bg.addColorStop(0, 'rgba(60,110,200,.05)'); bg.addColorStop(0.8, 'rgba(61,220,151,.04)'); bg.addColorStop(1, 'rgba(61,220,151,.12)'); }
+  c.fillStyle = bg; c.beginPath(); c.roundRect ? c.roundRect(0, 0, w, webH, 18) : c.rect(0, 0, w, webH); c.fill();
+  // the plant cover along the bottom: tufts of grass or kelp fronds, as many as the plant's amount
+  const plantY = S.y[0], tufts = Math.round(clamp(plantY, 0, 3) * 16);
+  for (let k = 0; k < 48; k++) {
+    if (k >= tufts) break;
+    const x = 8 + hash(k) * (w - 16), base = webH - 4, sway = Math.sin(time * 1.3 + k) * (kelp ? 6 : 2);
+    const hh = (kelp ? 34 : 14) + hash(k + 99) * (kelp ? 30 : 10);
+    c.strokeStyle = kelp ? 'rgba(120,170,80,.55)' : 'rgba(61,220,151,.55)'; c.lineWidth = kelp ? 3 : 2; c.lineCap = 'round';
+    c.beginPath(); c.moveTo(x, base); c.quadraticCurveTo(x + sway * 0.5, base - hh * 0.5, x + sway, base - hh); c.stroke();
+    if (!kelp) { c.beginPath(); c.moveTo(x + 3, base); c.quadraticCurveTo(x + 4 + sway, base - hh * 0.4, x + 6 + sway, base - hh * 0.75); c.stroke(); }
+  }
+  // the arrow note
+  const fs = clamp(w * 0.03, 10.5, 13);
+  c.font = `800 ${fs}px Nunito, sans-serif`; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillStyle = '#C6CDE0';
+  let note = [t.arrowNote];
+  if (c.measureText(t.arrowNote).width > w - 24) { const k = t.arrowNote.indexOf(': '); note = [t.arrowNote.slice(0, k + 1), t.arrowNote.slice(k + 2)]; }
+  note.forEach((ln, j) => c.fillText(ln, 12, 14 + j * (fs + 3)));
+  // node positions
+  const R = clamp(Math.min(w, webH) * 0.068, 17, 32), padX = R * 1.9, top = 30 + (note.length - 1) * (fs + 3) + R, bot = R * 1.6 + 18;
+  const nodes = web.sp.map((s) => ({ x: padX + s.x * (w - 2 * padX), y: top + (s.y - 0.1) / 0.8 * (webH - top - bot), r: R }));
+  geo.nodes = nodes;
+  // links: from the eaten to the eater, with energy dots running along them
+  web.links.forEach((l) => {
+    const a = nodes[l.from], b = nodes[l.to], dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy), ux = dx / L, uy = dy / L;
+    const x0 = a.x + ux * (R + 3), y0 = a.y + uy * (R + 3), x1 = b.x - ux * (R + 5), y1 = b.y - uy * (R + 5);
+    const live = S.y[l.from] > 0 && S.y[l.to] > 0, on = linkInChain(l) && (S.sel === null || l.from === S.sel || l.to === S.sel);
+    const flow = live ? clamp(S.y[l.from] * S.y[l.to], 0, 4) : 0;
+    c.globalAlpha = on ? 1 : 0.18;
+    c.strokeStyle = live ? 'rgba(237,239,247,.45)' : 'rgba(130,145,190,.35)'; c.lineWidth = live ? 1.4 + Math.min(2, flow * 0.7) : 1.2;
+    c.setLineDash(live ? [] : [4, 5]);
+    c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke(); c.setLineDash([]);
+    // arrowhead at the eater
+    const ah = clamp(R * 0.42, 7, 12);
+    c.fillStyle = live ? '#EDEFF7' : 'rgba(130,145,190,.5)';
+    c.beginPath(); c.moveTo(x1 + ux * 2, y1 + uy * 2); c.lineTo(x1 - ux * ah - uy * ah * 0.55, y1 - uy * ah + ux * ah * 0.55); c.lineTo(x1 - ux * ah + uy * ah * 0.55, y1 - uy * ah - ux * ah * 0.55); c.closePath(); c.fill();
+    if (live) {
+      c.fillStyle = '#ffd25a';
+      for (let k = 0; k < 3; k++) {
+        const f = (S.anim * 0.7 + k / 3 + l.from * 0.13) % 1, px = lerp(x0, x1 - ux * ah, f), py = lerp(y0, y1 - uy * ah, f);
+        c.beginPath(); c.arc(px, py, clamp(1.6 + 1.4 * Math.sqrt(flow), 1.5, 4.5), 0, 7); c.fill();
+      }
+    }
+    c.globalAlpha = 1;
+  });
+  // nodes, each with a little herd of icons circling it (more icons = more animals)
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  web.sp.forEach((s, i) => {
+    const n = nodes[i], y = S.y[i], alive = y > 0, dim = !inChain(i);
+    c.globalAlpha = dim ? 0.25 : 1;
+    if (!s.prod && alive) {
+      const k = clamp(Math.round(y * 4), 1, 14), rr = R * 1.42, px = clamp(R * 0.48, 10, 15);
+      for (let j = 0; j < k; j++) {
+        const a = j / k * 2 * Math.PI + S.anim * 0.35 * (i % 2 ? 1 : -1) + i, bob = Math.sin(time * 3 + j * 1.7) * 1.5;
+        c.globalAlpha = (dim ? 0.2 : 0.75);
+        icon(c, s, n.x + Math.cos(a) * rr, n.y + Math.sin(a) * rr * 0.8 + bob, px);
+      }
+      c.globalAlpha = dim ? 0.25 : 1;
+    }
+    // disc and role ring
+    c.fillStyle = 'rgba(14,17,28,.92)'; c.beginPath(); c.arc(n.x, n.y, R, 0, 7); c.fill();
+    c.strokeStyle = alive ? ROLE_COL[s.lvl] : 'rgba(130,145,190,.45)'; c.lineWidth = S.sel === i ? 5 : 3;
+    c.beginPath(); c.arc(n.x, n.y, R, 0, 7); c.stroke();
+    if (S.sel === i) { c.strokeStyle = '#fff'; c.lineWidth = 1.5; c.beginPath(); c.arc(n.x, n.y, R + 5, 0, 7); c.stroke(); }
+    c.globalAlpha = alive ? (dim ? 0.25 : 1) : 0.3;
+    icon(c, s, n.x, n.y, R * 1.05);
+    c.globalAlpha = dim ? 0.25 : 1;
+    if (!alive) { c.strokeStyle = '#ff3b30'; c.lineWidth = 3; c.beginPath(); c.moveTo(n.x - R * 0.6, n.y - R * 0.6); c.lineTo(n.x + R * 0.6, n.y + R * 0.6); c.moveTo(n.x + R * 0.6, n.y - R * 0.6); c.lineTo(n.x - R * 0.6, n.y + R * 0.6); c.stroke(); }
+    // label: name · count
+    const lf = clamp(R * 0.42, 10.5, 13), ly = n.y + R * 1.42 + lf * 0.9;
+    const txt = `${nameOf(i)} · ${alive ? countOf(i) : '0'}`;
+    c.font = `800 ${lf}px Nunito, sans-serif`;
+    const tw = c.measureText(txt).width;
+    const lx = clamp(n.x, tw / 2 + 4, w - tw / 2 - 4);
+    c.fillStyle = 'rgba(10,12,20,.78)'; c.beginPath(); c.roundRect ? c.roundRect(lx - tw / 2 - 6, ly - lf * 0.75, tw + 12, lf * 1.5, 8) : c.rect(lx - tw / 2 - 6, ly - lf * 0.75, tw + 12, lf * 1.5); c.fill();
+    c.fillStyle = alive ? '#EDEFF7' : '#98A0B8'; c.fillText(txt, lx, ly + 0.5);
+    c.globalAlpha = 1;
+  });
+  if (strip) drawChart(c, 8, webH + 10, w - 16, h - webH - 14, true);
+}
+
+// populations as % of normal over the last 12 years
+function drawChart(c, X, Y, Wd, Hd, mini = false) {
+  const t = T[lang], web = W(), H = S.hist;
+  if (!mini) { c.fillStyle = 'rgba(14,17,28,.55)'; c.beginPath(); c.roundRect ? c.roundRect(X, Y, Wd, Hd, 16) : c.rect(X, Y, Wd, Hd); c.fill(); }
+  const padL = mini ? 30 : 40, padR = mini ? 24 : 34, padT = mini ? 6 : 30, padB = mini ? 14 : 26;
+  const x0 = X + padL, x1 = X + Wd - padR, y0 = Y + padT, y1 = Y + Hd - padB;
+  const tEnd = Math.max(S.t, mini ? 6 : 10), tStart = Math.max(0, tEnd - (mini ? 6 : 12));
+  const vis = H.filter((p) => p.t >= tStart);
+  let vmax = 2; vis.forEach((p) => p.y.forEach((v) => { vmax = Math.max(vmax, v); }));
+  vmax = Math.ceil(vmax * 2) / 2;
+  const px = (tt) => x0 + (tt - tStart) / (tEnd - tStart) * (x1 - x0), py = (v) => y1 - v / vmax * (y1 - y0);
+  // grid
+  c.font = `700 ${mini ? 9.5 : 10.5}px Nunito, sans-serif`; c.textBaseline = 'middle';
+  for (let v = 0; v <= vmax + 1e-9; v += vmax > 3 ? 1 : 0.5) {
+    if (mini && v !== 0 && v !== 1 && v !== vmax) continue;
+    c.strokeStyle = v === 1 ? 'rgba(237,239,247,.4)' : 'rgba(130,145,190,.15)'; c.lineWidth = 1; c.setLineDash(v === 1 ? [5, 5] : []);
+    c.beginPath(); c.moveTo(x0, py(v)); c.lineTo(x1, py(v)); c.stroke(); c.setLineDash([]);
+    c.fillStyle = v === 1 ? '#EDEFF7' : '#646C84'; c.textAlign = 'right'; c.fillText(`${nf(v * 100)}%`, x0 - 5, py(v));
+  }
+  if (!mini) {
+    c.fillStyle = '#98A0B8'; c.textAlign = 'left'; c.fillText(`100% = ${t.normal}`, x0 + 4, py(1) - 9);
+    c.font = '800 12px Nunito, sans-serif'; c.fillStyle = '#C6CDE0'; c.fillText(t.pct, x0, Y + 15);
+    c.font = '700 10.5px Nunito, sans-serif'; c.fillStyle = '#646C84'; c.textAlign = 'center';
+    for (let k = Math.ceil(tStart); k <= tEnd; k += tEnd - tStart > 8 ? 2 : 1) c.fillText(String(k), px(k), y1 + 12);
+    c.textAlign = 'right'; c.fillText(t.yrs, x1 + padR - 4, y1 + 12);
+  }
+  // events
+  c.textAlign = 'center';
+  S.events.filter((e) => e.t >= tStart).forEach((e) => {
+    const ex = px(e.t);
+    c.strokeStyle = 'rgba(255,255,255,.25)'; c.setLineDash([3, 4]); c.beginPath(); c.moveTo(ex, y0); c.lineTo(ex, y1); c.stroke(); c.setLineDash([]);
+    if (!mini) { c.font = EMOJI(12); c.fillText(e.emo, ex, y0 - 8); }
+  });
+  // lines
+  const ends = [];
+  web.sp.forEach((s, i) => {
+    const hl = S.sel === null ? (S.chain === null || inChain(i)) : S.sel === i;
+    c.strokeStyle = s.col; c.globalAlpha = hl ? 1 : 0.3; c.lineWidth = (S.sel === i ? 3.5 : 2) * (mini ? 0.8 : 1); c.lineJoin = 'round';
+    c.beginPath(); vis.forEach((p, k) => { const xx = px(p.t), yy = py(p.y[i]); k ? c.lineTo(xx, yy) : c.moveTo(xx, yy); }); c.stroke();
+    c.globalAlpha = 1;
+    if (vis.length) ends.push({ i, y: py(vis[vis.length - 1].y[i]), hl });
+  });
+  // emoji at the end of each line, nudged apart so they don't overlap
+  ends.sort((a, b) => a.y - b.y);
+  const gap = mini ? 11 : 15;
+  for (let k = 1; k < ends.length; k++) if (ends[k].y - ends[k - 1].y < gap) ends[k].y = ends[k - 1].y + gap;
+  const over = ends.length ? ends[ends.length - 1].y - y1 : 0;
+  if (over > 0) ends.forEach((e) => { e.y -= over; });
+  c.textBaseline = 'middle';
+  ends.forEach((e) => { c.globalAlpha = e.hl ? 1 : 0.45; icon(c, web.sp[e.i], x1 + (mini ? 11 : 15), e.y, mini ? 11 : 14); });
+  c.globalAlpha = 1;
+}
+
+// the energy pyramid: a rule-of-thumb picture, not the model. Of every 10 energy packets, about 1 goes up a level.
+const parts = [];
+function drawPyramid(c, w, h, dt) {
+  const t = T[lang], P = t.pyr, web = W(), levels = web.pyramid;
+  const nL = levels.length, top = 46, bot = h - 12, lh = (bot - top) / nL, maxW = Math.min(w - 24, 620), cx = w / 2;
+  const tf = clamp(w * 0.034, 15, 22);
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillStyle = '#fff'; c.font = `500 ${tf}px "EB Garamond", serif`; c.fillText(P.top, cx, 18);
+  const bars = levels.map((sp, L) => {
+    const bw = maxW * (1 - L / (nL + 0.4)), y = bot - (L + 1) * lh + 4;
+    return { x: cx - bw / 2, y, w: bw, h: lh - 8, sp };
+  });
+  bars.forEach((b, L) => {
+    c.fillStyle = ROLE_COL[Math.min(L, 3)] + '33'; c.strokeStyle = ROLE_COL[Math.min(L, 3)]; c.lineWidth = 2;
+    c.beginPath(); c.roundRect ? c.roundRect(b.x, b.y, b.w, b.h, 10) : c.rect(b.x, b.y, b.w, b.h); c.fill(); c.stroke();
+    const lf = clamp(b.h * 0.2, 10, 13), ef = clamp(b.h * 0.34, 14, 26);
+    c.fillStyle = '#EDEFF7'; c.font = `800 ${lf}px Nunito, sans-serif`;
+    c.fillText(P.levels[L], cx, b.y + b.h * 0.27);
+    const em = b.sp.map((k) => web.sp[web.id[k]]);
+    em.forEach((s, j) => icon(c, s, cx + (j - (em.length - 1) / 2) * ef * 1.35, b.y + b.h * 0.65, ef));
+    // energy number: 10 000, 1 000, 100, 10
+    const units = nf(10000 / Math.pow(10, L));
+    c.font = `900 ${lf}px Nunito, sans-serif`; c.fillStyle = '#ffd25a';
+    if (b.w > 260) { c.textAlign = 'right'; c.fillText(units, b.x + b.w - 10, b.y + b.h * 0.5); c.textAlign = 'center'; }
+    else { c.textAlign = 'left'; c.fillText(units, b.x + b.w + 8, b.y + b.h * 0.5); c.textAlign = 'center'; }
+  });
+  c.font = `700 ${clamp(w * 0.022, 9.5, 11.5)}px Nunito, sans-serif`; c.fillStyle = '#98A0B8';
+  c.fillText(`${P.units}  ·  ${P.heat}`, cx, 38);
+  // energy packets
+  for (let k = 0; k < (dt * 40 | 0) + (Math.random() < (dt * 40) % 1 ? 1 : 0); k++) {
+    const b = bars[0]; parts.push({ x: b.x + 10 + Math.random() * (b.w - 20), y: b.y + b.h - 6, L: 0, heat: false, a: 1, vx: 0 });
+  }
+  for (let k = parts.length - 1; k >= 0; k--) {
+    const p = parts[k];
+    if (!bars[p.L]) { parts.splice(k, 1); continue; }
+    if (p.heat) { p.x += p.vx * dt; p.y -= 12 * dt; p.a -= dt * 0.9; }
+    else {
+      p.y -= 38 * dt;
+      const b = bars[p.L];
+      if (p.y < b.y + 4) {
+        if (p.L + 1 < bars.length && Math.random() < 0.1) { p.L++; const nb = bars[p.L]; p.x = clamp(p.x, nb.x + 8, nb.x + nb.w - 8); }
+        else { p.heat = true; p.vx = (p.x < cx ? -1 : 1) * (20 + Math.random() * 30); }
+      }
+    }
+    if (p.a <= 0 || p.y < 0) { parts.splice(k, 1); continue; }
+    c.globalAlpha = Math.max(0, p.a);
+    c.fillStyle = p.heat ? '#ff6a3d' : '#ffd25a';
+    c.beginPath(); c.arc(p.x, p.y, p.heat ? 1.8 : 2.6, 0, 7); c.fill();
+  }
+  c.globalAlpha = 1;
+  if (parts.length > 900) parts.splice(0, parts.length - 900);
+}
+
+let uiClock = 0;
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  if (S.playing) { advance(dt * YPS * S.speed); S.anim += dt * S.speed; }
+  if (S.toast) { S.toastT -= dt; if (S.toastT <= 0) { S.toast = null; renderOverlay(); } }
+  uiClock += dt;
+  if (S.playing && uiClock > 0.25) { uiClock = 0; render(); }
+  if (lab.view === 'web') drawWeb(c, w, h, time);
+  else if (lab.view === 'chart') drawChart(c, 0, 0, w, h);
+  else drawPyramid(c, w, h, dt);
+});
+resetWeb('meadow');
+S.playing = S.asked;
+render();
+</script>
+</body>
+</html>

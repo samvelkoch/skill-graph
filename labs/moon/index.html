@@ -1,0 +1,686 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Moon Lab · Skill Graph</title>
+<meta name="description" content="Why the Moon changes shape: half of the Moon is always lit by the Sun, and the phases are how much of that lit half we can see. Drag the Moon round the Earth, see it in the sky and over a whole month. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  .stats { display: grid; grid-template-columns: 1fr; gap: 5px; }
+  .stats b { color: #fff; }
+  .fine { margin-top: 8px; font-size: 11px; color: var(--faint); }
+  .note { margin-top: 8px; font-size: 12px; color: var(--soft); }
+  .ask { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); width: min(580px, calc(100% - 16px)); padding: 14px 16px;
+    text-align: center; }
+  .ask .q { font: 500 22px/1.2 var(--serif); color: #fff; margin-bottom: 10px; }
+  .ask .opts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .ask button { padding: 9px 14px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 800; cursor: pointer; }
+  .ask button:hover { background: rgba(130, 145, 190, .25); }
+  .ask p { margin: 0 0 10px; color: var(--soft); font-size: 13px; }
+  .ask .verdict { font-weight: 900; margin-bottom: 4px; }
+  .readout .val small { font-size: .5em; font-weight: 800; color: var(--soft); letter-spacing: 0; }
+  .chip .nm { font-weight: 800; }
+  #play { margin-left: auto; }
+  @media (max-width: 760px) {
+    #stage { height: min(96vw, 470px); }
+    .ask .q { font-size: 18px; } .ask { padding: 10px 12px; } .ask button { padding: 7px 11px; font-size: 12.5px; }
+    #play { margin-left: 0; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, store, ruPlural, lang } from '../lab.js';
+
+// --- words -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Moon Lab', title: 'Why the Moon changes shape',
+    lines: [['Drag the Moon', 'round the Earth.'], ['Watch it from space', 'and from your window at the same time.'], ['Open the One month view', 'to see the pattern repeat.']],
+    views: { space: '🛰️ From space', sky: '🌆 In the sky', month: '📅 One month' },
+    phases: ['New moon', 'Waxing crescent', 'First quarter', 'Waxing gibbous', 'Full moon', 'Waning gibbous', 'Last quarter', 'Waning crescent'],
+    text: [
+      ['The Moon is between us and the Sun.', 'Its sunny half faces away from us, so we look at its night side. The Moon has not gone anywhere: it is just dark, and lost in the Sun’s glare.'],
+      ['Just the edge of the sunny half peeks out.', 'The Moon has moved a little way round. We still see mostly its dark side, plus a thin slice of the lit half. Look for it low in the west after sunset.'],
+      ['We see half of the sunny half.', 'The Moon is a quarter of the way round, so we look at it from the side: half of the disc is lit, half is dark. “Quarter” means a quarter of the trip, not a quarter of the Moon.'],
+      ['Most of the sunny half faces us now.', 'Each night a bit more of the lit half turns toward the Earth: the Moon is waxing (growing). “Gibbous” means bulging.'],
+      ['The Earth is between the Sun and the Moon.', 'Now the whole sunny half faces us: a round, bright Moon that rises just as the Sun sets. The Earth’s shadow does not touch it: the Moon’s orbit is tilted by about 5°, so the Moon passes above or below the shadow.'],
+      ['The sunny half starts to turn away.', 'After full moon we see a little less of the lit half each night: the Moon is waning (shrinking). It rises later and later in the evening.'],
+      ['Half of the sunny half again.', 'Three quarters of the way round. We see the Moon from the side again, but now the other half of the disc is lit. It is high in the sky around sunrise.'],
+      ['Only a thin slice is left.', 'The Moon is almost back between us and the Sun. Look for it low in the east just before sunrise. A few days later it is new moon again, and the whole cycle starts over.'],
+    ],
+    days: (n, s) => `${s} ${Math.abs(n - 1) < 0.05 ? 'day' : 'days'}`,
+    ageSub: (m) => `since new moon · one round is ${m} days`,
+    ends: ['New moon', 'Full moon', 'New again'], slider: 'Days since new moon',
+    hemi: 'Seen from', hemis: { n: 'North', s: 'South' },
+    play: '▶ Play the month', pause: '❚❚ Pause', tonight: '📆 Tonight', tonightTip: 'Tonight’s Moon (about ±1 day)',
+    gaugeCap: 'We see lit',
+    sunLit: ['☀️ Moon in sunlight', 'always half of it'], seen: '👀 Lit part of the disc we see', side: '🌗 Bright side',
+    sides: { right: 'on the right', left: 'on the left', all: 'all of it', none: 'none' },
+    angle: '📐 Angle Sun–Earth–Moon', nextFull: (d) => `Full moon in ${d}`, nextNew: (d) => `New moon in ${d}`,
+    noLight: 'The Moon makes no light of its own: moonlight is sunlight bouncing off it.',
+    skyNote: 'In the sky, the bright side of the Moon always points toward the Sun.',
+    monthNote: 'From new moon to new moon takes 29.5 days. The Moon goes round the Earth in 27.3 days, but meanwhile the Earth has moved along its path round the Sun, so the Moon needs about 2 more days to line up with the Sun again. The Moon also turns once per trip, so it always shows us the same face.',
+    hemiNote: { n: 'The Moon is shown as seen from the northern half of the Earth.', s: 'The Moon is shown as seen from the southern half of the Earth: from there it looks upside down, so the bright side is on the other side.' },
+    fine: (hemi, km) => `A simplified model: a round orbit at an even speed, so real phases can come up to about a day earlier or later. Sizes and distances are not to scale: the Moon is really about 30 Earth-widths away (${km} km). ${hemi} Numbers: NASA Moon and Sun Fact Sheets.`,
+    skyFine: 'Sky view: the Moon’s path is drawn straight over the top of the sky, and the Moon is drawn bigger than it looks.',
+    tonightFine: 'Tonight’s Moon is worked out from the average length of the month (J. Meeus, Astronomical Algorithms), so it can be about a day off.',
+    sunlight: 'Sunlight', shadow: 'Earth’s shadow', you: 'you', fromEarth: 'Seen from Earth', miss: 'misses the shadow: orbit tilted 5°',
+    missSun: 'its shadow misses the Earth', litHalf: 'lit half: faces the Sun', ourHalf: 'half facing the Earth', drag: 'Drag the Moon',
+    evening: (d) => `After sunset · looking ${d}`, morning: (d) => `Before sunrise · looking ${d}`, midday: 'Midday · solar eclipse',
+    dirWord: { s: 'south', n: 'north' }, glare: 'Too close to the Sun to see', dirs: ['N', 'E', 'S', 'W'],
+    repeat: (m) => `After ${m} days: new moon again, and it all repeats`,
+    ask: 'Why does the Moon change shape?',
+    answers: { shadow: '🌍 Earth’s shadow covers part of it', half: '☀️ We see more or less of its sunny half', clouds: '☁️ Clouds hide part of it' },
+    yesV: 'Exactly!', yesT: 'Half of the Moon is always sunny. As it goes round us, we see more or less of that sunny half. Now watch it happen.',
+    noV: { shadow: 'Lots of grown-ups think so too!', clouds: 'Good guess, but no!' },
+    noT: { shadow: 'But look at this crescent: the Earth’s shadow points away from the Sun, and the Moon is far off to the side of it. Still, most of the Moon is dark.',
+           clouds: 'Clouds can hide the Moon, but the shapes come back in the same order every month, even on clear nights. Look at where the Sun’s light falls.' },
+    go: 'Show me',
+    secrets: { lunar: ['Lunar eclipse', 'The full Moon in Earth’s shadow'], solar: ['Solar eclipse', 'The Moon covers the Sun'] },
+    ecl: {
+      lunar: ['Sun, Earth and Moon in an exact line.', 'This time the full Moon slides right into the Earth’s shadow. It does not vanish: it turns a dim coppery red, lit only by sunlight bent through the Earth’s air. Most months this does not happen, because the Moon’s orbit is tilted by about 5°.'],
+      solar: ['The Moon passes right in front of the Sun.', 'Its small shadow sweeps across a narrow strip of the Earth, where day turns to dusk for a few minutes. The Sun is about 400 times wider than the Moon, but also about 400 times farther away, so they look the same size. Never look at the Sun without special eclipse glasses!'],
+    },
+    eclTotal: 'Total lunar eclipse',
+    compare: 'Lunar eclipse: the Earth’s shadow on the Moon, only at full moon. Solar eclipse: the Moon’s shadow on the Earth, only at new moon.',
+    season: 'Eclipse season: the Moon’s tilted orbit now crosses the Sun–Earth line, so this month can bring a solar eclipse at new moon and a lunar eclipse at full moon, about two weeks apart.',
+    quiz: [
+      { q: 'Why does the Moon have phases?', opts: ['The Earth’s shadow covers part of it', 'We see different amounts of its sunlit half', 'The Moon’s own light gets weaker'], ok: 1 },
+      { q: 'About how long is it from one new moon to the next?', opts: ['About 7 days', 'About 365 days', 'About 29.5 days'], ok: 2 },
+      { q: 'Where does moonlight come from?', opts: ['It is sunlight bouncing off the Moon', 'The Moon glows by itself', 'It is light from Earth’s cities'], ok: 0 },
+    ],
+  },
+  ru: {
+    name: 'Фазы Луны', title: 'Почему Луна меняет форму',
+    lines: [['Тяни Луну', 'вокруг Земли.'], ['Смотри сразу из космоса', 'и из своего окна.'], ['Открой «Месяц»,', 'и увидишь, как всё повторяется.']],
+    views: { space: '🛰️ Из космоса', sky: '🌆 На небе', month: '📅 Месяц' },
+    phases: ['Новолуние', 'Растущий серп', 'Первая четверть', 'Растущая луна', 'Полнолуние', 'Убывающая луна', 'Последняя четверть', 'Убывающий серп'],
+    text: [
+      ['Луна между нами и Солнцем.', 'Её солнечная половина смотрит от нас, и мы видим ночную сторону. Луна никуда не делась: она просто тёмная и теряется в сиянии Солнца.'],
+      ['Показался краешек солнечной половины.', 'Луна немного прошла по орбите. Мы видим почти только тёмную сторону и тонкий ломтик освещённой половины. Ищи её низко на западе после заката.'],
+      ['Видим половину солнечной половины.', 'Луна прошла четверть пути и видна нам сбоку: половина диска светлая, половина тёмная. «Четверть» — это четверть пути, а не четверть Луны.'],
+      ['К нам повёрнута почти вся солнечная половина.', 'Каждую ночь к Земле поворачивается чуть больше освещённой половины: Луна растёт.'],
+      ['Земля между Солнцем и Луной.', 'Теперь к нам повёрнута вся солнечная половина: круглая яркая Луна восходит, когда Солнце садится. Тень Земли её не задевает: орбита Луны наклонена примерно на 5°, и Луна проходит выше или ниже тени.'],
+      ['Солнечная половина начинает отворачиваться.', 'После полнолуния мы каждую ночь видим чуть меньше освещённой половины: Луна убывает. Она восходит всё позже и позже.'],
+      ['Снова половина солнечной половины.', 'Три четверти пути. Луна опять видна сбоку, но теперь светится другая половина диска. Она высоко в небе около восхода Солнца.'],
+      ['Остался тонкий серп.', 'Луна почти вернулась на место между нами и Солнцем. Ищи её низко на востоке перед рассветом. Через несколько дней снова новолуние, и всё начнётся заново.'],
+    ],
+    days: (n, s) => `${s} ${Math.abs(n - Math.round(n)) > 0.05 ? 'дня' : ruPlural(Math.round(n), 'день', 'дня', 'дней')}`,
+    ageSub: (m) => `после новолуния · полный круг — ${m} дня`,
+    ends: ['Новолуние', 'Полнолуние', 'Снова новолуние'], slider: 'Дни после новолуния',
+    hemi: 'Полушарие', hemis: { n: 'Северное', s: 'Южное' },
+    play: '▶ Прокрутить месяц', pause: '❚❚ Пауза', tonight: '📆 Сегодня', tonightTip: 'Луна сегодня (примерно ±1 день)',
+    gaugeCap: 'Светлая часть',
+    sunLit: ['☀️ Освещено Солнцем', 'всегда половина Луны'], seen: '👀 Светлая часть видимого диска', side: '🌗 Светлая сторона',
+    sides: { right: 'справа', left: 'слева', all: 'весь диск', none: 'нет' },
+    angle: '📐 Угол Солнце–Земля–Луна', nextFull: (d) => `Полнолуние через ${d}`, nextNew: (d) => `Новолуние через ${d}`,
+    noLight: 'У Луны нет своего света: лунный свет — это солнечный свет, отражённый от Луны.',
+    skyNote: 'На небе светлая сторона Луны всегда смотрит в сторону Солнца.',
+    monthNote: 'От новолуния до новолуния проходит 29,5 дня. Вокруг Земли Луна обходит за 27,3 дня, но за это время Земля сдвигается по своему пути вокруг Солнца, и Луне нужно ещё около 2 дней, чтобы снова встать в линию с Солнцем. А ещё Луна поворачивается ровно один раз за оборот, поэтому всегда смотрит на нас одной стороной.',
+    hemiNote: { n: 'Луна показана так, как её видно из северного полушария.', s: 'Луна показана так, как её видно из южного полушария: оттуда она выглядит перевёрнутой, и светлая сторона оказывается с другого края.' },
+    fine: (hemi, km) => `Упрощённая модель: круговая орбита и равномерное движение, поэтому настоящие фазы могут наступать примерно на день раньше или позже. Размеры и расстояния не в масштабе: на самом деле до Луны около 30 поперечников Земли (${km} км). ${hemi} Числа: NASA Moon Fact Sheet и Sun Fact Sheet.`,
+    skyFine: 'Небо: путь Луны нарисован прямо через верх неба, а сама Луна нарисована крупнее, чем видна.',
+    tonightFine: 'Сегодняшняя Луна рассчитана по средней длине месяца (J. Meeus, Astronomical Algorithms), поэтому может ошибаться примерно на день.',
+    sunlight: 'Солнечный свет', shadow: 'Тень Земли', you: 'ты', fromEarth: 'Вид с Земли', miss: 'проходит мимо тени: орбита наклонена на 5°',
+    missSun: 'её тень проходит мимо Земли', litHalf: 'светлая половина: к Солнцу', ourHalf: 'половина, повёрнутая к Земле', drag: 'Тяни Луну',
+    evening: (d) => `После заката · смотрим на ${d}`, morning: (d) => `Перед рассветом · смотрим на ${d}`, midday: 'Полдень · солнечное затмение',
+    dirWord: { s: 'юг', n: 'север' }, glare: 'Слишком близко к Солнцу — не видно', dirs: ['С', 'В', 'Ю', 'З'],
+    repeat: (m) => `Через ${m} дня — снова новолуние, и всё повторяется`,
+    ask: 'Почему Луна меняет форму?',
+    answers: { shadow: '🌍 Её закрывает тень Земли', half: '☀️ Мы видим то больше, то меньше её солнечной половины', clouds: '☁️ Её закрывают облака' },
+    yesV: 'Точно!', yesT: 'Половина Луны всегда освещена Солнцем. Пока Луна обходит Землю, мы видим то больше, то меньше этой половины. Смотри, как это происходит.',
+    noV: { shadow: 'Так думают и многие взрослые!', clouds: 'Хорошая догадка, но нет!' },
+    noT: { shadow: 'Но посмотри на этот серп: тень Земли направлена от Солнца, а Луна далеко в стороне от неё. И всё равно почти вся Луна тёмная.',
+           clouds: 'Облака могут закрыть Луну, но её формы каждый месяц идут в одном и том же порядке, даже в ясные ночи. Посмотри, куда падает свет Солнца.' },
+    go: 'Показать',
+    secrets: { lunar: ['Лунное затмение', 'Полная Луна в тени Земли'], solar: ['Солнечное затмение', 'Луна закрывает Солнце'] },
+    ecl: {
+      lunar: ['Солнце, Земля и Луна точно на одной линии.', 'На этот раз полная Луна въезжает прямо в тень Земли. Она не исчезает, а становится тускло-медной, красноватой: её освещает только солнечный свет, преломлённый в воздухе Земли. Обычно этого не происходит, потому что орбита Луны наклонена примерно на 5°.'],
+      solar: ['Луна проходит прямо перед Солнцем.', 'Её маленькая тень бежит по узкой полосе Земли, и там на несколько минут день превращается в сумерки. Солнце примерно в 400 раз шире Луны, но и примерно в 400 раз дальше, поэтому они кажутся одинаковыми. Никогда не смотри на Солнце без специальных очков для затмений!'],
+    },
+    eclTotal: 'Полное лунное затмение',
+    compare: 'Лунное затмение — тень Земли на Луне, только в полнолуние. Солнечное затмение — тень Луны на Земле, только в новолуние.',
+    season: 'Сезон затмений: наклонённая орбита Луны сейчас пересекает линию Солнце–Земля, поэтому в этом месяце может случиться солнечное затмение в новолуние и лунное в полнолуние, примерно через две недели.',
+    quiz: [
+      { q: 'Почему у Луны бывают фазы?', opts: ['Её закрывает тень Земли', 'Мы видим разную часть её освещённой половины', 'Её собственный свет слабеет'], ok: 1 },
+      { q: 'Сколько примерно проходит от новолуния до новолуния?', opts: ['Около 7 дней', 'Около 365 дней', 'Около 29,5 дня'], ok: 2 },
+      { q: 'Откуда берётся лунный свет?', opts: ['Это солнечный свет, отражённый Луной', 'Луна светится сама', 'Это свет городов Земли'], ok: 0 },
+    ],
+  },
+  hu: {
+    name: 'Holdlabor', title: 'Miért változik a Hold alakja',
+    lines: [['Húzd körbe a Holdat', 'a Föld körül.'], ['Nézd egyszerre az űrből', 'és az ablakodból.'], ['Nyisd meg az Egy hónap nézetet,', 'és meglátod, hogyan ismétlődik.']],
+    views: { space: '🛰️ Az űrből', sky: '🌆 Az égen', month: '📅 Egy hónap' },
+    phases: ['Újhold', 'Növő holdsarló', 'Első negyed', 'Növő hold', 'Telihold', 'Fogyó hold', 'Utolsó negyed', 'Fogyó holdsarló'],
+    text: [
+      ['A Hold köztünk és a Nap között van.', 'A napos fele elfelé néz tőlünk, így az éjszakai oldalát látjuk. A Hold nem tűnt el: csak sötét, és elvész a Nap ragyogásában.'],
+      ['Kikandikál a napos fél széle.', 'A Hold egy kicsit továbbment a pályáján. Még szinte csak a sötét oldalát látjuk, meg a megvilágított fél egy vékony szeletét. Napnyugta után keresd alacsonyan nyugaton.'],
+      ['A napos félnek a felét látjuk.', 'A Hold megtette az útja negyedét, ezért oldalról látjuk: a korong fele világos, a fele sötét. Az „első negyed” az út negyedét jelenti, nem a Hold negyedét.'],
+      ['A napos fél nagy része már felénk néz.', 'Minden éjjel egy kicsivel több fordul a megvilágított félből a Föld felé: a Hold egyre nő.'],
+      ['A Föld a Nap és a Hold között van.', 'Most az egész napos fél felénk néz: kerek, fényes Hold, amely éppen napnyugtakor kel fel. A Föld árnyéka nem éri el: a Hold pályája nagyjából 5°-kal ferde, ezért a Hold az árnyék fölött vagy alatt halad el.'],
+      ['A napos fél kezd elfordulni.', 'Telihold után minden éjjel egy kicsivel kevesebbet látunk a megvilágított félből: a Hold fogy. Esténként egyre később kel fel.'],
+      ['Megint a napos fél felét látjuk.', 'Az út háromnegyedénél járunk. A Holdat újra oldalról látjuk, de most a korong másik fele világos. Napkelte körül magasan jár az égen.'],
+      ['Már csak egy vékony szelet maradt.', 'A Hold majdnem visszaért közénk és a Nap közé. Napkelte előtt keresd alacsonyan keleten. Néhány nap múlva újra újhold lesz, és kezdődik elölről az egész.'],
+    ],
+    days: (n, s) => `${s} nap`,
+    ageSub: (m) => `az újhold óta · egy teljes kör ${m} nap`,
+    ends: ['Újhold', 'Telihold', 'Újra újhold'], slider: 'Napok az újhold óta',
+    hemi: 'Félteke', hemis: { n: 'Északi', s: 'Déli' },
+    play: '▶ Pörgesd a hónapot', pause: '❚❚ Szünet', tonight: '📆 Ma este', tonightTip: 'A mai Hold (kb. ±1 nap)',
+    gaugeCap: 'Látszó fény',
+    sunLit: ['☀️ Napfényben', 'mindig a Hold fele'], seen: '👀 A látható korongból világos', side: '🌗 A világos oldal',
+    sides: { right: 'jobb oldalon', left: 'bal oldalon', all: 'az egész korong', none: 'nincs' },
+    angle: '📐 Nap–Föld–Hold szög', nextFull: (d) => `Telihold ${d} múlva`, nextNew: (d) => `Újhold ${d} múlva`,
+    noLight: 'A Holdnak nincs saját fénye: a holdfény a Holdról visszaverődő napfény.',
+    skyNote: 'Az égen a Hold világos oldala mindig a Nap felé mutat.',
+    monthNote: 'Két újhold között 29,5 nap telik el. A Hold 27,3 nap alatt kerüli meg a Földet, de közben a Föld is továbbhalad a Nap körüli pályáján, ezért a Holdnak még nagyjából 2 nap kell, hogy újra egy vonalba kerüljön a Nappal. A Hold egy kör alatt pontosan egyszer fordul meg, ezért mindig ugyanazt az oldalát mutatja nekünk.',
+    hemiNote: { n: 'A Holdat az északi féltekéről nézve mutatjuk.', s: 'A Holdat a déli féltekéről nézve mutatjuk: onnan fejjel lefelé látszik, ezért a világos oldala a másik oldalon van.' },
+    fine: (hemi, km) => `Egyszerűsített modell: kör alakú pálya, egyenletes sebesség, ezért a valódi fázisok akár egy nappal korábban vagy később is jöhetnek. A méretek és a távolságok nem méretarányosak: a Hold valójában nagyjából 30 földátmérőnyire van (${km} km). ${hemi} Adatok: NASA Moon Fact Sheet és Sun Fact Sheet.`,
+    skyFine: 'Égbolt: a Hold útját egyenesen az ég tetején át rajzoltuk, a Holdat pedig nagyobbra, mint amekkorának látszik.',
+    tonightFine: 'A mai Holdat a hónap átlagos hosszából számoltuk (J. Meeus, Astronomical Algorithms), ezért nagyjából egy napot tévedhet.',
+    sunlight: 'Napfény', shadow: 'A Föld árnyéka', you: 'te', fromEarth: 'A Földről nézve', miss: 'elkerüli az árnyékot: a pálya 5°-kal ferde',
+    missSun: 'árnyéka elkerüli a Földet', litHalf: 'világos fél: a Nap felé néz', ourHalf: 'a Föld felé néző fél', drag: 'Húzd a Holdat',
+    evening: (d) => `Napnyugta után · ${d} felé nézve`, morning: (d) => `Napkelte előtt · ${d} felé nézve`, midday: 'Délben · napfogyatkozás',
+    dirWord: { s: 'dél', n: 'észak' }, glare: 'Túl közel van a Naphoz, nem látszik', dirs: ['É', 'K', 'D', 'Ny'],
+    repeat: (m) => `${m} nap múlva újra újhold, és minden kezdődik elölről`,
+    ask: 'Miért változik a Hold alakja?',
+    answers: { shadow: '🌍 A Föld árnyéka takarja el egy részét', half: '☀️ A napos felének hol többet, hol kevesebbet látjuk', clouds: '☁️ Felhők takarják el egy részét' },
+    yesV: 'Pontosan!', yesT: 'A Hold egyik fele mindig napos. Ahogy körbejár minket, hol többet, hol kevesebbet látunk ebből a napos félből. Nézd meg, hogyan történik.',
+    noV: { shadow: 'Sok felnőtt is ezt hiszi!', clouds: 'Jó tipp, de nem!' },
+    noT: { shadow: 'De nézd meg ezt a sarlót: a Föld árnyéka a Nappal ellentétes irányba mutat, a Hold pedig messze oldalt van tőle. Mégis szinte az egész Hold sötét.',
+           clouds: 'A felhők eltakarhatják a Holdat, de az alakjai minden hónapban ugyanabban a sorrendben jönnek, derült éjszakákon is. Nézd meg, hová esik a Nap fénye.' },
+    go: 'Mutasd',
+    secrets: { lunar: ['Holdfogyatkozás', 'A telihold a Föld árnyékában'], solar: ['Napfogyatkozás', 'A Hold eltakarja a Napot'] },
+    ecl: {
+      lunar: ['A Nap, a Föld és a Hold pontosan egy vonalban.', 'Most a telihold egyenesen a Föld árnyékába csúszik. Nem tűnik el, hanem halvány rézvörös lesz: csak a Föld levegőjében megtört napfény világítja meg. A legtöbb hónapban ez nem történik meg, mert a Hold pályája nagyjából 5°-kal ferde.'],
+      solar: ['A Hold pontosan a Nap előtt halad el.', 'Kis árnyéka végigsöpör a Föld egy keskeny sávján, ahol néhány percre szürkület lesz a nappalból. A Nap nagyjából 400-szor szélesebb a Holdnál, de nagyjából 400-szor messzebb is van, ezért egyforma nagynak látszanak. Soha ne nézz a Napba speciális napfogyatkozás-szemüveg nélkül!'],
+    },
+    eclTotal: 'Teljes holdfogyatkozás',
+    compare: 'Holdfogyatkozás: a Föld árnyéka a Holdon, csak teliholdkor. Napfogyatkozás: a Hold árnyéka a Földön, csak újholdkor.',
+    season: 'Fogyatkozási időszak: a Hold ferde pályája most keresztezi a Nap–Föld vonalat, ezért ebben a hónapban újholdkor napfogyatkozás, teliholdkor holdfogyatkozás is lehet, nagyjából két hét különbséggel.',
+    quiz: [
+      { q: 'Miért vannak a Holdnak fázisai?', opts: ['A Föld árnyéka takarja el egy részét', 'A napsütötte felének hol nagyobb, hol kisebb részét látjuk', 'Gyengül a Hold saját fénye'], ok: 1 },
+      { q: 'Nagyjából mennyi idő telik el két újhold között?', opts: ['Kb. 7 nap', 'Kb. 365 nap', 'Kb. 29,5 nap'], ok: 2 },
+      { q: 'Honnan jön a holdfény?', opts: ['A Holdról visszaverődő napfény', 'A Hold magától világít', 'A földi városok fénye'], ok: 0 },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_ByXgbTld6R', en: 'Moon Phases', ru: 'Фазы Луны', hu: 'A Hold fázisai' },
+  { id: 'mt_15FduGRf5c', en: 'The Moon’s Orbit', ru: 'Орбита Луны', hu: 'A Hold keringése' },
+  { id: 'mt_4V-vYhFUcm', en: 'Phases of the Moon', ru: 'Фазы Луны', hu: 'A Hold fázisai' },
+];
+
+// --- the model (all computed) -------------------------------------------------------------------------------
+// Synodic month (new moon to new moon): 29.53 days, NASA Moon Fact Sheet. Circular orbit, even speed.
+const P = 29.53, D2R = Math.PI / 180;
+// Earth and Moon radius in the space drawing as a fraction of the orbit radius (not to scale). The eclipse windows
+// below come from the same numbers, so every view agrees with the drawing.
+const RE = 0.15, RM = 0.08, LUN_C = RE + RM, LUN_T = RE - RM, SOL_C = RE;
+const EMO = ['🌑', '🌒', '🌓', '🌔', '🌕', '🌖', '🌗', '🌘'];
+const wrap = (d) => ((d % P) + P) % P;
+const elong = (day) => wrap(day) / P * 360;                 // angle Sun–Earth–Moon, measured eastward from the Sun
+const litFrac = (E) => (1 - Math.cos(E * D2R)) / 2;          // part of the disc we see lit (Meeus, ch. 48, Sun far away)
+const phaseIdx = (E) => Math.round(E / 45) % 8;
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const nf = (x, d = 0) => new Intl.NumberFormat(lang, { maximumFractionDigits: d }).format(x);
+const pct = (x) => new Intl.NumberFormat(lang, { style: 'percent', maximumFractionDigits: 0 }).format(x);
+const daysTxt = (n) => T[lang].days(n, nf(n, 1));
+// tonight's Moon from the mean new moon of 6 Jan 2000 (JDE 2451550.09766) and the mean month 29.530588861 d (Meeus, ch. 49)
+function tonightAge() {
+  const jd = Date.now() / 864e5 + 2440587.5, m = 29.530588861;
+  return (((jd - 2451550.09766) % m) + m) % m;
+}
+// eclipses: only when the "eclipse season" orbit is on, and only near new or full moon
+function ecl(E) {
+  if (!S.eclipse) return null;
+  const s = Math.sin(E * D2R), c = Math.cos(E * D2R);
+  if (c < 0 && Math.abs(s) < LUN_C) return { kind: 'lunar', total: Math.abs(s) < LUN_T };
+  if (c > 0 && Math.abs(s) < SOL_C) return { kind: 'solar', sep: 2 * s / SOL_C };
+  return null;
+}
+
+// --- the Moon's face, rendered pixel by pixel from the true geometry --------------------------------------------
+// Dark seas (maria) roughly where they sit on the near side, as seen from the north: [x, y, rx, ry, darkness]
+const MARIA = [[-0.55, 0.08, 0.3, 0.48, 0.22], [-0.3, 0.45, 0.26, 0.22, 0.26], [0.16, 0.45, 0.15, 0.14, 0.28], [0.32, 0.14, 0.2, 0.17, 0.26],
+  [0.68, 0.33, 0.1, 0.12, 0.3], [0.58, -0.12, 0.11, 0.16, 0.22], [-0.15, -0.38, 0.18, 0.14, 0.2], [-0.5, -0.36, 0.09, 0.09, 0.24],
+  [0.02, 0.74, 0.42, 0.06, 0.16], [0.4, -0.38, 0.1, 0.12, 0.16]];
+function albedo(u, v) {
+  let a = 0.86 + 0.035 * Math.sin(u * 21 + v * 9) * Math.sin(v * 17 - u * 6) + 0.02 * Math.sin(u * 47 + v * 31);
+  for (const [x, y, rx, ry, d] of MARIA) {
+    const q = ((u - x) / rx) ** 2 + ((v - y) / ry) ** 2;
+    if (q < 1) a -= d * (1 - smooth(0.45, 1, q));
+  }
+  if ((u + 0.12) ** 2 + (v + 0.68) ** 2 < 0.006) a += 0.12; // a bright young crater near the bottom
+  return clamp(a, 0.3, 1);
+}
+// n: size in device pixels; E: angle Sun–Earth–Moon; (dx, dy): screen direction toward the Sun (y up);
+// rot: the face upside down (southern hemisphere); sh: Earth's shadow on the disc, in Moon radii
+const cache = new Map();
+function moonImg(n, E, dx, dy, rot, sh) {
+  const key = `${n}|${E.toFixed(1)}|${dx.toFixed(2)}|${dy.toFixed(2)}|${rot}|${sh ? `${sh.ox.toFixed(2)},${sh.oy.toFixed(2)}` : ''}`;
+  let cv = cache.get(key);
+  if (cv) return cv;
+  if (cache.size > 120) cache.clear();
+  cv = document.createElement('canvas'); cv.width = cv.height = n;
+  const g = cv.getContext('2d'), img = g.createImageData(n, n), px = img.data;
+  const e = E * D2R, sa = Math.abs(Math.sin(e)), s0 = sa * dx, s1 = sa * dy, s2 = -Math.cos(e);
+  const es = 0.3 + 0.7 * (1 + Math.cos(e)) / 2; // earthshine on the dark side, strongest near new moon
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const u = (i + 0.5) / n * 2 - 1, v = 1 - (j + 0.5) / n * 2, r2 = u * u + v * v;
+    if (r2 > 1) continue;
+    const z = Math.sqrt(1 - r2), ndl = u * s0 + v * s1 + z * s2;
+    const a = rot ? albedo(-u, -v) : albedo(u, v);
+    const L = smooth(-0.035, 0.05, ndl), b = L * (0.78 + 0.22 * Math.sqrt(Math.max(ndl, 0)));
+    let R = 238 * a * b, G = 234 * a * b, B = 222 * a * b;
+    if (sh) {
+      const d = Math.hypot(u - sh.ox, v - sh.oy), um = 1 - smooth(sh.rs - 0.12, sh.rs + 0.12, d);
+      const pen = 1 - 0.3 * (1 - smooth(sh.rs, sh.rs + 0.9, d));
+      R = lerp(R * pen, 125 * a * L, um); G = lerp(G * pen, 50 * a * L, um); B = lerp(B * pen, 30 * a * L, um);
+    }
+    const dk = (1 - L) * es; R += dk * (22 + 30 * a); G += dk * (27 + 34 * a); B += dk * (42 + 44 * a);
+    const k = (j * n + i) * 4;
+    px[k] = R; px[k + 1] = G; px[k + 2] = B; px[k + 3] = 255 * clamp((1 - Math.sqrt(r2)) * n * 0.5, 0, 1);
+  }
+  g.putImageData(img, 0, 0);
+  cache.set(key, cv);
+  return cv;
+}
+function drawMoon(c, x, y, r, E, dx, dy, rot, sh) {
+  const d = Math.min(window.devicePixelRatio || 1, 2), n = Math.max(8, Math.round(2 * r * d));
+  c.drawImage(moonImg(n, E, dx, dy, rot, sh), x - r, y - r, 2 * r, 2 * r);
+  c.strokeStyle = 'rgba(150,165,205,.28)'; c.lineWidth = 1; c.setLineDash([3, 4]);
+  c.beginPath(); c.arc(x, y, r + 1.5, 0, 7); c.stroke(); c.setLineDash([]);
+}
+// the Sun with the Moon in front of it; sep = distance between their centres in radii (signed: + means the Moon is east)
+function drawSolar(c, x, y, r, sep, mW, time) {
+  const D = Math.abs(sep), cover = D >= 2 ? 0 : (2 * Math.acos(D / 2) - (D / 2) * Math.sqrt(4 - D * D)) / Math.PI;
+  const glow = c.createRadialGradient(x, y, r * 0.5, x, y, r * 3.2);
+  glow.addColorStop(0, `rgba(255,214,90,${0.8 * (1 - cover)})`); glow.addColorStop(1, 'rgba(255,150,40,0)');
+  c.fillStyle = glow; c.beginPath(); c.arc(x, y, r * 3.2, 0, 7); c.fill();
+  if (cover > 0.9) { // the corona shows only when the bright disc is (almost) hidden
+    const k = (cover - 0.9) * 10, cg = c.createRadialGradient(x, y, r, x, y, r * 2.8);
+    cg.addColorStop(0, `rgba(235,240,255,${0.85 * k})`); cg.addColorStop(1, 'rgba(235,240,255,0)');
+    c.fillStyle = cg; c.beginPath(); c.arc(x, y, r * 2.8, 0, 7); c.fill();
+  }
+  c.fillStyle = '#ffd65a'; c.beginPath(); c.arc(x, y, r * (1 + 0.015 * Math.sin(time * 3)), 0, 7); c.fill();
+  c.fillStyle = '#0b0d16'; c.beginPath(); c.arc(x - sep * r * mW, y, r * 1.01, 0, 7); c.fill();
+  return cover;
+}
+function sunDisc(c, x, y, r, time) {
+  const g = c.createRadialGradient(x, y, r * 0.2, x, y, r * 3.2);
+  g.addColorStop(0, 'rgba(255,214,90,.9)'); g.addColorStop(0.3, 'rgba(255,170,50,.25)'); g.addColorStop(1, 'rgba(255,140,40,0)');
+  c.fillStyle = g; c.beginPath(); c.arc(x, y, r * 3.2, 0, 7); c.fill();
+  c.fillStyle = '#ffcf4a'; c.beginPath(); c.arc(x, y, r * (1 + 0.02 * Math.sin(time * 3)), 0, 7); c.fill();
+}
+// a text label that never leaves the canvas
+function label(c, text, x, y, w, color, font) {
+  c.font = font; c.fillStyle = color; c.textAlign = 'center';
+  const tw = c.measureText(text).width;
+  c.fillText(text, clamp(x, tw / 2 + 6, w - tw / 2 - 6), y);
+}
+
+// --- state --------------------------------------------------------------------------------------------------
+const S = { day: 4, hemi: store.get('moon:hemi', 'n') === 's' ? 's' : 'n', playing: false, eclipse: null, tonight: false,
+  dragged: false, asked: store.get('moon:asked', false), answer: null };
+const lay = {};
+const lab = shell({ key: 'moon', T, topics: TOPICS, views: ['space', 'sky', 'month'], onLang: render, onView: render });
+const secret = secretLab('moon', () => ({
+  secrets: [{ emo: '🔴', title: T[lang].secrets.lunar[0], desc: T[lang].secrets.lunar[1] }, { emo: '🕶️', title: T[lang].secrets.solar[0], desc: T[lang].secrets.solar[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <input type="range" class="big" id="slider" min="0" max="${P}" step="0.01" value="${S.day}" >
+  <div class="ends" id="ends"></div>
+  <div class="chips" id="chips"></div>
+  <div class="row2"><span class="lbl" id="hemiLbl"></span><div class="card seg small" id="hemis"></div>
+    <button class="chip" id="tonight"></button><button class="chip" id="play"></button></div>`;
+$('slider').style.setProperty('--track', 'linear-gradient(90deg, #1b2140, #8a8fa8 25%, #f4ecd0 50%, #8a8fa8 75%, #1b2140)');
+
+function setDay(d, quiet) {
+  const before = phaseIdx(elong(S.day));
+  S.day = wrap(d); S.tonight = false;
+  if (!quiet && phaseIdx(elong(S.day)) !== before) sfx.tick();
+  render();
+}
+$('slider').addEventListener('input', () => { S.playing = false; setDay(+$('slider').value); });
+$('chips').addEventListener('click', (ev) => {
+  const b = ev.target.closest('.chip'); if (!b) return;
+  const k = b.dataset.k;
+  if (k === 'lunar' || k === 'solar') {
+    if (!secret.unlocked()) return secret.open();
+    S.playing = false;
+    if (S.eclipse === k) { S.eclipse = null; sfx.click(); return render(); }
+    S.eclipse = k; sfx.snap();
+    if (lab.view === 'month') { lab.view = 'space'; lab.renderChrome(); }
+    return setDay(k === 'lunar' ? P / 2 : 0, true);
+  }
+  S.playing = false; sfx.click(); setDay(+b.dataset.d, true);
+});
+$('hemis').addEventListener('click', (ev) => {
+  const k = ev.target.closest('button')?.dataset.h; if (!k || k === S.hemi) return;
+  S.hemi = k; store.set('moon:hemi', k); sfx.click(); render();
+});
+$('tonight').onclick = () => { S.playing = false; S.eclipse = null; S.day = tonightAge(); S.tonight = true; sfx.click(); render(); };
+$('play').onclick = () => { S.playing = !S.playing; sfx.click(); render(); };
+
+// pointer: drag the Moon round its orbit (space), scrub the days (sky), pick a day (month)
+const cv = $('cv');
+let drag = null;
+const local = (ev) => { const r = cv.getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; };
+function dragTo(x, y) {
+  if (lab.view === 'space' && lay.space) {
+    const E = (Math.atan2(-(y - lay.space.cy), x - lay.space.cx) / D2R + 360) % 360;
+    setDay(E / 360 * P);
+  } else if (lab.view === 'sky' && lay.sky) setDay(drag.day + (x - drag.x) / lay.sky.w * 15);
+}
+cv.addEventListener('pointerdown', (ev) => {
+  const [x, y] = local(ev);
+  if (lab.view === 'month') {
+    const L = lay.month; if (!L) return;
+    const col = Math.floor((x - L.x0) / L.cell), row = Math.floor((y - L.y0) / L.cell);
+    if (col >= 0 && col < L.cols && row >= 0 && row < L.rows) { S.playing = false; sfx.click(); setDay(row * L.cols + col, true); }
+    return;
+  }
+  S.playing = false; S.dragged = true;
+  drag = { x, day: S.day };
+  try { cv.setPointerCapture(ev.pointerId); } catch { /* fine without capture */ }
+  dragTo(x, y);
+});
+cv.addEventListener('pointermove', (ev) => { if (drag) dragTo(...local(ev)); });
+const stop = () => { drag = null; };
+cv.addEventListener('pointerup', stop); cv.addEventListener('pointercancel', stop);
+
+// the opening question: many people (and grown-ups) blame the Earth's shadow
+const askEl = document.createElement('div');
+askEl.className = 'ask card';
+$('overlay').append(askEl);
+askEl.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  if (b.dataset.a) { S.answer = b.dataset.a; (S.answer === 'half' ? sfx.good : sfx.bad)(); }
+  else {
+    S.asked = true; store.set('moon:asked', true);
+    if (S.answer !== 'half') S.day = P / 8; // a crescent: far from the Earth's shadow, yet mostly dark
+    lab.view = 'space'; lab.renderChrome();
+  }
+  render();
+});
+
+function render() {
+  const t = T[lang], E = elong(S.day), k = litFrac(E), idx = phaseIdx(E), ec = ecl(E), north = S.hemi === 'n';
+  $('slider').value = String(S.day); $('slider').setAttribute('aria-label', t.slider);
+  $('ends').innerHTML = t.ends.map((s) => `<span>${esc(s)}</span>`).join('');
+  // chips: the two secret eclipses at the ends, the eight phases in between
+  const open = secret.unlocked();
+  const sChip = (key) => `<button class="chip secret ${open ? 'open' : ''} ${S.eclipse === key ? 'on' : ''}" data-k="${key}">${open ? `${key === 'lunar' ? '🔴' : '🕶️'} ${esc(t.secrets[key][0])}` : '🔒 ???'}</button>`;
+  const phaseChips = EMO.map((_, i) => {
+    const d = i * P / 8, on = Math.abs(S.day - d) < 0.12 || (i === 0 && S.day > P - 0.12);
+    const em = EMO[north ? i : (8 - i) % 8];
+    return `<button class="chip ${on ? 'on' : ''}" data-k="p${i}" data-d="${d}" title="${esc(t.phases[i])}" aria-label="${esc(t.phases[i])}">${em}${on ? ` <span class="nm">${esc(t.phases[i])}</span>` : ''}</button>`;
+  });
+  $('chips').innerHTML = [sChip('lunar'), ...phaseChips, sChip('solar')].join('');
+  $('hemiLbl').textContent = t.hemi;
+  $('hemis').innerHTML = ['n', 's'].map((h) => `<button data-h="${h}" class="${S.hemi === h ? 'on' : ''}">${esc(t.hemis[h])}</button>`).join('');
+  $('tonight').textContent = t.tonight; $('tonight').title = t.tonightTip; $('tonight').classList.toggle('on', S.tonight);
+  $('play').textContent = S.playing ? t.pause : t.play;
+  cv.style.cursor = lab.view === 'space' ? 'grab' : lab.view === 'month' ? 'pointer' : 'ew-resize';
+
+  // readout, gauge and glow
+  const pill = ec ? (ec.kind === 'lunar' && ec.total ? t.eclTotal : t.secrets[ec.kind][0]) : t.phases[idx];
+  const col = `rgb(${Math.round(lerp(70, 168, k))},${Math.round(lerp(82, 122, k))},${Math.round(lerp(160, 22, k))})`;
+  lab.setReadout(`${esc(nf(S.day, 1))} <small>${esc(daysTxt(S.day).replace(nf(S.day, 1), '').trim())}</small>`, t.ageSub(nf(P, 1)), pill, col);
+  lab.setGlow(`rgba(${Math.round(lerp(50, 210, k))},${Math.round(lerp(70, 190, k))},${Math.round(lerp(150, 120, k))},${(0.16 + 0.18 * k).toFixed(2)})`);
+  lab.setGauge(k, [0, 0.25, 0.5, 0.75, 1].map((f) => ({ f, label: pct(f) })), t.gaugeCap);
+
+  // state card: what we see, and why
+  const sideKey = k < 0.02 ? 'none' : k > 0.98 ? 'all' : (E < 180) === north ? 'right' : 'left';
+  const next = S.day < P / 2 ? t.nextFull(daysTxt(P / 2 - S.day)) : t.nextNew(daysTxt(P - S.day));
+  const stats = `<div class="stats">
+    <span>${esc(t.sunLit[0])}: <b>${esc(t.sunLit[1])}</b></span>
+    <span>${esc(t.seen)}: <b>${esc(pct(k))}</b></span>
+    <span>${esc(t.side)}: <b>${esc(t.sides[sideKey])}</b></span>
+    <span>${esc(t.angle)}: <b>${esc(nf(E))}°</b></span>
+    <span>📅 <b>${esc(next)}</b></span>
+  </div>`;
+  const notes = [
+    ec ? t.compare : S.eclipse ? `🔴 ${t.season}` : '',
+    lab.view === 'sky' ? t.skyNote : lab.view === 'month' ? t.monthNote : t.noLight,
+  ].filter(Boolean).map((s) => `<div class="note">${esc(s)}</div>`).join('');
+  const fine = [t.fine(t.hemiNote[S.hemi], nf(384400)), lab.view === 'sky' ? t.skyFine : '', S.tonight ? t.tonightFine : '']
+    .filter(Boolean).map((s) => `<div class="fine">${esc(s)}</div>`).join('');
+  if (ec) {
+    const [lead, body] = t.ecl[ec.kind];
+    lab.setState({ emo: ec.kind === 'lunar' ? '🔴' : '🕶️', title: pill, lead, body, extra: stats + notes + fine });
+  } else {
+    const [lead, body] = t.text[idx];
+    lab.setState({ emo: EMO[north ? idx : (8 - idx) % 8], title: t.phases[idx], lead, body, extra: stats + notes + fine });
+  }
+
+  // the opening question
+  askEl.style.display = S.asked ? 'none' : '';
+  if (!S.asked) {
+    askEl.innerHTML = S.answer === null
+      ? `<div class="q">${esc(t.ask)}</div><div class="opts">${['shadow', 'half', 'clouds'].map((a) => `<button data-a="${a}">${esc(t.answers[a])}</button>`).join('')}</div>`
+      : `<div class="verdict" style="color:${S.answer === 'half' ? 'var(--ok)' : 'var(--wip)'}">${esc(S.answer === 'half' ? t.yesV : t.noV[S.answer])}</div>
+         <p>${esc(S.answer === 'half' ? t.yesT : t.noT[S.answer])}</p><div class="opts"><button>${esc(t.go)} →</button></div>`;
+  }
+}
+
+// --- drawing ------------------------------------------------------------------------------------------------
+// From space: looking down on the North Pole. Sunlight comes from the right; the Moon goes round anticlockwise.
+function drawSpace(c, w, h, time) {
+  const t = T[lang], E = elong(S.day), e = E * D2R, ec = ecl(E), north = S.hemi === 'n';
+  const narrow = w < h * 1.25;
+  const ri = clamp(Math.min(w, h) * (narrow ? 0.13 : 0.15), 30, 84);
+  const R = Math.min(h * 0.37, w * 0.33);
+  const cx = Math.min(w / 2 + ri * 0.5, w - R * 1.12 - 6), cy = h * 0.53;
+  const Re = R * RE, Rm = R * RM, fs = clamp(w * 0.026, 10, 12.5);
+  lay.space = { cx, cy };
+  // the Sun, far away to the right
+  const sg = c.createRadialGradient(w + 30, cy, 10, w + 30, cy, Math.min(w, h) * 0.45);
+  sg.addColorStop(0, 'rgba(255,214,90,.55)'); sg.addColorStop(1, 'rgba(255,170,50,0)');
+  c.fillStyle = sg; c.fillRect(0, 0, w, h);
+  // parallel rays of sunlight; the ones that hit the Earth stop there
+  c.strokeStyle = 'rgba(255,207,74,.22)'; c.lineWidth = 1.5; c.setLineDash([6, 9]); c.lineDashOffset = time * 30;
+  for (let i = 0; i < 9; i++) {
+    const y = h * (i + 0.5) / 9, dy = y - cy;
+    const end = Math.abs(dy) < Re ? cx + Math.sqrt(Re * Re - dy * dy) : 0;
+    c.beginPath(); c.moveTo(w, y); c.lineTo(end, y); c.stroke();
+  }
+  c.setLineDash([]);
+  label(c, `← ${t.sunlight}`, w - 60, 18, w, 'rgba(255,214,120,.9)', `800 ${fs}px Nunito, sans-serif`);
+  // the Earth's shadow: a band pointing away from the Sun
+  const shg = c.createLinearGradient(cx, 0, 0, 0);
+  shg.addColorStop(0, 'rgba(0,0,0,.55)'); shg.addColorStop(1, 'rgba(0,0,0,.18)');
+  c.fillStyle = shg; c.fillRect(0, cy - Re, cx, 2 * Re);
+  c.textBaseline = 'middle';
+  label(c, t.shadow, cx - Re - (R - Re) * 0.5, cy, w, 'rgba(152,160,184,.85)', `800 ${fs - 1}px Nunito, sans-serif`);
+  // the orbit, with a faint dot at each of the 8 phases
+  c.strokeStyle = 'rgba(130,145,190,.35)'; c.lineWidth = 1.5; c.setLineDash([4, 6]);
+  c.beginPath(); c.arc(cx, cy, R, 0, 7); c.stroke(); c.setLineDash([]);
+  c.fillStyle = 'rgba(130,145,190,.45)';
+  for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; c.beginPath(); c.arc(cx + R * Math.cos(a), cy - R * Math.sin(a), 2.2, 0, 7); c.fill(); }
+  // the Earth: day side toward the Sun
+  const eg = c.createLinearGradient(cx - Re, 0, cx + Re, 0);
+  eg.addColorStop(0, '#111a30'); eg.addColorStop(0.46, '#111a30'); eg.addColorStop(0.54, '#3f86e6'); eg.addColorStop(1, '#6aaaf2');
+  c.fillStyle = eg; c.beginPath(); c.arc(cx, cy, Re, 0, 7); c.fill();
+  c.strokeStyle = 'rgba(200,215,245,.35)'; c.lineWidth = 1; c.stroke();
+  // the Moon
+  const mx = cx + R * Math.cos(e), my = cy - R * Math.sin(e);
+  // you, on the side of the Earth that faces the Moon, and your line of sight
+  const yx = cx + Re * Math.cos(e), yy = cy - Re * Math.sin(e);
+  c.strokeStyle = 'rgba(237,239,247,.4)'; c.setLineDash([2, 5]); c.lineWidth = 1.2;
+  c.beginPath(); c.moveTo(yx, yy); c.lineTo(mx - Rm * Math.cos(e), my + Rm * Math.sin(e)); c.stroke(); c.setLineDash([]);
+  c.fillStyle = '#ff3b30'; c.strokeStyle = '#fff'; c.lineWidth = 1.5; c.beginPath(); c.arc(yx, yy, 3.5, 0, 7); c.fill(); c.stroke();
+  c.fillStyle = '#EDEFF7'; c.font = `800 ${fs - 1}px Nunito, sans-serif`; c.textAlign = 'center';
+  c.fillText(t.you, yx - 15 * Math.sin(e), yy - 15 * Math.cos(e));
+  // solar eclipse: the Moon's small shadow reaches the Earth
+  if (ec?.kind === 'solar') {
+    const dy = my - cy, hx = cx + Math.sqrt(Math.max(0, Re * Re - dy * dy));
+    c.fillStyle = 'rgba(0,0,0,.6)'; c.beginPath(); c.moveTo(mx, my - Rm); c.lineTo(mx, my + Rm); c.lineTo(hx, my); c.closePath(); c.fill();
+    c.fillStyle = '#000'; c.beginPath(); c.arc(hx, my, 3, 0, 7); c.fill();
+  }
+  // the Moon: its right half (toward the Sun) is always lit
+  const mg = c.createLinearGradient(mx - Rm, 0, mx + Rm, 0);
+  mg.addColorStop(0, '#2a2f3e'); mg.addColorStop(0.47, '#2a2f3e'); mg.addColorStop(0.53, '#ece8dc'); mg.addColorStop(1, '#fffbea');
+  c.fillStyle = mg; c.beginPath(); c.arc(mx, my, Rm, 0, 7); c.fill();
+  if (ec?.kind === 'lunar') { // the part inside the Earth's shadow turns coppery
+    c.save(); c.beginPath(); c.arc(mx, my, Rm, 0, 7); c.clip();
+    c.fillStyle = 'rgba(120,42,22,.85)'; c.fillRect(0, cy - Re, cx, 2 * Re); c.restore();
+  }
+  // the lit half (yellow) and the half that faces the Earth (blue): what we see is where they overlap
+  c.lineWidth = 2.5; c.strokeStyle = 'rgba(255,207,74,.95)';
+  c.beginPath(); c.arc(mx, my, Rm + 3, -Math.PI / 2, Math.PI / 2); c.stroke();
+  const toE = Math.atan2(cy - my, cx - mx);
+  c.strokeStyle = 'rgba(94,200,255,.95)'; c.setLineDash([4, 3]);
+  c.beginPath(); c.arc(mx, my, Rm + 7, toE - Math.PI / 2, toE + Math.PI / 2); c.stroke(); c.setLineDash([]);
+  // notes near the Moon when it crosses the Sun–Earth line without an eclipse
+  const s = Math.sin(e), cE = Math.cos(e);
+  if (!ec && Math.abs(s) < LUN_C && cE < 0) label(c, t.miss, mx, my - Rm - 16, w, 'rgba(245,200,76,.95)', `800 ${fs - 1}px Nunito, sans-serif`);
+  if (!ec && Math.abs(s) < SOL_C && cE > 0) label(c, t.missSun, mx - 10, my - Rm - 16, w, 'rgba(245,200,76,.95)', `800 ${fs - 1}px Nunito, sans-serif`);
+  if (!S.dragged) label(c, `↻ ${t.drag}`, mx, my + Rm + 20, w, `rgba(255,255,255,${0.55 + 0.35 * Math.sin(time * 3)})`, `900 ${fs}px Nunito, sans-serif`);
+  // the inset: what you see from the Earth right now
+  const ix = 12 + ri, iy = 30 + ri;
+  c.fillStyle = '#060912'; c.strokeStyle = 'rgba(130,145,190,.45)'; c.lineWidth = 1.5;
+  c.beginPath(); c.arc(ix, iy, ri, 0, 7); c.fill(); c.stroke();
+  c.textAlign = 'left'; c.fillStyle = 'rgba(94,200,255,.95)'; c.font = `900 ${fs}px Nunito, sans-serif`; c.fillText(`👀 ${t.fromEarth}`, 12, 14);
+  if (ec?.kind === 'solar') {
+    c.save(); c.beginPath(); c.arc(ix, iy, ri - 1, 0, 7); c.clip();
+    drawSolar(c, ix, iy, ri * 0.42, ec.sep, north ? 1 : -1, time); c.restore();
+  } else {
+    const dx = (E <= 180 ? 1 : -1) * (north ? 1 : -1);
+    const sh = ec?.kind === 'lunar' ? { ox: -dx * Math.abs(s) / RM, oy: 0, rs: RE / RM } : null;
+    drawMoon(c, ix, iy, ri * 0.74, E, dx, 0, !north, sh);
+  }
+  label(c, ec ? (ec.kind === 'lunar' && ec.total ? t.eclTotal : t.secrets[ec.kind][0]) : t.phases[phaseIdx(E)], ix, iy + ri + 14, w, '#fff', `900 ${fs + 0.5}px Nunito, sans-serif`);
+  // legend
+  c.textAlign = 'left'; c.font = `800 ${fs - 1}px Nunito, sans-serif`;
+  const ly = h - 30;
+  c.lineWidth = 2.5; c.strokeStyle = 'rgba(255,207,74,.95)'; c.beginPath(); c.arc(20, ly, 7, -Math.PI / 2, Math.PI / 2); c.stroke();
+  c.fillStyle = 'rgba(237,239,247,.85)'; c.fillText(t.litHalf, 34, ly);
+  c.strokeStyle = 'rgba(94,200,255,.95)'; c.setLineDash([4, 3]); c.beginPath(); c.arc(20, ly + 18, 7, Math.PI / 2, Math.PI * 1.5); c.stroke(); c.setLineDash([]);
+  c.fillText(t.ourHalf, 34, ly + 18);
+  c.textBaseline = 'alphabetic';
+}
+
+// In the sky: at sunset (waxing) or sunrise (waning), looking toward the equator. Toy model: the Moon's path goes over the top.
+const STARS = Array.from({ length: 46 }, (_, i) => [((i * 0.6180339887) % 1), ((i * 0.7548776662 + 0.13) % 1) * 0.7, 0.4 + ((i * 37) % 10) / 16]);
+function drawSky(c, w, h, time) {
+  const t = T[lang], E = elong(S.day), ec = ecl(E), north = S.hemi === 'n', mW = north ? 1 : -1; // mW: the side where west is
+  const pad = 8, top = 8, W = w - 2 * pad, hy = h * 0.8, cx = w / 2;
+  const Ax = W / 2 * 0.84, Ay = (hy - top) * 0.8, fs = clamp(w * 0.026, 10, 12.5);
+  lay.sky = { w };
+  c.save(); c.beginPath(); c.roundRect ? c.roundRect(pad, top, W, h - top - 6, 16) : c.rect(pad, top, W, h - top - 6); c.clip();
+  let caption;
+  if (ec?.kind === 'solar') {
+    // midday: the Moon slides over the Sun and the sky darkens
+    const D = Math.abs(ec.sep), cover = D >= 2 ? 0 : (2 * Math.acos(D / 2) - (D / 2) * Math.sqrt(4 - D * D)) / Math.PI;
+    const dim = 1 - 0.9 * cover ** 3;
+    const sky = c.createLinearGradient(0, top, 0, hy);
+    sky.addColorStop(0, `rgb(${40 * dim + 6},${110 * dim + 8},${200 * dim + 22})`); sky.addColorStop(1, `rgb(${150 * dim + 20},${190 * dim + 20},${235 * dim + 40})`);
+    c.fillStyle = sky; c.fillRect(pad, top, W, hy - top);
+    if (cover > 0.97) for (const [sx, sy, a] of STARS.slice(0, 8)) { c.fillStyle = `rgba(255,255,255,${a * 0.6})`; c.fillRect(pad + sx * W, top + sy * (hy - top), 1.6, 1.6); }
+    drawSolar(c, cx, hy - Ay * 0.75, clamp(Math.min(w, h) * 0.07, 18, 40), ec.sep, mW, time);
+    caption = t.midday;
+  } else {
+    const evening = E <= 180, phi = evening ? E : 360 - E, m = evening ? mW : -mW; // m: the side the Sun is on
+    const sunX = cx + m * Ax;
+    const sky = c.createLinearGradient(0, top, 0, hy);
+    sky.addColorStop(0, '#0a1029'); sky.addColorStop(0.6, '#1b2552'); sky.addColorStop(1, '#4a3c6e');
+    c.fillStyle = sky; c.fillRect(pad, top, W, hy - top);
+    const glow = c.createRadialGradient(sunX, hy, 4, sunX, hy, W * 0.55);
+    glow.addColorStop(0, 'rgba(255,150,70,.6)'); glow.addColorStop(1, 'rgba(255,120,60,0)');
+    c.fillStyle = glow; c.fillRect(pad, top, W, hy - top);
+    for (const [sx, sy, a] of STARS) {
+      const x = pad + sx * W, y = top + sy * (hy - top);
+      if (Math.hypot(x - sunX, y - hy) < W * 0.35) continue;
+      c.fillStyle = `rgba(255,255,255,${a * 0.5})`; c.fillRect(x, y, 1.5, 1.5);
+    }
+    // the Moon's path across the sky, from the Sun to the other horizon
+    c.strokeStyle = 'rgba(237,239,247,.22)'; c.lineWidth = 1.5; c.setLineDash([4, 7]);
+    c.beginPath(); c.ellipse(cx, hy, Ax, Ay, 0, Math.PI, 2 * Math.PI); c.stroke(); c.setLineDash([]);
+    sunDisc(c, sunX, hy + 4, clamp(Math.min(w, h) * 0.045, 10, 22), time);
+    const mr = clamp(Math.min(w, h) * 0.075, 16, 44), p = phi * D2R;
+    const mx = cx + m * Ax * Math.cos(p), my = Math.min(hy - Ay * Math.sin(p), hy - mr - 4); // keep a rising/setting Moon whole
+    if (phi < 12) {
+      c.strokeStyle = 'rgba(237,239,247,.3)'; c.setLineDash([3, 4]); c.lineWidth = 1;
+      c.beginPath(); c.arc(mx, my, mr, 0, 7); c.stroke(); c.setLineDash([]);
+      c.textBaseline = 'middle';
+      label(c, t.glare, mx - m * mr * 4, my - mr * 2.2, w, 'rgba(255,230,180,.9)', `800 ${fs}px Nunito, sans-serif`);
+      c.textBaseline = 'alphabetic';
+    } else {
+      // the direction toward the Sun along the path: the bright side faces it
+      let dx = m * Ax * Math.sin(p), dy = -Ay * Math.cos(p); const L = Math.hypot(dx, dy) || 1; dx /= L; dy /= L;
+      const sh = ec?.kind === 'lunar' ? { ox: -dx * Math.abs(Math.sin(E * D2R)) / RM, oy: -dy * Math.abs(Math.sin(E * D2R)) / RM, rs: RE / RM } : null;
+      drawMoon(c, mx, my, mr, E, dx, dy, !north, sh);
+    }
+    caption = (evening ? t.evening : t.morning)(t.dirWord[north ? 's' : 'n']);
+  }
+  // the ground, a few houses and trees, and the compass points
+  c.fillStyle = '#0a0e17'; c.fillRect(pad, hy, W, h - hy);
+  const s = clamp(h * 0.05, 12, 26), night = ec?.kind !== 'solar';
+  for (const f of [0.14, 0.24, 0.66]) {
+    const x = pad + W * f;
+    c.fillStyle = '#0a0e17'; c.fillRect(x, hy - s, s * 1.2, s); c.beginPath(); c.moveTo(x - s * 0.15, hy - s); c.lineTo(x + s * 0.6, hy - s * 1.6); c.lineTo(x + s * 1.35, hy - s); c.fill();
+    if (night) { c.fillStyle = '#ffd25a'; c.fillRect(x + s * 0.4, hy - s * 0.65, s * 0.3, s * 0.3); }
+  }
+  for (const f of [0.36, 0.8, 0.88]) {
+    const x = pad + W * f; c.fillStyle = '#0a0e17';
+    c.beginPath(); c.moveTo(x, hy - s * 2.2); c.lineTo(x + s * 0.7, hy); c.lineTo(x - s * 0.7, hy); c.fill();
+  }
+  c.fillStyle = 'rgba(255,255,255,.75)'; c.font = `900 ${fs + 1}px Nunito, sans-serif`; c.textAlign = 'center';
+  const gy = hy + Math.min(22, (h - hy) * 0.55);
+  c.fillText(t.dirs[3], cx + mW * Ax, gy); c.fillText(t.dirs[1], cx - mW * Ax, gy); c.fillText(t.dirs[north ? 2 : 0], cx, gy);
+  c.textAlign = 'left'; c.fillStyle = 'rgba(255,255,255,.8)'; c.font = `800 ${fs}px Nunito, sans-serif`;
+  c.fillText(caption, pad + 12, top + 20);
+  c.restore();
+}
+
+// One month: the Moon on every day of one cycle
+function drawMonth(c, w, h) {
+  const t = T[lang], north = S.hemi === 'n';
+  const cols = w >= 560 ? 10 : 6, rows = 30 / cols, foot = 50;
+  const cell = Math.min((w - 12) / cols, (h - foot - 8) / rows);
+  const x0 = (w - cell * cols) / 2, y0 = 6 + Math.max(0, (h - foot - 8 - cell * rows) / 2);
+  lay.month = { x0, y0, cell, cols, rows };
+  const cur = Math.round(S.day) % 30, keys = [0, 7, 15, 22];
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  for (let i = 0; i < 30; i++) {
+    const x = x0 + (i % cols) * cell, y = y0 + Math.floor(i / cols) * cell;
+    if (i === cur || keys.includes(i)) {
+      c.fillStyle = i === cur ? 'rgba(255,255,255,.09)' : 'rgba(0,0,0,0)';
+      c.strokeStyle = i === cur ? 'rgba(255,255,255,.8)' : 'rgba(245,200,76,.35)'; c.lineWidth = i === cur ? 2 : 1;
+      c.beginPath(); c.roundRect ? c.roundRect(x + 2, y + 2, cell - 4, cell - 4, 10) : c.rect(x + 2, y + 2, cell - 4, cell - 4); c.fill(); c.stroke();
+    }
+    const E = i / P * 360, dx = (E <= 180 ? 1 : -1) * (north ? 1 : -1);
+    drawMoon(c, x + cell / 2, y + cell * 0.42, cell * 0.29, E, dx, 0, !north, null);
+    c.fillStyle = i === cur ? '#fff' : 'rgba(152,160,184,.9)'; c.font = `800 ${clamp(cell * 0.17, 9, 13)}px Nunito, sans-serif`;
+    c.fillText(String(i), x + cell / 2, y + cell * 0.86);
+  }
+  const by = y0 + rows * cell + 16, fs = clamp(w * 0.026, 10, 12.5);
+  const keyLine = [0, 2, 4, 6].map((i) => `${EMO[north ? i : (8 - i) % 8]} ${nf(i * P / 8, 1)}`).join('   ·   ');
+  c.fillStyle = 'rgba(245,200,76,.95)'; c.font = `800 ${fs}px Nunito, sans-serif`; c.fillText(keyLine, w / 2, by);
+  label(c, t.repeat(nf(P, 1)), w / 2, by + 20, w, 'rgba(237,239,247,.85)', `800 ${fs}px Nunito, sans-serif`);
+  c.textBaseline = 'alphabetic';
+}
+
+canvasLoop(cv, (c, w, h, dt, time) => {
+  if (S.playing) {
+    S.day = wrap(S.day + dt * 2);
+    if (Math.floor(time * 6) !== Math.floor((time - dt) * 6)) render();
+  }
+  if (lab.view === 'space') drawSpace(c, w, h, time);
+  else if (lab.view === 'sky') drawSky(c, w, h, time);
+  else drawMonth(c, w, h);
+});
+render();
+</script>
+</body>
+</html>

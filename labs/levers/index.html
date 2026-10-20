@@ -1,0 +1,981 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Levers Lab · Skill Graph</title>
+<meta name="description" content="Can a cat lift a dog? Put animals on a seesaw, move the pivot under a crowbar and find levers around the house: weight × distance from the pivot is what counts. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  /* this lab has no gauge: give its column back to the stage */
+  #gauge { display: none; }
+  @media (min-width: 1101px) {
+    .lab { grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); grid-template-areas: 'hero stage' 'state stage' 'state ctrl'; }
+  }
+  #stage { min-height: 440px; }
+  #stage canvas { user-select: none; -webkit-user-select: none; }
+  .fine { margin-top: 8px; font-size: 11px; color: var(--faint); }
+  .goal { color: var(--soft); }
+  .goal .ok { color: var(--ok); font-weight: 900; }
+  .quote { font: 500 17px/1.3 var(--serif); color: #fff; margin-bottom: 4px; }
+  .hint { font-size: 12px; color: var(--mut); font-weight: 700; }
+  .stepper { display: inline-flex; align-items: center; gap: 6px; }
+  .stepper button { min-width: 44px; height: 34px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 900; font-size: 13px; cursor: pointer; padding: 0 10px; }
+  .stepper button:hover { background: rgba(130, 145, 190, .25); }
+  .stepper button:disabled { opacity: .35; cursor: default; }
+  .stepper b { min-width: 76px; text-align: center; color: #fff; }
+  #push { touch-action: none; user-select: none; -webkit-user-select: none; }
+  #push.on { background: var(--ok); border-color: var(--ok); }
+  .ask { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); width: min(560px, calc(100% - 16px)); padding: 12px 14px;
+    text-align: center; }
+  .ask .q { font: 500 20px/1.2 var(--serif); color: #fff; margin-bottom: 4px; }
+  .ask .qs { font-size: 12.5px; color: var(--mut); margin-bottom: 10px; font-weight: 700; }
+  .ask .opts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .ask button { padding: 8px 13px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 800; cursor: pointer; }
+  .ask button:hover { background: rgba(130, 145, 190, .25); }
+  .ask p { margin: 0 0 10px; color: var(--soft); font-size: 13px; }
+  .ask .verdict { font-weight: 900; margin-bottom: 4px; }
+  @media (max-width: 760px) {
+    #stage { height: min(104vw, 480px); min-height: 0; }
+    .ask .q { font-size: 17px; } .ask { padding: 9px 10px; } .ask button { padding: 7px 10px; font-size: 12.5px; }
+    .ask .qs { margin-bottom: 7px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, store, ruPlural, lang } from '../lab.js';
+
+// --- numbers (all computed here; sources in the fine print) --------------------------------------------------
+const MOUSE_KG = 0.02;            // a house mouse: about 20 g (typical, rounded)
+const ELE_KG = 4000, ELE_D = 3, MICE_D = 6;
+const STEP_M = 0.5;               // one step on the seesaw = 50 cm (our choice)
+const EARTH_KG = 5.9722e24;       // NASA Earth Fact Sheet
+const PUSH_KG = 50;               // the push in the Archimedes thought experiment
+const LY_M = 9.4607e15;           // 1 light-year in metres (IAU)
+const C_MS = 299792458;           // speed of light, exact by definition
+const YEAR_S = 365.25 * 86400;    // Julian year
+const ANDRO_LY = 2.5e6;           // Andromeda Galaxy, about 2.5 million light-years (NASA)
+const STRENGTH = 20;              // your push in the rock view, as the weight of 20 kg
+const ARM_M = EARTH_KG * 1 / PUSH_KG;                     // Earth 1 m from the pivot
+const ARM_MLY = ARM_M / LY_M / 1e6;                       // ≈ 12.6 million light-years
+const ANDRO_X = Math.round(ARM_MLY * 1e6 / ANDRO_LY);     // ≈ 5
+const LIFT_YEARS = Math.round(ARM_M * 0.01 / C_MS / YEAR_S / 1000) * 1000; // lift the Earth 1 cm at light speed
+const ONE_MOUSE_KM = ELE_KG * ELE_D / MOUSE_KG * STEP_M / 1000;          // one mouse balancing the elephant
+
+const nf = (x, d = 1) => new Intl.NumberFormat(lang, { maximumFractionDigits: d }).format(x);
+// Hungarian: "-szor/-szer/-ször" after a numeral (by the last spoken word of 1..9)
+const huX = (n) => `${n}-${({ 1: 'szer', 2: 'szer', 3: 'szor', 4: 'szer', 5: 'ször', 6: 'szor', 7: 'szer', 8: 'szor', 9: 'szer' })[n] ?? 'szor'}`;
+
+// --- words -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Levers Lab', title: 'Can a cat lift a dog?',
+    lines: [['Guess first:', 'which side of the seesaw goes down?'], ['Drag animals onto the plank,', 'close to the pivot or far from it.'], ['Weight × distance', 'is what really counts.']],
+    views: { seesaw: '⚖️ Seesaw', lift: '🪨 Rock', everyday: '✂️ Everyday' },
+    steps: (n) => (n === 1 ? 'step' : 'steps'),
+    kg: 'kg', turnUnit: 'turning effect = kg × steps from the pivot',
+    pill: { bal: 'Balanced!', L: 'Left side goes down', R: 'Right side goes down', empty: 'Empty', guess: 'Your guess?' },
+    chips: { intro: '🐕🐈 Dog & cat', rabbits: '🐇 Rabbit team', cats: '🐈🐈 Two cats', free: '✨ Free play' },
+    clear: 'Clear', dragTip: 'Drag from the shelf. Drag off the plank to remove.',
+    goalLbl: 'Goal', solved: 'Solved!',
+    goals: { rabbits: 'Balance the dog using only rabbits.', cats: 'Balance the dog with exactly two cats.' },
+    side: (L, R) => [`Left: ${L}.`, `Right: ${R}.`],
+    emptyT: 'An empty seesaw', emptyL: 'Drag an animal from the shelf onto the plank.',
+    emptyB: 'The numbers under the plank count steps from the pivot: the point the plank turns around.',
+    balT: 'Balanced!', LT: 'The left side goes down', RT: 'The right side goes down',
+    balB: 'Both sides turn the plank equally hard. The forces are balanced, so the plank doesn’t start to move. It isn’t about which animal is heavier: it’s weight × distance from the pivot.',
+    unbB: 'One side turns the plank harder. The forces are unbalanced, so the plank starts to move. Move an animal farther out to make it count more, or closer in to make it count less.',
+    surprise: 'Look: the heavier side went UP! It has more kilograms, but they sit close to the pivot.',
+    balDiff: (a, b) => `One side has ${a} kg, the other ${b} kg, and still they balance!`,
+    fine: 'A simplified model: the plank weighs nothing, and when the sides balance we gently level it (a real balanced plank just stays where it is). Animal weights are typical values, rounded; real animals vary a lot.',
+    guessT: 'Make your guess', guessL: 'The plank is held level for now.', guessB: 'Pick an answer above, then let go and watch.',
+    ask: 'Dog 20 kg, cat 4 kg. What happens when we let go?', askSub: 'The dog sits 1 step from the pivot, the cat 5 steps.',
+    opts: { dog: '🐕 The dog side goes down', cat: '🐈 The cat side goes down', bal: '⚖️ It balances' },
+    verdict: {
+      bal: ['Exactly!', 'The dog is 5 times heavier, but the cat sits 5 times farther out: 20 × 1 = 20 and 4 × 5 = 20.'],
+      dog: ['Most people guess that!', 'But the cat sits 5 times farther from the pivot. 20 × 1 = 20 and 4 × 5 = 20: a tie.'],
+      cat: ['Good thinking, but no!', 'The cat sits far out, but the dog is heavier. 20 × 1 = 20 and 4 × 5 = 20: exactly a tie.'],
+    },
+    go: 'Let go!',
+    // rock view
+    pivLbl: (p, q) => `Pivot: ${p} ${p === 1 ? 'step' : 'steps'} from the rock, ${q} from your hands`,
+    ends: ['near the rock', 'near your hands'], rockLbl: 'Rock', barLbl: 'Bar', bars: { 12: 'Short', 24: 'Long' },
+    push: '💪 Hold to push', yourPush: `your push: ${STRENGTH} kg`, need: (e) => `needed: ${e} kg`,
+    liftSub: (m) => `push needed to lift the ${m} kg rock`,
+    liftPill: { can: 'You can do it!', cant: 'Too heavy for you', done: 'Lifted!' },
+    canT: 'You can lift it!', cantT: 'Too heavy', doneT: 'Lifted!',
+    liftLead: (e) => `You need a push of ${e} kg. Yours is ${STRENGTH} kg.`,
+    liftBody: (m, p, e, q) => `Turning effects must match: ${m} kg × ${p} = ${e} kg × ${q}. The longer your side of the bar, the smaller the push you need.`,
+    canAdd: 'Hold the push button!', cantAdd: 'Move the pivot closer to the rock.',
+    cantShort: (min) => `Even with the pivot 1 step from the rock you’d need ${min} kg. Try the long bar!`,
+    trade: (x) => `Nothing comes for free: for every 1 cm the rock rises, your hands go down ${x} cm.`,
+    liftFine: 'A simplified model: we pretend the bar holds up the whole rock and the bar weighs nothing. Pushes are written as the weight of that many kilograms (on Earth 1 kg weighs about 9.8 newtons, g = 9.81 m/s²).',
+    // everyday view
+    tools: { seesaw: 'Seesaw', scissors: 'Scissors', barrow: 'Wheelbarrow', opener: 'Bottle opener', tweezers: 'Tweezers' },
+    lbl: { pivot: 'pivot', load: 'load', effort: 'effort' },
+    cls: { 1: 'Pivot in the middle', 2: 'Load in the middle', 3: 'Effort in the middle' },
+    gain: { force: 'Smaller push needed', move: 'Gentle, precise tips', bal: 'Balancing' },
+    tool: {
+      seesaw: ['The pivot is in the middle.', 'A light animal far from the pivot balances a heavy one close to it. Weight × distance must match on both sides.'],
+      scissors: ['The screw is the pivot.', 'Your fingers push the handles, the blades squeeze the paper. Thick cardboard? Cut close to the screw: the load is near the pivot and your fingers are far from it, so the same squeeze cuts harder.'],
+      barrow: ['The wheel is the pivot. The load sits in the middle.', 'Your hands are much farther from the wheel than the load is, so you lift less than the full weight of the load. That is why you can push a barrow full of soil.'],
+      opener: ['The pivot is the edge resting on top of the cap.', 'The hook grips the cap close to the pivot, and your hand is at the far end of the handle. A small pull becomes a big pull on the cap, and pop!'],
+      tweezers: ['Your fingers press in the middle.', 'Here the effort is closer to the pivot than the load, so the tips squeeze more gently than your fingers do. Tweezers don’t make your force bigger: they make it small and precise, for tiny things.'],
+    },
+    dayGeneral: 'Every lever has a pivot, a load and an effort. Where they sit decides what the lever is good for.',
+    dayFine: 'The arrows show where the pivot, the load and the effort are, not their exact sizes.',
+    // secrets
+    secrets: { elephant: ['Elephant vs mice', 'How many mice?'], earth: ['Move the Earth', 'Archimedes’ lever'] },
+    miceLbl: 'Mice', mice: (n) => `${n} ${n === '1' ? 'mouse' : 'mice'}`,
+    eleT: 'Elephant vs mice',
+    eleBody: `The elephant weighs 4,000 kg and sits ${ELE_D} steps out. A mouse weighs only 20 g (0.02 kg) and sits ${MICE_D} steps out. Multiply the mice by 10 until the plank balances.`,
+    eleBal: (n, km) => `${n} mice! Or just one mouse, far, far out: with 50 cm steps, its plank would be ${km} km long.`,
+    eleFine: 'Typical weights, rounded: a big elephant about 4,000 kg, a house mouse about 20 g. Real animals vary a lot.',
+    earthT: 'Move the Earth',
+    quote: '“Give me a place to stand, and I will move the Earth.”',
+    quoteBy: 'Traditionally attributed to Archimedes, more than 2,200 years ago. The exact words differ from book to book.',
+    who: '— Archimedes (attributed)',
+    earthBody: (ly, x) => `Pretend the whole Earth (5.97 × 10²⁴ kg) sat on a bar 1 m from the pivot, and you pushed on the other end as hard as a ${PUSH_KG} kg weight. Your end of the bar would have to be about ${ly} million light-years away: about ${x} times farther than the Andromeda Galaxy.`,
+    earthMore: (y) => `And to lift the Earth by just 1 cm, your end would have to travel so far that even at the speed of light it would take about ${y} years.`,
+    earthFine: 'A thought experiment: out in space the Earth has no “weight” to balance. Earth’s mass: NASA Earth Fact Sheet. 1 light-year = 9.46 × 10¹⁵ m; light: 299,792,458 m/s; Andromeda: about 2.5 million light-years away (NASA).',
+    mly: 'million light-years', earthSub: 'your side of the bar', earthPill: 'Thought experiment',
+    oneM: '1 m',
+    quiz: [
+      { q: 'A 20 kg dog sits 1 step from the pivot. Where must a 4 kg cat sit to balance it?', opts: ['1 step away', '5 steps away', '20 steps away'], ok: 1 },
+      { q: 'You lift a heavy rock with a bar. Where should the pivot go?', opts: ['Close to the rock', 'Close to your hands', 'Exactly in the middle'], ok: 0 },
+      { q: 'Both sides of a seesaw turn the plank equally hard. What happens?', opts: ['The heavier side goes down', 'Nothing changes: the forces are balanced', 'The lighter side goes up'], ok: 1 },
+    ],
+  },
+  ru: {
+    name: 'Рычаги', title: 'Может ли кошка поднять собаку?',
+    lines: [['Сначала угадай:', 'какая сторона качелей опустится?'], ['Перетаскивай животных на доску —', 'ближе к опоре или дальше от неё.'], ['Вес × расстояние —', 'вот что на самом деле важно.']],
+    views: { seesaw: '⚖️ Качели', lift: '🪨 Камень', everyday: '✂️ Вокруг нас' },
+    steps: (n) => ruPlural(n, 'шаг', 'шага', 'шагов'),
+    kg: 'кг', turnUnit: 'вращающее действие = кг × шаги от опоры',
+    pill: { bal: 'Равновесие!', L: 'Левая сторона опускается', R: 'Правая сторона опускается', empty: 'Пусто', guess: 'Твой ответ?' },
+    chips: { intro: '🐕🐈 Собака и кошка', rabbits: '🐇 Кролики', cats: '🐈🐈 Две кошки', free: '✨ Свободно' },
+    clear: 'Очистить', dragTip: 'Тяни с полки. Чтобы убрать, утащи с доски.',
+    goalLbl: 'Задача', solved: 'Решено!',
+    goals: { rabbits: 'Уравновесь собаку одними кроликами.', cats: 'Уравновесь собаку ровно двумя кошками.' },
+    side: (L, R) => [`Слева: ${L}.`, `Справа: ${R}.`],
+    emptyT: 'Пустые качели', emptyL: 'Перетащи животное с полки на доску.',
+    emptyB: 'Числа под доской — это шаги от опоры, точки, вокруг которой поворачивается доска.',
+    balT: 'Равновесие!', LT: 'Левая сторона опускается', RT: 'Правая сторона опускается',
+    balB: 'Обе стороны поворачивают доску одинаково сильно. Силы уравновешены, поэтому доска не начинает двигаться. Важно не то, какое животное тяжелее, а вес × расстояние до опоры.',
+    unbB: 'Одна сторона поворачивает доску сильнее. Силы не уравновешены, поэтому доска начинает двигаться. Отодвинь животное дальше от опоры, чтобы оно действовало сильнее, или ближе, чтобы слабее.',
+    surprise: 'Смотри: тяжёлая сторона поднялась! Килограммов там больше, но они сидят близко к опоре.',
+    balDiff: (a, b) => `На одной стороне ${a} кг, на другой ${b} кг — и всё равно равновесие!`,
+    fine: 'Упрощённая модель: доска ничего не весит, а когда наступает равновесие, мы плавно выравниваем её (настоящая уравновешенная доска просто остаётся, как была). Вес животных — типичный, округлённый; у настоящих животных он сильно различается.',
+    guessT: 'Угадай!', guessL: 'Пока мы держим доску ровно.', guessB: 'Выбери ответ наверху, потом отпусти доску и смотри.',
+    ask: 'Собака 20 кг, кошка 4 кг. Что будет, если отпустить доску?', askSub: 'Собака сидит в 1 шаге от опоры, кошка — в 5 шагах.',
+    opts: { dog: '🐕 Опустится собака', cat: '🐈 Опустится кошка', bal: '⚖️ Будет равновесие' },
+    verdict: {
+      bal: ['Точно!', 'Собака в 5 раз тяжелее, но кошка сидит в 5 раз дальше: 20 × 1 = 20 и 4 × 5 = 20.'],
+      dog: ['Так думает почти каждый!', 'Но кошка сидит в 5 раз дальше от опоры. 20 × 1 = 20 и 4 × 5 = 20 — ничья.'],
+      cat: ['Хорошая мысль, но нет!', 'Кошка сидит далеко, зато собака тяжелее. 20 × 1 = 20 и 4 × 5 = 20 — ровно ничья.'],
+    },
+    go: 'Отпускаем!',
+    pivLbl: (p, q) => `Опора: ${p} ${ruPlural(p, 'шаг', 'шага', 'шагов')} от камня, ${q} — от рук`,
+    ends: ['ближе к камню', 'ближе к рукам'], rockLbl: 'Камень', barLbl: 'Лом', bars: { 12: 'Короткий', 24: 'Длинный' },
+    push: '💪 Нажми и держи', yourPush: `твоя сила: ${STRENGTH} кг`, need: (e) => `нужно: ${e} кг`,
+    liftSub: (m) => `нужная сила, чтобы поднять камень ${m} кг`,
+    liftPill: { can: 'Получится!', cant: 'Слишком тяжело', done: 'Поднято!' },
+    canT: 'Тебе по силам!', cantT: 'Слишком тяжело', doneT: 'Поднято!',
+    liftLead: (e) => `Нужна сила ${e} кг. У тебя — ${STRENGTH} кг.`,
+    liftBody: (m, p, e, q) => `Вращающие действия должны совпасть: ${m} кг × ${p} = ${e} кг × ${q}. Чем длиннее твоя часть лома, тем меньше нужна сила.`,
+    canAdd: 'Нажми и держи кнопку!', cantAdd: 'Передвинь опору ближе к камню.',
+    cantShort: (min) => `Даже если опора в 1 шаге от камня, нужна сила ${min} кг. Попробуй длинный лом!`,
+    trade: (x) => `Ничего не даётся даром: когда камень поднимается на 1 см, твои руки опускаются на ${x} см.`,
+    liftFine: 'Упрощённая модель: будто лом держит весь камень, а сам лом ничего не весит. Силы записаны как вес такого числа килограммов (на Земле 1 кг весит около 9,8 ньютона, g = 9,81 м/с²).',
+    tools: { seesaw: 'Качели', scissors: 'Ножницы', barrow: 'Тачка', opener: 'Открывалка', tweezers: 'Пинцет' },
+    lbl: { pivot: 'опора', load: 'груз', effort: 'усилие' },
+    cls: { 1: 'Опора посередине', 2: 'Груз посередине', 3: 'Усилие посередине' },
+    gain: { force: 'Нужно меньше силы', move: 'Мягкие и точные кончики', bal: 'Равновесие' },
+    tool: {
+      seesaw: ['Опора посередине.', 'Лёгкое животное далеко от опоры уравновешивает тяжёлое рядом с ней. Вес × расстояние с обеих сторон должны совпасть.'],
+      scissors: ['Винт — это опора.', 'Пальцы давят на ручки, лезвия сжимают бумагу. Толстый картон режь ближе к винту: груз рядом с опорой, а пальцы далеко от неё, и то же усилие режет сильнее.'],
+      barrow: ['Колесо — опора. Груз посередине.', 'Руки гораздо дальше от колеса, чем груз, поэтому поднимать приходится меньше, чем весит весь груз. Вот почему можно катить полную тачку земли.'],
+      opener: ['Опора — край, который упирается в крышку сверху.', 'Зацеп держит крышку близко к опоре, а рука — на дальнем конце ручки. Небольшое усилие превращается в сильный рывок крышки — и чпок!'],
+      tweezers: ['Пальцы давят посередине.', 'Здесь усилие ближе к опоре, чем груз, поэтому кончики сжимают слабее, чем пальцы. Пинцет не увеличивает силу: он делает её маленькой и точной, чтобы брать крошечные вещи.'],
+    },
+    dayGeneral: 'У каждого рычага есть опора, груз и усилие. От того, где они находятся, зависит, для чего рычаг годится.',
+    dayFine: 'Стрелки показывают, где опора, груз и усилие, а не их точную величину.',
+    secrets: { elephant: ['Слон и мыши', 'Сколько нужно мышей?'], earth: ['Сдвинуть Землю', 'Рычаг Архимеда'] },
+    miceLbl: 'Мыши', mice: (n, k) => `${n} ${ruPlural(k, 'мышь', 'мыши', 'мышей')}`,
+    eleT: 'Слон и мыши',
+    eleBody: `Слон весит 4000 кг и сидит в ${ELE_D} шагах от опоры. Мышь весит всего 20 г (0,02 кг) и сидит в ${MICE_D} шагах. Умножай число мышей на 10, пока доска не уравновесится.`,
+    eleBal: (n, km) => `${n} мышей! Или всего одна мышь, но очень-очень далеко: если шаг — 50 см, её доска была бы длиной ${km} км.`,
+    eleFine: 'Типичный вес, округлённый: большой слон — около 4000 кг, домовая мышь — около 20 г. У настоящих животных он сильно различается.',
+    earthT: 'Сдвинуть Землю',
+    quote: '«Дайте мне точку опоры, и я переверну Землю».',
+    quoteBy: 'Эти слова по традиции приписывают Архимеду, жившему более 2200 лет назад. В разных книгах они звучат по-разному.',
+    who: '— Архимед (по преданию)',
+    earthBody: (ly, x) => `Представь, что вся Земля (5,97 × 10²⁴ кг) лежит на ломе в 1 м от опоры, а ты давишь на другой конец с силой ${PUSH_KG} кг. Тогда твой конец лома должен быть примерно в ${ly} млн световых лет — примерно в ${x} ${ruPlural(Number(x), 'раз', 'раза', 'раз')} дальше, чем галактика Андромеды.`,
+    earthMore: (y, k) => `А чтобы поднять Землю всего на 1 см, твой конец должен пройти такой путь, что даже со скоростью света на это ушло бы около ${y} ${ruPlural(k, 'года', 'лет', 'лет')}.`,
+    earthFine: 'Мысленный эксперимент: в космосе у Земли нет «веса», который можно уравновесить. Масса Земли — NASA Earth Fact Sheet. 1 световой год = 9,46 × 10¹⁵ м; скорость света — 299 792 458 м/с; до Андромеды около 2,5 млн световых лет (NASA).',
+    mly: 'млн световых лет', earthSub: 'твоя часть лома', earthPill: 'Мысленный эксперимент',
+    oneM: '1 м',
+    quiz: [
+      { q: 'Собака 20 кг сидит в 1 шаге от опоры. Где должна сесть кошка 4 кг, чтобы её уравновесить?', opts: ['В 1 шаге', 'В 5 шагах', 'В 20 шагах'], ok: 1 },
+      { q: 'Ты поднимаешь тяжёлый камень ломом. Куда поставить опору?', opts: ['Поближе к камню', 'Поближе к рукам', 'Ровно посередине'], ok: 0 },
+      { q: 'Обе стороны качелей поворачивают доску одинаково сильно. Что произойдёт?', opts: ['Тяжёлая сторона опустится', 'Ничего не изменится: силы уравновешены', 'Лёгкая сторона поднимется'], ok: 1 },
+    ],
+  },
+  hu: {
+    name: 'Emelőlabor', title: 'Fel tudja emelni a macska a kutyát?',
+    lines: [['Előbb tippelj:', 'a mérleghinta melyik oldala billen le?'], ['Húzd az állatokat a deszkára,', 'közel a forgásponthoz vagy messze tőle.'], ['Súly × távolság:', 'ez számít igazán.']],
+    views: { seesaw: '⚖️ Mérleghinta', lift: '🪨 Szikla', everyday: '✂️ Körülöttünk' },
+    steps: () => 'lépés',
+    kg: 'kg', turnUnit: 'forgató hatás = kg × lépés a forgásponttól',
+    pill: { bal: 'Egyensúly!', L: 'A bal oldal lebillen', R: 'A jobb oldal lebillen', empty: 'Üres', guess: 'Mit tippelsz?' },
+    chips: { intro: '🐕🐈 Kutya és macska', rabbits: '🐇 Nyulak', cats: '🐈🐈 Két macska', free: '✨ Szabad játék' },
+    clear: 'Ürítés', dragTip: 'Húzd le a polcról. Ha lehúzod a deszkáról, eltűnik.',
+    goalLbl: 'Feladat', solved: 'Megoldva!',
+    goals: { rabbits: 'Hozd egyensúlyba a kutyát csak nyulakkal!', cats: 'Hozd egyensúlyba a kutyát pontosan két macskával!' },
+    side: (L, R) => [`Bal: ${L}.`, `Jobb: ${R}.`],
+    emptyT: 'Üres mérleghinta', emptyL: 'Húzz egy állatot a polcról a deszkára.',
+    emptyB: 'A deszka alatti számok azt mutatják, hány lépésre van az adott hely a forgásponttól, attól a ponttól, amely körül a deszka elfordul.',
+    balT: 'Egyensúly!', LT: 'A bal oldal lebillen', RT: 'A jobb oldal lebillen',
+    balB: 'A két oldal egyforma erővel forgatja a deszkát. Az erők kiegyensúlyozottak, ezért a deszka nem indul el. Nem az számít, melyik állat nehezebb, hanem a súly × a forgásponttól mért távolság.',
+    unbB: 'Az egyik oldal erősebben forgatja a deszkát. Az erők kiegyensúlyozatlanok, ezért a deszka elindul. Ha egy állatot kijjebb ültetsz, többet számít; ha beljebb, kevesebbet.',
+    surprise: 'Nézd: a nehezebb oldal felemelkedett! Ott több a kilogramm, de közel ülnek a forgásponthoz.',
+    balDiff: (a, b) => `Az egyik oldalon ${a} kg van, a másikon ${b} kg, mégis egyensúlyban vannak!`,
+    fine: 'Egyszerűsített modell: a deszkának nincs súlya, és amikor egyensúlyba kerül, lassan vízszintesbe állítjuk (egy igazi kiegyensúlyozott deszka egyszerűen ott marad, ahol van). Az állatok súlya jellemző, kerekített érték; a valódi állatok nagyon különbözők.',
+    guessT: 'Tippelj!', guessL: 'Egyelőre vízszintesen tartjuk a deszkát.', guessB: 'Válassz fent egy választ, aztán engedd el a deszkát, és figyeld!',
+    ask: 'Kutya 20 kg, macska 4 kg. Mi történik, ha elengedjük?', askSub: 'A kutya 1 lépésre ül a forgásponttól, a macska 5 lépésre.',
+    opts: { dog: '🐕 A kutya oldala billen le', cat: '🐈 A macska oldala billen le', bal: '⚖️ Egyensúlyban marad' },
+    verdict: {
+      bal: ['Pontosan!', 'A kutya ötször nehezebb, de a macska ötször messzebb ül: 20 × 1 = 20 és 4 × 5 = 20.'],
+      dog: ['A legtöbben ezt tippelik!', 'De a macska ötször messzebb ül a forgásponttól. 20 × 1 = 20 és 4 × 5 = 20: döntetlen.'],
+      cat: ['Jó gondolat, de nem!', 'A macska messze ül, de a kutya nehezebb. 20 × 1 = 20 és 4 × 5 = 20: pontosan döntetlen.'],
+    },
+    go: 'Elengedjük!',
+    pivLbl: (p, q) => `Forgáspont: ${p} lépés a sziklától, ${q} a kezedtől`,
+    ends: ['közel a sziklához', 'közel a kezedhez'], rockLbl: 'Szikla', barLbl: 'Rúd', bars: { 12: 'Rövid', 24: 'Hosszú' },
+    push: '💪 Nyomd és tartsd', yourPush: `a te erőd: ${STRENGTH} kg`, need: (e) => `kell: ${e} kg`,
+    liftSub: (m) => `ekkora erő kell a ${m} kg-os szikla megemeléséhez`,
+    liftPill: { can: 'Menni fog!', cant: 'Túl nehéz neked', done: 'Felemelve!' },
+    canT: 'Meg tudod emelni!', cantT: 'Túl nehéz', doneT: 'Felemelve!',
+    liftLead: (e) => `Ekkora erő kell: ${e} kg. A te erőd: ${STRENGTH} kg.`,
+    liftBody: (m, p, e, q) => `A forgató hatásoknak egyezniük kell: ${m} kg × ${p} = ${e} kg × ${q}. Minél hosszabb a rúdon a te oldalad, annál kisebb erő kell.`,
+    canAdd: 'Nyomd és tartsd a gombot!', cantAdd: 'Tedd a forgáspontot közelebb a sziklához!',
+    cantShort: (min) => `Még ha a forgáspont 1 lépésre van is a sziklától, ${min} kg-nyi erő kellene. Próbáld a hosszú rúddal!`,
+    trade: (x) => `Semmi sincs ingyen: miközben a szikla 1 cm-t emelkedik, a kezed ${x} cm-t megy lefelé.`,
+    liftFine: 'Egyszerűsített modell: úgy vesszük, hogy a rúd tartja az egész sziklát, és a rúdnak nincs súlya. Az erőket annyi kilogramm súlyaként adjuk meg (a Földön 1 kg súlya kb. 9,8 newton, g = 9,81 m/s²).',
+    tools: { seesaw: 'Mérleghinta', scissors: 'Olló', barrow: 'Talicska', opener: 'Üvegnyitó', tweezers: 'Csipesz' },
+    lbl: { pivot: 'forgáspont', load: 'teher', effort: 'erő' },
+    cls: { 1: 'Középen a forgáspont', 2: 'Középen a teher', 3: 'Középen az erő' },
+    gain: { force: 'Kisebb erő kell', move: 'Finom, pontos csúcsok', bal: 'Egyensúly' },
+    tool: {
+      seesaw: ['A forgáspont középen van.', 'A forgásponttól messze ülő könnyű állat egyensúlyban tartja a hozzá közel ülő nehezet. A súly × távolság értékének a két oldalon egyformának kell lennie.'],
+      scissors: ['A csavar a forgáspont.', 'Az ujjaid a nyelet nyomják, a pengék a papírt szorítják. Vastag kartont a csavarhoz közel vágj: a teher közel van a forgásponthoz, az ujjaid messze tőle, így ugyanaz a szorítás erősebben vág.'],
+      barrow: ['A kerék a forgáspont. A teher középen van.', 'A kezed sokkal messzebb van a keréktől, mint a teher, ezért kevesebbet kell emelned, mint a teher teljes súlya. Ezért tudsz tolni egy földdel teli talicskát.'],
+      opener: ['A forgáspont a kupak tetejére támaszkodó perem.', 'A kampó közel a forgásponthoz fogja a kupakot, a kezed pedig a nyél végén van. A kis húzásból nagy húzás lesz a kupakon, és pukk!'],
+      tweezers: ['Az ujjaid középen nyomnak.', 'Itt az erő közelebb van a forgásponthoz, mint a teher, ezért a csúcsok gyengébben szorítanak, mint az ujjaid. A csipesz nem növeli az erőt: kicsivé és pontossá teszi, hogy apró dolgokat is megfoghass.'],
+    },
+    dayGeneral: 'Minden emelőnek van forgáspontja, terhe és ereje. Az, hogy ezek hol vannak, eldönti, mire jó az emelő.',
+    dayFine: 'A nyilak azt mutatják, hol van a forgáspont, a teher és az erő, nem a pontos nagyságukat.',
+    secrets: { elephant: ['Elefánt és egerek', 'Hány egér kell?'], earth: ['A Föld kimozdítása', 'Arkhimédész emelője'] },
+    miceLbl: 'Egerek', mice: (n) => `${n} egér`,
+    eleT: 'Elefánt és egerek',
+    eleBody: `Az elefánt 4000 kg, és ${ELE_D} lépésre ül a forgásponttól. Egy egér csak 20 g (0,02 kg), és ${MICE_D} lépésre ül. Tízszerezd az egerek számát, amíg a deszka egyensúlyba nem kerül!`,
+    eleBal: (n, km) => `${n} egér! Vagy egyetlen egér, nagyon-nagyon messze: 50 cm-es lépésekkel a deszkája ${km} km hosszú lenne.`,
+    eleFine: 'Jellemző, kerekített súlyok: egy nagy elefánt kb. 4000 kg, egy házi egér kb. 20 g. A valódi állatok nagyon különbözők.',
+    earthT: 'A Föld kimozdítása',
+    quote: '„Adjatok egy szilárd pontot, és kimozdítom a Földet!”',
+    quoteBy: 'A mondatot hagyományosan Arkhimédésznek tulajdonítják, aki több mint 2200 éve élt. A pontos szavak forrásonként eltérnek.',
+    who: '— Arkhimédész (a hagyomány szerint)',
+    earthBody: (ly, x) => `Képzeld el, hogy az egész Föld (5,97 × 10²⁴ kg) egy rúdon ül, 1 m-re a forgásponttól, te pedig ${PUSH_KG} kg súlyának megfelelő erővel nyomod a rúd másik végét. Ekkor a te végednek kb. ${ly} millió fényévre kellene lennie: nagyjából ${huX(Number(x))} messzebb, mint az Androméda-galaxis.`,
+    earthMore: (y) => `És hogy a Földet csak 1 cm-rel megemeld, a te végednek olyan messzire kellene mozdulnia, hogy még fénysebességgel is kb. ${y} évig tartana.`,
+    earthFine: 'Gondolatkísérlet: az űrben a Földnek nincs kiegyensúlyozható „súlya”. A Föld tömege: NASA Earth Fact Sheet. 1 fényév = 9,46 × 10¹⁵ m; a fény sebessége 299 792 458 m/s; az Androméda-galaxis kb. 2,5 millió fényévre van (NASA).',
+    mly: 'millió fényév', earthSub: 'a te oldalad a rúdon', earthPill: 'Gondolatkísérlet',
+    oneM: '1 m',
+    quiz: [
+      { q: 'Egy 20 kg-os kutya 1 lépésre ül a forgásponttól. Hova üljön egy 4 kg-os macska, hogy egyensúlyban legyenek?', opts: ['1 lépésre', '5 lépésre', '20 lépésre'], ok: 1 },
+      { q: 'Egy nehéz sziklát emelsz egy rúddal. Hova tedd a forgáspontot?', opts: ['Közel a sziklához', 'Közel a kezedhez', 'Pontosan középre'], ok: 0 },
+      { q: 'A mérleghinta két oldala egyforma erővel forgatja a deszkát. Mi történik?', opts: ['A nehezebb oldal lebillen', 'Semmi sem változik: az erők kiegyensúlyozottak', 'A könnyebb oldal felemelkedik'], ok: 1 },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_Q2k3fSwyzQ', en: 'Levers, Pulleys & Gears', ru: 'Рычаги, блоки и шестерни', hu: 'Emelők, csigák és fogaskerekek' },
+  { id: 'mt_3WMADSy0mA', en: 'Balanced & Unbalanced Forces', ru: 'Уравновешенные и неуравновешенные силы', hu: 'Kiegyensúlyozott és kiegyensúlyozatlan erők' },
+];
+
+// --- things you can put on the seesaw (typical weights, rounded) --------------------------------------------
+const KINDS = {
+  kg1: { m: 1, emo: null, col: '#aab3cc' },
+  rabbit: { m: 2, emo: '🐇', col: '#c9b8ff' },
+  cat: { m: 4, emo: '🐈', col: '#ffcf4a' },
+  dog: { m: 20, emo: '🐕', col: '#ff8a3d' },
+  elephant: { m: ELE_KG, emo: '🐘', col: '#98A0B8', big: 2.1 },
+};
+const SCENES = {
+  intro: { items: [['dog', -1], ['cat', 5]], tray: ['kg1', 'rabbit', 'cat', 'dog'] },
+  rabbits: { items: [['dog', -3, true]], tray: ['rabbit'] },
+  cats: { items: [['dog', -2, true]], tray: ['cat'] },
+  free: { items: [], tray: ['kg1', 'rabbit', 'cat', 'dog'] },
+  elephant: { items: [['elephant', -ELE_D, true]], tray: [] },
+  earth: { items: [], tray: [] },
+};
+const MAXSTACK = 4, PEGS = 6, G_EFF = 10;
+const TOOLS = { seesaw: { emo: '⚖️', cls: 1, gain: 'bal' }, scissors: { emo: '✂️', cls: 1, gain: 'force' }, barrow: { emo: '🛞', cls: 2, gain: 'force' },
+  opener: { emo: '🥤', cls: 2, gain: 'force' }, tweezers: { emo: '🤏', cls: 3, gain: 'move' } };
+const COL = { L: '#4ea8ff', R: '#ff8a3d', ok: '#3ddc97', pivot: '#ff3b30', load: '#ff8a3d', effort: '#3ddc97', ink: '#EDEFF7', mut: '#98A0B8', faint: '#646C84' };
+const EMOJI = 'system-ui, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+
+// --- state -------------------------------------------------------------------------------------------------
+const S = {
+  mode: 'intro', items: [], mice: 10, th: 0, om: 0,
+  asked: store.get('levers:asked', false), answer: null, held: false, prevSolved: false,
+  lift: { p: 6, N: 12, M: 100, push: 0, pushing: false, lifted: false },
+  tool: 'scissors',
+};
+function setScene(k) {
+  S.mode = k; S.om = 0; S.prevSolved = false;
+  S.items = SCENES[k].items.map(([kind, d, fixed]) => ({ kind, d, fixed: !!fixed }));
+}
+setScene('intro');
+S.held = !S.asked;
+
+const lab = shell({ key: 'levers', T, topics: TOPICS, views: ['seesaw', 'lift', 'everyday'], onLang: render, onView: () => { drag = null; render(); } });
+const secret = secretLab('levers', () => ({
+  secrets: [{ emo: '🐘', title: T[lang].secrets.elephant[0], desc: T[lang].secrets.elephant[1] }, { emo: '🌍', title: T[lang].secrets.earth[0], desc: T[lang].secrets.earth[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="cSee">
+    <div class="chips" id="chips"></div>
+    <div class="row2" id="miceRow"><span class="lbl" id="miceLbl"></span><span class="stepper"><button id="miceDn">÷ 10</button><b id="miceN"></b><button id="miceUp">× 10</button></span></div>
+    <div class="row2" id="seeRow"><button class="chip" id="clear"></button><span class="hint" id="dragTip"></span></div>
+  </div>
+  <div id="cLift">
+    <div class="row2" style="margin:0 0 6px"><span class="lbl" id="pivLbl"></span></div>
+    <input type="range" class="big" id="pivot" min="1" max="11" step="1" value="6" aria-label="pivot">
+    <div class="ends"><span id="endL"></span><span id="endR"></span></div>
+    <div class="row2"><span class="lbl" id="rockLbl"></span><div class="card seg small" id="rocks"></div>
+      <span class="lbl" id="barLbl"></span><div class="card seg small" id="bars"></div></div>
+    <div class="row2"><button class="btn" id="push"></button></div>
+  </div>
+  <div id="cDay"><div class="chips" id="tools"></div></div>`;
+$('pivot').style.setProperty('--track', 'linear-gradient(90deg, #3ddc97, #f5c84c 45%, #ff3b30)');
+
+// seesaw controls
+$('chips').addEventListener('click', (ev) => {
+  const b = ev.target.closest('.chip'); if (!b) return;
+  const k = b.dataset.k;
+  if ((k === 'elephant' || k === 'earth') && !secret.unlocked()) return secret.open();
+  if (!S.asked) { S.asked = true; store.set('levers:asked', true); }
+  S.held = false; drag = null;
+  setScene(k); sfx.click(); render();
+});
+$('clear').onclick = () => { S.items = S.items.filter((it) => it.fixed); S.prevSolved = false; sfx.click(); render(); };
+$('miceDn').onclick = () => { S.mice = Math.max(1, S.mice / 10); sfx.tick(); render(); };
+$('miceUp').onclick = () => { S.mice = Math.min(1e6, S.mice * 10); sfx.tick(); render(); };
+
+// rock controls
+const LS = S.lift;
+const resetLift = () => { LS.push = 0; LS.lifted = false; };
+$('pivot').addEventListener('input', () => { LS.p = +$('pivot').value; resetLift(); sfx.tick(); render(); });
+$('rocks').addEventListener('click', (ev) => { const m = +ev.target.closest('button')?.dataset.m; if (m) { LS.M = m; resetLift(); sfx.click(); render(); } });
+$('bars').addEventListener('click', (ev) => {
+  const n = +ev.target.closest('button')?.dataset.n; if (!n) return;
+  LS.N = n; LS.p = clamp(LS.p, 1, n - 1); resetLift(); sfx.click(); render();
+});
+const need = () => LS.M * LS.p / (LS.N - LS.p);
+const canLift = () => need() <= STRENGTH + 1e-9;
+const pushBtn = $('push');
+const startPush = () => { if (LS.pushing) return; LS.pushing = true; pushBtn.classList.add('on'); (canLift() ? sfx.push : sfx.bad)(); };
+const stopPush = () => { LS.pushing = false; pushBtn.classList.remove('on'); };
+pushBtn.addEventListener('pointerdown', (ev) => { ev.preventDefault(); try { pushBtn.setPointerCapture(ev.pointerId); } catch { /* fine */ } startPush(); });
+['pointerup', 'pointercancel', 'lostpointercapture'].forEach((n) => pushBtn.addEventListener(n, stopPush));
+pushBtn.addEventListener('keydown', (ev) => { if ((ev.key === ' ' || ev.key === 'Enter') && !ev.repeat) { ev.preventDefault(); startPush(); } });
+pushBtn.addEventListener('keyup', (ev) => { if (ev.key === ' ' || ev.key === 'Enter') stopPush(); });
+pushBtn.addEventListener('contextmenu', (ev) => ev.preventDefault());
+
+// everyday controls
+$('tools').addEventListener('click', (ev) => { const k = ev.target.closest('.chip')?.dataset.k; if (k) { S.tool = k; sfx.click(); render(); } });
+
+// the opening question: "the heavier side always goes down"
+const askEl = document.createElement('div');
+askEl.className = 'ask card';
+$('overlay').append(askEl);
+askEl.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  if (b.dataset.a) { S.answer = b.dataset.a; (S.answer === 'bal' ? sfx.good : sfx.bad)(); }
+  else { S.asked = true; store.set('levers:asked', true); S.held = false; sfx.click(); }
+  render();
+});
+
+// --- the turning effects -------------------------------------------------------------------------------------
+// every item: weight (kg) × steps from the pivot; left counts for the left side, right for the right
+function parts() {
+  const L = [], R = [];
+  for (const it of S.items) (it.d < 0 ? L : R).push({ m: KINDS[it.kind].m, d: Math.abs(it.d), kind: it.kind });
+  if (S.mode === 'elephant') R.push({ m: MOUSE_KG * S.mice, d: MICE_D, kind: 'mice', n: S.mice });
+  const by = (a, b) => a.d - b.d;
+  L.sort(by); R.sort(by);
+  return { L, R };
+}
+const sum = (arr) => arr.reduce((s, x) => s + x.m * x.d, 0);
+const massOf = (arr) => arr.reduce((s, x) => s + x.m, 0);
+const isBal = (a, b) => Math.abs(a - b) <= 1e-9 * Math.max(1, a, b);
+function balance() {
+  const { L, R } = parts(), tl = sum(L), tr = sum(R);
+  const I = 8 + [...L, ...R].reduce((s, x) => s + x.m * x.d * x.d, 0);
+  return { L, R, tl, tr, I, n: L.length + R.length, bal: isBal(tl, tr) };
+}
+const termStr = (arr) => arr.length
+  ? `${arr.map((x) => x.kind === 'mice' ? `${nf(x.n)} × ${nf(MOUSE_KG, 2)} × ${x.d}` : `${nf(x.m)} × ${x.d}`).join(' + ')} = ${nf(sum(arr), 2)}`
+  : '0';
+function solvedNow(b) {
+  if (!b.bal || b.n === 0) return false;
+  if (S.mode === 'rabbits') return b.R.length > 0 && S.items.filter((it) => !it.fixed).every((it) => it.kind === 'rabbit');
+  if (S.mode === 'cats') return S.items.filter((it) => it.kind === 'cat').length === 2 && S.items.filter((it) => !it.fixed).every((it) => it.kind === 'cat');
+  if (S.mode === 'elephant') return true;
+  return false;
+}
+
+// --- render: controls, readout and the state card ------------------------------------------------------------
+function render() {
+  const t = T[lang], v = lab.view;
+  $('cSee').style.display = v === 'seesaw' ? '' : 'none';
+  $('cLift').style.display = v === 'lift' ? '' : 'none';
+  $('cDay').style.display = v === 'everyday' ? '' : 'none';
+  askEl.style.display = v === 'seesaw' && !S.asked ? '' : 'none';
+  if (v === 'seesaw') renderSeesaw(t);
+  else if (v === 'lift') renderLift(t);
+  else renderDay(t);
+}
+
+function renderSeesaw(t) {
+  const open = secret.unlocked();
+  const sc = (k, emo) => `<button class="chip secret ${open ? 'open' : ''} ${S.mode === k ? 'on' : ''}" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  $('chips').innerHTML = [sc('elephant', '🐘'), ...Object.keys(t.chips).map((k) => `<button class="chip ${S.mode === k ? 'on' : ''}" data-k="${k}">${esc(t.chips[k])}</button>`), sc('earth', '🌍')].join('');
+  $('miceRow').style.display = S.mode === 'elephant' ? '' : 'none';
+  $('seeRow').style.display = S.mode === 'elephant' || S.mode === 'earth' ? 'none' : '';
+  $('miceLbl').textContent = t.miceLbl;
+  $('miceN').textContent = nf(S.mice);
+  $('miceDn').disabled = S.mice <= 1; $('miceUp').disabled = S.mice >= 1e6;
+  $('clear').textContent = t.clear; $('dragTip').textContent = t.dragTip;
+
+  // the Archimedes thought experiment
+  if (S.mode === 'earth') {
+    lab.setReadout(`≈ ${esc(nf(ARM_MLY, 1))}`, `${t.mly} · ${t.earthSub}`, t.earthPill, '#a855f7');
+    lab.setGlow('rgba(110, 80, 220, .30)');
+    lab.setState({ emo: '🌍', title: t.earthT, lead: t.quote, body: t.earthBody(nf(ARM_MLY, 1), String(ANDRO_X)),
+      extra: `<div>${esc(t.earthMore(nf(LIFT_YEARS, 0), LIFT_YEARS))}</div><div class="fine" style="color:var(--soft)">${esc(t.quoteBy)}</div><div class="fine">${esc(t.earthFine)}</div>` });
+    return;
+  }
+  // still guessing: nothing gives the answer away
+  if (!S.asked) {
+    lab.setReadout('?', '', t.pill.guess, '#f5c84c');
+    lab.setGlow('rgba(245, 200, 76, .18)');
+    lab.setState({ emo: '🤔', title: t.guessT, lead: t.guessL, body: t.guessB });
+    renderAsk(t);
+    return;
+  }
+  const b = balance(), tl = nf(b.tl, 2), tr = nf(b.tr, 2);
+  const sym = b.bal ? '=' : b.tl > b.tr ? '&gt;' : '&lt;';
+  lab.setReadout(`<span style="color:${COL.L}">${esc(tl)}</span> ${sym} <span style="color:${COL.R}">${esc(tr)}</span>`, t.turnUnit,
+    b.n === 0 ? t.pill.empty : b.bal ? t.pill.bal : b.tl > b.tr ? t.pill.L : t.pill.R, b.n === 0 ? '#98A0B8' : b.bal ? COL.ok : '#f5a524');
+  lab.setGlow(b.n === 0 ? 'rgba(60, 110, 200, .25)' : b.bal ? 'rgba(61, 220, 151, .26)' : 'rgba(245, 165, 36, .26)');
+
+  const solved = solvedNow(b);
+  if (solved && !S.prevSolved) sfx.good();
+  S.prevSolved = solved;
+  const [sl, sr] = t.side(termStr(b.L), termStr(b.R));
+  const fine = `<div class="fine">${esc(S.mode === 'elephant' ? t.eleFine : t.fine)}</div>`;
+  if (S.mode === 'elephant') {
+    lab.setState({ emo: '🐘', title: t.eleT, lead: `${sl} ${sr}`, body: t.eleBody,
+      extra: (b.bal ? `<div class="goal"><span class="ok">✓ ${esc(t.eleBal(nf(S.mice), nf(ONE_MOUSE_KM, 0)))}</span></div>` : `<div class="goal">${esc(t.mice(nf(S.mice), S.mice))}</div>`) + fine });
+    return;
+  }
+  if (b.n === 0) { lab.setState({ emo: '⚖️', title: t.emptyT, lead: t.emptyL, body: t.emptyB, extra: fine }); return; }
+  const mL = massOf(b.L), mR = massOf(b.R);
+  let extra = '';
+  const surprise = !b.bal && ((mL > mR && b.tr > b.tl) || (mR > mL && b.tl > b.tr));
+  if (surprise) extra += `<div class="goal"><b>${esc(t.surprise)}</b></div>`;
+  if (b.bal && mL !== mR) extra += `<div class="goal"><b>${esc(t.balDiff(nf(Math.max(mL, mR)), nf(Math.min(mL, mR))))}</b></div>`;
+  if (t.goals[S.mode]) extra += `<div class="goal" style="margin-top:6px">${esc(t.goalLbl)}: ${esc(t.goals[S.mode])} ${solved ? `<span class="ok">✓ ${esc(t.solved)}</span>` : ''}</div>`;
+  lab.setState({ emo: b.bal ? '⚖️' : '↘️', title: b.bal ? t.balT : b.tl > b.tr ? t.LT : t.RT, lead: `${sl} ${sr}`, body: b.bal ? t.balB : t.unbB, extra: extra + fine });
+}
+
+function renderAsk(t) {
+  if (S.answer === null) {
+    askEl.innerHTML = `<div class="q">${esc(t.ask)}</div><div class="qs">${esc(t.askSub)}</div>
+      <div class="opts">${['dog', 'cat', 'bal'].map((k) => `<button data-a="${k}">${esc(t.opts[k])}</button>`).join('')}</div>`;
+  } else {
+    const [v, txt] = t.verdict[S.answer];
+    askEl.innerHTML = `<div class="verdict" style="color:${S.answer === 'bal' ? 'var(--ok)' : 'var(--wip)'}">${esc(v)}</div>
+      <p>${esc(txt)}</p><div class="opts"><button>${esc(t.go)} →</button></div>`;
+  }
+}
+
+function renderLift(t) {
+  const { p, N, M } = LS, q = N - p, e = need(), can = canLift();
+  $('pivot').max = String(N - 1); $('pivot').value = String(p);
+  $('pivLbl').textContent = t.pivLbl(p, q);
+  $('endL').textContent = t.ends[0]; $('endR').textContent = t.ends[1];
+  $('rockLbl').textContent = t.rockLbl; $('barLbl').textContent = t.barLbl;
+  $('rocks').innerHTML = [100, 300].map((m) => `<button data-m="${m}" class="${M === m ? 'on' : ''}">${m} ${esc(t.kg)}</button>`).join('');
+  $('bars').innerHTML = [12, 24].map((n) => `<button data-n="${n}" class="${N === n ? 'on' : ''}">${esc(t.bars[n])} · ${n}</button>`).join('');
+  pushBtn.textContent = t.push;
+  const es = nf(e, 1);
+  lab.setReadout(`${esc(es)} ${esc(t.kg)}`, t.liftSub(M), LS.lifted ? t.liftPill.done : can ? t.liftPill.can : t.liftPill.cant, can ? COL.ok : '#ff3b30');
+  lab.setGlow(can ? 'rgba(61, 220, 151, .24)' : 'rgba(255, 90, 60, .22)');
+  let body = t.liftBody(M, p, es, q) + ' ' + (can ? t.canAdd : t.cantAdd);
+  const min = M / (N - 1);
+  if (min > STRENGTH) body = t.liftBody(M, p, es, q) + ' ' + t.cantShort(nf(min, 1));
+  lab.setState({ emo: LS.lifted ? '🎉' : can ? '💪' : '😣', title: LS.lifted ? t.doneT : can ? t.canT : t.cantT, lead: t.liftLead(es), body,
+    extra: `<div>${esc(t.trade(nf(q / p, 2)))}</div><div class="fine">${esc(t.liftFine)}</div>` });
+}
+
+function renderDay(t) {
+  $('tools').innerHTML = Object.keys(TOOLS).map((k) => `<button class="chip ${S.tool === k ? 'on' : ''}" data-k="${k}">${TOOLS[k].emo} ${esc(t.tools[k])}</button>`).join('');
+  const tl = TOOLS[S.tool];
+  lab.setReadout(esc(t.tools[S.tool]), t.cls[tl.cls], t.gain[tl.gain], tl.gain === 'move' ? '#a855f7' : tl.gain === 'bal' ? COL.ok : '#4ea8ff');
+  lab.setGlow('rgba(60, 110, 200, .28)');
+  const [lead, body] = t.tool[S.tool];
+  lab.setState({ emo: tl.emo, title: t.tools[S.tool], lead, body, extra: `<div>${esc(t.dayGeneral)}</div><div class="fine">${esc(t.dayFine)}</div>` });
+}
+
+// --- drawing helpers ---------------------------------------------------------------------------------------------
+const rr = (c, x, y, w, h, r) => { c.beginPath(); c.roundRect ? c.roundRect(x, y, w, h, r) : c.rect(x, y, w, h); };
+function arrow(c, x1, y1, x2, y2, col, wd = 4) {
+  const a = Math.atan2(y2 - y1, x2 - x1), hl = wd * 3;
+  c.strokeStyle = col; c.fillStyle = col; c.lineWidth = wd; c.lineCap = 'round';
+  c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2 - Math.cos(a) * hl * 0.8, y2 - Math.sin(a) * hl * 0.8); c.stroke();
+  c.beginPath(); c.moveTo(x2, y2); c.lineTo(x2 - Math.cos(a - 0.45) * hl, y2 - Math.sin(a - 0.45) * hl); c.lineTo(x2 - Math.cos(a + 0.45) * hl, y2 - Math.sin(a + 0.45) * hl); c.closePath(); c.fill();
+  c.lineCap = 'butt';
+}
+function label(c, text, x, y, col, size, align = 'center') {
+  c.font = `900 ${size}px Nunito, sans-serif`; c.textAlign = align; c.textBaseline = 'middle';
+  c.lineWidth = 4; c.strokeStyle = 'rgba(10,12,20,.85)'; c.strokeText(text, x, y);
+  c.fillStyle = col; c.fillText(text, x, y);
+}
+function pivotDot(c, x, y, r) { c.fillStyle = COL.pivot; c.strokeStyle = '#fff'; c.lineWidth = 2; c.beginPath(); c.arc(x, y, r, 0, 7); c.fill(); c.stroke(); }
+function emoji(c, e, x, y, size, alpha = 1) {
+  c.save(); c.globalAlpha = alpha; c.font = `${size}px ${EMOJI}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(e, x, y); c.restore();
+}
+function weightBlock(c, x, y, s, alpha = 1) {
+  c.save(); c.globalAlpha = alpha;
+  c.fillStyle = '#5b6380'; c.strokeStyle = '#aab3cc'; c.lineWidth = 1.5;
+  c.beginPath(); c.moveTo(x - s * 0.38, y + s * 0.36); c.lineTo(x + s * 0.38, y + s * 0.36); c.lineTo(x + s * 0.27, y - s * 0.22); c.lineTo(x - s * 0.27, y - s * 0.22); c.closePath(); c.fill(); c.stroke();
+  c.beginPath(); c.arc(x, y - s * 0.3, s * 0.12, Math.PI, 0); c.stroke();
+  c.fillStyle = '#fff'; c.font = `900 ${Math.max(9, s * 0.3)}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('1', x, y + s * 0.08);
+  c.restore();
+}
+function drawThing(c, kind, x, y, s, alpha = 1) {
+  const k = KINDS[kind], size = s * (k.big ?? 1);
+  if (!k.emo) return weightBlock(c, x, y, size, alpha);
+  emoji(c, k.emo, x, y, size * 0.92, alpha);
+}
+function tagNum(c, text, x, y, s) {
+  c.font = `900 ${Math.max(9, s * 0.27)}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+  const tw = c.measureText(text).width + 8, th = Math.max(13, s * 0.36);
+  c.fillStyle = 'rgba(10,12,20,.85)'; rr(c, x - tw / 2, y - th / 2, tw, th, th / 2); c.fill();
+  c.fillStyle = '#fff'; c.fillText(text, x, y + 0.5);
+}
+
+// --- seesaw ------------------------------------------------------------------------------------------------------
+let geo = { pegs: [], items: [], tray: [] };
+let drag = null; // { kind, x, y }
+let lastThud = 0;
+function physics(dt, thMax, b) {
+  if (S.held || S.mode === 'earth' || !S.asked) { S.th = 0; S.om = 0; return; }
+  let a;
+  if (b.n === 0 || b.bal) a = -16 * S.th - 7 * S.om; // gently level a balanced plank (see the fine print)
+  else a = G_EFF * (b.tr - b.tl) / b.I - 0.6 * S.om;
+  S.om += a * dt; S.th += S.om * dt;
+  if (Math.abs(S.th) > thMax) {
+    const sgn = Math.sign(S.th); S.th = sgn * thMax;
+    if (S.om * sgn > 0) {
+      if (S.om * sgn > 0.6 && performance.now() - lastThud > 250) { sfx.push(); lastThud = performance.now(); }
+      S.om = -S.om * 0.25; if (Math.abs(S.om) < 0.08) S.om = 0;
+    }
+  }
+}
+function drawSeesaw(c, w, h, dt, time) {
+  const t = T[lang];
+  if (S.mode === 'earth') return drawEarth(c, w, h, time);
+  const tray = SCENES[S.mode].tray;
+  const st = clamp(Math.min((w - 28) / 13.4, h / 9.6), 14, 58), s = clamp(st * 0.95, 18, 46);
+  const trayH = tray.length ? s * 1.8 + 8 : 10;
+  const groundY = h - trayH - 8, pivH = st * 1.3, Lh = st * 6.5, cx = w / 2, py = groundY - pivH, pt = clamp(st * 0.26, 6, 14);
+  const thMax = Math.asin(Math.min(0.95, (pivH - 1) / Lh));
+  const b = balance();
+  physics(dt, thMax, b);
+  const th = S.th, cs = Math.cos(th), sn = Math.sin(th);
+  const at = (X, Y) => [cx + X * cs - Y * sn, py + X * sn + Y * cs];
+
+  // ground and the pivot
+  c.strokeStyle = 'rgba(200,210,235,.35)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(w * 0.03, groundY); c.lineTo(w * 0.97, groundY); c.stroke();
+  c.fillStyle = '#3a4160'; c.strokeStyle = 'rgba(200,210,235,.5)'; c.lineWidth = 1.5;
+  c.beginPath(); c.moveTo(cx, py); c.lineTo(cx + pivH * 0.75, groundY); c.lineTo(cx - pivH * 0.75, groundY); c.closePath(); c.fill(); c.stroke();
+  // held level: two blocks under the ends
+  if (S.held || !S.asked) {
+    c.fillStyle = '#5a6280';
+    for (const sg of [-1, 1]) { const x = cx + sg * (Lh - st * 0.5); rr(c, x - st * 0.3, py, st * 0.6, groundY - py, 3); c.fill(); }
+  }
+  // the plank
+  c.save(); c.translate(cx, py); c.rotate(th);
+  const g = c.createLinearGradient(0, -pt, 0, 0); g.addColorStop(0, '#c99a5b'); g.addColorStop(1, '#8f6436');
+  c.fillStyle = g; rr(c, -Lh, -pt, Lh * 2, pt, 4); c.fill();
+  for (let d = -PEGS; d <= PEGS; d++) {
+    if (!d) continue;
+    const hot = drag && geo.target === d;
+    c.fillStyle = hot ? '#fff' : 'rgba(40,24,10,.55)'; c.beginPath(); c.arc(d * st, -pt * 0.5, hot ? 4 : 2.2, 0, 7); c.fill();
+  }
+  c.restore();
+  pivotDot(c, cx, py, clamp(st * 0.13, 4, 7));
+  // step numbers under the plank
+  c.font = `800 ${clamp(st * 0.36, 10, 15)}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+  geo.pegs = [];
+  for (let d = -PEGS; d <= PEGS; d++) {
+    if (!d) continue;
+    const [nx, ny] = at(d * st, st * 0.5);
+    if (S.asked && !S.held) { c.fillStyle = d < 0 ? 'rgba(78,168,255,.8)' : 'rgba(255,138,61,.85)'; c.fillText(String(Math.abs(d)), nx, ny); }
+    else { c.fillStyle = COL.mut; c.fillText(String(Math.abs(d)), nx, ny); }
+    const [px, pyy] = at(d * st, -pt);
+    geo.pegs.push({ d, x: px, y: pyy });
+  }
+  // items, stacked on their pegs
+  geo.items = [];
+  const counts = {};
+  S.items.forEach((it, i) => {
+    const k = counts[it.d] = (counts[it.d] ?? 0) + 1;
+    const peg = geo.pegs.find((p) => p.d === it.d);
+    const big = KINDS[it.kind].big ?? 1, size = s * big;
+    const x = peg.x, y = peg.y - size * 0.5 - (k - 1) * s * 1.0;
+    drawThing(c, it.kind, x, y, s);
+    if (KINDS[it.kind].emo) tagNum(c, nf(KINDS[it.kind].m), x - size * 0.34, y + size * 0.3, s);
+    if (it.fixed && it.kind !== 'elephant') emoji(c, '📌', x + size * 0.36, y - size * 0.36, s * 0.38);
+    geo.items.push({ i, x, y, r: Math.max(size * 0.6, 22) });
+  });
+  if (S.mode === 'elephant') drawMice(c, geo.pegs.find((p) => p.d === MICE_D), s, st, w);
+
+  // the turning effects, as two bars built from blocks (only after the guess)
+  if (S.asked && !S.held) drawTurning(c, w, h, cx, s, b);
+  // the shelf
+  geo.tray = [];
+  if (tray.length) {
+    const sw = Math.min(w / (tray.length + 0.4), s * 2.7), x0 = cx - sw * tray.length / 2, ty = h - trayH - 2;
+    tray.forEach((kind, j) => {
+      const x = x0 + j * sw;
+      c.fillStyle = 'rgba(130,145,190,.10)'; c.strokeStyle = 'rgba(130,145,190,.25)'; c.lineWidth = 1; rr(c, x + 4, ty, sw - 8, trayH, 12); c.fill(); c.stroke();
+      drawThing(c, kind, x + sw / 2, ty + trayH * 0.4, s * 0.95);
+      c.font = `800 ${clamp(s * 0.3, 10, 13)}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillStyle = '#D3D9E8'; c.fillText(`${nf(KINDS[kind].m)} ${t.kg}`, x + sw / 2, ty + trayH * 0.84);
+      geo.tray.push({ kind, x: x + 4, y: ty, w: sw - 8, h: trayH });
+    });
+  }
+  geo.s = s; geo.st = st;
+  // the thing being dragged
+  if (drag) {
+    geo.target = pegAt(drag.x, drag.y);
+    if (geo.target !== null) { const p = geo.pegs.find((q) => q.d === geo.target); c.strokeStyle = 'rgba(255,255,255,.6)'; c.setLineDash([4, 4]); c.lineWidth = 1.5; c.beginPath(); c.moveTo(p.x, p.y); c.lineTo(drag.x, drag.y); c.stroke(); c.setLineDash([]); }
+    drawThing(c, drag.kind, drag.x, drag.y - s * 0.3, s * 1.1, 0.92);
+  } else geo.target = null;
+}
+function drawMice(c, peg, s, st, w) {
+  // a heap of mice: a few drawn, the count written on it
+  const n = S.mice, shown = Math.min(n, 10), ms = s * 0.55;
+  const rows = [4, 3, 2, 1]; let k = 0;
+  for (let r = 0; r < rows.length && k < shown; r++) {
+    const inRow = Math.min(rows[r], shown - k);
+    for (let j = 0; j < inRow; j++, k++) emoji(c, '🐭', peg.x + (j - (inRow - 1) / 2) * ms * 0.8, peg.y - ms * 0.45 - r * ms * 0.62, ms);
+  }
+  const txt = `× ${nf(n)}`, fs = clamp(st * 0.38, 11, 16);
+  c.font = `900 ${fs}px Nunito, sans-serif`;
+  label(c, txt, Math.min(peg.x, w - c.measureText(txt).width / 2 - 6), peg.y - ms * 0.6 - Math.ceil(shown / 4) * ms * 0.7 - 12, '#fff', fs);
+}
+function drawTurning(c, w, h, cx, s, b) {
+  const fs = clamp(s * 0.4, 11, 16), y = clamp(h * 0.05, 14, 30), by = y + fs + 4, bh = clamp(s * 0.3, 8, 13);
+  const room = w / 2 - 26;
+  c.font = `900 ${fs}px Nunito, sans-serif`; c.textBaseline = 'middle';
+  let lt = termStr(b.L), rt = termStr(b.R);
+  if (c.measureText(lt).width > room) lt = nf(b.tl, 2);
+  if (c.measureText(rt).width > room) rt = nf(b.tr, 2);
+  c.textAlign = 'right'; c.fillStyle = COL.L; c.fillText(lt, cx - 16, y);
+  c.textAlign = 'left'; c.fillStyle = COL.R; c.fillText(rt, cx + 16, y);
+  c.textAlign = 'center'; c.fillStyle = b.bal && b.n ? COL.ok : '#fff'; c.font = `900 ${fs * 1.3}px Nunito, sans-serif`;
+  c.fillText(b.bal ? '=' : b.tl > b.tr ? '>' : '<', cx, y);
+  const max = Math.max(b.tl, b.tr, 1e-9), sc = room / max;
+  // each item is one block: its length is its weight × steps
+  for (const [arr, dir, col] of [[b.L, -1, COL.L], [b.R, 1, COL.R]]) {
+    let x = cx + dir * 8;
+    arr.forEach((p, j) => {
+      const len = p.m * p.d * sc;
+      c.fillStyle = col; c.globalAlpha = j % 2 ? 0.6 : 0.95;
+      c.fillRect(dir < 0 ? x - len : x, by, Math.max(len - 1.5, 1), bh);
+      x += dir * len;
+    });
+    c.globalAlpha = 1;
+  }
+}
+function pegAt(x, y) {
+  const s = geo.s, st = geo.st;
+  let best = null, bd = Infinity;
+  for (const p of geo.pegs) {
+    const dx = Math.abs(x - p.x);
+    if (dx < st * 0.6 && y < p.y + s * 1.4 && y > p.y - s * 6 && dx < bd) {
+      const n = S.items.filter((it) => it.d === p.d).length;
+      if (n < MAXSTACK) { best = p.d; bd = dx; }
+    }
+  }
+  return best;
+}
+
+// Archimedes' lever: the Earth 1 m from the pivot, and the bar that would balance it
+const STARS = Array.from({ length: 70 }, (_, i) => [((i * 7919) % 1000) / 1000, ((i * 104729) % 997) / 997, ((i * 31) % 7) / 7]);
+function wrap(c, text, maxW) {
+  const words = text.split(' '), lines = []; let line = '';
+  for (const wd of words) { const tst = line ? `${line} ${wd}` : wd; if (c.measureText(tst).width > maxW && line) { lines.push(line); line = wd; } else line = tst; }
+  if (line) lines.push(line);
+  return lines;
+}
+function drawEarth(c, w, h, time) {
+  const t = T[lang];
+  for (const [sx, sy, k] of STARS) { c.fillStyle = `rgba(237,239,247,${0.25 + 0.45 * k * (0.7 + 0.3 * Math.sin(time * 2 + sx * 20))})`; c.fillRect(sx * w, sy * h, 1.6, 1.6); }
+  // the quote
+  const qs = clamp(w * 0.04, 17, 28);
+  c.font = `500 ${qs}px "EB Garamond", Georgia, serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#fff';
+  const lines = wrap(c, t.quote, w - 40);
+  lines.forEach((ln, i) => c.fillText(ln, w / 2, 26 + i * qs * 1.2));
+  c.font = `800 ${clamp(qs * 0.5, 11, 14)}px Nunito, sans-serif`; c.fillStyle = COL.mut;
+  c.fillText(t.who, w / 2, 26 + lines.length * qs * 1.2 + 4);
+  // the lever
+  const by = h * 0.68, R = clamp(Math.min(w, h) * 0.085, 18, 44), x0 = clamp(w * 0.1, R + 8, 90), xP = x0 + R * 1.5, xE = w - clamp(w * 0.1, 30, 70);
+  const bt = clamp(R * 0.18, 4, 8), brk = (xP + xE) / 2;
+  c.fillStyle = '#b8c0d6';
+  c.fillRect(x0 - R * 0.5, by - bt, brk - 10 - (x0 - R * 0.5), bt);
+  c.fillRect(brk + 10, by - bt, xE - brk - 10, bt);
+  c.strokeStyle = '#b8c0d6'; c.lineWidth = 2;
+  for (const dx of [-10, 10]) { c.beginPath(); c.moveTo(brk + dx - 4, by + 6); c.lineTo(brk + dx + 4, by - bt - 6); c.stroke(); }
+  // the Earth
+  const eg = c.createRadialGradient(x0 - R * 0.3, by - bt - R - R * 0.3, R * 0.1, x0, by - bt - R, R);
+  eg.addColorStop(0, '#7fd0ff'); eg.addColorStop(0.6, '#2a74c9'); eg.addColorStop(1, '#173d73');
+  c.fillStyle = eg; c.beginPath(); c.arc(x0, by - bt - R, R, 0, 7); c.fill();
+  c.fillStyle = 'rgba(70,170,90,.85)';
+  c.beginPath(); c.ellipse(x0 - R * 0.25, by - bt - R * 1.15, R * 0.35, R * 0.22, 0.5, 0, 7); c.fill();
+  c.beginPath(); c.ellipse(x0 + R * 0.35, by - bt - R * 0.7, R * 0.25, R * 0.16, -0.4, 0, 7); c.fill();
+  // the pivot
+  c.fillStyle = '#3a4160'; c.strokeStyle = 'rgba(200,210,235,.5)'; c.lineWidth = 1.5;
+  c.beginPath(); c.moveTo(xP, by); c.lineTo(xP + R * 0.45, by + R * 0.7); c.lineTo(xP - R * 0.45, by + R * 0.7); c.closePath(); c.fill(); c.stroke();
+  pivotDot(c, xP, by - bt / 2, 4);
+  // distances
+  const ds = clamp(w * 0.024, 11, 14);
+  label(c, t.oneM, (x0 + xP) / 2, by + R * 0.95, '#fff', ds);
+  label(c, `≈ ${nf(ARM_MLY, 1)} ${t.mly}`, (xP + xE) / 2, by - bt - ds * 1.2, '#fff', ds);
+  c.strokeStyle = 'rgba(255,255,255,.4)'; c.lineWidth = 1; c.setLineDash([3, 4]);
+  c.beginPath(); c.moveTo(xP + 6, by + 14); c.lineTo(xE, by + 14); c.stroke(); c.setLineDash([]);
+  // you, at the far end, pushing down
+  const hx = xE, hy = by - bt, sz = clamp(R * 0.9, 18, 34);
+  c.strokeStyle = '#EDEFF7'; c.lineWidth = 2.5; c.lineCap = 'round';
+  c.beginPath(); c.arc(hx + sz * 0.15, hy - sz * 1.6, sz * 0.2, 0, 7); c.stroke();
+  c.beginPath(); c.moveTo(hx + sz * 0.15, hy - sz * 1.4); c.lineTo(hx + sz * 0.3, hy - sz * 0.6); c.lineTo(hx + sz * 0.05, hy + sz * 0.5); c.moveTo(hx + sz * 0.3, hy - sz * 0.6); c.lineTo(hx + sz * 0.6, hy + sz * 0.5);
+  c.moveTo(hx + sz * 0.18, hy - sz * 1.15); c.lineTo(hx, hy - 2); c.stroke(); c.lineCap = 'butt';
+  arrow(c, hx - sz * 0.35, hy - sz * 1.2, hx - sz * 0.35, hy - sz * 0.25, COL.effort, 3);
+  label(c, `${PUSH_KG} ${t.kg}`, hx - sz * 0.35, hy - sz * 1.45, COL.effort, ds);
+}
+
+// --- rock and bar ------------------------------------------------------------------------------------------------
+const ROCK = Array.from({ length: 14 }, (_, i) => 0.86 + 0.14 * Math.sin(i * 2.7) * Math.cos(i * 1.3));
+function drawLift(c, w, h, dt, time) {
+  const t = T[lang], { p, N, M } = LS, q = N - p, can = canLift();
+  // the push: only moves if you are strong enough
+  if (LS.pushing && can) {
+    LS.push = Math.min(1, LS.push + dt * 0.7);
+    if (LS.push >= 1 && !LS.lifted) { LS.lifted = true; sfx.good(); render(); }
+  } else if (!LS.pushing) LS.push = Math.max(0, LS.push - dt * 1.4);
+  const st = clamp(Math.min((w - 24) / 28.5, h / 26), 7, 30);
+  const gy = h * 0.8, f = st * 0.6, R = st * (M === 100 ? 2.1 : 2.9);
+  const rcx = 10 + R, xL = rcx + R * 0.45, xP = xL + p * st;
+  const a0 = Math.asin(clamp((f - 1) / (p * st), -1, 1)), a1 = -Math.asin(clamp((f - 1) / (q * st), -1, 1));
+  let a = lerp(a0, a1, LS.push);
+  if (LS.pushing && !can) a -= 0.006 * (1 + Math.sin(time * 40)); // straining, nothing moves
+  const dir = [Math.cos(a), -Math.sin(a)], pv = [xP, gy - f];
+  const loadEnd = [pv[0] - dir[0] * p * st, pv[1] - dir[1] * p * st], effEnd = [pv[0] + dir[0] * q * st, pv[1] + dir[1] * q * st];
+  const rise = Math.max(0, p * st * (Math.sin(a0) - Math.sin(a)));
+  // ground
+  c.fillStyle = 'rgba(90,70,50,.25)'; c.fillRect(0, gy, w, h - gy);
+  c.strokeStyle = 'rgba(200,210,235,.35)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(0, gy); c.lineTo(w, gy); c.stroke();
+  // the rock
+  const ry = gy - R * 0.86 - rise;
+  c.fillStyle = '#6f6a66'; c.strokeStyle = '#9a948e'; c.lineWidth = 2; c.beginPath();
+  ROCK.forEach((k, i) => { const an = i / ROCK.length * Math.PI * 2; const x = rcx + Math.cos(an) * R * k, y = ry + Math.sin(an) * R * 0.88 * k; i ? c.lineTo(x, y) : c.moveTo(x, y); });
+  c.closePath(); c.fill(); c.stroke();
+  label(c, `${M} ${t.kg}`, rcx, ry, '#fff', clamp(st * 0.6, 11, 17));
+  // the pivot stone
+  const fb = Math.max(f, 7);
+  c.fillStyle = '#3a4160'; c.strokeStyle = 'rgba(200,210,235,.5)'; c.lineWidth = 1.5;
+  c.beginPath(); c.moveTo(xP, gy - f); c.lineTo(xP + fb * 1.1, gy); c.lineTo(xP - fb * 1.1, gy); c.closePath(); c.fill(); c.stroke();
+  // the bar, with a mark at every step
+  c.strokeStyle = '#b8c0d6'; c.lineWidth = clamp(st * 0.32, 4, 9); c.lineCap = 'round';
+  c.beginPath(); c.moveTo(...loadEnd); c.lineTo(...effEnd); c.stroke(); c.lineCap = 'butt';
+  c.fillStyle = 'rgba(40,46,70,.8)';
+  for (let k = 1; k < N; k++) { if (k === p) continue; const x = loadEnd[0] + dir[0] * k * st, y = loadEnd[1] + dir[1] * k * st; c.beginPath(); c.arc(x, y, 1.6, 0, 7); c.fill(); }
+  pivotDot(c, pv[0], pv[1], clamp(st * 0.2, 4, 7));
+  // distances under the ground line
+  const ly = gy + clamp(st * 0.9, 12, 22), fs = clamp(st * 0.5, 10, 14);
+  c.strokeStyle = 'rgba(255,255,255,.45)'; c.lineWidth = 1;
+  for (const [x1, x2, n] of [[xL, xP, p], [xP, xL + N * st, q]]) {
+    c.beginPath(); c.moveTo(x1 + 2, ly); c.lineTo(x2 - 2, ly); c.moveTo(x1 + 2, ly - 4); c.lineTo(x1 + 2, ly + 4); c.moveTo(x2 - 2, ly - 4); c.lineTo(x2 - 2, ly + 4); c.stroke();
+    label(c, `${n} ${t.steps(n)}`, (x1 + x2) / 2, ly + fs * 0.95, n === p ? '#ffcf4a' : COL.effort, fs);
+  }
+  // your push at the far end
+  const ex = effEnd[0], ey = effEnd[1];
+  const yP = Math.max(ey - st * 3.9, fs * 2.5), yA = Math.min(Math.max(ey - st * 3.4, yP + fs * 0.9), ey - st * 1.6);
+  arrow(c, ex, yA, ex, ey - st * 0.6, COL.effort, clamp(st * 0.22, 3, 6));
+  label(c, t.yourPush, Math.min(ex, w - 70), yP, COL.effort, fs, 'center');
+  label(c, t.need(nf(need(), 1)), Math.min(ex, w - 70), yP - fs * 1.3, can ? COL.ok : '#ff6b5e', fs, 'center');
+  geo.liftTop = yP - fs * 1.9;
+  emoji(c, can && LS.push > 0.98 ? '😄' : LS.pushing && !can ? '😣' : '✋', ex, ey - st * 1.1, clamp(st * 1.1, 14, 30));
+  geo.lift = { xL, st, N };
+}
+
+// --- levers around us ---------------------------------------------------------------------------------------------
+function drawDay(c, w, h, time) {
+  const t = T[lang], u = Math.min(w / 14, h / 8), cx = w / 2, cy = h * 0.5, fs = clamp(u * 0.5, 11, 17), aw = clamp(u * 0.14, 3, 6);
+  const L = t.lbl;
+  label(c, t.cls[TOOLS[S.tool].cls], cx, clamp(h * 0.06, 14, 30), COL.mut, fs);
+  if (S.tool === 'seesaw') {
+    const a = 0.03 * Math.sin(time * 1.4), cs = Math.cos(a), sn = Math.sin(a);
+    const at = (X, Y) => [cx + X * cs - Y * sn, cy + X * sn + Y * cs];
+    c.fillStyle = '#3a4160'; c.beginPath(); c.moveTo(cx, cy); c.lineTo(cx + u, cy + 1.5 * u); c.lineTo(cx - u, cy + 1.5 * u); c.closePath(); c.fill();
+    c.save(); c.translate(cx, cy); c.rotate(a); c.fillStyle = '#b07f45'; rr(c, -5.8 * u, -0.3 * u, 11.6 * u, 0.3 * u, 4); c.fill(); c.restore();
+    const [kx, ky] = at(-5 * u, -0.3 * u), [dx, dy] = at(u, -0.3 * u);
+    emoji(c, '🐈', kx, ky - 0.55 * u, 1.1 * u); emoji(c, '🐕', dx, dy - 0.75 * u, 1.5 * u);
+    arrow(c, kx, ky + 0.5 * u, kx, ky + 1.6 * u, COL.effort, aw); label(c, `${L.effort} · 4 ${t.kg} × 5`, kx, ky + 2.1 * u, COL.effort, fs * 0.9, 'center');
+    arrow(c, dx, dy + 0.5 * u, dx, dy + 1.6 * u, COL.load, aw); label(c, `${L.load} · 20 ${t.kg} × 1`, dx + 0.4 * u, dy + 2.1 * u, COL.load, fs * 0.9, 'left');
+    pivotDot(c, cx, cy, 5); label(c, L.pivot, cx, cy + 2.8 * u, COL.pivot, fs);
+  } else if (S.tool === 'scissors') {
+    const P = [cx + 1.2 * u, cy], a = 0.17 + 0.09 * Math.sin(time * 2.2), cardX = P[0] - 2.6 * u;
+    c.fillStyle = '#c89b5a'; rr(c, cardX - 0.18 * u, cy - 1.8 * u, 0.36 * u, 3.6 * u, 3); c.fill();
+    for (const sg of [1, -1]) {
+      c.save(); c.translate(...P); c.rotate(sg * a);
+      c.fillStyle = '#c9d1e6'; c.beginPath(); c.moveTo(0.4 * u, -0.22 * u * sg); c.lineTo(-5.6 * u, 0); c.lineTo(0.4 * u, 0.22 * u * sg); c.closePath(); c.fill();
+      c.strokeStyle = sg > 0 ? '#ff5a4f' : '#4ea8ff'; c.lineWidth = 0.32 * u; c.lineCap = 'round';
+      c.beginPath(); c.moveTo(0.3 * u, 0); c.lineTo(2.7 * u, 0); c.stroke();
+      c.lineWidth = 0.22 * u; c.beginPath(); c.arc(3.35 * u, 0, 0.65 * u, 0, 7); c.stroke(); c.lineCap = 'butt';
+      c.restore();
+    }
+    const gap = (P[0] - cardX) * Math.tan(a);
+    arrow(c, cardX, cy - gap - 1.4 * u, cardX, cy - gap - 0.15 * u, COL.load, aw);
+    arrow(c, cardX, cy + gap + 1.4 * u, cardX, cy + gap + 0.15 * u, COL.load, aw);
+    label(c, L.load, cardX, cy - gap - 1.8 * u, COL.load, fs);
+    const rx = P[0] + 3.35 * u * Math.cos(a), ryy = 3.35 * u * Math.sin(a);
+    arrow(c, rx, cy - ryy - 1.9 * u, rx, cy - ryy - 0.75 * u, COL.effort, aw);
+    arrow(c, rx, cy + ryy + 1.9 * u, rx, cy + ryy + 0.75 * u, COL.effort, aw);
+    label(c, L.effort, rx, cy - ryy - 2.3 * u, COL.effort, fs);
+    pivotDot(c, P[0], P[1], clamp(u * 0.18, 4, 8)); label(c, L.pivot, P[0], cy + 1.5 * u, COL.pivot, fs);
+  } else if (S.tool === 'barrow') {
+    const W = [cx - 4 * u, cy + 1.4 * u], r = 0.9 * u, lift = 0.07 * (1 + Math.sin(time * 1.6)) / 2;
+    c.strokeStyle = 'rgba(200,210,235,.35)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(w * 0.04, W[1] + r); c.lineTo(w * 0.96, W[1] + r); c.stroke();
+    const cs = Math.cos(-lift), sn = Math.sin(-lift), at = (X, Y) => [W[0] + X * cs - Y * sn, W[1] + X * sn + Y * cs];
+    c.save(); c.translate(...W); c.rotate(-lift);
+    c.strokeStyle = '#8f6436'; c.lineWidth = 0.22 * u; c.lineCap = 'round';
+    c.beginPath(); c.moveTo(0, 0); c.lineTo(8.4 * u, -1.3 * u); c.moveTo(4.6 * u, -0.75 * u); c.lineTo(4.6 * u, r); c.stroke(); c.lineCap = 'butt';
+    c.fillStyle = '#7a1f2b'; c.beginPath(); c.moveTo(0.3 * u, -2.5 * u); c.lineTo(5.3 * u, -2.5 * u); c.lineTo(4.4 * u, -0.6 * u); c.lineTo(1.3 * u, -0.6 * u); c.closePath(); c.fill();
+    c.fillStyle = '#6b4a2a'; c.beginPath(); c.ellipse(2.8 * u, -2.5 * u, 2.3 * u, 0.75 * u, 0, Math.PI, 0); c.fill();
+    c.restore();
+    c.strokeStyle = '#D3D9E8'; c.lineWidth = 0.18 * u; c.beginPath(); c.arc(W[0], W[1], r, 0, 7); c.stroke();
+    c.fillStyle = '#D3D9E8'; c.beginPath(); c.arc(W[0], W[1], 0.15 * u, 0, 7); c.fill();
+    const [lx, ly] = at(2.8 * u, -3.3 * u), [hx, hy] = at(8.4 * u, -1.3 * u);
+    arrow(c, lx, ly - 1.3 * u, lx, ly - 0.05 * u, COL.load, aw); label(c, L.load, lx, ly - 1.7 * u, COL.load, fs);
+    arrow(c, hx, hy + 1.4 * u, hx, hy + 0.2 * u, COL.effort, aw); label(c, L.effort, hx, hy + 1.8 * u, COL.effort, fs);
+    pivotDot(c, W[0], W[1], clamp(u * 0.18, 4, 8)); label(c, L.pivot, W[0], W[1] + r + 0.6 * u, COL.pivot, fs);
+  } else if (S.tool === 'opener') {
+    const B = cx - 2.6 * u, capTop = cy - 0.2 * u, P = [B - 0.6 * u, capTop];
+    const open = (1 + Math.sin(time * 1.8)) / 2, a0 = -0.06, a = a0 - 0.14 * open;
+    const hook = (an) => [P[0] + 1.2 * u * Math.cos(an) - 0.55 * u * Math.sin(an), P[1] + 1.2 * u * Math.sin(an) + 0.55 * u * Math.cos(an)];
+    const capUp = Math.min(0, hook(a)[1] - hook(a0)[1]);
+    c.fillStyle = 'rgba(61,180,120,.5)'; c.strokeStyle = 'rgba(120,230,170,.7)'; c.lineWidth = 1.5;
+    c.beginPath(); c.moveTo(B - 0.45 * u, capTop + 0.35 * u); c.lineTo(B - 0.45 * u, cy + 1.1 * u); c.quadraticCurveTo(B - 1.1 * u, cy + 1.5 * u, B - 1.1 * u, cy + 2.4 * u);
+    c.lineTo(B - 1.1 * u, h + 4); c.lineTo(B + 1.1 * u, h + 4); c.lineTo(B + 1.1 * u, cy + 2.4 * u); c.quadraticCurveTo(B + 1.1 * u, cy + 1.5 * u, B + 0.45 * u, cy + 1.1 * u);
+    c.lineTo(B + 0.45 * u, capTop + 0.35 * u); c.closePath(); c.fill(); c.stroke();
+    c.fillStyle = '#ffcf4a'; rr(c, B - 0.6 * u, capTop + capUp, 1.2 * u, 0.4 * u, 3); c.fill();
+    c.save(); c.translate(...P); c.rotate(a);
+    c.fillStyle = '#b8c0d6'; rr(c, -0.35 * u, -0.42 * u, 7.2 * u, 0.42 * u, 0.2 * u); c.fill();
+    c.beginPath(); c.moveTo(1.05 * u, 0); c.lineTo(1.35 * u, 0); c.lineTo(1.35 * u, 0.62 * u); c.lineTo(0.95 * u, 0.62 * u); c.lineTo(0.95 * u, 0.48 * u); c.lineTo(1.12 * u, 0.48 * u); c.closePath(); c.fill();
+    c.restore();
+    const [hx, hy] = hook(a), ex = P[0] + 6.6 * u * Math.cos(a), ey = P[1] + 6.6 * u * Math.sin(a) - 0.2 * u;
+    arrow(c, hx + 0.55 * u, hy + 1.5 * u, hx + 0.55 * u, hy + 0.15 * u, COL.load, aw); label(c, L.load, hx + 0.85 * u, hy + 1.3 * u, COL.load, fs, 'left');
+    arrow(c, ex, ey - 0.3 * u, ex, ey - 1.6 * u, COL.effort, aw); label(c, L.effort, ex, ey - 2 * u, COL.effort, fs);
+    pivotDot(c, P[0], P[1], clamp(u * 0.16, 4, 7)); label(c, L.pivot, P[0] - 0.3 * u, P[1] - 1.0 * u, COL.pivot, fs, 'right');
+  } else {
+    const P = [cx - 4.6 * u, cy], tipX = cx + 4.4 * u, close = (1 + Math.sin(time * 2)) / 2, gap = lerp(0.95 * u, 0.36 * u, close);
+    const armY = (x, sg) => cy + sg * lerp(0.12 * u, gap, (x - P[0]) / (tipX - P[0]));
+    c.strokeStyle = '#c9d1e6'; c.lineWidth = 0.26 * u; c.lineCap = 'round';
+    for (const sg of [-1, 1]) { c.beginPath(); c.moveTo(P[0], cy + sg * 0.12 * u); c.lineTo(tipX, armY(tipX, sg)); c.lineTo(tipX + 0.3 * u, cy + sg * 0.32 * u); c.stroke(); }
+    c.lineCap = 'butt';
+    c.fillStyle = '#4ea8ff'; c.beginPath(); c.arc(tipX + 0.2 * u, cy, 0.3 * u, 0, 7); c.fill();
+    const mx = cx - 0.6 * u;
+    arrow(c, mx, armY(mx, -1) - 1.6 * u, mx, armY(mx, -1) - 0.25 * u, COL.effort, aw);
+    arrow(c, mx, armY(mx, 1) + 1.6 * u, mx, armY(mx, 1) + 0.25 * u, COL.effort, aw);
+    label(c, L.effort, mx, armY(mx, -1) - 2 * u, COL.effort, fs);
+    arrow(c, tipX + 0.2 * u, cy - 1.3 * u, tipX + 0.2 * u, cy - 0.45 * u, COL.load, Math.max(2, aw * 0.6));
+    arrow(c, tipX + 0.2 * u, cy + 1.3 * u, tipX + 0.2 * u, cy + 0.45 * u, COL.load, Math.max(2, aw * 0.6));
+    label(c, L.load, tipX + 0.2 * u, cy - 1.7 * u, COL.load, fs);
+    pivotDot(c, P[0], P[1], clamp(u * 0.16, 4, 7)); label(c, L.pivot, P[0], cy + 1.0 * u, COL.pivot, fs);
+  }
+}
+
+// --- loop and pointer ---------------------------------------------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  if (lab.view === 'seesaw') drawSeesaw(c, w, h, dt, time);
+  else if (lab.view === 'lift') drawLift(c, w, h, dt, time);
+  else drawDay(c, w, h, time);
+});
+const cv = $('cv');
+const pt = (ev) => { const r = cv.getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; };
+let liftDrag = false;
+const setPivotX = (x) => {
+  const g = geo.lift; if (!g) return;
+  const p = clamp(Math.round((x - g.xL) / g.st), 1, g.N - 1);
+  if (p !== LS.p) { LS.p = p; resetLift(); sfx.tick(); render(); }
+};
+cv.addEventListener('pointerdown', (ev) => {
+  const [x, y] = pt(ev);
+  if (lab.view === 'lift') { liftDrag = true; try { cv.setPointerCapture(ev.pointerId); } catch { /* fine */ } setPivotX(x); return; }
+  if (lab.view !== 'seesaw' || !S.asked || S.held || S.mode === 'earth' || S.mode === 'elephant') return;
+  const slot = geo.tray.find((s) => x >= s.x && x <= s.x + s.w && y >= s.y && y <= s.y + s.h);
+  let kind = slot?.kind;
+  if (!kind) {
+    // the top-most item under the finger (generous radius for small fingers)
+    const hit = [...geo.items].reverse().find((it) => Math.hypot(x - it.x, y - it.y) < it.r);
+    if (!hit) return;
+    const it = S.items[hit.i];
+    if (it.fixed) { sfx.bad(); return; }
+    kind = it.kind; S.items.splice(hit.i, 1); render();
+  }
+  drag = { kind, x, y };
+  try { cv.setPointerCapture(ev.pointerId); } catch { /* fine */ }
+  sfx.click();
+});
+cv.addEventListener('pointermove', (ev) => {
+  const [x, y] = pt(ev);
+  if (liftDrag && lab.view === 'lift') return setPivotX(x);
+  if (drag) { drag.x = x; drag.y = y; }
+});
+const endDrag = () => {
+  liftDrag = false;
+  if (!drag) return;
+  const d = pegAt(drag.x, drag.y);
+  if (d !== null) { S.items.push({ kind: drag.kind, d, fixed: false }); sfx.snap(); }
+  drag = null; render();
+};
+cv.addEventListener('pointerup', endDrag);
+cv.addEventListener('pointercancel', () => { liftDrag = false; drag = null; render(); });
+render();
+</script>
+</body>
+</html>

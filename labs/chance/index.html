@@ -1,0 +1,1129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Chance Lab · Skill Graph</title>
+<meta name="description" content="One roll is a surprise, many rolls make a pattern: roll a die, flip a coin, spin a spinner and draw from a bag thousands of times, watch the results close in on the theory, and place events on the 0-to-1 probability scale. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  /* this lab uses no gauge: the gap chart inside the stage plays its part */
+  #gauge { display: none; }
+  .lab { grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); grid-template-areas: 'hero stage' 'state stage' 'state ctrl'; }
+  #views { flex-wrap: wrap; justify-content: center; border-radius: 18px; }
+  #stage { min-height: 480px; }
+  @media (max-width: 1080px) { .bar { flex-wrap: wrap; } #views { order: 5; flex-basis: 100%; } }
+  @media (max-width: 760px) { #stage { height: min(134vw, 580px); min-height: 0; } }
+
+  .ask { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); width: min(560px, calc(100% - 12px)); padding: 12px 14px;
+    text-align: center; z-index: 2; }
+  .ask .kick { font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--mut); font-weight: 800; margin-bottom: 4px; }
+  .ask .q { font: 500 21px/1.2 var(--serif); color: #fff; margin-bottom: 10px; text-wrap: balance; }
+  .ask .opts { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+  .ask .opts button { padding: 8px 13px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 800; cursor: pointer; font-size: 13px; }
+  .ask .opts button:hover { background: rgba(130, 145, 190, .25); }
+  .ask .opts button.pick { border-color: #fff; }
+  .ask p { margin: 0 0 8px; color: var(--soft); font-size: 13px; line-height: 1.45; }
+  .ask .verdict { font-weight: 900; margin-bottom: 4px; }
+  .ask .skip { background: none; border: 0; color: var(--faint); font-size: 11.5px; text-decoration: underline; cursor: pointer; padding: 6px 4px 0; }
+
+  .rolls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .rolls .btn { padding: 9px 18px; }
+  .rolls .btn:disabled, .rolls .chip:disabled, .stp button:disabled { opacity: .35; cursor: default; }
+  .chip.ghost { background: transparent; color: var(--mut); }
+  .stp { display: inline-flex; align-items: center; gap: 4px; margin-right: 6px; }
+  .stp button { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 900; font-size: 15px; cursor: pointer; padding: 0; }
+  .stp button:hover { background: rgba(130, 145, 190, .25); }
+  .stp b { min-width: 18px; text-align: center; color: #fff; }
+  .dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; vertical-align: -1px; }
+  .stats p { margin: 0 0 5px; }
+  .stats b { color: #fff; }
+  .fine { margin-top: 8px; font-size: 11px; color: var(--faint); }
+  .score { font-size: 12.5px; color: var(--soft); font-weight: 800; }
+  @media (max-width: 760px) { .ask .q { font-size: 17px; margin-bottom: 8px; } .ask { padding: 10px 10px; } .ask p { font-size: 12.5px; }
+    .ask .opts button { padding: 7px 10px; font-size: 12.5px; } }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, store, ruPlural, lang } from '../lab.js';
+
+// --- language helpers ---------------------------------------------------------------------------------------
+// Hungarian article before a written number: "az" when the spoken number starts with a vowel
+// (1 egy, 5.. öt.., 50 ötven, 500 ötszáz, 1000–1999 ezer.., 5000 ötezer), "a" otherwise
+const az = (n) => { const s = String(Math.abs(Math.trunc(n))); return s === '1' || s[0] === '5' || (s.length === 4 && s[0] === '1') || (s.length === 7 && s[0] === '1') ? 'az' : 'a'; };
+// Hungarian "-es" names of die faces: az 1-es, a 2-es, a 3-as, a 4-es, az 5-ös, a 6-os
+const HU_FACE = ['1-es', '2-es', '3-as', '4-es', '5-ös', '6-os'];
+// counts may arrive already formatted ("1 002"), so plural rules read the digits back
+const num = (s) => +String(s).replace(/\D/g, '');
+const RU_RAZ = (n) => ruPlural(num(n), 'раз', 'раза', 'раз');
+
+const T = {
+  en: {
+    name: 'Chance Lab', title: 'One roll is a surprise',
+    lines: [['Many rolls make a pattern:', 'the more you try, the closer you get to the theory.'], ['Roll, flip, spin and draw:', '×1 to watch, ×1,000 to fast-forward.'], ['Put events on the scale', 'from 0 (impossible) to 1 (certain).']],
+    views: { die: '🎲 Die', coin: '🪙 Coin', spin: '🎡 Spinner', bag: '👝 Bag', scale: '📏 0 to 1' },
+    verb: { die: '🎲 Roll', coin: '🪙 Flip', spin: '🎡 Spin', bag: '👝 Draw' },
+    noun: (v, n, f) => `${f} ${{ die: ['roll', 'rolls'], coin: ['flip', 'flips'], spin: ['spin', 'spins'], bag: ['draw', 'draws'] }[v][n === 1 ? 0 : 1]}`,
+    again: '↺ Start again', maxed: 'That’s 100,000 tries. Enough for any scientist!',
+    titles: { die: 'A fair die', two: 'Two dice', loaded: 'Loaded die', coin: 'A fair coin', spin: 'Spinner', bag: 'Bag of counters' },
+    coin: ['H', 'T'], coinWord: ['heads', 'tails'],
+    colours: { r: 'red', b: 'blue', y: 'yellow', g: 'green' },
+    oneDie: '🎲 One die', newDie: '🔁 New loaded die', parts: 'Parts', balls: 'Counters', makeFair: '⚖️ Make it fair',
+    secrets: { two: ['Two dice', 'Which total wins?'], loaded: ['Loaded die', 'Find the heavy face'] },
+    leg: ['what happened', 'theory', 'true chance'], gapT: 'Biggest gap from theory', gapX: 'tries',
+    start: 'press a button to start', tapToy: 'tap me to try', tapBar: 'Tap the bar you think is loaded', backIn: '↩ goes back in',
+    pill: { far: 'far from theory', closer: 'getting closer', close: 'close', very: 'very close', few: 'too few to tell' },
+    w: { theory: 'theory', exp: 'experiment' },
+    running: { die: 'Rolling…', coin: 'Flipping…', spin: 'Spinning…', bag: 'Drawing…' },
+    skip: 'skip the question', explore: 'Explore →', nextQ: 'Next question →', predict: 'Predict first',
+    die: [
+      ['Six faces, each just as likely.', 'A fair die has 6 faces and none is special, so each has the same chance: 1 in 6, or 1/6. That is the theory. Now roll and see what really happens.'],
+      ['Too few rolls to see a pattern.', 'One roll is a surprise: nobody can know what comes next. With only a few rolls, some faces get ahead just by luck. That does not mean the die likes them.'],
+      ['A pattern is appearing.', 'The bars are near the dashed line, but not on it. Theory says each face gets 1/6 of the rolls; the experiment comes close, but almost never hits it exactly.'],
+      ['Many rolls: the bars hug the line.', 'The counts can still differ by quite a few rolls, but as a share of all rolls every face is close to 1/6. More rolls usually bring it closer: watch the gap line go down.'],
+    ],
+    coinSt: [
+      ['Two sides, each just as likely.', 'Heads and tails have the same chance: 1 in 2, or 1/2 = 0.5. They are equally likely outcomes. Flip and keep a tally.'],
+      ['One flip is a surprise.', 'With only a few flips you can easily get more heads than tails, or a long run of one side. That is luck, not a pattern. Try 20 flips: exactly 10 heads happens only about 18% of the time.'],
+      ['A pattern is appearing.', 'The share of heads moves toward 1/2, but it wobbles up and down. That wobble is normal: every experiment has it.'],
+      ['Many flips: very close to 1/2.', 'Heads and tails can still be apart by quite a few, but as a share of all flips both are very close to 0.5. The experimental probability is getting close to the theoretical one.'],
+    ],
+    two: ['7 is the most likely total.', 'Each die has 6 faces, so there are 6 × 6 = 36 equally likely pairs. Six pairs make 7 (1+6, 2+5, 3+4, 4+3, 5+2, 6+1), but only one pair makes 2 (1+1) and only one makes 12 (6+6). Every pair is equally likely, but the totals are not.'],
+    loaded0: ['One face is heavier. Which one?', 'The dashed line shows a fair die: 1/6 for each face. Roll a lot, then tap the bar you think is loaded. A few rolls can fool you; hundreds of rolls are hard to fool.'],
+    loadedRight: (f) => `You found it: the ${f} is loaded!`, loadedWrong: (f, g) => `Not the ${g}: the loaded face was the ${f}.`,
+    loaded1: 'The loaded face comes up 2 times in 7 (≈ 0.29) instead of 1/6 (≈ 0.17). When an experiment stays far from the theory even after many tries, the theory is probably wrong: this die is not fair. Look at the gap line: it stops going down.',
+    spinLead: { equal: 'Equal sections: equally likely colours.', unequal: 'Unequal sections: not equally likely.', single: 'Only one colour: certain.' },
+    bagLead: { equal: 'Same number of each colour: equally likely.', unequal: 'Different numbers: not equally likely.', single: 'Only one colour: certain.' },
+    spinBody: (tot) => `The spinner has ${tot} equal small parts, and the arrow is just as likely to stop on any of them. These parts are the equally likely outcomes. A colour’s chance = its parts ÷ ${tot}.`,
+    bagBody: (tot) => `The bag holds ${tot} ${tot === 1 ? 'counter' : 'counters'}, and each one is just as likely to be picked: these are the equally likely outcomes. A colour’s chance = its counters ÷ ${tot}. Each counter goes back in after a draw, so the chances never change.`,
+    same: ' Every colour has the same number, so every colour has the same chance.',
+    most: (s) => ` Most likely: ${s}.`, zero: (s) => ` ${s}: none at all, so impossible (chance 0).`, certain: ' One colour fills everything, so it is certain (chance 1).',
+    and: ' and ',
+    x: {
+      dieTh: '<b>Theory:</b> each face has chance 1/6 ≈ 0.17.', coinTh: '<b>Theory:</b> heads 1/2 = 0.5, tails 1/2 = 0.5.',
+      die: (n, e) => `<b>Theory:</b> each face has chance 1/6 ≈ 0.17. Expected count for each face: ${n} × 1/6 ${e}.`,
+      mm: (a, at, b, bt) => `<b>Experiment:</b> most often ${a} (${at}), least often ${b} (${bt}).`,
+      after6: (k, m, pc) => `After a 6, the next roll was a 6 in ${k} of ${m} cases (${pc}). Theory: 1/6 ≈ 17%. The die has no memory.`,
+      coin: (h, ht, e, n) => `<b>Heads:</b> experiment ${h}/${n} ${ht} · theory 1/2 = 0.5. Expected heads: ${n} × 1/2 ${e}.`,
+      streak: (s, d, pc) => `After three of a kind in a row (HHH or TTT), the next flip was the same ${s} ${s === '1' ? 'time' : 'times'} and different ${d} ${d === '1' ? 'time' : 'times'}: ${pc} different. The coin has no memory.`,
+      noStreak: 'Three of a kind in a row has not happened yet.',
+      two: (c7) => `<b>Total 7:</b> theory 6/36 = 1/6 ≈ 0.17 · experiment ${c7}. Totals 2 and 12: theory 1/36 ≈ 0.03 each.`,
+    },
+    fine: 'Every try uses your browser’s crypto random numbers. The theory assumes a perfectly fair die, coin, spinner and bag; expected values are exact.',
+    fineLoaded: 'A made-up loaded die: one face is twice as likely as each of the others.',
+    ask: {
+      die: [
+        { q: 'You’ll roll a fair die 60 times. What will happen?', opts: ['🎯 Every number comes up exactly 10 times', '6️⃣ Fewer 6s: a 6 is the hardest to roll', '〰️ About 10 each, but not exactly'], ok: 2,
+          v: (a, c, m) => {
+            const list = c.map((x, i) => `${i + 1}: ${x}`).join(', ');
+            let s = `Your 60 rolls: ${list}. `;
+            s += m.exact === 6 ? 'Every face exactly 10 times: that happens only about once in 13,000 runs of 60 rolls!' : m.exact === 0 ? 'Not one face came up exactly 10 times.' : `Only ${m.exact} of the 6 faces came up exactly 10 times.`;
+            if (a === 1) s += m.sixLow ? ' The 6 was at the bottom this time, but that is luck: a 6 has the same 1/6 chance as every face. Roll again and probably a different face will be lowest.' : ` A 6 is as easy as any face (1/6): here it came up ${c[5]} ${c[5] === 1 ? 'time' : 'times'}.`;
+            return [a === 2 ? 'Good thinking!' : 'Lots of people think so!', s];
+          } },
+        { q: 'Now 600 rolls. Compared with 60, the share of each face will be…', opts: ['closer to 1/6', 'further from 1/6', 'exactly 1/6'], ok: 0,
+          v: (a, c, m) => {
+            let s = `Expected 100 of each; you got ${c.join(', ')}. After 60 rolls the biggest gap was ${m.g60}; after 600 it is ${m.g600}.`;
+            if (m.closer) s += (m.devBig ? ` Look: the counts are further from 100 (up to ${m.d600}) than they were from 10 (up to ${m.d60}), yet as a share of all rolls they are closer to 1/6.` : ' As a share of all rolls, each face is nearer to 1/6.') + ' More tries usually means closer.';
+            else s += ' This time chance surprised us; usually it gets closer. Roll 1000 more and watch the gap line.';
+            return [!m.closer ? 'A surprise!' : a === 0 ? 'You were right!' : a === 2 ? 'Closer, but not exact!' : 'Closer, not further!', s];
+          } },
+      ],
+      coin: [{ q: 'Heads, heads, heads! What will the next flip most likely be?', opts: ['🔄 Tails: it’s tails’ turn now', '🔥 Heads: heads is on a streak', '⚖️ Both are just as likely'], ok: 2,
+        v: (a, c, m) => [a === 2 ? 'Yes! The coin has no memory.' : 'Many people feel that way!',
+          `In 1000 flips, three of a kind in a row came up ${m.N} ${m.N === 1 ? 'time' : 'times'}. The very next flip was the same ${m.s} ${m.s === 1 ? 'time' : 'times'} and different ${m.d} ${m.d === 1 ? 'time' : 'times'}: ${m.pc} different.` +
+          (m.half ? ' About half, just like any flip. The coin does not remember what it did.' : ' Not quite half: luck still plays a part. Flip more and check again.')] }],
+      spin: [{ q: 'This spinner has 3 colours. Is each colour equally likely?', opts: ['⚖️ Yes: 1 in 3 each', '🔴 No: red is the most likely'], ok: 1,
+        v: (a, c, m) => [a === 1 ? 'Right!' : 'Look closer!',
+          `Count the small equal parts: red 3, blue 2, yellow 1, out of 6. Each small part is equally likely, so red is 3/6, blue 2/6 and yellow 1/6. In 100 spins: red ${c[0]}, blue ${c[1]}, yellow ${c[2]}.` +
+          (m.redWins ? ' Red is ahead because it has the biggest section.' : ' Red usually wins, but not every time: that is chance!')] }],
+      bag: [{ q: 'A bag has 3 red counters and 1 blue. Draw one, look, put it back: 20 times. How many reds?', opts: ['About 15', 'About 10', 'Exactly 15'], ok: 0,
+        v: (a, c) => [a === 0 ? 'Good prediction!' : a === 1 ? 'Not quite!' : 'Almost!',
+          `3 of the 4 counters are red, so theory says 3/4 of the draws: 3/4 × 20 = 15. You drew ${c[0]} red and ${c[1]} blue.` +
+          (c[0] === 15 ? ' Exactly 15 this time: that only happens about 1 time in 5!' : Math.abs(c[0] - 15) <= 2 ? ' Close to 15, but not exactly: experiments wobble.' : ' Quite far from 15: 20 draws is not many. Try 1000.')] }],
+    },
+    sc: {
+      title: 'From 0 to 1', lead0: 'How likely is it?',
+      body0: 'Every chance is a number from 0 to 1. 0 means impossible: it can never happen. 1 means certain: it always happens. 0.5 is an even chance: just as likely to happen as not. Fractions work too: 1/4 = 0.25.',
+      words: ['impossible', 'unlikely', 'even chance', 'likely', 'certain'],
+      bands: '0 impossible · under 0.5 unlikely · 0.5 even chance · over 0.5 likely · 1 certain',
+      check: '✓ Check', next: 'Next →', again: '↺ Play again', ev: (i, n) => `Event ${i} of ${n}`, hint: 'tap or drag on the line',
+      score: (r, k) => `Right word: ${r} of ${k}`, spot: 'Spot on!', word: 'Right word!', miss: 'Not quite.',
+      chance: (fr, dec, pc, w) => `Chance: ${fr} ${dec} = ${pc}: ${w}.`, you: (d, w) => `You said ${d}: ${w}.`, done: 'All done! Every event is on the scale.',
+      fine: 'Every chance here assumes fair dice and coins, and that each counter, sock, day or spinner part is equally likely to be picked.',
+      ev_: {
+        sunWest: ['Tomorrow the Sun rises in the west', 'The Earth always spins the same way, so the Sun always rises in the east. This can never happen: chance 0.'],
+        heads: ['You flip a fair coin and get heads', '2 equally likely sides, 1 of them is heads: 1/2.'],
+        six: ['You roll a die and get a 6', '6 equally likely faces, 1 of them is a 6: 1/6 ≈ 0.17.'],
+        tuesday: ['The day after a Monday is a Tuesday', 'This always happens: chance 1.'],
+        bagRed: ['A bag has 3 red counters and 1 blue. You pick one without looking: it’s red', '4 counters, each equally likely, 3 of them red: 3/4 = 0.75.'],
+        weekend: ['You pick a day of the week at random: it’s Saturday or Sunday', '7 days, 2 of them weekend days: 2/7 ≈ 0.29.'],
+        notSix: ['You roll a die and do NOT get a 6', '5 of the 6 faces are not a 6: 5/6 ≈ 0.83.'],
+        total12: ['You roll two dice and the total is 12', 'Only 6 + 6 makes 12: 1 of 36 equally likely pairs, 1/36 ≈ 0.03. Very unlikely, but not impossible!'],
+        spinBlue: ['A spinner has 4 equal parts, 1 of them blue: it stops on blue', '4 equal parts, 1 blue: 1/4 = 0.25.'],
+        socks: ['A drawer has 4 black socks and 1 white. You grab one without looking: it’s black', '5 socks, 4 black: 4/5 = 0.8.'],
+        even: ['You roll a die and get an even number', '2, 4 and 6 are even: 3 of 6 faces, 3/6 = 1/2. Even chance!'],
+      },
+    },
+    quiz: [
+      { q: 'A fair die is rolled 60 times. How many 3s do you expect?', opts: ['Exactly 10', 'About 10', 'About 3'], ok: 1 },
+      { q: 'A spinner is half red, a quarter blue and a quarter yellow. Which is true?', opts: ['All 3 colours are equally likely', 'Red is twice as likely as blue', 'Yellow is the most likely'], ok: 1 },
+      { q: 'A bag has 1 red counter and 3 blue. Where does “pick red” go on the 0–1 scale?', opts: ['0.25: unlikely', '0.5: even chance', '0.75: likely'], ok: 0 },
+    ],
+  },
+  ru: {
+    name: 'Случайность', title: 'Один бросок — сюрприз',
+    lines: [['Много бросков — уже закономерность:', 'чем больше попыток, тем ближе к теории.'], ['Бросай, подкидывай, крути и тяни:', '×1 — смотреть, ×1000 — перемотать.'], ['Расставь события на шкале', 'от 0 (невозможно) до 1 (достоверно).']],
+    views: { die: '🎲 Кубик', coin: '🪙 Монета', spin: '🎡 Вертушка', bag: '👝 Мешок', scale: '📏 От 0 до 1' },
+    verb: { die: '🎲 Бросить', coin: '🪙 Подбросить', spin: '🎡 Крутить', bag: '👝 Вытянуть' },
+    noun: (v, n, f) => `${f} ${ruPlural(n, ...{ die: ['бросок', 'броска', 'бросков'], coin: ['бросок', 'броска', 'бросков'], spin: ['вращение', 'вращения', 'вращений'], bag: ['попытка', 'попытки', 'попыток'] }[v])}`,
+    again: '↺ Сначала', maxed: '100 000 попыток — хватит любому учёному!',
+    titles: { die: 'Честный кубик', two: 'Два кубика', loaded: 'Нечестный кубик', coin: 'Честная монета', spin: 'Вертушка', bag: 'Мешок с шарами' },
+    coin: ['О', 'Р'], coinWord: ['орёл', 'решка'],
+    colours: { r: 'красный', b: 'синий', y: 'жёлтый', g: 'зелёный' },
+    oneDie: '🎲 Один кубик', newDie: '🔁 Другой нечестный', parts: 'Части', balls: 'Шары', makeFair: '⚖️ Сделать честной',
+    secrets: { two: ['Два кубика', 'Какая сумма выигрывает?'], loaded: ['Нечестный кубик', 'Найди тяжёлую грань'] },
+    leg: ['что вышло', 'теория', 'на самом деле'], gapT: 'Наибольшее отклонение от теории', gapX: 'попыток',
+    start: 'нажми кнопку, чтобы начать', tapToy: 'нажми, чтобы попробовать', tapBar: 'Нажми на подозрительный столбик', backIn: '↩ обратно в мешок',
+    pill: { far: 'далеко от теории', closer: 'ближе', close: 'близко', very: 'очень близко', few: 'слишком мало попыток' },
+    w: { theory: 'теория', exp: 'опыт' },
+    running: { die: 'Бросаем…', coin: 'Подбрасываем…', spin: 'Крутим…', bag: 'Тянем…' },
+    skip: 'пропустить вопрос', explore: 'Исследовать →', nextQ: 'Следующий вопрос →', predict: 'Сначала угадай',
+    die: [
+      ['Шесть граней, у всех равные шансы.', 'У честного кубика 6 граней, и ни одна не особенная, поэтому шанс у каждой одинаковый: 1 из 6, то есть 1/6. Это теория. Теперь бросай и смотри, что получится на самом деле.'],
+      ['Слишком мало бросков, закономерности не видно.', 'Один бросок — всегда сюрприз: никто не знает, что выпадет. Когда бросков мало, какие-то грани вырываются вперёд просто случайно. Это не значит, что кубик их любит.'],
+      ['Появляется закономерность.', 'Столбики рядом с пунктирной линией, но не точно на ней. Теория говорит: каждой грани достаётся 1/6 бросков. Опыт подходит близко, но почти никогда не попадает точно.'],
+      ['Много бросков: столбики прижались к линии.', 'Количества ещё могут заметно отличаться, но как доля от всех бросков каждая грань близка к 1/6. Чем больше бросков, тем обычно ближе: смотри, как опускается линия отклонения.'],
+    ],
+    coinSt: [
+      ['Две стороны, шансы равны.', 'У орла и решки одинаковый шанс: 1 из 2, то есть 1/2 = 0,5. Это равновозможные исходы. Подбрасывай и отмечай палочками.'],
+      ['Один бросок — сюрприз.', 'Когда бросков мало, легко получить больше орлов, чем решек, или длинную серию одной стороны. Это случайность, а не закономерность. Попробуй 20 бросков: ровно 10 орлов выпадает всего примерно в 18 % случаев.'],
+      ['Появляется закономерность.', 'Доля орлов движется к 1/2, но покачивается вверх-вниз. Такие колебания — это нормально, они есть в любом опыте.'],
+      ['Много бросков: очень близко к 1/2.', 'Орлов и решек может быть заметно по-разному, но как доля от всех бросков обе стороны очень близки к 0,5. Опытная вероятность приближается к теоретической.'],
+    ],
+    two: ['7 — самая вероятная сумма.', 'У каждого кубика 6 граней, значит, всего 6 × 6 = 36 равновозможных пар. Сумму 7 дают шесть пар (1+6, 2+5, 3+4, 4+3, 5+2, 6+1), а сумму 2 — только одна (1+1), как и сумму 12 (6+6). Все пары равновозможны, а суммы — нет.'],
+    loaded0: ['Одна грань тяжелее. Какая?', 'Пунктир показывает честный кубик: 1/6 для каждой грани. Сделай много бросков и нажми на столбик, который кажется подозрительным. Несколько бросков легко обманут, а сотни — вряд ли.'],
+    loadedRight: (f) => `Верно: утяжелена грань ${f}!`, loadedWrong: (f, g) => `Не ${g}: утяжелена была грань ${f}.`,
+    loaded1: 'Утяжелённая грань выпадает в 2 случаях из 7 (≈ 0,29), а не в 1/6 (≈ 0,17). Если даже после многих попыток опыт далёк от теории, значит, неверна сама теория: кубик нечестный. Посмотри на линию отклонения: она перестала опускаться.',
+    spinLead: { equal: 'Секторы равны: цвета равновероятны.', unequal: 'Секторы разные: шансы не равны.', single: 'Только один цвет: это достоверно.' },
+    bagLead: { equal: 'Всех цветов поровну: шансы равны.', unequal: 'Цветов не поровну: шансы не равны.', single: 'Только один цвет: это достоверно.' },
+    spinBody: (tot) => `У вертушки ${tot} ${ruPlural(tot, 'равная часть', 'равные части', 'равных частей')}, и стрелка останавливается на любой из них с одинаковым шансом. Эти части и есть равновозможные исходы. Шанс цвета = его части ÷ ${tot}.`,
+    bagBody: (tot) => `В мешке ${tot} ${ruPlural(tot, 'шар', 'шара', 'шаров')}, и любой из них можно вытащить с одинаковым шансом: это и есть равновозможные исходы. Шанс цвета = его шары ÷ ${tot}. После каждой попытки шар возвращают в мешок, поэтому шансы не меняются.`,
+    same: ' У всех цветов поровну, значит, и шансы равны.',
+    most: (s) => ` Вероятнее всего: ${s}.`, zero: (s) => ` ${s}: нет совсем, значит, невозможно (шанс 0).`, certain: ' Один цвет занимает всё, значит, это достоверно (шанс 1).',
+    and: ' и ',
+    x: {
+      dieTh: '<b>Теория:</b> шанс каждой грани 1/6 ≈ 0,17.', coinTh: '<b>Теория:</b> орёл 1/2 = 0,5, решка 1/2 = 0,5.',
+      die: (n, e) => `<b>Теория:</b> шанс каждой грани 1/6 ≈ 0,17. Ожидаемое число выпадений каждой грани: ${n} × 1/6 ${e}.`,
+      mm: (a, at, b, bt) => `<b>Опыт:</b> чаще всего ${a} (${at}), реже всего ${b} (${bt}).`,
+      after6: (k, m, pc) => `После шестёрки снова выпала 6 в ${k} из ${m} ${ruPlural(num(m), 'случая', 'случаев', 'случаев')} (${pc}). Теория: 1/6 ≈ 17 %. У кубика нет памяти.`,
+      coin: (h, ht, e, n) => `<b>Орёл:</b> опыт ${h}/${n} ${ht} · теория 1/2 = 0,5. Ожидаемое число орлов: ${n} × 1/2 ${e}.`,
+      streak: (s, d, pc) => `После трёх одинаковых подряд (ООО или РРР) следующий бросок совпал ${s} ${RU_RAZ(s)} и сменился ${d} ${RU_RAZ(d)}: сменился в ${pc} случаев. У монеты нет памяти.`,
+      noStreak: 'Трёх одинаковых подряд пока не было.',
+      two: (c7) => `<b>Сумма 7:</b> теория 6/36 = 1/6 ≈ 0,17 · опыт ${c7}. Суммы 2 и 12: теория 1/36 ≈ 0,03 каждая.`,
+    },
+    fine: 'Каждая попытка использует криптографический генератор случайных чисел браузера. Теория предполагает идеально честные кубик, монету, вертушку и мешок; ожидаемые значения точные.',
+    fineLoaded: 'Придуманный нечестный кубик: одна грань выпадает вдвое чаще любой другой.',
+    ask: {
+      die: [
+        { q: 'Ты бросишь честный кубик 60 раз. Что получится?', opts: ['🎯 Каждое число выпадет ровно 10 раз', '6️⃣ Шестёрок будет меньше: 6 выбросить труднее всего', '〰️ Примерно по 10, но не ровно'], ok: 2,
+          v: (a, c, m) => {
+            const list = c.map((x, i) => `${i + 1}: ${x}`).join(', ');
+            let s = `Твои 60 бросков: ${list}. `;
+            s += m.exact === 6 ? 'Все грани ровно по 10 — такое бывает примерно раз на 13 000 серий по 60 бросков!' : m.exact === 0 ? 'Ни одна грань не выпала ровно 10 раз.' : `Ровно 10 раз выпало только ${m.exact} ${ruPlural(m.exact, 'число', 'числа', 'чисел')} из 6.`;
+            if (a === 1) s += m.sixLow ? ' В этот раз шестёрок меньше всего, но это случайность: у 6 такой же шанс 1/6, как у любой грани. Брось ещё раз — и, скорее всего, меньше всего будет другой грани.' : ` Выбросить 6 так же легко, как любую грань (1/6): здесь шестёрка выпала ${c[5]} ${RU_RAZ(c[5])}.`;
+            return [a === 2 ? 'Хорошая мысль!' : 'Так думают многие!', s];
+          } },
+        { q: 'Теперь 600 бросков. По сравнению с 60 доля каждой грани будет…', opts: ['ближе к 1/6', 'дальше от 1/6', 'ровно 1/6'], ok: 0,
+          v: (a, c, m) => {
+            let s = `Ожидали по 100; у тебя ${c.join(', ')}. После 60 бросков наибольшее отклонение было ${m.g60}, после 600 — ${m.g600}.`;
+            if (m.closer) s += (m.devBig ? ` Смотри: сами количества отошли от 100 дальше (до ${m.d600}), чем раньше от 10 (до ${m.d60}), но как доля от всех бросков они ближе к 1/6.` : ' Как доля от всех бросков каждая грань стала ближе к 1/6.') + ' Чем больше попыток, тем обычно ближе.';
+            else s += ' На этот раз случай нас удивил, хотя обычно становится ближе. Брось ещё 1000 раз и следи за линией отклонения.';
+            return [!m.closer ? 'Сюрприз!' : a === 0 ? 'Верно!' : a === 2 ? 'Ближе, но не ровно!' : 'Ближе, а не дальше!', s];
+          } },
+      ],
+      coin: [{ q: 'Орёл, орёл, орёл! Что вероятнее выпадет следующим?', opts: ['🔄 Решка: теперь её очередь', '🔥 Орёл: у него полоса удачи', '⚖️ Шансы равны'], ok: 2,
+        v: (a, c, m) => [a === 2 ? 'Да! У монеты нет памяти.' : 'Многим так кажется!',
+          `За 1000 бросков три одинаковых подряд выпали ${m.N} ${RU_RAZ(m.N)}. Следующий бросок совпал ${m.s} ${RU_RAZ(m.s)} и сменился ${m.d} ${RU_RAZ(m.d)}: сменился в ${m.pc} случаев.` +
+          (m.half ? ' Примерно половина — как при любом броске. Монета не помнит, что выпадало раньше.' : ' Не совсем половина: случайность всё ещё влияет. Подбрось ещё и проверь снова.')] }],
+      spin: [{ q: 'У вертушки 3 цвета. Шансы у цветов равные?', opts: ['⚖️ Да: у каждого 1 из 3', '🔴 Нет: красный вероятнее всего'], ok: 1,
+        v: (a, c, m) => [a === 1 ? 'Верно!' : 'Присмотрись!',
+          `Посчитай маленькие равные части: красных 3, синих 2, жёлтая 1, всего 6. Каждая маленькая часть равновозможна, поэтому у красного 3/6, у синего 2/6, у жёлтого 1/6. За 100 вращений: красный ${c[0]}, синий ${c[1]}, жёлтый ${c[2]}.` +
+          (m.redWins ? ' Красный впереди, потому что у него самый большой сектор.' : ' Обычно красный побеждает, но не всегда: это случайность!')] }],
+      bag: [{ q: 'В мешке 3 красных шара и 1 синий. Тянем шар, смотрим, кладём обратно — 20 раз. Сколько будет красных?', opts: ['Около 15', 'Около 10', 'Ровно 15'], ok: 0,
+        v: (a, c) => [a === 0 ? 'Хороший прогноз!' : a === 1 ? 'Не совсем!' : 'Почти!',
+          `Красных 3 из 4 шаров, значит, по теории красный выпадет в 3/4 попыток: 3/4 × 20 = 15. У тебя ${c[0]} ${ruPlural(c[0], 'красный', 'красных', 'красных')} и ${c[1]} ${ruPlural(c[1], 'синий', 'синих', 'синих')}.` +
+          (c[0] === 15 ? ' Ровно 15 — так бывает примерно в одном случае из пяти!' : Math.abs(c[0] - 15) <= 2 ? ' Близко к 15, но не ровно: опыт всегда немного колеблется.' : ' Довольно далеко от 15: 20 попыток — это немного. Попробуй 1000.')] }],
+    },
+    sc: {
+      title: 'От 0 до 1', lead0: 'Насколько это вероятно?',
+      body0: 'Любой шанс — это число от 0 до 1. 0 — невозможно: это не случится никогда. 1 — достоверно: это случится обязательно. 0,5 — равные шансы: случится или нет, одинаково вероятно. Дроби тоже подходят: 1/4 = 0,25.',
+      words: ['невозможно', 'маловероятно', 'равные шансы', 'вероятно', 'достоверно'],
+      bands: '0 — невозможно · меньше 0,5 — маловероятно · 0,5 — равные шансы · больше 0,5 — вероятно · 1 — достоверно',
+      check: '✓ Проверить', next: 'Дальше →', again: '↺ Сыграть ещё', ev: (i, n) => `Событие ${i} из ${n}`, hint: 'нажми или потяни по линии',
+      score: (r, k) => `Верное слово: ${r} из ${k}`, spot: 'В точку!', word: 'Слово верное!', miss: 'Не совсем.',
+      chance: (fr, dec, pc, w) => `Шанс: ${fr} ${dec} = ${pc}: ${w}.`, you: (d, w) => `Твой ответ: ${d} — ${w}.`, done: 'Готово! Все события на шкале.',
+      fine: 'Все шансы здесь считаются для честных кубиков и монет, и при условии, что любой шар, носок, день или часть вертушки выбирается с одинаковым шансом.',
+      ev_: {
+        sunWest: ['Завтра Солнце взойдёт на западе', 'Земля всегда вращается в одну сторону, поэтому Солнце всегда встаёт на востоке. Этого не может быть: шанс 0.'],
+        heads: ['Подбрасываешь монету — выпадает орёл', '2 равновозможные стороны, орёл — одна из них: 1/2.'],
+        six: ['Бросаешь кубик — выпадает 6', '6 равновозможных граней, шестёрка — одна из них: 1/6 ≈ 0,17.'],
+        tuesday: ['После понедельника наступает вторник', 'Так бывает всегда: шанс 1.'],
+        bagRed: ['В мешке 3 красных шара и 1 синий. Достаёшь не глядя — красный', '4 шара, любой вытащить одинаково вероятно, красных 3: 3/4 = 0,75.'],
+        weekend: ['Наугад выбираешь день недели — суббота или воскресенье', '7 дней, выходных среди них 2: 2/7 ≈ 0,29.'],
+        notSix: ['Бросаешь кубик — выпадает НЕ шестёрка', '5 граней из 6 — не шестёрка: 5/6 ≈ 0,83.'],
+        total12: ['Бросаешь два кубика — в сумме 12', 'Только 6 + 6 даёт 12: одна пара из 36 равновозможных, 1/36 ≈ 0,03. Очень маловероятно, но не невозможно!'],
+        spinBlue: ['Вертушка из 4 равных частей, одна синяя — стрелка на синем', '4 равные части, синяя одна: 1/4 = 0,25.'],
+        socks: ['В ящике 4 чёрных носка и 1 белый. Берёшь не глядя — чёрный', '5 носков, чёрных 4: 4/5 = 0,8.'],
+        even: ['Бросаешь кубик — выпадает чётное число', '2, 4 и 6 — чётные: 3 грани из 6, 3/6 = 1/2. Равные шансы!'],
+      },
+    },
+    quiz: [
+      { q: 'Честный кубик бросают 60 раз. Сколько троек ты ожидаешь?', opts: ['Ровно 10', 'Около 10', 'Около 3'], ok: 1 },
+      { q: 'Вертушка: половина красная, четверть синяя, четверть жёлтая. Что верно?', opts: ['Все 3 цвета равновероятны', 'Красный вдвое вероятнее синего', 'Жёлтый вероятнее всего'], ok: 1 },
+      { q: 'В мешке 1 красный шар и 3 синих. Где на шкале от 0 до 1 событие «вытащить красный»?', opts: ['0,25: маловероятно', '0,5: равные шансы', '0,75: вероятно'], ok: 0 },
+    ],
+  },
+  hu: {
+    name: 'Véletlenlabor', title: 'Egy dobás: meglepetés',
+    lines: [['Sok dobásnál minta rajzolódik ki:', 'minél többször próbálod, annál közelebb jutsz az elmélethez.'], ['Dobj, pörgess, húzz:', '×1 a nézéshez, ×1000 a gyorsításhoz.'], ['Tedd fel az eseményeket a skálára', '0-tól (lehetetlen) 1-ig (biztos).']],
+    views: { die: '🎲 Kocka', coin: '🪙 Érme', spin: '🎡 Pörgettyű', bag: '👝 Zsák', scale: '📏 0-tól 1-ig' },
+    verb: { die: '🎲 Dobj!', coin: '🪙 Dobd fel!', spin: '🎡 Pörgesd!', bag: '👝 Húzz!' },
+    noun: (v, n, f) => `${f} ${{ die: 'dobás', coin: 'dobás', spin: 'pörgetés', bag: 'húzás' }[v]}`,
+    again: '↺ Újra', maxed: '100 000 próbálkozás: ennyi bármelyik tudósnak elég!',
+    titles: { die: 'Szabályos kocka', two: 'Két kocka', loaded: 'Cinkelt kocka', coin: 'Szabályos érme', spin: 'Pörgettyű', bag: 'Golyók a zsákban' },
+    coin: ['F', 'I'], coinWord: ['fej', 'írás'],
+    colours: { r: 'piros', b: 'kék', y: 'sárga', g: 'zöld' },
+    oneDie: '🎲 Egy kocka', newDie: '🔁 Új cinkelt kocka', parts: 'Részek', balls: 'Golyók', makeFair: '⚖️ Legyen igazságos',
+    secrets: { two: ['Két kocka', 'Melyik összeg nyer?'], loaded: ['Cinkelt kocka', 'Keresd a nehéz lapot'] },
+    leg: ['ami kijött', 'elmélet', 'valódi esély'], gapT: 'Legnagyobb eltérés az elmélettől', gapX: 'próbálkozás',
+    start: 'nyomj meg egy gombot a kezdéshez', tapToy: 'koppints rám', tapBar: 'Koppints a gyanús oszlopra', backIn: '↩ vissza a zsákba',
+    pill: { far: 'messze az elmélettől', closer: 'közeledik', close: 'közel', very: 'nagyon közel', few: 'még túl kevés' },
+    w: { theory: 'elmélet', exp: 'kísérlet' },
+    running: { die: 'Dobunk…', coin: 'Dobunk…', spin: 'Pörgetünk…', bag: 'Húzunk…' },
+    skip: 'kérdés kihagyása', explore: 'Felfedezés →', nextQ: 'Következő kérdés →', predict: 'Előbb tippelj',
+    die: [
+      ['Hat lap, mindegyik egyformán valószínű.', 'A szabályos dobókockának 6 lapja van, és egyik sem különleges, ezért mindegyiknek ugyanakkora az esélye: 6-ból 1, vagyis 1/6. Ez az elmélet. Most dobj, és nézd meg, mi történik valójában.'],
+      ['Túl kevés dobás, még nem látszik minta.', 'Egy dobás mindig meglepetés: senki sem tudhatja, mi jön. Kevés dobásnál néhány szám pusztán szerencséből előre kerül. Ettől még nem kedveli őket jobban a kocka.'],
+      ['Kezd kirajzolódni a minta.', 'Az oszlopok a szaggatott vonal közelében vannak, de nem pontosan rajta. Az elmélet szerint minden szám a dobások 1/6 részét kapja; a kísérlet megközelíti, de szinte soha nem találja el pontosan.'],
+      ['Sok dobás: az oszlopok a vonalhoz simulnak.', 'A darabszámok még jócskán eltérhetnek, de az összes dobáshoz képest minden szám aránya közel van az 1/6-hoz. Több dobással általában még közelebb kerül: figyeld, hogyan süllyed az eltérés vonala.'],
+    ],
+    coinSt: [
+      ['Két oldal, egyforma eséllyel.', 'A fejnek és az írásnak ugyanakkora az esélye: 2-ből 1, vagyis 1/2 = 0,5. Ezek egyformán valószínű kimenetelek. Dobj, és strigulázz!'],
+      ['Egy dobás meglepetés.', 'Kevés dobásnál könnyen lehet több fej, mint írás, vagy hosszú sorozat az egyik oldalból. Ez szerencse, nem szabályosság. Próbálj 20 dobást: pontosan 10 fej csak az esetek kb. 18%-ában jön ki.'],
+      ['Kezd kirajzolódni a minta.', 'A fejek aránya az 1/2 felé tart, de fel-le ingadozik. Ez az ingadozás természetes: minden kísérletben megvan.'],
+      ['Sok dobás: nagyon közel az 1/2-hez.', 'A fejek és írások száma még jócskán eltérhet, de az összes dobáshoz képest mindkettő aránya nagyon közel van a 0,5-höz. A kísérleti valószínűség közelít az elméletihez.'],
+    ],
+    two: ['A 7 a legvalószínűbb összeg.', 'Mindkét kockának 6 lapja van, így 6 × 6 = 36 egyformán valószínű pár van. Hat pár adja a 7-et (1+6, 2+5, 3+4, 4+3, 5+2, 6+1), de a 2-t csak egy (1+1), és a 12-t is csak egy (6+6). Minden pár egyformán valószínű, az összegek viszont nem.'],
+    loaded0: ['Az egyik lap nehezebb. Melyik?', 'A szaggatott vonal a szabályos kockát mutatja: minden lapnak 1/6. Dobj sokat, aztán koppints arra az oszlopra, amelyik szerinted cinkelt. Néhány dobás könnyen becsap, száz meg száz dobás már nehezen.'],
+    loadedRight: (f) => `Megvan: ${az(f)} ${HU_FACE[f - 1]} a cinkelt!`, loadedWrong: (f, g) => `Nem ${az(g)} ${HU_FACE[g - 1]}: ${az(f)} ${HU_FACE[f - 1]} volt a cinkelt.`,
+    loaded1: 'A cinkelt lap 7 dobásból átlagosan kétszer jön ki (≈ 0,29), nem 1/6 eséllyel (≈ 0,17). Ha a kísérlet sok próbálkozás után is messze marad az elmélettől, akkor az elmélet a hibás: ez a kocka nem szabályos. Nézd az eltérés vonalát: nem süllyed tovább.',
+    spinLead: { equal: 'Egyenlő részek: egyformán valószínű színek.', unequal: 'Különböző részek: nem egyformán valószínű.', single: 'Csak egy szín: biztos.' },
+    bagLead: { equal: 'Minden színből ugyanannyi: egyformán valószínű.', unequal: 'Nem ugyanannyi: nem egyformán valószínű.', single: 'Csak egy szín: biztos.' },
+    spinBody: (tot) => `A pörgettyű ${tot} egyenlő kis részből áll, és a mutató mindegyiken ugyanakkora eséllyel állhat meg. Ezek az egyformán valószínű kimenetelek. Egy szín esélye = a részei ÷ ${tot}.`,
+    bagBody: (tot) => `A zsákban ${tot} golyó van, és mindegyiket ugyanakkora eséllyel húzhatjuk ki: ezek az egyformán valószínű kimenetelek. Egy szín esélye = az ilyen színű golyók ÷ ${tot}. Húzás után a golyót visszatesszük, így az esélyek nem változnak.`,
+    same: ' Minden színből ugyanannyi van, ezért az esélyük is egyforma.',
+    most: (s) => ` A legvalószínűbb: ${s}.`, zero: (s) => ` ${s}: egy sincs, tehát lehetetlen (esély 0).`, certain: ' Egy szín tölt ki mindent, tehát biztos (esély 1).',
+    and: ' és ',
+    x: {
+      dieTh: '<b>Elmélet:</b> minden lap esélye 1/6 ≈ 0,17.', coinTh: '<b>Elmélet:</b> fej 1/2 = 0,5, írás 1/2 = 0,5.',
+      die: (n, e) => `<b>Elmélet:</b> minden lap esélye 1/6 ≈ 0,17. Várható darabszám laponként: ${n} × 1/6 ${e}.`,
+      mm: (a, at, b, bt) => `<b>Kísérlet:</b> legtöbbször: ${a} (${at}), legritkábban: ${b} (${bt}).`,
+      after6: (k, m, pc) => `Egy hatos után ${m} esetből ${k} alkalommal jött újra hatos (${pc}). Elmélet: 1/6 ≈ 17%. A kockának nincs emlékezete.`,
+      coin: (h, ht, e, n) => `<b>Fej:</b> kísérlet ${h}/${n} ${ht} · elmélet 1/2 = 0,5. Várható fejek száma: ${n} × 1/2 ${e}.`,
+      streak: (s, d, pc) => `Három egyforma után (FFF vagy III) a következő dobás ${s} alkalommal ugyanaz lett, ${d} alkalommal más: az esetek ${pc}-ában más. Az érmének nincs emlékezete.`,
+      noStreak: 'Még nem jött ki háromszor ugyanaz egymás után.',
+      two: (c7) => `<b>7-es összeg:</b> elmélet 6/36 = 1/6 ≈ 0,17 · kísérlet ${c7}. 2-es és 12-es összeg: elmélet 1/36 ≈ 0,03 mindkettő.`,
+    },
+    fine: 'Minden próbálkozáshoz a böngésző kriptográfiai véletlenszám-generátorát használjuk. Az elmélet tökéletesen szabályos kockát, érmét, pörgettyűt és zsákot feltételez; a várható értékek pontosak.',
+    fineLoaded: 'Kitalált cinkelt kocka: az egyik lap kétszer olyan valószínű, mint bármelyik másik.',
+    ask: {
+      die: [
+        { q: 'Hatvanszor dobsz egy szabályos kockával. Mi lesz?', opts: ['🎯 Minden szám pontosan tízszer jön ki', '6️⃣ Kevesebb hatos lesz: azt a legnehezebb dobni', '〰️ Nagyjából tízszer mindegyik, de nem pontosan'], ok: 2,
+          v: (a, c, m) => {
+            const list = c.map((x, i) => `${i + 1}: ${x}`).join(', ');
+            let s = `A 60 dobásod: ${list}. `;
+            s += m.exact === 6 ? 'Mindegyik pontosan tízszer – ez nagyjából 13 000 hatvandobásos sorozatból egyszer fordul elő!' : m.exact === 0 ? 'Egyik szám sem jött ki pontosan tízszer.' : `A hat számból csak ${m.exact} jött ki pontosan tízszer.`;
+            if (a === 1) s += m.sixLow ? ' Most a hatos jött ki a legkevesebbszer, de ez szerencse: a hatosnak is 1/6 az esélye, mint bármelyik lapnak. Dobj újra, és valószínűleg egy másik szám lesz a legritkább.' : ` A hatost ugyanolyan könnyű dobni, mint bármelyik számot (1/6): itt ${c[5]} alkalommal jött ki.`;
+            return [a === 2 ? 'Jó gondolat!' : 'Sokan gondolják így!', s];
+          } },
+        { q: 'Most 600 dobás. A 60 dobáshoz képest az egyes számok aránya…', opts: ['közelebb lesz az 1/6-hoz', 'távolabb lesz az 1/6-tól', 'pontosan 1/6 lesz'], ok: 0,
+          v: (a, c, m) => {
+            let s = `Mindegyikből 100 lenne a várható; neked ${c.join(', ')} jött ki. 60 dobás után a legnagyobb eltérés ${m.g60} volt, 600 után ${m.g600}.`;
+            if (m.closer) s += (m.devBig ? ` Nézd: maguk a darabszámok messzebb kerültek a 100-tól (legfeljebb ${m.d600}), mint korábban a 10-től (legfeljebb ${m.d60}), az összes dobáshoz viszonyított arányuk mégis közelebb van az 1/6-hoz.` : ' Az összes dobáshoz viszonyítva minden szám aránya közelebb került az 1/6-hoz.') + ' Több próbálkozással általában közelebb kerül.';
+            else s += ' Most meglepett minket a véletlen, pedig általában közelebb kerül. Dobj még ezret, és figyeld az eltérés vonalát.';
+            return [!m.closer ? 'Meglepetés!' : a === 0 ? 'Eltaláltad!' : a === 2 ? 'Közelebb, de nem pontosan!' : 'Közelebb, nem távolabb!', s];
+          } },
+      ],
+      coin: [{ q: 'Fej, fej, fej! Mi jön a legvalószínűbben a következő dobásnál?', opts: ['🔄 Írás: most az jön', '🔥 Fej: most az megy', '⚖️ Egyforma az esélyük'], ok: 2,
+        v: (a, c, m) => [a === 2 ? 'Igen! Az érmének nincs emlékezete.' : 'Sokan érzik így!',
+          `1000 dobásból ${m.N} alkalommal jött ki háromszor ugyanaz egymás után. Utána a következő dobás ${m.s} alkalommal ugyanaz lett, ${m.d} alkalommal más: az esetek ${m.pc}-ában más.` +
+          (m.half ? ' Nagyjából a fele, mint bármelyik dobásnál. Az érme nem emlékszik, mi volt előtte.' : ' Nem egészen a fele: a szerencse még belejátszik. Dobj még, és nézd meg újra.')] }],
+      spin: [{ q: 'Ennek a pörgettyűnek 3 színe van. Mindhárom egyformán valószínű?', opts: ['⚖️ Igen: mindegyik 3-ból 1', '🔴 Nem: a piros a legvalószínűbb'], ok: 1,
+        v: (a, c, m) => [a === 1 ? 'Így van!' : 'Nézd meg jobban!',
+          `Számold meg a kis egyenlő részeket: 3 piros, 2 kék, 1 sárga, összesen 6. Minden kis rész egyformán valószínű, ezért a piros esélye 3/6, a kéké 2/6, a sárgáé 1/6. 100 pörgetésből: piros ${c[0]}, kék ${c[1]}, sárga ${c[2]}.` +
+          (m.redWins ? ' A piros vezet, mert neki van a legnagyobb része.' : ' Általában a piros nyer, de nem mindig: ez a véletlen!')] }],
+      bag: [{ q: 'A zsákban 3 piros és 1 kék golyó van. Húzunk egyet, megnézzük, visszatesszük – hússzor. Hány piros lesz?', opts: ['Körülbelül 15', 'Körülbelül 10', 'Pontosan 15'], ok: 0,
+        v: (a, c) => [a === 0 ? 'Jó tipp!' : a === 1 ? 'Nem egészen!' : 'Majdnem!',
+          `A 4 golyóból 3 piros, ezért az elmélet szerint a húzások 3/4 része piros: 3/4 × 20 = 15. Neked ${c[0]} piros és ${c[1]} kék jött ki.` +
+          (c[0] === 15 ? ' Most pontosan 15 – ez csak nagyjából minden ötödik alkalommal jön össze!' : Math.abs(c[0] - 15) <= 2 ? ' Közel van a 15-höz, de nem pontosan: a kísérlet mindig ingadozik.' : ' Elég messze van a 15-től: 20 húzás nem sok. Próbálj ezret.')] }],
+    },
+    sc: {
+      title: '0-tól 1-ig', lead0: 'Mennyire valószínű?',
+      body0: 'Minden esély egy szám 0 és 1 között. A 0 azt jelenti: lehetetlen, sosem történik meg. Az 1 azt jelenti: biztos, mindig megtörténik. A 0,5 egyenlő esély: ugyanannyira valószínű, hogy megtörténik, mint hogy nem. Törtekkel is megy: 1/4 = 0,25.',
+      words: ['lehetetlen', 'nem valószínű', 'egyenlő esély', 'valószínű', 'biztos'],
+      bands: '0 lehetetlen · 0,5 alatt nem valószínű · 0,5 egyenlő esély · 0,5 fölött valószínű · 1 biztos',
+      check: '✓ Ellenőrzés', next: 'Tovább →', again: '↺ Újra', ev: (i, n) => `${i}. esemény / ${n}`, hint: 'koppints vagy húzz a vonalon',
+      score: (r, k) => `Jó szó: ${r} / ${k}`, spot: 'Telitalálat!', word: 'Jó szó!', miss: 'Nem egészen.',
+      chance: (fr, dec, pc, w) => `Esély: ${fr} ${dec} = ${pc}: ${w}.`, you: (d, w) => `A te válaszod: ${d} – ${w}.`, done: 'Kész! Minden esemény a skálán van.',
+      fine: 'Minden esélyt szabályos kockára és érmére számolunk, és úgy, hogy minden golyót, zoknit, napot vagy pörgettyűrészt ugyanakkora eséllyel választunk.',
+      ev_: {
+        sunWest: ['Holnap nyugaton kel fel a Nap', 'A Föld mindig ugyanarra forog, ezért a Nap mindig keleten kel fel. Ez nem történhet meg: az esélye 0.'],
+        heads: ['Feldobsz egy érmét, és fej lesz', '2 egyformán valószínű oldal, ebből 1 a fej: 1/2.'],
+        six: ['Dobsz egy kockával, és hatos lesz', '6 egyformán valószínű lap, ebből 1 a hatos: 1/6 ≈ 0,17.'],
+        tuesday: ['A hétfő utáni nap kedd', 'Ez mindig így van: az esélye 1.'],
+        bagRed: ['A zsákban 3 piros és 1 kék golyó van. Vakon húzol egyet: piros', '4 golyó, mindegyik egyformán valószínű, ebből 3 piros: 3/4 = 0,75.'],
+        weekend: ['Találomra választasz egy napot a hétből: szombat vagy vasárnap', '7 nap, ebből 2 hétvégi: 2/7 ≈ 0,29.'],
+        notSix: ['Dobsz egy kockával, és NEM hatos lesz', 'A 6 lapból 5 nem hatos: 5/6 ≈ 0,83.'],
+        total12: ['Két kockával dobsz, és az összeg 12', 'Csak a 6 + 6 adja a 12-t: 36 egyformán valószínű párból 1, vagyis 1/36 ≈ 0,03. Nagyon kicsi az esély, de nem lehetetlen!'],
+        spinBlue: ['A pörgettyű 4 egyenlő részből áll, ebből 1 kék: kéken áll meg', '4 egyenlő rész, ebből 1 kék: 1/4 = 0,25.'],
+        socks: ['A fiókban 4 fekete és 1 fehér zokni van. Vakon kihúzol egyet: fekete', '5 zokni, ebből 4 fekete: 4/5 = 0,8.'],
+        even: ['Dobsz egy kockával, és páros szám lesz', 'A 2, a 4 és a 6 páros: 6 lapból 3, vagyis 3/6 = 1/2. Egyenlő esély!'],
+      },
+    },
+    quiz: [
+      { q: 'Egy szabályos kockával hatvanszor dobunk. Hány hármast vársz?', opts: ['Pontosan 10-et', 'Körülbelül 10-et', 'Körülbelül 3-at'], ok: 1 },
+      { q: 'A pörgettyű fele piros, negyede kék, negyede sárga. Mi igaz?', opts: ['Mindhárom szín egyformán valószínű', 'A piros kétszer olyan valószínű, mint a kék', 'A sárga a legvalószínűbb'], ok: 1 },
+      { q: 'A zsákban 1 piros és 3 kék golyó van. Hová kerül a „piros golyót húzunk” esemény a 0–1 skálán?', opts: ['0,25: nem valószínű', '0,5: egyenlő esély', '0,75: valószínű'], ok: 0 },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_J4j7d3iAfg', en: 'Simple Chance Experiments', ru: 'Простые опыты со случайностью', hu: 'Egyszerű véletlenkísérletek' },
+  { id: 'mt_xSgAgg9Ej_', en: 'Equally Likely Outcomes', ru: 'Равновозможные исходы', hu: 'Egyformán valószínű kimenetelek' },
+  { id: 'mt_-bMnJcPJy8', en: 'Experimental vs Theoretical', ru: 'Опытная и теоретическая вероятность', hu: 'Kísérleti és elméleti valószínűség' },
+  { id: 'mt_t0g2SlP404', en: 'The 0-to-1 Probability Scale', ru: 'Шкала вероятности от 0 до 1', hu: 'A 0-tól 1-ig terjedő valószínűségi skála' },
+  { id: 'mt_sHJqh6UUya', en: 'Experimental probability', ru: 'Опытная вероятность', hu: 'Kísérleti valószínűség' },
+];
+// events for the 0–1 scale: every chance is exact (num/den), worked out from equally likely outcomes
+const EVENTS = [
+  ['sunWest', '🌅', 0, 1], ['heads', '🪙', 1, 2], ['six', '🎲', 1, 6], ['tuesday', '📅', 1, 1], ['bagRed', '👝', 3, 4], ['weekend', '🗓️', 2, 7],
+  ['notSix', '🎲', 5, 6], ['total12', '🎲', 1, 36], ['spinBlue', '🎡', 1, 4], ['socks', '🧦', 4, 5], ['even', '🎲', 1, 2],
+];
+
+// --- random numbers: crypto.getRandomValues, unbiased integers by rejection -----------------------------------
+const rbuf = new Uint32Array(4096); let rpos = rbuf.length;
+const hasCrypto = typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function';
+function u32() {
+  if (rpos >= rbuf.length) {
+    if (hasCrypto) crypto.getRandomValues(rbuf); else for (let i = 0; i < rbuf.length; i++) rbuf[i] = Math.floor(Math.random() * 4294967296);
+    rpos = 0;
+  }
+  return rbuf[rpos++];
+}
+// a whole number in [0, n), every value exactly equally likely (no modulo bias)
+function randInt(n) { const lim = 4294967296 - (4294967296 % n); let x; do x = u32(); while (x >= lim); return x % n; }
+const rand01 = () => u32() / 4294967296;
+
+// --- number helpers ------------------------------------------------------------------------------------------
+const gcd = (a, b) => { while (b) [a, b] = [b, a % b]; return a; };
+const nf = (x, d = 2) => new Intl.NumberFormat(lang, { maximumFractionDigits: d }).format(x);
+const fmt = (n) => new Intl.NumberFormat(lang).format(n);
+const pct = (x, d = 1) => new Intl.NumberFormat(lang, { style: 'percent', maximumFractionDigits: d }).format(x);
+// "= 0.25" when the decimal is exact (up to 3 places), "≈ 0.17" otherwise
+function decOf(a, b) {
+  if (!b) return '';
+  for (const d of [0, 1, 2, 3]) if ((a * 10 ** d) % b === 0) return `= ${nf(a / b, d)}`;
+  return `≈ ${nf(a / b, 2)}`;
+}
+function fracTxt(a, b) {
+  if (a === 0 || a === b) return `${a}/${b}`;
+  const g = gcd(a, b);
+  return g > 1 ? `${a}/${b} = ${b / g === 1 ? a / g : `${a / g}/${b / g}`}` : `${a}/${b}`;
+}
+const sum = (xs) => xs.reduce((s, x) => s + x, 0);
+const mod = (a, m) => ((a % m) + m) % m;
+const ease = (p) => 1 - Math.pow(1 - p, 3);
+
+// --- the experiments -----------------------------------------------------------------------------------------
+const COL = { r: '#ff5a4f', b: '#4ea8ff', y: '#f5c84c', g: '#3ddc97' };
+const SPIN_C = ['r', 'b', 'y'], BAG_C = ['r', 'b', 'g'];
+const MAX = 100000;
+const S = {
+  dieMode: 'die', spin: [3, 2, 1], bag: [3, 1, 0], loadedFace: randInt(6), loadedGuess: null, spinAng: -Math.PI / 2 + 0.4,
+  ask: {}, snap60: null,
+  sc: { i: 0, guess: null, checked: false, right: 0, placed: [], drag: false },
+};
+const ASK_VIEWS = ['die', 'coin', 'spin', 'bag'];
+for (const v of ASK_VIEWS) S.ask[v] = { step: 0, phase: store.get('chance:asked:' + v, false) ? 'done' : 'q', ans: null };
+const ASKS = {
+  die: [{ n: 60, reset: true }, { n: 540 }],
+  coin: [{ n: 1000, reset: true }],
+  spin: [{ n: 100, reset: true, prep: () => { S.spin = [3, 2, 1]; } }],
+  bag: [{ n: 20, reset: true, prep: () => { S.bag = [3, 1, 0]; } }],
+};
+const modeOf = (v) => (v === 'die' ? S.dieMode : v);
+const viewOf = (key) => (key === 'two' || key === 'loaded' ? 'die' : key);
+
+// weights w (what really happens) and th (the theory drawn as the dashed line); they differ only for the loaded die
+function E(key) {
+  let w, th;
+  if (key === 'die') w = [1, 1, 1, 1, 1, 1];
+  else if (key === 'two') w = [1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1];
+  else if (key === 'loaded') { w = [1, 1, 1, 1, 1, 1].map((x, i) => (i === S.loadedFace ? 2 : 1)); th = [1, 1, 1, 1, 1, 1]; }
+  else if (key === 'coin') w = [1, 1];
+  else if (key === 'spin') w = S.spin.slice();
+  else w = S.bag.slice();
+  th ??= w;
+  const tot = sum(w), ttot = sum(th);
+  return { key, w, tot, th, ttot, p: th.map((x) => x / ttot), k: w.length };
+}
+function newRun(key) {
+  const k = E(key).k;
+  return { key, n: 0, counts: new Array(k).fill(0), gaps: new Float32Array(MAX + 1), last: [], disp: new Float32Array(k),
+    after6: { n: 0, six: 0 }, streak: { n: 0, same: 0, diff: 0 }, pair: [3, 4], lastU: -1 };
+}
+const runs = {};
+const run = (key) => (runs[key] ??= newRun(key));
+function resetRun(key) {
+  runs[key] = newRun(key);
+  if (A.qKey === key) { A.queue = 0; A.rate = 0; A.acc = 0; }
+  if (A.single?.key === key) A.single = null;
+}
+const unitAngle = (x, tot) => -Math.PI / 2 + (x / tot) * 2 * Math.PI;
+
+// one try: which outcome, plus what the animation needs (the two dice, the spinner angle, which counter)
+function draw1(key) {
+  if (key === 'two') { const a = randInt(6) + 1, b = randInt(6) + 1; return { out: a + b - 2, extra: [a, b] }; }
+  const e = E(key), u = randInt(e.tot);
+  let acc = 0, out = 0;
+  for (let i = 0; i < e.k; i++) { acc += e.w[i]; if (u < acc) { out = i; break; } }
+  if (key === 'spin') return { out, extra: unitAngle(u + 0.12 + rand01() * 0.76, e.tot) };
+  return { out, extra: u };
+}
+function apply(key, out, extra) {
+  const r = run(key), e = E(key), prev = r.last;
+  if ((key === 'die' || key === 'loaded') && prev.length && prev[prev.length - 1] === 5) { r.after6.n++; if (out === 5) r.after6.six++; }
+  if (key === 'coin' && prev.length >= 3) {
+    const a = prev[prev.length - 1];
+    if (prev[prev.length - 2] === a && prev[prev.length - 3] === a) { r.streak.n++; if (out === a) r.streak.same++; else r.streak.diff++; }
+  }
+  r.counts[out]++; r.n++;
+  let g = 0;
+  for (let i = 0; i < e.k; i++) g = Math.max(g, Math.abs(r.counts[i] / r.n - e.p[i]));
+  r.gaps[r.n] = g;
+  prev.push(out); if (prev.length > 14) prev.shift();
+  if (key === 'two') r.pair = extra;
+  if (key === 'spin') S.spinAng = extra;
+  if (key === 'bag') r.lastU = extra;
+}
+
+// --- animation: one animated try, or a fast-forward queue -------------------------------------------------------
+const A = { single: null, queue: 0, qKey: null, rate: 0, acc: 0, fc: 0 };
+const durFor = (k) => clamp(0.55 + Math.log10(Math.max(1, k)) * 0.25, 0.6, 1.4);
+function flushQueue() { while (A.queue > 0) { const { out, extra } = draw1(A.qKey); apply(A.qKey, out, extra); A.queue--; } A.rate = 0; A.acc = 0; }
+function rollOne(key) {
+  const r = run(key);
+  if (r.n >= MAX) return;
+  if (A.single || A.queue) return addQueue(key, 1);
+  const { out, extra } = draw1(key);
+  const s = { key, out, extra, t: 0, dur: 0.8 };
+  if (key === 'coin') { s.dur = 1.0; s.start = r.last.length ? r.last[r.last.length - 1] : 0; s.H = 8 + ((s.start + out) % 2); }
+  if (key === 'spin') { s.dur = 1.7; s.a0 = S.spinAng; s.a1 = s.a0 + 6 * Math.PI + mod(extra - s.a0, 2 * Math.PI); }
+  if (key === 'bag') s.dur = 1.0;
+  A.single = s; sfx.push();
+}
+function addQueue(key, k) {
+  if (A.queue && A.qKey !== key) flushQueue();
+  const r = run(key), pending = A.qKey === key ? A.queue : 0;
+  k = Math.min(k, MAX - r.n - pending);
+  if (k <= 0) return info();
+  A.qKey = key; A.queue += k; A.rate = Math.max(A.rate, A.queue / durFor(A.queue)); sfx.push();
+}
+function step(dt) {
+  dt = Math.max(0, dt); // the first rAF timestamp can be a little older than the loop’s start time
+  if (A.single) {
+    const s = A.single; s.t += dt;
+    if (s.t >= s.dur) { A.single = null; apply(s.key, s.out, s.extra); sfx.snap(); if (!A.queue) batchDone(); else info(); }
+  }
+  if (A.queue > 0 && !A.single) {
+    A.acc += A.rate * dt;
+    const m = Math.max(0, Math.min(A.queue, Math.floor(A.acc)));
+    A.acc -= m;
+    for (let i = 0; i < m; i++) { const { out, extra } = draw1(A.qKey); apply(A.qKey, out, extra); }
+    A.queue -= m;
+    if (m && ++A.fc % 3 === 0) sfx.tick();
+    if (A.queue === 0) { A.rate = 0; A.acc = 0; batchDone(); }
+    else if (m && A.fc % 4 === 0) info();
+  }
+}
+function batchDone() {
+  for (const v of ASK_VIEWS) {
+    const st = S.ask[v];
+    if (st.phase === 'run') {
+      st.phase = 'v';
+      if (v === 'die' && st.step === 0) S.snap60 = run('die').counts.slice();
+      if (v === lab.view) { renderAsk(); buildCtrl(); }
+    }
+  }
+  info();
+}
+
+// --- shell ----------------------------------------------------------------------------------------------------
+const VIEWS = ['die', 'coin', 'spin', 'bag', 'scale'];
+const lab = shell({ key: 'chance', T, topics: TOPICS, views: VIEWS, onLang: render, onView: () => { S.sc.drag = false; render(); } });
+const secret = secretLab('chance', () => ({
+  secrets: [{ emo: '🎲', title: T[lang].secrets.two[0], desc: T[lang].secrets.two[1] }, { emo: '⚖️', title: T[lang].secrets.loaded[0], desc: T[lang].secrets.loaded[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+const askEl = Object.assign(document.createElement('div'), { className: 'ask card' });
+const evEl = Object.assign(document.createElement('div'), { className: 'ask card' });
+$('overlay').append(askEl, evEl);
+const askActive = (v) => ASK_VIEWS.includes(v) && S.ask[v].phase !== 'done';
+
+// --- controls -------------------------------------------------------------------------------------------------
+function buildCtrl() {
+  const t = T[lang], v = lab.view;
+  if (v === 'scale') {
+    const sc = S.sc, over = sc.i >= EVENTS.length;
+    $('ctrlBody').innerHTML = `<div class="rolls">
+      ${over ? `<button class="btn" data-act="restart">${esc(t.sc.again)}</button>`
+        : `<button class="btn" data-act="check" ${sc.guess === null || sc.checked ? 'disabled' : ''}>${esc(t.sc.check)}</button>
+           <button class="chip" data-act="next" ${sc.checked ? '' : 'disabled'}>${esc(t.sc.next)}</button>`}
+      <span class="score" style="margin-left:auto">${sc.placed.length ? esc(t.sc.score(sc.right, sc.placed.length)) : ''}</span></div>`;
+    return;
+  }
+  const key = modeOf(v), busy = askActive(v), dis = busy ? 'disabled' : '';
+  let opts = '';
+  if (v === 'die') {
+    const open = secret.unlocked();
+    const sc = (k, emo) => `<button class="chip secret ${open ? 'open' : ''} ${S.dieMode === k ? 'on' : ''}" data-mode="${k}" ${dis}>${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+    opts = `<div class="chips" style="margin-top:12px">${sc('two', '🎲')}<button class="chip ${S.dieMode === 'die' ? 'on' : ''}" data-mode="die" ${dis}>${esc(t.oneDie)}</button>${sc('loaded', '⚖️')}
+      ${S.dieMode === 'loaded' ? `<button class="chip ghost" data-act="newdie">${esc(t.newDie)}</button>` : ''}</div>`;
+  }
+  if (v === 'spin' || v === 'bag') {
+    const arr = v === 'spin' ? S.spin : S.bag, cols = v === 'spin' ? SPIN_C : BAG_C, mx = v === 'spin' ? 6 : 10;
+    opts = `<div class="row2"><span class="lbl">${esc(v === 'spin' ? t.parts : t.balls)}</span>
+      ${arr.map((x, i) => `<span class="stp"><i class="dot" style="background:${COL[cols[i]]}"></i><button data-act="dec" data-i="${i}" aria-label="− ${esc(t.colours[cols[i]])}" ${busy || x === 0 || sum(arr) <= 1 ? 'disabled' : ''}>−</button><b>${x}</b><button data-act="inc" data-i="${i}" aria-label="+ ${esc(t.colours[cols[i]])}" ${busy || x >= mx ? 'disabled' : ''}>+</button></span>`).join('')}
+      ${v === 'spin' ? `<button class="chip" data-act="fair" ${dis}>${esc(t.makeFair)}</button>` : ''}</div>`;
+  }
+  $('ctrlBody').innerHTML = `<div class="rolls">
+    <button class="btn" data-act="r1" ${dis}>${esc(t.verb[v])}</button>
+    ${[10, 100, 1000].map((k) => `<button class="chip" data-act="r${k}" ${dis}>×${fmt(k)}</button>`).join('')}
+    <button class="chip ghost" data-act="reset" ${dis}>${esc(t.again)}</button></div>${opts}`;
+}
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b || b.disabled) return;
+  const v = lab.view, act = b.dataset.act;
+  if (b.dataset.mode) {
+    const m = b.dataset.mode;
+    if (m !== 'die' && !secret.unlocked()) return secret.open();
+    S.dieMode = m; S.loadedGuess = null; sfx.click(); return render();
+  }
+  if (v === 'scale') {
+    const sc = S.sc;
+    if (act === 'check') checkScale();
+    else if (act === 'next') { sc.i++; sc.guess = null; sc.checked = false; sfx.click(); }
+    else if (act === 'restart') { S.sc = { i: 0, guess: null, checked: false, right: 0, placed: [], drag: false }; sfx.click(); }
+    return render();
+  }
+  const key = modeOf(v);
+  if (act === 'r1') rollOne(key);
+  else if (act?.[0] === 'r' && act !== 'reset') addQueue(key, +act.slice(1));
+  else if (act === 'reset') { resetRun(key); if (key === 'loaded') { S.loadedGuess = null; } sfx.click(); }
+  else if (act === 'newdie') { S.loadedFace = randInt(6); S.loadedGuess = null; resetRun('loaded'); sfx.snap(); }
+  else if (act === 'inc' || act === 'dec' || act === 'fair') {
+    const arr = v === 'spin' ? S.spin : S.bag, i = +b.dataset.i;
+    if (act === 'fair') arr.splice(0, 3, 2, 2, 2);
+    else arr[i] = clamp(arr[i] + (act === 'inc' ? 1 : -1), 0, v === 'spin' ? 6 : 10);
+    if (sum(arr) === 0) arr[i] = 1;
+    resetRun(key); sfx.tick(); buildCtrl();
+  }
+  info();
+});
+
+// --- the prediction card ---------------------------------------------------------------------------------------
+function askMeta(v) {
+  const r = run(v === 'die' ? 'die' : v), c = r.counts, m = {};
+  if (v === 'die') {
+    const st = S.ask.die;
+    if (st.step === 0) { m.exact = c.filter((x) => x === 10).length; m.sixLow = c[5] === Math.min(...c); }
+    else {
+      const s60 = S.snap60 ?? c, g60 = r.gaps[60], g600 = r.gaps[r.n];
+      m.g60 = pct(g60); m.g600 = pct(g600); m.closer = g600 < g60;
+      m.d60 = Math.max(...s60.map((x) => Math.abs(x - 10))); m.d600 = Math.max(...c.map((x) => Math.abs(x - r.n / 6)));
+      m.d600 = fmt(Math.round(m.d600 * 10) / 10); m.devBig = Math.max(...c.map((x) => Math.abs(x - r.n / 6))) > m.d60;
+    }
+  }
+  if (v === 'coin') { const s = r.streak; m.N = s.n; m.s = s.same; m.d = s.diff; m.pc = s.n ? pct(s.diff / s.n) : '—'; m.half = s.n > 0 && Math.abs(s.diff / s.n - 0.5) <= 0.08; }
+  if (v === 'spin') m.redWins = c[0] > c[1] && c[0] > c[2];
+  return { c, m };
+}
+function renderAsk() {
+  const t = T[lang], v = lab.view;
+  evEl.style.display = v === 'scale' ? '' : 'none';
+  if (v === 'scale') renderEvent();
+  if (!askActive(v)) { askEl.style.display = 'none'; return; }
+  const st = S.ask[v], q = t.ask[v][st.step], n = t.ask[v].length;
+  askEl.style.display = '';
+  const kick = `<div class="kick">🔮 ${esc(t.predict)}${n > 1 ? ` · ${st.step + 1}/${n}` : ''}</div>`;
+  if (st.phase === 'q') {
+    askEl.innerHTML = `${kick}<div class="q">${esc(q.q)}</div><div class="opts">${q.opts.map((o, j) => `<button data-a="${j}">${esc(o)}</button>`).join('')}</div>
+      <button class="skip" data-skip="1">${esc(t.skip)}</button>`;
+  } else if (st.phase === 'run') {
+    askEl.innerHTML = `${kick}<div class="q">${esc(q.q)}</div><div class="opts"><button class="pick" disabled>${esc(q.opts[st.ans])}</button></div><p style="margin-top:8px">${esc(t.running[v])}</p>`;
+  } else {
+    const { c, m } = askMeta(v), [head, text] = q.v(st.ans, c, m), last = st.step + 1 >= n;
+    const good = st.ans === q.ok;
+    askEl.innerHTML = `<div class="verdict" style="color:${good ? 'var(--ok)' : 'var(--wip)'}">${esc(head)}</div><p>${esc(text)}</p>
+      <div class="opts"><button data-next="1">${esc(last ? t.explore : t.nextQ)}</button></div>`;
+  }
+}
+askEl.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b || b.disabled) return;
+  const v = lab.view, st = S.ask[v]; if (!st) return;
+  if (b.dataset.a !== undefined && st.phase === 'q') {
+    const cfg = ASKS[v][st.step];
+    st.ans = +b.dataset.a; cfg.prep?.();
+    if (v === 'die') S.dieMode = 'die';
+    const key = v === 'die' ? 'die' : v;
+    if (cfg.reset) resetRun(key);
+    st.phase = 'run'; sfx.click();
+    addQueue(key, cfg.n);
+  } else if (b.dataset.next) {
+    st.step++;
+    if (st.step < ASKS[v].length) st.phase = 'q';
+    else { st.phase = 'done'; store.set('chance:asked:' + v, true); }
+    sfx.click();
+  } else if (b.dataset.skip) { st.phase = 'done'; store.set('chance:asked:' + v, true); sfx.click(); }
+  render();
+});
+
+// --- the 0–1 scale game -------------------------------------------------------------------------------------------
+const wordIdx = (p) => (p <= 0 ? 0 : p < 0.5 ? 1 : p === 0.5 ? 2 : p < 1 ? 3 : 4);
+const WORD_COL = ['#ff5a4f', '#ff9f43', '#f5c84c', '#9be15d', '#3ddc97'];
+const evFrac = (a, b) => (a === 0 ? '0' : a === b ? '1' : `${a}/${b}`);
+function renderEvent() {
+  const t = T[lang], sc = S.sc;
+  if (sc.i >= EVENTS.length) { evEl.innerHTML = `<div class="q">🏁 ${esc(t.sc.done)}</div><p>${esc(t.sc.score(sc.right, sc.placed.length))}</p>`; return; }
+  const [id, emo, a, b] = EVENTS[sc.i], [text] = t.sc.ev_[id];
+  let extra = '';
+  if (sc.checked) {
+    const p = a / b, ok = wordIdx(sc.guess) === wordIdx(p), close = Math.abs(sc.guess - p) <= 0.08;
+    extra = `<div class="verdict" style="color:${ok ? 'var(--ok)' : 'var(--wip)'}">${esc(ok && close ? t.sc.spot : ok ? t.sc.word : t.sc.miss)}</div>`;
+  }
+  evEl.innerHTML = `<div class="kick">${esc(t.sc.ev(sc.i + 1, EVENTS.length))}</div><div class="q">${emo} ${esc(text)}</div>${extra}`;
+}
+function checkScale() {
+  const sc = S.sc; if (sc.guess === null || sc.checked) return;
+  const [, emo, a, b] = EVENTS[sc.i], p = a / b;
+  sc.checked = true;
+  const ok = wordIdx(sc.guess) === wordIdx(p);
+  if (ok) sc.right++;
+  sc.placed.push({ p, emo });
+  (ok ? sfx.good : sfx.bad)();
+}
+
+// --- the explanation card and the readout ------------------------------------------------------------------------
+const GLOW = { die: 'rgba(78,168,255,.28)', coin: 'rgba(245,200,76,.26)', spin: 'rgba(168,85,247,.26)', bag: 'rgba(61,220,151,.24)', scale: 'rgba(255,159,67,.26)' };
+const EMO = { die: '🎲', two: '🎲', loaded: '⚖️', coin: '🪙', spin: '🎡', bag: '👝' };
+const share = (c, n) => `${fmt(c)}/${fmt(n)} ${decOf(c, n)}`;
+const expTxt = (n, a, b) => decOf(n * a, b);
+const names = (t, cols, idx) => idx.map((i) => t.colours[cols[i]]).join(t.and);
+const outLabel = (t, key, i) => (key === 'two' ? String(i + 2) : key === 'coin' ? t.coinWord[i] : key === 'spin' ? t.colours[SPIN_C[i]] : key === 'bag' ? t.colours[BAG_C[i]] : String(i + 1));
+
+function info() {
+  const t = T[lang], v = lab.view;
+  lab.setGlow(GLOW[v]);
+  if (v === 'scale') return infoScale();
+  const key = modeOf(v), r = run(key), e = E(key), n = r.n, g = r.gaps[n];
+  // readout: how far from the theory, as a share of all tries
+  const noun = t.noun(v, n, fmt(n));
+  if (!n) lab.setReadout('—', t.start, '', '#4ea8ff');
+  else {
+    // with fewer than 30 tries even a 0% gap is luck, so the pill does not praise it (same cut-off as the card)
+    const lvl = n < 30 ? 'few' : g >= 0.1 ? 'far' : g >= 0.03 ? 'closer' : g >= 0.01 ? 'close' : 'very';
+    lab.setReadout(pct(g), n >= MAX ? t.maxed : `${t.gapT} · ${noun}`, t.pill[lvl], { few: '#7c86a3', far: '#ff5a4f', closer: '#ff9f43', close: '#e0b030', very: '#2fbf7f' }[lvl]);
+  }
+  // the explanation
+  const stage = !n ? 0 : n < 30 ? 1 : n < 300 ? 2 : 3;
+  let lead, body;
+  const lines = [];
+  const mm = () => {
+    if (!n) return;
+    const mx = Math.max(...r.counts), mn = Math.min(...r.counts);
+    const lab_ = (x) => r.counts.map((c, i) => (c === x ? outLabel(t, key, i) : null)).filter((s) => s !== null).join(', ');
+    lines.push(t.x.mm(esc(lab_(mx)), share(mx, n), esc(lab_(mn)), share(mn, n)));
+  };
+  if (key === 'die') {
+    [lead, body] = t.die[stage];
+    lines.push(n ? t.x.die(fmt(n), expTxt(n, 1, 6)) : t.x.dieTh); mm();
+    if (r.after6.n) lines.push(t.x.after6(fmt(r.after6.six), fmt(r.after6.n), pct(r.after6.six / r.after6.n)));
+  } else if (key === 'two') {
+    [lead, body] = t.two;
+    if (n) lines.push(t.x.two(share(r.counts[5], n)));
+    mm();
+  } else if (key === 'loaded') {
+    if (S.loadedGuess === null) [lead, body] = t.loaded0;
+    else { const f = S.loadedFace + 1, gF = S.loadedGuess + 1; lead = f === gF ? t.loadedRight(f) : t.loadedWrong(f, gF); body = t.loaded1; }
+    lines.push(n ? t.x.die(fmt(n), expTxt(n, 1, 6)) : t.x.dieTh); mm();
+  } else if (key === 'coin') {
+    [lead, body] = t.coinSt[stage];
+    lines.push(n ? t.x.coin(fmt(r.counts[0]), decOf(r.counts[0], n), expTxt(n, 1, 2), fmt(n)) : t.x.coinTh);
+    if (n) lines.push(r.streak.n ? t.x.streak(fmt(r.streak.same), fmt(r.streak.diff), pct(r.streak.diff / r.streak.n)) : t.x.noStreak);
+  } else {
+    const cols = key === 'spin' ? SPIN_C : BAG_C, w = e.w, tot = e.tot;
+    const present = w.map((x, i) => (x > 0 ? i : -1)).filter((i) => i >= 0), zeros = w.map((x, i) => (x === 0 ? i : -1)).filter((i) => i >= 0);
+    const equal = present.every((i) => w[i] === w[present[0]]);
+    const L = key === 'spin' ? t.spinLead : t.bagLead;
+    lead = present.length === 1 ? L.single : equal ? L.equal : L.unequal;
+    const mxW = Math.max(...w);
+    body = (key === 'spin' ? t.spinBody(tot) : t.bagBody(tot)) +
+      (present.length === 1 ? t.certain : equal ? t.same : t.most(names(t, cols, present.filter((i) => w[i] === mxW)))) +
+      (zeros.length ? t.zero(names(t, cols, zeros).replace(/^./, (ch) => ch.toUpperCase())) : '');
+    w.forEach((x, i) => lines.push(`<i class="dot" style="background:${COL[cols[i]]}"></i> <b>${esc(t.colours[cols[i]])}:</b> ${esc(t.w.theory)} ${fracTxt(x, tot)} ${decOf(x, tot)}${n ? ` · ${esc(t.w.exp)} ${share(r.counts[i], n)}` : ''}`));
+  }
+  const fine = key === 'loaded' ? `${t.fineLoaded} ${t.fine}` : t.fine;
+  lab.setState({ emo: EMO[key], title: n ? noun : t.titles[key], lead, body,
+    extra: `<div class="stats">${lines.map((l) => `<p>${l}</p>`).join('')}</div><div class="fine">${esc(fine)}</div>` });
+}
+function infoScale() {
+  const t = T[lang], sc = S.sc;
+  if (sc.guess === null) lab.setReadout('?', sc.i < EVENTS.length ? t.sc.hint : '', '', '#ff9f43');
+  else { const wi = wordIdx(sc.guess); lab.setReadout(nf(sc.guess, 2), `= ${pct(sc.guess, 0)}`, t.sc.words[wi], WORD_COL[wi]); }
+  let lead = t.sc.lead0, body = t.sc.body0;
+  if (sc.checked && sc.i < EVENTS.length) {
+    const [id, , a, b] = EVENTS[sc.i], p = a / b;
+    lead = t.sc.chance(evFrac(a, b), a === 0 || a === b ? '' : decOf(a, b), pct(p, 1), t.sc.words[wordIdx(p)]).replace('  ', ' ');
+    body = `${t.sc.ev_[id][1]} ${t.sc.you(nf(sc.guess, 2), t.sc.words[wordIdx(sc.guess)])}`;
+  }
+  lab.setState({ emo: '📏', title: t.sc.title, lead, body,
+    extra: `<div class="stats"><p>${esc(t.sc.bands)}</p>${sc.placed.length ? `<p><b>${esc(t.sc.score(sc.right, sc.placed.length))}</b></p>` : ''}</div><div class="fine">${esc(t.sc.fine)}</div>` });
+}
+
+function render() { buildCtrl(); renderAsk(); info(); }
+
+// --- drawing helpers -------------------------------------------------------------------------------------------------
+function rr(c, x, y, w, h, r) { c.beginPath(); if (c.roundRect) c.roundRect(x, y, w, h, r); else c.rect(x, y, w, h); }
+const PIPS = { 1: [[0, 0]], 2: [[-1, -1], [1, 1]], 3: [[-1, -1], [0, 0], [1, 1]], 4: [[-1, -1], [1, -1], [-1, 1], [1, 1]],
+  5: [[-1, -1], [1, -1], [0, 0], [-1, 1], [1, 1]], 6: [[-1, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [1, 1]] };
+function dieFace(c, x, y, s, face, rot = 0, col = '#f6f3ea', alpha = 1) {
+  c.save(); c.translate(x, y); c.rotate(rot); c.globalAlpha = alpha;
+  c.fillStyle = 'rgba(0,0,0,.35)'; rr(c, -s / 2 + s * 0.04, -s / 2 + s * 0.07, s, s, s * 0.18); c.fill();
+  c.fillStyle = col; rr(c, -s / 2, -s / 2, s, s, s * 0.18); c.fill();
+  c.fillStyle = '#1b1f2e';
+  for (const [px, py] of PIPS[face]) { c.beginPath(); c.arc(px * s * 0.26, py * s * 0.26, s * 0.085, 0, 7); c.fill(); }
+  c.restore();
+}
+function coinDraw(c, x, y, r, side, sy = 1, alpha = 1) {
+  c.save(); c.translate(x, y); c.scale(1, Math.max(0.05, Math.abs(sy))); c.globalAlpha = alpha;
+  const g = c.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
+  g.addColorStop(0, side === 0 ? '#ffe9a0' : '#e8eef8'); g.addColorStop(1, side === 0 ? '#d9a12c' : '#8d98ad');
+  c.fillStyle = g; c.beginPath(); c.arc(0, 0, r, 0, 7); c.fill();
+  c.strokeStyle = 'rgba(0,0,0,.25)'; c.lineWidth = Math.max(1, r * 0.06); c.beginPath(); c.arc(0, 0, r * 0.8, 0, 7); c.stroke();
+  c.fillStyle = 'rgba(40,30,10,.8)'; c.font = `900 ${r * 0.9}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText(T[lang].coin[side], 0, r * 0.05);
+  c.restore();
+}
+function ball(c, x, y, r, col, alpha = 1) {
+  c.save(); c.globalAlpha = alpha; c.fillStyle = col; c.beginPath(); c.arc(x, y, r, 0, 7); c.fill();
+  c.fillStyle = 'rgba(255,255,255,.45)'; c.beginPath(); c.arc(x - r * 0.3, y - r * 0.32, r * 0.3, 0, 7); c.fill(); c.restore();
+}
+function label(c, s, x, y, size, col = '#98A0B8', align = 'center', weight = 800) {
+  c.fillStyle = col; c.font = `${weight} ${size}px Nunito, sans-serif`; c.textAlign = align; c.textBaseline = 'middle'; c.fillText(s, x, y);
+}
+
+// layout of the stage: the toy, the bars and the gap chart; space is kept free under the prediction card
+function layout(w, h, v) {
+  const top = askEl.style.display === 'none' ? 0 : askEl.offsetTop + askEl.offsetHeight + 6;
+  const H = h - top, noGap = askActive(v);
+  if (w > 560 && w > H * 1.1) {
+    const tw = Math.min(w * 0.38, 330), x = tw + 14, bw = w - x;
+    return noGap ? { toy: { x: 0, y: top, w: tw, h: H }, bars: { x, y: top, w: bw, h: H } }
+      : { toy: { x: 0, y: top, w: tw, h: H }, bars: { x, y: top, w: bw, h: H * 0.6 }, gap: { x, y: top + H * 0.63, w: bw, h: H * 0.37 } };
+  }
+  return noGap ? { toy: { x: 0, y: top, w, h: H * 0.42 }, bars: { x: 0, y: top + H * 0.42, w, h: H * 0.58 } }
+    : { toy: { x: 0, y: top, w, h: H * 0.34 }, bars: { x: 0, y: top + H * 0.34, w, h: H * 0.42 }, gap: { x: 0, y: top + H * 0.77, w, h: H * 0.23 } };
+}
+
+let G = {}; // geometry for taps
+function drawToy(c, R, key, time) {
+  const t = T[lang], r = run(key), s = A.single && A.single.key === key ? A.single : null, p = s ? clamp(s.t / s.dur, 0, 1) : 1;
+  const stripH = R.h > 120 ? 24 : 0, cy = R.y + (R.h - stripH) * 0.5, cx = R.x + R.w / 2;
+  G.toy = R;
+  if (key === 'die' || key === 'loaded' || key === 'two') {
+    const two = key === 'two', sz = clamp(Math.min(R.w * (two ? 0.26 : 0.36), (R.h - stripH) * 0.62), 34, 110);
+    const col = key === 'loaded' ? '#f1dfc0' : '#f6f3ea';
+    const faces = two ? r.pair : [r.last.length ? r.last[r.last.length - 1] + 1 : 6];
+    const fin = s ? (two ? s.extra : [s.out + 1]) : faces;
+    fin.forEach((f, j) => {
+      const x = two ? cx + (j ? 1 : -1) * sz * 0.72 - sz * 0.25 : cx;
+      let face = f, rot = 0, dy = 0;
+      if (s && p < 0.86) { face = ((Math.floor(p * 14) * 5 + j * 2 + 3) % 6) + 1; rot = (1 - p) * (1 - p) * 7 * (j ? -1 : 1); dy = -Math.abs(Math.sin(p * Math.PI * 3)) * (1 - p) * sz * 0.6; }
+      dieFace(c, x, cy + dy, sz, face, rot, col);
+    });
+    if (two && (!s || p >= 0.86) && (r.n || s)) label(c, `= ${fin[0] + fin[1]}`, cx + sz * 1.35, cy, clamp(sz * 0.4, 16, 34), '#fff', 'left', 900);
+  } else if (key === 'coin') {
+    const tally = r.n > 0 && r.n <= 20 && !s && R.w > 260;
+    const rad = clamp(Math.min(R.w * (tally ? 0.14 : 0.2), (R.h - stripH) * 0.34), 22, 64), x = tally ? R.x + R.w * 0.22 : cx;
+    if (S.ask.coin.phase === 'q' && lab.view === 'coin') {
+      for (let j = 0; j < 3; j++) coinDraw(c, cx + (j - 1.5) * rad * 1.15, cy, rad * 0.5, 0);
+      label(c, '?', cx + 1.5 * rad * 1.15, cy, rad * 0.8, '#fff', 'center', 900);
+    } else if (s) {
+      const ang = ease(p) * s.H * Math.PI, side = (s.start + Math.floor(ang / Math.PI)) % 2;
+      coinDraw(c, x, cy - Math.sin(p * Math.PI) * (R.h - stripH) * 0.22, rad, side, Math.cos(ang));
+    } else coinDraw(c, x, cy, rad, r.last.length ? r.last[r.last.length - 1] : 0);
+    if (tally) { // a tally like on paper: four strokes and a slash for each five
+      const tx = R.x + R.w * 0.42, th = clamp(R.h * 0.12, 12, 22);
+      [0, 1].forEach((side) => {
+        const y = cy + (side ? 0.55 : -0.55) * th * 1.5;
+        label(c, t.coin[side], tx, y, th * 0.8, side ? '#c9d2e3' : '#f5c84c', 'left', 900);
+        c.strokeStyle = side ? '#c9d2e3' : '#f5c84c'; c.lineWidth = 2; c.lineCap = 'round';
+        let x0 = tx + th * 1.2;
+        for (let k = 0; k < r.counts[side]; k++) {
+          const gI = Math.floor(k / 5), kI = k % 5, gx = x0 + gI * th * 1.55;
+          c.beginPath();
+          if (kI < 4) { c.moveTo(gx + kI * th * 0.28, y - th / 2); c.lineTo(gx + kI * th * 0.28, y + th / 2); }
+          else { c.moveTo(gx - th * 0.12, y + th * 0.35); c.lineTo(gx + th * 0.95, y - th * 0.35); }
+          c.stroke();
+        }
+        label(c, fmt(r.counts[side]), R.x + R.w - 6, y, th * 0.7, '#98A0B8', 'right');
+      });
+    }
+  } else if (key === 'spin') {
+    const e = E('spin'), R0 = clamp(Math.min(R.w * 0.42, (R.h - stripH) * 0.46), 40, 150), sx = cx, sy = cy;
+    let u = 0, ang = s ? s.a0 + (s.a1 - s.a0) * ease(p) : S.spinAng;
+    const lastOut = !s && r.n ? r.last[r.last.length - 1] : -1;
+    e.w.forEach((wi, i) => {
+      if (!wi) return;
+      const a0 = unitAngle(u, e.tot), a1 = unitAngle(u + wi, e.tot);
+      c.fillStyle = COL[SPIN_C[i]]; c.globalAlpha = lastOut === -1 || lastOut === i ? 1 : 0.55;
+      c.beginPath(); c.moveTo(sx, sy); c.arc(sx, sy, R0, a0, a1); c.closePath(); c.fill(); c.globalAlpha = 1;
+      for (let k = 1; k < wi; k++) { const a = unitAngle(u + k, e.tot); c.strokeStyle = 'rgba(10,12,20,.35)'; c.lineWidth = 1; c.setLineDash([3, 3]); c.beginPath(); c.moveTo(sx, sy); c.lineTo(sx + Math.cos(a) * R0, sy + Math.sin(a) * R0); c.stroke(); c.setLineDash([]); }
+      c.strokeStyle = '#0A0C14'; c.lineWidth = 2.5; c.beginPath(); c.moveTo(sx, sy); c.lineTo(sx + Math.cos(a0) * R0, sy + Math.sin(a0) * R0); c.stroke();
+      const m = (a0 + a1) / 2; label(c, `${wi}/${e.tot}`, sx + Math.cos(m) * R0 * 0.64, sy + Math.sin(m) * R0 * 0.64, clamp(R0 * 0.15, 10, 16), '#0A0C14', 'center', 900);
+      u += wi;
+    });
+    c.strokeStyle = 'rgba(255,255,255,.8)'; c.lineWidth = 2; c.beginPath(); c.arc(sx, sy, R0, 0, 7); c.stroke();
+    // the arrow
+    c.save(); c.translate(sx, sy); c.rotate(ang);
+    c.fillStyle = '#fff'; c.beginPath(); c.moveTo(R0 * 0.9, 0); c.lineTo(-R0 * 0.12, -R0 * 0.07); c.lineTo(-R0 * 0.12, R0 * 0.07); c.closePath(); c.fill();
+    c.restore();
+    c.fillStyle = '#1b1f2e'; c.beginPath(); c.arc(sx, sy, R0 * 0.07, 0, 7); c.fill(); c.strokeStyle = '#fff'; c.lineWidth = 2; c.stroke();
+  } else if (key === 'bag') {
+    const e = E('bag'), tot = e.tot, Hs = R.h - stripH;
+    const bw = clamp(Math.min(R.w * 0.46, Hs * 0.95), 70, 200), bh = Math.min(bw * 0.78, Hs * 0.62), bx = cx - bw / 2, by = R.y + Hs - bh - 4;
+    // sack
+    c.fillStyle = '#7a5530'; rr(c, bx, by, bw, bh, bw * 0.28); c.fill();
+    c.fillStyle = '#8f6539'; c.beginPath(); c.moveTo(cx - bw * 0.22, by + 6); c.lineTo(cx - bw * 0.3, by - bh * 0.16); c.lineTo(cx + bw * 0.3, by - bh * 0.16); c.lineTo(cx + bw * 0.22, by + 6); c.fill();
+    c.fillStyle = '#5c3f22'; c.fillRect(cx - bw * 0.24, by - 2, bw * 0.48, 6);
+    // counters inside (we show what is in it, as if the bag were see-through)
+    const iw = bw * 0.8, ih = bh * 0.72, cols = Math.max(1, Math.ceil(Math.sqrt(tot * iw / ih))), rows = Math.ceil(tot / cols);
+    const cell = Math.min(iw / cols, ih / rows), br = clamp(cell * 0.38, 3, 14);
+    const order = [...Array(tot).keys()].sort((a, b) => (Math.imul(a + 1, 2654435761) >>> 0) - (Math.imul(b + 1, 2654435761) >>> 0));
+    const colOf = (u) => { let acc = 0; for (let i = 0; i < 3; i++) { acc += e.w[i]; if (u < acc) return COL[BAG_C[i]]; } return '#fff'; };
+    const pos = (u) => { const k = order.indexOf(u); return [cx - (cols - 1) * cell / 2 + (k % cols) * cell, by + bh * 0.16 + br + Math.floor(k / cols) * cell + (ih - rows * cell) / 2]; };
+    for (let u = 0; u < tot; u++) { if (s && u === s.extra && p < 0.95) continue; const [x, y] = pos(u); ball(c, x, y, br, colOf(u)); }
+    const popY = by - bh * 0.16 - clamp(Hs * 0.2, 24, 60);
+    if (s) {
+      const [x0, y0] = pos(s.extra), q = ease(clamp(p / 0.45, 0, 1));
+      ball(c, lerp(x0, cx, q), lerp(y0, popY, q), lerp(br, clamp(br * 2, 12, 26), q), colOf(s.extra));
+    } else if (r.n && r.lastU >= 0 && r.lastU < tot) {
+      ball(c, cx, popY, clamp(br * 2, 12, 26), colOf(r.lastU), 0.85);
+      label(c, t.backIn, cx + clamp(br * 2, 12, 26) + 8, popY, 11, '#98A0B8', 'left');
+    }
+  }
+  if (!r.n && !s && !askActive(lab.view)) label(c, t.tapToy, cx, R.y + R.h - stripH - 4, 11, '#646C84');
+  // the last few results
+  if (stripH && r.last.length) {
+    const k = r.last.length, sz = clamp(R.w / 18, 10, 17), y = R.y + R.h - stripH / 2;
+    r.last.forEach((o, i) => {
+      const x = cx + (i - (k - 1) / 2) * sz * 1.3, al = 0.35 + 0.65 * (i + 1) / k;
+      if (key === 'die' || key === 'loaded') dieFace(c, x, y, sz, o + 1, 0, key === 'loaded' ? '#f1dfc0' : '#f6f3ea', al);
+      else if (key === 'two') label(c, String(o + 2), x, y, sz * 0.8, `rgba(255,255,255,${al})`, 'center', 900);
+      else if (key === 'coin') coinDraw(c, x, y, sz * 0.5, o, 1, al);
+      else ball(c, x, y, sz * 0.4, COL[(key === 'spin' ? SPIN_C : BAG_C)[o]], al);
+    });
+  }
+}
+
+function drawBars(c, R, key) {
+  const t = T[lang], r = run(key), e = E(key), n = r.n, k = e.k;
+  const fs = clamp(R.w / 40, 10, 12.5);
+  const padL = 34, padB = 22, padT = 22, x0 = R.x + padL, x1 = R.x + R.w - 6, y0 = R.y + padT, y1 = R.y + R.h - padB;
+  const ymax = Math.min(1, Math.max(0.25, 2.2 * Math.max(...e.p))), Y = (f) => y1 - (Math.min(f, ymax) / ymax) * (y1 - y0);
+  const step_ = ymax > 0.5 ? 0.25 : 0.1;
+  c.lineWidth = 1;
+  for (let f = 0; f <= ymax + 1e-9; f += step_) {
+    const y = Y(f); c.strokeStyle = 'rgba(130,145,190,.12)'; c.beginPath(); c.moveTo(x0, y); c.lineTo(x1, y); c.stroke();
+    label(c, nf(f, 2), x0 - 6, y, fs - 1, '#646C84', 'right', 700);
+  }
+  // legend
+  c.fillStyle = key === 'coin' ? '#f5c84c' : '#4ea8ff'; c.fillRect(x0, R.y + 4, 10, 10);
+  label(c, t.leg[0], x0 + 14, R.y + 9, fs, '#98A0B8', 'left');
+  const lx = x0 + 22 + c.measureText(t.leg[0]).width + 10;
+  c.strokeStyle = '#fff'; c.setLineDash([4, 3]); c.lineWidth = 2; c.beginPath(); c.moveTo(lx, R.y + 9); c.lineTo(lx + 16, R.y + 9); c.stroke(); c.setLineDash([]);
+  label(c, t.leg[1], lx + 20, R.y + 9, fs, '#98A0B8', 'left');
+  const reveal = key === 'loaded' && S.loadedGuess !== null;
+  if (reveal) {
+    const lx2 = lx + 30 + c.measureText(t.leg[1]).width + 10;
+    if (lx2 + 60 < x1) { c.strokeStyle = '#f5c84c'; c.setLineDash([2, 3]); c.beginPath(); c.moveTo(lx2, R.y + 9); c.lineTo(lx2 + 16, R.y + 9); c.stroke(); c.setLineDash([]); label(c, t.leg[2], lx2 + 20, R.y + 9, fs, '#f5c84c', 'left'); }
+  }
+  const slot = (x1 - x0) / k, bw = slot * 0.62;
+  G.bars = { x0, slot, y0, y1, k, key };
+  for (let i = 0; i < k; i++) {
+    const f = n ? r.counts[i] / n : 0;
+    r.disp[i] += (f - r.disp[i]) * 0.25;
+    const cx = x0 + slot * (i + 0.5), bx = cx - bw / 2, yTop = Y(r.disp[i]);
+    let col = key === 'spin' ? COL[SPIN_C[i]] : key === 'bag' ? COL[BAG_C[i]] : key === 'coin' ? (i ? '#c9d2e3' : '#f5c84c') : '#4ea8ff';
+    if (key === 'loaded' && reveal && i === S.loadedFace) col = '#f5c84c';
+    c.fillStyle = col; c.globalAlpha = 0.9; rr(c, bx, yTop, bw, y1 - yTop, Math.min(6, bw / 4)); c.fill(); c.globalAlpha = 1;
+    if (r.disp[i] > ymax) { c.fillStyle = '#fff'; c.beginPath(); c.moveTo(cx, y0 - 8); c.lineTo(cx - 5, y0 - 1); c.lineTo(cx + 5, y0 - 1); c.fill(); }
+    if (key === 'loaded' && S.loadedGuess === i) { c.strokeStyle = '#fff'; c.lineWidth = 2; rr(c, bx - 3, Math.min(yTop, Y(e.p[i])) - 3, bw + 6, y1 - Math.min(yTop, Y(e.p[i])) + 6, 6); c.stroke(); }
+    // theory: the exact chance, drawn across the bar
+    const ty = Y(e.p[i]);
+    c.strokeStyle = '#fff'; c.lineWidth = 2; c.setLineDash([5, 3]); c.beginPath(); c.moveTo(cx - slot * 0.46, ty); c.lineTo(cx + slot * 0.46, ty); c.stroke(); c.setLineDash([]);
+    if (reveal) { const ty2 = Y(e.w[i] / e.tot); c.strokeStyle = '#f5c84c'; c.setLineDash([2, 3]); c.beginPath(); c.moveTo(cx - slot * 0.46, ty2); c.lineTo(cx + slot * 0.46, ty2); c.stroke(); c.setLineDash([]); }
+    if (n) label(c, fmt(r.counts[i]), cx, Math.min(yTop, ty) - 9, clamp(slot * 0.28, 9, 13), '#fff', 'center', 900);
+    // what the bar is
+    const ly = y1 + 12;
+    if (key === 'die' || key === 'loaded') dieFace(c, cx, ly, clamp(slot * 0.3, 11, 17), i + 1, 0, key === 'loaded' && reveal && i === S.loadedFace ? '#f5c84c' : '#f6f3ea');
+    else if (key === 'two') label(c, String(i + 2), cx, ly, clamp(slot * 0.4, 10, 13), '#D3D9E8', 'center', 900);
+    else if (key === 'coin') label(c, t.coinWord[i], cx, ly, fs + 1, '#D3D9E8', 'center', 900);
+    else label(c, `${e.w[i]}/${e.tot}`, cx, ly, fs, COL[(key === 'spin' ? SPIN_C : BAG_C)[i]], 'center', 900);
+  }
+  if (key === 'loaded' && S.loadedGuess === null && n >= 30) label(c, `👆 ${t.tapBar}`, (x0 + x1) / 2, y0 + 8, fs, '#f5c84c');
+}
+
+// the gap from the theory after every try, on a log scale of tries: 1, 10, 100, 1000 …
+function drawGap(c, R, key) {
+  const t = T[lang], r = run(key), n = r.n, fs = clamp(R.w / 44, 9.5, 11.5);
+  c.fillStyle = 'rgba(130,145,190,.06)'; rr(c, R.x, R.y, R.w, R.h, 12); c.fill();
+  const padL = 40, x0 = R.x + padL, x1 = R.x + R.w - 14, y0 = R.y + 22, y1 = R.y + R.h - 18;
+  label(c, t.gapT, R.x + 10, R.y + 11, fs, '#98A0B8', 'left');
+  if (y1 - y0 < 16) return;
+  const YG = 0.5, L = Math.max(3, Math.ceil(Math.log10(Math.max(n, 1)))), X = (N) => x0 + (Math.log10(N) / L) * (x1 - x0), Y = (g) => y1 - (Math.min(g, YG) / YG) * (y1 - y0);
+  for (const g of [0, 0.25, 0.5]) { c.strokeStyle = 'rgba(130,145,190,.14)'; c.lineWidth = 1; c.beginPath(); c.moveTo(x0, Y(g)); c.lineTo(x1, Y(g)); c.stroke(); label(c, pct(g, 0), x0 - 5, Y(g), fs - 0.5, '#646C84', 'right', 700); }
+  for (let d = 0; d <= L; d++) label(c, fmt(10 ** d), X(10 ** d), y1 + 9, fs - 0.5, '#646C84', 'center', 700);
+  if (!n) return;
+  c.strokeStyle = '#ff9f43'; c.lineWidth = 2; c.beginPath();
+  let lastN = 0;
+  for (let px = 0; px <= x1 - x0; px++) {
+    const N = Math.min(n, Math.max(1, Math.round(10 ** ((px / (x1 - x0)) * L))));
+    if (N === lastN) continue;
+    const x = X(N), y = Y(r.gaps[N]);
+    lastN === 0 ? c.moveTo(x, y) : c.lineTo(x, y);
+    lastN = N;
+    if (N >= n) break;
+  }
+  c.stroke();
+  const ex = X(n), ey = Y(r.gaps[n]);
+  c.fillStyle = '#ff9f43'; c.beginPath(); c.arc(ex, ey, 4, 0, 7); c.fill();
+  label(c, pct(r.gaps[n]), clamp(ex, x0 + 20, x1 - 20), ey - 10 < y0 ? ey + 12 : ey - 10, fs, '#fff', 'center', 900);
+}
+
+// the 0–1 scale
+function drawScale(c, w, h, time) {
+  const t = T[lang], sc = S.sc;
+  const top = evEl.offsetTop + evEl.offsetHeight + 8, x0 = 26, x1 = w - 26, L = x1 - x0, ly = top + (h - top) * 0.5;
+  const X = (p) => x0 + p * L, fs = clamp(w / 48, 10, 13);
+  G.scale = { x0, x1, ly, top };
+  const g = c.createLinearGradient(x0, 0, x1, 0);
+  g.addColorStop(0, '#ff5a4f'); g.addColorStop(0.5, '#f5c84c'); g.addColorStop(1, '#3ddc97');
+  c.fillStyle = g; rr(c, x0, ly - 5, L, 10, 5); c.fill();
+  [[0, '0'], [0.25, '1/4'], [0.5, '1/2'], [0.75, '3/4'], [1, '1']].forEach(([p, fr]) => {
+    c.strokeStyle = '#fff'; c.lineWidth = 2; c.beginPath(); c.moveTo(X(p), ly - 9); c.lineTo(X(p), ly + 9); c.stroke();
+    label(c, fr, X(p), ly + 20, fs, '#D3D9E8', 'center', 900);
+    label(c, nf(p, 2), X(p), ly + 35, fs - 1, '#98A0B8', 'center', 700);
+  });
+  // the five words: the three exact points on one row, the two ranges on the next
+  const wy = ly + 56;
+  label(c, t.sc.words[0], x0 - 6, wy, fs, WORD_COL[0], 'left', 900);
+  label(c, t.sc.words[2], X(0.5), wy, fs, WORD_COL[2], 'center', 900);
+  label(c, t.sc.words[4], x1 + 6, wy, fs, WORD_COL[4], 'right', 900);
+  label(c, `← ${t.sc.words[1]} →`, X(0.25), wy + 18, fs - 0.5, WORD_COL[1], 'center', 800);
+  label(c, `← ${t.sc.words[3]} →`, X(0.75), wy + 18, fs - 0.5, WORD_COL[3], 'center', 800);
+  // events already placed, at their true chance
+  const rows = [];
+  c.font = `${fs + 5}px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
+  sc.placed.forEach(({ p, emo }, i) => {
+    if (sc.checked && i === sc.placed.length - 1) return;
+    const x = X(p); let row = 0;
+    while ((rows[row] ?? []).some((ox) => Math.abs(ox - x) < fs * 1.9)) row++;
+    (rows[row] ??= []).push(x);
+    c.textAlign = 'center'; c.textBaseline = 'middle'; c.globalAlpha = 0.85; c.fillText(emo, x, ly - 50 - row * (fs + 9)); c.globalAlpha = 1;
+  });
+  // the true chance of the current event, after checking
+  if (sc.checked && sc.i < EVENTS.length) {
+    const [, emo, a, b] = EVENTS[sc.i], x = X(a / b);
+    c.fillStyle = '#3ddc97'; c.beginPath(); c.moveTo(x, ly - 8); c.lineTo(x - 8, ly - 22); c.lineTo(x + 8, ly - 22); c.fill();
+    c.font = `${fs + 9}px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif`; c.textAlign = 'center'; c.fillText(emo, x, ly - 50);
+    label(c, evFrac(a, b), clamp(x, x0 + 10, x1 - 10), ly - 32, fs + 1, '#3ddc97', 'center', 900);
+  }
+  // your pin
+  if (sc.guess !== null) {
+    const x = X(sc.guess), wi = wordIdx(sc.guess);
+    c.fillStyle = '#fff'; c.beginPath(); c.arc(x, ly, 10, 0, 7); c.fill();
+    c.fillStyle = WORD_COL[wi]; c.beginPath(); c.arc(x, ly, 6, 0, 7); c.fill();
+    if (!sc.checked) label(c, nf(sc.guess, 2), clamp(x, x0 + 12, x1 - 12), ly - 22, fs + 2, '#fff', 'center', 900);
+  } else if (sc.i < EVENTS.length) {
+    c.globalAlpha = 0.5 + 0.5 * Math.sin(time * 3);
+    label(c, `👆 ${t.sc.hint}`, (x0 + x1) / 2, ly - 26, fs, '#D3D9E8');
+    c.globalAlpha = 1;
+  }
+}
+
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  step(dt);
+  const v = lab.view;
+  if (v === 'scale') return drawScale(c, w, h, time);
+  const key = modeOf(v), Lay = layout(w, h, v);
+  drawToy(c, Lay.toy, key, time);
+  drawBars(c, Lay.bars, key);
+  if (Lay.gap) drawGap(c, Lay.gap, key); else G.gap = null;
+});
+
+// --- pointer: tap the toy to try once, tap a bar to accuse the loaded face, drag the pin on the scale ---------------
+function scaleAt(x) {
+  const { x0, x1 } = G.scale; let p = clamp((x - x0) / (x1 - x0), 0, 1);
+  for (const s of [0, 0.5, 1]) if (Math.abs(p - s) < 0.03) p = s;
+  return p === 0 || p === 0.5 || p === 1 ? p : Math.round(p * 100) / 100;
+}
+$('cv').addEventListener('pointerdown', (ev) => {
+  const rc = $('cv').getBoundingClientRect(), x = ev.clientX - rc.left, y = ev.clientY - rc.top, v = lab.view;
+  if (v === 'scale') {
+    const sc = S.sc;
+    if (!G.scale || sc.checked || sc.i >= EVENTS.length || y < G.scale.top) return;
+    sc.drag = true; $('cv').setPointerCapture?.(ev.pointerId);
+    sc.guess = scaleAt(x); sfx.tick(); buildCtrl(); info(); return;
+  }
+  if (askActive(v)) return;
+  const key = modeOf(v);
+  const b = G.bars;
+  if (key === 'loaded' && S.loadedGuess === null && b && b.key === 'loaded' && y > b.y0 - 10 && y < b.y1 + 24 && x > b.x0) {
+    const i = Math.floor((x - b.x0) / b.slot);
+    if (i >= 0 && i < 6 && run('loaded').n > 0) { S.loadedGuess = i; (i === S.loadedFace ? sfx.good : sfx.bad)(); render(); return; }
+  }
+  const R = G.toy;
+  if (R && x >= R.x && x <= R.x + R.w && y >= R.y && y <= R.y + R.h) { rollOne(key); }
+});
+$('cv').addEventListener('pointermove', (ev) => {
+  const sc = S.sc; if (lab.view !== 'scale' || !sc.drag) return;
+  const rc = $('cv').getBoundingClientRect(), g = scaleAt(ev.clientX - rc.left);
+  if (g !== sc.guess) { sc.guess = g; if (g === 0 || g === 0.5 || g === 1) sfx.tick(); info(); }
+});
+const endDrag = () => { if (S.sc.drag) { S.sc.drag = false; buildCtrl(); } };
+$('cv').addEventListener('pointerup', endDrag);
+$('cv').addEventListener('pointercancel', endDrag);
+
+render();
+</script>
+</body>
+</html>

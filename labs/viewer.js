@@ -4,13 +4,14 @@
 (() => {
   const UI = {
     en: { labs: 'Labs', title: 'Interactive explainers', sub: 'Learn a topic by playing with it.', open: 'Open the explorer',
-          topics: (n) => `${n} ${n === 1 ? 'topic' : 'topics'}`, all: 'All labs', more: 'More explainers are on the way.', has: 'Has an interactive explainer' },
+          topics: (n) => `${n} ${n === 1 ? 'topic' : 'topics'}`, all: 'All labs', subj: { Science: 'Science', Mathematics: 'Mathematics', Computing: 'Computing', Other: 'Other' }, more: 'More explainers are on the way.', has: 'Has an interactive explainer' },
     ru: { labs: 'Лаборатории', title: 'Интерактивные объяснения', sub: 'Разберись в теме, играя с ней.', open: 'Открыть лабораторию',
           topics: (n) => `${n} ${n % 10 === 1 && n % 100 !== 11 ? 'тема' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'темы' : 'тем'}`,
-          all: 'Все лаборатории', more: 'Скоро будут и другие.', has: 'Есть интерактивное объяснение' },
+          all: 'Все лаборатории', subj: { Science: 'Естествознание', Mathematics: 'Математика', Computing: 'Информатика', Other: 'Другое' }, more: 'Скоро будут и другие.', has: 'Есть интерактивное объяснение' },
     hu: { labs: 'Laborok', title: 'Interaktív magyarázók', sub: 'Értsd meg a témát játék közben.', open: 'A labor megnyitása',
-          topics: (n) => `${n} téma`, all: 'Minden labor', more: 'Hamarosan jönnek az újak.', has: 'Interaktív magyarázó tartozik hozzá' },
+          topics: (n) => `${n} téma`, all: 'Minden labor', subj: { Science: 'Természettudomány', Mathematics: 'Matematika', Computing: 'Informatika', Other: 'Egyéb' }, more: 'Hamarosan jönnek az újak.', has: 'Interaktív magyarázó tartozik hozzá' },
   };
+  const SUBJ_ORDER = ['Science', 'Mathematics', 'Computing', 'Other'];
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   // the viewer's own top-level `let lang` / `let focus` are visible to this classic script
@@ -29,12 +30,13 @@
     #labsMenu.open { display: block; }
     #labsMenu h3 { font: 500 24px/1.1 var(--serif); margin: 0 0 4px; color: #fff; }
     #labsMenu .s { color: var(--mut); font-size: 12.5px; margin: 0 0 12px; }
-    .labcard { display: flex; gap: 12px; align-items: flex-start; padding: 11px 12px; border-radius: 14px; border: 1px solid var(--stroke);
+    .labcard { display: flex; gap: 12px; align-items: flex-start; padding: 9px 12px; border-radius: 14px; border: 1px solid var(--stroke);
       text-decoration: none; color: var(--ink); margin-bottom: 8px; transition: background .15s, border-color .15s; }
     .labcard:hover { background: var(--hover); border-color: var(--stroke2); }
     .labcard .e { font-size: 26px; line-height: 1.1; }
     .labcard b { display: block; font-size: 14px; }
-    .labcard small { display: block; color: var(--mut); font-size: 12px; line-height: 1.45; margin-top: 2px; }
+    .labcard small { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--mut); font-size: 12px; line-height: 1.45; margin-top: 2px; }
+    #labsMenu .grp { font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); font-weight: 700; margin: 12px 2px 6px; }
     .labcard .m { display: flex; gap: 8px; align-items: center; margin-top: 6px; font-size: 11px; color: var(--faint); font-weight: 700; }
     #labsMenu .foot { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; font-size: 12px; color: var(--faint); }
     #labsMenu .foot a { color: var(--soft); font-weight: 700; text-decoration: none; }
@@ -54,8 +56,9 @@
     $('labsBtn').innerHTML = `🧪 <span class="t">${esc(u.labs)}</span> <span class="n">${labs.length}</span>`;
     $('labsBtn').title = u.title;
     $('labsMenu').innerHTML = `<h3>${esc(u.title)}<span style="color:var(--red)">.</span></h3><p class="s">${esc(u.sub)}</p>
-      ${labs.map((l) => `<a class="labcard" href="${href(l)}"><span class="e">${l.emoji}</span><span><b>${esc(tx(l.title))}</b>
-        <small>${esc(tx(l.blurb))}</small><span class="m">${esc(u.topics(l.topics.length))}</span></span></a>`).join('')}
+      ${SUBJ_ORDER.filter((sj) => labs.some((l) => (l.subject ?? 'Other') === sj)).map((sj) => `<div class="grp">${esc(u.subj[sj] ?? sj)}</div>${
+        labs.filter((l) => (l.subject ?? 'Other') === sj).map((l) => `<a class="labcard" href="${href(l)}"><span class="e">${l.emoji}</span><span><b>${esc(tx(l.title))}</b>
+        <small>${esc(tx(l.blurb))}</small></span></a>`).join('')}`).join('')}
       <div class="foot"><span>${esc(u.more)}</span><a href="labs/?lang=${cur()}">${esc(u.all)} →</a></div>`;
   }
   function decoratePanel() {

@@ -30,7 +30,7 @@ const UI = {
         lic: 'Topics from the Marble Skill Taxonomy (ODbL 1.0 / CC BY-SA 4.0), translated. The lab is a simplified model, not a measuring tool.' },
   ru: { brand: 'Лаборатории', back: 'Назад к карте', topics: 'В графе навыков', sound: 'Звук', views: 'Вид',
         secretKick: 'Секретная лаборатория', secretTitle: 'Два экстремальных опыта под замком.',
-        secretAsk: (n) => `Ответь на <b>${n} коротких вопроса</b>, чтобы открыть оба.`, start: 'Принять вызов', later: 'Не сейчас',
+        secretAsk: (n) => `Ответь на <b>${n} ${ruPlural(n, 'короткий вопрос', 'коротких вопроса', 'коротких вопросов')}</b>, чтобы открыть оба.`, start: 'Принять вызов', later: 'Не сейчас',
         qn: (i, n) => `Секретная лаборатория · вопрос ${i} из ${n}`, wrong: 'Не совсем. Посмотри на опыт и попробуй ещё раз!',
         doneTitle: 'Открыто!', doneText: 'Оба секретных опыта открыты. Они по краям ряда кнопок.', go: 'Вперёд',
         lic: 'Темы из Marble Skill Taxonomy (ODbL 1.0 / CC BY-SA 4.0), перевод. Лаборатория — упрощённая модель, а не измерительный прибор.' },
@@ -109,7 +109,7 @@ export function shell(cfg) {
     $('views').style.display = cfg.views?.length > 1 ? '' : 'none';
     $('sound').textContent = soundOn ? '🔊' : '🔈';
     $('sound').title = `${u.sound}: ${soundOn ? 'on' : 'off'}`;
-    $('hero').innerHTML = `<h1>${T.title}<i>.</i></h1>${T.lines.map(([b, r]) => `<p><b>${esc(b)}</b> ${esc(r)}</p>`).join('')}`;
+    $('hero').innerHTML = `<h1>${T.title}${/[?!.…]$/.test(T.title) ? '' : '<i>.</i>'}</h1>${T.lines.map(([b, r]) => `<p><b>${esc(b)}</b> ${esc(r)}</p>`).join('')}`;
     $('foot').innerHTML = `<b>${esc(u.topics)}</b>${(cfg.topics ?? []).map((t) => {
       const p = new URLSearchParams({ topic: t.id }); if (lang !== 'en') p.set('lang', lang);
       return `<a href="../../?${p}">${esc(t[lang])}</a>`;
@@ -169,7 +169,7 @@ export function canvasLoop(canvas, draw) {
   new ResizeObserver(fit).observe(canvas);
   fit();
   const frame = (now) => {
-    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; // the first frame can be stamped before `last`
     if (w > 0 && h > 0) { ctx.clearRect(0, 0, w, h); draw(ctx, w, h, dt, now / 1000); }
     requestAnimationFrame(frame);
   };
