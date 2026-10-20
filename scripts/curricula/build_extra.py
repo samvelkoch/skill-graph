@@ -54,7 +54,7 @@ def main(src):
             deps.append(edge)
             for l in LANGS:
                 trdeps[l].append({**edge, 'reason': e['i18n'][l]['reason']})
-    dump(DATA / 'extra/topics.json', {'note': 'Topics added to cover national school curricula (HU, RU, RS). CC BY-SA 4.0.',
+    dump(DATA / 'extra/topics.json', {'note': 'Topics added to cover national school curricula. CC BY-SA 4.0.',
                                       'topicCount': len(topics), 'topics': topics})
     dump(DATA / 'extra/dependencies.json', {'edgeCount': len(deps), 'dependencies': deps})
     for l in LANGS:
