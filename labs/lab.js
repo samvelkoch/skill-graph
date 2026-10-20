@@ -28,19 +28,19 @@ const UI = {
         secretKick: 'Secret lab', secretTitle: 'Two extreme experiments are locked.',
         secretAsk: (n) => `Answer <b>${n} quick questions</b> to unlock both.`, start: 'Start the challenge', later: 'Not now',
         qn: (i, n) => `Secret lab · question ${i} of ${n}`, wrong: 'Not quite. Look at the lab and try again!',
-        doneTitle: 'Unlocked!', doneText: 'Both secret experiments are open. Find them at the ends of the row.', go: 'Let’s go',
+        doneTitle: 'Unlocked!', doneText: 'Both secret experiments are open. Find them at the ends of the row.', go: 'Let’s go', marked: 'This lab’s topics are now marked “Learning” on the map.',
         lic: 'Topics from the Marble Skill Taxonomy (ODbL 1.0 / CC BY-SA 4.0), translated. The lab is a simplified model, not a measuring tool.' },
   ru: { brand: 'Лаборатории', back: 'Назад к карте', topics: 'В графе навыков', sound: 'Звук', views: 'Вид',
         secretKick: 'Секретная лаборатория', secretTitle: 'Два экстремальных опыта под замком.',
         secretAsk: (n) => `Ответь на <b>${n} ${ruPlural(n, 'короткий вопрос', 'коротких вопроса', 'коротких вопросов')}</b>, чтобы открыть оба.`, start: 'Принять вызов', later: 'Не сейчас',
         qn: (i, n) => `Секретная лаборатория · вопрос ${i} из ${n}`, wrong: 'Не совсем. Посмотри на опыт и попробуй ещё раз!',
-        doneTitle: 'Открыто!', doneText: 'Оба секретных опыта открыты. Они по краям ряда кнопок.', go: 'Вперёд',
+        doneTitle: 'Открыто!', doneText: 'Оба секретных опыта открыты. Они по краям ряда кнопок.', go: 'Вперёд', marked: 'Темы этой лаборатории отмечены на карте как «Изучаем».',
         lic: 'Темы из Marble Skill Taxonomy (ODbL 1.0 / CC BY-SA 4.0), перевод. Лаборатория — упрощённая модель, а не измерительный прибор.' },
   hu: { brand: 'Laborok', back: 'Vissza a térképhez', topics: 'A készségtérképen', sound: 'Hang', views: 'Nézet',
         secretKick: 'Titkos labor', secretTitle: 'Két extrém kísérlet le van zárva.',
         secretAsk: (n) => `Válaszolj <b>${n} rövid kérdésre</b>, és mindkettő kinyílik.`, start: 'Jöhet a kihívás', later: 'Most nem',
         qn: (i, n) => `Titkos labor · ${i}. kérdés / ${n}`, wrong: 'Nem egészen. Nézd meg a kísérletet, és próbáld újra!',
-        doneTitle: 'Kinyílt!', doneText: 'Mindkét titkos kísérlet elérhető. A gombsor két végén találod őket.', go: 'Gyerünk',
+        doneTitle: 'Kinyílt!', doneText: 'Mindkét titkos kísérlet elérhető. A gombsor két végén találod őket.', go: 'Gyerünk', marked: 'A labor témái a térképen „Tanulja” jelölést kaptak.',
         lic: 'A témák a Marble Skill Taxonomyból származnak (ODbL 1.0 / CC BY-SA 4.0), fordítás. A labor egyszerűsített modell, nem mérőeszköz.' },
 };
 
@@ -68,7 +68,9 @@ export const sfx = {
 
 // --- shell ------------------------------------------------------------------------------------------------
 // cfg: { key, T (per-language strings of the lab), topics: [{id, en, ru, hu}], views: [keys], onLang, onView }
+let current = null; // the lab's config, so secretLab can mark its topics on the map
 export function shell(cfg) {
+  current = cfg;
   document.body.insertAdjacentHTML('afterbegin', `
   <nav class="bar">
     <a id="brand" href="../../"></a>
@@ -181,6 +183,16 @@ export function canvasLoop(canvas, draw) {
 
 // --- secret lab: intro with the two locked experiments, then N questions, then unlocked -------------------
 // secrets: [{emo, title, desc}], questions: [{q, opts: [...], ok: index}]
+// topics of a finished lab become "learning" on the map (never touches an existing 'known' / 'learning'); returns how many are new
+function markLearning() {
+  let n = 0;
+  try {
+    const p = JSON.parse(localStorage.getItem('skillgraph.progress') || '{}') || {};
+    for (const t of current?.topics ?? []) if (!p[t.id]) { p[t.id] = 'learning'; n++; }
+    if (n) localStorage.setItem('skillgraph.progress', JSON.stringify(p));
+  } catch { return 0; }
+  return n;
+}
 export function secretLab(key, getContent, onUnlock) {
   const box = $('secretBox'), wrap = $('secret');
   const close = () => wrap.classList.remove('open');
@@ -210,7 +222,8 @@ export function secretLab(key, getContent, onUnlock) {
   const done = () => {
     const u = UI[lang];
     store.set('unlocked:' + key, true);
-    box.innerHTML = `<div class="kick">🔓 ${esc(u.secretKick)}</div><h3>${esc(u.doneTitle)}</h3><p>${esc(u.doneText)}</p>
+    const marked = markLearning();
+    box.innerHTML = `<div class="kick">🔓 ${esc(u.secretKick)}</div><h3>${esc(u.doneTitle)}</h3><p>${esc(u.doneText)}</p>${marked ? `<p>${esc(u.marked)}</p>` : ''}
       <button class="btn" id="qGo">${esc(u.go)}</button>`;
     $('qGo').onclick = () => { close(); onUnlock(); };
     onUnlock();
