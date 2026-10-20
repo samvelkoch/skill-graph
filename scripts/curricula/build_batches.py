@@ -5,7 +5,10 @@ map to (graph subjects that fit the school subject, ages around the grade). A mo
 writes <batch>.out.json = {"<item key>": [[topic id, "core" | "related"], ...]}; merge.py joins them.
 
 Usage: python3 scripts/curricula/build_batches.py <parsed dir> <batch dir>
+
+Candidates include the topics added in data/extra/, so later curricula can map onto them too.
 """
+import hashlib
 import json
 import re
 import sys
@@ -16,6 +19,8 @@ ENGLISH, MATHS, SCIENCE, HISTORY = ['English'], ['Mathematics'], ['Science'], ['
 SOCIAL = ['Personal & Social Development', 'Life Skills', 'Learning to Learn']
 COMPUTING = ['Computing', 'Mathematics']
 WORLD = SCIENCE + HISTORY + SOCIAL  # primary "world around us" subjects mix all three
+# subjects added in data/extra/ (see build_extra.py)
+LANG, GEO, CIVICS = ['Language & Literature'], ['Geography'], ['Civics & Society']
 
 # School subject (prefix) -> graph subjects. Subjects with no counterpart in the graph
 # (crafts/technology, religious culture) are left out.
@@ -29,7 +34,16 @@ SUBJECTS = {
     'rs': {'Српски језик': ENGLISH, 'Математика': MATHS, 'Свет око нас': WORLD, 'Природа и друштво': WORLD,
            'Дигитални свет': COMPUTING, 'Информатика': COMPUTING, 'Историја': HISTORY, 'Географија': SCIENCE,
            'Биологија': SCIENCE, 'Физика': SCIENCE, 'Хемија': SCIENCE},
+    'de': {'Deutsch': ENGLISH + LANG, 'Mathematik': MATHS, 'Heimat- und Sachunterricht': WORLD + GEO + CIVICS,
+           'Natur und Technik': SCIENCE + COMPUTING, 'Biologie': SCIENCE, 'Physik': SCIENCE, 'Chemie': SCIENCE,
+           'Geographie': GEO + SCIENCE, 'Geschichte': HISTORY, 'Informatik': COMPUTING,
+           'Wirtschaft und Recht': SOCIAL + CIVICS, 'Politik und Gesellschaft': SOCIAL + CIVICS},
+    # standards Marble did not link itself (parse_std.py)
+    'us': {'English Language Arts': ENGLISH, 'Mathematics': MATHS},
+    'gb': {'English': ENGLISH, 'Mathematics': MATHS, 'Science': SCIENCE, 'Geography': GEO + SCIENCE, 'History': HISTORY,
+           'Computing': COMPUTING},
 }
+COUNTRIES = ('ru', 'hu', 'rs', 'de', 'us', 'gb')
 TEXT_CAP = 1200
 RU_MERGE = 700  # RU paragraphs are short; merge neighbours of the same section up to this size
 
@@ -74,9 +88,10 @@ def title_of(item):
 def main(parsed, out):
     parsed, out = Path(parsed), Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    topics = json.load(open(Path(__file__).resolve().parents[2] / 'data/topics.json'))['topics']
+    data = Path(__file__).resolve().parents[2] / 'data'
+    topics = [t for f in ('topics.json', 'extra/topics.json') if (data / f).exists() for t in json.load(open(data / f))['topics']]
     groups, items = defaultdict(list), []
-    for country in ('ru', 'hu', 'rs'):
+    for country in COUNTRIES:
         rows = json.load(open(parsed / f'{country}.json'))
         src = ru_items(rows) if country == 'ru' else rows
         for i, r in enumerate(src):
@@ -93,7 +108,7 @@ def main(parsed, out):
             groups[(country, it['subject'], it['grade'])].append(it)
 
     manifest = []
-    for n, ((country, subject, grade), its) in enumerate(sorted(groups.items())):
+    for (country, subject, grade), its in sorted(groups.items()):
         subj = graph_subjects(country, subject)
         lo, hi = grade_range(grade)
         age_lo, age_hi = lo + 5, hi + 7  # grade 1 is age 6-7 in all three systems; leave room both ways
@@ -101,7 +116,8 @@ def main(parsed, out):
         for t in topics:
             if t['subject'] in subj and t['ageRangeStart'] <= age_hi and t['ageRangeEnd'] >= age_lo - 1:
                 cands[f"{t['subject']} / {t['domain']}"].append(f"{t['id']} | {t['name']} | {t['ageRangeStart']}-{t['ageRangeEnd']}")
-        name = f'{n:03d}-{country}-g{grade}'
+        # stable names: adding a country or subject must not rename the batches already mapped
+        name = f"{country}-g{grade}-{hashlib.md5(subject.encode()).hexdigest()[:6]}"
         json.dump({'batch': name, 'country': country, 'subject': subject, 'grade': grade,
                    'items': [{k: it[k] for k in ('key', 'title', 'text')} for it in its],
                    'candidates': cands}, open(out / f'{name}.json', 'w'), ensure_ascii=False)
@@ -109,11 +125,8 @@ def main(parsed, out):
     json.dump([{k: it[k] for k in ('key', 'country', 'subject', 'grade', 'title')} for it in items],
               open(out / 'items.json', 'w'), ensure_ascii=False)
     json.dump(manifest, open(out / 'manifest.json', 'w'), ensure_ascii=False, indent=0)
-    print(len(items), 'items in', len(manifest), 'batches;',
-          sum(m['items'] for m in manifest if m['batch'].split('-')[1] == 'ru'), 'ru,',
-          sum(m['items'] for m in manifest if m['batch'].split('-')[1] == 'hu'), 'hu,',
-          sum(m['items'] for m in manifest if m['batch'].split('-')[1] == 'rs'), 'rs;',
-          'max candidates', max(m['candidates'] for m in manifest))
+    per = {c: sum(m['items'] for m in manifest if m['batch'].startswith(c + '-')) for c in COUNTRIES}
+    print(len(items), 'items in', len(manifest), 'batches;', per, '; max candidates', max(m['candidates'] for m in manifest))
 
 
 if __name__ == '__main__':
