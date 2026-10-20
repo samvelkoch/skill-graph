@@ -1,6 +1,8 @@
 """Join the model's per-batch mappings into data/school-curricula.json for the viewer.
 
-Usage: python3 scripts/curricula/merge.py <batch dir> <mapped dir> <out json>
+Usage: python3 scripts/curricula/merge.py <batch dir> <mapped dir> <out json> [<gap out dir>]
+
+The optional gap dir holds the links of items no Marble topic covered to the topics in data/extra/.
 
 Output: {version, curricula: {country: {name, url, grades}}, items: [[country, subject, grade, title]],
 links: {topicId: [[item index, 1 core | 0 related], ...]}}. Only items with at least one link are kept.
@@ -18,10 +20,23 @@ CURRICULA = {
 }
 
 
-def main(batch_dir, mapped_dir, out):
+def main(batch_dir, mapped_dir, out, gap_dir=None):
     batch_dir, mapped_dir = Path(batch_dir), Path(mapped_dir)
     meta = {it['key']: it for it in json.load(open(batch_dir / 'items.json'))}
     items, idx, links, stats = [], {}, defaultdict(list), Counter()
+
+    def add(key, good, n):
+        stats['dropped ids'] += n - len(good)
+        if not good:
+            stats['items empty'] += 1
+            return
+        stats['items linked'] += 1
+        it = meta[key]
+        i = idx.setdefault(key, len(items))
+        if i == len(items):
+            items.append([it['country'], it['subject'], it['grade'], it['title']])
+        for t, kind in dict(good).items():
+            links[t].append([i, 1 if kind == 'core' else 0])
     for m in json.load(open(batch_dir / 'manifest.json')):
         res = mapped_dir / f"{m['batch']}.out.json"
         if not res.exists():
@@ -33,18 +48,14 @@ def main(batch_dir, mapped_dir, out):
             if key not in meta:
                 stats['unknown item keys'] += 1
                 continue
-            good = [(t, kind) for t, kind in pairs if t in ok]
-            stats['dropped ids'] += len(pairs) - len(good)
-            stats['items mapped' if good else 'items empty'] += 1
-            if not good:
-                continue
-            it = meta[key]
-            i = idx.setdefault(key, len(items))
-            if i == len(items):
-                items.append([it['country'], it['subject'], it['grade'], it['title']])
-            for t, kind in dict(good).items():
-                links[t].append([i, 1 if kind == 'core' else 0])
+            add(key, [(t, kind) for t, kind in pairs if t in ok], len(pairs))
         stats['batches merged'] += 1
+    if gap_dir:
+        data = Path(__file__).resolve().parents[2] / 'data'
+        known = {t['id'] for f in ('topics.json', 'extra/topics.json') for t in json.load(open(data / f))['topics']}
+        for f in sorted(Path(gap_dir).glob('*.json')):
+            for key, pairs in json.load(open(f))['links'].items():
+                add(key, [(t, kind) for t, kind in pairs if t in known], len(pairs))
     Path(out).write_text(json.dumps({'version': 1, 'curricula': CURRICULA, 'items': items, 'links': links},
                                     ensure_ascii=False, separators=(',', ':')))
     per = Counter(x[0] for x in items)
@@ -53,4 +64,4 @@ def main(batch_dir, mapped_dir, out):
 
 
 if __name__ == '__main__':
-    main(*sys.argv[1:4])
+    main(*sys.argv[1:5])
