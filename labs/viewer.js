@@ -5,14 +5,16 @@
 (() => {
   const UI = {
     en: { labs: 'Labs', title: 'Interactive explainers', sub: 'Learn a topic by playing with it.', open: 'Open the explorer',
-          topics: (n) => `${n} ${n === 1 ? 'topic' : 'topics'}`, all: 'All labs', show: (n) => `Show all ${n} topics with a lab`, subj: { Science: 'Science', Mathematics: 'Mathematics', Computing: 'Computing', Other: 'Other' }, more: 'More explainers are on the way.', has: 'Has an interactive explainer' },
+          topics: (n) => `${n} ${n === 1 ? 'topic' : 'topics'}`, all: 'All labs', show: (n) => `Show all ${n} topics with a lab`, subj: { Science: 'Science', Mathematics: 'Mathematics', Computing: 'Computing', Other: 'Other' }, more: 'More explainers are on the way.', has: 'Has an interactive explainer', find: 'Find a lab…', none: 'No labs found.', moreIn: (n) => `${n} more →` },
     ru: { labs: 'Лаборатории', title: 'Интерактивные объяснения', sub: 'Разберись в теме, играя с ней.', open: 'Открыть лабораторию',
           topics: (n) => `${n} ${n % 10 === 1 && n % 100 !== 11 ? 'тема' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'темы' : 'тем'}`,
-          all: 'Все лаборатории', show: (n) => `Показать все темы с лабораториями (${n})`, subj: { Science: 'Естествознание', Mathematics: 'Математика', Computing: 'Информатика', Other: 'Другое' }, more: 'Скоро будут и другие.', has: 'Есть интерактивное объяснение' },
+          all: 'Все лаборатории', show: (n) => `Показать все темы с лабораториями (${n})`, subj: { Science: 'Естествознание', Mathematics: 'Математика', Computing: 'Информатика', Other: 'Другое' }, more: 'Скоро будут и другие.', has: 'Есть интерактивное объяснение', find: 'Найти лабораторию…', none: 'Ничего не нашлось.', moreIn: (n) => `ещё ${n} →` },
     hu: { labs: 'Laborok', title: 'Interaktív magyarázók', sub: 'Értsd meg a témát játék közben.', open: 'A labor megnyitása',
-          topics: (n) => `${n} téma`, all: 'Minden labor', show: (n) => `Mind a ${n} laboros téma mutatása`, subj: { Science: 'Természettudomány', Mathematics: 'Matematika', Computing: 'Informatika', Other: 'Egyéb' }, more: 'Hamarosan jönnek az újak.', has: 'Interaktív magyarázó tartozik hozzá' },
+          topics: (n) => `${n} téma`, all: 'Minden labor', show: (n) => `Mind a ${n} laboros téma mutatása`, subj: { Science: 'Természettudomány', Mathematics: 'Matematika', Computing: 'Informatika', Other: 'Egyéb' }, more: 'Hamarosan jönnek az újak.', has: 'Interaktív magyarázó tartozik hozzá', find: 'Labor keresése…', none: 'Nincs találat.', moreIn: (n) => `még ${n} →` },
   };
   const SUBJ_ORDER = ['Science', 'Mathematics', 'Computing', 'Other'];
+  const ALL_UP_TO = 16, PER_SUBJ = 5, HITS = 12;
+  const fold = (s) => String(s ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   // the viewer's own top-level `let lang` / `let focus` are visible to this classic script
@@ -37,6 +39,11 @@
     .labcard .e { font-size: 26px; line-height: 1.1; }
     .labcard b { display: block; font-size: 14px; }
     .labcard small { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--mut); font-size: 12px; line-height: 1.45; margin-top: 2px; }
+    #labsQ { width: 100%; margin: 8px 0 2px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(20, 24, 38, .8);
+      outline: none; font-size: 13.5px; }
+    #labsQ:focus { border-color: var(--red); }
+    #labsMenu .moreln { display: block; margin: -2px 2px 6px; font-size: 12px; font-weight: 800; color: var(--soft); text-decoration: none; text-align: right; }
+    #labsMenu .moreln:hover { color: #fff; }
     #labsShow { width: 100%; justify-content: center; margin-bottom: 4px; white-space: normal; }
     #labsMenu .grp { font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); font-weight: 700; margin: 12px 2px 6px; }
     .labcard .m { display: flex; gap: 8px; align-items: center; margin-top: 6px; font-size: 11px; color: var(--faint); font-weight: 700; }
@@ -57,12 +64,29 @@
     const u = UI[cur()];
     $('labsBtn').innerHTML = `🧪 <span class="t">${esc(u.labs)}</span> <span class="n">${labs.length}</span>`;
     $('labsBtn').title = u.title;
-    $('labsMenu').innerHTML = `<h3>${esc(u.title)}<span style="color:var(--red)">.</span></h3><p class="s">${esc(u.sub)}</p>
-      <button class="btn" id="labsShow">🗺 ${esc(u.show(byTopic.size))}</button>
-      ${SUBJ_ORDER.filter((sj) => labs.some((l) => (l.subject ?? 'Other') === sj)).map((sj) => `<div class="grp">${esc(u.subj[sj] ?? sj)}</div>${
-        labs.filter((l) => (l.subject ?? 'Other') === sj).map((l) => `<a class="labcard" href="${href(l)}"><span class="e">${l.emoji}</span><span><b>${esc(tx(l.title))}</b>
-        <small>${esc(tx(l.blurb))}</small></span></a>`).join('')}`).join('')}
-      <div class="foot"><span>${esc(u.more)}</span><a href="labs/?lang=${cur()}">${esc(u.all)} →</a></div>`;
+    $('labsHead').innerHTML = `<h3>${esc(u.title)}<span style="color:var(--red)">.</span></h3><p class="s">${esc(u.sub)}</p>
+      <button class="btn" id="labsShow">🗺 ${esc(u.show(byTopic.size))}</button>`;
+    $('labsQ').placeholder = u.find;
+    renderLabs();
+  }
+  // a few labs per subject (all of them while the collection is small) and a search over every lab;
+  // the full, filterable collection is the gallery (labs/index.html)
+  function renderLabs() {
+    const u = UI[cur()], s = fold($('labsQ').value.trim()), cap = labs.length <= ALL_UP_TO ? Infinity : PER_SUBJ;
+    const card = (l) => `<a class="labcard" href="${href(l)}"><span class="e">${l.emoji}</span><span><b>${esc(tx(l.title))}</b>
+        <small>${esc(tx(l.blurb))}</small></span></a>`;
+    const subjOf = (l) => (SUBJ_ORDER.includes(l.subject) ? l.subject : 'Other');
+    let html;
+    if (s) {
+      const hits = labs.filter((l) => fold([...Object.values(l.title), tx(l.blurb)].join(' ')).includes(s));
+      html = hits.length ? hits.slice(0, HITS).map(card).join('') : `<p class="s">${esc(u.none)}</p>`;
+      if (hits.length > HITS) html += `<a class="moreln" href="labs/?lang=${cur()}&q=${encodeURIComponent($('labsQ').value.trim())}">${esc(u.moreIn(hits.length - HITS))}</a>`;
+    } else {
+      html = SUBJ_ORDER.map((sj) => [sj, labs.filter((l) => subjOf(l) === sj)]).filter(([, ls]) => ls.length).map(([sj, ls]) =>
+        `<div class="grp">${esc(u.subj[sj] ?? sj)} · ${ls.length}</div>${ls.slice(0, cap).map(card).join('')}${
+          ls.length > cap ? `<a class="moreln" href="labs/?lang=${cur()}&subject=${sj}">${esc(u.moreIn(ls.length - cap))}</a>` : ''}`).join('');
+    }
+    $('labsList').innerHTML = html + `<div class="foot"><span>${esc(u.more)}</span><a href="labs/?lang=${cur()}">${esc(u.all)} →</a></div>`;
   }
   function decoratePanel() {
     const body = $('panelBody'), l = byTopic.get(topic());
@@ -86,7 +110,9 @@
     const btn = Object.assign(document.createElement('button'), { id: 'labsBtn', className: 'btn' });
     const bar = document.querySelector('.bar');
     bar.insertBefore(btn, $('views'));
-    document.body.append(Object.assign(document.createElement('div'), { id: 'labsMenu', className: 'card' }));
+    document.body.append(Object.assign(document.createElement('div'), { id: 'labsMenu', className: 'card',
+      innerHTML: '<div id="labsHead"></div><input id="labsQ" type="search" autocomplete="off"><div id="labsList"></div>' }));
+    $('labsQ').addEventListener('input', renderLabs);
     btn.onclick = (ev) => { ev.stopPropagation(); $('labsMenu').classList.toggle('open'); };
     $('labsMenu').addEventListener('click', (ev) => {
       if (!ev.target.closest('#labsShow')) return;
