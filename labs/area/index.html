@@ -1,0 +1,778 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Area Lab · Skill Graph</title>
+<meta name="description" content="Same fence, different room: build a rabbit pen from a fixed fence, tile rectangles row by row, and draw shapes square by square to see that area and perimeter are not the same thing. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  /* this lab does not use the vertical gauge: drop it and its column */
+  #gauge { display: none; }
+  @media (min-width: 1101px) {
+    .lab { grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); grid-template-areas: 'hero stage' 'state stage' 'state ctrl'; }
+  }
+  .tip { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); font-size: 12.5px; color: var(--mut); font-weight: 700;
+    white-space: nowrap; pointer-events: none; max-width: calc(100% - 16px); overflow: hidden; text-overflow: ellipsis; }
+  .ask { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); width: min(560px, calc(100% - 16px)); padding: 14px 16px;
+    text-align: center; }
+  .ask .q { font: 500 22px/1.2 var(--serif); color: #fff; margin-bottom: 10px; text-wrap: balance; }
+  .ask .opts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .ask button { padding: 9px 14px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 800; cursor: pointer; }
+  .ask button:hover { background: rgba(130, 145, 190, .25); }
+  .ask p { margin: 0 0 10px; color: var(--soft); font-size: 13px; }
+  .ask .verdict { font-weight: 900; margin-bottom: 4px; }
+  .fine { margin-top: 8px; font-size: 11px; color: var(--faint); }
+  .rule { color: var(--soft); }
+  .muted { color: var(--mut); font-weight: 700; font-size: 13px; }
+  input[type=range].big:disabled { opacity: .35; cursor: default; }
+  #again { margin-left: auto; }
+  @media (max-width: 760px) {
+    #stage { height: min(118vw, 520px); }
+    .ask .q { font-size: 18px; } .ask { padding: 10px 12px; } .ask button { padding: 7px 11px; font-size: 13px; }
+    .tip { font-size: 11.5px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, store, $, esc, clamp, ruPlural, lang } from '../lab.js';
+
+// --- geometry: pure functions, everything on screen is computed from these --------------------------------
+// GEO-START
+const rectArea = (w, l) => w * l;
+const rectPerim = (w, l) => 2 * (w + l);
+const circleR = (P) => P / (2 * Math.PI);                 // circumference P = 2πr
+const circleArea = (P) => P * P / (4 * Math.PI);          // πr² with r = P / 2π
+const wallArea = (P, d) => d * (P - 2 * d);               // fence on three sides: d + (P − 2d) + d = P
+const halfCircleArea = (P) => P * P / (2 * Math.PI);      // a half-circle against the wall: arc πr = P
+const pairsOf = (A) => { const out = []; for (let r = 1; r * r <= A; r++) if (A % r === 0) out.push([r, A / r]); return out; };
+const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+// perimeter of a set of grid squares: every side of a filled square that touches an empty square (or the outside)
+// needs fence, including the sides around a hole
+function polyPerim(g, C, R) {
+  let p = 0;
+  for (let y = 0; y < R; y++) for (let x = 0; x < C; x++) {
+    if (!g[y * C + x]) continue;
+    for (const [dx, dy] of DIRS) { const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= C || ny >= R || !g[ny * C + nx]) p++; }
+  }
+  return p;
+}
+function neighbours(g, C, R, x, y) {
+  let n = 0;
+  for (const [dx, dy] of DIRS) { const nx = x + dx, ny = y + dy; if (nx >= 0 && ny >= 0 && nx < C && ny < R && g[ny * C + nx]) n++; }
+  return n;
+}
+// GEO-END
+
+const nf = (x, d = 0) => new Intl.NumberFormat(lang, { maximumFractionDigits: d, minimumFractionDigits: d }).format(x);
+const sgn = (d) => (d > 0 ? `+${d}` : d < 0 ? `−${-d}` : '0');
+// Hungarian article before a number: "az" before 1 (egy), 5, 50, 500 (öt…) and 1000–1999 (ezer…)
+const az = (n) => { const s = String(Math.floor(n)); return s === '1' || s[0] === '5' || (s.length === 4 && s[0] === '1') ? 'az' : 'a'; };
+const rq = (n, one, few, many) => `${n} ${ruPlural(n, one, few, many)}`;
+
+// --- words -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Area Lab', title: 'Room for the rabbits',
+    lines: [['Same fence,', 'different room: drag the corner of the pen.'], ['Count the squares inside', '— that is the area.'], ['Walk around the edge', '— that is the perimeter.']],
+    views: { pen: '🐇 Pen', tiles: '🧱 Tiles', draw: '✏️ Draw' },
+    m: 'm', m2: 'm²', unit: '1 square = 1 m × 1 m = 1 m²',
+    width: 'Width', depth: 'Depth', radius: 'Radius', fence: 'Fence', wall: 'wall', squaresLbl: 'Squares',
+    fenceOf: (P) => `${P} m of fence`, guessFirst: 'First, make a guess ↑',
+    dragTip: 'Drag the corner of the pen', circleTip: 'The same fence, bent into a circle', wallTip: 'Drag the corner: the wall is free',
+    barsTip: 'Tap a bar to try another shape', drawTip: 'Tap or drag on the squares',
+    ask: {
+      q: 'Both pens use 24 m of fence. Which one has more room inside?',
+      a: { same: '🟰 The same: same fence', long: '📏 The long one', square: '🟩 The square one' },
+      v: { square: 'Yes! The square one.', same: 'Lots of people think so!', long: 'It looks bigger, doesn’t it?' },
+      t: {
+        square: '6 × 6 = 36 squares, but 2 × 10 is only 20. Same fence, very different room.',
+        same: 'But the fence measures the edge, not the inside. Count the squares: 20 and 36.',
+        long: 'But it is thin: 2 rows of 10 = 20 squares. The square pen has 6 rows of 6 = 36.',
+      },
+      go: 'Build your own pen',
+    },
+    askState: { title: 'Same fence?', lead: 'Two pens, 24 m of fence each.', body: 'Walk around them: 10 + 2 + 10 + 2 = 24 m, and 6 + 6 + 6 + 6 = 24 m. Now guess: which pen gives the rabbits more room?' },
+    revealTitle: 'Same fence, different room!', revealLead: '2 × 10 = 20 m², but 6 × 6 = 36 m²',
+    revealBody: 'Perimeter is the length of the fence around the edge. Area is how many squares fit inside. Two pens can have exactly the same fence and still very different areas.',
+    both: 'both pens: 24 m of fence', vs: (a, b) => `${a} m² vs ${b} m²`,
+    penSub: (w, l, P) => `${w} m × ${l} m · fence ${P} m`,
+    shapes: { thin: 'Long and thin', near: 'Almost a square', square: 'A square!', rect: 'A rectangle' },
+    rowsOf: (r, c) => `${r} ${r === 1 ? 'row' : 'rows'} of ${c}`,
+    penLead: (w, l, A) => `${l} ${l === 1 ? 'row' : 'rows'} of ${w} = ${A} squares of grass`,
+    penBody: (w, l, P, min, max) => `The fence is the edge: ${w} + ${l} + ${w} + ${l} = ${P} m. The area is the inside. Every pen whose corner sits on the dotted line uses the same ${P} m of fence, yet the room inside goes from ${min} m² to ${max} m². The closer to a square, the more room.`,
+    penSquare: ' With this fence, the square is the roomiest rectangle of all.',
+    rule: 'Game rule: each rabbit needs 4 squares (4 m²) to hop around. It is a rule of this game, not advice on keeping real rabbits.',
+    chart: { x: 'width, m', xWall: 'depth, m', y: 'area, m²' },
+    fine: 'Everything is calculated: area = width × length, perimeter = the sum of the sides. Sides are whole metres.',
+    circleTitle: 'A round pen', circleSub: (P) => `circle · fence ${P} m`,
+    circleLead: (P, A) => `The same ${P} m of fence, bent into a circle: about ${A} m²`,
+    circleBody: (P, r, A, sq) => `Radius = ${P} ÷ (2 × π) ≈ ${r} m, area = π × ${r}² ≈ ${A} m². The best rectangle, the square, holds ${sq} m². Of all shapes with the same fence, the circle holds the most room.`,
+    circleFine: 'π ≈ 3.14159. The cut squares at the edge add up to the area.',
+    wallTitle: 'Against a wall', wallSub: (d, l, P) => `${d} m × ${l} m · fence ${P} m + wall`,
+    wallLead: (d, l, A) => `${d} m deep × ${l} m along the wall = ${A} m²`,
+    wallBody: (P, d, l, best, half) => `The wall is free: the fence only covers three sides, ${d} + ${l} + ${d} = ${P} m. Now the best rectangle is not a square: it is twice as long as it is deep, ${P / 4} × ${P / 2} = ${best} m², double the room of a square with the same fence. For the best pen, imagine its mirror image behind the wall: together they make a square. (A half-circle against the wall would hold even more: about ${half} m².)`,
+    tilesLead: (r, c, A) => `${r} ${r === 1 ? 'row' : 'rows'} of ${c} squares = ${A} squares`,
+    tilesBody: (r, c, A, P) => `Count the squares one by one, or multiply: rows × squares in each row = ${r} × ${c} = ${A}. So the area is ${A} m². Now walk around the edge: ${c} + ${r} + ${c} + ${r} = ${P} m of fence.`,
+    tilesExtra: (A, list) => `The same ${A} squares, different fences: ${list}. Area is the inside, perimeter is the edge.`,
+    tilesAgain: '▶ Tile again', fenceNeeded: 'Fence needed',
+    drawTitle: 'Free drawing', drawLead: (A, P) => `${A} ${A === 1 ? 'square' : 'squares'} inside, ${P} m of fence around`,
+    drawIdle: 'Tap squares to add or remove them. The fence follows the edge. Try filling the gap or the inside corner: a new square does not always make the fence longer!',
+    addMsg: (n, d) => n === 0 ? 'The new square stands alone: it needs its own 4 m of fence. +4 m.'
+      : `The new square touches ${n} ${n === 1 ? 'square' : 'squares'}: the fence comes off there (−${n} m) and goes up on its new sides (+${4 - n} m). In total: ${sgn(d)} m.`,
+    remMsg: (n, d) => n === 0 ? 'You took away a lonely square: its 4 m of fence goes too. −4 m.'
+      : `The square you took away touched ${n} ${n === 1 ? 'square' : 'squares'}: its own fence goes (−${4 - n} m), but the neighbours now need fence on those sides (+${n} m). In total: ${sgn(d)} m.`,
+    wow: { same: ' The area grew, but the fence stayed the same!', less: ' The area grew, but the fence got shorter!', more: ' Less area, but more fence!', still: ' Less area, same fence!' },
+    holeNote: 'A hole inside needs a fence too, so its edges count.',
+    presets: { start: '🧩 Gappy', rect: '▭ 3 × 4', stairs: '📶 Stairs', clear: '🧹 Clear' },
+    deltaPill: (d) => `fence ${sgn(d)} m`,
+    secrets: { circle: ['Round pen', 'Bend the fence into a circle'], wall: ['Use a wall', 'A wall instead of one side'] },
+    quiz: [
+      { q: 'A rectangle is 8 cm long and 5 cm wide. What is its perimeter?', opts: ['13 cm', '26 cm', '40 cm'], ok: 1 },
+      { q: 'A rectangle is tiled with 4 rows of 6 squares. What is its area?', opts: ['24 squares', '10 squares', '20 squares'], ok: 0 },
+      { q: 'A pentagon has a perimeter of 30 cm. Four of its sides are 5, 7, 6 and 4 cm. How long is the fifth side?', opts: ['22 cm', '6 cm', '8 cm'], ok: 2 },
+      { q: 'Two pens both use 24 m of fence: 2 × 10 and 6 × 6. Which has more room?', opts: ['They are the same', 'The 2 × 10 pen', 'The 6 × 6 pen'], ok: 2 },
+    ],
+  },
+  ru: {
+    name: 'Площадь', title: 'Место для кроликов',
+    lines: [['Забор тот же,', 'а площадь внутри — разная: тяни угол загона.'], ['Посчитай квадраты внутри', '— это площадь.'], ['Обойди край', '— это периметр.']],
+    views: { pen: '🐇 Загон', tiles: '🧱 Плитки', draw: '✏️ Рисуй' },
+    m: 'м', m2: 'м²', unit: '1 квадрат = 1 м × 1 м = 1 м²',
+    width: 'Ширина', depth: 'Глубина', radius: 'Радиус', fence: 'Забор', wall: 'стена', squaresLbl: 'Квадратов',
+    fenceOf: (P) => `${P} м забора`, guessFirst: 'Сначала угадай ↑',
+    dragTip: 'Тяни угол загона', circleTip: 'Тот же забор, согнутый в круг', wallTip: 'Тяни угол: стена бесплатная',
+    barsTip: 'Нажми на полоску, чтобы взять другую форму', drawTip: 'Нажимай или веди пальцем по клеткам',
+    ask: {
+      q: 'У обоих загонов по 24 м забора. В каком больше места внутри?',
+      a: { same: '🟰 Одинаково: забор-то одинаковый', long: '📏 В длинном', square: '🟩 В квадратном' },
+      v: { square: 'Да! В квадратном.', same: 'Так думают очень многие!', long: 'Он кажется больше, правда?' },
+      t: {
+        square: '6 × 6 = 36 квадратов, а 2 × 10 — всего 20. Забор одинаковый, а площадь совсем разная.',
+        same: 'Но забор измеряет край, а не то, что внутри. Посчитай квадраты: 20 и 36.',
+        long: 'Но он узкий: 2 ряда по 10 = 20 квадратов. А в квадратном 6 рядов по 6 = 36.',
+      },
+      go: 'Построить свой загон',
+    },
+    askState: { title: 'Забор одинаковый?', lead: 'Два загона, у каждого 24 м забора.', body: 'Обойди их: 10 + 2 + 10 + 2 = 24 м и 6 + 6 + 6 + 6 = 24 м. Теперь угадай: в каком загоне кроликам просторнее?' },
+    revealTitle: 'Забор тот же, площадь — разная!', revealLead: '2 × 10 = 20 м², а 6 × 6 = 36 м²',
+    revealBody: 'Периметр — это длина забора по краю. Площадь — это сколько квадратов помещается внутри. У двух загонов может быть совершенно одинаковый забор и при этом очень разная площадь.',
+    both: 'у обоих загонов по 24 м забора', vs: (a, b) => `${a} м² и ${b} м²`,
+    penSub: (w, l, P) => `${w} м × ${l} м · забор ${P} м`,
+    shapes: { thin: 'Длинный и узкий', near: 'Почти квадрат', square: 'Квадрат!', rect: 'Прямоугольник' },
+    rowsOf: (r, c) => `${rq(r, 'ряд', 'ряда', 'рядов')} по ${c}`,
+    penLead: (w, l, A) => `${rq(l, 'ряд', 'ряда', 'рядов')} по ${rq(w, 'квадрату', 'квадрата', 'квадратов')} = ${rq(A, 'квадрат', 'квадрата', 'квадратов')} травы`,
+    penBody: (w, l, P, min, max) => `Забор — это край: ${w} + ${l} + ${w} + ${l} = ${P} м. Площадь — это то, что внутри. У всех загонов, чей угол стоит на пунктирной линии, одни и те же ${P} м забора, но места внутри — от ${min} до ${max} м². Чем ближе к квадрату, тем просторнее.`,
+    penSquare: ' С таким забором квадрат — самый просторный из всех прямоугольников.',
+    rule: 'Правило игры: каждому кролику нужно 4 квадрата (4 м²), чтобы прыгать. Это правило игры, а не совет, как содержать настоящих кроликов.',
+    chart: { x: 'ширина, м', xWall: 'глубина, м', y: 'площадь, м²' },
+    fine: 'Всё посчитано: площадь = ширина × длина, периметр = сумма сторон. Стороны — целое число метров.',
+    circleTitle: 'Круглый загон', circleSub: (P) => `круг · забор ${P} м`,
+    circleLead: (P, A) => `Те же ${P} м забора, согнутые в круг: около ${A} м²`,
+    circleBody: (P, r, A, sq) => `Радиус = ${P} : (2 × π) ≈ ${r} м, площадь = π × ${r}² ≈ ${A} м². Лучший прямоугольник — квадрат — вмещает ${sq} м². Из всех фигур с одинаковым забором больше всего места у круга.`,
+    circleFine: 'π ≈ 3,14159. Обрезанные квадраты по краю вместе дают площадь.',
+    wallTitle: 'У стены', wallSub: (d, l, P) => `${d} м × ${l} м · забор ${P} м + стена`,
+    wallLead: (d, l, A) => `${d} м вглубь × ${l} м вдоль стены = ${A} м²`,
+    wallBody: (P, d, l, best, half) => `Стена бесплатная: забор нужен только с трёх сторон, ${d} + ${l} + ${d} = ${P} м. Теперь лучший прямоугольник — не квадрат: он вдвое длиннее, чем глубина, ${P / 4} × ${P / 2} = ${best} м², вдвое больше, чем у квадрата с тем же забором. Для лучшего загона представь его отражение за стеной: вместе они дают квадрат. (Полукруг у стены вместил бы ещё больше: около ${half} м².)`,
+    tilesLead: (r, c, A) => `${rq(r, 'ряд', 'ряда', 'рядов')} по ${rq(c, 'квадрату', 'квадрата', 'квадратов')} = ${rq(A, 'квадрат', 'квадрата', 'квадратов')}`,
+    tilesBody: (r, c, A, P) => `Можно считать квадраты по одному, а можно умножить: число рядов × число квадратов в ряду = ${r} × ${c} = ${A}. Значит, площадь — ${A} м². А теперь обойди край: ${c} + ${r} + ${c} + ${r} = ${P} м забора.`,
+    tilesExtra: (A, list) => `Те же ${rq(A, 'квадрат', 'квадрата', 'квадратов')}, но разные заборы: ${list}. Площадь — это то, что внутри, периметр — это край.`,
+    tilesAgain: '▶ Выложить снова', fenceNeeded: 'Нужно забора',
+    drawTitle: 'Рисуй сам', drawLead: (A, P) => `${rq(A, 'квадрат', 'квадрата', 'квадратов')} внутри, ${P} м забора вокруг`,
+    drawIdle: 'Нажимай на клетки, чтобы добавить или убрать квадрат. Забор идёт по краю. Попробуй заполнить щель или внутренний уголок: от нового квадрата забор не всегда становится длиннее!',
+    addMsg: (n, d) => n === 0 ? 'Новый квадрат стоит отдельно: ему нужны свои 4 м забора. +4 м.'
+      : `Новый квадрат касается ${n} ${n === 1 ? 'квадрата' : 'квадратов'}: там забор убрали (−${n} м), а на его новых сторонах поставили (+${4 - n} м). Итого: ${sgn(d)} м.`,
+    remMsg: (n, d) => n === 0 ? 'Ты убрал одинокий квадрат: его 4 м забора тоже убрали. −4 м.'
+      : `Убранный квадрат касался ${n} ${n === 1 ? 'квадрата' : 'квадратов'}: его забор убрали (−${4 - n} м), но соседям теперь нужен забор с этих сторон (+${n} м). Итого: ${sgn(d)} м.`,
+    wow: { same: ' Площадь выросла, а забор остался прежним!', less: ' Площадь выросла, а забор стал короче!', more: ' Площадь меньше, а забора больше!', still: ' Площадь меньше, а забор тот же!' },
+    holeNote: 'Дырке внутри тоже нужен забор, поэтому её края считаются.',
+    presets: { start: '🧩 Со щелью', rect: '▭ 3 × 4', stairs: '📶 Лесенка', clear: '🧹 Очистить' },
+    deltaPill: (d) => `забор ${sgn(d)} м`,
+    secrets: { circle: ['Круглый загон', 'Согни забор в круг'], wall: ['У стены', 'Стена вместо одной стороны'] },
+    quiz: [
+      { q: 'Длина прямоугольника 8 см, ширина 5 см. Чему равен его периметр?', opts: ['13 см', '26 см', '40 см'], ok: 1 },
+      { q: 'Прямоугольник выложен 4 рядами по 6 квадратов. Какова его площадь?', opts: ['24 квадрата', '10 квадратов', '20 квадратов'], ok: 0 },
+      { q: 'Периметр пятиугольника 30 см. Четыре его стороны: 5, 7, 6 и 4 см. Чему равна пятая сторона?', opts: ['22 см', '6 см', '8 см'], ok: 2 },
+      { q: 'У двух загонов по 24 м забора: 2 × 10 и 6 × 6. В каком больше места?', opts: ['Одинаково', 'В загоне 2 × 10', 'В загоне 6 × 6'], ok: 2 },
+    ],
+  },
+  hu: {
+    name: 'Területlabor', title: 'Hely a nyulaknak',
+    lines: [['Ugyanaz a kerítés,', 'más a hely: húzd a kifutó sarkát.'], ['Számold meg a belső négyzeteket', '— ez a terület.'], ['Járd körbe a szélét', '— ez a kerület.']],
+    views: { pen: '🐇 Kifutó', tiles: '🧱 Kirakás', draw: '✏️ Rajzolj' },
+    m: 'm', m2: 'm²', unit: '1 négyzet = 1 m × 1 m = 1 m²',
+    width: 'Szélesség', depth: 'Mélység', radius: 'Sugár', fence: 'Kerítés', wall: 'fal', squaresLbl: 'Négyzetek',
+    fenceOf: (P) => `${P} m kerítés`, guessFirst: 'Előbb tippelj ↑',
+    dragTip: 'Húzd a kifutó sarkát', circleTip: 'Ugyanaz a kerítés körbe hajlítva', wallTip: 'Húzd a sarkát: a fal ingyen van',
+    barsTip: 'Koppints egy sávra, és próbálj ki más alakot', drawTip: 'Koppints vagy húzd az ujjad a négyzeteken',
+    ask: {
+      q: 'Mindkét kifutóhoz 24 méter kerítés kell. Melyikben van több hely?',
+      a: { same: '🟰 Egyforma: ugyanaz a kerítés', long: '📏 A hosszúkásban', square: '🟩 A négyzet alakúban' },
+      v: { square: 'Igen! A négyzet alakúban.', same: 'Nagyon sokan gondolják így!', long: 'Nagyobbnak látszik, ugye?' },
+      t: {
+        square: '6 × 6 = 36 négyzet, a 2 × 10 viszont csak 20. Ugyanaz a kerítés, mégis egészen más a hely.',
+        same: 'De a kerítés a szélét méri, nem a belsejét. Számold meg a négyzeteket: 20 és 36.',
+        long: 'De keskeny: 2 sor, soronként 10 = 20 négyzet. A négyzet alakúban 6 sor, soronként 6 = 36.',
+      },
+      go: 'Építsd meg a saját kifutódat',
+    },
+    askState: { title: 'Ugyanaz a kerítés?', lead: 'Két kifutó, mindkettő 24 méter kerítéssel.', body: 'Járd körbe őket: 10 + 2 + 10 + 2 = 24 m és 6 + 6 + 6 + 6 = 24 m. Most tippelj: melyikben van több helyük a nyulaknak?' },
+    revealTitle: 'Ugyanaz a kerítés, más a hely!', revealLead: '2 × 10 = 20 m², de 6 × 6 = 36 m²',
+    revealBody: 'A kerület a szélén körbefutó kerítés hossza. A terület az, hogy hány négyzet fér el belül. Két kifutónak lehet pontosan ugyanolyan hosszú a kerítése, a területük mégis nagyon különböző.',
+    both: 'mindkét kifutó: 24 m kerítés', vs: (a, b) => `${a} m² és ${b} m²`,
+    penSub: (w, l, P) => `${w} m × ${l} m · kerítés: ${P} m`,
+    shapes: { thin: 'Hosszú és keskeny', near: 'Majdnem négyzet', square: 'Négyzet!', rect: 'Téglalap' },
+    rowsOf: (r, c) => `${r} sor, soronként ${c}`,
+    penLead: (w, l, A) => `${l} sor, soronként ${w} négyzet = ${A} négyzet`,
+    penBody: (w, l, P, min, max) => `A kerítés a széle: ${w} + ${l} + ${w} + ${l} = ${P} m. A terület a belseje. Minden kifutóhoz, amelynek a sarka a pontozott vonalon van, ugyanannyi, ${P} méter kerítés kell, a belső hely mégis ${min} és ${max} m² között változik. Minél inkább négyzet, annál több a hely.`,
+    penSquare: ' Ezzel a kerítéssel a négyzet a legtágasabb téglalap.',
+    rule: 'Játékszabály: minden nyúlnak 4 négyzet (4 m²) kell az ugráláshoz. Ez a játék szabálya, nem tanács az igazi nyulak tartásához.',
+    chart: { x: 'szélesség, m', xWall: 'mélység, m', y: 'terület, m²' },
+    fine: 'Minden szám számolt érték: terület = szélesség × hosszúság, kerület = az oldalak összege. Az oldalak egész méterek.',
+    circleTitle: 'Kerek kifutó', circleSub: (P) => `kör · kerítés: ${P} m`,
+    circleLead: (P, A) => `Ugyanaz ${az(P)} ${P} méter kerítés körbe hajlítva: kb. ${A} m²`,
+    circleBody: (P, r, A, sq) => `Sugár = ${P} : (2 × π) ≈ ${r} m, terület = π × ${r}² ≈ ${A} m². A legjobb téglalap, a négyzet területe ${sq} m². Ugyanakkora kerítéssel az összes alakzat közül a kör keríti be a legtöbb helyet.`,
+    circleFine: 'π ≈ 3,14159. A szélén levágott négyzetdarabok együtt adják ki a területet.',
+    wallTitle: 'Fal mellett', wallSub: (d, l, P) => `${d} m × ${l} m · kerítés: ${P} m + fal`,
+    wallLead: (d, l, A) => `${d} m mély × ${l} m a fal mentén = ${A} m²`,
+    wallBody: (P, d, l, best, half) => `A fal ingyen van: kerítés csak három oldalra kell, ${d} + ${l} + ${d} = ${P} m. Most a legjobb téglalap nem négyzet: kétszer olyan hosszú, mint amilyen mély, ${P / 4} × ${P / 2} = ${best} m², kétszer annyi, mint az ugyanekkora kerítésű négyzeté. A legjobb kifutónál képzeld el a tükörképét a fal mögött: együtt négyzetet adnak. (Egy félkör a fal mellett még többet adna: kb. ${half} m²-t.)`,
+    tilesLead: (r, c, A) => `${r} sor, soronként ${c} négyzet = ${A} négyzet`,
+    tilesBody: (r, c, A, P) => `Számolhatod egyenként is a négyzeteket, vagy szorozhatsz: sorok száma × négyzetek egy sorban = ${r} × ${c} = ${A}. Tehát a terület ${A} m². Most járd körbe a szélét: ${c} + ${r} + ${c} + ${r} = ${P} m kerítés.`,
+    tilesExtra: (A, list) => `Ugyanaz ${az(A)} ${A} négyzet, más-más kerítés: ${list}. A terület a belseje, a kerület a széle.`,
+    tilesAgain: '▶ Rakd ki újra', fenceNeeded: 'Szükséges kerítés',
+    drawTitle: 'Szabad rajz', drawLead: (A, P) => `${A} négyzet belül, ${P} m kerítés körülötte`,
+    drawIdle: 'Koppints a négyzetekre, hogy hozzáadd vagy elvedd őket. A kerítés a szélét követi. Próbáld kitölteni a rést vagy a belső sarkot: egy új négyzettől nem mindig lesz hosszabb a kerítés!',
+    addMsg: (n, d) => n === 0 ? 'Az új négyzet egyedül áll: saját 4 m kerítés kell neki. +4 m.'
+      : `Az új négyzet ${n} négyzethez ér: ott lekerül a kerítés (−${n} m), az új oldalain pedig felkerül (+${4 - n} m). Összesen: ${sgn(d)} m.`,
+    remMsg: (n, d) => n === 0 ? 'Egy magányos négyzetet vettél el: a 4 m kerítése is eltűnik. −4 m.'
+      : `Az elvett négyzet ${n} négyzethez ért: a saját kerítése eltűnik (−${4 - n} m), de a szomszédoknak most ott kerítés kell (+${n} m). Összesen: ${sgn(d)} m.`,
+    wow: { same: ' A terület nőtt, a kerítés ugyanannyi maradt!', less: ' A terület nőtt, a kerítés mégis rövidebb lett!', more: ' Kisebb terület, mégis több kerítés!', still: ' Kisebb terület, ugyanannyi kerítés!' },
+    holeNote: 'A belső lyuknak is kell kerítés, ezért a szélei is számítanak.',
+    presets: { start: '🧩 Csipkés', rect: '▭ 3 × 4', stairs: '📶 Lépcső', clear: '🧹 Törlés' },
+    deltaPill: (d) => `kerítés: ${sgn(d)} m`,
+    secrets: { circle: ['Kerek kifutó', 'Hajlítsd körbe a kerítést'], wall: ['Fal mellett', 'Fal az egyik oldal helyett'] },
+    quiz: [
+      { q: 'Egy téglalap 8 cm hosszú és 5 cm széles. Mekkora a kerülete?', opts: ['13 cm', '26 cm', '40 cm'], ok: 1 },
+      { q: 'Egy téglalapot 4 sorban, soronként 6 négyzettel raktunk ki. Mekkora a területe?', opts: ['24 négyzet', '10 négyzet', '20 négyzet'], ok: 0 },
+      { q: 'Egy ötszög kerülete 30 cm. Négy oldala 5, 7, 6 és 4 cm. Milyen hosszú az ötödik oldala?', opts: ['22 cm', '6 cm', '8 cm'], ok: 2 },
+      { q: 'Két kifutóhoz egyaránt 24 méter kerítés kell: 2 × 10 és 6 × 6. Melyikben van több hely?', opts: ['Egyformák', 'A hosszúkásban (2 × 10)', 'A négyzet alakúban (6 × 6)'], ok: 2 },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_6xNmQLzuqm', en: 'Understanding Area', ru: 'Понимание площади', hu: 'A terület megértése' },
+  { id: 'mt_Jvvh5P06NV', en: 'Area by Tiling', ru: 'Площадь через разбиение на квадраты', hu: 'Terület kirakással' },
+  { id: 'mt_wE7-Gs9ENL', en: 'Measuring Perimeters', ru: 'Измерение периметра', hu: 'Kerület mérése' },
+  { id: 'mt_WtcFrxGOgw', en: 'Perimeters of polygons', ru: 'Периметры многоугольников', hu: 'Sokszögek kerülete' },
+];
+const FENCES = [16, 20, 24, 28];
+const RABBIT = 4; // game rule: squares per rabbit
+
+// free drawing: a 12 × 9 board and three starting shapes of 12 squares each
+const DC = 12, DR = 9;
+const SHAPES = {
+  // a gap at the top (3 neighbours: filling it shortens the fence) and an inside corner (2 neighbours: fence unchanged)
+  start: { at: [3, 3], cells: [[0, 0], [1, 0], [2, 0], [4, 0], [0, 1], [1, 1], [2, 1], [3, 1], [4, 1], [0, 2], [1, 2], [2, 2]] },
+  rect: { at: [4, 3], cells: Array.from({ length: 12 }, (_, i) => [i % 4, Math.floor(i / 4)]) },
+  stairs: { at: [3, 1], cells: Array.from({ length: 12 }, (_, i) => [Math.floor(i / 2), Math.ceil(i / 2)]) },
+  clear: { at: [0, 0], cells: [] },
+};
+const shapeGrid = (k) => { const g = new Uint8Array(DC * DR), { at: [ax, ay], cells } = SHAPES[k]; for (const [x, y] of cells) g[(ay + y) * DC + ax + x] = 1; return g; };
+
+// --- state -------------------------------------------------------------------------------------------------
+const now = () => performance.now() / 1000;
+const S = {
+  P: 24, w: 2, d: 3, mode: 'rect', dragged: false, fillAt: -1e9,
+  A: 24, pair: 3, tileAt: 0,
+  cells: shapeGrid('start'), shape: 'start', last: null,
+  asked: store.get('area:asked', false), answer: null, revealAt: 0,
+};
+const lab = shell({ key: 'area', T, topics: TOPICS, views: ['pen', 'tiles', 'draw'], onLang: render, onView: (v) => { if (v === 'tiles') S.tileAt = now(); if (v === 'pen') S.fillAt = now(); render(); } });
+const secret = secretLab('area', () => ({
+  secrets: [{ emo: '🌕', title: T[lang].secrets.circle[0], desc: T[lang].secrets.circle[1] }, { emo: '🧱', title: T[lang].secrets.wall[0], desc: T[lang].secrets.wall[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="secAsk" class="muted"></div>
+  <div id="secPen">
+    <div class="row2" style="margin:0 0 6px"><span class="lbl" id="lblW"></span></div>
+    <input type="range" class="big" id="slider" min="1" max="11" step="1" value="2" aria-label="width">
+    <div class="ends"><span id="endL"></span><span id="endR"></span></div>
+    <div class="row2"><span class="lbl" id="lblFence"></span><div class="chips" id="fenceChips"></div></div>
+  </div>
+  <div id="secTiles">
+    <div class="row2" style="margin-top:0"><span class="lbl" id="lblSq"></span><div class="card seg small" id="areaSeg"></div></div>
+    <div class="row2"><div class="chips" id="pairChips"></div><button class="chip" id="again"></button></div>
+  </div>
+  <div id="secDraw"><div class="chips" id="drawChips"></div></div>`;
+$('slider').style.setProperty('--track', 'linear-gradient(90deg, #f5c84c, #3ddc97 50%, #f5c84c)');
+const tipEl = Object.assign(document.createElement('div'), { className: 'tip' });
+const askEl = Object.assign(document.createElement('div'), { className: 'ask card' });
+$('overlay').append(tipEl, askEl);
+
+const maxK = () => S.P / 2 - 1; // widest rectangle side, and the deepest wall pen
+function setK(k, animate) {
+  k = clamp(Math.round(k), 1, maxK());
+  const cur = S.mode === 'wall' ? S.d : S.w;
+  if (k === cur) return;
+  if (S.mode === 'wall') S.d = k; else S.w = k;
+  S.fillAt = animate ? now() : -1e9;
+  sfx.tick(); render();
+}
+$('slider').addEventListener('input', () => { S.dragged = true; setK(+$('slider').value, false); });
+$('fenceChips').addEventListener('click', (ev) => {
+  const b = ev.target.closest('.chip'); if (!b) return;
+  const k = b.dataset.k;
+  if (k === 'circle' || k === 'wall') {
+    if (!secret.unlocked()) return secret.open();
+    S.mode = S.mode === k ? 'rect' : k;
+    if (S.mode === 'wall') S.d = clamp(S.d, 1, maxK());
+  } else {
+    const P = +k; if (P === S.P) return;
+    const old = S.P; S.P = P;
+    S.w = clamp(Math.round(S.w * P / old), 1, maxK()); S.d = clamp(Math.round(S.d * P / old), 1, maxK());
+  }
+  S.fillAt = now(); sfx.click(); render();
+});
+$('areaSeg').addEventListener('click', (ev) => {
+  const A = +ev.target.closest('button')?.dataset.a; if (!A || A === S.A) return;
+  S.A = A; S.pair = pairsOf(A).length - 1; S.tileAt = now(); sfx.click(); render();
+});
+$('pairChips').addEventListener('click', (ev) => {
+  const b = ev.target.closest('.chip'); if (!b) return;
+  S.pair = +b.dataset.i; S.tileAt = now(); sfx.click(); render();
+});
+$('again').onclick = () => { S.tileAt = now(); sfx.click(); render(); };
+$('drawChips').addEventListener('click', (ev) => {
+  const b = ev.target.closest('.chip'); if (!b) return;
+  S.shape = b.dataset.k; S.cells = shapeGrid(S.shape); S.last = null; sfx.click(); render();
+});
+askEl.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  if (b.dataset.a) { S.answer = b.dataset.a; S.revealAt = now(); (S.answer === 'square' ? sfx.good : sfx.bad)(); }
+  else { S.asked = true; store.set('area:asked', true); S.P = 24; S.w = 2; S.mode = 'rect'; S.fillAt = now(); sfx.click(); }
+  render();
+});
+
+function render() {
+  const t = T[lang], v = lab.view, open = secret.unlocked(), asking = v === 'pen' && !S.asked;
+  $('secAsk').style.display = asking ? '' : 'none';
+  $('secAsk').textContent = t.guessFirst;
+  $('secPen').style.display = v === 'pen' && !asking ? '' : 'none';
+  $('secTiles').style.display = v === 'tiles' ? '' : 'none';
+  $('secDraw').style.display = v === 'draw' ? '' : 'none';
+
+  // pen controls
+  const wall = S.mode === 'wall', circ = S.mode === 'circle', K = maxK();
+  $('slider').max = String(K); $('slider').value = String(wall ? S.d : S.w); $('slider').disabled = circ;
+  $('lblW').textContent = circ ? `${t.radius} ≈ ${nf(circleR(S.P), 2)} ${t.m}` : `${wall ? t.depth : t.width}: ${wall ? S.d : S.w} ${t.m}`;
+  $('endL').textContent = `1 ${t.m}`; $('endR').textContent = `${K} ${t.m}`;
+  $('lblFence').textContent = t.fence;
+  const sc = (k, emo) => `<button class="chip secret ${open ? 'open' : ''} ${S.mode === k ? 'on' : ''}" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  $('fenceChips').innerHTML = [sc('circle', '🌕'), ...FENCES.map((P) => `<button class="chip ${P === S.P ? 'on' : ''}" data-k="${P}">${P} ${t.m}</button>`), sc('wall', '🧱')].join('');
+  // tiles controls
+  $('lblSq').textContent = t.squaresLbl;
+  $('areaSeg').innerHTML = [12, 24].map((A) => `<button data-a="${A}" class="${A === S.A ? 'on' : ''}">${A}</button>`).join('');
+  $('pairChips').innerHTML = pairsOf(S.A).map(([r, c], i) => `<button class="chip ${i === S.pair ? 'on' : ''}" data-i="${i}">${r} × ${c}</button>`).join('');
+  $('again').textContent = t.tilesAgain;
+  // draw controls
+  $('drawChips').innerHTML = Object.keys(SHAPES).map((k) => `<button class="chip ${k === S.shape && !S.last ? 'on' : ''}" data-k="${k}">${esc(t.presets[k])}</button>`).join('');
+
+  const unitLine = `<div class="fine">${esc(t.unit)}</div>`;
+  if (v === 'pen') renderPen(t, unitLine, asking);
+  else if (v === 'tiles') renderTiles(t, unitLine);
+  else renderDraw(t, unitLine);
+
+  tipEl.textContent = v === 'pen' ? (asking ? '' : circ ? t.circleTip : wall ? t.wallTip : t.dragTip) : v === 'tiles' ? t.barsTip : t.drawTip;
+  askEl.style.display = asking ? '' : 'none';
+  if (asking) {
+    const a = t.ask;
+    askEl.innerHTML = S.answer === null
+      ? `<div class="q">${esc(a.q)}</div><div class="opts">${['same', 'long', 'square'].map((k) => `<button data-a="${k}">${esc(a.a[k])}</button>`).join('')}</div>`
+      : `<div class="verdict" style="color:${S.answer === 'square' ? 'var(--ok)' : 'var(--wip)'}">${esc(a.v[S.answer])}</div>
+         <p>${esc(a.t[S.answer])}</p><div class="opts"><button>${esc(a.go)} →</button></div>`;
+  }
+}
+
+function renderPen(t, unitLine, asking) {
+  lab.setGlow('rgba(61, 220, 151, .22)');
+  if (asking) {
+    // nothing here may give the answer away before the guess
+    if (S.answer === null) {
+      lab.setReadout(`? ${t.m2}`, t.both, '', '#3ddc97');
+      lab.setState({ emo: '🤔', title: t.askState.title, lead: t.askState.lead, body: t.askState.body, extra: unitLine });
+    } else {
+      lab.setReadout(esc(t.vs(20, 36)), t.both, '', '#3ddc97');
+      lab.setState({ emo: '🐇', title: t.revealTitle, lead: t.revealLead, body: t.revealBody, extra: `<div class="rule">🐇 ${esc(t.rule)}</div>${unitLine}` });
+    }
+    return;
+  }
+  const P = S.P, N = P / 2;
+  const ruleLine = `<div class="rule">🐇 ${esc(t.rule)}</div>`;
+  if (S.mode === 'circle') {
+    const A = circleArea(P), r = circleR(P), sq = (P / 4) ** 2;
+    lab.setReadout(`≈ ${nf(A, 1)} ${t.m2}`, t.circleSub(P), `🐇 × ${Math.floor(A / RABBIT)}`, '#f5c84c');
+    lab.setState({ emo: '🌕', title: t.circleTitle, lead: t.circleLead(P, nf(A, 1)), body: t.circleBody(P, nf(r, 2), nf(A, 1), sq),
+      extra: `${ruleLine}${unitLine}<div class="fine">${esc(t.circleFine)}</div>` });
+    return;
+  }
+  if (S.mode === 'wall') {
+    const d = S.d, l = P - 2 * d, A = wallArea(P, d);
+    lab.setReadout(`${A} ${t.m2}`, t.wallSub(d, l, P), `🐇 × ${Math.floor(A / RABBIT)}`, '#f5c84c');
+    lab.setState({ emo: '🧱', title: t.wallTitle, lead: t.wallLead(d, l, A), body: t.wallBody(P, d, l, wallArea(P, P / 4), nf(halfCircleArea(P), 1)),
+      extra: `${ruleLine}${unitLine}<div class="fine">${esc(t.fine)}</div>` });
+    return;
+  }
+  const w = S.w, l = N - w, A = rectArea(w, l);
+  const shape = w === l ? 'square' : Math.min(w, l) <= 2 ? 'thin' : Math.abs(w - l) <= 2 ? 'near' : 'rect';
+  lab.setReadout(`${A} ${t.m2}`, t.penSub(w, l, rectPerim(w, l)), `🐇 × ${Math.floor(A / RABBIT)}`, '#3ddc97');
+  lab.setState({ emo: shape === 'square' ? '🟩' : shape === 'thin' ? '📏' : '▭', title: t.shapes[shape], lead: t.penLead(w, l, A),
+    body: t.penBody(w, l, P, rectArea(1, N - 1), rectArea(N / 2, N / 2)) + (shape === 'square' ? t.penSquare : ''),
+    extra: `${ruleLine}${unitLine}<div class="fine">${esc(t.fine)}</div>` });
+}
+
+function renderTiles(t, unitLine) {
+  const list = pairsOf(S.A), [r, c] = list[S.pair], P = rectPerim(r, c);
+  lab.setGlow('rgba(255, 138, 61, .22)');
+  lab.setReadout(`${S.A} ${t.m2}`, t.rowsOf(r, c), `${t.fence} ${P} ${t.m}`, '#ff8a3d');
+  const ls = list.map(([a, b]) => `${a} × ${b} → ${rectPerim(a, b)} ${t.m}`).join(', ');
+  lab.setState({ emo: '🧱', title: `${r} × ${c} = ${S.A}`, lead: t.tilesLead(r, c, S.A), body: t.tilesBody(r, c, S.A, P),
+    extra: `${esc(t.tilesExtra(S.A, ls))}${unitLine}` });
+}
+
+function renderDraw(t, unitLine) {
+  const A = S.cells.reduce((s, x) => s + x, 0), P = polyPerim(S.cells, DC, DR), L = S.last;
+  lab.setGlow('rgba(78, 168, 255, .22)');
+  lab.setReadout(`${A} ${t.m2}`, `${t.fence} ${P} ${t.m}`, L ? t.deltaPill(L.d) : '', L && L.d <= 0 && L.add ? '#3ddc97' : '#4ea8ff');
+  let body = t.drawIdle;
+  if (L) {
+    body = L.add ? t.addMsg(L.n, L.d) : t.remMsg(L.n, L.d);
+    if (L.add && L.d === 0) body += t.wow.same;
+    if (L.add && L.d < 0) body += t.wow.less;
+    if (!L.add && L.d > 0) body += t.wow.more;
+    if (!L.add && L.d === 0) body += t.wow.still;
+  }
+  lab.setState({ emo: '✏️', title: t.drawTitle, lead: t.drawLead(A, P), body, extra: `${esc(t.holeNote)}${unitLine}` });
+}
+
+// --- drawing ------------------------------------------------------------------------------------------------
+const C = { grass: '#2e9a5d', grass2: '#36ad69', fence: '#d39a5c', post: '#f0c58a', mut: '#98A0B8', faint: '#646C84', grid: 'rgba(130,145,190,.16)', soil: 'rgba(130,145,190,.06)' };
+const EMOJI = (px) => `${px}px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
+const font = (wt, px) => `${wt} ${px}px Nunito, sans-serif`;
+let geo = {};
+
+function gardenGrid(c, ox, oy, cols, rows, cell) {
+  c.fillStyle = C.soil; c.fillRect(ox, oy, cols * cell, rows * cell);
+  c.strokeStyle = C.grid; c.lineWidth = 1; c.beginPath();
+  for (let i = 0; i <= cols; i++) { c.moveTo(ox + i * cell, oy); c.lineTo(ox + i * cell, oy + rows * cell); }
+  for (let j = 0; j <= rows; j++) { c.moveTo(ox, oy + j * cell); c.lineTo(ox + cols * cell, oy + j * cell); }
+  c.stroke();
+}
+// a rectangle of grass tiles, the first `shown` of them in reading order
+function tiles(c, ox, oy, cols, rows, cell, shown, numbers) {
+  for (let k = 0; k < Math.min(shown, cols * rows); k++) {
+    const x = k % cols, y = Math.floor(k / cols);
+    c.fillStyle = (x + y) % 2 ? C.grass2 : C.grass; c.fillRect(ox + x * cell, oy + y * cell, cell, cell);
+    c.strokeStyle = 'rgba(8,30,16,.55)'; c.lineWidth = 1; c.strokeRect(ox + x * cell + 0.5, oy + y * cell + 0.5, cell - 1, cell - 1);
+    if (numbers && cell >= 18) {
+      c.fillStyle = 'rgba(255,255,255,.88)'; c.font = font(800, clamp(cell * 0.36, 9, 15)); c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillText(String(k + 1), ox + (x + 0.5) * cell, oy + (y + 0.5) * cell + 1);
+    }
+  }
+}
+// a fence along a polyline (in pixels) with a post at every metre
+function fence(c, pts, cell, closed) {
+  const lw = clamp(cell * 0.16, 2.5, 5);
+  c.strokeStyle = C.fence; c.lineWidth = lw; c.lineJoin = 'round'; c.lineCap = 'round';
+  c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); if (closed) c.closePath(); c.stroke();
+  c.fillStyle = C.post; const ps = lw * 1.5;
+  const segs = closed ? [...pts, pts[0]] : pts;
+  for (let i = 0; i + 1 < segs.length; i++) {
+    const [x0, y0] = segs[i], [x1, y1] = segs[i + 1], n = Math.round(Math.hypot(x1 - x0, y1 - y0) / cell);
+    for (let k = 0; k <= n; k++) c.fillRect(x0 + (x1 - x0) * k / n - ps / 2, y0 + (y1 - y0) * k / n - ps / 2, ps, ps);
+  }
+}
+// a walker that runs along the fence once and counts the metres
+function walker(c, pts, cell, s, closed) {
+  const segs = closed ? [...pts, pts[0]] : pts;
+  let left = s * cell;
+  for (let i = 0; i + 1 < segs.length; i++) {
+    const [x0, y0] = segs[i], [x1, y1] = segs[i + 1], L = Math.hypot(x1 - x0, y1 - y0);
+    if (left <= L || i + 2 === segs.length) {
+      const f = L ? clamp(left / L, 0, 1) : 0, x = x0 + (x1 - x0) * f, y = y0 + (y1 - y0) * f;
+      dot(c, x, y, Math.floor(s));
+      return;
+    }
+    left -= L;
+  }
+}
+function dot(c, x, y, n) {
+  c.fillStyle = '#fff'; c.beginPath(); c.arc(x, y, 6, 0, 7); c.fill();
+  c.fillStyle = '#0A0C14'; c.font = font(900, 12); c.textAlign = 'center'; c.textBaseline = 'middle';
+  const s = `${n} ${T[lang].m}`, tw = c.measureText(s).width + 10;
+  c.fillStyle = 'rgba(10,12,20,.85)'; c.fillRect(x + 9, y - 20, tw, 18);
+  c.fillStyle = '#fff'; c.textAlign = 'left'; c.fillText(s, x + 14, y - 11);
+}
+function label(c, s, x, y, align = 'center', color = '#EDEFF7', px = 12) {
+  c.fillStyle = color; c.font = font(900, px); c.textAlign = align; c.textBaseline = 'middle'; c.fillText(s, x, y);
+}
+function rabbits(c, x, y, bw, bh, n, cell, time) {
+  if (n <= 0) return;
+  let cols = clamp(Math.round(Math.sqrt(n * bw / bh)), 1, n);
+  const rows = Math.ceil(n / cols); cols = Math.ceil(n / rows);
+  const px = clamp(Math.min(bw / cols, bh / rows) * 0.62, 10, 34);
+  c.font = EMOJI(px); c.textAlign = 'center'; c.textBaseline = 'middle';
+  for (let i = 0; i < n; i++) {
+    const cx = x + ((i % cols) + 0.5) * bw / cols, cy = y + (Math.floor(i / cols) + 0.5) * bh / rows;
+    const hop = Math.abs(Math.sin(time * 3 + i * 1.7)) * Math.min(px * 0.3, bh / rows * 0.2);
+    c.fillText('🐇', cx + Math.sin(time * 0.7 + i) * px * 0.08, cy - hop);
+  }
+}
+
+function penLayout(w, h) {
+  const pad = 10, wide = w > h * 1.25;
+  return wide
+    ? { g: { x: pad, y: 30, w: w * 0.6 - pad, h: h - 30 - pad }, ch: { x: w * 0.6 + 44, y: h * 0.22, w: w * 0.4 - 44 - pad * 2, h: h * 0.56 } }
+    : { g: { x: pad, y: 28, w: w - 2 * pad, h: h * 0.64 - 28 }, ch: { x: pad + 34, y: h * 0.64 + 30, w: w - 2 * pad - 40, h: h * 0.36 - 66 } };
+}
+
+function drawPen(c, w, h, time) {
+  if (!S.asked) return drawCompare(c, w, h, time);
+  const t = T[lang], P = S.P, N = P / 2, wall = S.mode === 'wall', circ = S.mode === 'circle';
+  const { g, ch } = penLayout(w, h);
+  const GC = wall ? P - 2 : 14, GR = wall ? N - 1 : 14, padL = 36, padT = wall ? 30 : 18, padB = wall ? 22 : 18;
+  const cell = Math.max(4, Math.min((g.w - padL - 6) / GC, (g.h - padT - padB) / GR));
+  const ox = g.x + padL + (g.w - padL - 6 - GC * cell) / 2, oy = g.y + padT;
+  gardenGrid(c, ox, oy, GC, GR, cell);
+  const prog = clamp((time - S.fillAt) / 1.0, 0, 1), walk = clamp((time - S.fillAt) / 1.8, 0, 1);
+  geo = { ox, oy, cell, ch, N };
+
+  if (circ) {
+    const r = circleR(P) * cell, cx = ox + GC * cell / 2, cy = oy + GR * cell / 2;
+    c.save(); c.beginPath(); c.arc(cx, cy, r * Math.min(1, prog * 1.2), 0, 7); c.clip();
+    for (let y = 0; y < GR; y++) for (let x = 0; x < GC; x++) { c.fillStyle = (x + y) % 2 ? C.grass2 : C.grass; c.fillRect(ox + x * cell, oy + y * cell, cell, cell); }
+    c.strokeStyle = 'rgba(8,30,16,.55)'; c.lineWidth = 1; c.beginPath();
+    for (let i = 0; i <= GC; i++) { c.moveTo(ox + i * cell, oy); c.lineTo(ox + i * cell, oy + GR * cell); }
+    for (let j = 0; j <= GR; j++) { c.moveTo(ox, oy + j * cell); c.lineTo(ox + GC * cell, oy + j * cell); }
+    c.stroke(); c.restore();
+    const lw = clamp(cell * 0.16, 2.5, 5);
+    c.strokeStyle = C.fence; c.lineWidth = lw; c.beginPath(); c.arc(cx, cy, r, 0, 7); c.stroke();
+    c.fillStyle = C.post;
+    for (let k = 0; k < P; k++) { const a = k / P * 2 * Math.PI; c.fillRect(cx + Math.cos(a) * r - lw * 0.75, cy + Math.sin(a) * r - lw * 0.75, lw * 1.5, lw * 1.5); }
+    // radius
+    c.strokeStyle = 'rgba(255,255,255,.6)'; c.lineWidth = 1.5; c.setLineDash([4, 4]); c.beginPath(); c.moveTo(cx, cy); c.lineTo(cx + r, cy); c.stroke(); c.setLineDash([]);
+    label(c, `r ≈ ${nf(circleR(P), 2)} ${t.m}`, cx + r / 2, cy - 10, 'center', '#fff', 11);
+    if (prog >= 1) rabbits(c, cx - r * 0.66, cy - r * 0.62, r * 1.32, r * 1.3, Math.floor(circleArea(P) / RABBIT), cell, time);
+    if (walk < 1) { const a = walk * 2 * Math.PI; dot(c, cx + Math.cos(a) * r, cy + Math.sin(a) * r, Math.floor(walk * P)); }
+    // chart: the rectangles for this fence, and the circle as a line above them
+    drawChart(c, ch, Array.from({ length: N - 1 }, (_, i) => ({ k: i + 1, v: rectArea(i + 1, N - i - 1) })), null, circleArea(P), t.chart.x, t.chart.y);
+    return;
+  }
+
+  const pw = wall ? P - 2 * S.d : S.w, pl = wall ? S.d : N - S.w, A = pw * pl;
+  if (wall) {
+    // a brick wall along the top of the garden
+    const wy = oy - 14;
+    c.fillStyle = '#8a4b3a'; c.fillRect(ox - 4, wy, GC * cell + 8, 12);
+    c.strokeStyle = 'rgba(30,10,6,.6)'; c.lineWidth = 1; c.beginPath();
+    for (let x = ox - 4; x < ox + GC * cell + 4; x += 16) { c.moveTo(x, wy); c.lineTo(x, wy + 6); c.moveTo(x + 8, wy + 6); c.lineTo(x + 8, wy + 12); }
+    c.moveTo(ox - 4, wy + 6); c.lineTo(ox + GC * cell + 4, wy + 6); c.stroke();
+    label(c, t.wall.toUpperCase(), ox + GC * cell - 4, wy - 8, 'right', '#c98a73', 10.5);
+  }
+  tiles(c, ox, oy, pw, pl, cell, Math.floor(prog * A), false);
+  // every corner on this line uses all of the fence
+  c.fillStyle = 'rgba(255,255,255,.35)';
+  for (let k = 1; k <= N - 1; k++) { const [x, y] = wall ? [P - 2 * k, k] : [k, N - k]; c.beginPath(); c.arc(ox + x * cell, oy + y * cell, 2.2, 0, 7); c.fill(); }
+  { const [x, y] = wall ? [P - 2 * (N - 1), N - 1] : [1, N - 1]; label(c, t.fenceOf(P), ox + x * cell + 10, oy + y * cell + 12, 'left', C.mut, 11); }
+  const X = (x) => ox + x * cell, Y = (y) => oy + y * cell;
+  const path = wall ? [[X(0), Y(0)], [X(0), Y(pl)], [X(pw), Y(pl)], [X(pw), Y(0)]] : [[X(0), Y(0)], [X(pw), Y(0)], [X(pw), Y(pl)], [X(0), Y(pl)]];
+  fence(c, path, cell, !wall);
+  // side lengths
+  label(c, `${pw} ${t.m}`, X(pw / 2), wall ? Y(pl) + 13 : Y(0) - 10, 'center', C.post);
+  label(c, `${pl} ${t.m}`, X(0) - 7, Y(pl / 2), 'right', C.post);
+  if (prog >= 1) rabbits(c, X(0), Y(0), pw * cell, pl * cell, Math.floor(A / RABBIT), cell, time);
+  if (walk < 1) walker(c, path, cell, walk * P, !wall);
+  // the corner handle
+  const hx = X(pw), hy = Y(pl), hr = clamp(cell * 0.45, 9, 14);
+  if (!S.dragged) { const p = (time * 1.2) % 1; c.strokeStyle = `rgba(255,255,255,${0.6 * (1 - p)})`; c.lineWidth = 2; c.beginPath(); c.arc(hx, hy, hr + p * 16, 0, 7); c.stroke(); }
+  c.fillStyle = '#fff'; c.beginPath(); c.arc(hx, hy, hr, 0, 7); c.fill();
+  c.fillStyle = '#3ddc97'; c.beginPath(); c.arc(hx, hy, hr * 0.4, 0, 7); c.fill();
+  // chart: area for every shape this fence can make
+  const bars = Array.from({ length: N - 1 }, (_, i) => ({ k: i + 1, v: wall ? wallArea(P, i + 1) : rectArea(i + 1, N - i - 1) }));
+  drawChart(c, ch, bars, wall ? S.d : S.w, null, wall ? t.chart.xWall : t.chart.x, t.chart.y);
+}
+
+function drawChart(c, box, bars, cur, line, xLab, yLab) {
+  const n = bars.length, vmax = Math.max(...bars.map((b) => b.v), line ?? 0), bw = box.w / n;
+  geo.chart = { ...box, n };
+  label(c, yLab, box.x - 30, box.y - 14, 'left', C.mut, 11);
+  c.strokeStyle = 'rgba(130,145,190,.35)'; c.lineWidth = 1; c.beginPath(); c.moveTo(box.x, box.y + box.h + 0.5); c.lineTo(box.x + box.w, box.y + box.h + 0.5); c.stroke();
+  const best = Math.max(...bars.map((b) => b.v));
+  bars.forEach((b, i) => {
+    const bh = b.v / vmax * box.h, x = box.x + i * bw + bw * 0.14, y = box.y + box.h - bh, on = b.k === cur;
+    c.fillStyle = on ? '#3ddc97' : b.v === best ? 'rgba(61,220,151,.5)' : 'rgba(61,220,151,.26)';
+    c.fillRect(x, y, bw * 0.72, bh);
+    if (on || (cur === null && b.v === best)) label(c, String(b.v), x + bw * 0.36, y - 9, 'center', '#fff', 12);
+    if (bw >= 16 || i % 2 === 0) label(c, String(b.k), x + bw * 0.36, box.y + box.h + 11, 'center', on ? '#fff' : C.faint, 10);
+  });
+  label(c, xLab, box.x + box.w / 2, box.y + box.h + 26, 'center', C.mut, 11);
+  if (line !== null) {
+    const y = box.y + box.h - line / vmax * box.h;
+    c.strokeStyle = '#f5c84c'; c.lineWidth = 2; c.setLineDash([6, 4]); c.beginPath(); c.moveTo(box.x, y); c.lineTo(box.x + box.w, y); c.stroke(); c.setLineDash([]);
+    label(c, `○ ${nf(line, 1)}`, box.x + box.w, y - 9, 'right', '#f5c84c', 12);
+  }
+}
+
+// the opening question: two pens with the same 24 m of fence, area hidden until the guess
+function drawCompare(c, w, h, time) {
+  const t = T[lang], top = (askEl.offsetHeight || 120) + 22, pens = [[10, 2], [6, 6]];
+  const cell = Math.max(6, Math.min((w - 40 - 40) / 19, (h - top - 56) / 6, 40));
+  const total = 19 * cell, x0 = (w - total) / 2 + 20, base = top + 18 + 6 * cell + Math.max(0, (h - top - 56 - 6 * cell) / 2);
+  const revealed = S.answer !== null, prog = clamp((time - S.revealAt) / 1.2, 0, 1);
+  let x = x0;
+  for (const [pw, pl] of pens) {
+    const oy = base - pl * cell, A = pw * pl;
+    gardenGrid(c, x, oy, pw, pl, cell);
+    if (revealed) tiles(c, x, oy, pw, pl, cell, Math.floor(prog * A), true);
+    else label(c, '?', x + pw * cell / 2, oy + pl * cell / 2, 'center', 'rgba(255,255,255,.55)', clamp(cell * 1.1, 16, 40));
+    fence(c, [[x, oy], [x + pw * cell, oy], [x + pw * cell, base], [x, base]], cell, true);
+    label(c, `${pw} ${t.m}`, x + pw * cell / 2, oy - 10, 'center', C.post);
+    label(c, `${pl} ${t.m}`, x - 7, oy + pl * cell / 2, 'right', C.post);
+    label(c, t.fenceOf(24), x + pw * cell / 2, base + 16, 'center', C.mut, 11.5);
+    if (revealed && prog >= 1) {
+      label(c, `${A} ${t.m2}`, x + pw * cell / 2, base + 34, 'center', '#3ddc97', 15);
+      rabbits(c, x, oy, pw * cell, pl * cell, Math.floor(A / RABBIT), cell, time);
+    }
+    x += (pw + 3) * cell;
+  }
+}
+
+function drawTiles(c, w, h, time) {
+  const t = T[lang], list = pairsOf(S.A), [r, cn] = list[S.pair], A = S.A, P = rectPerim(r, cn);
+  const split = h * 0.6, labL = 38, labR = r > 1 ? 34 : 8;
+  const avail = w - labL - labR - 16;
+  const cell = Math.max(4, Math.min(avail / cn, (split - 30 - 70) / r, 46));
+  const rw = cn * cell, rh = r * cell, ox = labL + 8 + (avail - rw) / 2, oy = 30 + 14 + Math.max(0, (split - 30 - 70 - rh) / 2);
+  const step = clamp(1.5 / A, 0.05, 0.12), shown = clamp(Math.floor((time - S.tileAt) / step) + 1, 0, A), done = shown >= A;
+  gardenGrid(c, ox, oy, cn, r, cell);
+  tiles(c, ox, oy, cn, r, cell, shown, true);
+  // running total at the end of each finished row
+  for (let y = 0; y < r; y++) if (shown >= (y + 1) * cn && r > 1) label(c, `${(y + 1) * cn}`, ox + rw + 8, oy + (y + 0.5) * cell, 'left', C.mut, 11);
+  fence(c, [[ox, oy], [ox + rw, oy], [ox + rw, oy + rh], [ox, oy + rh]], cell, true);
+  label(c, `${cn} ${t.m}`, ox + rw / 2, oy - 10, 'center', C.post);
+  label(c, `${r} ${t.m}`, ox - 7, oy + rh / 2, 'right', C.post);
+  c.fillStyle = '#fff'; c.font = `500 ${clamp(w * 0.045, 20, 30)}px "EB Garamond", serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText(done ? `${r} × ${cn} = ${A}` : String(shown), w / 2, oy + rh + 30);
+  if (done) label(c, `${cn} + ${r} + ${cn} + ${r} = ${P} ${t.m}`, w / 2, oy + rh + 58, 'center', C.post, 13);
+  // how much fence each shape of the same area needs
+  const n = list.length, rowH = Math.min(30, (h - split - 34) / n), bx = 74, maxLen = w - bx - 66, maxP = rectPerim(1, A);
+  label(c, t.fenceNeeded.toUpperCase(), 10, split + 12, 'left', C.faint, 10.5);
+  geo = { bars: { y0: split + 26, rowH, n } };
+  list.forEach(([a, b], i) => {
+    const y = split + 26 + i * rowH, on = i === S.pair, f = rectPerim(a, b), len = Math.max(4, f / maxP * maxLen);
+    label(c, `${a} × ${b}`, 10, y + rowH / 2, 'left', on ? '#fff' : C.mut, 12.5);
+    c.fillStyle = on ? C.fence : 'rgba(211,154,92,.3)'; c.fillRect(bx, y + rowH * 0.2, len, rowH * 0.6);
+    label(c, `${f} ${t.m}`, bx + len + 8, y + rowH / 2, 'left', on ? '#fff' : C.mut, 12.5);
+  });
+}
+
+function drawFree(c, w, h, time) {
+  const t = T[lang], cell = Math.max(8, Math.min((w - 24) / DC, (h - 40) / DR)), ox = (w - DC * cell) / 2, oy = 30 + (h - 30 - DR * cell) / 2;
+  geo = { ox, oy, cell };
+  gardenGrid(c, ox, oy, DC, DR, cell);
+  const g = S.cells, on = (x, y) => x >= 0 && y >= 0 && x < DC && y < DR && g[y * DC + x];
+  for (let y = 0; y < DR; y++) for (let x = 0; x < DC; x++) if (on(x, y)) {
+    c.fillStyle = (x + y) % 2 ? C.grass2 : C.grass; c.fillRect(ox + x * cell, oy + y * cell, cell, cell);
+    c.strokeStyle = 'rgba(8,30,16,.55)'; c.lineWidth = 1; c.strokeRect(ox + x * cell + 0.5, oy + y * cell + 0.5, cell - 1, cell - 1);
+  }
+  // the fence: every side where a square meets an empty one
+  const lw = clamp(cell * 0.14, 2.5, 5);
+  c.strokeStyle = C.fence; c.lineWidth = lw; c.lineCap = 'round'; c.beginPath();
+  for (let y = 0; y < DR; y++) for (let x = 0; x < DC; x++) if (on(x, y)) {
+    const X = ox + x * cell, Y = oy + y * cell;
+    if (!on(x, y - 1)) { c.moveTo(X, Y); c.lineTo(X + cell, Y); }
+    if (!on(x, y + 1)) { c.moveTo(X, Y + cell); c.lineTo(X + cell, Y + cell); }
+    if (!on(x - 1, y)) { c.moveTo(X, Y); c.lineTo(X, Y + cell); }
+    if (!on(x + 1, y)) { c.moveTo(X + cell, Y); c.lineTo(X + cell, Y + cell); }
+  }
+  c.stroke();
+  // the change in fence floats up from the square you just touched
+  const L = S.last;
+  if (L && time - L.t < 1.8) {
+    const a = 1 - (time - L.t) / 1.8, col = L.d < 0 ? '61,220,151' : L.d === 0 ? '245,200,76' : '255,138,61';
+    c.globalAlpha = a; label(c, `${sgn(L.d)} ${t.m}`, ox + (L.x + 0.5) * cell, oy + L.y * cell - 8 - (1 - a) * 18, 'center', `rgb(${col})`, 15); c.globalAlpha = 1;
+  }
+}
+
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  if (lab.view === 'pen') drawPen(c, w, h, time);
+  else if (lab.view === 'tiles') drawTiles(c, w, h, time);
+  else drawFree(c, w, h, time);
+});
+
+// --- pointer: drag the pen corner, tap the chart, tap the fence bars, paint squares --------------------------
+let drag = null;
+const local = (ev) => { const r = $('cv').getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; };
+function penPoint(x, y, animate) {
+  const { ox, oy, cell, N } = geo, gx = (x - ox) / cell, gy = (y - oy) / cell;
+  // the corner can only sit on the line where all of the fence is used: snap to the nearest point of it
+  setK(S.mode === 'wall' ? (2 * S.P - 2 * gx + gy) / 5 : (gx - gy + N) / 2, animate);
+}
+function chartHit(x, y) {
+  const b = geo.chart; if (!b || x < b.x || x > b.x + b.w || y < b.y - 20 || y > b.y + b.h + 20) return 0;
+  return Math.floor((x - b.x) / (b.w / b.n)) + 1;
+}
+function paint(x, y, val) {
+  const i = y * DC + x; if (S.cells[i] === val) return;
+  const before = polyPerim(S.cells, DC, DR), n = neighbours(S.cells, DC, DR, x, y);
+  S.cells[i] = val;
+  const d = polyPerim(S.cells, DC, DR) - before;
+  S.last = { d, n, add: !!val, x, y, t: now() };
+  (val && d <= 0 ? sfx.snap : sfx.click)(); render();
+}
+$('cv').addEventListener('pointerdown', (ev) => {
+  const [x, y] = local(ev);
+  if (lab.view === 'pen') {
+    if (!S.asked || S.mode === 'circle' || geo.N === undefined) return;
+    const k = chartHit(x, y);
+    if (k) { S.dragged = true; return setK(k, true); }
+    const { ox, oy, cell } = geo, gx = (x - ox) / cell, gy = (y - oy) / cell;
+    if (gx < -1 || gy < -1 || gx > S.P + 1 || gy > S.P / 2 + 1) return;
+    drag = { kind: 'pen' }; S.dragged = true; $('cv').setPointerCapture(ev.pointerId); penPoint(x, y, false);
+  } else if (lab.view === 'tiles') {
+    const b = geo.bars; if (!b) return;
+    const i = Math.floor((y - b.y0) / b.rowH);
+    if (i >= 0 && i < b.n && i !== S.pair) { S.pair = i; S.tileAt = now(); sfx.click(); render(); }
+  } else {
+    const { ox, oy, cell } = geo, cx = Math.floor((x - ox) / cell), cy = Math.floor((y - oy) / cell);
+    if (!Number.isFinite(cx) || !Number.isFinite(cy) || cx < 0 || cy < 0 || cx >= DC || cy >= DR) return;
+    const val = S.cells[cy * DC + cx] ? 0 : 1;
+    drag = { kind: 'paint', val, last: cy * DC + cx }; $('cv').setPointerCapture(ev.pointerId);
+    paint(cx, cy, val);
+  }
+});
+$('cv').addEventListener('pointermove', (ev) => {
+  if (!drag) return;
+  const [x, y] = local(ev);
+  if (drag.kind === 'pen' && lab.view === 'pen') penPoint(x, y, false);
+  else if (drag.kind === 'paint' && lab.view === 'draw') {
+    const { ox, oy, cell } = geo, cx = Math.floor((x - ox) / cell), cy = Math.floor((y - oy) / cell);
+    if (cx < 0 || cy < 0 || cx >= DC || cy >= DR || cy * DC + cx === drag.last) return;
+    drag.last = cy * DC + cx; paint(cx, cy, drag.val);
+  }
+});
+const endDrag = () => { drag = null; };
+$('cv').addEventListener('pointerup', endDrag);
+$('cv').addEventListener('pointercancel', endDrag);
+
+S.fillAt = now(); S.tileAt = now();
+render();
+</script>
+</body>
+</html>

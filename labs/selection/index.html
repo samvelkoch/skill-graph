@@ -1,0 +1,789 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Natural Selection Lab · Skill Graph</title>
+<meta name="description" content="Be the bird: catch moths on birch bark, let the survivors have young, then blacken the bark with soot and watch the whole population drift to camouflage over generations. A simplified model of natural selection, after the peppered moth. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  .acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .acts .btn { padding: 9px 18px; }
+  .acts .chip { padding: 8px 13px; }
+  .btn:disabled, .chip:disabled { opacity: .42; cursor: default; }
+  #bReset { margin-left: auto; }
+  #chart { display: block; width: 100%; height: 168px; margin: 14px 0 2px; }
+  .stats { color: var(--soft); line-height: 1.7; }
+  .stats b { color: #fff; }
+  .story { margin-top: 10px; color: var(--soft); }
+  .story i { font-style: italic; }
+  .src, .fine { margin-top: 6px; font-size: 11px; color: var(--faint); }
+  .camo { margin-top: 8px; color: var(--soft); }
+  .ask { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); width: min(560px, calc(100% - 16px)); padding: 14px 16px;
+    text-align: center; z-index: 2; }
+  .ask .q { font: 500 21px/1.2 var(--serif); color: #fff; margin-bottom: 10px; }
+  .ask .opts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .ask button { padding: 9px 14px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 800; cursor: pointer; text-wrap: balance; }
+  .ask button:hover { background: rgba(130, 145, 190, .25); }
+  .ask p { margin: 0 0 10px; color: var(--soft); font-size: 13px; }
+  .ask .verdict { font-weight: 900; margin-bottom: 4px; }
+  @media (min-width: 761px) { #stage { height: clamp(380px, 62vh, 620px); align-self: start; } }
+  @media (max-width: 760px) {
+    .ask .q { font-size: 17px; } .ask { padding: 10px 12px; } .ask button { padding: 8px 11px; font-size: 13px; }
+    #bReset { margin-left: 0; }
+  }
+  @media (max-width: 560px) { #chart { height: 270px; } }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, store, ruPlural, lang } from '../lab.js';
+
+// --- words -------------------------------------------------------------------------------------------------
+// Hungarian article before a number: "az" when the number is read starting with a vowel (egy, öt, ötven, ezer…)
+const huArt = (n) => (n === 1 || String(n)[0] === '5' || (n >= 1000 && n < 2000) ? 'az' : 'a');
+
+const T = {
+  en: {
+    name: 'Natural Selection Lab', title: 'Why moths match the bark',
+    lines: [['You are the bird.', 'Catch the moths you can spot.'], ['The ones you miss', 'have young that look like them.'], ['Watch the whole group', 'change, generation by generation.']],
+    gen: (n) => `Generation ${n}`,
+    sub: (n, d, mim) => mim ? `${n} hoverflies · wasp-likeness ${d}/100` : `${n} moths · average shade ${d}/100`,
+    hunt: '🐦 Hunt · 10 s', next: '🎲 Next generation', auto: '🤖 Auto bird', five: '⏩ 5 generations', stop: '■ Stop', reset: '↺ Start over',
+    barkLbl: 'Bark', barks: { birch: '🌳 Clean birch', soot: '🏭 Sooty' },
+    pills: { birch: 'Birch bark', soot: 'Sooty bark', mimic: 'Mimicry', nobird: 'No birds' },
+    lo: 'pale', hi: 'dark', loM: 'plain', hiM: 'wasp-like', barkTick: 'bark', waspTick: 'wasp', gaugeCap: 'Average',
+    histT: (n) => `Generation ${n}`, prevT: 'previous', lineT: 'Average shade over generations', lineTM: 'Average wasp-likeness', genAxis: 'generation', noBirdTag: 'no birds',
+    tap: 'Tap a moth to start hunting', tapM: 'Tap a hoverfly to start. Avoid wasps!', nbHint: 'No birds. Press “Next generation”',
+    timer: (s) => `⏱ ${s} s`, caughtN: (n) => `🐦 ${n} caught`, young: 'The survivors have young…', chanceHud: 'Chance decides who survives',
+    full: 'Your bird is full!', timeUp: 'Time’s up!', ouch: 'Ouch! A wasp. −3 s', learn: 'Ouch! The bird will remember those stripes.',
+    st: {
+      intro: ['🐦', 'You are the bird', 'Tap the moths you can spot. You have 10 seconds.', 'Look closely: no two moths are exactly the same shade. On this pale bark some are easy to find, and some hide well. The ones you miss will be the parents of the next generation.'],
+      hunt: ['👀', 'Hunting!', (n, s) => `${n} caught · ${s} s left`, 'Which ones do you spot first? The ones that do not match the bark under them.'],
+      huntM: 'Careful: a real wasp costs you 3 seconds!',
+      auto: ['🤖', 'The auto bird is hunting', 'It always goes for the moth that stands out most against the bark under it. It is good, but not perfect.', 'It eats 10 moths per generation. The rest survive and have young.'],
+      autoM: ['🤖', 'The auto bird is hunting', (l) => l ? 'It has been stung once, so now it stays away from anything that looks like a wasp.' : 'It has never met a wasp, so it goes for whatever catches its eye first.', 'Birds are not born knowing that stripes mean danger. They learn it, often from one bad sting.'],
+      chance: ['🎲', 'No birds, just chance', 'Some moths die anyway: cold, illness, bad luck.', 'Who dies is random, so colour makes no difference.'],
+      resT: (n) => `Generation ${n} is here`,
+      resDark: 'The caught moths were darker, on average, than the survivors.',
+      resPale: 'The caught moths were paler, on average, than the survivors.',
+      resSame: 'The caught moths and the survivors were about the same shade.',
+      resBody: 'Only the survivors had young, and young moths look like their parents, with small differences. So the new generation is a little more like the bark. No moth changed its own colour: the group changed.',
+      resSameBody: 'Selection only works when some moths are harder to find than others. Try catching the ones you see first.',
+      breed: ['🐣', 'The survivors have young', 'Only the survivors become parents.', 'Each young one looks like its parent, with a small difference.'],
+      nudge: ['🌳', 'Pale moths, pale bark', 'Most moths already match the birch bark. The dark ones are easy to spot.', 'Now change their world: switch the bark to “Sooty” and see what happens to the group.'],
+      adapted: ['🫥', 'Camouflaged!', 'Most moths now match the bark.', 'It took several generations, and not one moth changed its colour. Now switch the bark and watch the group move the other way.'],
+      soot: ['🏭', 'Soot on the trees', (k) => k ? `The pale moths stand out now, but ${k === 1 ? 'one dark moth hides' : `${k} dark moths hide`} well.` : 'The pale moths stand out now.',
+        (k) => k ? 'Those dark moths were born before the soot came. Nobody changed colour to hide. Hunt for a few generations and watch the group.' : 'There is no dark moth right now. But now and then a young moth is born quite different from its parents. Hunt for a few generations and watch.'],
+      birch: ['🌳', 'Clean air again', 'Now the dark moths stand out on the pale bark.', 'This happened to the real peppered moth too: after clean-air laws the bark got lighter, and the dark form became rare again.'],
+      nbIntro: ['🚫', 'No birds', 'Nothing hunts the moths now. Some still die in every generation: cold, illness, bad luck.', 'Press “Next generation” a few times. Does the group still move toward the bark colour? If nothing picks, there is no selection.'],
+      nbRes: ['🎲', 'Just chance', 'Chance decides who survives, so colour gives no advantage.', 'The average may wobble a little, but it does not head for the bark colour. Selection is what steers: it is how the change happens. The change itself, built up over many generations, is evolution.'],
+      mIntro: ['🐝', 'Wasp look-alikes', 'Wasps sting. Their yellow-and-black stripes warn: “Don’t eat me!” These are warning colours.', 'Hoverflies cannot sting, and some look more like wasps than others. Hunt the hoverflies and avoid the real wasps. Which hoverflies will be left after a few generations?'],
+      mRes: ['🪰', 'Copying the wasp', 'The more a hoverfly looks like a wasp, the more often birds leave it alone.', 'So wasp-like hoverflies have more young, and the group looks more and more like wasps. This is called mimicry. No fly decided to copy anything.'],
+    },
+    caught: 'Caught', lost: 'Died', surv: 'Survivors', avg: 'Average shade', avgM: 'Wasp-likeness',
+    camo: 'Other animals that blend in: stick insects look like twigs, leaf insects like leaves, a tawny owl like tree bark, a polar bear like snow. A snow leopard hides among rocks and snow so it can sneak up on its prey.',
+    story: '📖 The real story: the peppered moth (<i>Biston betularia</i>) in England. When factory soot darkened tree bark in the 1800s, the dark form became common near industrial towns. After clean-air laws the bark got cleaner, and the dark form became rare again.',
+    src: 'A classic, widely studied example (for instance by Bernard Kettlewell and Michael Majerus).',
+    fine: 'A simplified model: 30 moths in every generation. Only survivors have young; each young moth gets its parent’s shade plus a small random difference, and once in a while it comes out quite different. Real peppered moths come mainly in a pale and a dark form, passed on through genes.',
+    fineM: 'A simplified model: 30 hoverflies in every generation, and young look like their parents. Many real hoverflies look like wasps or bees but cannot sting.',
+    ask: 'Factory soot is turning the bark black. What will happen to the moths?',
+    a1: '🎨 Each moth will turn darker to hide', a2: '🐣 Dark moths will survive more and have more young',
+    noV: 'Lots of people think so!', noT: 'But a moth cannot repaint its wings, however much it needs to. Be the bird and see what really happens.',
+    yesV: 'That’s the idea!', yesT: 'No moth changes. The group does. Be the bird and check.', go: 'Let me hunt',
+    secrets: { mimic: ['Wasp look-alikes', 'Harmless flies that copy a wasp'], nobird: ['No birds', 'What if nothing picks?'] },
+    quiz: [
+      { q: 'Why did the moths in the lab end up matching the bark?', opts: ['Each moth changed its own colour', 'Matching moths were eaten less and had young like them', 'The bark colour rubbed off on them'], ok: 1 },
+      { q: 'Which animal hides by camouflage?', opts: ['A wasp with bright stripes', 'A stick insect that looks like a twig', 'A peacock showing off its tail'], ok: 1 },
+      { q: 'Natural selection only works if the young…', opts: ['look like their parents', 'are all exactly the same', 'choose their own colour'], ok: 0 },
+    ],
+  },
+  ru: {
+    name: 'Естественный отбор', title: 'Почему мотыльки под цвет коры',
+    lines: [['Ты — птица.', 'Лови мотыльков, которых замечаешь.'], ['Те, кого ты пропустишь,', 'оставят похожее на себя потомство.'], ['Смотри, как вся группа', 'меняется от поколения к поколению.']],
+    gen: (n) => `Поколение ${n}`,
+    sub: (n, d, mim) => mim ? `${n} ${ruPlural(n, 'журчалка', 'журчалки', 'журчалок')} · сходство с осой ${d}/100` : `${n} ${ruPlural(n, 'мотылёк', 'мотылька', 'мотыльков')} · средний тон ${d}/100`,
+    hunt: '🐦 Охота · 10 с', next: '🎲 Следующее поколение', auto: '🤖 Робот-птица', five: '⏩ 5 поколений', stop: '■ Стоп', reset: '↺ Заново',
+    barkLbl: 'Кора', barks: { birch: '🌳 Чистая берёза', soot: '🏭 В саже' },
+    pills: { birch: 'Берёзовая кора', soot: 'Кора в саже', mimic: 'Мимикрия', nobird: 'Без птиц' },
+    lo: 'светлые', hi: 'тёмные', loM: 'простые', hiM: 'как оса', barkTick: 'кора', waspTick: 'оса', gaugeCap: 'Средний тон',
+    histT: (n) => `Поколение ${n}`, prevT: 'прошлое', lineT: 'Средний тон по поколениям', lineTM: 'Сходство с осой в среднем', genAxis: 'поколение', noBirdTag: 'без птиц',
+    tap: 'Нажми на мотылька, чтобы начать охоту', tapM: 'Нажми на журчалку. Осторожно, осы!', nbHint: 'Птиц нет. Жми «Следующее поколение»',
+    timer: (s) => `⏱ ${s} с`, caughtN: (n) => `🐦 поймано: ${n}`, young: 'Выжившие оставляют потомство…', chanceHud: 'Кто выживет, решает случай',
+    full: 'Птица наелась!', timeUp: 'Время вышло!', ouch: 'Ай! Это оса. −3 с', learn: 'Ай! Птица запомнит эти полоски.',
+    st: {
+      intro: ['🐦', 'Ты — птица', 'Нажимай на мотыльков, которых видишь. У тебя 10 секунд.', 'Присмотрись: нет двух мотыльков точно одного оттенка. На светлой коре одних найти легко, а другие хорошо прячутся. Те, кого ты пропустишь, станут родителями следующего поколения.'],
+      hunt: ['👀', 'Охота!', (n, s) => `поймано: ${n} · осталось ${s} с`, 'Кого ты замечаешь первыми? Тех, кто не похож на кору под собой.'],
+      huntM: 'Осторожно: настоящая оса отнимет 3 секунды!',
+      auto: ['🤖', 'Охотится робот-птица', 'Она всегда хватает мотылька, который сильнее всего выделяется на коре под ним. Ловко, но не идеально.', 'За поколение она съедает 10 мотыльков. Остальные выживают и оставляют потомство.'],
+      autoM: ['🤖', 'Охотится робот-птица', (l) => l ? 'Её уже ужалили, и теперь она обходит всех, кто похож на осу.' : 'Она ещё ни разу не встречала осу, поэтому хватает того, кто первым бросится в глаза.', 'Птицы не рождаются со знанием, что полоски — это опасно. Они этому учатся, часто после одного укуса.'],
+      chance: ['🎲', 'Птиц нет, есть случай', 'Часть мотыльков всё равно гибнет: от холода, болезней, невезения.', 'Кто погибнет — дело случая, цвет здесь ни при чём.'],
+      resT: (n) => `Родилось поколение ${n}`,
+      resDark: 'Пойманные мотыльки в среднем темнее выживших.',
+      resPale: 'Пойманные мотыльки в среднем светлее выживших.',
+      resSame: 'Пойманные и выжившие примерно одного оттенка.',
+      resBody: 'Потомство оставили только выжившие, а молодые мотыльки похожи на родителей, с небольшими отличиями. Поэтому новое поколение чуть больше похоже на кору. Ни один мотылёк не менял свой цвет — изменилась группа.',
+      resSameBody: 'Отбор работает, только если одних мотыльков найти труднее, чем других. Попробуй ловить тех, кого видишь первыми.',
+      breed: ['🐣', 'Выжившие оставляют потомство', 'Родителями становятся только выжившие.', 'Каждый молодой похож на своего родителя, с небольшим отличием.'],
+      nudge: ['🌳', 'Светлые мотыльки, светлая кора', 'Большинство мотыльков и так под цвет берёзы. Тёмных легко заметить.', 'Теперь измени их мир: выбери кору «В саже» и посмотри, что станет с группой.'],
+      adapted: ['🫥', 'Замаскировались!', 'Теперь большинство мотыльков под цвет коры.', 'На это ушло несколько поколений, и ни один мотылёк не поменял свой цвет. Теперь смени кору и посмотри, как группа двинется обратно.'],
+      soot: ['🏭', 'Сажа на деревьях', (k) => k ? `Теперь светлые мотыльки бросаются в глаза, а ${k} ${ruPlural(k, 'тёмный мотылёк хорошо прячется', 'тёмных мотылька хорошо прячутся', 'тёмных мотыльков хорошо прячутся')}.` : 'Теперь светлые мотыльки бросаются в глаза.',
+        (k) => k ? 'Эти тёмные мотыльки родились ещё до сажи. Никто не перекрашивался, чтобы спрятаться. Поохоться несколько поколений и следи за группой.' : 'Сейчас тёмных мотыльков нет. Но время от времени рождается мотылёк, заметно непохожий на родителей. Поохоться несколько поколений и посмотри.'],
+      birch: ['🌳', 'Снова чистый воздух', 'Теперь на светлой коре заметны тёмные мотыльки.', 'Так было и с настоящей берёзовой пяденицей: после законов о чистом воздухе кора посветлела, и тёмная форма снова стала редкой.'],
+      nbIntro: ['🚫', 'Без птиц', 'Теперь на мотыльков никто не охотится. Но часть всё равно гибнет в каждом поколении: от холода, болезней, невезения.', 'Нажми «Следующее поколение» несколько раз. Движется ли группа к цвету коры? Если некому выбирать, отбора нет.'],
+      nbRes: ['🎲', 'Только случай', 'Кто выживет, решает случай, поэтому цвет не даёт преимущества.', 'Средний тон может немного колебаться, но к цвету коры он не идёт. Отбор — это то, что направляет: так происходит изменение. А само изменение, накопленное за много поколений, — это эволюция.'],
+      mIntro: ['🐝', 'Двойники осы', 'Осы жалят. Их жёлто-чёрные полоски предупреждают: «Не ешь меня!» Это предупреждающая окраска.', 'Мухи-журчалки жалить не умеют, и одни из них больше похожи на ос, другие меньше. Лови журчалок и не трогай настоящих ос. Какие журчалки останутся через несколько поколений?'],
+      mRes: ['🪰', 'Копия осы', 'Чем больше журчалка похожа на осу, тем чаще птицы её не трогают.', 'Поэтому у похожих на ос журчалок больше потомства, и группа становится всё больше похожей на ос. Это называется мимикрией. Ни одна муха не решала никого копировать.'],
+    },
+    caught: 'Пойманные', lost: 'Погибшие', surv: 'Выжившие', avg: 'Средний тон', avgM: 'Сходство с осой',
+    camo: 'Кто ещё сливается с фоном: палочник похож на веточку, листотел — на лист, серая неясыть — на кору дерева, белый медведь — на снег. А снежный барс прячется среди камней и снега, чтобы незаметно подкрасться к добыче.',
+    story: '📖 Как было на самом деле: берёзовая пяденица (<i>Biston betularia</i>) в Англии. Когда в XIX веке заводская сажа зачернила кору деревьев, возле промышленных городов стала обычной тёмная форма. После законов о чистом воздухе кора стала чище, и тёмная форма снова стала редкой.',
+    src: 'Классический, хорошо изученный пример (его изучали, например, Бернард Кеттлуэлл и Майкл Маджерус).',
+    fine: 'Упрощённая модель: 30 мотыльков в каждом поколении. Потомство оставляют только выжившие; каждый молодой мотылёк получает оттенок родителя с небольшим случайным отличием, а изредка бывает заметно другим. У настоящей берёзовой пяденицы в основном две формы, светлая и тёмная, и окраска передаётся через гены.',
+    fineM: 'Упрощённая модель: 30 журчалок в каждом поколении, молодые похожи на родителей. Многие настоящие журчалки похожи на ос или пчёл, но жалить не умеют.',
+    ask: 'Заводская сажа делает кору чёрной. Что будет с мотыльками?',
+    a1: '🎨 Каждый мотылёк потемнеет, чтобы спрятаться', a2: '🐣 Тёмные будут чаще выживать и оставят больше потомства',
+    noV: 'Так думают очень многие!', noT: 'Но мотылёк не может перекрасить свои крылья, как бы ему это ни было нужно. Стань птицей и посмотри, что будет на самом деле.',
+    yesV: 'В этом и суть!', yesT: 'Ни один мотылёк не меняется. Меняется вся группа. Стань птицей и проверь.', go: 'На охоту',
+    secrets: { mimic: ['Двойники осы', 'Безобидные мухи, похожие на осу'], nobird: ['Без птиц', 'А если никто не выбирает?'] },
+    quiz: [
+      { q: 'Почему в опыте мотыльки стали под цвет коры?', opts: ['Каждый мотылёк сам поменял цвет', 'Похожих на кору ели реже, и они оставили похожее потомство', 'Кора их испачкала'], ok: 1 },
+      { q: 'Кто прячется с помощью маскировки?', opts: ['Оса с яркими полосками', 'Палочник, похожий на веточку', 'Павлин, распустивший хвост'], ok: 1 },
+      { q: 'Естественный отбор работает, только если потомки…', opts: ['похожи на родителей', 'все совершенно одинаковые', 'сами выбирают себе цвет'], ok: 0 },
+    ],
+  },
+  hu: {
+    name: 'Természetes kiválasztódás', title: 'Miért kéregszínűek a lepkék',
+    lines: [['Te vagy a madár.', 'Kapd el a lepkéket, amelyeket észreveszel.'], ['Amelyek megmenekülnek,', 'azoknak hozzájuk hasonló utódaik lesznek.'], ['Figyeld, hogyan változik', 'az egész csoport nemzedékről nemzedékre.']],
+    gen: (n) => `${n}. nemzedék`,
+    sub: (n, d, mim) => mim ? `${n} zengőlégy · darázsszerűség: ${d}/100` : `${n} lepke · átlagos árnyalat: ${d}/100`,
+    hunt: '🐦 Vadászat · 10 mp', next: '🎲 Következő nemzedék', auto: '🤖 Robotmadár', five: '⏩ 5 nemzedék', stop: '■ Állj', reset: '↺ Újrakezdés',
+    barkLbl: 'Kéreg', barks: { birch: '🌳 Tiszta nyírfa', soot: '🏭 Kormos' },
+    pills: { birch: 'Nyírfakéreg', soot: 'Kormos kéreg', mimic: 'Mimikri', nobird: 'Madarak nélkül' },
+    lo: 'világos', hi: 'sötét', loM: 'egyszerű', hiM: 'darázsszerű', barkTick: 'kéreg', waspTick: 'darázs', gaugeCap: 'Átlag',
+    histT: (n) => `${n}. nemzedék`, prevT: 'előző', lineT: 'Átlagos árnyalat nemzedékenként', lineTM: 'Átlagos darázsszerűség', genAxis: 'nemzedék', noBirdTag: 'madarak nélkül',
+    tap: 'Koppints egy lepkére, és indul a vadászat', tapM: 'Koppints egy zengőlégyre! Kerüld a darazsakat!', nbHint: 'Nincs madár. Nyomd: „Következő nemzedék”',
+    timer: (s) => `⏱ ${s} mp`, caughtN: (n) => `🐦 ${n} elkapva`, young: 'A túlélőknek utódaik születnek…', chanceHud: 'A véletlen dönti el, ki marad életben',
+    full: 'A madár jóllakott!', timeUp: 'Lejárt az idő!', ouch: 'Jaj! Ez darázs volt. −3 mp', learn: 'Jaj! A madár megjegyzi ezeket a csíkokat.',
+    st: {
+      intro: ['🐦', 'Te vagy a madár', 'Koppints a lepkékre, amelyeket látsz. 10 másodperced van.', 'Nézd meg jól: nincs két pontosan egyforma árnyalatú lepke. A világos kérgen egyeseket könnyű megtalálni, mások jól elbújnak. Amelyeket nem veszel észre, azok lesznek a következő nemzedék szülei.'],
+      hunt: ['👀', 'Vadászat!', (n, s) => `${n} elkapva · még ${s} mp`, 'Melyikeket veszed észre először? Azokat, amelyek elütnek az alattuk lévő kéregtől.'],
+      huntM: 'Vigyázz: egy igazi darázs 3 másodpercedbe kerül!',
+      auto: ['🤖', 'A robotmadár vadászik', 'Mindig azt a lepkét kapja el, amelyik a leginkább elüt az alatta lévő kéregtől. Ügyes, de nem tökéletes.', 'Nemzedékenként 10 lepkét eszik meg. A többi életben marad és szaporodik.'],
+      autoM: ['🤖', 'A robotmadár vadászik', (l) => l ? 'Egyszer már megcsípték, ezért most elkerül mindent, ami darázsnak látszik.' : 'Még sosem találkozott darázzsal, ezért azt kapja el, ami először szemet szúr neki.', 'A madarak nem születnek azzal a tudással, hogy a csík veszélyt jelent. Megtanulják, gyakran egyetlen csípésből.'],
+      chance: ['🎲', 'Nincs madár, csak a véletlen', 'Néhány lepke így is elpusztul: hideg, betegség, balszerencse miatt.', 'Hogy melyik pusztul el, az a véletlenen múlik, a szín itt nem számít.'],
+      resT: (n) => `Megszületett ${huArt(n)} ${n}. nemzedék`,
+      resDark: 'Az elkapott lepkék átlagosan sötétebbek voltak, mint a túlélők.',
+      resPale: 'Az elkapott lepkék átlagosan világosabbak voltak, mint a túlélők.',
+      resSame: 'Az elkapott lepkék és a túlélők nagyjából egyforma árnyalatúak voltak.',
+      resBody: 'Csak a túlélőknek lettek utódaik, és a fiatal lepkék hasonlítanak a szüleikre, kis eltérésekkel. Ezért az új nemzedék egy kicsit jobban hasonlít a kéregre. Egyik lepke sem változtatta meg a saját színét: a csoport változott meg.',
+      resSameBody: 'A kiválasztódás csak akkor működik, ha egyes lepkéket nehezebb megtalálni, mint másokat. Próbáld azokat elkapni, amelyeket először meglátsz.',
+      breed: ['🐣', 'A túlélőknek utódaik születnek', 'Csak a túlélőkből lesznek szülők.', 'Minden utód hasonlít a szülőjére, egy kis eltéréssel.'],
+      nudge: ['🌳', 'Világos lepkék, világos kéreg', 'A legtöbb lepke már most is olyan, mint a nyírfakéreg. A sötéteket könnyű észrevenni.', 'Most változtasd meg a világukat: válaszd a „Kormos” kérget, és nézd meg, mi lesz a csoporttal.'],
+      adapted: ['🫥', 'Álcázva!', 'A legtöbb lepke most már olyan színű, mint a kéreg.', 'Ehhez több nemzedék kellett, és egyetlen lepke sem változtatta meg a színét. Most válts kérget, és nézd, ahogy a csoport visszafelé indul.'],
+      soot: ['🏭', 'Korom a fákon', (k) => k ? `Most a világos lepkék feltűnőek, de ${k} sötét lepke jól elbújik.` : 'Most a világos lepkék feltűnőek.',
+        (k) => k ? 'Ezek a sötét lepkék már a korom előtt megszülettek. Egyik sem színeződött át, hogy elbújjon. Vadássz néhány nemzedéken át, és figyeld a csoportot.' : 'Most nincs sötét lepke. De időnként születik egy-egy lepke, amely jócskán különbözik a szüleitől. Vadássz néhány nemzedéken át, és figyeld!'],
+      birch: ['🌳', 'Újra tiszta a levegő', 'Most a sötét lepkék tűnnek fel a világos kérgen.', 'Az igazi nyírfaaraszolóval is ez történt: a levegőtisztasági törvények után a kéreg kivilágosodott, és a sötét változat újra ritka lett.'],
+      nbIntro: ['🚫', 'Madarak nélkül', 'Most semmi sem vadászik a lepkékre. Néhány mégis elpusztul minden nemzedékben: hideg, betegség, balszerencse miatt.', 'Nyomd meg néhányszor a „Következő nemzedék” gombot. Halad még a csoport a kéreg színe felé? Ha nincs, aki válogasson, nincs kiválasztódás.'],
+      nbRes: ['🎲', 'Csak a véletlen', 'A véletlen dönti el, ki marad életben, ezért a szín nem jelent előnyt.', 'Az átlag kicsit ingadozhat, de nem indul el a kéreg színe felé. A kiválasztódás az, ami irányít: így megy végbe a változás. A sok nemzedéken át összegyűlő változás pedig maga az evolúció.'],
+      mIntro: ['🐝', 'Darázsutánzók', 'A darazsak csípnek. Sárga-fekete csíkjuk figyelmeztet: „Ne egyél meg!” Ez a figyelmeztető színezet.', 'A zengőlegyek nem tudnak csípni, és van, amelyik jobban, van, amelyik kevésbé hasonlít a darázsra. Vadássz a zengőlegyekre, és kerüld el az igazi darazsakat! Melyek maradnak meg néhány nemzedék után?'],
+      mRes: ['🪰', 'Darázsmásolat', 'Minél jobban hasonlít egy zengőlégy a darázsra, a madarak annál gyakrabban hagyják békén.', 'Ezért a darázsszerű zengőlegyeknek több utódjuk lesz, és a csoport egyre jobban hasonlít a darazsakra. Ezt hívjuk mimikrinek (utánzásnak). Egyik légy sem döntött úgy, hogy bárkit utánozzon.'],
+    },
+    caught: 'Elkapottak', lost: 'Elpusztultak', surv: 'Túlélők', avg: 'Átlagos árnyalat', avgM: 'Darázsszerűség',
+    camo: 'Más állatok is beleolvadnak a környezetükbe: a botsáska gallynak látszik, a levélrovar levélnek, a macskabagoly fakéregnek, a jegesmedve hónak. A hópárduc pedig a sziklák és a hó között rejtőzik, hogy észrevétlenül becserkészhesse a zsákmányát.',
+    story: '📖 Az igazi történet: a nyírfaaraszoló (<i>Biston betularia</i>) Angliában. Amikor a 19. században a gyárak korma befeketítette a fák kérgét, az ipari városok környékén gyakori lett a sötét változat. A levegőtisztasági törvények után a kéreg tisztább lett, és a sötét változat újra ritkává vált.',
+    src: 'Klasszikus, alaposan kutatott példa (foglalkozott vele például Bernard Kettlewell és Michael Majerus).',
+    fine: 'Egyszerűsített modell: minden nemzedékben 30 lepke. Csak a túlélőknek születnek utódaik; minden fiatal lepke a szülője árnyalatát kapja egy kis véletlen eltéréssel, és néha jócskán más lesz. Az igazi nyírfaaraszolónak főleg egy világos és egy sötét változata van, és a színezet génekkel öröklődik.',
+    fineM: 'Egyszerűsített modell: minden nemzedékben 30 zengőlégy, és az utódok hasonlítanak a szüleikre. Sok valódi zengőlégy darázsra vagy méhre hasonlít, de nem tud csípni.',
+    ask: 'A gyárak korma feketére festi a kérget. Mi lesz a lepkékkel?',
+    a1: '🎨 Mindegyik lepke besötétedik, hogy elbújjon', a2: '🐣 A sötétek gyakrabban túlélnek, és több utódjuk lesz',
+    noV: 'Nagyon sokan gondolják így!', noT: 'De a lepke nem tudja átfesteni a szárnyát, akármennyire is szüksége lenne rá. Légy te a madár, és nézd meg, mi történik valójában.',
+    yesV: 'Ez a lényeg!', yesT: 'Egyik lepke sem változik meg, a csoport változik. Légy te a madár, és ellenőrizd!', go: 'Vadászni megyek',
+    secrets: { mimic: ['Darázsutánzók', 'Ártalmatlan legyek, amelyek darázsnak látszanak'], nobird: ['Madarak nélkül', 'Mi van, ha senki sem válogat?'] },
+    quiz: [
+      { q: 'Miért lettek a lepkék a kísérletben kéregszínűek?', opts: ['Mindegyik lepke magától színt váltott', 'A kéreghez hasonlókat ritkábban ették meg, és hozzájuk hasonló utódaik lettek', 'Rájuk kenődött a kéreg színe'], ok: 1 },
+      { q: 'Melyik állat rejtőzik álcázással?', opts: ['A darázs a feltűnő csíkjaival', 'A botsáska, amely gallynak látszik', 'A páva, amikor kereket csap'], ok: 1 },
+      { q: 'A természetes kiválasztódás csak akkor működik, ha az utódok…', opts: ['hasonlítanak a szüleikre', 'mind pontosan egyformák', 'maguk választják meg a színüket'], ok: 0 },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_UR5LvBeyF1', en: 'Variation & Survival Advantage', ru: 'Изменчивость и преимущество в выживании', hu: 'Változatosság és túlélési előny' },
+  { id: 'mt_pwo81ls_J-', en: 'Animal Camouflage', ru: 'Камуфляж у животных', hu: 'Állati álcázás' },
+  { id: 'mt_07Geg7LITa', en: 'Camouflage, warning colours, and mimicry', ru: 'Маскировка, предупреждающая окраска и мимикрия', hu: 'Álcázás, figyelmeztető színek és utánzás' },
+  { id: 'mt_FuVEZ1Ac9s', en: 'How Natural Selection Works', ru: 'Как работает естественный отбор', hu: 'Hogyan működik a természetes kiválasztódás' },
+];
+
+// --- the model (all made-up units: a shade from 0 = palest to 1 = darkest) -----------------------------------
+const N = 30;            // insects in every generation
+const HAND_MAX = 20;     // a hand-hunting bird is full after 20, so a round can never wipe out the population
+const AUTO_EAT = 10;     // the auto bird eats 10 per generation
+const HUNT_TIME = 10;    // seconds per hand-hunting round
+const MUT = 0.07;        // young = parent's shade + a small random difference (standard deviation)
+const JUMP = 0.03;       // now and then a young one comes out quite different (a new random shade)
+const rnd = Math.random;
+const gauss = () => { let u = 0; while (!u) u = rnd(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd()); };
+const mulberry = (a) => () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+const smooth = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+const mean = (a) => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0);
+const nf = (x) => new Intl.NumberFormat(lang).format(x);
+const pct = (x) => nf(Math.round(x * 100));
+
+// colours: a moth's shade maps to a warm grey; a hoverfly's wasp-likeness to brown → wasp yellow
+const mothRGB = (v) => { const L = 236 - 210 * v; return [L, L * 0.975, L * 0.93]; };
+const flyRGB = (m) => [lerp(118, 242, m), lerp(100, 194, m), lerp(76, 44, m)];
+const rgb = ([r, g, b], a = 1) => `rgba(${r | 0},${g | 0},${b | 0},${a})`;
+const toneOfL = (L) => clamp((236 - L) / 210, 0, 1);
+
+// --- bark: painted once per size from a seeded random source, then sampled for the bird's contrast -----------
+function blob(c, x, y, s, r, col) {
+  c.fillStyle = col; c.beginPath();
+  for (let k = 0; k < 10; k++) { const a = k / 10 * 2 * Math.PI, q = s * (0.6 + 0.5 * r()); const px = x + Math.cos(a) * q * 1.6, py = y + Math.sin(a) * q * 0.7; k ? c.lineTo(px, py) : c.moveTo(px, py); }
+  c.closePath(); c.fill();
+}
+// the random features are always laid out over the same big virtual sheet (VW × VH), so a canvas of any size
+// shows a crop of the same bark: resizing never reshuffles it. Only the soft trunk shading follows the real width.
+const VW = 2400, VH = 1400;
+function paintBark(c, cw, kind) {
+  const r = mulberry(kind === 'birch' ? 11 : 29), w = VW, h = VH, A = w * h, R = (a, b) => a + (b - a) * r();
+  if (kind === 'birch') {
+    const g = c.createLinearGradient(0, 0, cw, 0);
+    g.addColorStop(0, '#cdc7bb'); g.addColorStop(0.45, '#ebe7de'); g.addColorStop(1, '#c9c3b6');
+    c.fillStyle = g; c.fillRect(0, 0, w, h);
+    for (let i = 0; i < A / 3500; i++) { c.fillStyle = r() < 0.5 ? `rgba(140,128,110,${R(0.04, 0.1)})` : `rgba(255,253,248,${R(0.1, 0.25)})`; c.beginPath(); c.ellipse(R(0, w), R(0, h), R(20, 70), R(6, 22), 0, 0, 7); c.fill(); }
+    for (let i = 0; i < A / 50; i++) { c.fillStyle = `rgba(70,62,55,${R(0.04, 0.16)})`; c.fillRect(R(0, w), R(0, h), R(1, 2.5), R(0.6, 1.4)); }
+    for (let i = 0; i < A / 22000; i++) {
+      const x = R(0, w), y = R(0, h);
+      for (let j = 0; j < 6; j++) { c.fillStyle = `rgba(${R(150, 185) | 0},${R(170, 195) | 0},${R(130, 150) | 0},${R(0.25, 0.45)})`; c.beginPath(); c.arc(x + R(-12, 12), y + R(-8, 8), R(3, 9), 0, 7); c.fill(); }
+    }
+    for (let i = 0; i < A / 1500; i++) {
+      const len = 5 + r() * r() * 46, th = R(1.2, 3.4);
+      c.fillStyle = `rgba(${R(28, 60) | 0},${R(26, 52) | 0},${R(24, 46) | 0},${R(0.55, 0.9)})`;
+      c.beginPath(); c.ellipse(R(0, w), R(0, h), len / 2, th / 2, R(-0.05, 0.05), 0, 7); c.fill();
+    }
+    for (let i = 0; i < A / 24000; i++) blob(c, R(0, w), R(0, h), R(8, 26), r, 'rgba(32,29,27,.9)');
+  } else {
+    const g = c.createLinearGradient(0, 0, cw, 0);
+    g.addColorStop(0, '#2f2b28'); g.addColorStop(0.45, '#413c38'); g.addColorStop(1, '#2c2825');
+    c.fillStyle = g; c.fillRect(0, 0, w, h);
+    for (let i = 0; i < A / 3000; i++) { c.fillStyle = r() < 0.6 ? `rgba(12,11,10,${R(0.12, 0.3)})` : `rgba(95,88,80,${R(0.05, 0.12)})`; c.beginPath(); c.ellipse(R(0, w), R(0, h), R(8, 30), R(20, 70), 0, 0, 7); c.fill(); }
+    for (let i = 0; i < A / 50; i++) { c.fillStyle = `rgba(140,130,120,${R(0.03, 0.12)})`; c.fillRect(R(0, w), R(0, h), R(1, 2.5), R(0.6, 1.4)); }
+    c.lineCap = 'round';
+    for (let i = 0; i < A / 2200; i++) { const x = R(0, w), y = R(0, h); c.strokeStyle = `rgba(10,9,8,${R(0.3, 0.6)})`; c.lineWidth = R(0.8, 2.5); c.beginPath(); c.moveTo(x, y); c.lineTo(x + R(-4, 4), y + R(15, 80)); c.stroke(); }
+    for (let i = 0; i < A / 5000; i++) { const x = R(0, w), y = R(0, h); c.strokeStyle = `rgba(105,98,90,${R(0.12, 0.28)})`; c.lineWidth = R(0.6, 1.4); c.beginPath(); c.moveTo(x, y); c.lineTo(x + R(-3, 3), y + R(10, 40)); c.stroke(); }
+    for (let i = 0; i < A / 2500; i++) { const len = 5 + r() * r() * 40; c.fillStyle = `rgba(16,14,13,${R(0.4, 0.7)})`; c.beginPath(); c.ellipse(R(0, w), R(0, h), len / 2, R(0.6, 1.6), 0, 0, 7); c.fill(); }
+  }
+}
+// average luminance of an image, read as a shade on the moth scale
+function avgTone(img, W, H, step = 4) {
+  let s = 0, n = 0;
+  for (let y = 0; y < H; y += step) for (let x = 0; x < W; x += step) { const k = (y * W + x) * 4; s += 0.299 * img[k] + 0.587 * img[k + 1] + 0.114 * img[k + 2]; n++; }
+  return toneOfL(s / n);
+}
+// the overall shade of each bark, measured on a reference patch
+const TONE = {};
+for (const k of ['birch', 'soot']) {
+  const cv = document.createElement('canvas'); cv.width = 800; cv.height = 600;
+  const c = cv.getContext('2d', { willReadFrequently: true }); paintBark(c, 800, k);
+  TONE[k] = avgTone(c.getImageData(0, 0, 800, 600).data, 800, 600);
+}
+const barks = {};
+function getBark(kind, w, h) {
+  const d = Math.min(window.devicePixelRatio || 1, 2), key = `${w}|${h}|${d}`;
+  if (barks[kind]?.key === key) return barks[kind];
+  const cv = document.createElement('canvas'); cv.width = Math.max(1, Math.round(w * d)); cv.height = Math.max(1, Math.round(h * d));
+  const c = cv.getContext('2d', { willReadFrequently: true }); c.setTransform(d, 0, 0, d, 0, 0);
+  paintBark(c, w, kind);
+  return (barks[kind] = { key, cv, img: c.getImageData(0, 0, cv.width, cv.height).data, W: cv.width, H: cv.height, d, w, h });
+}
+// the shade of the bark right under an insect: what the bird compares it with
+function localTone(bk, b, R) {
+  let s = 0, n = 0;
+  for (let i = -2; i <= 2; i++) for (let j = -1; j <= 1; j++) {
+    const x = Math.round((b.x * bk.w + i * R * 0.4) * bk.d), y = Math.round((b.y * bk.h + j * R * 0.3) * bk.d);
+    if (x < 0 || y < 0 || x >= bk.W || y >= bk.H) continue;
+    const k = (y * bk.W + x) * 4; s += 0.299 * bk.img[k] + 0.587 * bk.img[k + 1] + 0.114 * bk.img[k + 2]; n++;
+  }
+  return n ? toneOfL(s / n) : TONE[S.bark];
+}
+
+// --- insects -------------------------------------------------------------------------------------------------
+// v is fixed for life: only the young get new values
+function bug(v, kind = 'bug') {
+  const specks = Array.from({ length: 8 }, () => ({ u: (rnd() < 0.5 ? -1 : 1) * lerp(0.2, 0.85, rnd()), w: lerp(-0.22, 0.32, rnd()), r: lerp(0.06, 0.14, rnd()), d: rnd() < 0.75 ? -lerp(35, 90, rnd()) : lerp(15, 35, rnd()) }));
+  return { v, kind, x: 0.5, y: 0.5, a: (rnd() - 0.5) * (kind === 'bug' ? 0.9 : 1.6), specks, gone: false, shake: 0 };
+}
+const bugR = (w, h) => clamp(Math.min(w, h) * 0.045, 10, 17);
+function place(list, others = []) {
+  const w = S.w || 600, h = S.h || 400, minD = bugR(w, h) * 2.6, placed = [...others];
+  for (const b of list) {
+    let best = null, bestD = -1;
+    for (let k = 0; k < 60; k++) {
+      const x = lerp(0.06, 0.94, rnd()), y = lerp(0.16, 0.94, rnd());
+      let dmin = Infinity;
+      for (const o of placed) dmin = Math.min(dmin, Math.hypot((o.x - x) * w, (o.y - y) * h));
+      if (dmin > bestD) { bestD = dmin; best = [x, y]; }
+      if (dmin >= minD) break;
+    }
+    b.x = best[0]; b.y = best[1]; placed.push(b);
+  }
+}
+
+// --- state ---------------------------------------------------------------------------------------------------
+const S = {
+  mode: 'moth', bark: 'birch', nobird: false, mix: 0, pop: [], wasps: [], kids: null, hist: [], gen: 1,
+  phase: 'idle', timeLeft: 0, caught: 0, eaten: [], runLeft: 0, fast: false, bird: null, learned: false, bt: 0,
+  flash: null, puffs: [], since: 0, switched: null, nbSince: 0,
+  asked: store.get('selection:asked', false), ask: null, w: 0, h: 0,
+};
+const envTone = () => (S.mode === 'mimic' ? 1 : TONE[S.bark]);
+const record = () => ({ vals: S.pop.map((b) => b.v), env: S.mode === 'mimic' ? 'mimic' : S.bark, tone: envTone(), nobird: S.nobird, lost: null, kept: null });
+function newPopulation() {
+  if (S.mode === 'mimic') {
+    S.pop = Array.from({ length: N }, () => bug(clamp(0.22 + gauss() * 0.14, 0, 1)));
+    S.wasps = Array.from({ length: 4 }, () => bug(1, 'wasp'));
+  } else {
+    // mostly pale moths that suit the birch bark, and three dark ones that were simply born that way
+    S.pop = [...Array.from({ length: N - 3 }, () => bug(clamp(0.13 + gauss() * 0.08, 0, 1))), ...[0.8, 0.86, 0.9].map((v) => bug(v))];
+    S.wasps = [];
+  }
+  place([...S.wasps, ...S.pop]);
+  Object.assign(S, { hist: [], gen: 1, phase: 'idle', runLeft: 0, kids: null, bird: null, learned: false, since: 0, switched: null, nbSince: 0, puffs: [], flash: null });
+  S.hist.push(record());
+}
+
+const lab = shell({ key: 'selection', T, topics: TOPICS, views: [], onLang: render });
+const secret = secretLab('selection', () => ({
+  secrets: [['mimic', '🐝'], ['nobird', '🚫']].map(([k, e]) => ({ emo: e, title: T[lang].secrets[k][0], desc: T[lang].secrets[k][1] })),
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div class="acts"><button class="btn" id="bHunt"></button><button class="chip" id="bAuto"></button><button class="chip" id="bFive"></button><button class="chip" id="bReset"></button></div>
+  <div class="row2"><span class="lbl" id="barkLbl"></span><div class="chips" id="barks"></div></div>
+  <canvas id="chart" aria-hidden="true"></canvas>`;
+
+// --- the rounds ----------------------------------------------------------------------------------------------
+const flash = (text) => { S.flash = { text, t: 1.8 }; };
+const interval = () => (S.nobird ? (S.fast ? 0.07 : 0.16) : S.fast ? 0.15 : 0.42);
+const breedDur = () => (S.fast ? 0.75 : 1.7);
+function puff(b, kind) {
+  const col = b.kind === 'wasp' ? [242, 194, 48] : S.mode === 'mimic' ? flyRGB(b.v) : mothRGB(b.v);
+  S.puffs.push({ x: b.x, y: b.y, t: 0, col, kind });
+}
+function startHunt() {
+  Object.assign(S, { phase: 'hunt', timeLeft: HUNT_TIME, caught: 0, eaten: [], fast: false, runLeft: 0 });
+  sfx.click(); render();
+}
+function startAuto() {
+  Object.assign(S, { phase: 'auto', caught: 0, eaten: [], bird: null });
+  render();
+}
+function eat(b) { b.gone = true; S.eaten.push(b); S.caught++; puff(b, S.nobird ? 'fade' : 'eat'); }
+function birdPos(B) {
+  const p = smooth(B.t / B.dur), R = bugR(S.w, S.h);
+  return { x: lerp(B.x0, B.x1, p), y: lerp(B.y0, B.y1, p) - Math.sin(p * Math.PI) * R * 2.5 };
+}
+function pickTarget() {
+  const alive = S.pop.filter((b) => !b.gone);
+  const best = (list, score) => { let m = null, ms = -Infinity; for (const b of list) { const s = score(b); if (s > ms) { ms = s; m = b; } } return m; };
+  if (S.nobird) return alive[(rnd() * alive.length) | 0];
+  if (S.mode === 'mimic') {
+    // a young bird goes for whatever is most eye-catching; after one sting it avoids anything wasp-like
+    if (!S.learned) return best([...alive, ...S.wasps], (b) => b.v + gauss() * 0.3);
+    return best(alive, (b) => -(b.v + gauss() * 0.12));
+  }
+  // the auto bird: biggest contrast between the moth and the bark under it, plus a little imperfect eyesight
+  const bk = getBark(S.bark, S.w, S.h), R = bugR(S.w, S.h);
+  return best(alive, (b) => Math.abs(b.v - localTone(bk, b, R)) + gauss() * 0.07);
+}
+function nextTarget() {
+  const tg = pickTarget(), from = S.bird ? birdPos(S.bird) : { x: S.w + 40, y: -40 };
+  S.bird = { x0: from.x, y0: from.y, x1: tg.x * S.w, y1: tg.y * S.h, t: 0, dur: interval(), target: tg };
+}
+function act(b) {
+  if (b.kind === 'wasp') { S.learned = true; b.shake = 0.6; puff(b, 'sting'); flash(T[lang].learn); sfx.bad(); render(); return; }
+  eat(b); if (!S.fast) sfx.snap();
+  if (S.caught >= AUTO_EAT) {
+    const p = birdPos(S.bird);
+    endRound(null);
+    S.bird = S.nobird ? null : { x0: p.x, y0: p.y, x1: S.w + 60, y1: -60, t: 0, dur: 0.6, leaving: true };
+  }
+}
+function endRound(msg) {
+  const cur = S.hist[S.hist.length - 1], kept = S.pop.filter((b) => !b.gone);
+  Object.assign(cur, { lost: S.eaten.map((b) => b.v), kept: kept.map((b) => b.v), nobird: S.nobird, env: S.mode === 'mimic' ? 'mimic' : S.bark, tone: envTone() });
+  // survivors have the young: each young one gets its parent's value plus a small random difference
+  const parents = (kept.length ? kept : S.pop).slice().sort(() => rnd() - 0.5);
+  S.kids = Array.from({ length: N }, (_, i) => {
+    const p = parents[i % parents.length], k = bug(rnd() < JUMP ? rnd() : clamp(p.v + gauss() * MUT, 0, 1), 'bug');
+    k.parent = p; return k;
+  });
+  place(S.kids, S.wasps);
+  S.phase = 'breed'; S.bt = 0; S.bird = null;
+  if (msg) flash(T[lang][msg]);
+  sfx.push(); render();
+}
+function finalize() {
+  S.pop = S.kids; S.kids = null; S.gen++; S.since++;
+  if (S.nobird) S.nbSince++;
+  S.hist.push(record()); if (S.hist.length > 300) S.hist.shift();
+  if (S.runLeft > 0) S.runLeft--;
+  if (S.runLeft > 0) startAuto(); else { S.phase = 'idle'; S.bird = null; sfx.good(); render(); }
+}
+function update(dt) {
+  S.mix += clamp((S.bark === 'soot' ? 1 : 0) - S.mix, -dt * 1.4, dt * 1.4);
+  for (const p of S.puffs) p.t += dt;
+  S.puffs = S.puffs.filter((p) => p.t < 0.7);
+  if (S.flash && (S.flash.t -= dt) <= 0) S.flash = null;
+  for (const b of S.wasps) b.shake = Math.max(0, b.shake - dt);
+  if (S.phase === 'hunt') {
+    const before = Math.ceil(S.timeLeft);
+    S.timeLeft -= dt;
+    if (S.timeLeft <= 0) endRound('timeUp');
+    else if (Math.ceil(S.timeLeft) !== before) { sfx.tick(); render(); }
+  } else if (S.phase === 'auto') {
+    if (!S.bird) nextTarget();
+    S.bird.t += dt;
+    if (S.bird.t >= S.bird.dur) { act(S.bird.target); if (S.phase === 'auto') nextTarget(); }
+  } else if (S.phase === 'breed') {
+    S.bt += dt;
+    if (S.bird) S.bird.t += dt;
+    if (S.bt >= breedDur()) finalize();
+  }
+}
+
+// --- controls ------------------------------------------------------------------------------------------------
+$('bHunt').onclick = () => {
+  if (S.phase !== 'idle' || S.ask) return;
+  if (S.nobird) { S.runLeft = 1; S.fast = false; sfx.click(); startAuto(); } else startHunt();
+};
+$('bAuto').onclick = () => { if (S.phase !== 'idle' || S.ask) return; S.runLeft = 1; S.fast = false; sfx.click(); startAuto(); };
+$('bFive').onclick = () => {
+  if (S.runLeft > 1) { S.runLeft = 1; sfx.click(); render(); return; }
+  if (S.phase !== 'idle' || S.ask) return;
+  S.runLeft = 5; S.fast = true; sfx.click(); startAuto();
+};
+$('bReset').onclick = () => { S.ask = null; newPopulation(); sfx.click(); render(); };
+function switchBark(kind) {
+  S.bark = kind; S.since = 0; S.switched = kind;
+  Object.assign(S.hist[S.hist.length - 1], { env: S.mode === 'mimic' ? 'mimic' : kind, tone: envTone() });
+  sfx.click(); render();
+}
+$('barks').addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b || S.phase !== 'idle') return;
+  const k = b.dataset.k;
+  if (k === 'mimic' || k === 'nobird') {
+    if (!secret.unlocked()) return secret.open();
+    S.ask = null;
+    if (k === 'mimic') { S.mode = S.mode === 'mimic' ? 'moth' : 'mimic'; newPopulation(); }
+    else { S.nobird = !S.nobird; S.nbSince = 0; S.hist[S.hist.length - 1].nobird = S.nobird; }
+    sfx.click(); return render();
+  }
+  if (k === S.bark) return;
+  // the first time the soot comes: ask for a prediction
+  if (k === 'soot' && !S.asked && S.mode === 'moth') { S.ask = { answer: null }; sfx.click(); return render(); }
+  switchBark(k);
+});
+
+// the prediction, right before the soot arrives: most people expect each moth to change
+const askEl = document.createElement('div');
+askEl.className = 'ask card';
+$('overlay').append(askEl);
+askEl.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b || !S.ask) return;
+  if (b.dataset.a) { S.ask.answer = b.dataset.a; (S.ask.answer === 'pop' ? sfx.good : sfx.bad)(); return render(); }
+  S.asked = true; store.set('selection:asked', true); S.ask = null; switchBark('soot');
+});
+
+// hand hunting: tap what you see
+$('cv').addEventListener('pointerdown', (ev) => {
+  if (S.ask || S.nobird || (S.phase !== 'idle' && S.phase !== 'hunt')) return;
+  const r = $('cv').getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+  const R = bugR(S.w, S.h);
+  let best = null, bd = Math.max(R * 1.5, 20);
+  for (const b of [...S.pop.filter((q) => !q.gone), ...S.wasps]) { const d = Math.hypot(b.x * S.w - x, b.y * S.h - y); if (d < bd) { bd = d; best = b; } }
+  if (!best) { S.puffs.push({ x: x / S.w, y: y / S.h, t: 0, kind: 'miss' }); return; }
+  if (S.phase === 'idle') startHunt();
+  if (best.kind === 'wasp') { S.timeLeft = Math.max(0.01, S.timeLeft - 3); best.shake = 0.6; puff(best, 'sting'); flash(T[lang].ouch); sfx.bad(); return; }
+  eat(best); sfx.snap();
+  if (S.caught >= HAND_MAX) endRound('full'); else render();
+});
+
+// --- words on the page ---------------------------------------------------------------------------------------
+const ACCENT = { birch: '#7d9a5c', soot: '#e0662e', mimic: '#c98a06', nobird: '#6b7390' };
+const GLOW = { birch: 'rgba(160,190,120,.22)', soot: 'rgba(255,122,61,.24)', mimic: 'rgba(242,194,48,.24)', nobird: 'rgba(130,145,190,.2)' };
+function render() {
+  const t = T[lang], mim = S.mode === 'mimic', busy = S.phase !== 'idle', open = secret.unlocked();
+  const cur = S.hist[S.hist.length - 1], prev = S.hist.length > 1 ? S.hist[S.hist.length - 2] : null;
+  const m = mean(cur.vals), tone = cur.tone;
+
+  // buttons
+  $('bHunt').textContent = S.nobird ? t.next : t.hunt; $('bHunt').disabled = busy || !!S.ask;
+  $('bAuto').textContent = t.auto; $('bAuto').disabled = busy || !!S.ask; $('bAuto').style.display = S.nobird ? 'none' : '';
+  $('bFive').textContent = S.runLeft > 1 ? t.stop : t.five; $('bFive').disabled = (busy && S.runLeft <= 1) || !!S.ask;
+  $('bReset').textContent = t.reset;
+  $('barkLbl').textContent = t.barkLbl;
+  const sChip = (k) => `<button class="chip secret ${open ? 'open' : ''} ${(k === 'mimic' && mim) || (k === 'nobird' && S.nobird) ? 'on' : ''}" data-k="${k}" ${busy ? 'disabled' : ''}>${open ? `${k === 'mimic' ? '🐝' : '🚫'} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  $('barks').innerHTML = [sChip('mimic'), ...['birch', 'soot'].map((k) => `<button class="chip ${S.bark === k ? 'on' : ''}" data-k="${k}" ${busy ? 'disabled' : ''}>${esc(t.barks[k])}</button>`), sChip('nobird')].join('');
+
+  // readout, glow, gauge
+  const envKey = S.nobird ? 'nobird' : mim ? 'mimic' : S.bark;
+  lab.setReadout(esc(t.gen(S.gen)), t.sub(N, pct(m), mim), t.pills[envKey], ACCENT[envKey]);
+  lab.setGlow(GLOW[envKey]);
+  lab.setGauge(m, [{ f: 0, label: mim ? t.loM : t.lo }, { f: 1, label: mim ? t.hiM : t.hi }, ...(mim ? [] : [{ f: tone, label: `🌳 ${t.barkTick}` }])], t.gaugeCap);
+
+  // state card: what just happened, and why
+  const st = t.st;
+  let s;
+  const pack = (a, lead, body) => ({ emo: a[0], title: a[1], lead: lead ?? a[2], body: body ?? a[3] });
+  const matching = cur.vals.filter((v) => Math.abs(v - tone) < 0.2).length;
+  const adapted = !mim && !S.nobird && S.switched && S.since >= 3 && matching >= N * 0.7;
+  const nudge = !mim && !S.nobird && !S.switched && S.since >= 1 && S.bark === 'birch' && matching >= N * 0.7;
+  if (S.phase === 'hunt') s = pack(st.hunt, st.hunt[2](S.caught, Math.max(0, Math.ceil(S.timeLeft))), mim ? st.huntM : st.hunt[3]);
+  else if (S.phase === 'breed' && !S.fast) s = pack(st.breed);
+  else if (busy) s = S.nobird ? pack(st.chance) : mim ? pack(st.autoM, st.autoM[2](S.learned)) : pack(st.auto);
+  else if (mim) s = pack(S.since === 0 ? st.mIntro : st.mRes);
+  else if (S.nobird) s = pack(S.nbSince === 0 ? st.nbIntro : st.nbRes);
+  else if (S.since === 0 && S.switched === 'soot') { const k = cur.vals.filter((v) => v > 0.6).length; s = pack(st.soot, st.soot[2](k), st.soot[3](k)); }
+  else if (S.since === 0 && S.switched === 'birch') s = pack(st.birch);
+  else if (S.since === 0) s = pack(st.intro);
+  else if (adapted) s = pack(st.adapted);
+  else if (nudge) s = pack(st.nudge);
+  else {
+    const dl = prev?.lost?.length ? mean(prev.lost) - mean(prev.kept) : 0;
+    const lead = Math.abs(dl) < 0.05 ? st.resSame : dl > 0 ? st.resDark : st.resPale;
+    s = { emo: '🐣', title: st.resT(S.gen), lead, body: Math.abs(dl) < 0.05 ? st.resSameBody : st.resBody };
+  }
+  let extra = '';
+  if (!busy && prev?.lost?.length) {
+    extra += `<div class="stats">${prev.nobird ? '🎲' : '🐦'} ${esc(prev.nobird ? t.lost : t.caught)}: <b>${pct(mean(prev.lost))}/100</b> · ${mim ? '🪰' : '🦋'} ${esc(t.surv)}: <b>${pct(mean(prev.kept))}/100</b><br>
+      ${esc(mim ? t.avgM : t.avg)}: <b>${pct(mean(prev.vals))} → ${pct(m)}</b></div>`;
+  }
+  if (!mim && (adapted || nudge) && !busy) extra += `<div class="camo">${esc(t.camo)}</div>`;
+  if (!mim && (S.bark === 'soot' || S.hist.some((h) => h.env === 'soot'))) extra += `<div class="story">${t.story}</div><div class="src">${esc(t.src)}</div>`;
+  extra += `<div class="fine">${esc(mim ? t.fineM : t.fine)}</div>`;
+  lab.setState({ ...s, extra });
+
+  // the prediction card
+  askEl.style.display = S.ask ? '' : 'none';
+  if (S.ask) {
+    askEl.innerHTML = S.ask.answer === null
+      ? `<div class="q">${esc(t.ask)}</div><div class="opts"><button data-a="each">${esc(t.a1)}</button><button data-a="pop">${esc(t.a2)}</button></div>`
+      : `<div class="verdict" style="color:${S.ask.answer === 'pop' ? 'var(--ok)' : 'var(--wip)'}">${esc(S.ask.answer === 'pop' ? t.yesV : t.noV)}</div>
+         <p>${esc(S.ask.answer === 'pop' ? t.yesT : t.noT)}</p><div class="opts"><button>${esc(t.go)} →</button></div>`;
+  }
+}
+
+// --- drawing: insects ------------------------------------------------------------------------------------------
+function drawMoth(c, b, R) {
+  const [r, g, bl] = mothRGB(b.v), L = 236 - 210 * b.v;
+  c.fillStyle = rgb([r, g, bl]);
+  c.beginPath();
+  c.moveTo(0, -R * 0.45);
+  c.quadraticCurveTo(R * 0.75, -R * 0.62, R * 1.08, R * 0.2);
+  c.quadraticCurveTo(R * 0.6, R * 0.62, 0, R * 0.5);
+  c.quadraticCurveTo(-R * 0.6, R * 0.62, -R * 1.08, R * 0.2);
+  c.quadraticCurveTo(-R * 0.75, -R * 0.62, 0, -R * 0.45);
+  c.fill();
+  // the "pepper": little specks, so a moth looks like bark, not like a flat sticker
+  for (const s of b.specks) { const l = clamp(L + s.d, 0, 255); c.fillStyle = rgb([l, l * 0.975, l * 0.93]); c.beginPath(); c.arc(s.u * R, s.w * R, s.r * R, 0, 7); c.fill(); }
+  const lb = clamp(L - 28, 0, 255); c.fillStyle = rgb([lb, lb * 0.97, lb * 0.92]);
+  c.beginPath(); c.ellipse(0, R * 0.02, R * 0.13, R * 0.42, 0, 0, 7); c.fill();
+  c.strokeStyle = c.fillStyle; c.lineWidth = Math.max(0.8, R * 0.06);
+  for (const sd of [-1, 1]) { c.beginPath(); c.moveTo(0, -R * 0.4); c.quadraticCurveTo(sd * R * 0.15, -R * 0.75, sd * R * 0.45, -R * 0.82); c.stroke(); }
+}
+function drawFly(c, b, R) {
+  const m = b.v;
+  c.fillStyle = 'rgba(225,232,240,.5)';
+  for (const sd of [-1, 1]) { c.beginPath(); c.ellipse(sd * R * 0.48, -R * 0.02, R * 0.58, R * 0.22, sd * 0.45, 0, 7); c.fill(); }
+  c.save();
+  c.beginPath(); c.ellipse(0, R * 0.28, R * 0.36, R * 0.6, 0, 0, 7); c.fillStyle = rgb(flyRGB(m)); c.fill(); c.clip();
+  c.fillStyle = `rgba(22,18,12,${0.92 * m})`;
+  for (let k = 0; k < 3; k++) c.fillRect(-R, R * (0.02 + k * 0.28), 2 * R, R * 0.13);
+  c.restore();
+  c.fillStyle = rgb([lerp(84, 58, m), lerp(72, 48, m), lerp(56, 30, m)]);
+  c.beginPath(); c.ellipse(0, -R * 0.36, R * 0.3, R * 0.26, 0, 0, 7); c.fill();
+  c.fillStyle = '#5a2a1c'; for (const sd of [-1, 1]) { c.beginPath(); c.arc(sd * R * 0.15, -R * 0.66, R * 0.15, 0, 7); c.fill(); }
+}
+function drawWasp(c, b, R) {
+  c.fillStyle = 'rgba(200,185,150,.45)';
+  for (const sd of [-1, 1]) { c.beginPath(); c.ellipse(sd * R * 0.36, R * 0.05, R * 0.6, R * 0.16, sd * 1.05, 0, 7); c.fill(); }
+  c.save();
+  c.beginPath(); c.ellipse(0, R * 0.46, R * 0.33, R * 0.55, 0, 0, 7); c.fillStyle = '#f2c230'; c.fill(); c.clip();
+  c.fillStyle = '#16120c'; for (let k = 0; k < 3; k++) c.fillRect(-R, R * (0.12 + k * 0.27), 2 * R, R * 0.13);
+  c.restore();
+  c.fillStyle = '#16120c';
+  c.beginPath(); c.moveTo(-R * 0.08, R * 0.98); c.lineTo(0, R * 1.18); c.lineTo(R * 0.08, R * 0.98); c.fill();
+  c.beginPath(); c.ellipse(0, -R * 0.3, R * 0.24, R * 0.26, 0, 0, 7); c.fill();
+  c.fillStyle = '#f2c230'; c.beginPath(); c.ellipse(0, -R * 0.62, R * 0.2, R * 0.15, 0, 0, 7); c.fill();
+  c.strokeStyle = '#16120c'; c.lineWidth = Math.max(0.8, R * 0.06);
+  for (const sd of [-1, 1]) { c.beginPath(); c.moveTo(sd * R * 0.06, -R * 0.74); c.quadraticCurveTo(sd * R * 0.2, -R * 1.05, sd * R * 0.45, -R * 1.1); c.stroke(); }
+}
+function drawBug(c, b, x, y, R, alpha, time) {
+  if (alpha <= 0) return;
+  c.save();
+  c.translate(x + (b.shake ? Math.sin(time * 70) * b.shake * 5 : 0), y); c.rotate(b.a); c.globalAlpha = alpha;
+  if (b.kind === 'wasp') drawWasp(c, b, R); else if (S.mode === 'mimic') drawFly(c, b, R); else drawMoth(c, b, R);
+  c.restore();
+}
+function drawBird(c, x, y, ang, s, time) {
+  c.save(); c.translate(x, y); c.rotate(ang);
+  const flap = Math.sin(time * 22) * 0.5;
+  c.fillStyle = '#15171f'; c.strokeStyle = 'rgba(255,255,255,.85)'; c.lineWidth = 1.5; c.lineJoin = 'round';
+  for (const sd of [-1, 1]) { c.beginPath(); c.moveTo(-s * 0.2, 0); c.lineTo(-s * 0.55, sd * s * (1.2 + flap)); c.lineTo(s * 0.35, sd * s * 0.2); c.closePath(); c.fill(); c.stroke(); }
+  c.beginPath(); c.ellipse(0, 0, s * 0.9, s * 0.34, 0, 0, 7); c.fill(); c.stroke();
+  c.fillStyle = '#f5a524'; c.beginPath(); c.moveTo(s * 0.84, -s * 0.12); c.lineTo(s * 1.3, 0); c.lineTo(s * 0.84, s * 0.12); c.fill();
+  c.fillStyle = '#fff'; c.beginPath(); c.arc(s * 0.55, -s * 0.1, s * 0.08, 0, 7); c.fill();
+  c.restore();
+}
+function rrect(c, x, y, w, h, r) {
+  c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+}
+function pill(c, text, x, y, fs, maxW, align = 'center', color = '#fff') {
+  c.font = `800 ${fs}px Nunito, sans-serif`;
+  let tw = c.measureText(text).width;
+  if (tw + fs * 1.4 > maxW) { fs = Math.max(9, fs * (maxW - fs * 1.4) / tw); c.font = `800 ${fs}px Nunito, sans-serif`; tw = c.measureText(text).width; }
+  const pw = tw + fs * 1.4, ph = fs * 2, x0 = align === 'center' ? x - pw / 2 : align === 'left' ? x : x - pw;
+  c.fillStyle = 'rgba(10,12,20,.76)'; rrect(c, x0, y, pw, ph, ph / 2); c.fill();
+  c.fillStyle = color; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(text, x0 + fs * 0.7, y + ph / 2 + 0.5);
+}
+
+function drawScene(c, w, h, time) {
+  const t = T[lang], R = bugR(w, h);
+  c.save(); rrect(c, 0, 0, w, h, 18); c.clip();
+  if (S.mix < 1) c.drawImage(getBark('birch', w, h).cv, 0, 0, w, h);
+  if (S.mix > 0) { c.globalAlpha = S.mix; c.drawImage(getBark('soot', w, h).cv, 0, 0, w, h); c.globalAlpha = 1; }
+  const vg = c.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.4, w / 2, h / 2, Math.max(w, h) * 0.75);
+  vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.28)'); c.fillStyle = vg; c.fillRect(0, 0, w, h);
+
+  const breeding = S.phase === 'breed', k = breeding ? S.bt / breedDur() : 0;
+  for (const b of S.pop) {
+    if (b.gone) continue;
+    const a = breeding ? 1 - smooth((k - 0.5) / 0.35) : 1;
+    if (breeding && k < 0.55) {
+      c.strokeStyle = `rgba(255,255,255,${0.75 * (1 - k / 0.55)})`; c.lineWidth = 2;
+      c.beginPath(); c.arc(b.x * w, b.y * h, R * (1.4 + k), 0, 7); c.stroke();
+    }
+    drawBug(c, b, b.x * w, b.y * h, R, a, time);
+  }
+  if (breeding && S.kids) for (const kd of S.kids) {
+    const q = smooth((k - 0.3) / 0.6); if (q <= 0) continue;
+    drawBug(c, kd, lerp(kd.parent.x, kd.x, q) * w, lerp(kd.parent.y, kd.y, q) * h, R * lerp(0.55, 1, q), q, time);
+  }
+  for (const b of S.wasps) drawBug(c, b, b.x * w, b.y * h, R, 1, time);
+
+  // puffs: feathers of a catch, a sting star, a missed peck
+  for (const p of S.puffs) {
+    const x = p.x * w, y = p.y * h, q = p.t / 0.7;
+    if (p.kind === 'miss') { c.strokeStyle = `rgba(255,255,255,${0.6 * (1 - q)})`; c.lineWidth = 1.5; c.beginPath(); c.arc(x, y, 6 + q * 12, 0, 7); c.stroke(); continue; }
+    if (p.kind === 'sting') { c.strokeStyle = `rgba(255,80,60,${1 - q})`; c.lineWidth = 2.5; for (let i = 0; i < 8; i++) { const a = i / 8 * 2 * Math.PI; c.beginPath(); c.moveTo(x + Math.cos(a) * R * (1 + q), y + Math.sin(a) * R * (1 + q)); c.lineTo(x + Math.cos(a) * R * (1.5 + 2 * q), y + Math.sin(a) * R * (1.5 + 2 * q)); c.stroke(); } continue; }
+    for (let i = 0; i < 7; i++) {
+      const a = i / 7 * 2 * Math.PI + p.x * 9, d = R * (0.3 + q * (p.kind === 'fade' ? 0.6 : 1.8));
+      c.fillStyle = rgb(p.col, (1 - q) * 0.9); c.beginPath(); c.arc(x + Math.cos(a) * d, y + Math.sin(a) * d, R * 0.22 * (1 - q * 0.5), 0, 7); c.fill();
+    }
+  }
+  // the auto bird
+  if (S.bird && !S.nobird) {
+    const B = S.bird, p = birdPos(B), q = smooth(B.t / B.dur);
+    if (!(B.leaving && B.t >= B.dur)) drawBird(c, p.x, p.y, Math.atan2(B.y1 - B.y0 - Math.cos(q * Math.PI) * R * 2.5, B.x1 - B.x0), R * 1.4, time);
+  }
+
+  // what is going on, at the top
+  const fs = clamp(w * 0.034, 11.5, 15), top = 10, maxW = w - 20;
+  if (S.phase === 'hunt') {
+    pill(c, `${t.timer(Math.max(0, Math.ceil(S.timeLeft)))}   ${t.caughtN(S.caught)}`, w / 2, top, fs * 1.1, maxW, 'center', S.timeLeft < 3.5 ? '#ffb4a8' : '#fff');
+  } else if (S.phase === 'auto') {
+    pill(c, S.nobird ? `🎲 ${t.chanceHud}` : `🤖 ${S.caught}/${AUTO_EAT}`, w / 2, top, fs, maxW);
+  } else if (S.phase === 'breed') {
+    pill(c, `🐣 ${t.young}`, w / 2, top, fs, maxW);
+  } else if (!S.ask) {
+    pill(c, S.nobird ? t.nbHint : S.mode === 'mimic' ? t.tapM : t.tap, w / 2, top, fs, maxW, 'center', '#EDEFF7');
+  }
+  if (S.flash) {
+    const a = clamp(S.flash.t / 0.4, 0, 1);
+    c.globalAlpha = a; pill(c, S.flash.text, w / 2, h * 0.45, fs * 1.25, maxW, 'center', '#ffd25a'); c.globalAlpha = 1;
+  }
+  c.restore();
+}
+
+// --- drawing: the generations chart (histogram + average over time) -------------------------------------------
+function drawChart(c, w, h) {
+  const t = T[lang], mim = S.mode === 'mimic', H = S.hist, cur = H[H.length - 1], prev = H.length > 1 ? H[H.length - 2] : null;
+  const col = (v) => rgb(mim ? flyRGB(v) : mothRGB(v));
+  const side = w >= 480, gap = side ? 26 : 16;
+  const A = side ? { x: 0, y: 0, w: (w - gap) * 0.46, h } : { x: 0, y: 0, w, h: (h - gap) / 2 };
+  const B = side ? { x: A.w + gap, y: 0, w: w - A.w - gap, h } : { x: 0, y: A.h + gap, w, h: (h - gap) / 2 };
+  const fs = 10.5, mut = '#98A0B8', faint = '#646C84', mark = '#f5c84c';
+  c.font = `800 ${fs}px Nunito, sans-serif`; c.textBaseline = 'alphabetic';
+
+  // A: how many insects of each shade in this generation (dashed: the previous one)
+  c.textAlign = 'left'; c.fillStyle = mut; c.fillText(t.histT(S.gen), A.x, A.y + 10);
+  const x0 = A.x, x1 = A.x + A.w, y0 = A.y + 22, y1 = A.y + A.h - 26, bins = 10, bw = (x1 - x0) / bins;
+  const count = (vals) => { const k = new Array(bins).fill(0); for (const v of vals) k[Math.min(bins - 1, Math.floor(v * bins))]++; return k; };
+  const kc = count(cur.vals), kp = prev ? count(prev.vals) : null, topN = Math.max(10, ...kc, ...(kp || [0]));
+  const Y = (n) => y1 - n / topN * (y1 - y0);
+  c.strokeStyle = 'rgba(130,145,190,.25)'; c.lineWidth = 1; c.beginPath(); c.moveTo(x0, y1 + 0.5); c.lineTo(x1, y1 + 0.5); c.stroke();
+  for (let i = 0; i < bins; i++) {
+    if (!kc[i]) continue;
+    c.fillStyle = col((i + 0.5) / bins); c.fillRect(x0 + i * bw + 1.5, Y(kc[i]), bw - 3, y1 - Y(kc[i]));
+    c.strokeStyle = 'rgba(237,239,247,.4)'; c.strokeRect(x0 + i * bw + 2, Y(kc[i]) + 0.5, bw - 4, y1 - Y(kc[i]) - 1);
+    c.fillStyle = '#EDEFF7'; c.textAlign = 'center'; c.fillText(String(kc[i]), x0 + (i + 0.5) * bw, Y(kc[i]) - 3);
+  }
+  if (kp) {
+    c.strokeStyle = 'rgba(237,239,247,.55)'; c.setLineDash([3, 3]); c.lineWidth = 1.2; c.beginPath(); c.moveTo(x0, y1);
+    for (let i = 0; i < bins; i++) { c.lineTo(x0 + i * bw, Y(kp[i])); c.lineTo(x0 + (i + 1) * bw, Y(kp[i])); }
+    c.lineTo(x1, y1); c.stroke(); c.setLineDash([]);
+    c.textAlign = 'right'; c.fillStyle = faint; c.fillText(`- - ${t.prevT}`, x1, A.y + 10);
+  }
+  const gr = c.createLinearGradient(x0, 0, x1, 0);
+  for (let i = 0; i <= 10; i++) gr.addColorStop(i / 10, col(i / 10));
+  c.fillStyle = gr; c.fillRect(x0, y1 + 4, x1 - x0, 6);
+  c.fillStyle = mut; c.textAlign = 'left'; c.fillText(mim ? t.loM : t.lo, x0, y1 + 22);
+  c.textAlign = 'right'; c.fillText(mim ? t.hiM : t.hi, x1, y1 + 22);
+  // where the bark (or the wasp) sits on the same scale
+  const mv = mim ? 1 : cur.tone, mx = x0 + mv * (x1 - x0);
+  c.strokeStyle = mark; c.setLineDash([4, 3]); c.lineWidth = 1.5; c.beginPath(); c.moveTo(mx, y0 + 4); c.lineTo(mx, y1 + 10); c.stroke(); c.setLineDash([]);
+  c.fillStyle = mark; c.textAlign = mv > 0.5 ? 'right' : 'left'; c.fillText(mim ? `🐝 ${t.waspTick}` : `🌳 ${t.barkTick}`, mx + (mv > 0.5 ? -4 : 4), y0 + 8);
+
+  // B: the average, generation after generation, over the bark it lived on
+  c.textAlign = 'left'; c.fillStyle = mut; c.fillText(mim ? t.lineTM : t.lineT, B.x, B.y + 10);
+  const L0 = B.x, L1 = B.x + B.w, T0 = B.y + 22, T1 = B.y + B.h - 26;
+  const show = H.slice(-30), n = Math.max(show.length, 8), first = S.gen - show.length + 1, cw = (L1 - L0) / n;
+  const X = (i) => L0 + (i + 0.5) * cw, Yv = (v) => T1 - v * (T1 - T0);
+  show.forEach((g, i) => {
+    c.fillStyle = g.env === 'soot' ? 'rgba(0,0,0,.5)' : g.env === 'birch' ? 'rgba(236,232,222,.13)' : 'rgba(242,194,48,.08)';
+    c.fillRect(L0 + i * cw, T0, cw + 0.5, T1 - T0);
+  });
+  c.strokeStyle = 'rgba(130,145,190,.25)'; c.lineWidth = 1; c.strokeRect(L0 + 0.5, T0 + 0.5, L1 - L0 - 1, T1 - T0 - 1);
+  c.strokeStyle = mark; c.setLineDash([4, 3]); c.lineWidth = 1.5; c.beginPath();
+  show.forEach((g, i) => { const y = Yv(mim ? 1 : g.tone); i ? c.lineTo(L0 + i * cw, y) : c.moveTo(L0, y); c.lineTo(L0 + (i + 1) * cw, y); });
+  c.stroke(); c.setLineDash([]);
+  c.strokeStyle = '#fff'; c.lineWidth = 2; c.beginPath();
+  show.forEach((g, i) => { const y = Yv(mean(g.vals)); i ? c.lineTo(X(i), y) : c.moveTo(X(i), y); });
+  c.stroke();
+  show.forEach((g, i) => {
+    const v = mean(g.vals); c.beginPath(); c.arc(X(i), Yv(v), Math.min(4.5, cw * 0.32), 0, 7);
+    if (g.nobird) { c.fillStyle = '#0A0C14'; c.fill(); c.strokeStyle = '#98A0B8'; c.lineWidth = 1.5; c.stroke(); }
+    else { c.fillStyle = col(v); c.fill(); c.strokeStyle = '#fff'; c.lineWidth = 1.2; c.stroke(); }
+  });
+  c.fillStyle = faint; c.textAlign = 'left';
+  c.fillText(mim ? t.hiM : t.hi, L0 + 4, T0 + 12); c.fillText(mim ? t.loM : t.lo, L0 + 4, T1 - 5);
+  c.textAlign = 'left'; c.fillStyle = mut; c.fillText(String(first), L0, T1 + 14);
+  c.textAlign = 'center'; c.fillStyle = faint; c.fillText(show.some((g) => g.nobird) ? `${t.genAxis} · ○ ${t.noBirdTag}` : t.genAxis, (L0 + L1) / 2, T1 + 14);
+  c.textAlign = 'right'; c.fillStyle = mut; c.fillText(String(S.gen), X(show.length - 1) + 4, T1 + 14);
+}
+
+// --- go ------------------------------------------------------------------------------------------------------
+{ const r = $('cv').getBoundingClientRect(); S.w = r.width || 600; S.h = r.height || 400; }
+newPopulation();
+canvasLoop($('cv'), (c, w, h, dt, time) => { S.w = w; S.h = h; update(dt); drawScene(c, w, h, time); });
+canvasLoop($('chart'), (c, w, h) => drawChart(c, w, h));
+render();
+</script>
+</body>
+</html>

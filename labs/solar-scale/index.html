@@ -1,0 +1,734 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Solar System Scale Lab · Skill Graph</title>
+<meta name="description" content="Space is mostly empty: switch the textbook picture of the Solar System to true scale, choose what the Sun is and walk from the Sun to Neptune at walking speed. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  /* no gauge in this lab: give its column back to the stage */
+  #gauge { display: none; }
+  @media (min-width: 1101px) {
+    .lab { grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); grid-template-areas: 'hero stage' 'state stage' 'state ctrl'; }
+  }
+  .ask { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); width: min(560px, calc(100% - 16px)); padding: 14px 16px;
+    text-align: center; }
+  .ask .q { font: 500 22px/1.2 var(--serif); color: #fff; margin-bottom: 10px; text-wrap: balance; }
+  .ask .opts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .ask button { padding: 9px 14px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 800; cursor: pointer; }
+  .ask button:hover { background: rgba(130, 145, 190, .25); }
+  .ask p { margin: 0 0 10px; color: var(--soft); font-size: 13px; }
+  .ask .verdict { font-weight: 900; margin-bottom: 4px; }
+  .cta { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); white-space: nowrap; box-shadow: 0 6px 30px rgba(0, 0, 0, .45); }
+  .ctrlLbl { margin: 0 0 8px; }
+  .walkrow { margin-top: 14px; }
+  .zoom { display: inline-flex; gap: 4px; }
+  .zoom button { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 900; font-size: 16px; cursor: pointer; padding: 0; }
+  .zoom button:hover { background: rgba(130, 145, 190, .25); }
+  .chip.go { background: var(--red); border-color: var(--red); color: #fff; }
+  .tbl { width: 100%; border-collapse: collapse; font-size: 12px; margin: 2px 0 8px; }
+  .tbl th { text-align: left; color: var(--faint); font-weight: 800; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; padding: 2px 4px; }
+  .tbl td { padding: 3px 4px; border-top: 1px solid var(--stroke); color: var(--soft); white-space: nowrap; }
+  .tbl td:first-child { color: #fff; font-weight: 800; }
+  .tbl tr.on td { background: rgba(255, 255, 255, .07); }
+  .tbl .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
+  .note { margin: 0 0 8px; color: var(--soft); }
+  .note b { color: #fff; }
+  .fine { margin-top: 8px; font-size: 11px; color: var(--faint); line-height: 1.5; }
+  @media (max-width: 760px) {
+    .ask .q { font-size: 18px; } .ask { padding: 10px 12px; }
+    .ask button { padding: 7px 11px; font-size: 13px; }
+    .cta { font-size: 13px; padding: 9px 16px; }
+    .tbl { font-size: 11px; } .tbl td, .tbl th { padding: 3px 3px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, store, $, esc, clamp, lerp, lang, ruPlural } from '../lab.js';
+
+// --- real data (NASA Planetary Fact Sheet: mean diameters in km, mean distances from the Sun in million km) ---
+const SUN_KM = 1392700;
+const PLANETS = [
+  { k: 'mercury', d: 4879, a: 57.9, col: '#b9b1a8' },
+  { k: 'venus', d: 12104, a: 108.2, col: '#e8c37e' },
+  { k: 'earth', d: 12756, a: 149.6, col: '#4ea8ff' },
+  { k: 'mars', d: 6792, a: 228.0, col: '#e0603a' },
+  { k: 'jupiter', d: 142984, a: 778.5, col: '#d9a066' },
+  { k: 'saturn', d: 120536, a: 1432.0, col: '#e8d29a' },
+  { k: 'uranus', d: 51118, a: 2867.0, col: '#9fe3e8' },
+  { k: 'neptune', d: 49528, a: 4515.0, col: '#5b7cf5' },
+];
+const C_KMS = 299792.458;          // speed of light, km/s (exact by definition)
+const LY_KM = 9.4607e12;           // one light-year in km
+const PROXIMA_LY = 4.24;           // Proxima Centauri, light-years (NASA)
+// assumptions, all stated in the fine print
+const WALK = 1.2, STEP = 0.6;      // walking speed m/s, one step m
+const SUNS = [
+  { k: 'beach', emo: '🏖️', m: 0.50 },
+  { k: 'football', emo: '⚽', m: 0.22 },
+  { k: 'orange', emo: '🍊', m: 0.08 },
+  { k: 'sand', emo: '⏳', m: 0.001 },
+];
+// everyday objects for "about the size of …" (typical sizes, metres)
+const OBJ = [['sand', 0.001], ['pin', 0.002], ['pepper', 0.005], ['pea', 0.008], ['marble', 0.016], ['pingpong', 0.04], ['tennis', 0.067],
+  ['orange', 0.08], ['football', 0.22], ['beach', 0.5]];
+// how many planets of this size would fit in the empty gap to the nearest neighbour (km / km), 2 significant digits
+const GAP = PLANETS.map((p, i) => {
+  const g = Math.min(...[PLANETS[i - 1], PLANETS[i + 1]].filter(Boolean).map((q) => Math.abs(q.a - p.a) * 1e6));
+  const r = g / p.d, e = Math.pow(10, Math.floor(Math.log10(r)) - 1);
+  return Math.round(r / e) * e;
+});
+const EARTHS_ACROSS_SUN = Math.round(SUN_KM / 12756); // 109
+
+// --- words -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Solar System Scale Lab', title: 'Space is mostly empty',
+    lines: [['Books squeeze the planets together.', 'Switch to true scale and watch them fly apart.'], ['Choose what the Sun is:', 'a beach ball, a football, an orange or a grain of sand.'], ['Press Walk', 'and stroll from the Sun to Neptune at walking speed.']],
+    views: { book: '📖 Book', walk: '🚶 Distances', sizes: '⚖️ Sizes' },
+    sunLbl: 'The Sun is', suns: { beach: 'Beach ball', football: 'Football', orange: 'Orange', sand: 'Grain of sand' },
+    sunA: { beach: 'a beach ball', football: 'a football', orange: 'an orange', sand: 'a grain of sand' },
+    pl: { sun: 'Sun', mercury: 'Mercury', venus: 'Venus', earth: 'Earth', mars: 'Mars', jupiter: 'Jupiter', saturn: 'Saturn', uranus: 'Uranus', neptune: 'Neptune' },
+    u: { mm: 'mm', cm: 'cm', m: 'm', km: 'km' }, tu: { s: 's', min: 'min', h: 'h' },
+    days: (n) => (n === 1 ? 'day' : 'days'), steps: (n) => (n === 1 ? 'step' : 'steps'),
+    like: { sand: 'a grain of sand', pin: 'a pinhead', pepper: 'a peppercorn', pea: 'a pea', marble: 'a marble', pingpong: 'a table-tennis ball', tennis: 'a tennis ball', orange: 'an orange', football: 'a football', beach: 'a beach ball' },
+    likeP(x) { return !x ? '' : x === 'tiny' ? ', smaller than a grain of sand' : `, about the size of ${this.like[x]}`; },
+    stamp: 'NOT TO SCALE', cta: '✨ Switch to true scale',
+    ask: (a, d) => `If the Sun were ${a} (${d}), how far away would the Earth be?`,
+    vOk: 'Yes, that far!', vSmall: 'Much further!', vBig: 'Not quite that far.',
+    explain: (a, sz, d) => `If the Sun were ${a}, Earth would be a ${sz} speck, ${d} away. Books push the planets together so they fit on the page.`,
+    go: 'Show me the true scale →',
+    bookTitle: 'The book picture', bookLead: 'The Solar System is the Sun and the 8 planets that go around it.',
+    bookBody: 'The Sun is a star. Earth is one of the planets. Space begins high above our sky. This picture is handy, but it is not true: the planets are drawn far too big and far too close together. Press “Switch to true scale”.',
+    headline: (a, s, eS, eD, nD) => `If the Sun were ${a} (${s}), Earth would be <b>${eS}</b> across and <b>${eD}</b> away, and Neptune would be <b>${nD}</b> away.`,
+    walkTitle: 'True distances', startLead: 'Start at the Sun and press Walk.',
+    at: (p, d, st) => `You reached ${p}: ${d} from the Sun (${st}).`,
+    walking: (p) => `On the way to ${p}…`,
+    sizeLine(k, sz, lk) { return `In this model ${this.pl[k]} is ${sz} across${lk}.`; },
+    gapLine: (n) => `About ${n} planets like it would fit side by side in the empty gap to the nearest planet.`,
+    startBody: 'Space is mostly empty. The planets are tiny specks, and the gaps between them are thousands of times bigger than the planets. The rings and labels only show where the planets are: at most zoom levels the planet itself is smaller than one pixel.',
+    total: (d, st, tm) => `Sun → Neptune: <b>${d}</b>, ${st}, <b>${tm}</b> of walking.`,
+    walk: '▶ Walk', pause: '❚❚ Stop', speed: 'Speed', back: '⏮ Back to the Sun', fit: '⤢ Whole system', jump: 'Go to',
+    hint: 'Drag to move · pinch or scroll to zoom', next: (p, d) => `${p}: ${d} more →`, ofWalk: 'walking',
+    sizesTitle: 'True sizes', sizesLead: (n) => `${n} Earths would fit across the Sun.`,
+    sizesBody: 'Jupiter is the biggest planet, but the Sun is still almost 10 times wider. Here the sizes are true but the distances are not: we pushed the planets together so you can compare them. In real space they are very far apart.',
+    sizeNote: 'Sizes true · distances NOT', ringNote: 'Rings only mark where the planets are',
+    th: ['Planet', 'Size', 'From the Sun', 'Walk'],
+    fine: 'Sizes and mean distances: NASA Planetary Fact Sheet. Proxima Centauri: 4.24 light-years (NASA). Speed of light: 299,792 km/s; one light-year: 9.46 trillion km. The planets are shown in a row; really they are spread around their orbits. We assume: beach ball 50 cm, football 22 cm, orange 8 cm, grain of sand 1 mm; walking 1.2 m/s, one step 60 cm. Comparisons: pinhead 2 mm, peppercorn 5 mm, pea 8 mm, marble 1.6 cm, table-tennis ball 4 cm, tennis ball 6.7 cm.',
+    secrets: { light: ['Race the light', 'Sunlight at the same scale'], star: ['The nearest star', 'How far at this scale?'] },
+    lightTitle: 'Race the light', lightLead: (t) => `Sunlight has been travelling for ${t}.`,
+    lightBody: (v, tE) => `In this model light crawls only ${v} per second, slower than you walk. Yet it still reaches Earth in ${tE}, just like real sunlight, whatever size the Sun is. Light is fast; space is just enormous.`,
+    lightEarth: 'The light has reached Earth!', lightLbl: 'light',
+    starTitle: 'The nearest star',
+    starBody: (a, d, tm) => `Proxima Centauri is the nearest star after the Sun, about 4.24 light-years away. If the Sun were ${a}, Proxima would be <b>${d}</b> away. Walking non-stop, that would take <b>${tm}</b>.`,
+    bigger: '🌌 Even bigger: the Sun is just one of billions of stars in our galaxy, the Milky Way. Planet → solar system → galaxy → universe.',
+    proxima: 'Proxima Centauri', solar: 'the whole Solar System',
+    quiz: [
+      { q: 'What is the Solar System?', opts: ['The Sun and the planets that go around it', 'All the stars in the sky', 'The Earth and the Moon'], ok: 0 },
+      { q: 'If the Sun were a football, the Earth would be…', opts: ['a tennis ball right next to it', 'a marble 1 m away', 'a 2 mm speck about 24 m away'], ok: 2 },
+      { q: 'Which list goes from smallest to biggest?', opts: ['galaxy → planet → universe → solar system', 'planet → solar system → galaxy → universe', 'solar system → planet → universe → galaxy'], ok: 1 },
+    ],
+  },
+  ru: {
+    name: 'Масштаб Солнечной системы', title: 'Космос почти пустой',
+    lines: [['В книгах планеты теснятся рядом.', 'Включи настоящий масштаб — и они разлетятся.'], ['Выбери, чем будет Солнце:', 'пляжный мяч, футбольный мяч, апельсин или песчинка.'], ['Нажми «Идти»', 'и прогуляйся пешком от Солнца до Нептуна.']],
+    views: { book: '📖 Как в книге', walk: '🚶 Расстояния', sizes: '⚖️ Размеры' },
+    sunLbl: 'Солнце —', suns: { beach: 'Пляжный мяч', football: 'Футбольный мяч', orange: 'Апельсин', sand: 'Песчинка' },
+    sunA: { beach: 'пляжный мяч', football: 'футбольный мяч', orange: 'апельсин', sand: 'песчинка' },
+    pl: { sun: 'Солнце', mercury: 'Меркурий', venus: 'Венера', earth: 'Земля', mars: 'Марс', jupiter: 'Юпитер', saturn: 'Сатурн', uranus: 'Уран', neptune: 'Нептун' },
+    u: { mm: 'мм', cm: 'см', m: 'м', km: 'км' }, tu: { s: 'с', min: 'мин', h: 'ч' },
+    days: (n) => ruPlural(n, 'день', 'дня', 'дней'), steps: (n) => ruPlural(n, 'шаг', 'шага', 'шагов'),
+    like: { sand: 'песчинку', pin: 'булавочную головку', pepper: 'горошину перца', pea: 'горошину', marble: 'стеклянный шарик', pingpong: 'шарик для пинг-понга', tennis: 'теннисный мяч', orange: 'апельсин', football: 'футбольный мяч', beach: 'пляжный мяч' },
+    likeP(x) { return !x ? '' : x === 'tiny' ? ', меньше песчинки' : `, примерно с ${this.like[x]}`; },
+    stamp: 'НЕ В МАСШТАБЕ', cta: '✨ Настоящий масштаб',
+    ask: (a, d) => `Если Солнце — ${a} (${d}), то как далеко от него Земля?`,
+    vOk: 'Да, вот так далеко!', vSmall: 'Гораздо дальше!', vBig: 'Не так далеко.',
+    explain: (a, sz, d) => `Если Солнце — ${a}, то Земля — крупинка размером ${sz} на расстоянии ${d}. В книгах планеты сдвигают поближе, чтобы они поместились на странице.`,
+    go: 'Покажи настоящий масштаб →',
+    bookTitle: 'Картинка из книги', bookLead: 'Солнечная система — это Солнце и 8 планет, которые вращаются вокруг него.',
+    bookBody: 'Солнце — это звезда. Земля — одна из планет. Космос начинается высоко над нашим небом. Эта картинка удобная, но неправдивая: планеты нарисованы слишком большими и слишком близко друг к другу. Нажми «Настоящий масштаб».',
+    headline: (a, s, eS, eD, nD) => `Если Солнце — ${a} (${s}), то Земля размером <b>${eS}</b> будет в <b>${eD}</b> от него, а Нептун — в <b>${nD}</b>.`,
+    walkTitle: 'Настоящие расстояния', startLead: 'Начни у Солнца и нажми «Идти».',
+    at: (p, d, st) => `Ты у планеты ${p}: ${d} от Солнца (${st}).`,
+    walking: (p) => `Идём к планете ${p}…`,
+    sizeLine(k, sz, lk) { return `Здесь ${this.pl[k]} — ${sz} в поперечнике${lk}.`; },
+    gapLine: (n) => `В пустой промежуток до ближайшей планеты поместилось бы в ряд около ${n} таких планет.`,
+    startBody: 'Космос почти пустой. Планеты — крошечные крупинки, а промежутки между ними в тысячи раз больше самих планет. Кольца и подписи только показывают, где планеты: почти при любом увеличении сама планета меньше одного пикселя.',
+    total: (d, st, tm) => `Солнце → Нептун: <b>${d}</b>, ${st}, <b>${tm}</b> пешком.`,
+    walk: '▶ Идти', pause: '❚❚ Стоп', speed: 'Скорость', back: '⏮ К Солнцу', fit: '⤢ Вся система', jump: 'Перейти к',
+    hint: 'Тяни — двигать · щипок или колёсико — масштаб', next: (p, d) => `${p}: ещё ${d} →`, ofWalk: 'пешком',
+    sizesTitle: 'Настоящие размеры', sizesLead: (n) => `Поперёк Солнца в ряд поместилось бы ${n} ${ruPlural(n, 'земной шар', 'земных шара', 'земных шаров')}.`,
+    sizesBody: 'Юпитер — самая большая планета, но Солнце почти в 10 раз шире. Здесь размеры настоящие, а расстояния — нет: мы сдвинули планеты, чтобы их было удобно сравнить. В настоящем космосе они очень далеко друг от друга.',
+    sizeNote: 'Размеры настоящие · расстояния НЕТ', ringNote: 'Кольца только показывают, где планеты',
+    th: ['Планета', 'Размер', 'От Солнца', 'Пешком'],
+    fine: 'Размеры и средние расстояния: NASA Planetary Fact Sheet. Проксима Центавра: 4,24 светового года (NASA). Скорость света: 299 792 км/с; один световой год: 9,46 трлн км. Планеты показаны в ряд, а на самом деле они разбросаны по своим орбитам. Мы считаем: пляжный мяч 50 см, футбольный мяч 22 см, апельсин 8 см, песчинка 1 мм; скорость ходьбы 1,2 м/с, один шаг 60 см. Сравнения: булавочная головка 2 мм, горошина перца 5 мм, горошина 8 мм, стеклянный шарик 1,6 см, шарик для пинг-понга 4 см, теннисный мяч 6,7 см.',
+    secrets: { light: ['Гонка со светом', 'Солнечный свет в том же масштабе'], star: ['Ближайшая звезда', 'Как далеко она в модели?'] },
+    lightTitle: 'Гонка со светом', lightLead: (t) => `Свет летит от Солнца уже ${t}.`,
+    lightBody: (v, tE) => `В этой модели свет проползает всего ${v} в секунду — медленнее, чем ты идёшь. И всё равно до Земли он доходит за ${tE}, точно как настоящий солнечный свет, какого бы размера ни было Солнце. Свет очень быстрый — просто космос огромный.`,
+    lightEarth: 'Свет добрался до Земли!', lightLbl: 'свет',
+    starTitle: 'Ближайшая звезда',
+    starBody: (a, d, tm) => `Проксима Центавра — ближайшая к нам звезда после Солнца, до неё около 4,24 светового года. Если Солнце — ${a}, то Проксима будет в <b>${d}</b> от него. Идти туда без остановок пришлось бы <b>${tm}</b>.`,
+    bigger: '🌌 А дальше ещё больше: Солнце — лишь одна из миллиардов звёзд нашей галактики, Млечного Пути. Планета → Солнечная система → галактика → Вселенная.',
+    proxima: 'Проксима Центавра', solar: 'вся Солнечная система',
+    quiz: [
+      { q: 'Что такое Солнечная система?', opts: ['Солнце и планеты, которые вращаются вокруг него', 'Все звёзды на небе', 'Земля и Луна'], ok: 0 },
+      { q: 'Если Солнце — футбольный мяч, то Земля —…', opts: ['теннисный мяч прямо рядом с ним', 'стеклянный шарик в 1 м от него', 'крупинка 2 мм примерно в 24 м от него'], ok: 2 },
+      { q: 'Какой ряд идёт от меньшего к большему?', opts: ['галактика → планета → Вселенная → Солнечная система', 'планета → Солнечная система → галактика → Вселенная', 'Солнечная система → планета → Вселенная → галактика'], ok: 1 },
+    ],
+  },
+  hu: {
+    name: 'Naprendszer-labor', title: 'Az űr szinte üres',
+    lines: [['A könyvek összezsúfolják a bolygókat.', 'Válts valódi méretarányra, és nézd, hogyan repülnek szét.'], ['Válaszd ki, mi legyen a Nap:', 'strandlabda, focilabda, narancs vagy homokszem.'], ['Nyomd meg a Séta gombot,', 'és sétálj el a Naptól a Neptunuszig.']],
+    views: { book: '📖 Könyvben', walk: '🚶 Távolságok', sizes: '⚖️ Méretek' },
+    sunLbl: 'A Nap legyen', suns: { beach: 'Strandlabda', football: 'Focilabda', orange: 'Narancs', sand: 'Homokszem' },
+    sunA: { beach: 'egy strandlabda', football: 'egy focilabda', orange: 'egy narancs', sand: 'egy homokszem' },
+    pl: { sun: 'Nap', mercury: 'Merkúr', venus: 'Vénusz', earth: 'Föld', mars: 'Mars', jupiter: 'Jupiter', saturn: 'Szaturnusz', uranus: 'Uránusz', neptune: 'Neptunusz' },
+    u: { mm: 'mm', cm: 'cm', m: 'm', km: 'km' }, tu: { s: 'mp', min: 'perc', h: 'óra' },
+    days: () => 'nap', steps: () => 'lépés',
+    like: { sand: 'egy homokszem', pin: 'egy gombostűfej', pepper: 'egy borsszem', pea: 'egy borsószem', marble: 'egy üveggolyó', pingpong: 'egy pingponglabda', tennis: 'egy teniszlabda', orange: 'egy narancs', football: 'egy focilabda', beach: 'egy strandlabda' },
+    likeP(x) { return !x ? '' : x === 'tiny' ? ', kisebb egy homokszemnél' : `, nagyjából akkora, mint ${this.like[x]}`; },
+    stamp: 'NEM MÉRETARÁNYOS', cta: '✨ Valódi méretarány',
+    ask: (a, d) => `Ha a Nap ${a} (${d}) lenne, milyen messze lenne tőle a Föld?`,
+    vOk: 'Igen, ilyen messze!', vSmall: 'Sokkal messzebb!', vBig: 'Nem ennyire messze.',
+    explain: (a, sz, d) => `Ha a Nap ${a}, akkor a Föld csak egy ${sz} nagyságú pötty, ${d}-re tőle. A könyvek összetolják a bolygókat, hogy elférjenek egy oldalon.`,
+    go: 'Mutasd a valódi méretarányt →',
+    bookTitle: 'A könyvbeli kép', bookLead: 'A Naprendszer a Nap és a körülötte keringő 8 bolygó.',
+    bookBody: 'A Nap egy csillag. A Föld az egyik bolygó. Az űr magasan az égbolt fölött kezdődik. Ez a kép hasznos, de nem igaz: a bolygók túl nagyok, és túl közel vannak egymáshoz. Nyomd meg a „Valódi méretarány” gombot!',
+    headline: (a, s, eS, eD, nD) => `Ha a Nap ${a} (${s}) lenne, a Föld átmérője <b>${eS}</b> lenne, és <b>${eD}</b>-re lenne tőle, a Neptunusz pedig <b>${nD}</b>-re.`,
+    walkTitle: 'Valódi távolságok', startLead: 'Indulj a Naptól, és nyomd meg a Séta gombot.',
+    at: (p, d, st) => `Megérkeztél: ${p}. ${d}-re vagy a Naptól (${st}).`,
+    walking: (p) => `Úton a következő bolygó felé: ${p}…`,
+    sizeLine(k, sz, lk) { return `Ebben a modellben ${k === 'uranus' ? 'az' : 'a'} ${this.pl[k]} átmérője ${sz}${lk}.`; },
+    gapLine: (n) => `A legközelebbi bolygóig tartó üres résben nagyjából ${n} ilyen bolygó férne el egymás mellett.`,
+    startBody: 'Az űr szinte üres. A bolygók apró pöttyök, a köztük lévő rések pedig sok ezerszer nagyobbak náluk. A karikák és a feliratok csak azt mutatják, hol vannak a bolygók: a legtöbb nagyításnál maga a bolygó kisebb egy képpontnál.',
+    total: (d, st, tm) => `Nap → Neptunusz: <b>${d}</b>, ${st}, <b>${tm}</b> gyaloglás.`,
+    walk: '▶ Séta', pause: '❚❚ Állj', speed: 'Sebesség', back: '⏮ Vissza a Naphoz', fit: '⤢ Az egész', jump: 'Ugrás ide',
+    hint: 'Húzd: mozgatás · csippentés vagy görgő: nagyítás', next: (p, d) => `${p}: még ${d} →`, ofWalk: 'gyaloglás',
+    sizesTitle: 'Valódi méretek', sizesLead: (n) => `${n} Föld férne el egymás mellett a Nap átmérője mentén.`,
+    sizesBody: 'A Jupiter a legnagyobb bolygó, de a Nap még így is majdnem tízszer szélesebb. Itt a méretek valódiak, a távolságok viszont nem: összetoltuk a bolygókat, hogy össze tudd hasonlítani őket. A valódi űrben nagyon messze vannak egymástól.',
+    sizeNote: 'Méretek: valódiak · távolságok: NEM', ringNote: 'A karikák csak a bolygók helyét jelölik',
+    th: ['Bolygó', 'Átmérő', 'Naptól', 'Gyalog'],
+    fine: 'Méretek és közepes távolságok: NASA Planetary Fact Sheet. Proxima Centauri: 4,24 fényév (NASA). Fénysebesség: 299 792 km/s; egy fényév: 9,46 billió km. A bolygókat egy sorban mutatjuk, a valóságban szétszórva keringenek a pályájukon. Feltételezzük: strandlabda 50 cm, focilabda 22 cm, narancs 8 cm, homokszem 1 mm; gyaloglás 1,2 m/s, egy lépés 60 cm. Összehasonlítások: gombostűfej 2 mm, borsszem 5 mm, borsószem 8 mm, üveggolyó 1,6 cm, pingponglabda 4 cm, teniszlabda 6,7 cm.',
+    secrets: { light: ['Verseny a fénnyel', 'Napfény ugyanebben a léptékben'], star: ['A legközelebbi csillag', 'Milyen messze lenne?'] },
+    lightTitle: 'Verseny a fénnyel', lightLead: (t) => `A napfény ${t} óta van úton.`,
+    lightBody: (v, tE) => `Ebben a modellben a fény másodpercenként csak ${v} utat tesz meg, lassabban, mint ahogy te sétálsz. Mégis ${tE} alatt ér a Földhöz, pontosan úgy, mint az igazi napfény, akármekkora is a Nap. A fény gyors, csak az űr óriási.`,
+    lightEarth: 'A fény elérte a Földet!', lightLbl: 'fény',
+    starTitle: 'A legközelebbi csillag',
+    starBody: (a, d, tm) => `A Proxima Centauri a Nap után a legközelebbi csillag, körülbelül 4,24 fényévre van. Ha a Nap ${a} lenne, a Proxima <b>${d}</b>-re lenne tőle. Megállás nélkül gyalogolva ez <b>${tm}</b> lenne.`,
+    bigger: '🌌 És még nagyobb: a Nap csak egy a mi galaxisunk, a Tejútrendszer sok milliárd csillaga közül. Bolygó → naprendszer → galaxis → világegyetem.',
+    proxima: 'Proxima Centauri', solar: 'az egész Naprendszer',
+    quiz: [
+      { q: 'Mi a Naprendszer?', opts: ['A Nap és a körülötte keringő bolygók', 'Az összes csillag az égen', 'A Föld és a Hold'], ok: 0 },
+      { q: 'Ha a Nap egy focilabda lenne, a Föld…', opts: ['egy teniszlabda lenne közvetlenül mellette', 'egy üveggolyó lenne 1 m-re', 'egy 2 mm-es pötty lenne kb. 24 m-re'], ok: 2 },
+      { q: 'Melyik sor halad a legkisebbtől a legnagyobbig?', opts: ['galaxis → bolygó → világegyetem → naprendszer', 'bolygó → naprendszer → galaxis → világegyetem', 'naprendszer → bolygó → világegyetem → galaxis'], ok: 1 },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_TlGhXAqC4p', en: 'Scale of the Solar System', ru: 'Масштабы Солнечной системы', hu: 'A Naprendszer méretaránya' },
+  { id: 'mt_aulwq39aj8', en: 'The Vast Scale of Space', ru: 'Огромные масштабы космоса', hu: 'Az univerzum óriási léptéke' },
+  { id: 'mt_XlyF294bPR', en: 'Our Solar System', ru: 'Наша Солнечная система', hu: 'A Naprendszerünk' },
+];
+
+// --- the scale model: everything on screen comes from here ---------------------------------------------------
+function model() {
+  const sun = SUNS.find((s) => s.k === S.sun) ?? SUNS[1], k = sun.m / SUN_KM; // metres of model per km of space
+  return {
+    sun, k, sunM: sun.m,
+    pl: PLANETS.map((p) => ({ ...p, size: p.d * k, dist: p.a * 1e6 * k })),
+    vc: C_KMS * k,                       // light speed in the model, m/s
+    prox: PROXIMA_LY * LY_KM * k,        // Proxima Centauri, m
+  };
+}
+const nf = (x, o) => new Intl.NumberFormat(lang, o).format(x);
+function len(m) {
+  const U = T[lang].u;
+  if (m <= 0) return `0 ${U.m}`;
+  let v, u;
+  if (m >= 999.5) { v = m / 1000; u = U.km; } else if (m >= 0.995) { v = m; u = U.m; } else if (m >= 0.00995) { v = m * 100; u = U.cm; } else { v = m * 1000; u = U.mm; }
+  return `${nf(v, v >= 100 ? { maximumFractionDigits: 0 } : v >= 10 ? { maximumFractionDigits: 1 } : { maximumSignificantDigits: 2 })} ${u}`;
+}
+function dur(s) {
+  const t = T[lang], U = t.tu;
+  if (s < 59.5) return `${nf(s, { maximumFractionDigits: s < 10 && s > 0 ? 1 : 0 })} ${U.s}`;
+  if (s < 3599.5) { let mi = Math.floor(s / 60), se = Math.round(s - mi * 60); if (se === 60) { mi++; se = 0; } return se ? `${mi} ${U.min} ${se} ${U.s}` : `${mi} ${U.min}`; }
+  if (s < 2 * 86400) { let hh = Math.floor(s / 3600), mi = Math.round((s - hh * 3600) / 60); if (mi === 60) { hh++; mi = 0; } return mi ? `${hh} ${U.h} ${mi} ${U.min}` : `${hh} ${U.h}`; }
+  const d = Math.round(s / 86400); return `${nf(d)} ${t.days(d)}`;
+}
+const steps = (m) => { const n = Math.round(m / STEP); return `${nf(n)} ${T[lang].steps(n)}`; };
+function like(m) {
+  if (m < 0.0007) return 'tiny';
+  let best = null, bd = Math.log(1.5);
+  for (const [k, s] of OBJ) { const d = Math.abs(Math.log(m / s)); if (d < bd) { bd = d; best = k; } }
+  return best;
+}
+const ease = (x) => (x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2);
+const niceStep = (x) => { const p = Math.pow(10, Math.floor(Math.log10(x))), f = x / p; return (f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10) * p; };
+
+// --- state -------------------------------------------------------------------------------------------------
+const S = {
+  sun: store.get('solar-scale:sun', 'football'), asked: store.get('solar-scale:asked', false), answer: null,
+  cam: { x0: 0, mpp: 0.04 }, camReady: false, camTo: null, follow: 'walker',
+  walker: 0, walking: false, speed: 1, light: false, lightX: 0, lightHitEarth: false, star: false, morph: null, prevView: 'book',
+};
+if (!SUNS.some((s) => s.k === S.sun)) S.sun = 'football';
+const G = { w: 800, h: 500 };
+const lab = shell({ key: 'solar-scale', T, topics: TOPICS, views: ['book', 'walk', 'sizes'], onLang: render, onView: (v) => goView(v, false) });
+const secret = secretLab('solar-scale', () => ({
+  secrets: [{ emo: '💡', title: T[lang].secrets.light[0], desc: T[lang].secrets.light[1] }, { emo: '⭐', title: T[lang].secrets.star[0], desc: T[lang].secrets.star[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div class="row2 ctrlLbl"><span class="lbl" id="sunLbl"></span></div>
+  <div class="chips" id="suns"></div>
+  <div id="walkUi">
+    <div class="row2 walkrow"><button class="chip go" id="walkBtn"></button><span class="lbl" id="speedLbl"></span><div class="card seg small" id="speeds"></div>
+      <span class="zoom"><button id="zOut" aria-label="zoom out">−</button><button id="zIn" aria-label="zoom in">+</button></span><button class="chip" id="fitBtn"></button><button class="chip" id="backBtn"></button></div>
+    <div class="row2"><span class="lbl" id="jumpLbl"></span><div class="chips" id="jumps"></div></div>
+  </div>`;
+const askEl = Object.assign(document.createElement('div'), { className: 'ask card' });
+const ctaEl = Object.assign(document.createElement('button'), { className: 'btn cta' });
+$('overlay').append(askEl, ctaEl);
+
+// --- camera helpers (metres of the model; x = 0 is the centre of the Sun) ----------------------------------
+const defaultCam = (w = G.w) => { const m = model(), mpp = m.pl[2].dist * 1.25 / w; return { x0: -0.08 * w * mpp, mpp }; };
+const fitCam = (w = G.w) => { const m = model(), mpp = m.pl[7].dist * 1.08 / w; return { x0: -0.04 * w * mpp, mpp }; };
+const starCam = (w = G.w) => { const m = model(), mpp = m.prox * 1.12 / w; return { x0: -0.04 * w * mpp, mpp }; };
+const mppLimits = () => { const m = model(); return [m.pl[0].size / 80, (S.star ? m.prox * 1.6 : m.pl[7].dist * 1.6) / G.w]; };
+function zoomAt(px, f) {
+  const [lo, hi] = mppLimits(), c = S.cam, world = c.x0 + px * c.mpp;
+  c.mpp = clamp(c.mpp * f, lo, hi); c.x0 = world - px * c.mpp;
+}
+function flyTo(xm, mpp) { S.camTo = { cx: xm, mpp }; S.follow = null; }
+
+// --- switching views (with the "fly apart" animation) ------------------------------------------------------
+function goView(v, viaButton) {
+  const from = S.prevView;
+  if (v === 'walk' && (from === 'book' || viaButton || !S.camReady)) { S.cam = defaultCam(); S.camReady = true; S.camTo = null; }
+  if (from !== v) S.morph = { from, to: v, t: 0, dur: from === 'book' && v === 'walk' ? 2.6 : 1.6, fromCam: { ...S.cam } };
+  S.prevView = v;
+  if (lab.view !== v) { lab.view = v; lab.renderChrome(); }
+  render();
+}
+
+// --- controls ------------------------------------------------------------------------------------------------
+$('suns').addEventListener('click', (ev) => {
+  const b = ev.target.closest('.chip'); if (!b) return;
+  const k = b.dataset.k;
+  if (k === 'light' || k === 'star') {
+    if (!secret.unlocked()) return secret.open();
+    sfx.snap();
+    if (k === 'light') {
+      S.light = !S.light; S.lightX = 0; S.lightHitEarth = false;
+      if (S.light) { S.walking = false; S.follow = 'light'; S.cam = defaultCam(); S.camReady = true; S.camTo = null; if (lab.view !== 'walk') goView('walk', true); }
+    } else {
+      S.star = !S.star;
+      if (lab.view !== 'walk') goView('walk', true);
+      const c = S.star ? starCam() : fitCam(); flyTo(c.x0 + G.w / 2 * c.mpp, c.mpp);
+    }
+    return render();
+  }
+  if (k === S.sun) return;
+  // a new Sun only rescales the model: the picture stays the same, the numbers change
+  const f = SUNS.find((s) => s.k === k).m / model().sunM;
+  S.sun = k; store.set('solar-scale:sun', k);
+  S.cam.x0 *= f; S.cam.mpp *= f; S.walker *= f; S.lightX *= f;
+  if (S.camTo) { S.camTo.cx *= f; S.camTo.mpp *= f; }
+  sfx.click(); render();
+});
+$('walkBtn').onclick = () => {
+  const m = model();
+  if (!S.walking && S.walker >= m.pl[7].dist - 1e-9) S.walker = 0;
+  S.walking = !S.walking; S.light = false; S.follow = 'walker'; S.camTo = null;
+  // zoomed in on one planet, the walk would be a blur: step back to the Sun–Earth view first
+  if (S.walking) { const d = defaultCam(); if (S.cam.mpp < d.mpp / 10) S.cam.mpp = d.mpp; }
+  sfx.click(); render();
+};
+$('speeds').addEventListener('click', (ev) => { const v = +ev.target.closest('button')?.dataset.s; if (v) { S.speed = v; sfx.click(); render(); } });
+$('zIn').onclick = () => { zoomAt(G.w / 2, 1 / 2.5); S.camTo = null; sfx.tick(); };
+$('zOut').onclick = () => { zoomAt(G.w / 2, 2.5); S.camTo = null; sfx.tick(); };
+$('fitBtn').onclick = () => { const c = fitCam(); flyTo(c.x0 + G.w / 2 * c.mpp, c.mpp); sfx.click(); };
+$('backBtn').onclick = () => { S.walker = 0; S.walking = false; S.light = false; const c = defaultCam(); flyTo(c.x0 + G.w / 2 * c.mpp, c.mpp); sfx.click(); render(); };
+$('jumps').addEventListener('click', (ev) => {
+  const k = ev.target.closest('.chip')?.dataset.k; if (!k) return;
+  const m = model();
+  if (k === 'sun') { S.walker = 0; flyTo(0, m.sunM / Math.min(G.w * 0.35, 160)); }
+  else { const p = m.pl.find((q) => q.k === k); S.walker = p.dist; flyTo(p.dist, p.size / 20); } // the planet is 20 px wide: look how empty it is around it
+  S.walking = false; S.light = false; sfx.click(); render();
+});
+askEl.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  if (b.dataset.a) { S.answer = +b.dataset.a; (S.answer === 3 ? sfx.good : sfx.bad)(); render(); }
+  else { S.asked = true; store.set('solar-scale:asked', true); goView('walk', true); }
+});
+ctaEl.onclick = () => { S.asked = true; store.set('solar-scale:asked', true); sfx.click(); goView('walk', true); };
+
+// --- the page text -------------------------------------------------------------------------------------------
+let lastReadout = 0, stateKey = '';
+function walkState() {
+  const m = model(), w = S.walker;
+  let i = -1; m.pl.forEach((p, j) => { if (w >= p.dist - 1e-9) i = j; });
+  const next = m.pl[i + 1];
+  const near = i >= 0 && (!next || w < (m.pl[i].dist + next.dist) / 2);
+  return { i, near, next };
+}
+function render() {
+  const t = T[lang], m = model(), v = lab.view, ws = walkState();
+  stateKey = `${lang}|${v}|${S.sun}|${ws.i}|${ws.near}|${S.light}|${S.lightHitEarth}|${S.star}`;
+  // controls
+  $('sunLbl').textContent = t.sunLbl;
+  const open = secret.unlocked();
+  const sc = (k, emo) => `<button class="chip secret ${open ? 'open' : ''} ${(k === 'light' && S.light) || (k === 'star' && S.star) ? 'on' : ''}" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  $('suns').innerHTML = [sc('light', '💡'), ...SUNS.map((s) => `<button class="chip ${s.k === S.sun ? 'on' : ''}" data-k="${s.k}">${s.emo} ${esc(t.suns[s.k])} · ${esc(len(s.m))}</button>`), sc('star', '⭐')].join('');
+  $('walkUi').style.display = v === 'walk' ? '' : 'none';
+  $('walkBtn').textContent = S.walking ? t.pause : t.walk;
+  $('speedLbl').textContent = t.speed;
+  $('speeds').innerHTML = [1, 10, 100].map((s) => `<button data-s="${s}" class="${S.speed === s ? 'on' : ''}">×${s}</button>`).join('');
+  $('fitBtn').textContent = t.fit; $('backBtn').textContent = t.back; $('jumpLbl').textContent = t.jump;
+  $('jumps').innerHTML = ['sun', ...PLANETS.map((p) => p.k)].map((k) => `<button class="chip ${ws.near && m.pl[ws.i]?.k === k ? 'on' : ''}" data-k="${k}">${esc(t.pl[k])}</button>`).join('');
+
+  // overlay: the opening guess, or the big button
+  const showAsk = v === 'book' && !S.asked && !S.morph;
+  askEl.style.display = showAsk ? '' : 'none';
+  ctaEl.style.display = v === 'book' && S.asked && !S.morph ? '' : 'none';
+  ctaEl.textContent = t.cta;
+  if (showAsk) {
+    const dE = m.pl[2].dist, one = (x) => { const p = Math.pow(10, Math.floor(Math.log10(x))); return Math.round(x / p) * p; };
+    const opts = [one(dE / 24), one(dE / 5), dE, one(dE * 10)];
+    const sunTxt = `${t.sunA[S.sun]}`, sunLen = len(m.sunM);
+    askEl.innerHTML = S.answer === null
+      ? `<div class="q">${esc(t.ask(sunTxt, sunLen))}</div><div class="opts">${opts.map((x, j) => `<button data-a="${j + 1}">${esc(len(j === 2 ? Number(x.toPrecision(2)) : x))}</button>`).join('')}</div>`
+      : `<div class="verdict" style="color:${S.answer === 3 ? 'var(--ok)' : 'var(--wip)'}">${esc(S.answer === 3 ? t.vOk : S.answer < 3 ? t.vSmall : t.vBig)}</div>
+         <p>${esc(t.explain(sunTxt, len(m.pl[2].size), len(dE)))}</p><div class="opts"><button>${esc(t.go)}</button></div>`;
+  }
+
+  // the table of the whole model for the chosen Sun
+  const hl = v === 'walk' && ws.near ? ws.i : v === 'walk' ? -1 : 2;
+  const table = `<table class="tbl"><tr>${t.th.map((x) => `<th>${esc(x)}</th>`).join('')}</tr>
+    <tr><td><span class="dot" style="background:#ffcf4a"></span>${esc(t.pl.sun)}</td><td>${esc(len(m.sunM))}</td><td>—</td><td>—</td></tr>
+    ${m.pl.map((p, j) => `<tr class="${j === hl ? 'on' : ''}"><td><span class="dot" style="background:${p.col}"></span>${esc(t.pl[p.k])}</td><td>${esc(len(p.size))}</td><td>${esc(len(p.dist))}</td><td>${esc(dur(p.dist / WALK))}</td></tr>`).join('')}</table>`;
+  const dN = m.pl[7].dist;
+  const total = `<p class="note">${t.total(esc(len(dN)), esc(steps(dN)), esc(dur(dN / WALK)))}</p>`;
+  const starP = S.star ? `<p class="note">⭐ ${t.starBody(esc(t.sunA[S.sun]), esc(len(m.prox)), esc(dur(m.prox / WALK)))}</p>` : '';
+  const fine = `<p class="note">${esc(t.bigger)}</p><div class="fine">${esc(t.fine)}</div>`;
+  const headline = `<p class="note">${t.headline(esc(t.sunA[S.sun]), esc(len(m.sunM)), esc(len(m.pl[2].size)), esc(len(m.pl[2].dist)), esc(len(dN)))}</p>`;
+
+  let st;
+  if (v === 'book') st = { emo: '📖', title: t.bookTitle, lead: t.bookLead, body: t.bookBody, extra: headline + starP + fine };
+  else if (v === 'sizes') st = { emo: '⚖️', title: t.sizesTitle, lead: t.sizesLead(EARTHS_ACROSS_SUN), body: t.sizesBody, extra: table + starP + fine };
+  else if (S.light) {
+    st = { emo: '💡', title: t.lightTitle, lead: S.lightHitEarth ? t.lightEarth : t.lightLead(dur(S.lightX / m.vc)),
+      body: t.lightBody(len(m.vc), dur(PLANETS[2].a * 1e6 / C_KMS)), extra: table + starP + fine };
+  } else {
+    const p = ws.near ? m.pl[ws.i] : null;
+    st = {
+      emo: p ? '🪐' : '🚶', title: p ? t.pl[p.k] : t.walkTitle,
+      lead: p ? t.at(t.pl[p.k], len(p.dist), steps(p.dist)) : S.walker > 0 && ws.next ? t.walking(t.pl[ws.next.k]) : t.startLead,
+      body: p ? `${t.sizeLine(p.k, len(p.size), t.likeP(like(p.size)))} ${t.gapLine(nf(GAP[ws.i]))}` : t.startBody,
+      extra: total + table + starP + fine,
+    };
+  }
+  lab.setState(st);
+  readout(true);
+}
+function readout(force) {
+  const now = performance.now();
+  if (!force && now - lastReadout < 120) return;
+  lastReadout = now;
+  const t = T[lang], m = model();
+  if (lab.view === 'walk' && S.light) {
+    lab.setReadout(esc(dur(S.lightX / m.vc)), `💡 ${t.lightLbl}: ${len(S.lightX)}`, S.lightHitEarth ? `🌍 ${t.pl.earth} ✓` : '', '#f5c84c');
+  } else if (lab.view === 'walk') {
+    const ws = walkState();
+    lab.setReadout(esc(len(S.walker)), `${steps(S.walker)} · ${dur(S.walker / WALK)} ${t.ofWalk}`, ws.i >= 0 ? `✓ ${t.pl[m.pl[ws.i].k]}` : `☀️ ${t.pl.sun}`, ws.i >= 0 ? m.pl[ws.i].col : '#f5a524');
+  } else {
+    lab.setReadout(`${m.sun.emo} ${esc(len(m.sunM))}`, `${t.pl.sun} = ${t.suns[S.sun].toLowerCase()}`, `🌍 ${len(m.pl[2].size)} · ${len(m.pl[2].dist)}`, '#4ea8ff');
+  }
+  lab.setGlow(lab.view === 'book' ? 'rgba(255,170,60,.22)' : 'rgba(60,110,200,.26)');
+}
+
+// --- drawing -------------------------------------------------------------------------------------------------
+const STARS = Array.from({ length: 140 }, () => [Math.random(), Math.random(), Math.random()]);
+function starfield(c, w, h) {
+  for (const [x, y, b] of STARS) { c.fillStyle = `rgba(220,228,255,${0.12 + 0.35 * b})`; c.fillRect(x * w, y * h, b > 0.85 ? 1.6 : 1, b > 0.85 ? 1.6 : 1); }
+}
+const font = (wt, px) => `${wt} ${px}px Nunito, sans-serif`;
+function sunDisc(c, x, y, r, glow = true) {
+  if (glow && r > 0.3) {
+    const g = c.createRadialGradient(x, y, r * 0.9, x, y, r * 1.35 + 2);
+    g.addColorStop(0, 'rgba(255,190,70,.45)'); g.addColorStop(1, 'rgba(255,150,40,0)');
+    c.fillStyle = g; c.beginPath(); c.arc(x, y, r * 1.35 + 2, 0, 7); c.fill();
+  }
+  const g2 = c.createRadialGradient(x - r * 0.25, y - r * 0.25, r * 0.1, x, y, Math.max(r, 0.01));
+  g2.addColorStop(0, '#fff6c8'); g2.addColorStop(0.6, '#ffcf4a'); g2.addColorStop(1, '#ff9a2a');
+  c.fillStyle = g2; c.beginPath(); c.arc(x, y, Math.max(r, 0.01), 0, 7); c.fill();
+}
+function planetDisc(c, p, x, y, r) {
+  if (p.k === 'saturn' && r > 0.8) {
+    c.strokeStyle = 'rgba(232,210,154,.75)'; c.lineWidth = Math.max(0.6, r * 0.28);
+    c.beginPath(); c.ellipse(x, y, r * 2.2, r * 0.6, -0.25, 0, 7); c.stroke();
+  }
+  if (r > 3) {
+    const g = c.createRadialGradient(x - r * 0.35, y - r * 0.35, r * 0.1, x, y, r);
+    g.addColorStop(0, '#ffffff'); g.addColorStop(0.25, p.col); g.addColorStop(1, 'rgba(10,12,20,.9)');
+    c.fillStyle = g;
+  } else c.fillStyle = p.col;
+  c.beginPath(); c.arc(x, y, Math.max(r, 0.01), 0, 7); c.fill();
+}
+function ring(c, x, y, col, rad = 9) {
+  c.save(); c.strokeStyle = col; c.globalAlpha = 0.85; c.lineWidth = 1.4; c.setLineDash([3, 3]);
+  c.beginPath(); c.arc(x, y, rad, 0, 7); c.stroke(); c.restore();
+}
+
+// layouts: where the Sun and the planets sit in each view (screen pixels)
+const BOOK_R = [0.45, 0.75, 0.8, 0.6, 1.7, 1.45, 1.1, 1.05];
+function bookLayout(w, h) {
+  const cy = h * 0.56, R = h * 0.42, sx = -R * 0.55;
+  const x0 = sx + R + w * 0.06, x1 = w - 22, slot = (x1 - x0) / 8, s = Math.min(h * 0.06, slot / 3.6);
+  return { sun: { x: sx, y: cy, r: R }, pl: BOOK_R.map((f, i) => ({ x: x0 + slot * (i + 0.5), y: cy, r: f * s })) };
+}
+function sizesLayout(w, h) {
+  const cy = h * 0.56, sunRight = w * 0.24, margin = 14, avail = w - sunRight - margin * 2;
+  const ratios = PLANETS.map((p) => p.d / SUN_KM), sum = ratios.reduce((a, b) => a + b, 0), minGap = clamp(w * 0.03, 10, 26);
+  let R = h * 0.9;
+  if (2 * R * sum + 9 * minGap > avail) R = (avail - 9 * minGap) / (2 * sum);
+  const gap = (avail - 2 * R * sum) / 9;
+  let x = sunRight + margin + gap;
+  const pl = ratios.map((q) => { const r = R * q, o = { x: x + r, y: cy, r }; x += 2 * r + gap; return o; });
+  return { sun: { x: sunRight - R, y: cy, r: R }, pl };
+}
+function walkLayout(w, h, cam) {
+  const m = model(), X = (x) => (x - cam.x0) / cam.mpp;
+  return { sun: { x: X(0), y: h * 0.52, r: m.sunM / 2 / cam.mpp }, pl: m.pl.map((p) => ({ x: X(p.dist), y: h * 0.52, r: p.size / 2 / cam.mpp })) };
+}
+const layoutOf = (v, w, h, cam) => (v === 'book' ? bookLayout(w, h) : v === 'sizes' ? sizesLayout(w, h) : walkLayout(w, h, cam));
+
+function drawBook(c, w, h) {
+  const t = T[lang], L = bookLayout(w, h), fs = clamp(w * 0.017, 10, 13);
+  // orbits like in a textbook
+  c.strokeStyle = 'rgba(130,145,190,.22)'; c.lineWidth = 1;
+  for (const p of L.pl) { c.beginPath(); c.arc(L.sun.x, L.sun.y, p.x - L.sun.x, -0.5, 0.5); c.stroke(); }
+  sunDisc(c, L.sun.x, L.sun.y, L.sun.r);
+  c.font = font(800, fs); c.textAlign = 'center'; c.textBaseline = 'middle';
+  L.pl.forEach((q, i) => {
+    planetDisc(c, PLANETS[i], q.x, q.y, q.r);
+    c.fillStyle = 'rgba(237,239,247,.85)';
+    c.fillText(t.pl[PLANETS[i].k], q.x, q.y + (i % 2 ? -1 : 1) * (Math.max(...L.pl.map((z) => z.r)) + fs * 1.2));
+  });
+  c.fillStyle = '#5a2a00'; c.font = font(900, fs * 1.05); c.textAlign = 'right'; c.fillText(t.pl.sun, L.sun.x + L.sun.r - 8, L.sun.y);
+  // the stamp
+  c.save(); c.translate(w - 14, 24); c.rotate(-0.06); c.font = font(900, fs * 1.1); c.textAlign = 'right';
+  const tw = c.measureText(t.stamp).width;
+  c.strokeStyle = 'rgba(255,59,48,.85)'; c.lineWidth = 2; c.strokeRect(-tw - 10, -fs * 0.95, tw + 20, fs * 1.9);
+  c.fillStyle = 'rgba(255,59,48,.95)'; c.fillText(t.stamp, 0, 1); c.restore();
+}
+
+function drawSizes(c, w, h) {
+  const t = T[lang], m = model(), L = sizesLayout(w, h), fs = clamp(w * 0.016, 9.5, 12.5);
+  sunDisc(c, L.sun.x, L.sun.y, L.sun.r, false);
+  c.fillStyle = '#5a2a00'; c.font = font(900, fs * 1.1); c.textAlign = 'right'; c.textBaseline = 'middle';
+  c.fillText(t.pl.sun, L.sun.x + L.sun.r - 10, L.sun.y - fs * 0.7);
+  c.font = font(800, fs); c.fillText(len(m.sunM), L.sun.x + L.sun.r - 10, L.sun.y + fs * 0.7);
+  const maxR = Math.max(...L.pl.map((q) => q.r));
+  L.pl.forEach((q, i) => {
+    const p = m.pl[i];
+    planetDisc(c, p, q.x, q.y, q.r);
+    if (q.r < 3) ring(c, q.x, q.y, p.col, 7);
+    const up = i % 2 === 0, y = q.y + (up ? -1 : 1) * (maxR + fs * 1.6);
+    c.textAlign = 'center'; c.fillStyle = '#fff'; c.font = font(900, fs); c.fillText(t.pl[p.k], q.x, up ? y - fs * 1.1 : y);
+    c.fillStyle = 'rgba(211,217,232,.85)'; c.font = font(700, fs * 0.95); c.fillText(len(p.size), q.x, up ? y : y + fs * 1.1);
+  });
+  c.textAlign = 'left'; c.fillStyle = 'rgba(152,160,184,.9)'; c.font = font(800, fs);
+  c.fillText(t.sizeNote, w * 0.26, 18);
+}
+
+function drawWalk(c, w, h, time) {
+  const t = T[lang], m = model(), cam = S.cam, fs = clamp(w * 0.016, 10, 12.5);
+  const X = (x) => (x - cam.x0) / cam.mpp, y0 = h * 0.52, vis = (x, pad = 80) => x > -pad && x < w + pad;
+  const dEnd = S.star ? m.prox : m.pl[7].dist;
+  // the line along which we lay the planets out
+  const a0 = clamp(X(0), 0, w), a1 = clamp(X(dEnd), 0, w);
+  if (a1 > a0) { c.strokeStyle = 'rgba(130,145,190,.28)'; c.lineWidth = 1; c.beginPath(); c.moveTo(a0, y0); c.lineTo(a1, y0); c.stroke(); }
+  // ruler: distance from the Sun
+  const yR = h - 36, step = niceStep(cam.mpp * clamp(w / 5, 70, 160));
+  c.strokeStyle = 'rgba(130,145,190,.35)'; c.beginPath(); c.moveTo(Math.max(0, X(0)), yR); c.lineTo(w, yR); c.stroke();
+  c.font = font(700, fs * 0.9); c.textAlign = 'center'; c.textBaseline = 'top'; c.fillStyle = 'rgba(152,160,184,.85)';
+  for (let i = Math.max(0, Math.ceil(cam.x0 / step)), n = 0; n < 40; i++, n++) {
+    const x = X(i * step); if (x > w + 20) break;
+    c.beginPath(); c.moveTo(x, yR - 4); c.lineTo(x, yR + 4); c.stroke();
+    c.fillText(len(i * step), x, yR + 7);
+  }
+  // labels in two rows above the line; skip a label when both rows are taken
+  const rows = [[], []];
+  const label = (x, txt, col, bold) => {
+    c.font = font(bold ? 900 : 800, fs); const tw = c.measureText(txt).width + 10, lo = x - tw / 2, hi = x + tw / 2;
+    const r = rows.findIndex((row) => row.every(([a, b]) => hi < a || lo > b)); if (r < 0) return;
+    rows[r].push([lo, hi]); c.fillStyle = col; c.textAlign = 'center'; c.textBaseline = 'middle';
+    const y = y0 - 22 - r * (fs + 8); c.fillText(txt, x, y);
+    c.strokeStyle = 'rgba(130,145,190,.3)'; c.lineWidth = 1; c.beginPath(); c.moveTo(x, y + fs * 0.6); c.lineTo(x, y0 - 10); c.stroke();
+  };
+  // the Sun, at its true size
+  const sx = X(0), sr = m.sunM / 2 / cam.mpp;
+  if (sx + sr > -80 && sx - sr < w + 80) {
+    sunDisc(c, sx, y0, sr);
+    if (sr < 5) ring(c, sx, y0, '#ffcf4a');
+    if (sr < w * 0.3) label(clamp(sx, 30, w - 30), `${t.pl.sun} · ${len(m.sunM)}`, '#ffcf4a', true);
+  }
+  // planets, at their true size; a dashed ring marks where the tiny ones are
+  let anyRing = false;
+  for (const p of m.pl) {
+    const x = X(p.dist), r = p.size / 2 / cam.mpp;
+    if (x + r < -80 || x - r > w + 80) continue;
+    planetDisc(c, p, x, y0, r);
+    if (r < 5) { ring(c, x, y0, p.col); anyRing = true; }
+    label(x, `${t.pl[p.k]} · ${len(p.size)}`, '#EDEFF7', false);
+  }
+  if (S.star) {
+    const x = X(m.prox);
+    if (vis(x)) { c.fillStyle = '#ffe9b0'; c.beginPath(); c.arc(x, y0, 1.5, 0, 7); c.fill(); ring(c, x, y0, '#ffe9b0', 11); label(x, `⭐ ${t.proxima}`, '#ffe9b0', true); }
+  }
+  // sunlight racing out
+  if (S.light) {
+    const x = X(S.lightX);
+    if (vis(x, 10)) {
+      const g = c.createLinearGradient(x - 14, 0, x + 2, 0); g.addColorStop(0, 'rgba(255,210,90,0)'); g.addColorStop(1, 'rgba(255,210,90,.55)');
+      c.fillStyle = g; c.fillRect(x - 14, y0 - 60, 16, 120);
+      c.strokeStyle = '#ffd25a'; c.lineWidth = 2; c.beginPath(); c.moveTo(x, y0 - 62); c.lineTo(x, y0 + 62); c.stroke();
+      c.fillStyle = '#ffd25a'; c.font = font(900, fs); c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillText(`💡 ${dur(S.lightX / m.vc)}`, clamp(x, 40, w - 40), y0 + 76);
+    }
+  }
+  // the walker
+  const wx = X(S.walker);
+  if (vis(wx, 20) && !S.light) {
+    c.strokeStyle = 'rgba(255,59,48,.8)'; c.lineWidth = 2; c.beginPath(); c.moveTo(wx, y0 + 4); c.lineTo(wx, y0 + 16); c.stroke();
+    c.save(); c.translate(wx, y0 + 34); c.scale(-1, 1); // the emoji walks to the left; turn it around
+    c.font = `${Math.round(fs * 2.1)}px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillText('🚶', 0, 0); c.restore();
+  }
+  // which body is next, beyond the right edge
+  const right = cam.x0 + w * cam.mpp;
+  const bodies = [...m.pl.map((p) => [t.pl[p.k], p.dist]), ...(S.star ? [[t.proxima, m.prox]] : [])];
+  const nxt = bodies.find(([, d]) => d > right);
+  c.font = font(800, fs); c.textBaseline = 'middle';
+  if (nxt) { c.textAlign = 'right'; c.fillStyle = 'rgba(237,239,247,.75)'; c.fillText(t.next(nxt[0], len(nxt[1] - Math.max(S.walker, 0))), w - 10, y0 + 34); }
+  if (X(0) < -40) { c.textAlign = 'left'; c.fillStyle = 'rgba(255,207,74,.75)'; c.fillText(`← ${t.pl.sun}`, 10, y0 + 34); }
+  // the minimap: the whole row from the Sun to Neptune (or to Proxima Centauri)
+  const mmL = 14, mmR = w - 14, mmY = 14, R = dEnd * 1.03, MX = (x) => mmL + x / R * (mmR - mmL);
+  c.fillStyle = 'rgba(130,145,190,.16)'; c.fillRect(mmL, mmY - 3, mmR - mmL, 6);
+  for (const p of m.pl) { c.fillStyle = p.col; c.beginPath(); c.arc(MX(p.dist), mmY, 2.2, 0, 7); c.fill(); }
+  c.fillStyle = '#ffcf4a'; c.beginPath(); c.arc(mmL, mmY, 3.5, 0, 7); c.fill();
+  if (S.star) { c.fillStyle = '#ffe9b0'; c.beginPath(); c.arc(MX(m.prox), mmY, 3, 0, 7); c.fill(); }
+  const v0 = clamp(MX(Math.max(cam.x0, 0)), mmL, mmR), v1 = clamp(MX(right), mmL, mmR);
+  c.strokeStyle = 'rgba(255,255,255,.75)'; c.lineWidth = 1.2; c.strokeRect(v0, mmY - 7, Math.max(2, v1 - v0), 14);
+  if (!S.light) { c.fillStyle = '#ff3b30'; c.beginPath(); const mx = MX(S.walker); c.moveTo(mx, mmY + 5); c.lineTo(mx - 4, mmY + 11); c.lineTo(mx + 4, mmY + 11); c.fill(); }
+  c.font = font(800, fs * 0.9); c.textBaseline = 'top'; c.fillStyle = 'rgba(152,160,184,.9)';
+  c.textAlign = 'left'; c.fillText(S.star ? `☀️ ${t.solar}` : t.pl.sun, mmL, mmY + 12);
+  c.textAlign = 'right'; c.fillText(S.star ? `⭐ ${t.proxima} · ${len(m.prox)}` : `${t.pl.neptune} · ${len(m.pl[7].dist)}`, mmR, mmY + 12);
+  // footnotes
+  c.textAlign = 'center'; c.textBaseline = 'bottom'; c.font = font(700, fs * 0.85); c.fillStyle = 'rgba(100,108,132,.95)';
+  c.fillText(anyRing ? `${t.ringNote} · ${t.hint}` : t.hint, w / 2, h - 4);
+}
+
+function drawMorph(c, w, h, dt) {
+  const M = S.morph, m = model();
+  M.t += dt / M.dur;
+  const A = layoutOf(M.from, w, h, M.fromCam), B = layoutOf(M.to, w, h, S.cam);
+  const e1 = ease(clamp(M.t / 0.5, 0, 1)), e2 = ease(clamp((M.t - 0.3) / 0.7, 0, 1));
+  const [er, ep] = M.to === 'book' ? [e2, e1] : [e1, e2]; // shrink first, then fly apart (and the other way round)
+  const lr = (a, b, k) => Math.exp(lerp(Math.log(Math.max(a, 1e-3)), Math.log(Math.max(b, 1e-3)), k));
+  sunDisc(c, lerp(A.sun.x, B.sun.x, ep), lerp(A.sun.y, B.sun.y, ep), lr(A.sun.r, B.sun.r, er));
+  A.pl.forEach((a, i) => {
+    const b = B.pl[i], x = lerp(a.x, b.x, ep), y = lerp(a.y, b.y, ep), r = lr(a.r, b.r, er);
+    if (x < -200 || x > w + 200) return;
+    planetDisc(c, m.pl[i], x, y, r);
+    if (r < 4 && M.to !== 'book') ring(c, x, y, m.pl[i].col, 4 + 5 * er);
+  });
+  if (M.t >= 1) { S.morph = null; render(); }
+}
+
+function update(dt) {
+  const m = model(), w = G.w;
+  if (S.walking) {
+    S.walker = Math.min(S.walker + WALK * S.speed * dt, m.pl[7].dist);
+    if (S.walker >= m.pl[7].dist) { S.walking = false; sfx.good(); render(); }
+    if (S.follow === 'walker') S.cam.x0 = S.walker - 0.3 * w * S.cam.mpp;
+  }
+  if (S.light) {
+    const end = S.star ? m.prox : m.pl[7].dist;
+    S.lightX = Math.min(S.lightX + m.vc * S.speed * dt, end);
+    if (!S.lightHitEarth && S.lightX >= m.pl[2].dist) { S.lightHitEarth = true; sfx.good(); }
+    if (S.follow === 'light') S.cam.x0 = S.lightX - 0.45 * w * S.cam.mpp;
+  }
+  if (S.camTo) {
+    const k = 1 - Math.exp(-dt * 4.5), c = S.cam, cx = c.x0 + w / 2 * c.mpp;
+    const ncx = lerp(cx, S.camTo.cx, k), nm = Math.exp(lerp(Math.log(c.mpp), Math.log(S.camTo.mpp), k));
+    c.mpp = nm; c.x0 = ncx - w / 2 * nm;
+    if (Math.abs(Math.log(nm / S.camTo.mpp)) < 0.002 && Math.abs(ncx - S.camTo.cx) < nm) { c.mpp = S.camTo.mpp; c.x0 = S.camTo.cx - w / 2 * c.mpp; S.camTo = null; }
+  }
+  // arrivals and other moments that change the explanation
+  const ws = walkState();
+  const key = `${lang}|${lab.view}|${S.sun}|${ws.i}|${ws.near}|${S.light}|${S.lightHitEarth}|${S.star}`;
+  if (key !== stateKey) { if (lab.view === 'walk' && S.walking && ws.near) sfx.snap(); render(); }
+  if (S.walking || S.light || S.camTo) readout(false);
+}
+
+canvasLoop($('cv'), (c, w, h, dt) => {
+  if (w !== G.w && S.camReady) { const cx = S.cam.x0 + G.w / 2 * S.cam.mpp; S.cam.mpp *= G.w / w; S.cam.x0 = cx - w / 2 * S.cam.mpp; }
+  G.w = w; G.h = h;
+  if (!S.camReady) { S.cam = defaultCam(w); S.camReady = lab.view === 'walk'; }
+  update(dt);
+  starfield(c, w, h);
+  if (S.morph) drawMorph(c, w, h, dt);
+  else if (lab.view === 'book') drawBook(c, w, h);
+  else if (lab.view === 'sizes') drawSizes(c, w, h);
+  else drawWalk(c, w, h);
+});
+
+// --- touch, mouse and wheel on the true-scale strip --------------------------------------------------------
+const cv = $('cv'), ptrs = new Map();
+const loc = (ev) => { const r = cv.getBoundingClientRect(); return { x: ev.clientX - r.left, y: ev.clientY - r.top }; };
+cv.addEventListener('pointerdown', (ev) => {
+  if (lab.view !== 'walk' || S.morph) return;
+  const p = loc(ev);
+  if (p.y < 34 && ptrs.size === 0) { // tap on the minimap: jump there
+    const m = model(), R = (S.star ? m.prox : m.pl[7].dist) * 1.03, xm = clamp((p.x - 14) / (G.w - 28), 0, 1) * R;
+    flyTo(xm, S.cam.mpp); sfx.tick(); return;
+  }
+  try { cv.setPointerCapture(ev.pointerId); } catch { /* fine without capture */ }
+  ptrs.set(ev.pointerId, { ...p, x0: p.x });
+});
+cv.addEventListener('pointermove', (ev) => {
+  if (!ptrs.has(ev.pointerId)) return;
+  const p = loc(ev), prev = ptrs.get(ev.pointerId);
+  if (ptrs.size === 1) {
+    if (Math.abs(p.x - prev.x0) < 4 && S.follow) return; // a tap, not a drag
+    S.camTo = null; S.follow = null; S.cam.x0 -= (p.x - prev.x) * S.cam.mpp;
+  }
+  else if (ptrs.size === 2) {
+    const [o] = [...ptrs.entries()].filter(([id]) => id !== ev.pointerId).map(([, q]) => q);
+    const d0 = Math.abs(prev.x - o.x) || 1, d1 = Math.abs(p.x - o.x) || 1;
+    S.camTo = null; zoomAt((p.x + o.x) / 2, clamp(d0 / d1, 0.5, 2));
+  }
+  ptrs.set(ev.pointerId, { ...p, x0: prev.x0 });
+});
+const up = (ev) => ptrs.delete(ev.pointerId);
+cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+cv.addEventListener('wheel', (ev) => {
+  if (lab.view !== 'walk') return;
+  ev.preventDefault(); S.camTo = null; // zooming keeps following the walker
+  zoomAt(loc(ev).x, Math.exp(clamp(ev.deltaY, -200, 200) * 0.0025));
+}, { passive: false });
+
+render();
+</script>
+</body>
+</html>
