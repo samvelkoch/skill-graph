@@ -43,8 +43,12 @@ SUBJECTS = {
     'gb': {'English': ENGLISH, 'Mathematics': MATHS, 'Science': SCIENCE, 'Geography': GEO + SCIENCE, 'History': HISTORY,
            'Computing': COMPUTING},
     'sg': {'Mathematics': MATHS, 'Science': SCIENCE},
+    'se': {'Matematik': COMPUTING, 'Svenska': ENGLISH + LANG, 'NO-ämnen': SCIENCE, 'Biologi': SCIENCE, 'Fysik': SCIENCE,
+           'Kemi': SCIENCE, 'Teknik': SCIENCE + COMPUTING, 'SO-ämnen': WORLD + GEO + CIVICS, 'Geografi': GEO + SCIENCE,
+           'Historia': HISTORY, 'Samhällskunskap': SOCIAL + CIVICS,
+           'Hem- och konsumentkunskap': ['Life Skills', 'Personal & Social Development']},
 }
-COUNTRIES = ('ru', 'hu', 'rs', 'de', 'us', 'gb', 'sg')
+COUNTRIES = ('ru', 'hu', 'rs', 'de', 'us', 'gb', 'sg', 'se')
 TEXT_CAP = 1200
 RU_MERGE = 700  # RU paragraphs are short; merge neighbours of the same section up to this size
 
