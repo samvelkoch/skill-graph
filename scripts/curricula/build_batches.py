@@ -47,8 +47,11 @@ SUBJECTS = {
            'Kemi': SCIENCE, 'Teknik': SCIENCE + COMPUTING, 'SO-ämnen': WORLD + GEO + CIVICS, 'Geografi': GEO + SCIENCE,
            'Historia': HISTORY, 'Samhällskunskap': SOCIAL + CIVICS,
            'Hem- och konsumentkunskap': ['Life Skills', 'Personal & Social Development']},
+    'jp': {'国語': ENGLISH + LANG, '算数': COMPUTING, '数学': MATHS, '理科': SCIENCE, '社会': HISTORY + GEO + CIVICS + SOCIAL,
+           '生活': WORLD, '家庭': ['Life Skills', 'Personal & Social Development'],
+           '技術・家庭': ['Life Skills', 'Personal & Social Development'] + COMPUTING + SCIENCE},
 }
-COUNTRIES = ('ru', 'hu', 'rs', 'de', 'us', 'gb', 'sg', 'se')
+COUNTRIES = ('ru', 'hu', 'rs', 'de', 'us', 'gb', 'sg', 'se', 'jp')
 TEXT_CAP = 1200
 RU_MERGE = 700  # RU paragraphs are short; merge neighbours of the same section up to this size
 
