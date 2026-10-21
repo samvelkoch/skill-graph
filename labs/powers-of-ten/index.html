@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Powers of ten · Skill Graph</title>
+<meta name="description" content="Multiply and divide by 10 and watch every digit slide along the place-value chart, then zoom from a hair to the Sun in steps of ten. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  @media (min-width: 1101px) { .lab { grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); grid-template-areas: 'hero stage' 'state stage' 'state ctrl'; } }
+  .ask { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); width: min(560px, calc(100% - 16px)); padding: 14px 16px; text-align: center; z-index: 3; }
+  .ask .q { font: 500 21px/1.2 var(--serif); color: #fff; margin-bottom: 10px; }
+  .ask .opts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .ask button { padding: 9px 14px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130,145,190,.1); font-weight: 800; cursor: pointer; color: var(--ink); }
+  .fine { margin-top: 8px; font-size: 11px; color: var(--faint); }
+  .note { margin-top: 8px; font-size: 13px; color: var(--soft); line-height: 1.4; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; }
+  .row .big { flex: 1 1 120px; min-width: 0; }
+  .op { font: 900 16px/1 var(--sans); padding: 10px 14px; border-radius: 12px; border: 1px solid var(--stroke2); background: rgba(130,145,190,.12); color: var(--ink); cursor: pointer; }
+  .op:hover { background: rgba(130,145,190,.22); }
+  .op.up { border-color: #ff8a3d; color: #ffb27a; }
+  .op.dn { border-color: #4ea8ff; color: #8cc6ff; }
+  .op.on { background: #fff; color: var(--bg); border-color: #fff; }
+  .op.ghost { font-size: 13px; color: var(--mut); }
+  .op[disabled] { opacity: .35; cursor: default; }
+  .num { width: 9.5em; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--stroke2); background: rgba(10,12,20,.6); color: #fff; font: 800 16px var(--sans); }
+  .num.bad { border-color: var(--red); }
+  .rowlab { font-size: 12px; color: var(--mut); font-weight: 700; margin-right: 2px; }
+  @media (max-width: 760px) { .ask .q { font-size: 17px; } .op { padding: 9px 11px; font-size: 15px; } }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, store, ruPlural, lang } from '../lab.js';
+
+const KEY = 'powers-of-ten';
+const FONT = '"Nunito", ui-rounded, system-ui, sans-serif';
+const MONO = 'ui-monospace, Menlo, Consolas, monospace';
+const EMOJI = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+
+// ---- helpers --------------------------------------------------------------------------------------------
+const SUPD = { 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹', '-': '⁻' };
+const sup = (n) => String(n).split('').map((ch) => SUPD[ch]).join('');
+const F = (x, max = 6) => new Intl.NumberFormat(lang, { maximumFractionDigits: max, useGrouping: 'always' }).format(x);
+const uf = (x, unit, max = 1, disp = 'short') => new Intl.NumberFormat(lang, { style: 'unit', unit, unitDisplay: disp, maximumFractionDigits: max, useGrouping: 'always' }).format(x);
+const locStr = (s) => (lang === 'en' ? s : s.replace('.', ','));
+const chainUp = (n) => (n === 0 ? '1' : n <= 5 ? Array(n).fill(10).join(' × ') : '10 × 10 × … × 10');
+const chainDn = (n) => '1' + Array(-n).fill(' ÷ 10').join('');
+const HUS = ['0-s', '1-es', '2-es', '3-as', '4-es', '5-ös', '6-os', '7-es', '8-as', '9-es'];
+const huDig = (d, cap) => { const s = `${d === 1 || d === 5 ? 'az' : 'a'} ${HUS[d]}`; return cap ? s[0].toUpperCase() + s.slice(1) : s; };
+
+// ---- words ----------------------------------------------------------------------------------------------
+const T = {
+  en: { name: 'Powers of ten', title: 'Powers of ten',
+    lines: [['Press ×10', 'and watch every digit slide one place left.'], ['Zoom out', 'ten times at a time: from a hair to the Sun.']],
+    views: { place: '🔟 Place value', zoom: '🔭 Zoom', big: '🔢 Big numbers' },
+    ask: 'What happens to 3.4 when you multiply it by 10?',
+    opts: ['Add a zero: 3.40', 'The digits move one place left: 34', 'The decimal point disappears'],
+    right: 'Exactly! Now watch the digits slide.', wrong: 'A common idea! But 3.40 is the same number as 3.4. Watch what really happens.', go: 'Show me',
+    point: 'the decimal point stays put',
+    place: {
+      idleT: 'Every digit has a place', idleL: 'A digit’s value depends on where it sits.', idleB: 'Tap a digit, then press ×10 or ÷10. The digits move; the point stays put.',
+      shT: (k) => `${k > 0 ? '×' : '÷'}${F(10 ** Math.abs(k))}: every digit slides ${Math.abs(k)} ${Math.abs(k) === 1 ? 'place' : 'places'} ${k > 0 ? 'left' : 'right'}`,
+      shL: (k) => `Each digit becomes ${F(10 ** Math.abs(k))} times ${k > 0 ? 'bigger' : 'smaller'}. The decimal point does not move.`,
+      ba: (d, v0, v1) => `The ${d} was worth ${F(v0)}. Now it is worth ${F(v1)}.`,
+      sit: (d, e, P) => `The ${d} sits in the ${P[e >= 0 ? e : 6 - e]} place.`,
+      fullT: 'No more room on the chart', fullL: 'The chart only goes from millions to thousandths.', fullB: 'Try the other direction, or pick another number.',
+      ten: (d, a, b) => `The ${d} in ${F(a)} is ten times the ${d} in ${F(b)}.`, parts: 'In pieces', inLabel: 'Type a number', reset: 'Reset' },
+    places: ['ones', 'tens', 'hundreds', 'thousands', 'ten thousands', 'hundred thousands', 'millions', 'tenths', 'hundredths', 'thousandths'],
+    zoom: {
+      names: ['a hair’s width', 'a grain of sand', 'a fingernail', 'a hand’s width', 'a young child', 'a house', 'a football pitch', 'a town centre', 'a city', 'a small country', 'a big country', 'planet Earth', 'Jupiter', 'the Sun'],
+      about: (x) => `about ${x}`, row: (a, b) => `${a} → ×10 → ${b}`, start: 'The ladder starts here: the thinnest thing on it.', ruler: 'the n in 10ⁿ metres',
+      p0: '10⁰ = 1: no tens multiplied at all.', p1: '10¹ = 10: just one ten.',
+      pPos: (n, v) => `10${sup(n)} means ${n} tens multiplied together: ${chainUp(n)} = ${v}. The exponent counts the tens.`,
+      pNeg: (n, v) => `10${sup(n)} means 1 divided by ten ${-n} ${n === -1 ? 'time' : 'times'}: ${chainDn(n)} = ${v}. Each step down the ladder is ÷10.` },
+    big: { round: 'Round it', std: 'Standard form', nearest: 'Nearest', half: 'halfway', stdForm: 'In standard form',
+      words: (r) => (r >= 1e6 ? `${F(r / 1e6, 3)} million` : r >= 1e3 && r % 1e3 === 0 ? `${F(r / 1e3)} thousand` : F(r)),
+      rT: (num, w) => `${F(num)} is about ${w}`,
+      rL: (dd, up) => `Look at the digit just to the right: it is ${dd}. ${up ? '5 or more: round up.' : 'Less than 5: round down.'}`,
+      rB: (u, lo, hi, mid) => `Nearest ${F(u)}: the number sits between ${F(lo)} and ${F(hi)}. Halfway is ${F(mid)}.`,
+      sT: (m, n, v) => `${m} × 10${sup(n)} = ${F(v)}`,
+      sL: (n) => (n === 0 ? '10⁰ = 1, so nothing moves.' : `Every digit slides ${n} ${n === 1 ? 'place' : 'places'} to the left.`),
+      sB: (m, n) => `Going back: slide the point ${n} ${n === 1 ? 'place' : 'places'} left to get ${m}. The number of places is the exponent, n = ${n}.` },
+    g: { names: { 0: 'one', 1: 'ten', 2: 'a hundred', 3: 'a thousand', 6: 'a million', 9: 'a billion', 12: 'a trillion', 100: 'a googol' },
+      T: (n, nm) => (nm ? `10${sup(n)} is ${nm}` : `10${sup(n)}`),
+      L: (n) => (n === 0 ? 'Just the number 1: no zeros yet.' : `A 1 followed by ${n} ${n === 1 ? 'zero' : 'zeros'}.`),
+      B: (n) => (n === 100 ? 'A googol is a 1 followed by 100 zeros. The name was invented by a child, the nine-year-old nephew of a mathematician. The atoms in the whole observable universe are only about 10⁸⁰ (a rough estimate), so a googol is 10²⁰ times more.'
+        : n === 80 ? 'About 10⁸⁰ atoms in the whole observable universe: a rough estimate. It needs only 80 zeros.' : 'Every extra zero makes the number ten times bigger.'), slide: 'Zeros' },
+    m: { T: (n) => (n === 0 ? 'No tens at all: 1' : `${n} ${n === 1 ? 'ten' : 'tens'} multiplied together`),
+      B: (n) => (n < 2 ? 'Each extra ten multiplies the number by 10.' : `Adding ${n} tens gives only ${F(10 * n)}. Multiplying them gives ${F(10 ** n)}.${n === 6 ? ' That is how a million is made: six tens multiplied, 10⁶.' : ''}`), slide: 'Tens' },
+    secrets: { s1: ['A googol', '10¹⁰⁰: a 1 with a hundred zeros'], s2: ['Tens make a million', 'Multiply six tens, then count a million seconds'] },
+    fine: { place: 'A simplified model: the digits slide on a place-value chart.', zoom: 'Rough, well-known sizes rounded to powers of ten. Sources: NASA fact sheets (Earth ≈ 12,742 km, Jupiter ≈ 140,000 km, Sun ≈ 1.4 million km).',
+      round: 'Rule used: 5 or more rounds up.', std: 'Standard form: a number from 1 to 9.99… times a power of ten.', g: 'The atom count is a rough, commonly quoted estimate.', m: 'Computed: 1 year = 365.25 days.' },
+    quiz: [{ q: 'The 4 in the number 0.04 compared with the 4 in the number 0.4 is…', opts: ['10 times bigger', 'a tenth as big', 'the same size'], ok: 1 },
+      { q: 'What is 10⁴?', opts: ['4 × 10 = 40', '10 × 10 × 10 × 10 = 10,000', '10 + 4 = 14'], ok: 1 },
+      { q: 'What is 2.56 × 10³?', opts: ['2,560', '256', '25,600'], ok: 0 }] },
+
+  ru: { name: 'Степени десяти', title: 'Степени десяти',
+    lines: [['Нажми ×10', 'и смотри, как каждая цифра сдвигается влево.'], ['Отдаляйся', 'в десять раз за шаг: от волоса до Солнца.']],
+    views: { place: '🔟 Разряды', zoom: '🔭 Масштаб', big: '🔢 Большие числа' },
+    ask: 'Что произойдёт с числом 3,4, если умножить его на 10?',
+    opts: ['Припишем ноль: 3,40', 'Цифры сдвинутся на разряд влево: 34', 'Запятая исчезнет'],
+    right: 'Верно! Теперь смотри, как цифры скользят.', wrong: 'Так часто думают! Но 3,40 — то же число, что и 3,4. Смотри, что происходит на самом деле.', go: 'Покажи',
+    point: 'запятая стоит на месте',
+    place: {
+      idleT: 'У каждой цифры своё место', idleL: 'Значение цифры зависит от того, где она стоит.', idleB: 'Нажми на цифру, потом на ×10 или ÷10. Цифры двигаются, запятая стоит на месте.',
+      shT: (k) => `${k > 0 ? '×' : '÷'}${F(10 ** Math.abs(k))}: каждая цифра сдвигается на ${Math.abs(k)} ${ruPlural(Math.abs(k), 'разряд', 'разряда', 'разрядов')} ${k > 0 ? 'влево' : 'вправо'}`,
+      shL: (k) => `Каждая цифра становится в ${F(10 ** Math.abs(k))} раз ${k > 0 ? 'больше' : 'меньше'}. Запятая остаётся на месте.`,
+      ba: (d, v0, v1) => `Цифра ${d} стоила ${F(v0)}. Теперь она стоит ${F(v1)}.`,
+      sit: (d, e, P) => `Цифра ${d} стоит в разряде ${P[e >= 0 ? e : 6 - e]}.`,
+      fullT: 'В таблице больше нет места', fullL: 'Таблица идёт от миллионов до тысячных.', fullB: 'Попробуй в другую сторону или выбери другое число.',
+      ten: (d, a, b) => `Цифра ${d} в числе ${F(a)} в 10 раз больше цифры ${d} в числе ${F(b)}.`, parts: 'По частям', inLabel: 'Введи число', reset: 'Сброс' },
+    places: ['единиц', 'десятков', 'сотен', 'тысяч', 'десятков тысяч', 'сотен тысяч', 'миллионов', 'десятых', 'сотых', 'тысячных'],
+    zoom: {
+      names: ['толщина волоса', 'песчинка', 'ноготь', 'ширина ладони', 'маленький ребёнок', 'дом', 'футбольное поле', 'центр городка', 'город', 'небольшая страна', 'большая страна', 'планета Земля', 'Юпитер', 'Солнце'],
+      about: (x) => `около ${x}`, row: (a, b) => `${a} → ×10 → ${b}`, start: 'Лестница начинается здесь: самое тонкое на ней.', ruler: 'n в 10ⁿ метров',
+      p0: '10⁰ = 1: ни одной десятки не перемножаем.', p1: '10¹ = 10: всего одна десятка.',
+      pPos: (n, v) => `10${sup(n)} — это десятки, перемноженные между собой, и их ровно ${n}: ${chainUp(n)} = ${v}. Показатель степени считает десятки.`,
+      pNeg: (n, v) => `10${sup(n)} — это 1, делённая на десять ${-n} ${ruPlural(-n, 'раз', 'раза', 'раз')}: ${chainDn(n)} = ${v}. Каждый шаг вниз по лестнице — ÷10.` },
+    big: { round: 'Округлить', std: 'Стандартный вид', nearest: 'До', half: 'середина', stdForm: 'В стандартном виде',
+      words: (r) => {
+        if (r >= 1e6) { const v = r / 1e6; return `${F(v, 3)} ${Number.isInteger(v) ? ruPlural(v, 'миллион', 'миллиона', 'миллионов') : 'миллиона'}`; }
+        if (r >= 1e3 && r % 1e3 === 0) { const v = r / 1e3; return `${F(v)} ${ruPlural(v, 'тысяча', 'тысячи', 'тысяч')}`; }
+        return F(r);
+      },
+      rT: (num, w) => `${F(num)} — это примерно ${w}`,
+      rL: (dd, up) => `Смотрим на цифру справа: это ${dd}. ${up ? '5 или больше — округляем вверх.' : 'Меньше 5 — округляем вниз.'}`,
+      rB: (u, lo, hi, mid) => `Округляем до ${F(u)}: число лежит между ${F(lo)} и ${F(hi)}. Середина — ${F(mid)}.`,
+      sT: (m, n, v) => `${m} × 10${sup(n)} = ${F(v)}`,
+      sL: (n) => (n === 0 ? '10⁰ = 1, поэтому ничего не двигается.' : `Каждая цифра сдвигается на ${n} ${ruPlural(n, 'разряд', 'разряда', 'разрядов')} влево.`),
+      sB: (m, n) => `Обратно: сдвинь запятую на ${n} ${ruPlural(n, 'разряд', 'разряда', 'разрядов')} влево — получится ${m}. Число шагов и есть показатель степени: n = ${n}.` },
+    g: { names: { 0: 'один', 1: 'десять', 2: 'сто', 3: 'тысяча', 6: 'миллион', 9: 'миллиард', 12: 'триллион', 100: 'гугол' },
+      T: (n, nm) => (nm ? `10${sup(n)} — это ${nm}` : `10${sup(n)}`),
+      L: (n) => (n === 0 ? 'Просто число 1: нулей пока нет.' : `Единица и ${n} ${ruPlural(n, 'ноль', 'нуля', 'нулей')}.`),
+      B: (n) => (n === 100 ? 'Гугол — это единица и сто нулей. Название придумал ребёнок: девятилетний племянник математика. Атомов во всей наблюдаемой Вселенной всего около 10⁸⁰ (грубая оценка), так что гугол больше в 10²⁰ раз.'
+        : n === 80 ? 'Около 10⁸⁰ атомов во всей наблюдаемой Вселенной: грубая оценка. Для неё хватает 80 нулей.' : 'Каждый лишний ноль делает число в десять раз больше.'), slide: 'Нули' },
+    m: { T: (n) => (n === 0 ? 'Ни одной десятки: 1' : `Перемножаем десятки: ${n}`),
+      B: (n) => (n < 2 ? 'Каждая лишняя десятка умножает число на 10.' : `Если сложить ${n} ${ruPlural(n, 'десяток', 'десятка', 'десятков')}, получится лишь ${F(10 * n)}. Если перемножить — ${F(10 ** n)}.${n === 6 ? ' Так получается миллион: шесть десяток, перемноженных, 10⁶.' : ''}`), slide: 'Десятки' },
+    secrets: { s1: ['Гугол', '10¹⁰⁰: единица и сто нулей'], s2: ['Десятки → миллион', 'Шесть десяток и миллион секунд'] },
+    fine: { place: 'Упрощённая модель: цифры скользят по таблице разрядов.', zoom: 'Грубые, известные размеры, округлённые до степеней десяти. Источники: справочники NASA (Земля ≈ 12 742 км, Юпитер ≈ 140 000 км, Солнце ≈ 1,4 млн км).',
+      round: 'Правило: 5 и больше округляем вверх.', std: 'Стандартный вид: число от 1 до 9,99… на степень десяти.', g: 'Число атомов — грубая, общепринятая оценка.', m: 'Расчёт: 1 год = 365,25 суток.' },
+    quiz: [{ q: 'Цифра 4 в числе 0,04 по сравнению с цифрой 4 в числе 0,4…', opts: ['в 10 раз больше', 'в 10 раз меньше', 'такая же'], ok: 1 },
+      { q: 'Чему равно 10⁴?', opts: ['4 × 10 = 40', '10 × 10 × 10 × 10 = 10 000', '10 + 4 = 14'], ok: 1 },
+      { q: 'Чему равно 2,56 × 10³?', opts: ['2 560', '256', '25 600'], ok: 0 }] },
+
+  hu: { name: 'A tíz hatványai', title: 'A tíz hatványai',
+    lines: [['Nyomd meg a ×10-et', 'és nézd, ahogy minden számjegy egy hellyel balra csúszik.'], ['Nagyíts ki', 'tízszeresével: a hajszáltól a Napig.']],
+    views: { place: '🔟 Helyiérték', zoom: '🔭 Nagyítás', big: '🔢 Nagy számok' },
+    ask: 'Mi történik, ha a 3,4 számot megszorozod 10-zel?',
+    opts: ['Hozzáírunk egy nullát: 3,40', 'A számjegyek egy hellyel balra csúsznak: 34', 'A tizedesvessző eltűnik'],
+    right: 'Pontosan! Most nézd, ahogy a számjegyek csúsznak.', wrong: 'Sokan így gondolják! De a 3,40 ugyanaz a szám, mint a 3,4. Nézd meg, mi történik valójában.', go: 'Mutasd',
+    point: 'a tizedesvessző a helyén marad',
+    place: {
+      idleT: 'Minden számjegynek van helye', idleL: 'A számjegy értéke attól függ, hol áll.', idleB: 'Koppints egy számjegyre, aztán nyomd meg a ×10-et vagy a ÷10-et. A számjegyek mozognak, a vessző marad.',
+      shT: (k) => `${k > 0 ? '×' : '÷'}${F(10 ** Math.abs(k))}: minden számjegy ${Math.abs(k)} hellyel csúszik ${k > 0 ? 'balra' : 'jobbra'}`,
+      shL: (k) => `Minden számjegy ${F(10 ** Math.abs(k))}-szer ${k > 0 ? 'nagyobb' : 'kisebb'} lesz. A tizedesvessző a helyén marad.`,
+      ba: (d, v0, v1) => `${huDig(d, true)} számjegy értéke ${F(v0)} volt, most ${F(v1)}.`,
+      sit: (d, e, P) => `${huDig(d, true)} számjegy ${P[e >= 0 ? e : 6 - e]} helyiértéken áll.`,
+      fullT: 'Nincs több hely a táblázatban', fullL: 'A táblázat a milliósoktól az ezredekig tart.', fullB: 'Próbáld a másik irányba, vagy válassz másik számot.',
+      ten: (d, a, b) => `${F(a)} és ${F(b)}: ${huDig(d)} számjegy az elsőben tízszer annyit ér.`, parts: 'Darabokban', inLabel: 'Írj be egy számot', reset: 'Újra' },
+    places: ['az egyes', 'a tízes', 'a százas', 'az ezres', 'a tízezres', 'a százezres', 'a milliós', 'a tized', 'a század', 'az ezred'],
+    zoom: {
+      names: ['hajszál vastagsága', 'homokszem', 'köröm', 'tenyérnyi szélesség', 'kisgyerek', 'ház', 'focipálya', 'kisváros központja', 'város', 'kis ország', 'nagy ország', 'a Föld', 'a Jupiter', 'a Nap'],
+      about: (x) => `kb. ${x}`, row: (a, b) => `${a} → ×10 → ${b}`, start: 'A létra itt kezdődik: ez rajta a legvékonyabb.', ruler: 'az n a 10ⁿ méterben',
+      p0: '10⁰ = 1: egyetlen tízest sem szorzunk.', p1: '10¹ = 10: csak egy tízes.',
+      pPos: (n, v) => `10${sup(n)} azt jelenti, hogy ${n} tízest szorzunk össze: ${chainUp(n)} = ${v}. A kitevő a tízesek száma.`,
+      pNeg: (n, v) => `10${sup(n)} azt jelenti, hogy 1-et ${-n}-szer elosztunk tízzel: ${chainDn(n)} = ${v}. Lefelé minden lépés ÷10.` },
+    big: { round: 'Kerekítés', std: 'Normálalak', nearest: 'Kerekítés', half: 'félút', stdForm: 'Normálalakban',
+      words: (r) => (r >= 1e6 ? `${F(r / 1e6, 3)} millió` : r >= 1e3 && r % 1e3 === 0 ? `${F(r / 1e3)} ezer` : F(r)),
+      rT: (num, w) => `${F(num)} kerekítve kb. ${w}`,
+      rL: (dd, up) => `Nézd a jobb oldali számjegyet: ${dd}. ${up ? '5 vagy több: felfelé kerekítünk.' : '5-nél kisebb: lefelé kerekítünk.'}`,
+      rB: (u, lo, hi, mid) => `Kerekítés (${F(u)}): a szám ${F(lo)} és ${F(hi)} között van. A felezőpont: ${F(mid)}.`,
+      sT: (m, n, v) => `${m} × 10${sup(n)} = ${F(v)}`,
+      sL: (n) => (n === 0 ? '10⁰ = 1, ezért semmi sem mozdul.' : `Minden számjegy ${n} hellyel balra csúszik.`),
+      sB: (m, n) => `Visszafelé: a tizedesvesszőt ${n} hellyel balra kell tolni, hogy ${m} legyen. A lépések száma a kitevő: n = ${n}.` },
+    g: { names: { 0: 'egy', 1: 'tíz', 2: 'száz', 3: 'ezer', 6: 'millió', 9: 'milliárd', 12: 'billió', 100: 'googol' },
+      T: (n, nm) => (nm ? `10${sup(n)} = ${nm}` : `10${sup(n)}`),
+      L: (n) => (n === 0 ? 'Csak az 1-es: még nincs nulla.' : `Egy 1-es és utána ${n} nulla.`),
+      B: (n) => (n === 100 ? 'A googol egy 1-es és utána száz nulla. A nevet egy gyerek találta ki: egy matematikus kilencéves unokaöccse. A teljes megfigyelhető világegyetemben csak kb. 10⁸⁰ atom van (durva becslés), így a googol 10²⁰-szor nagyobb.'
+        : n === 80 ? 'Kb. 10⁸⁰ atom van a teljes megfigyelhető világegyetemben: durva becslés. Ehhez elég 80 nulla.' : 'Minden újabb nulla tízszer nagyobbá teszi a számot.'), slide: 'Nullák' },
+    m: { T: (n) => (n === 0 ? 'Egyetlen tízes sincs: 1' : `${n} tízes összeszorozva`),
+      B: (n) => (n < 2 ? 'Minden újabb tízes tízszeresére növeli a számot.' : `${n} tízest összeadva csak ${F(10 * n)} jön ki. Összeszorozva ${F(10 ** n)}.${n === 6 ? ' Így lesz belőle millió: hat tízes összeszorozva, 10⁶.' : ''}`), slide: 'Tízesek' },
+    secrets: { s1: ['A googol', '10¹⁰⁰: egy 1-es és száz nulla'], s2: ['Tízesekből millió', 'Hat tízes és egymillió másodperc'] },
+    fine: { place: 'Egyszerűsített modell: a számjegyek a helyiértéktáblán csúsznak.', zoom: 'Durva, jól ismert méretek, tízes hatványra kerekítve. Források: NASA adatlapok (Föld ≈ 12 742 km, Jupiter ≈ 140 000 km, Nap ≈ 1,4 millió km).',
+      round: 'Szabály: 5 vagy több esetén felfelé kerekítünk.', std: 'Normálalak: 1 és 9,99… közötti szám szorozva a tíz hatványával.', g: 'Az atomok száma durva, általánosan idézett becslés.', m: 'Számolva: 1 év = 365,25 nap.' },
+    quiz: [{ q: 'A 4-es számjegy a 0,04 számban a 0,4 szám 4-esével összehasonlítva…', opts: ['tízszer nagyobb', 'tízszer kisebb', 'ugyanakkora'], ok: 1 },
+      { q: 'Mennyi 10⁴?', opts: ['4 × 10 = 40', '10 × 10 × 10 × 10 = 10 000', '10 + 4 = 14'], ok: 1 },
+      { q: 'Mennyi 2,56 × 10³?', opts: ['2 560', '256', '25 600'], ok: 0 }] },
+};
+const TOPICS = [
+  { id: 'mt_QqG6IdmTSE', en: 'Place Value × 10 Pattern', ru: 'Закономерность разрядов: умножение на 10', hu: 'A helyiérték × 10 mintázat' },
+  { id: 'mt_EDgw64OmfA', en: 'Place Value × 10 and ÷ 10', ru: 'Разряды: умножение и деление на 10', hu: 'Helyiérték × 10 és ÷ 10' },
+  { id: 'mt_HLUqHJ9Y7n', en: 'Patterns with Powers of Ten', ru: 'Закономерности со степенями десяти', hu: 'Mintázatok a tíz hatványaival' },
+  { id: 'mt_XNmGwNggdU', en: 'Numbers to Ten Million', ru: 'Числа до десяти миллионов', hu: 'Számok tízmillióig' },
+  { id: 'mt_bO-njVOige', en: 'Powers of Ten Notation', ru: 'Запись со степенями десяти', hu: 'A tíz hatványaival írt alak' },
+];
+
+// zoom ladder: exponent n (size 10^n metres), emoji, a rough real size in metres
+const STOPS = [
+  { n: -4, e: '💇', real: 1e-4 }, { n: -3, e: '⏳', real: 1e-3 }, { n: -2, e: '💅', real: 1e-2 }, { n: -1, e: '✋', real: 0.1 },
+  { n: 0, e: '🧒', real: 1 }, { n: 1, e: '🏠', real: 10 }, { n: 2, e: '⚽', real: 100 }, { n: 3, e: '🏘️', real: 1e3 },
+  { n: 4, e: '🏙️', real: 1e4 }, { n: 5, e: '🗺️', real: 1e5 }, { n: 6, e: '🧭', real: 1e6 }, { n: 7, e: '🌍', real: 12742000 },
+  { n: 8, e: '🪐', real: 1.4e8 }, { n: 9, e: '☀️', real: 1.4e9 },
+];
+const sizeText = (r) => (r < 0.01 ? uf(r * 1000, 'millimeter') : r < 1 ? uf(r * 100, 'centimeter') : r < 1000 ? uf(r, 'meter') : uf(r / 1000, 'kilometer'));
+const timeText = (n) => {
+  const s = 10 ** n;
+  const [u, d] = s < 60 ? ['second', 1] : s < 3600 ? ['minute', 60] : s < 86400 ? ['hour', 3600] : s < 365.25 * 86400 ? ['day', 86400] : ['year', 365.25 * 86400];
+  return uf(s / d, u, 1, 'long');
+};
+
+// ---- state + shell --------------------------------------------------------------------------------------
+const S = { sel: 0, last: null, blocked: false, placeStr: '3.4', zn: 0, zs: 0, pop: 1, big: { mode: 'round', num: 8274500, p: 6, mant: '2.56', n: 3, fx: 0.27 }, g: 3, m: 6,
+  secret: null, answered: store.get(KEY + ':asked', false), answer: null };
+const lab = shell({ key: KEY, T, topics: TOPICS, views: ['place', 'zoom', 'big'], onLang: () => { buildMain(); render(); }, onView: () => { S.secret = null; buildMain(); render(); } });
+const secret = secretLab(KEY, () => ({
+  secrets: [{ emo: '💯', title: T[lang].secrets.s1[0], desc: T[lang].secrets.s1[1] }, { emo: '⏱️', title: T[lang].secrets.s2[0], desc: T[lang].secrets.s2[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+// ---- place-value chart: tiles for the non-zero digits slide along the columns; the point is fixed ---------
+const TILE_COL = ['#ff8a3d', '#4ea8ff', '#3ddc97', '#f5c84c', '#c58bff'];
+const rr = (c, x, y, w, h, r) => { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); };
+const txt = (c, s, x, y, size, color, weight = 800, align = 'center', fam = FONT) => { c.font = `${weight} ${size}px ${fam}`; c.fillStyle = color; c.textAlign = align; c.textBaseline = 'middle'; c.fillText(s, x, y); };
+const fitTxt = (c, s, x, y, maxW, size, color, weight = 800, align = 'center') => {
+  let sz = size; c.font = `${weight} ${sz}px ${FONT}`;
+  while (c.measureText(s).width > maxW && sz > 8) { sz -= 1; c.font = `${weight} ${sz}px ${FONT}`; }
+  txt(c, s, x, y, sz, color, weight, align);
+};
+
+class Chart {
+  constructor(hi, lo) { Object.assign(this, { hi, lo, tiles: [], ph: {}, shake: 0, trail: null, geo: null }); }
+  load(str, shift = 0) {
+    const m = /^(\d*)(?:[.,](\d*))?$/.exec(String(str).trim());
+    if (!m) return false;
+    const ip = (m[1] || '').replace(/^0+/, ''), fp = (m[2] || '').replace(/0+$/, '');
+    const tiles = [];
+    for (let i = 0; i < ip.length; i++) if (ip[i] !== '0') tiles.push({ d: +ip[i], base: ip.length - 1 - i });
+    for (let j = 0; j < fp.length; j++) if (fp[j] !== '0') tiles.push({ d: +fp[j], base: -(j + 1) });
+    if (!tiles.length || tiles.length > 4) return false;
+    if (tiles.some((t) => t.base + shift > this.hi || t.base + shift < this.lo)) return false;
+    tiles.forEach((t) => { t.te = t.base + shift; t.e = t.te; });
+    this.tiles = tiles; this.trail = null; return true;
+  }
+  fits(k) { return this.tiles.every((t) => t.te + k <= this.hi && t.te + k >= this.lo); }
+  shift(k) {
+    if (!this.fits(k)) { this.shake = 1; return false; }
+    const top = this.tiles.reduce((a, t) => (t.te > a.te ? t : a));
+    this.trail = { from: top.te, to: top.te + k, k, t: 1 };
+    this.tiles.forEach((t) => { t.te += k; });
+    return true;
+  }
+  shiftTo(n) {
+    this.tiles.forEach((t) => { t.te = t.base + n; });
+    this.trail = n > 0 ? { from: 0, to: n, k: n, t: 1, pin: true } : null;
+  }
+  value() { return this.tiles.reduce((s, t) => s + t.d * 10 ** (t.te + 4), 0) / 1e4; }
+  update(dt) {
+    this.tiles.forEach((t) => { t.e += (t.te - t.e) * (1 - Math.exp(-dt * 9)); });
+    const exps = this.tiles.map((t) => t.te), top = Math.max(...exps), low = Math.min(...exps), need = new Set();
+    for (let e = Math.max(top, 0); e >= Math.min(low, 0); e--) if (!exps.includes(e)) need.add(e);
+    for (let e = this.lo; e <= this.hi; e++) { const tg = need.has(e) ? 1 : 0, cur = this.ph[e] ?? 0; this.ph[e] = cur + (tg - cur) * (1 - Math.exp(-dt * 8)); }
+    this.shake = Math.max(0, this.shake - dt * 2.5);
+    if (this.trail && !this.trail.pin) { this.trail.t -= dt * 0.45; if (this.trail.t <= 0) this.trail = null; }
+  }
+  hit(x, y) {
+    const g = this.geo; if (!g || y < g.y1 - 8 || y > g.y2 + 8) return -1;
+    let best = -1, bd = g.cw * 0.6;
+    this.tiles.forEach((t, i) => { const dx = Math.abs(x - g.colX(t.e)); if (dx < bd) { bd = dx; best = i; } });
+    return best;
+  }
+  draw(c, w, h, o = {}) {
+    const { hi, lo } = this, cols = hi - lo + 1, padX = Math.max(8, w * 0.025), cw = (w - 2 * padX) / cols;
+    const showVals = cw >= 58, fsH = clamp(cw * 0.3, 10, 16), hdrH = showVals ? fsH * 2.9 : fsH * 1.9;
+    const bandH = Math.min(h * 0.4, cw * 2.1), belowH = clamp(h * 0.34, 62, 110), total = hdrH + bandH + belowH;
+    const y0 = Math.max(6, (h - total) / 2), y1 = y0 + hdrH, y2 = y1 + bandH, mid = (y1 + y2) / 2;
+    const colX = (e) => padX + (hi - e + 0.5) * cw;
+    this.geo = { y1, y2, cw, colX };
+    c.save(); c.translate(Math.sin(this.shake * 22) * 7 * this.shake, 0);
+    for (let e = hi; e >= lo; e--) {
+      const x = colX(e) - cw / 2;
+      c.fillStyle = e >= 0 ? 'rgba(255,138,61,.08)' : 'rgba(78,168,255,.09)'; rr(c, x + 1.5, y1, cw - 3, bandH, 9); c.fill();
+      txt(c, `10${sup(e)}`, colX(e), y0 + fsH * 0.7, fsH, e >= 0 ? '#ffb27a' : '#8cc6ff', 800);
+      if (showVals) txt(c, F(10 ** e, 3), colX(e), y0 + fsH * 2.0, fsH * 0.8, '#98A0B8', 700);
+    }
+    const bx = padX + (hi + 1) * cw; // the decimal point: fixed between ones and tenths
+    c.strokeStyle = 'rgba(255,59,48,.8)'; c.lineWidth = 2; c.setLineDash([5, 4]); c.beginPath(); c.moveTo(bx, y1 - 6); c.lineTo(bx, y2 + 10); c.stroke(); c.setLineDash([]);
+    c.fillStyle = '#FF3B30'; c.shadowColor = 'rgba(255,59,48,.9)'; c.shadowBlur = 12; c.beginPath(); c.arc(bx, y2 - bandH * 0.1, Math.max(4, cw * 0.1), 0, 7); c.fill(); c.shadowBlur = 0;
+    const th = bandH * 0.82, tw = cw * 0.8;
+    for (let e = lo; e <= hi; e++) { // placeholder zeros
+      const a = this.ph[e] ?? 0; if (a < 0.03) continue;
+      c.globalAlpha = a; c.strokeStyle = 'rgba(200,210,235,.45)'; c.lineWidth = 1.5; c.setLineDash([4, 3]); rr(c, colX(e) - tw / 2, mid - th / 2, tw, th, 8); c.stroke(); c.setLineDash([]);
+      txt(c, '0', colX(e), mid + 1, th * 0.55, 'rgba(225,230,245,.6)', 800); c.globalAlpha = 1;
+    }
+    this.tiles.forEach((t, i) => {
+      const x = colX(t.e), col = TILE_COL[i % TILE_COL.length];
+      c.save(); c.shadowColor = col; c.shadowBlur = 12; c.fillStyle = col; rr(c, x - tw / 2, mid - th / 2, tw, th, 9); c.fill(); c.restore();
+      if (o.sel === i) { c.strokeStyle = '#fff'; c.lineWidth = 3; rr(c, x - tw / 2 - 2, mid - th / 2 - 2, tw + 4, th + 4, 11); c.stroke(); }
+      txt(c, String(t.d), x, mid + 1, th * 0.62, '#10131f', 900);
+    });
+    if (this.trail) { // arrow showing how far the digits travelled
+      const tr = this.trail, xa = colX(tr.from), xb = colX(tr.to), ya = y2 + 12, cy = ya + clamp(Math.abs(xb - xa) * 0.18 + 12, 14, 38);
+      c.globalAlpha = clamp(tr.t * 1.4, 0, 1); c.strokeStyle = tr.k > 0 ? '#ffb27a' : '#8cc6ff'; c.lineWidth = 2.5;
+      c.beginPath(); c.moveTo(xa, ya); c.quadraticCurveTo((xa + xb) / 2, cy + 6, xb, ya); c.stroke();
+      const dir = Math.sign(xb - xa) || 1; c.fillStyle = c.strokeStyle; c.beginPath(); c.moveTo(xb, ya); c.lineTo(xb - dir * 9, ya + 2); c.lineTo(xb - dir * 3, ya + 9); c.fill();
+      const lab2 = tr.pin ? `×10${sup(tr.k)}` : `${tr.k > 0 ? '×' : '÷'}${F(10 ** Math.abs(tr.k))}`;
+      txt(c, lab2, (xa + xb) / 2, (ya + cy) / 2 + 12, clamp(cw * 0.34, 12, 17), c.strokeStyle, 900); c.globalAlpha = 1;
+    }
+    const st = this.tiles[o.sel];
+    if (st) { // what the chosen digit is worth
+      const sx = colX(st.e), val = `${st.d} × ${F(10 ** st.te)} = ${F(st.d * 10 ** st.te)}`, ly = y2 + belowH * 0.7;
+      c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 1.5; c.setLineDash([2, 3]); c.beginPath(); c.moveTo(sx, y2 + 4); c.lineTo(sx, ly - 11); c.stroke(); c.setLineDash([]);
+      c.font = `800 ${clamp(cw * 0.4, 12, 17)}px ${FONT}`; const tx = clamp(sx, c.measureText(val).width / 2 + 6, w - c.measureText(val).width / 2 - 6);
+      txt(c, val, tx, ly, clamp(cw * 0.4, 12, 17), '#fff', 800);
+    }
+    fitTxt(c, '● ' + (o.pointLabel || ''), clamp(bx, w * 0.3, w * 0.7), y2 + belowH * 0.97, w * 0.9, 12, '#ff8a80', 700);
+    c.restore();
+  }
+}
+const chartP = new Chart(6, -3); chartP.load('3.4');
+const chartB = new Chart(6, -2); chartB.load('2.56', 0); chartB.shiftTo(3);
+
+// ---- logic ----------------------------------------------------------------------------------------------
+const zoomSet = (n) => { n = clamp(Math.round(n), -4, 9); if (n !== S.zn) { S.zn = n; S.pop = 0; sfx.tick(); } render(); };
+const roundInfo = () => {
+  const R = S.big, digits = String(R.num).length; R.p = clamp(R.p, 1, Math.max(1, digits - 1));
+  const u = 10 ** R.p, lo = Math.floor(R.num / u) * u, hi = lo + u, up = R.num - lo >= u / 2;
+  return { u, lo, hi, mid: lo + u / 2, up, r: up ? hi : lo, dd: Math.floor(R.num / 10 ** (R.p - 1)) % 10, digits };
+};
+const stdOf = (num) => { const s = String(num), rest = s.slice(1).replace(/0+$/, ''); return { m: s[0] + (rest ? '.' + rest : ''), e: s.length - 1 }; };
+function doOp(k) {
+  if (chartP.shift(k)) { S.last = { k }; S.blocked = false; (k > 0 ? sfx.push : sfx.snap)(); } else { S.blocked = true; sfx.bad(); }
+  render();
+}
+
+// ---- controls (built when the view, a mode or the language changes) -----------------------------------------
+$('ctrlBody').innerHTML = '<div id="main"></div><div class="chips" id="chips"></div>';
+function buildMain() {
+  const t = T[lang], k = S.secret || lab.view; let h = '';
+  const slider = (id, min, max, v) => `<input type="range" class="big" id="${id}" min="${min}" max="${max}" step="1" value="${v}">`;
+  if (k === 'place') {
+    h = `<div class="row">${[1, -1, 2, -2, 3, -3].map((x) => `<button class="op ${x > 0 ? 'up' : 'dn'}" data-act="op" data-k="${x}">${x > 0 ? '×' : '÷'}${F(10 ** Math.abs(x))}</button>`).join('')}</div>
+      <div class="row"><input id="numIn" class="num" inputmode="decimal" autocomplete="off" maxlength="8" aria-label="${esc(t.place.inLabel)}" value="${esc(locStr(S.placeStr))}"><button class="op ghost" data-act="reset">↺ ${esc(t.place.reset)}</button></div>`;
+  } else if (k === 'zoom') {
+    h = `<div class="row"><button class="op dn" data-act="zdn">◀ ÷10</button>${slider('zsl', -4, 9, S.zn)}<button class="op up" data-act="zup">×10 ▶</button></div>`;
+  } else if (k === 'big') {
+    h = `<div class="row">${['round', 'std'].map((m) => `<button class="op ${S.big.mode === m ? 'on' : ''}" data-act="mode" data-m="${m}">${esc(t.big[m])}</button>`).join('')}</div>`;
+    if (S.big.mode === 'round') {
+      const dg = String(S.big.num).length;
+      h += `<div class="row"><input id="bigIn" class="num" inputmode="numeric" autocomplete="off" maxlength="7" value="${S.big.num}"><span class="rowlab">${esc(t.big.nearest)}</span>${[1, 2, 3, 4, 5, 6].map((p) => `<button class="op ${S.big.p === p ? 'on' : ''}" data-act="place" data-p="${p}" ${p > dg - 1 ? 'disabled' : ''}>${F(10 ** p)}</button>`).join('')}</div>`;
+    } else h += `<div class="row"><span class="rowlab">×10<sup>n</sup></span>${slider('nsl', 0, 6, S.big.n)}</div>`;
+  } else if (k === 's1') {
+    h = `<div class="row"><span class="rowlab">${esc(t.g.slide)}</span>${slider('gsl', 0, 100, S.g)}</div><div class="row">${[3, 6, 9, 12, 80, 100].map((n) => `<button class="op" data-act="g" data-n="${n}">10${sup(n)}</button>`).join('')}</div>`;
+  } else {
+    h = `<div class="row"><span class="rowlab">${esc(t.m.slide)}</span>${slider('msl', 0, 9, S.m)}</div><div class="row">${[3, 6, 9].map((n) => `<button class="op" data-act="m" data-n="${n}">10${sup(n)}</button>`).join('')}</div>`;
+  }
+  $('main').innerHTML = h;
+}
+$('main').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const a = b.dataset.act;
+  if (a === 'op') doOp(+b.dataset.k);
+  else if (a === 'reset') { chartP.load(S.placeStr); S.sel = 0; S.last = null; S.blocked = false; sfx.click(); render(); }
+  else if (a === 'zdn') zoomSet(S.zn - 1);
+  else if (a === 'zup') zoomSet(S.zn + 1);
+  else if (a === 'mode') { S.big.mode = b.dataset.m; sfx.click(); buildMain(); render(); }
+  else if (a === 'place') { S.big.p = +b.dataset.p; sfx.tick(); buildMain(); render(); }
+  else if (a === 'g') { S.g = +b.dataset.n; sfx.click(); render(); }
+  else if (a === 'm') { S.m = +b.dataset.n; sfx.click(); render(); }
+});
+$('main').addEventListener('input', (ev) => {
+  const el = ev.target, v = el.value;
+  if (el.id === 'zsl') zoomSet(+v);
+  else if (el.id === 'gsl') { S.g = +v; sfx.tick(); render(); }
+  else if (el.id === 'msl') { S.m = +v; sfx.tick(); render(); }
+  else if (el.id === 'nsl') { S.big.n = +v; chartB.shiftTo(S.big.n); sfx.tick(); render(); }
+  else if (el.id === 'numIn') {
+    const s = v.trim().replace(',', '.'), ok = /^\d{0,4}(\.\d{0,3})?$/.test(s) && chartP.load(s);
+    el.classList.toggle('bad', !ok && v !== '');
+    if (ok) { S.placeStr = s; S.sel = 0; S.last = null; S.blocked = false; render(); }
+  } else if (el.id === 'bigIn') {
+    const s = v.replace(/\D/g, ''), ok = s.length >= 2 && s.length <= 7 && +s >= 10;
+    el.classList.toggle('bad', !ok && v !== '');
+    if (ok) { S.big.num = +s; roundInfo(); buildMainKeepInput(); render(); }
+  }
+});
+function buildMainKeepInput() { // refresh the rounding buttons without replacing the text box the child is typing in
+  const dg = String(S.big.num).length;
+  document.querySelectorAll('#main [data-act="place"]').forEach((b) => { b.disabled = +b.dataset.p > dg - 1; b.classList.toggle('on', +b.dataset.p === S.big.p); });
+}
+
+// chips: secrets at both ends, presets between
+const ZCHIPS = [-2, -1, 0, 1, 2, 4, 7, 9];
+$('chips').addEventListener('click', (ev) => {
+  const b = ev.target.closest('.chip'); if (!b) return;
+  const k = b.dataset.k;
+  if (k === 's1' || k === 's2') {
+    if (!secret.unlocked()) return secret.open();
+    S.secret = S.secret === k ? null : k; sfx.click(); buildMain(); render(); return;
+  }
+  const v = b.dataset.v; sfx.click();
+  if (S.secret) { S.secret = null; buildMain(); }
+  if (lab.view === 'place') { S.placeStr = v; chartP.load(v); S.sel = 0; S.last = null; S.blocked = false; const i = $('numIn'); if (i) { i.value = locStr(v); i.classList.remove('bad'); } }
+  else if (lab.view === 'zoom') zoomSet(+v);
+  else if (S.big.mode === 'round') { S.big.num = +v; roundInfo(); buildMain(); }
+  else { S.big.mant = v; chartB.load(v, 0); chartB.shiftTo(S.big.n); }
+  render();
+});
+
+// the opening prediction
+const ask = Object.assign(document.createElement('div'), { className: 'ask card' });
+$('overlay').append(ask);
+ask.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  if (b.dataset.a) { S.answer = +b.dataset.a; (S.answer === 1 ? sfx.good : sfx.bad)(); }
+  else { S.answered = true; store.set(KEY + ':asked', true); }
+  render();
+});
+
+// ---- render: readout, state card, chips -------------------------------------------------------------------
+function render() {
+  const t = T[lang], open = secret.unlocked(), view = lab.view;
+  const sc = (k) => `<button class="chip secret ${open ? 'open' : ''} ${S.secret === k ? 'on' : ''}" data-k="${k}">${open ? esc(t.secrets[k][0]) : '🔒 ???'}</button>`;
+  let mid = '';
+  if (view === 'place') mid = ['3.4', '25', '0.04', '700'].map((v) => `<button class="chip ${!S.secret && S.placeStr === v ? 'on' : ''}" data-v="${v}">${F(+v)}</button>`).join('');
+  else if (view === 'zoom') mid = ZCHIPS.map((n) => `<button class="chip ${!S.secret && S.zn === n ? 'on' : ''}" data-v="${n}">${STOPS[n + 4].e}</button>`).join('');
+  else if (S.big.mode === 'round') mid = [8274500, 3946215, 127350, 6500000].map((n) => `<button class="chip ${!S.secret && S.big.num === n ? 'on' : ''}" data-v="${n}">${F(n)}</button>`).join('');
+  else mid = ['2.56', '3.4', '7.1', '1.05'].map((m) => `<button class="chip ${!S.secret && S.big.mant === m ? 'on' : ''}" data-v="${m}">${F(+m)}</button>`).join('');
+  $('chips').innerHTML = sc('s1') + mid + sc('s2');
+  const set = (id, v) => { const el = $(id); if (el && +el.value !== v) el.value = v; };
+  set('zsl', S.zn); set('gsl', S.g); set('msl', S.m); set('nsl', S.big.n);
+  const ni = $('numIn'); if (ni && document.activeElement !== ni) ni.value = locStr(S.placeStr);
+  const bi = $('bigIn'); if (bi && document.activeElement !== bi) bi.value = S.big.num;
+
+  let ro, st, glow = 'rgba(255,138,61,.22)';
+  if (S.secret === 's1') {
+    const n = S.g, nm = t.g.names[n];
+    ro = [`10${sup(n)}`, nm ?? '', '', '#f5c84c']; glow = 'rgba(245,200,76,.22)';
+    st = { emo: '💯', title: t.g.T(n, nm), lead: t.g.L(n), body: t.g.B(n), extra: `<div class="fine">${esc(t.fine.g)}</div>` };
+  } else if (S.secret === 's2') {
+    const n = S.m;
+    ro = [`10${sup(n)}`, F(10 ** n), timeText(n), '#3ddc97']; glow = 'rgba(61,220,151,.2)';
+    st = { emo: '⏱️', title: t.m.T(n), lead: `${chainUp(n)} = ${F(10 ** n)}`, body: t.m.B(n), extra: `<div class="note">⏱️ ${esc(uf(10 ** n, 'second', 0, 'long'))} ≈ ${esc(timeText(n))}</div><div class="fine">${esc(t.fine.m)}</div>` };
+  } else if (view === 'place') {
+    const tl = chartP.tiles[S.sel] ?? chartP.tiles[0], N = chartP.value(), P = t.place, e = tl.te, d = tl.d, sit = P.sit(d, e, t.places);
+    const k = S.last?.k, up = (k ?? 1) > 0;
+    ro = [F(N), k ? `${F(N / 10 ** k)} ${k > 0 ? '×' : '÷'} ${F(10 ** Math.abs(k))}` : '', '', up ? '#ff8a3d' : '#4ea8ff']; glow = up ? 'rgba(255,138,61,.22)' : 'rgba(78,168,255,.25)';
+    const body = S.blocked ? { emo: '🚧', title: P.fullT, lead: P.fullL, body: P.fullB }
+      : k ? { emo: k > 0 ? '⬅️' : '➡️', title: P.shT(k), lead: P.shL(k), body: `${P.ba(d, d * 10 ** (e - k), d * 10 ** e)} ${sit}` }
+        : { emo: '🔟', title: P.idleT, lead: P.idleL, body: `${sit} ${P.idleB}` };
+    const parts = [...chartP.tiles].sort((a, b) => b.te - a.te).map((x) => `${x.d} × ${F(10 ** x.te)}`).join(' + ');
+    st = { ...body, extra: `<div class="note">${esc(P.ten(d, N, N / 10))}</div><div class="note">${esc(P.parts)}: ${esc(parts)}</div><div class="fine">${esc(t.fine.place)}</div>` };
+  } else if (view === 'zoom') {
+    const n = S.zn, s = STOPS[n + 4], eq = Math.abs(s.real / 10 ** n - 1) < 1e-9 ? '=' : '≈', Z = t.zoom;
+    ro = [`10${sup(n)} m`, `= ${uf(10 ** n, 'meter', 6)}`, '', `hsl(${210 - (n + 4) * 12}, 85%, 62%)`]; glow = 'rgba(78,168,255,.25)';
+    const body = n === 0 ? Z.p0 : n === 1 ? Z.p1 : n > 1 ? Z.pPos(n, F(10 ** n)) : Z.pNeg(n, F(10 ** n));
+    st = { emo: s.e, title: Z.names[n + 4], lead: `${Z.about(sizeText(s.real))} ${eq} 10${sup(n)} m`, body, extra: `<div class="fine">${esc(t.fine.zoom)}</div>` };
+  } else if (S.big.mode === 'round') {
+    const I = roundInfo(), B = t.big, sd = stdOf(S.big.num);
+    ro = [F(I.r), B.words(I.r), `${B.nearest} ${F(I.u)}`, '#ff8a3d'];
+    st = { emo: '🔢', title: B.rT(S.big.num, B.words(I.r)), lead: B.rL(I.dd, I.up), body: B.rB(I.u, I.lo, I.hi, I.mid), extra: `<div class="note">${esc(B.stdForm)}: ${esc(F(+sd.m))} × 10${sup(sd.e)}</div><div class="fine">${esc(t.fine.round)}</div>` };
+  } else {
+    const B = t.big, n = S.big.n, v = +S.big.mant * 10 ** n, m = F(+S.big.mant);
+    ro = [`${m} × 10${sup(n)}`, `= ${F(v)}`, '', '#c58bff']; glow = 'rgba(197,139,255,.22)';
+    st = { emo: '🔬', title: B.sT(m, n, v), lead: B.sL(n), body: B.sB(m, n), extra: `<div class="fine">${esc(t.fine.std)}</div>` };
+  }
+  lab.setReadout(ro[0], ro[1], ro[2], ro[3]); lab.setGlow(glow); lab.setState(st);
+  ask.style.display = S.answered ? 'none' : '';
+  if (!S.answered) ask.innerHTML = S.answer === null
+    ? `<div class="q">${esc(t.ask)}</div><div class="opts">${t.opts.map((o, i) => `<button data-a="${i}">${esc(o)}</button>`).join('')}</div>`
+    : `<div class="q" style="color:${S.answer === 1 ? 'var(--ok)' : 'var(--wip)'}">${esc(S.answer === 1 ? t.right : t.wrong)}</div><div class="opts"><button>${esc(t.go)} →</button></div>`;
+}
+
+// ---- scenes on the canvas --------------------------------------------------------------------------------
+function digitRow(c, str, w, y, maxUnit, color, rowH) { // grouped digits; color(i, e) -> fill or null (muted)
+  const n = str.length, gaps = Math.floor((n - 1) / 3), unit = Math.min(maxUnit, (w * 0.94) / (n + gaps * 0.45)), rowW = n * unit + gaps * unit * 0.45, x0 = (w - rowW) / 2;
+  for (let i = 0; i < n; i++) {
+    const e = n - 1 - i, x = x0 + i * unit + (gaps - Math.floor(e / 3)) * unit * 0.45, col = color(i, e);
+    c.fillStyle = col ? col.bg : 'rgba(130,145,190,.12)'; rr(c, x + 1.5, y, unit - 3, rowH, 8); c.fill();
+    if (col?.ring) { c.strokeStyle = col.ring; c.lineWidth = 2.5; rr(c, x + 1.5, y, unit - 3, rowH, 8); c.stroke(); }
+    txt(c, str[i], x + unit / 2, y + rowH / 2 + 1, Math.min(rowH * 0.62, unit * 0.8), col ? col.fg : '#7d86a0', 900);
+  }
+}
+function drawRound(c, w, h, dt) {
+  const I = roundInfo(), R = S.big, s = String(R.num), p = R.p, t = T[lang].big;
+  const rowH = Math.min(46, h * 0.16);
+  digitRow(c, s, w, h * 0.05, 46, (i, e) => (e === p ? { bg: '#ff8a3d', fg: '#10131f' } : e === p - 1 ? { bg: '#4ea8ff', fg: '#10131f' } : e > p ? { bg: 'rgba(237,239,247,.16)', fg: '#EDEFF7' } : null), rowH);
+  txt(c, I.up ? '▼  +1' : '▼  =', w / 2, h * 0.05 + rowH + h * 0.06, clamp(w * 0.04, 12, 17), I.up ? '#ffb27a' : '#8cc6ff', 900);
+  const ts = String(I.r);
+  digitRow(c, ts, w, h * 0.05 + rowH + h * 0.115, 40, (i, e) => (ts[i] !== '0' ? { bg: '#3ddc97', fg: '#10131f' } : null), rowH * 0.86);
+  const x1 = w * 0.12, x2 = w * 0.88, ly = h * 0.77;
+  R.fx += ((R.num - I.lo) / I.u - R.fx) * (1 - Math.exp(-dt * 8));
+  c.strokeStyle = 'rgba(200,210,235,.55)'; c.lineWidth = 3; c.beginPath(); c.moveTo(x1, ly); c.lineTo(x2, ly); c.stroke();
+  [[x1, I.lo, I.up ? '#98A0B8' : '#3ddc97'], [(x1 + x2) / 2, I.mid, '#f5c84c'], [x2, I.hi, I.up ? '#3ddc97' : '#98A0B8']].forEach(([x, v, col], i) => {
+    c.fillStyle = col; c.beginPath(); c.arc(x, ly, i === 1 ? 5 : 8, 0, 7); c.fill();
+    fitTxt(c, F(v), clamp(x, w * 0.14, w * 0.86), ly + 24, w * 0.3, 13, i === 1 ? '#f5c84c' : '#D3D9E8', 800);
+  });
+  txt(c, t.half, w / 2, ly - 16, 11, '#f5c84c', 700);
+  const bx = x1 + R.fx * (x2 - x1);
+  c.save(); c.shadowColor = '#ff8a3d'; c.shadowBlur = 14; c.fillStyle = '#ff8a3d'; c.beginPath(); c.arc(bx, ly, 10, 0, 7); c.fill(); c.restore();
+  fitTxt(c, F(R.num), clamp(bx, w * 0.16, w * 0.84), ly - 34, w * 0.34, 15, '#fff', 900);
+}
+function drawZoom(c, w, h, dt) {
+  const n = S.zn, i = n + 4, st = STOPS[i], prev = STOPS[i - 1], Z = T[lang].zoom;
+  S.zs += (n - S.zs) * (1 - Math.exp(-dt * 8)); S.pop = Math.min(1, S.pop + dt * 2.2);
+  const ease = 1 - (1 - S.pop) ** 3, padX = w * 0.05, bw = w - 2 * padX, tw = bw / 14, cell = bw / 10;
+  fitTxt(c, prev ? Z.row(Z.names[i - 1], Z.names[i]) : Z.start, w / 2, h * 0.07, w * 0.92, clamp(w * 0.034, 12, 17), '#D3D9E8', 700);
+  const rowY = h * 0.14, rowH = Math.min(cell * 1.1, h * 0.17);
+  if (prev) for (let k = 0; k < 10; k++) {
+    c.globalAlpha = clamp(ease * 1.8 - k * 0.07, 0, 1);
+    c.fillStyle = 'rgba(78,168,255,.14)'; rr(c, padX + k * cell + 1.5, rowY, cell - 3, rowH, 7); c.fill();
+    txt(c, prev.e, padX + (k + 0.5) * cell, rowY + rowH / 2 + 1, Math.min(cell * 0.58, rowH * 0.7), '#fff', 400, 'center', EMOJI);
+  }
+  c.globalAlpha = 1;
+  const barY = h * 0.14 + rowH + h * 0.09, barH = h * 0.27;
+  if (prev) txt(c, '≈', w / 2, barY - h * 0.045, h * 0.07, '#f5c84c', 900);
+  const g = c.createLinearGradient(padX, 0, w - padX, 0); g.addColorStop(0, 'rgba(255,138,61,.28)'); g.addColorStop(1, 'rgba(255,138,61,.12)');
+  c.fillStyle = g; rr(c, padX, barY, bw, barH, 14); c.fill(); c.strokeStyle = 'rgba(255,138,61,.7)'; c.lineWidth = 2; rr(c, padX, barY, bw, barH, 14); c.stroke();
+  txt(c, st.e, w / 2, barY + barH * 0.42, Math.min(barH * 0.55, 62) * (0.7 + 0.3 * ease), '#fff', 400, 'center', EMOJI);
+  fitTxt(c, Z.names[i], w / 2, barY + barH * 0.84, bw * 0.9, clamp(barH * 0.17, 12, 18), '#fff', 800);
+  // ruler: one tick per power of ten
+  const ry = h * 0.86;
+  c.strokeStyle = 'rgba(200,210,235,.5)'; c.lineWidth = 2; c.beginPath(); c.moveTo(padX, ry); c.lineTo(w - padX, ry); c.stroke();
+  const mx = padX + (S.zs + 4 + 0.5) * tw;
+  c.fillStyle = 'rgba(255,138,61,.35)'; c.beginPath(); c.arc(mx, ry - tw * 0.55, Math.max(12, tw * 0.55), 0, 7); c.fill();
+  STOPS.forEach((s, k) => {
+    const x = padX + (k + 0.5) * tw, on = k === i;
+    c.strokeStyle = on ? '#ff8a3d' : 'rgba(200,210,235,.6)'; c.lineWidth = on ? 3 : 2; c.beginPath(); c.moveTo(x, ry - 5); c.lineTo(x, ry + 5); c.stroke();
+    txt(c, s.e, x, ry - tw * 0.55, clamp(tw * 0.5, 11, 22), '#fff', 400, 'center', EMOJI);
+    txt(c, String(s.n), x, ry + 15, clamp(tw * 0.42, 10, 13), on ? '#ff8a3d' : '#98A0B8', 800);
+  });
+  fitTxt(c, Z.ruler, w / 2, h * 0.965, w * 0.9, 11, '#646C84', 700);
+}
+function drawGoogol(c, w, h, time) {
+  const n = S.g, digits = '1' + '0'.repeat(n), tokens = [];
+  for (let k = digits.length; k > 0; k -= 3) tokens.unshift(digits.slice(Math.max(0, k - 3), k));
+  const nm = T[lang].g.names[n];
+  txt(c, `10${sup(n)}`, w / 2, h * 0.1, Math.min(h * 0.12, 42), '#f5c84c', 900);
+  if (nm) fitTxt(c, nm, w / 2, h * 0.21, w * 0.9, Math.min(h * 0.075, 26), n === 100 ? '#ff8a3d' : '#D3D9E8', 800);
+  const ax = w * 0.05, aw = w * 0.9, ay = h * 0.3, ah = h * 0.66;
+  let fs = 38; for (; fs > 8; fs--) { const per = Math.floor(aw / (fs * 2.25)), lines = Math.ceil(tokens.length / Math.max(1, per)); if (per >= 1 && lines * fs * 1.3 <= ah) break; }
+  const per = Math.max(1, Math.floor(aw / (fs * 2.25))), lines = Math.ceil(tokens.length / per), y0 = ay + (ah - lines * fs * 1.3) / 2;
+  tokens.forEach((tk, k) => {
+    const r = Math.floor(k / per), col = k % per, rowN = Math.min(per, tokens.length - r * per), x0 = ax + (aw - rowN * fs * 2.25) / 2 + col * fs * 2.25, y = y0 + (r + 0.5) * fs * 1.3;
+    c.font = `800 ${fs}px ${MONO}`; c.textAlign = 'left'; c.textBaseline = 'middle';
+    for (let q = 0; q < tk.length; q++) {
+      const one = k === 0 && q === 0;
+      c.fillStyle = one ? '#ff8a3d' : `rgba(140,198,255,${0.55 + 0.4 * Math.sin(time * 3 - k * 0.5)})`;
+      c.fillText(tk[q], x0 + q * fs * 0.62, y);
+    }
+  });
+}
+function drawTens(c, w, h) {
+  const n = S.m, t = T[lang];
+  const per = n > 5 ? Math.ceil(n / 2) : Math.max(1, n), rows = n > 5 ? 2 : 1, d = Math.min(56, (w * 0.9) / (per * 1.45)), areaY = h * 0.08;
+  for (let k = 0; k < n; k++) {
+    const r = Math.floor(k / per), col = k % per, rowN = Math.min(per, n - r * per), x = (w - rowN * d * 1.45) / 2 + col * d * 1.45 + d * 0.725, y = areaY + d * 0.6 + r * d * 1.25;
+    c.save(); c.shadowColor = '#3ddc97'; c.shadowBlur = 10; c.fillStyle = '#3ddc97'; c.beginPath(); c.arc(x, y, d * 0.5, 0, 7); c.fill(); c.restore();
+    txt(c, '10', x, y + 1, d * 0.42, '#10131f', 900);
+    if (!(col === rowN - 1)) txt(c, '×', x + d * 0.725, y, d * 0.4, '#98A0B8', 900);
+  }
+  if (n === 0) txt(c, '1', w / 2, areaY + 30, 40, '#3ddc97', 900);
+  const y2 = areaY + d * 1.25 * rows + h * 0.08;
+  fitTxt(c, `= ${F(10 ** n)}`, w / 2, y2 + 6, w * 0.92, Math.min(h * 0.14, 52), '#fff', 900);
+  fitTxt(c, `${uf(10 ** n, 'second', 0, 'long')}`, w / 2, y2 + h * 0.17, w * 0.92, clamp(h * 0.065, 13, 22), '#98A0B8', 700);
+  fitTxt(c, `≈ ${timeText(n)}`, w / 2, y2 + h * 0.27, w * 0.92, Math.min(h * 0.12, 42), '#f5c84c', 900);
+}
+
+const cv = canvasLoop($('cv'), (c, w, h, dt, time) => {
+  if (S.secret === 's1') return drawGoogol(c, w, h, time);
+  if (S.secret === 's2') return drawTens(c, w, h);
+  if (lab.view === 'zoom') return drawZoom(c, w, h, dt);
+  if (lab.view === 'place') { chartP.update(dt); return chartP.draw(c, w, h, { sel: S.sel, pointLabel: T[lang].point }); }
+  if (S.big.mode === 'round') return drawRound(c, w, h, dt);
+  chartB.update(dt); chartB.draw(c, w, h, { sel: -1, pointLabel: T[lang].point });
+});
+
+let drag = false;
+const zoomAt = (ev) => { const r = $('cv').getBoundingClientRect(), w = r.width, pad = w * 0.05; zoomSet(Math.floor((ev.clientX - r.left - pad) / ((w - 2 * pad) / 14)) - 4); };
+$('cv').addEventListener('pointerdown', (ev) => {
+  if (S.secret) return;
+  const r = $('cv').getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+  if (lab.view === 'place') { const i = chartP.hit(x, y); if (i >= 0) { S.sel = i; sfx.tick(); render(); } }
+  else if (lab.view === 'zoom' && y > r.height * 0.68) { drag = true; $('cv').setPointerCapture(ev.pointerId); zoomAt(ev); }
+});
+$('cv').addEventListener('pointermove', (ev) => { if (drag) zoomAt(ev); });
+['pointerup', 'pointercancel'].forEach((e) => $('cv').addEventListener(e, () => { drag = false; }));
+
+buildMain();
+render();
+</script>
+</body>
+</html>

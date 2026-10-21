@@ -1,0 +1,618 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ocean Depths · Skill Graph</title>
+<meta name="description" content="Dive from the surface to the deepest place in the ocean, watch the light fade, and see how deep-sea animals glow. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  @media (min-width: 1101px) { .lab { grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); grid-template-areas: 'hero stage' 'state stage' 'state ctrl'; } }
+  .ask { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); width: min(560px, calc(100% - 16px)); padding: 14px 16px; text-align: center; z-index: 3; }
+  .ask .q { font: 500 21px/1.2 var(--serif); color: #fff; margin-bottom: 10px; }
+  .ask .opts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .ask button { padding: 9px 14px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130,145,190,.1); font-weight: 800; cursor: pointer; }
+  .fine { margin-top: 8px; font-size: 11px; color: var(--faint); }
+  .kv { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; padding: 5px 0; border-top: 1px solid var(--stroke2); }
+  .kv b { font-weight: 800; white-space: nowrap; }
+  .chain { margin-top: 6px; font-size: 13px; font-weight: 800; }
+  #cv { touch-action: pan-y; }
+  #ctrlBody .chips { flex-wrap: wrap; }
+  @media (max-width: 760px) { .ask .q { font-size: 17px; } }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, store, lang } from '../lab.js';
+
+// ---------------------------------------------------------------- words
+const T = {
+  en: { name: 'Ocean Depths', title: 'The ocean is a staircase of worlds',
+    lines: [['Drag the slider down', 'to dive from the surface to the deepest place on Earth.'], ['Steer the lamp', 'left and right to find animals in the dark.']],
+    views: { dive: '🤿 Dive', glow: '✨ Glow', vents: '🌋 Vents' },
+    ask: 'How deep does sunlight reach in the ocean?', opts: ['All the way to the bottom', 'About 1 km, then total darkness', 'Only 1 metre'],
+    right: 'Right! Light fades fast: almost gone by 200 m, and none below about 1 km. Let’s see.', wrong: 'Many people guess that! Dive down and watch the light.', go: 'Dive',
+    m: 'm', atm: 'atm',
+    chips: { surf: 'Surface', bottom: '≈ 11 km', auto: '▶ Auto-dive', stop: '⏸ Stop', everest: '🏔️ Everest', squeeze: '🥤 Squeeze' },
+    lightLabel: 'Light left', pressLabel: 'Pressure', pressNote: '1 atm = the air pressure around you now',
+    steer: 'Move your pointer or finger left and right to steer the lamp', sea: 'sea level',
+    zoneShort: { sun: 'sunlight', twi: 'twilight', mid: 'midnight', aby: 'abyss', tre: 'trenches' },
+    zoneName: { sun: 'SUNLIGHT', twi: 'TWILIGHT', mid: 'MIDNIGHT', aby: 'ABYSS', tre: 'TRENCHES' },
+    zones: {
+      sun: ['Sunlight zone · 0–200 m', 'Plenty of light here, so plants and algae can grow, and most ocean life lives up here.', 'Light drops fast: only about a third is left at 40 m (simplified model). Dolphins and tuna hunt here.'],
+      twi: ['Twilight zone · 200–1,000 m', 'Only a faint blue glow is left, too dim for plants to grow.', 'Animals here have big eyes or make their own light. Pressure is 20 to 100 times the air at the surface.'],
+      mid: ['Midnight zone · 1,000–4,000 m', 'No sunlight, ever. The only light is made by animals.', 'Pressure is 100 to 400 times the air at the surface. Anglerfish dangle glowing lures in the black water.'],
+      aby: ['The abyss · 4,000–6,000 m', 'Cold, dark and squeezed: 400 to 600 times the air pressure.', 'Food is rare. Bits of dead plants and animals drift down from above like snow.'],
+      tre: ['Trenches · deeper than 6,000 m', 'The deepest places on Earth, down to about 11 km.', 'Pressure is up to about 1,100 times the air. Soft, jelly-like fish live here: no air spaces to squash.'],
+    },
+    animals: { dolphin: 'Dolphin', tuna: 'Tuna', jelly: 'Jellyfish', lantern: 'Lanternfish', squid: 'Giant squid (rarely seen)', whale: 'Sperm whale (can dive over 1 km)', angler: 'Anglerfish', snail: 'Snailfish' },
+    fineDive: 'Simplified model: light = e^(−depth ÷ 40 m), like clear ocean water. Pressure: about +1 atmosphere per 10 m of seawater. Zones: NOAA. Deepest point: Challenger Deep ≈ 10,935 m (NOAA). The depth scale is stretched near the top. Animals are drawn at typical depths; many travel between zones.',
+    ev: { title: 'Everest in the Challenger Deep', pill: 'Challenger Deep ≈ 10,935 m', everest: 'Mount Everest', water: 'water', floor: 'Challenger Deep',
+      lead: (g) => g <= 0 ? `The peak still sticks out ${fmt(-g)} m above the surface.` : `The top is ${fmt(g)} m under water.`,
+      body: (g) => g <= 0 ? 'Keep lowering the mountain into the trench.' : g < 200 ? 'Sunlight still reaches the top.' : g < 1000 ? 'Only a faint twilight glow reaches the top.' : 'No sunlight reaches the top: it sits in the dark.',
+      sub: (g) => g > 0 ? 'of water above the peak' : 'peak above the surface',
+      sum: (g) => `8,849 m + ${fmt(g)} m = 10,935 m`,
+      fine: 'Everest: 8,849 m above sea level (official height). Challenger Deep ≈ 10,935 m (NOAA). A thought experiment, drawn to scale.' },
+    sq: { title: 'The squeeze', lead: 'Deep water squeezes things. A foam cup shrinks!', body: 'A foam cup is full of tiny air bubbles. Pressure squeezes the bubbles, so the whole cup gets smaller. A solid lump of metal would hardly change.',
+      cup0: 'cup at the surface', cup1: 'same cup down here', sub: 'depth', fine: 'A simplified picture: the exact size depends on the cup.' },
+    glow: { hint: 'Tap an animal to make it glow', below: 'a predator’s view from below',
+      names: { angler: 'Anglerfish', hatchet: 'Hatchetfish', jelly: 'Deep-sea jellyfish' },
+      chips: { lure: '🎣 Lure', hide: '🫥 Hide', alarm: '🚨 Alarm' }, pill: { lure: 'lure', hide: 'camouflage', alarm: 'alarm' },
+      states: {
+        lure: ['Anglerfish: a lantern as bait', 'A glowing lure calls the prey.', 'In total darkness food is rare. Glowing bacteria live inside the lure; small animals swim closer while the anglerfish waits. Tap to light it.'],
+        hide: ['Hatchetfish: lights that hide it', 'It glows on its belly to vanish.', 'A little light still seeps down from above. Seen from below, a fish is a dark shape against it. Belly lights as bright as the glow erase the shadow. This is called counter-illumination. Tap to switch the lights on.'],
+        alarm: ['Deep-sea jellyfish: a flashing alarm', 'It flashes light when attacked.', 'The flashes may startle an attacker, or call a bigger animal that could eat it. Scientists call this the burglar-alarm idea. Tap to set it off.'],
+      },
+      fine: 'Bioluminescence is light made by living things in a chemical reaction. Many deep-sea animals can do it. The anglerfish lure glows thanks to bacteria living in it.' },
+    vents: { title: 'A vent: life without sunlight', sun: 'Sunlight here: none', hot: 'hot, chemical-rich water', worms: 'tube worms', bac: 'bacteria',
+      chips: { off: '🧊 Off', weak: '♨️ Weak', strong: '🔥 Strong' }, sub: 'vent energy',
+      lead: { off: 'The vent is quiet: bacteria have little to eat, so few animals can live here.', weak: 'A little chemical energy: some bacteria and a few worms.', strong: 'Lots of chemical energy: bacteria thrive, and worms and crabs crowd in.' },
+      body: 'Hot water rich in chemicals such as hydrogen sulfide seeps out of the sea floor. Bacteria use that chemical energy to make food, a bit like plants use sunlight. Tube worms and crabs live off the bacteria.',
+      chain: 'Vent chemicals → bacteria → tube worms and crabs',
+      fine: 'Making food from chemicals instead of light is called chemosynthesis. Vents are found deep in the dark ocean, where no sunlight arrives.' },
+    secrets: { everest: ['Everest in the trench', 'Lower the tallest mountain into the deepest place.'], squeeze: ['The squeeze', 'See what deep water does to a foam cup.'] },
+    quiz: [
+      { q: 'Which are the three main zones of the ocean, from top to bottom?', opts: ['Sunlight, twilight, midnight', 'Sunlight, sand, coral', 'Shallow, rocky, icy'], ok: 0 },
+      { q: 'Why does most ocean life live near the surface?', opts: ['Fish dislike the dark', 'Plants and algae need sunlight to make food', 'The water is saltier at the top'], ok: 1 },
+      { q: 'How can animals live at a deep-sea vent where no sunlight reaches?', opts: ['They swim up to eat every night', 'They collect sunlight in their shells', 'Bacteria use chemical energy from the vent as food'], ok: 2 },
+    ] },
+  ru: { name: 'Глубины океана', title: 'Океан — лестница миров',
+    lines: [['Тяни ползунок вниз,', 'чтобы нырнуть с поверхности в самое глубокое место Земли.'], ['Води лампу влево и вправо,', 'чтобы найти животных в темноте.']],
+    views: { dive: '🤿 Погружение', glow: '✨ Свечение', vents: '🌋 Жерла' },
+    ask: 'Как глубоко в океан проникает солнечный свет?', opts: ['До самого дна', 'Примерно до 1 км, дальше полная тьма', 'Всего на 1 метр'],
+    right: 'Верно! Свет гаснет быстро: к 200 м его почти нет, а глубже примерно 1 км — совсем нет. Смотрим.', wrong: 'Многие так думают! Нырни и посмотри, что со светом.', go: 'Нырнуть',
+    m: 'м', atm: 'атм',
+    chips: { surf: 'Поверхность', bottom: '≈ 11 км', auto: '▶ Само', stop: '⏸ Стоп', everest: '🏔️ Эверест', squeeze: '🥤 Сжатие' },
+    lightLabel: 'Света осталось', pressLabel: 'Давление', pressNote: '1 атм = давление воздуха вокруг тебя сейчас',
+    steer: 'Води указателем или пальцем влево и вправо, чтобы направлять лампу', sea: 'уровень моря',
+    zoneShort: { sun: 'солнечная', twi: 'сумеречная', mid: 'полуночная', aby: 'бездна', tre: 'желоба' },
+    zoneName: { sun: 'СОЛНЕЧНАЯ', twi: 'СУМЕРЕЧНАЯ', mid: 'ПОЛУНОЧНАЯ', aby: 'БЕЗДНА', tre: 'ЖЕЛОБА' },
+    zones: {
+      sun: ['Солнечная зона · 0–200 м', 'Здесь много света, поэтому растут растения и водоросли, и живёт большая часть морской жизни.', 'Свет гаснет быстро: на глубине 40 м остаётся примерно треть (упрощённая модель). Здесь охотятся дельфины и тунцы.'],
+      twi: ['Сумеречная зона · 200–1 000 м', 'Остаётся лишь слабое голубое свечение, для растений его мало.', 'У животных здесь большие глаза или собственный свет. Давление в 20–100 раз больше атмосферного.'],
+      mid: ['Полуночная зона · 1 000–4000 м', 'Солнечный свет не доходит никогда. Единственный свет создают сами животные.', 'Давление в 100–400 раз больше атмосферного. Удильщики покачивают светящейся приманкой в чёрной воде.'],
+      aby: ['Бездна · 4000–6000 м', 'Холодно, темно и сильно давит: давление в 400–600 раз больше атмосферного.', 'Еды мало. Остатки растений и животных медленно опускаются сверху, как снег.'],
+      tre: ['Глубоководные желоба · глубже 6000 м', 'Самые глубокие места Земли, до 11 км.', 'Давление почти в 1100 раз больше атмосферного. Здесь живут мягкие, студенистые рыбы: в их телах нет воздушных полостей, которые можно сдавить.'],
+    },
+    animals: { dolphin: 'Дельфин', tuna: 'Тунец', jelly: 'Медуза', lantern: 'Светящийся анчоус', squid: 'Гигантский кальмар (редко виден)', whale: 'Кашалот (ныряет глубже 1 км)', angler: 'Удильщик', snail: 'Липарис' },
+    fineDive: 'Упрощённая модель: свет = e^(−глубина ÷ 40 м), как в чистой океанской воде. Давление: примерно +1 атмосфера на каждые 10 м морской воды. Зоны: NOAA. Самая глубокая точка: Бездна Челленджера ≈ 10 935 м (NOAA). Шкала глубины растянута у поверхности. Животные нарисованы на типичных глубинах; многие путешествуют между зонами.',
+    ev: { title: 'Эверест в Бездне Челленджера', pill: 'Бездна Челленджера ≈ 10 935 м', everest: 'Эверест', water: 'вода', floor: 'Бездна Челленджера',
+      lead: (g) => g <= 0 ? `Вершина всё ещё торчит над водой на ${fmt(-g)} м.` : `Вершина под водой, на глубине ${fmt(g)} м.`,
+      body: (g) => g <= 0 ? 'Продолжай опускать гору в желоб.' : g < 200 ? 'Солнечный свет ещё доходит до вершины.' : g < 1000 ? 'До вершины доходит лишь слабый сумеречный свет.' : 'Солнечный свет до вершины не доходит: там темно.',
+      sub: (g) => g > 0 ? 'воды над вершиной' : 'вершина над водой',
+      sum: (g) => `8 849 м + ${fmt(g)} м = 10 935 м`,
+      fine: 'Эверест: 8849 м над уровнем моря (официальная высота). Бездна Челленджера ≈ 10 935 м (NOAA). Мысленный опыт, нарисованный в масштабе.' },
+    sq: { title: 'Сжатие', lead: 'Глубокая вода всё сжимает. Пенопластовый стаканчик уменьшается!', body: 'Стаканчик из пенопласта полон крошечных пузырьков воздуха. Давление сжимает пузырьки, и весь стаканчик становится меньше. Сплошной кусок металла почти не изменился бы.',
+      cup0: 'стаканчик у поверхности', cup1: 'он же здесь, на глубине', sub: 'глубина', fine: 'Упрощённая картинка: точный размер зависит от стаканчика.' },
+    glow: { hint: 'Нажми на животное, чтобы оно засветилось', below: 'вид глазами хищника снизу',
+      names: { angler: 'Удильщик', hatchet: 'Рыба-топорик', jelly: 'Глубоководная медуза' },
+      chips: { lure: '🎣 Приманка', hide: '🫥 Маскировка', alarm: '🚨 Тревога' }, pill: { lure: 'приманка', hide: 'маскировка', alarm: 'сигнал тревоги' },
+      states: {
+        lure: ['Удильщик: фонарик вместо наживки', 'Светящаяся приманка зовёт добычу.', 'В полной темноте еды мало. Внутри приманки живут светящиеся бактерии; мелкие животные подплывают ближе, а удильщик ждёт. Нажми, чтобы зажечь её.'],
+        hide: ['Рыба-топорик: огоньки, которые прячут', 'Она светится брюшком, чтобы исчезнуть.', 'Сверху всё ещё просачивается слабый свет. Снизу рыба выглядит тёмным силуэтом на его фоне. Огоньки на брюшке такой же яркости стирают тень. Это называется противосвечение. Нажми, чтобы включить огоньки.'],
+        alarm: ['Глубоководная медуза: световая тревога', 'При нападении она вспыхивает светом.', 'Вспышки могут напугать нападающего или привлечь более крупного хищника, который съест его самого. Учёные называют это идеей «сигнализации от грабителей». Нажми, чтобы включить сигнал.'],
+      },
+      fine: 'Биолюминесценция — это свет, который создают живые существа с помощью химической реакции. Многие глубоководные животные умеют так делать. Приманка удильщика светится благодаря живущим в ней бактериям.' },
+    vents: { title: 'Жерло: жизнь без солнца', sun: 'Солнечный свет здесь: нет', hot: 'горячая вода с веществами', worms: 'трубчатые черви', bac: 'бактерии',
+      chips: { off: '🧊 Выкл', weak: '♨️ Слабый', strong: '🔥 Сильный' }, sub: 'энергия жерла',
+      lead: { off: 'Жерло затихло: бактериям почти нечего есть, поэтому жить здесь могут немногие.', weak: 'Немного химической энергии: есть бактерии и несколько червей.', strong: 'Много химической энергии: бактерии процветают, а вокруг толпятся черви и крабы.' },
+      body: 'Из морского дна сочится горячая вода с химическими веществами, например сероводородом. Бактерии используют эту химическую энергию, чтобы создавать пищу, — примерно как растения используют свет. Трубчатые черви и крабы живут за счёт бактерий.',
+      chain: 'Вещества жерла → бактерии → трубчатые черви и крабы',
+      fine: 'Создавать пищу из химических веществ, а не из света, называется хемосинтезом. Такие жерла находятся глубоко в тёмном океане, куда не доходит солнечный свет.' },
+    secrets: { everest: ['Эверест в желобе', 'Опусти самую высокую гору в самое глубокое место.'], squeeze: ['Сжатие', 'Посмотри, что глубокая вода делает со стаканчиком из пенопласта.'] },
+    quiz: [
+      { q: 'Какие три основные зоны у океана, сверху вниз?', opts: ['Солнечная, сумеречная, полуночная', 'Солнечная, песчаная, коралловая', 'Мелкая, каменистая, ледяная'], ok: 0 },
+      { q: 'Почему большая часть морской жизни держится у поверхности?', opts: ['Рыбы не любят темноту', 'Растениям и водорослям нужен солнечный свет, чтобы создавать пищу', 'Наверху вода солонее'], ok: 1 },
+      { q: 'Как животные живут у глубоководного жерла, куда не доходит солнечный свет?', opts: ['Каждую ночь поднимаются наверх поесть', 'Собирают солнечный свет в раковинах', 'Бактерии используют химическую энергию жерла как пищу'], ok: 2 },
+    ] },
+  hu: { name: 'Az óceán mélységei', title: 'Az óceán a világok lépcsője',
+    lines: [['Húzd lefelé a csúszkát,', 'és merülj a felszíntől a Föld legmélyebb pontjáig.'], ['Irányítsd a lámpát balra-jobbra,', 'hogy megtaláld az állatokat a sötétben.']],
+    views: { dive: '🤿 Merülés', glow: '✨ Fény', vents: '🌋 Kürtők' },
+    ask: 'Milyen mélyre jut le a napfény az óceánban?', opts: ['Egészen a fenékig', 'Kb. 1 km-ig, azon túl teljes sötétség', 'Csak 1 méterre'],
+    right: 'Pontosan! A fény gyorsan elhal: 200 m-nél alig marad, 1 km alatt pedig semmi. Nézzük meg!', wrong: 'Sokan ezt gondolják! Merülj le, és figyeld a fényt.', go: 'Merülj',
+    m: 'm', atm: 'atm',
+    chips: { surf: 'Felszín', bottom: '≈ 11 km', auto: '▶ Auto', stop: '⏸ Állj', everest: '🏔️ Everest', squeeze: '🥤 Nyomás' },
+    lightLabel: 'Megmaradó fény', pressLabel: 'Nyomás', pressNote: '1 atm = a most körülötted lévő légnyomás',
+    steer: 'Mozgasd az egeret vagy az ujjad balra-jobbra, és irányítsd a lámpát', sea: 'tengerszint',
+    zoneShort: { sun: 'napfény', twi: 'szürkület', mid: 'éjfél', aby: 'mélység', tre: 'árkok' },
+    zoneName: { sun: 'NAPFÉNY', twi: 'SZÜRKÜLET', mid: 'ÉJFÉL', aby: 'MÉLYSÉG', tre: 'ÁRKOK' },
+    zones: {
+      sun: ['Napfényzóna · 0–200 m', 'Itt bőven van fény, ezért a növények és az algák megélnek, és az óceáni élet nagy része itt él.', 'A fény gyorsan fogy: 40 m-nél már csak nagyjából a harmada marad (egyszerűsített modell). Itt vadásznak a delfinek és a tonhalak.'],
+      twi: ['Szürkületi zóna · 200–1000 m', 'Csak halvány kék derengés marad, a növényeknek ez kevés.', 'Az itteni állatoknak nagy szemük van, vagy maguk termelnek fényt. A nyomás 20–100-szor akkora, mint a felszínen.'],
+      mid: ['Éjféli zóna · 1000–4000 m', 'Napfény soha nem jut le. Az egyetlen fényt az állatok állítják elő.', 'A nyomás 100–400-szor akkora, mint a felszínen. A horgászhalak világító csalit lengetnek a fekete vízben.'],
+      aby: ['A mélység · 4000–6000 m', 'Hideg, sötét és nagy a nyomás: 400–600-szor akkora, mint a légnyomás.', 'Kevés a táplálék. Elpusztult növények és állatok maradványai hullanak alá, mint a hó.'],
+      tre: ['Mélytengeri árkok · 6000 m alatt', 'A Föld legmélyebb helyei, közel 11 km-ig.', 'A nyomás akár 1100-szoros. Puha, kocsonyás halak élnek itt: a testükben nincs légüreg, amit összenyomhatna a víz.'],
+    },
+    animals: { dolphin: 'Delfin', tuna: 'Tonhal', jelly: 'Medúza', lantern: 'Lámpáshal', squid: 'Óriáskalmár (ritkán látni)', whale: 'Ámbráscet (1 km-nél mélyebbre is lemerül)', angler: 'Horgászhal', snail: 'Csigahal' },
+    fineDive: 'Egyszerűsített modell: fény = e^(−mélység ÷ 40 m), tiszta óceánvízhez hasonlóan. Nyomás: kb. +1 atmoszféra minden 10 m tengervíz után. Zónák: NOAA. Legmélyebb pont: Challenger-mélység ≈ 10 935 m (NOAA). A mélységskála a felszín közelében széthúzott. Az állatokat jellemző mélységben rajzoltuk; sokan vándorolnak a zónák között.',
+    ev: { title: 'Everest a Challenger-mélységben', pill: 'Challenger-mélység ≈ 10 935 m', everest: 'Mount Everest', water: 'víz', floor: 'Challenger-mélység',
+      lead: (g) => g <= 0 ? `A csúcs még ${fmt(-g)} m magasan a víz fölé nyúlik.` : `A csúcs a víz alatt van: ${fmt(g)} m mélyen.`,
+      body: (g) => g <= 0 ? 'Engedd tovább lefelé a hegyet az árokba.' : g < 200 ? 'A napfény még eléri a csúcsot.' : g < 1000 ? 'A csúcsot csak halvány szürkületi fény éri el.' : 'A csúcsig nem jut le napfény: ott sötét van.',
+      sub: (g) => g > 0 ? 'víz a csúcs fölött' : 'a csúcs a víz fölött',
+      sum: (g) => `8849 m + ${fmt(g)} m = 10 935 m`,
+      fine: 'Everest: 8849 m a tengerszint felett (hivatalos magasság). Challenger-mélység ≈ 10 935 m (NOAA). Gondolatkísérlet, méretarányosan rajzolva.' },
+    sq: { title: 'A nyomás ereje', lead: 'A mélyvíz összenyomja a dolgokat. A hungarocell pohár összemegy!', body: 'A hungarocell pohár apró légbuborékokkal van tele. A nyomás összenyomja a buborékokat, így az egész pohár kisebb lesz. Egy tömör fémdarab alig változna.',
+      cup0: 'pohár a felszínen', cup1: 'ugyanaz a pohár idelent', sub: 'mélység', fine: 'Egyszerűsített rajz: a pontos méret a pohártól függ.' },
+    glow: { hint: 'Koppints egy állatra, hogy világítson', below: 'ragadozó nézete alulról',
+      names: { angler: 'Horgászhal', hatchet: 'Fejszehal', jelly: 'Mélytengeri medúza' },
+      chips: { lure: '🎣 Csali', hide: '🫥 Álcázás', alarm: '🚨 Riasztó' }, pill: { lure: 'csali', hide: 'álcázás', alarm: 'riasztás' },
+      states: {
+        lure: ['Horgászhal: lámpás a csalihoz', 'Világító csalival hívja a zsákmányt.', 'A teljes sötétben kevés a táplálék. A csaliban világító baktériumok élnek; a kis állatok közelebb úsznak, a horgászhal pedig vár. Koppints, és kigyullad.'],
+        hide: ['Fejszehal: fények, amelyek elrejtik', 'A hasán világít, hogy eltűnjön.', 'Fentről még halvány fény szűrődik le. Alulról nézve a hal sötét árnyék ennek a fénynek a hátterében. A hasán lévő, ugyanolyan erős fények eltüntetik az árnyékot. Ezt hívják ellenvilágításnak. Koppints a bekapcsoláshoz.'],
+        alarm: ['Mélytengeri medúza: villogó riasztó', 'Támadáskor fényt villant.', 'A villanás megijesztheti a támadót, vagy odahívhat egy nagyobb állatot, amely megeszi a támadót. A kutatók ezt „betörésjelzőnek” nevezik. Koppints, és felvillan.'],
+      },
+      fine: 'A biolumineszcencia az a fény, amelyet az élőlények kémiai reakcióval állítanak elő. Sok mélytengeri állat képes rá. A horgászhal csalija a benne élő baktériumoknak köszönhetően világít.' },
+    vents: { title: 'Kürtő: élet napfény nélkül', sun: 'Napfény itt: nincs', hot: 'forró, vegyi anyagos víz', worms: 'csőférgek', bac: 'baktériumok',
+      chips: { off: '🧊 Ki', weak: '♨️ Gyenge', strong: '🔥 Erős' }, sub: 'a kürtő energiája',
+      lead: { off: 'A kürtő elcsendesedett: a baktériumoknak alig van mit enniük, ezért kevés állat él itt.', weak: 'Kevés kémiai energia: néhány baktérium és néhány féreg.', strong: 'Sok kémiai energia: a baktériumok burjánzanak, a férgek és a rákok tömegével gyűlnek köré.' },
+      body: 'A tengerfenékből forró, vegyi anyagokban – például kén-hidrogénben – gazdag víz szivárog. A baktériumok ebből a kémiai energiából állítanak elő táplálékot, nagyjából úgy, ahogy a növények a fényből. A csőférgek és a rákok a baktériumokból élnek.',
+      chain: 'A kürtő vegyi anyagai → baktériumok → csőférgek és rákok',
+      fine: 'A táplálék előállítását vegyi anyagokból, fény helyett, kemoszintézisnek hívják. A kürtők a sötét óceán mélyén vannak, ahová nem jut napfény.' },
+    secrets: { everest: ['Everest az árokban', 'Engedd le a legmagasabb hegyet a legmélyebb pontra.'], squeeze: ['A nyomás ereje', 'Nézd meg, mit tesz a mélyvíz egy hungarocell pohárral.'] },
+    quiz: [
+      { q: 'Melyik az óceán három fő zónája fentről lefelé?', opts: ['Napfény-, szürkületi és éjféli zóna', 'Napfény-, homok- és korallzóna', 'Sekély, sziklás és jeges zóna'], ok: 0 },
+      { q: 'Miért él az óceáni élet nagy része a felszín közelében?', opts: ['A halak nem szeretik a sötétet', 'A növényeknek és az algáknak napfény kell a táplálékuk előállításához', 'Fent sósabb a víz'], ok: 1 },
+      { q: 'Hogyan élhetnek állatok a mélytengeri kürtőnél, ahová nem jut napfény?', opts: ['Minden éjjel felúsznak enni', 'A héjukban gyűjtik a napfényt', 'Baktériumok a kürtő kémiai energiájából állítanak elő táplálékot'], ok: 2 },
+    ] },
+};
+const TOPICS = [
+  { id: 'mt_sQpIV0-qY7', en: 'Ocean Depth Zones', ru: 'Глубинные зоны океана', hu: 'Az óceán mélységi övei' },
+  { id: 'mt_dRCnJEIwk4', en: 'Deep-Sea Creatures', ru: 'Глубоководные существа', hu: 'Mélytengeri élőlények' },
+  { id: 'mt_6Wx--Du8j3', en: 'Deep-Sea Life Without Sunlight', ru: 'Жизнь в глубинах моря без солнечного света', hu: 'Mélytengeri élet napfény nélkül' },
+];
+const fmt = (n, d = 0) => new Intl.NumberFormat(lang, { minimumFractionDigits: d, maximumFractionDigits: d }).format(n);
+
+// ---------------------------------------------------------------- model
+const MAXD = 10935, EVER = 8849;
+const BP_D = [0, 200, 1000, 4000, 6000, MAXD], BP_P = [0, .18, .38, .62, .8, 1]; // stretched depth scale (piecewise linear)
+const interp = (x, X, Y) => { let i = 1; while (i < X.length - 1 && x > X[i]) i++; return Y[i - 1] + (Y[i] - Y[i - 1]) * (x - X[i - 1]) / (X[i] - X[i - 1]); };
+const dOf = (p) => interp(clamp(p, 0, 1), BP_P, BP_D), pOf = (d) => interp(clamp(d, 0, MAXD), BP_D, BP_P);
+const lightPct = (d) => 100 * Math.exp(-Math.max(d, 0) / 40);         // simplified clear-water model
+const atmOf = (d) => 1 + d / 10;                                      // about +1 atm per 10 m
+const vis = (d) => d <= 0 ? 1 : Math.pow(clamp(1 - d / 1013, 0, 1), 3); // how bright it looks (log of the light, 11 decades)
+const ZK = ['sun', 'twi', 'mid', 'aby', 'tre'], ZB = [0, 200, 1000, 4000, 6000, MAXD];
+const zoneOf = (d) => ZK[d < 200 ? 0 : d < 1000 ? 1 : d < 4000 ? 2 : d < 6000 ? 3 : 4];
+const ZEMO = { sun: '☀️', twi: '🌆', mid: '🌑', aby: '🕳️', tre: '🔻' };
+const ZCOL = { sun: '#ffd166', twi: '#ff9f45', mid: '#ff7a59', aby: '#ff6b8a', tre: '#e85d9c' };
+const sqScale = (d) => 1 - .7 * (1 - Math.exp(-d / 1500));
+const mix = (a, b, t) => a.map((v, i) => Math.round(lerp(v, b[i], t)));
+const water = (v) => { const deep = [3, 6, 18], mid = [18, 100, 160], top = [64, 190, 232]; const c = v < .5 ? mix(deep, mid, v / .5) : mix(mid, top, (v - .5) / .5); return `rgb(${c})`; };
+
+// ---------------------------------------------------------------- state
+const S = { p: 0, pT: 0, lower: 0, lowerT: 0, auto: false, secret: null, subX: .5, subTX: .5, subDir: 1, steered: false,
+  glowSel: 'lure', hide: false, gH: 0, lureT: -99, alarmT: -99, tapped: false, e: .8, eT: .8,
+  answered: store.get('ocean-depths:asked', false), answer: null,
+  snow: Array.from({ length: 70 }, () => ({ x: Math.random(), y: Math.random(), par: .4 + Math.random() * 1.2, sp: 3 + Math.random() * 8, ph: Math.random() * 6 })),
+  prey: [{ x: .42, y: .84, hx: .42, hy: .84 }, { x: .1, y: .4, hx: .1, hy: .4 }, { x: .36, y: .5, hx: .36, hy: .5 }],
+  vp: [], acc: 0, bac: Array.from({ length: 70 }, () => ({ u: Math.random() * 2 - 1, t: Math.random(), ph: Math.random() * 6 })),
+  worms: Array.from({ length: 12 }, (_, i) => ({ dx: (i % 2 ? 1 : -1) * (.2 + .13 * Math.floor(i / 2) + Math.random() * .04), hh: .5 + Math.random() * .5, ph: Math.random() * 6 })),
+  L: null };
+const lab = shell({ key: 'ocean-depths', T, topics: TOPICS, views: ['dive', 'glow', 'vents'], onLang: () => { render(); }, onView: () => { render(); } });
+const secret = secretLab('ocean-depths', () => ({
+  secrets: [{ emo: '🏔️', title: T[lang].secrets.everest[0], desc: T[lang].secrets.everest[1] }, { emo: '🥤', title: T[lang].secrets.squeeze[0], desc: T[lang].secrets.squeeze[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+const cur = () => S.secret === 'everest' ? 'lower' : 'p';
+$('ctrlBody').innerHTML = `<input type="range" class="big" id="slider" min="0" max="1000" value="0"><div class="chips" id="chips"></div>`;
+$('slider').addEventListener('input', () => {
+  const v = +$('slider').value / 1000; S.auto = false;
+  if (lab.view === 'vents') { S.e = S.eT = v; } else if (lab.view === 'dive') { S[cur()] = S[cur() + 'T'] = v; }
+  sfx.tick();
+});
+const setDepth = (d) => { if (S.secret === 'everest') S.lowerT = d / MAXD; else S.pT = pOf(d); };
+const trigger = (k) => {
+  const now = performance.now() / 1000; S.glowSel = k; S.tapped = true;
+  if (k === 'lure') S.lureT = now; else if (k === 'alarm') S.alarmT = now; else S.hide = !S.hide;
+  sfx.snap();
+};
+$('chips').addEventListener('click', (ev) => {
+  const k = ev.target.closest('.chip')?.dataset.k; if (!k) return;
+  if (k === 'everest' || k === 'squeeze') {
+    if (!secret.unlocked()) return secret.open();
+    S.secret = S.secret === k ? null : k; S.auto = false;
+    if (S.secret === 'everest') S.lower = S.lowerT = 0;
+  } else if (/^d\d+$/.test(k)) { setDepth(+k.slice(1)); S.auto = false; }
+  else if (k === 'auto') { S.auto = !S.auto; if (S.auto && S[cur()] > .995) S[cur()] = S[cur() + 'T'] = 0; }
+  else if (k === 'lure' || k === 'hide' || k === 'alarm') trigger(k);
+  else if (k === 'off' || k === 'weak' || k === 'strong') S.eT = { off: 0, weak: .35, strong: .85 }[k];
+  sfx.click(); render();
+});
+
+const ask = Object.assign(document.createElement('div'), { className: 'ask card' });
+$('overlay').append(ask);
+ask.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  if (b.dataset.a) { S.answer = +b.dataset.a; (S.answer === 1 ? sfx.good : sfx.bad)(); }
+  else { S.answered = true; store.set('ocean-depths:asked', true); }
+  render();
+});
+
+// ---------------------------------------------------------------- text + chips
+let sig = '';
+function updateText() {
+  const t = T[lang], v = lab.view; let r, s;
+  if (v === 'dive' && S.secret === 'everest') {
+    const gap = Math.round(S.lower * MAXD - EVER), e = t.ev;
+    r = [fmt(Math.abs(gap)) + ` <small>${t.m}</small>`, e.sub(gap), e.pill, '#ffd166'];
+    s = { emo: '🏔️', title: e.title, lead: e.lead(gap), body: e.body(gap), extra: (S.lower > .995 ? `<div class="kv"><span>=</span><b>${esc(e.sum(gap))}</b></div>` : '') + `<div class="fine">${esc(e.fine)}</div>` };
+  } else if (v === 'dive' && S.secret === 'squeeze') {
+    const d = dOf(S.p), q = t.sq, dd = S.p > .999 ? MAXD : Math.round(d / (d < 200 ? 1 : d < 1000 ? 5 : 10)) * (d < 200 ? 1 : d < 1000 ? 5 : 10);
+    r = [fmt(dd) + ` <small>${t.m}</small>`, q.sub, `${fmt(Math.round(atmOf(dd)))} ${t.atm}`, '#ff9f45'];
+    s = { emo: '🥤', title: q.title, lead: q.lead, body: q.body, extra: `<div class="fine">${esc(q.fine)}</div>` };
+  } else if (v === 'dive') {
+    const d = dOf(S.p), zk = zoneOf(d), z = t.zones[zk];
+    const dd = S.p > .999 ? MAXD : Math.round(d / (d < 200 ? 1 : d < 1000 ? 5 : 10)) * (d < 200 ? 1 : d < 1000 ? 5 : 10);
+    const pc = lightPct(d), ls = (pc >= 10 ? fmt(pc) : pc >= 1 ? fmt(pc, 1) : pc >= .01 ? fmt(pc, 2) : '<0.01') + ' %';
+    r = [fmt(dd) + ` <small>${t.m}</small>`, `${t.lightLabel}: ${ls}`, t.zoneShort[zk], ZCOL[zk]];
+    s = { emo: ZEMO[zk], title: z[0], lead: z[1], body: z[2],
+      extra: `<div class="kv"><span>☀️ ${esc(t.lightLabel)}</span><b>${esc(ls)}</b></div><div class="kv"><span>⚖️ ${esc(t.pressLabel)} · ${esc(t.pressNote)}</span><b>${fmt(Math.round(atmOf(d)))} ${esc(t.atm)}</b></div><div class="fine">${esc(t.fineDive)}</div>` };
+  } else if (v === 'glow') {
+    const g = t.glow, k = S.glowSel, st = g.states[k];
+    r = [{ lure: '🎣', hide: '🫥', alarm: '🚨' }[k], g.names[{ lure: 'angler', hide: 'hatchet', alarm: 'jelly' }[k]], g.pill[k], '#5ef0d0'];
+    s = { emo: '✨', title: st[0], lead: st[1], body: st[2], extra: `<div class="fine">${esc(g.fine)}</div>` };
+  } else {
+    const x = t.vents, lv = S.e < .15 ? 'off' : S.e < .6 ? 'weak' : 'strong';
+    r = [`${fmt(Math.round(S.e * 100))} %`, x.sub, '', '#ff7a3d'];
+    s = { emo: '🌋', title: x.title, lead: x.lead[lv], body: x.body, extra: `<div class="chain">${esc(x.chain)}</div><div class="fine">${esc(x.fine)}</div>` };
+  }
+  const key = JSON.stringify([lang, v, r, s]); if (key === sig) return; sig = key;
+  lab.setReadout(...r); lab.setState(s);
+  lab.setGlow(v === 'glow' ? 'rgba(94,240,208,.18)' : v === 'vents' ? 'rgba(255,122,61,.2)' : 'rgba(78,168,255,.18)');
+}
+function chipsHTML() {
+  const t = T[lang], open = secret.unlocked(), v = lab.view;
+  const ch = (k, label, on) => `<button class="chip ${on ? 'on' : ''}" data-k="${k}">${esc(label)}</button>`;
+  const sc = (k) => `<button class="chip secret ${open ? 'open' : ''} ${S.secret === k ? 'on' : ''}" data-k="${k}">${open ? esc(t.chips[k]) : '🔒 ???'}</button>`;
+  if (v === 'dive') return [sc('everest'), ch('d0', t.chips.surf), ch('d200', `${fmt(200)} ${t.m}`), ch('d1000', `${fmt(1000)} ${t.m}`), ch('d4000', `${fmt(4000)} ${t.m}`), ch('d10935', t.chips.bottom), ch('auto', S.auto ? t.chips.stop : t.chips.auto, S.auto), sc('squeeze')].join('');
+  if (v === 'glow') return ['lure', 'hide', 'alarm'].map((k) => ch(k, t.glow.chips[k], S.glowSel === k)).join('');
+  return ['off', 'weak', 'strong'].map((k) => ch(k, t.vents.chips[k], false)).join('');
+}
+function render() {
+  const t = T[lang];
+  $('chips').innerHTML = chipsHTML();
+  $('slider').style.display = lab.view === 'glow' ? 'none' : '';
+  sig = ''; updateText();
+  ask.style.display = S.answered ? 'none' : '';
+  if (!S.answered) ask.innerHTML = S.answer === null
+    ? `<div class="q">${esc(t.ask)}</div><div class="opts">${t.opts.map((o, i) => `<button data-a="${i}">${esc(o)}</button>`).join('')}</div>`
+    : `<div class="q" style="color:${S.answer === 1 ? 'var(--ok)' : 'var(--wip)'}">${esc(S.answer === 1 ? t.right : t.wrong)}</div><div class="opts"><button>${esc(t.go)} →</button></div>`;
+}
+
+// ---------------------------------------------------------------- drawing helpers
+const FONT = (s, w = 800) => `${w} ${s}px Nunito, system-ui, sans-serif`;
+function txt(c, s, x, y, size, color = '#fff', align = 'left', alpha = 1, w = 800) {
+  c.save(); c.font = FONT(size, w); c.textAlign = align; c.globalAlpha = alpha; c.fillStyle = color; c.shadowColor = 'rgba(0,10,30,.7)'; c.shadowBlur = 3; c.fillText(s, x, y); c.restore();
+}
+function glowDot(c, x, y, r, rgb, a = 1) {
+  const g = c.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(${rgb},${a})`); g.addColorStop(.35, `rgba(${rgb},${a * .35})`); g.addColorStop(1, `rgba(${rgb},0)`);
+  c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, 6.3); c.fill();
+}
+function fish(c, u, { rx = 1, ry = .45, tail = .7, col, fin, eye = true }) {
+  c.fillStyle = col; c.beginPath(); c.ellipse(0, 0, rx * u, ry * u, 0, 0, 6.3); c.fill();
+  c.beginPath(); c.moveTo(-rx * u * .8, 0); c.lineTo(-(rx + tail) * u, -ry * u * .9); c.lineTo(-(rx + tail) * u, ry * u * .9); c.closePath(); c.fill();
+  if (fin) { c.fillStyle = fin; c.beginPath(); c.moveTo(-.2 * rx * u, -ry * u * .9); c.lineTo(.1 * rx * u, -ry * u * 1.55); c.lineTo(.4 * rx * u, -ry * u * .85); c.fill(); }
+  if (eye) { c.fillStyle = '#0a1020'; c.beginPath(); c.arc(rx * u * .62, -ry * u * .15, ry * u * .22, 0, 6.3); c.fill(); c.fillStyle = '#fff'; c.beginPath(); c.arc(rx * u * .66, -ry * u * .22, ry * u * .08, 0, 6.3); c.fill(); }
+}
+const A = {
+  dolphin: (c, u) => { fish(c, u, { rx: 1.3, ry: .42, tail: .6, col: '#86a9c2', fin: '#6f93ad' }); c.fillStyle = '#86a9c2'; c.beginPath(); c.moveTo(1.2 * u, -.1 * u); c.lineTo(1.95 * u, .06 * u); c.lineTo(1.2 * u, .17 * u); c.fill(); },
+  tuna: (c, u) => fish(c, u, { rx: 1.1, ry: .38, tail: .65, col: '#5d7fa3', fin: '#e8c547' }),
+  snail: (c, u) => fish(c, u, { rx: .8, ry: .36, tail: 1.0, col: '#e8b8b0', fin: '#f3d0ca' }),
+  lantern: (c, u, t) => { fish(c, u, { rx: .85, ry: .3, tail: .5, col: '#4a5f7a' }); c.globalAlpha = 1; for (let i = 0; i < 6; i++) glowDot(c, (-.5 + i * .22) * u, .2 * u, u * (.2 + .04 * Math.sin(t * 3 + i)), '120,255,230', .9); },
+  jelly: (c, u, t) => {
+    const k = 1 + .08 * Math.sin(t * 3); c.save(); c.scale(1, k);
+    c.fillStyle = 'rgba(255,160,190,.8)'; c.beginPath(); c.arc(0, 0, u, Math.PI, 0); c.quadraticCurveTo(0, .4 * u, -u, 0); c.fill(); c.restore();
+    c.strokeStyle = 'rgba(255,190,210,.75)'; c.lineWidth = u * .06;
+    for (let i = 0; i < 6; i++) { const x0 = (-.7 + i * .28) * u; c.beginPath(); c.moveTo(x0, .05 * u); for (let s = 1; s <= 6; s++) c.lineTo(x0 + Math.sin(t * 2 + i + s * .8) * .09 * u, s * .24 * u); c.stroke(); }
+  },
+  squid: (c, u, t) => {
+    c.fillStyle = '#b4483f'; c.beginPath(); c.ellipse(-.9 * u, 0, 1.4 * u, .42 * u, 0, 0, 6.3); c.fill();
+    c.beginPath(); c.moveTo(-2.2 * u, 0); c.lineTo(-2.7 * u, -.55 * u); c.lineTo(-2.7 * u, .55 * u); c.closePath(); c.fill();
+    c.beginPath(); c.arc(.65 * u, 0, .38 * u, 0, 6.3); c.fill();
+    c.fillStyle = '#f2d36b'; c.beginPath(); c.arc(.7 * u, -.1 * u, .17 * u, 0, 6.3); c.fill(); c.fillStyle = '#000'; c.beginPath(); c.arc(.72 * u, -.1 * u, .08 * u, 0, 6.3); c.fill();
+    c.strokeStyle = '#c85a4d'; c.lineWidth = u * .08; c.lineCap = 'round';
+    for (let i = 0; i < 8; i++) { const y0 = (-.28 + i * .08) * u, L = (i === 3 || i === 4) ? 2.4 : 1.4; c.beginPath(); c.moveTo(.95 * u, y0); c.quadraticCurveTo((.95 + L * .5) * u, y0 + Math.sin(t * 2 + i) * .22 * u, (.95 + L) * u, y0 + Math.sin(t * 2 + i + 1) * .3 * u); c.stroke(); }
+  },
+  whale: (c, u) => {
+    c.fillStyle = '#6c7b86'; c.beginPath(); c.ellipse(0, 0, 2.3 * u, .75 * u, 0, 0, 6.3); c.fill();
+    c.beginPath(); c.moveTo(.4 * u, -.8 * u); c.lineTo(2.35 * u, -.75 * u); c.quadraticCurveTo(2.8 * u, -.1 * u, 2.35 * u, .6 * u); c.lineTo(.4 * u, .7 * u); c.closePath(); c.fill();
+    c.beginPath(); c.moveTo(-2 * u, -.15 * u); c.lineTo(-3 * u, -.75 * u); c.lineTo(-2.7 * u, 0); c.lineTo(-3 * u, .75 * u); c.lineTo(-2 * u, .15 * u); c.closePath(); c.fill();
+    c.strokeStyle = '#b9c6cf'; c.lineWidth = u * .05; c.beginPath(); c.moveTo(2.5 * u, .3 * u); c.lineTo(.9 * u, .45 * u); c.stroke();
+    c.fillStyle = '#10161c'; c.beginPath(); c.arc(1.9 * u, .2 * u, .07 * u, 0, 6.3); c.fill();
+  },
+  angler: (c, u, t, g = .5) => {
+    c.fillStyle = '#3b3a4a'; c.beginPath(); c.ellipse(0, 0, 1.05 * u, .85 * u, 0, 0, 6.3); c.fill();
+    c.beginPath(); c.moveTo(-.9 * u, 0); c.lineTo(-1.8 * u, -.55 * u); c.lineTo(-1.8 * u, .55 * u); c.closePath(); c.fill();
+    c.fillStyle = '#0b0b12'; c.beginPath(); c.moveTo(1 * u, -.25 * u); c.quadraticCurveTo(1.2 * u, .4 * u, .35 * u, .68 * u); c.lineTo(.4 * u, .1 * u); c.closePath(); c.fill();
+    c.fillStyle = '#e9eef5'; for (let i = 0; i < 5; i++) { const tx = (.98 - i * .12) * u, ty = (.0 + i * .12) * u; c.beginPath(); c.moveTo(tx, ty); c.lineTo(tx - .05 * u, ty + .13 * u); c.lineTo(tx - .11 * u, ty); c.fill(); }
+    c.fillStyle = '#e8e2c8'; c.beginPath(); c.arc(.5 * u, -.28 * u, .16 * u, 0, 6.3); c.fill(); c.fillStyle = '#000'; c.beginPath(); c.arc(.54 * u, -.28 * u, .08 * u, 0, 6.3); c.fill();
+    c.strokeStyle = '#4a4a60'; c.lineWidth = u * .07; c.beginPath(); c.moveTo(.4 * u, -.78 * u); c.quadraticCurveTo(.6 * u, -1.65 * u, 1.05 * u, -1.45 * u); c.stroke();
+    c.globalAlpha = 1; glowDot(c, 1.05 * u, -1.45 * u, u * (.3 + g * 1.2), '120,255,220', .25 + .75 * g);
+    c.fillStyle = g > .05 ? '#bffff0' : '#5a6a66'; c.beginPath(); c.arc(1.05 * u, -1.45 * u, u * .1, 0, 6.3); c.fill();
+  },
+};
+const DIVERS = [
+  ['dolphin', 25, .3, .075, .45], ['tuna', 95, .72, .06, .6], ['jelly', 300, .22, .06, .5], ['lantern', 520, .72, .05, .6, 1], ['lantern', 760, .3, .045, .5, 1, 1],
+  ['squid', 900, .74, .045, .35], ['whale', 1150, .3, .05, .25], ['angler', 2200, .62, .07, .4, 1], ['snail', 7200, .38, .06, .4],
+];
+function drawSub(c, x, y, sz, dir, time) {
+  c.save(); c.translate(x, y + Math.sin(time * 1.5) * sz * .15); c.scale(dir, 1);
+  c.fillStyle = '#c9a227'; c.fillRect(-2.05 * sz, -.45 * sz, .3 * sz, .9 * sz);
+  c.fillStyle = '#ffcf3a'; c.beginPath(); c.ellipse(0, 0, 1.8 * sz, .85 * sz, 0, 0, 6.3); c.fill();
+  c.fillRect(-.35 * sz, -1.2 * sz, .7 * sz, .5 * sz);
+  c.fillStyle = '#bfefff'; c.beginPath(); c.arc(.75 * sz, -.05 * sz, .4 * sz, 0, 6.3); c.fill(); c.strokeStyle = '#7a5f00'; c.lineWidth = sz * .12; c.stroke();
+  c.fillStyle = '#fff6c8'; c.fillRect(1.65 * sz, -.05 * sz, .3 * sz, .3 * sz);
+  c.restore();
+}
+function snow(c, w, h, time, shift, alpha) {
+  c.fillStyle = '#cfe8ff';
+  for (const q of S.snow) {
+    const y = (((q.y * h - shift * q.par + time * q.sp) % h) + h) % h, x = q.x * w + Math.sin(time * .5 + q.ph) * 8;
+    c.globalAlpha = typeof alpha === 'function' ? alpha(x, y) * .6 : alpha; if (c.globalAlpha > .02) c.fillRect(x, y, 1.8 * q.par, 1.8 * q.par);
+  }
+  c.globalAlpha = 1;
+}
+
+// ---------------------------------------------------------------- dive scene
+function drawDive(c, w, h, dt, time) {
+  const t = T[lang], U = Math.min(w, h), fs = clamp(w / 40, 10, 14), win = .3, sy = h * .3, ppx = h / win;
+  const yP = (p) => sy + (p - S.p) * ppx, yD = (d) => yP(pOf(d));
+  const g = c.createLinearGradient(0, 0, 0, h);
+  for (let i = 0; i <= 20; i++) { const f = i / 20, p = S.p + (f * h - sy) / ppx; g.addColorStop(f, water(vis(p <= 0 ? 0 : dOf(p)))); }
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+  const y0 = yP(0);
+  if (y0 > -h * .4) { // light rays
+    c.fillStyle = 'rgba(255,255,255,.05)'; const L = ppx * .12;
+    for (let i = 0; i < 5; i++) { const x = w * (.1 + .2 * i) + Math.sin(time * .3 + i) * 12; c.beginPath(); c.moveTo(x, y0); c.lineTo(x + 34, y0); c.lineTo(x + 90, y0 + L); c.lineTo(x + 20, y0 + L); c.fill(); }
+  }
+  if (y0 > 0) { // sky + waves
+    const sk = c.createLinearGradient(0, 0, 0, y0); sk.addColorStop(0, '#6fc3ee'); sk.addColorStop(1, '#d6f0fb'); c.fillStyle = sk; c.fillRect(0, 0, w, y0);
+    glowDot(c, w * .82, Math.min(y0 * .5, y0 - 20), U * .12, '255,236,160', .9);
+    c.strokeStyle = 'rgba(255,255,255,.7)'; c.lineWidth = 2; c.beginPath();
+    for (let x = 0; x <= w; x += 6) { const y = y0 + Math.sin(x / 22 + time * 1.5) * 2.5; x ? c.lineTo(x, y) : c.moveTo(x, y); } c.stroke();
+  }
+  const yF = yP(1); // sea floor
+  if (yF < h) {
+    c.fillStyle = '#1b1613'; c.beginPath(); c.moveTo(0, h);
+    for (let x = 0; x <= w; x += 8) c.lineTo(x, yF + 4 + Math.sin(x / 31) * 4 + Math.sin(x / 11) * 2); c.lineTo(w, h); c.fill();
+    txt(c, `${t.ev.floor} ≈ ${fmt(MAXD)} ${t.m}`, w / 2, yF - 8, fs, '#ffd9b0', 'center');
+  }
+  // sub + lamp
+  S.subX += (S.subTX - S.subX) * (1 - Math.exp(-dt * 6)); if (Math.abs(S.subTX - S.subX) > .003) S.subDir = S.subTX > S.subX ? 1 : -1;
+  const sx = w * S.subX, R = U * .55, lx = sx + S.subDir * R * .3, d0 = dOf(S.p), amb0 = vis(d0);
+  snow(c, w, h, time, S.p * ppx, (x, y) => Math.max(vis(dOf(S.p + (y - sy) / ppx)), clamp(1 - Math.hypot(x - lx, y - sy) / R, 0, 1)));
+  if (amb0 < .95) { c.save(); c.globalCompositeOperation = 'lighter'; glowDot(c, lx, sy, R, '255,236,170', .32 * (1 - amb0)); c.restore(); }
+  // animals
+  for (const [k, d, fx, sz, sp, self, nolabel] of DIVERS) {
+    const y = yD(d); if (y < -60 || y > h + 60) continue;
+    const ph = d * .013, x = w * fx + Math.sin(time * sp + ph) * w * .04, dir = Math.cos(time * sp + ph) >= 0 ? 1 : -1, u = U * sz;
+    const al = clamp(Math.max(vis(d), clamp(1 - Math.hypot(x - lx, y - sy) / R, 0, 1) * 1.1), 0, 1);
+    c.save(); c.translate(x, y); c.scale(dir, 1); c.globalAlpha = al; A[k](c, u, time, .4 + .3 * Math.sin(time * 2 + ph)); c.restore();
+    if (!nolabel && Math.max(al, self ? .6 : 0) > .4) txt(c, t.animals[k], x, y + u * (k === 'jelly' ? 2 : 1.35) + fs, fs * .95, '#fff', 'center', Math.max(al, self ? .7 : 0));
+  }
+  drawSub(c, sx, sy, Math.max(9, U * .05), S.subDir, time);
+  // zone lines + labels + ruler
+  c.save(); c.setLineDash([5, 6]); c.strokeStyle = 'rgba(255,255,255,.28)'; c.lineWidth = 1;
+  for (const d of [200, 1000, 4000, 6000]) { const y = yD(d); if (y > -2 && y < h + 2) { c.beginPath(); c.moveTo(0, y); c.lineTo(w, y); c.stroke(); } }
+  c.restore();
+  ZK.forEach((zk, i) => {
+    const a = Math.max(yD(ZB[i]), 0), b = Math.min(yD(ZB[i + 1]), yF < h ? yF : h); if (b - a < 26) return;
+    txt(c, t.zoneName[zk], 8, clamp(h * .09, a + fs + 2, b - 6), fs, ZCOL[zk], 'left', .95, 900);
+  });
+  for (const d of [0, 50, 100, 150, 200, 400, 600, 800, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000, MAXD]) {
+    const y = yD(d); if (y < 8 || y > h - 4) continue;
+    c.fillStyle = 'rgba(255,255,255,.5)'; c.fillRect(w - 6, y, 6, 1); txt(c, fmt(d), w - 9, y + 3, fs * .8, '#fff', 'right', .6, 700);
+  }
+  c.fillStyle = '#fff'; c.beginPath(); c.moveTo(w - 14, sy); c.lineTo(w - 24, sy - 6); c.lineTo(w - 24, sy + 6); c.fill();
+  if (y0 > -20 && y0 < h) txt(c, t.sea, 8, y0 + fs + 4, fs * .9, '#fff', 'left', .8, 700);
+  if (!S.steered && amb0 < .45) txt(c, t.steer, w / 2, h - 12, fs, '#ffe8a8', 'center', .9 * (.6 + .4 * Math.sin(time * 3)));
+}
+
+// ---------------------------------------------------------------- Everest in the trench
+function drawEverest(c, w, h, dt, time) {
+  const t = T[lang], U = Math.min(w, h * 1.2), fs = clamp(w / 40, 10, 14), top = h * .07, bot = h * .93, k = (bot - top) / (EVER + MAXD);
+  const yD = (d) => top + (EVER + d) * k, y0 = yD(0), yF = yD(MAXD);
+  const sk = c.createLinearGradient(0, top, 0, y0); sk.addColorStop(0, '#2e6fa8'); sk.addColorStop(1, '#bfe6f8'); c.fillStyle = sk; c.fillRect(0, 0, w, y0);
+  const g = c.createLinearGradient(0, y0, 0, bot);
+  for (let i = 0; i <= 40; i++) g.addColorStop(i / 40, water(vis(i / 40 * MAXD)));
+  c.fillStyle = g; c.fillRect(0, y0, w, bot - y0);
+  c.fillStyle = '#1b1613'; c.fillRect(0, yF, w, h - yF);
+  const cx = w * .5, bw = Math.min(w * .27, h * .32), b = S.lower * MAXD, yB = yD(b), yPk = yD(b - EVER), gap = Math.round(b - EVER);
+  const pts = [[-1, 0], [-.62, .33], [-.48, .28], [-.22, .7], [0, 1], [.16, .8], [.3, .62], [.52, .4], [.72, .24], [1, 0]];
+  const path = () => { c.beginPath(); pts.forEach(([fx, fy], i) => { const x = cx + fx * bw, y = yB - fy * (yB - yPk); i ? c.lineTo(x, y) : c.moveTo(x, y); }); c.closePath(); };
+  c.save(); path(); c.fillStyle = '#6a6470'; c.fill(); c.clip();
+  c.fillStyle = '#f2f6fa'; c.fillRect(cx - bw, yPk, bw * 2, (yB - yPk) * .2);
+  c.fillStyle = 'rgba(2,16,44,.62)'; if (yB > y0) c.fillRect(cx - bw, y0, bw * 2, yB - y0);
+  c.restore();
+  c.save(); c.setLineDash([5, 6]); c.strokeStyle = 'rgba(255,255,255,.7)'; c.beginPath(); c.moveTo(0, y0); c.lineTo(w, y0); c.stroke(); c.restore();
+  txt(c, t.sea, 8, y0 - 5, fs * .9, '#fff', 'left', .9, 700);
+  txt(c, `${t.ev.floor} ≈ ${fmt(MAXD)} ${t.m}`, w / 2, bot - 6, fs, '#ffd9b0', 'center');
+  // dimension lines
+  const dim = (x, ya, yb, label, align, col) => {
+    if (Math.abs(yb - ya) < 3) return; c.strokeStyle = col; c.lineWidth = 2; c.beginPath(); c.moveTo(x, ya); c.lineTo(x, yb); c.moveTo(x - 4, ya); c.lineTo(x + 4, ya); c.moveTo(x - 4, yb); c.lineTo(x + 4, yb); c.stroke();
+    const my = (ya + yb) / 2, tx = align === 'left' ? x + 8 : x - 8;
+    label.forEach((l, i) => txt(c, l, tx, my + (i - (label.length - 1) / 2) * (fs + 2) + 4, fs, col, align));
+  };
+  dim(cx + bw + 12, yPk, yB, [t.ev.everest, `${fmt(EVER)} ${t.m}`], 'left', '#ffe8a8');
+  dim(cx - bw - 12, Math.min(y0, yPk), Math.max(y0, yPk), [`${fmt(Math.abs(gap))} ${t.m}`, gap > 0 ? t.ev.water : '↑'], 'right', '#9fe3ff');
+}
+
+// ---------------------------------------------------------------- the squeeze
+function drawSqueeze(c, w, h, dt, time) {
+  const t = T[lang], U = Math.min(w, h), fs = clamp(w / 40, 10, 14), d = dOf(S.p), v = vis(d);
+  c.fillStyle = water(v * .75); c.fillRect(0, 0, w, h);
+  snow(c, w, h, time, S.p * h * 3, .35);
+  const cx = w / 2, cy = h * .5, cw = U * .3, ch = U * .36, s = sqScale(d);
+  const cup = (sc, fill, stroke, dash) => {
+    const tw = cw * sc, bwd = cw * .68 * sc, hh = ch * sc, y1 = cy - hh / 2, y2 = cy + hh / 2;
+    c.beginPath(); c.moveTo(cx - tw / 2, y1); c.lineTo(cx + tw / 2, y1); c.lineTo(cx + bwd / 2, y2); c.lineTo(cx - bwd / 2, y2); c.closePath();
+    if (fill) { c.fillStyle = fill; c.fill(); }
+    c.save(); if (dash) c.setLineDash([6, 6]); c.strokeStyle = stroke; c.lineWidth = 2; c.stroke(); c.restore();
+    return { y1, y2, tw, bwd, hh };
+  };
+  cup(1, null, 'rgba(255,255,255,.45)', true);
+  const q = cup(s, '#f1ede4', '#bdb6a6', false);
+  c.strokeStyle = 'rgba(0,0,0,.12)'; c.lineWidth = 1.5; for (let i = 1; i < 4; i++) { const y = q.y1 + q.hh * i / 4, k2 = i / 4, wd = lerp(q.tw, q.bwd, k2); c.beginPath(); c.moveTo(cx - wd / 2, y); c.lineTo(cx + wd / 2, y); c.stroke(); }
+  const fy = cy + q.hh * .05, fr = q.hh * .09; // smile
+  c.fillStyle = '#334'; c.beginPath(); c.arc(cx - fr * 1.6, fy - fr, fr * .3, 0, 6.3); c.arc(cx + fr * 1.6, fy - fr, fr * .3, 0, 6.3); c.fill();
+  c.strokeStyle = '#334'; c.lineWidth = Math.max(1.5, fr * .25); c.beginPath(); c.arc(cx, fy, fr * 1.6, .15 * Math.PI, .85 * Math.PI); c.stroke();
+  // pressure arrows
+  const press = clamp(Math.log10(atmOf(d)) / 3.05, 0, 1), pulse = (time * 1.6) % 1;
+  c.strokeStyle = `rgba(255,170,120,${.25 + .6 * press})`; c.fillStyle = c.strokeStyle; c.lineWidth = 2;
+  for (let i = 0; i < 10; i++) {
+    const a = i / 10 * 6.283, r1 = U * .34 - pulse * U * .04 * (1 + press), r0 = r1 + U * (.02 + .06 * press);
+    const ex = cx + Math.cos(a) * r1, ey = cy + Math.sin(a) * r1 * .9, sx = cx + Math.cos(a) * r0, sy2 = cy + Math.sin(a) * r0 * .9;
+    c.beginPath(); c.moveTo(sx, sy2); c.lineTo(ex, ey); c.stroke(); c.beginPath(); c.arc(ex, ey, 3, 0, 6.3); c.fill();
+  }
+  txt(c, t.sq.cup0, cx, h * .5 - ch / 2 - 10, fs, '#fff', 'center', .75);
+  txt(c, t.sq.cup1, cx, h * .5 + ch / 2 + fs + 8, fs, '#ffe8a8', 'center');
+  txt(c, `${fmt(Math.round(d))} ${t.m}`, 10, fs + 8, fs * 1.2, '#fff', 'left');
+}
+
+// ---------------------------------------------------------------- glow scene
+function glowLayout(w, h) {
+  const U = Math.min(w, h * 1.25);
+  return { U, angler: { x: w * .22, y: h * .7, u: U * .085 }, hatchet: { x: w * .5, y: h * .22, u: U * .075 }, jelly: { x: w * .81, y: h * .58, u: U * .08 }, inset: { x: w * .5, y: h * .56, r: U * .1 } };
+}
+function drawGlow(c, w, h, dt, time) {
+  const t = T[lang], gt = t.glow, L = glowLayout(w, h), U = L.U, fs = clamp(w / 40, 10, 14); S.L = L;
+  const bg = c.createLinearGradient(0, 0, 0, h); bg.addColorStop(0, '#04122b'); bg.addColorStop(.5, '#020a1c'); bg.addColorStop(1, '#01040b'); c.fillStyle = bg; c.fillRect(0, 0, w, h);
+  const sk = c.createLinearGradient(0, 0, 0, h * .6); sk.addColorStop(0, 'rgba(50,120,210,.24)'); sk.addColorStop(1, 'rgba(50,120,210,0)'); c.fillStyle = sk; c.fillRect(0, 0, w, h * .6);
+  snow(c, w, h, time, 0, .22);
+  const ageL = time - S.lureT, gL = (ageL < 0 ? 0 : ageL < .3 ? ageL / .3 : ageL < 4.5 ? 1 : ageL < 5.5 ? 5.5 - ageL : 0) * (.9 + .1 * Math.sin(time * 5));
+  S.gH += ((S.hide ? 1 : 0) - S.gH) * (1 - Math.exp(-dt * 5));
+  // prey drawn to the lure
+  const an = L.angler, lureX = an.x + 1.05 * an.u, lureY = an.y - 1.45 * an.u;
+  S.prey.forEach((p, i) => {
+    const hunt = gL > .2, tx = hunt ? (lureX + Math.cos(time + i * 2) * an.u * .9) / w : p.hx + Math.sin(time * .5 + i) * .03, ty = hunt ? (lureY + Math.sin(time * 1.3 + i * 2) * an.u * .6) / h : p.hy + Math.cos(time * .4 + i) * .03;
+    const ox = p.x; p.x += (tx - p.x) * (1 - Math.exp(-dt * (hunt ? 1.3 : .5))); p.y += (ty - p.y) * (1 - Math.exp(-dt * (hunt ? 1.3 : .5)));
+    c.save(); c.translate(p.x * w, p.y * h); c.scale(p.x >= ox ? 1 : -1, 1); c.globalAlpha = .55 + .35 * gL; fish(c, U * .02, { rx: 1, ry: .4, tail: .6, col: '#8fa6c4' }); c.restore();
+  });
+  // anglerfish
+  c.save(); c.translate(an.x, an.y); c.globalAlpha = .55 + .4 * gL; A.angler(c, an.u, time, gL); c.restore();
+  // hatchetfish
+  const ha = L.hatchet, hg = S.gH;
+  c.save(); c.translate(ha.x, ha.y); const u = ha.u;
+  c.fillStyle = '#9fb4c8'; c.globalAlpha = .75; c.beginPath(); c.ellipse(0, 0, .6 * u, .8 * u, 0, 0, 6.3); c.fill();
+  c.beginPath(); c.moveTo(-.4 * u, .3 * u); c.lineTo(-1 * u, .7 * u); c.lineTo(-1 * u, -.1 * u); c.closePath(); c.fill();
+  c.fillStyle = '#0a1020'; c.beginPath(); c.arc(.3 * u, -.25 * u, .12 * u, 0, 6.3); c.fill(); c.globalAlpha = 1;
+  for (let i = 0; i < 7; i++) { const x = (-.4 + i * .14) * u, y = (.62 - Math.abs(i - 3) * .02) * u; if (hg > .02) glowDot(c, x, y, u * (.14 + .22 * hg), '120,230,255', .25 + .75 * hg); c.fillStyle = hg > .5 ? '#e6fbff' : '#51728a'; c.beginPath(); c.arc(x, y, u * .06, 0, 6.3); c.fill(); }
+  c.restore();
+  // what a predator below sees
+  const ins = L.inset, bgc = [40, 110, 190], dk = [6, 16, 40], sc = mix(dk, bgc, hg);
+  c.save(); c.beginPath(); c.arc(ins.x, ins.y, ins.r, 0, 6.3); c.clip();
+  c.fillStyle = `rgb(${bgc})`; c.fillRect(ins.x - ins.r, ins.y - ins.r, ins.r * 2, ins.r * 2);
+  c.fillStyle = `rgb(${sc})`; c.beginPath(); c.ellipse(ins.x, ins.y, ins.r * .6, ins.r * .22, 0, 0, 6.3); c.fill(); c.beginPath(); c.moveTo(ins.x - ins.r * .45, ins.y); c.lineTo(ins.x - ins.r * .85, ins.y - ins.r * .2); c.lineTo(ins.x - ins.r * .85, ins.y + ins.r * .2); c.fill();
+  c.restore(); c.strokeStyle = 'rgba(255,255,255,.5)'; c.lineWidth = 2; c.beginPath(); c.arc(ins.x, ins.y, ins.r, 0, 6.3); c.stroke();
+  txt(c, gt.below, ins.x, ins.y + ins.r + fs + 4, fs * .9, '#cfe6ff', 'center', .85);
+  // jellyfish + alarm rings
+  const je = L.jelly;
+  for (let j = 0; j < 4; j++) { const age = time - S.alarmT - j * .32; if (age > 0 && age < 1.5) { c.strokeStyle = `rgba(110,210,255,${(1 - age / 1.5) * .85})`; c.lineWidth = 3; c.beginPath(); c.arc(je.x, je.y, age * U * .38 + je.u, 0, 6.3); c.stroke(); } }
+  const ag = clamp(1 - (time - S.alarmT) / 2, 0, 1) * (.6 + .4 * Math.sin(time * 18));
+  c.save(); c.translate(je.x, je.y); c.globalAlpha = .6 + .3 * ag; A.jelly(c, je.u, time); c.globalAlpha = 1;
+  if (ag > .02) for (let i = 0; i < 9; i++) { const a = Math.PI + i / 8 * Math.PI; glowDot(c, Math.cos(a) * je.u, Math.sin(a) * je.u, je.u * .45, '110,210,255', ag); } c.restore();
+  // labels
+  const nm = [['angler', an, 1.25], ['hatchet', ha, 1.25], ['jelly', je, 2.7]];
+  nm.forEach(([k, o, dy]) => { const sel = { angler: 'lure', hatchet: 'hide', jelly: 'alarm' }[k] === S.glowSel; txt(c, gt.names[k], o.x, o.y + o.u * dy + fs, fs, sel ? '#7ff5dc' : '#fff', 'center', sel ? 1 : .6); });
+  if (!S.tapped) { const o = L[{ lure: 'angler', hide: 'hatchet', alarm: 'jelly' }[S.glowSel]]; c.strokeStyle = `rgba(127,245,220,${.4 + .4 * Math.sin(time * 4)})`; c.lineWidth = 2; c.beginPath(); c.arc(o.x, o.y, o.u * 1.9 + Math.sin(time * 4) * 3, 0, 6.3); c.stroke(); txt(c, gt.hint, w / 2, h - 12, fs, '#7ff5dc', 'center'); }
+}
+
+// ---------------------------------------------------------------- vents scene
+function drawVents(c, w, h, dt, time) {
+  const t = T[lang], x = t.vents, U = Math.min(w, h * 1.25), fs = clamp(w / 40, 10, 14);
+  S.e += (S.eT - S.e) * (1 - Math.exp(-dt * 3)); const e = S.e;
+  const bg = c.createLinearGradient(0, 0, 0, h); bg.addColorStop(0, '#02050f'); bg.addColorStop(1, '#050c1c'); c.fillStyle = bg; c.fillRect(0, 0, w, h);
+  const cx = w * .5, yF = h * .84, chH = h * .42, chW = U * .2, yTop = yF - chH;
+  glowDot(c, cx, yTop, U * (.2 + .25 * e), '255,120,40', .12 + .45 * e);
+  glowDot(c, cx, yF, U * .45, '255,110,50', .06 + .16 * e);
+  snow(c, w, h, time, 0, .18);
+  // floor
+  c.fillStyle = '#1a1412'; c.beginPath(); c.moveTo(0, h); for (let px = 0; px <= w; px += 8) c.lineTo(px, yF + Math.sin(px / 37) * 5 + Math.sin(px / 13) * 2); c.lineTo(w, h); c.fill();
+  // chimney
+  c.fillStyle = '#2b2522'; c.beginPath(); c.moveTo(cx - chW * .55, yF + 4); c.lineTo(cx - chW * .28, yTop); c.lineTo(cx + chW * .28, yTop); c.lineTo(cx + chW * .55, yF + 4); c.closePath(); c.fill();
+  c.fillStyle = `rgba(255,120,40,${.15 + .5 * e})`; c.beginPath(); c.ellipse(cx, yTop, chW * .28, chW * .06, 0, 0, 6.3); c.fill();
+  // bacteria on the chimney
+  const nb = Math.round(70 * e);
+  for (let i = 0; i < nb; i++) { const b = S.bac[i], wd = lerp(chW * 1.1, chW * .56, b.t), px = cx + b.u * wd / 2 * 1.08, py = yF - b.t * chH + Math.sin(time * 2 + b.ph) * 1.5; glowDot(c, px, py, 4, '130,255,160', .65); c.fillStyle = '#c9ffd6'; c.fillRect(px - 1, py - 1, 2, 2); }
+  // plume particles
+  S.acc += dt * e * 36; while (S.acc > 1 && S.vp.length < 140) { S.acc -= 1; const chem = Math.random() < .3; S.vp.push({ x: cx + (Math.random() - .5) * chW * .3, y: yTop, vx: (Math.random() - .5) * U * .03 + U * .01, vy: -U * (.1 + Math.random() * .15), a: 0, life: 2.6 + Math.random() * 1.6, chem }); }
+  S.acc = Math.min(S.acc, 2);
+  S.vp = S.vp.filter((q) => (q.a += dt) < q.life);
+  for (const q of S.vp) {
+    q.x += (q.vx + Math.sin(q.a * 2 + q.x) * 4) * dt; q.y += q.vy * dt; q.vy *= (1 - dt * .25); const f = q.a / q.life;
+    if (q.chem) { c.fillStyle = `rgba(255,236,120,${(1 - f) * .9})`; c.beginPath(); c.arc(q.x, q.y, 2, 0, 6.3); c.fill(); }
+    else { c.fillStyle = `rgba(120,108,112,${(1 - f) * .3})`; c.beginPath(); c.arc(q.x, q.y, U * (.012 + .05 * f), 0, 6.3); c.fill(); }
+  }
+  // tube worms
+  const nw = Math.round(1 + 11 * e);
+  for (let i = 0; i < nw; i++) {
+    const wv = S.worms[i], px = cx + wv.dx * U * 1.1, hh = U * (.1 + .1 * wv.hh) * (.55 + .45 * e), sw = Math.sin(time * 1.3 + wv.ph) * U * .01;
+    c.strokeStyle = e > .15 ? '#f2eee4' : '#7c7a74'; c.lineWidth = U * .022; c.lineCap = 'round'; c.beginPath(); c.moveTo(px, yF + 3); c.quadraticCurveTo(px + sw, yF - hh * .5, px + sw * 1.6, yF - hh); c.stroke();
+    c.fillStyle = e > .15 ? '#ff4d5e' : '#7a3a40'; c.beginPath(); c.ellipse(px + sw * 1.6, yF - hh - U * .01, U * .014, U * .026, 0, 0, 6.3); c.fill();
+  }
+  // crabs
+  const ncr = e > .7 ? 3 : e > .35 ? 1 : 0;
+  for (let i = 0; i < ncr; i++) { const px = cx + (i - 1) * U * .32 + Math.sin(time * .4 + i * 2) * U * .06, py = yF + 10 + (i % 2) * 8; c.fillStyle = '#e8d9c8'; c.beginPath(); c.ellipse(px, py, U * .03, U * .02, 0, 0, 6.3); c.fill(); c.strokeStyle = '#e8d9c8'; c.lineWidth = 2; c.beginPath(); c.moveTo(px - U * .03, py); c.lineTo(px - U * .05, py - U * .02); c.moveTo(px + U * .03, py); c.lineTo(px + U * .05, py - U * .02); c.stroke(); }
+  // labels
+  txt(c, x.hot, cx, Math.max(yTop - U * .3, fs + 34), fs, '#ffd9b0', 'center', .9);
+  txt(c, x.bac, cx + chW * .75, yF - chH * .45, fs, '#a8ffc2', 'left', .85);
+  txt(c, x.worms, cx - U * .3, yF - U * .2, fs, '#fff', 'right', .85);
+  // no sunlight badge
+  c.save(); c.font = FONT(fs); const bw = Math.min(w - 20, c.measureText(x.sun).width + 34); c.fillStyle = 'rgba(10,20,40,.7)'; c.beginPath(); if (c.roundRect) c.roundRect(10, 10, bw, fs + 14, 10); else c.rect(10, 10, bw, fs + 14); c.fill(); c.restore();
+  c.fillStyle = '#ffd166'; c.beginPath(); c.arc(24, 10 + (fs + 14) / 2, 5, 0, 6.3); c.fill(); c.strokeStyle = '#ff5d5d'; c.lineWidth = 2; c.beginPath(); c.moveTo(17, 10 + (fs + 14) / 2 - 7); c.lineTo(31, 10 + (fs + 14) / 2 + 7); c.stroke();
+  txt(c, x.sun, 38, 10 + (fs + 14) / 2 + fs * .35, fs, '#fff', 'left');
+}
+
+// ---------------------------------------------------------------- loop + input
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  if (S.auto) { const k = cur(); S[k] = Math.min(1, S[k] + (k === 'p' ? .04 : .09) * dt); S[k + 'T'] = S[k]; if (S[k] >= 1) { S.auto = false; render(); } }
+  else if (lab.view === 'dive') { const e = 1 - Math.exp(-dt * 5); S.p += (S.pT - S.p) * e; S.lower += (S.lowerT - S.lower) * e; }
+  const sl = $('slider'), want = Math.round((lab.view === 'vents' ? S.e : S[cur()]) * 1000);
+  if (lab.view !== 'glow' && Math.abs(+sl.value - want) > 1) sl.value = want;
+  if (lab.view === 'dive') (S.secret === 'everest' ? drawEverest : S.secret === 'squeeze' ? drawSqueeze : drawDive)(c, w, h, dt, time);
+  else if (lab.view === 'glow') drawGlow(c, w, h, dt, time);
+  else drawVents(c, w, h, dt, time);
+  updateText();
+});
+$('cv').addEventListener('pointermove', (ev) => {
+  if (lab.view !== 'dive' || S.secret) return;
+  const r = $('cv').getBoundingClientRect(); S.subTX = clamp((ev.clientX - r.left) / r.width, .12, .88); S.steered = true;
+});
+$('cv').addEventListener('pointerdown', (ev) => {
+  const r = $('cv').getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+  if (lab.view === 'glow' && S.L) {
+    const L = S.L, cand = [['lure', L.angler], ['hide', L.hatchet], ['alarm', L.jelly]];
+    let best = null, bd = 1e9; for (const [k, o] of cand) { const d = Math.hypot(x - o.x, y - o.y); if (d < bd) { bd = d; best = k; } }
+    trigger(best); render();
+  } else if (lab.view === 'vents') {
+    if (Math.abs(x - r.width / 2) < r.width * .15) { S.eT = S.eT > .6 ? 0 : S.eT > .15 ? .85 : .35; sfx.click(); }
+  } else if (lab.view === 'dive' && !S.secret) { S.subTX = clamp(x / r.width, .12, .88); S.steered = true; }
+});
+render();
+</script>
+</body>
+</html>

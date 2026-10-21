@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Codes · Skill Graph</title>
+<meta name="description" content="Flip switches, tap out Morse code and paint pixels: any message can be sent as just on and off. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  @media (min-width: 1101px) { .lab { grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); grid-template-areas: 'hero stage' 'state stage' 'state ctrl'; } }
+  .ask { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); width: min(560px, calc(100% - 16px)); padding: 14px 16px; text-align: center; z-index: 3; }
+  .ask .q { font: 500 21px/1.2 var(--serif); color: #fff; margin-bottom: 10px; }
+  .ask .opts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .ask button { padding: 9px 14px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130,145,190,.1); font-weight: 800; cursor: pointer; }
+  .fine { margin-top: 8px; font-size: 11px; color: var(--faint); }
+  .extra p { margin: 0 0 6px; }
+  #ctrlBody { display: flex; flex-direction: column; gap: 10px; }
+  .tapbtn { width: 100%; height: 72px; border-radius: 20px; border: 1px solid rgba(255,138,61,.6); cursor: pointer; color: #fff;
+    background: linear-gradient(180deg, #ff9a52, #e8622a); font: 900 17px/1.15 var(--sans); padding: 0 14px;
+    box-shadow: 0 6px 0 #9c3f14, 0 10px 24px rgba(255,106,61,.25); touch-action: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+  .tapbtn.down { transform: translateY(5px); box-shadow: 0 1px 0 #9c3f14, 0 0 30px rgba(255,170,80,.55); filter: brightness(1.15); }
+  .txt { width: 100%; padding: 11px 14px; border-radius: 14px; border: 1px solid var(--stroke2); background: rgba(130,145,190,.08);
+    color: #fff; font: 800 20px var(--sans); letter-spacing: .04em; }
+  @media (max-width: 760px) { .ask .q { font-size: 17px; } }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, store, ruPlural, lang } from '../lab.js';
+
+const sup = (n) => String(n).split('').map((d) => '⁰¹²³⁴⁵⁶⁷⁸⁹'[+d]).join('');
+
+// 1. Words: every visible string, same keys in all three languages.
+const T = {
+  en: { name: 'Codes', title: 'Everything is on and off',
+    lines: [['Flip, tap and paint.', 'A letter, a number, a picture: all are just patterns of on and off.'], ['Computers do this', 'with every photo, song and message.']],
+    views: { sw: '💡 Switches', mo: '📡 Morse', px: '🖼️ Pixels' },
+    ask: 'How many different patterns can you make with 3 light switches?', opts: ['3', '6', '8'], ok: 2,
+    right: 'Yes, eight! Every extra switch doubles the patterns.', wrong: 'Not quite. Flip all three and count what you can make. Try it!', go: 'Show me',
+    sec: { s1: ['Letters as numbers', 'Type a word and see its codes'], s2: ['Catch the flip', 'A spare bit spots a mistake'] },
+    fine: { sw: 'A simplified model. The numbers under the bulbs, 1, 2, 4, 8 …, are how binary counting works.',
+            mo: 'Letters and digits: International Morse Code. Simplified timing: a tap under 0.25 s is short, a pause of 0.75 s ends a letter.',
+            px: 'A simplified model: 1 = pixel on, 0 = pixel off. Eight on/off values make one byte, a number from 0 to 255.',
+            s1: 'Codes: ASCII, the standard table of character codes (A = 65, a = 97).',
+            s2: 'A simplified model of even parity: the spare bit makes the number of ones even.' },
+    sw: { t: 'Switches make numbers', off: 'All off = 0',
+      cnt: (n, c) => `${n} ${n === 1 ? 'switch' : 'switches'} → 2${sup(n)} = ${c} patterns`, pat: (c) => `${c} patterns`,
+      body: (n, c) => `With ${n} ${n === 1 ? 'switch' : 'switches'} you can make ${c} different patterns (the numbers 0 to ${c - 1}). Add one more switch and you get twice as many.`,
+      goalT: (g) => `Make ${g}`, goalL: (g) => `Switch on bulbs that add up to ${g}.`, goalB: 'Each lit bulb adds the number under it. Try different ways!',
+      doneT: 'Got it!', doneB: 'Every number has exactly one pattern of switches.',
+      fewer: 'Fewer', more: 'More', clear: 'Clear', goal: '🎯 Challenge' },
+    mo: { t: 'Morse code', lead: 'Short and long taps spell letters.', body: 'Tap short (·) or long (−). Wait a moment and the letter appears. Try the SOS signal.',
+      cmp: 'Morse uses short and long signals plus pauses between letters. A computer needs only on and off.',
+      other: 'Flag signals (semaphore) and talking drums also send messages as patterns.',
+      tap: 'Tap here: quick = dot, hold = dash', short: 'short', long: 'long', pill: 'under 0.25 s = short', ph: 'Your message appears here',
+      soT: 'SOS sent!', soB: 'Three short, three long, three short: the famous distress signal.', sending: 'Sending…',
+      sos: '▶ SOS', mine: '▶ Mine', clr: 'Clear' },
+    px: { t: 'Pictures are numbers too', lead: 'Each row is 8 switches: one number from 0 to 255.',
+      body: (nums) => `The computer stores only these 8 numbers: ${nums}. It redraws the picture from them.`,
+      extra: 'Data you make every day, like photos, typed messages and voice recordings, is stored as numbers like these.',
+      size: 'pixels: 64 switches, 8 numbers', clr: 'Clear' },
+    s1: { t: 'Letters are numbers', body: 'People agreed on a table (ASCII) that gives every letter a number. The computer only holds the numbers. It knows what 65 means only because we gave it the table.',
+      hint: 'Try capital and small letters: they get different numbers.', ph: 'Type a word', empty: 'Type something above', sub: 'every letter is a number', space: 'space' },
+    s2: { t: 'Catch the flipped bit', sent: 'sent', recv: 'received', check: 'check', ones: (k) => `${k} ones`,
+      okL: 'Even number of ones: looks fine.', badL: 'Odd number of ones: a bit flipped! Ask to send it again.', hidL: 'Looks fine, but it is wrong! Two flips cancel out, so the check misses them.',
+      body: '7 bits make the letter. The 8th is a spare check bit that makes the number of ones even. Tap a received bit to flip it, like noise on the line.',
+      newl: 'New letter', noise: '⚡ Noise', reset: 'Reset' },
+    quiz: [{ q: 'How many different patterns can 4 switches make?', opts: ['16', '8', '32'], ok: 0 },
+           { q: 'Which one is the Morse code for SOS?', opts: ['−−−···−−−', '···−−−···', '·−·−·−'], ok: 1 },
+           { q: 'A computer has never been given a photo of your dog. What does it know about your dog?', opts: ['Everything, computers are smart', 'Only its name', 'Nothing: it only knows what it was given'], ok: 2 }] },
+  ru: { name: 'Коды', title: 'Всё — это «вкл» и «выкл»',
+    lines: [['Щёлкай, стучи, рисуй.', 'Буква, число, картинка — всё это просто узоры из «вкл» и «выкл».'], ['Так компьютеры хранят', 'каждое фото, песню и сообщение.']],
+    views: { sw: '💡 Выключатели', mo: '📡 Морзе', px: '🖼️ Пиксели' },
+    ask: 'Сколько разных узоров можно составить из 3 выключателей света?', opts: ['3', '6', '8'], ok: 2,
+    right: 'Да, восемь! Каждый новый выключатель удваивает число узоров.', wrong: 'Не совсем. Пощёлкай всеми тремя и посчитай. Попробуй!', go: 'Покажи',
+    sec: { s1: ['Буквы — это числа', 'Набери слово и увидь коды'], s2: ['Поймай ошибку', 'Запасной бит замечает сбой'] },
+    fine: { sw: 'Упрощённая модель. Числа под лампочками — 1, 2, 4, 8 … — так работает двоичный счёт.',
+            mo: 'Буквы и цифры: международная азбука Морзе (латиница). Упрощённое время: нажатие короче 0,25 с — короткое, пауза 0,75 с заканчивает букву.',
+            px: 'Упрощённая модель: 1 — пиксель включён, 0 — выключен. Восемь значений «вкл/выкл» дают один байт — число от 0 до 255.',
+            s1: 'Коды: ASCII, стандартная таблица кодов символов (A = 65, a = 97).',
+            s2: 'Упрощённая модель чётности: запасной бит делает число единиц чётным.' },
+    sw: { t: 'Выключатели делают числа', off: 'Всё выключено = 0',
+      cnt: (n, c) => `${n} ${ruPlural(n, 'выключатель', 'выключателя', 'выключателей')} → 2${sup(n)} = ${c} ${ruPlural(c, 'узор', 'узора', 'узоров')}`,
+      pat: (c) => `${c} ${ruPlural(c, 'узор', 'узора', 'узоров')}`,
+      body: (n, c) => `Выключателей: ${n}. Разных узоров: ${c} — это числа от 0 до ${c - 1}. Добавь ещё один выключатель, и узоров станет вдвое больше.`,
+      goalT: (g) => `Составь число ${g}`, goalL: (g) => `Включи лампочки, которые в сумме дают ${g}.`, goalB: 'Каждая горящая лампочка добавляет число под ней. Попробуй разные способы!',
+      doneT: 'Получилось!', doneB: 'У каждого числа свой единственный узор из выключателей.',
+      fewer: 'Меньше', more: 'Больше', clear: 'Сброс', goal: '🎯 Задача' },
+    mo: { t: 'Азбука Морзе', lead: 'Короткие и длинные нажатия складываются в буквы.', body: 'Нажимай коротко (·) или долго (−). Подожди чуть-чуть — и появится буква. Попробуй сигнал SOS.',
+      cmp: 'В азбуке Морзе есть короткие и длинные сигналы и ещё паузы между буквами. Компьютеру хватает только «вкл» и «выкл».',
+      other: 'Сигнальные флажки (семафор) и говорящие барабаны тоже передают сообщения узорами.',
+      tap: 'Нажми: быстро = точка, держи = тире', short: 'коротко', long: 'долго', pill: 'до 0,25 с = коротко', ph: 'Здесь появится сообщение',
+      soT: 'Сигнал SOS отправлен!', soB: 'Три коротких, три длинных, три коротких — всемирный сигнал бедствия.', sending: 'Передаю…',
+      sos: '▶ SOS', mine: '▶ Моё', clr: 'Стереть' },
+    px: { t: 'Картинки — тоже числа', lead: 'Каждая строка — 8 выключателей: одно число от 0 до 255.',
+      body: (nums) => `Компьютер хранит только эти 8 чисел: ${nums}. По ним он снова рисует картинку.`,
+      extra: 'Данные, которые ты создаёшь каждый день — фото, набранные сообщения, записи голоса — хранятся в виде таких чисел.',
+      size: 'пикселей: 64 выключателя, 8 чисел', clr: 'Очистить' },
+    s1: { t: 'Буквы — это числа', body: 'Люди договорились о таблице (ASCII), где у каждой буквы свой номер. Компьютер хранит только числа. Что значит 65, он знает лишь потому, что мы дали ему таблицу.',
+      hint: 'Попробуй большие и маленькие буквы: у них разные числа.', ph: 'Введи слово', empty: 'Введи что-нибудь выше', sub: 'каждая буква — число', space: 'пробел' },
+    s2: { t: 'Поймай перевёрнутый бит', sent: 'отправлено', recv: 'получено', check: 'проверка', ones: (k) => `единиц: ${k}`,
+      okL: 'Чётное число единиц — всё в порядке.', badL: 'Нечётное число единиц: бит перевернулся! Попроси прислать ещё раз.', hidL: 'Кажется, всё хорошо, но это ошибка! Два переворота отменяют друг друга, и проверка их не видит.',
+      body: '7 битов задают букву. Восьмой — запасной бит проверки: он делает число единиц чётным. Нажми на полученный бит, чтобы перевернуть его, как при помехах на линии.',
+      newl: 'Новая буква', noise: '⚡ Помеха', reset: 'Сначала' },
+    quiz: [{ q: 'Сколько разных узоров можно составить из 4 выключателей?', opts: ['16', '8', '32'], ok: 0 },
+           { q: 'Какой из этих сигналов — SOS по азбуке Морзе?', opts: ['−−−···−−−', '···−−−···', '·−·−·−'], ok: 1 },
+           { q: 'Компьютеру никогда не давали фото твоей собаки. Что он о ней знает?', opts: ['Всё: компьютеры умные', 'Только кличку', 'Ничего: он знает только то, что ему дали'], ok: 2 }] },
+  hu: { name: 'Kódok', title: 'Minden csak be és ki',
+    lines: [['Kapcsolgass, koppints, rajzolj.', 'Egy betű, egy szám, egy kép: mind csak be- és kikapcsolt jelek mintája.'], ['Így tárolnak a számítógépek', 'minden fényképet, dalt és üzenetet.']],
+    views: { sw: '💡 Kapcsolók', mo: '📡 Morze', px: '🖼️ Pixelek' },
+    ask: 'Hányféle különböző mintát tudsz kirakni 3 villanykapcsolóval?', opts: ['3', '6', '8'], ok: 2,
+    right: 'Igen, nyolcat! Minden új kapcsoló megkétszerezi a minták számát.', wrong: 'Nem egészen. Kapcsolgasd mind a hármat, és számold meg! Próbáld ki!', go: 'Mutasd',
+    sec: { s1: ['Betűk számként', 'Írj be egy szót, és nézd a kódjait'], s2: ['Kapd el a hibát', 'Egy pótbit észreveszi a tévedést'] },
+    fine: { sw: 'Egyszerűsített modell. Az égők alatti számok, 1, 2, 4, 8 …, a kettes számrendszer számolását mutatják.',
+            mo: 'Betűk és számjegyek: nemzetközi Morze-kód (latin betűk). Egyszerűsített időzítés: a 0,25 s alatti koppintás rövid, a 0,75 s szünet lezár egy betűt.',
+            px: 'Egyszerűsített modell: 1 = a pixel világít, 0 = nem világít. Nyolc be/ki érték egy bájtot ad, ami egy 0 és 255 közötti szám.',
+            s1: 'Kódok: ASCII, a karakterkódok szabványos táblázata (A = 65, a = 97).',
+            s2: 'A páros paritás egyszerűsített modellje: a pótbit párossá teszi az egyesek számát.' },
+    sw: { t: 'A kapcsolókból számok lesznek', off: 'Minden ki = 0',
+      cnt: (n, c) => `${n} kapcsoló → 2${sup(n)} = ${c} minta`, pat: (c) => `${c} minta`,
+      body: (n, c) => `${n} kapcsolóval ${c} különböző minta rakható ki (a 0–${c - 1} számok). Még egy kapcsoló, és kétszer annyi minta lesz.`,
+      goalT: (g) => `Rakd ki: ${g}`, goalL: (g) => `Kapcsold be az égőket úgy, hogy az összegük ${g} legyen.`, goalB: 'Minden égő hozzáadja az alatta álló számot. Próbálj ki többféle módot is!',
+      doneT: 'Megvan!', doneB: 'Minden számnak pontosan egy kapcsolómintája van.',
+      fewer: 'Kevesebb', more: 'Több', clear: 'Törlés', goal: '🎯 Feladat' },
+    mo: { t: 'Morze-kód', lead: 'A rövid és hosszú koppintásokból betűk lesznek.', body: 'Koppints röviden (·) vagy hosszan (−). Várj egy kicsit, és megjelenik a betű. Próbáld ki az SOS jelet.',
+      cmp: 'A Morze rövid és hosszú jeleket használ, plusz szüneteket a betűk között. A számítógépnek elég a be és a ki.',
+      other: 'A jelzőzászlók (szemafor) és a beszélő dobok is mintákkal küldenek üzenetet.',
+      tap: 'Koppints: gyors = pont, hosszú = vonás', short: 'rövid', long: 'hosszú', pill: '0,25 s alatt = rövid', ph: 'Itt jelenik meg az üzenet',
+      soT: 'Elküldted az SOS-t!', soB: 'Három rövid, három hosszú, három rövid: a világszerte ismert vészjel.', sending: 'Küldés…',
+      sos: '▶ SOS', mine: '▶ Az enyém', clr: 'Törlés' },
+    px: { t: 'A képek is számok', lead: 'Minden sor 8 kapcsoló: egy 0 és 255 közötti szám.',
+      body: (nums) => `A számítógép csak ezt a 8 számot tárolja: ${nums}. Ezekből rajzolja újra a képet.`,
+      extra: 'Az adatok, amiket naponta létrehozol, például fényképek, begépelt üzenetek és hangfelvételek, ilyen számokként tárolódnak.',
+      size: 'pixel: 64 kapcsoló, 8 szám', clr: 'Törlés' },
+    s1: { t: 'A betűk számok', body: 'Az emberek megegyeztek egy táblázatban (ASCII), amely minden betűnek ad egy számot. A számítógép csak a számokat tárolja. Azt, hogy mit jelent a 65, csak azért tudja, mert megkapta a táblázatot.',
+      hint: 'Próbálj ki nagy- és kisbetűket: más számot kapnak.', ph: 'Írj be egy szót', empty: 'Írj be valamit fent', sub: 'minden betű egy szám', space: 'szóköz' },
+    s2: { t: 'Kapd el a megfordult bitet', sent: 'elküldve', recv: 'megérkezett', check: 'ellenőrző', ones: (k) => `${k} darab 1-es`,
+      okL: 'Páros számú egyes: minden rendben.', badL: 'Páratlan számú egyes: egy bit megfordult! Kérd újra az adást.', hidL: 'Rendben lévőnek látszik, de hibás! Két megfordulás kioltja egymást, ezt az ellenőrzés nem veszi észre.',
+      body: '7 bit adja a betűt. A 8. egy pótbit, amely párossá teszi az egyesek számát. Koppints egy megérkezett bitre, hogy megfordítsd, mintha zaj lenne a vonalon.',
+      newl: 'Új betű', noise: '⚡ Zaj', reset: 'Újra' },
+    quiz: [{ q: 'Hányféle mintát tud kirakni 4 kapcsoló?', opts: ['16', '8', '32'], ok: 0 },
+           { q: 'Melyik az SOS Morze-kódja?', opts: ['−−−···−−−', '···−−−···', '·−·−·−'], ok: 1 },
+           { q: 'A számítógép sosem kapott fényképet a kutyádról. Mit tud róla?', opts: ['Mindent, a számítógépek okosak', 'Csak a nevét', 'Semmit: csak azt tudja, amit megkapott'], ok: 2 }] },
+};
+const TOPICS = [
+  { id: 'mt_n5_Jt4ExUd', en: 'Patterns & Codes for Information', ru: 'Узоры и коды для передачи информации', hu: 'Mintázatok és kódok az információhoz' },
+  { id: 'mt_kH1DzOPsXG', en: 'Data and Information for Computers', ru: 'Данные и информация для компьютеров', hu: 'Adatok és információk a számítógépek számára' },
+];
+
+// International Morse Code (standard table); '.' = short, '-' = long
+const MORSE = { A: '.-', B: '-...', C: '-.-.', D: '-..', E: '.', F: '..-.', G: '--.', H: '....', I: '..', J: '.---', K: '-.-', L: '.-..', M: '--', N: '-.', O: '---', P: '.--.', Q: '--.-', R: '.-.', S: '...', T: '-', U: '..-', V: '...-', W: '.--', X: '-..-', Y: '-.--', Z: '--..',
+  0: '-----', 1: '.----', 2: '..---', 3: '...--', 4: '....-', 5: '.....', 6: '-....', 7: '--...', 8: '---..', 9: '----.' };
+const CHARS = Object.keys(MORSE);
+const DEC = Object.fromEntries(CHARS.map((k) => [MORSE[k], k]));
+const pretty = (s) => [...s].map((x) => (x === '.' ? '·' : '−')).join(' ');
+
+const PRESETS = {
+  smile: ['..####..', '.#....#.', '#.#..#.#', '#......#', '#.#..#.#', '#..##..#', '.#....#.', '..####..'],
+  heart: ['.##..##.', '########', '########', '########', '.######.', '..####..', '...##...', '........'],
+  A: ['...##...', '..####..', '.##..##.', '.##..##.', '.######.', '.##..##.', '.##..##.', '........'],
+  arrow: ['...##...', '..####..', '.######.', '########', '...##...', '...##...', '...##...', '...##...'],
+};
+const rowsOf = (p) => p.map((r) => parseInt(r.replace(/\./g, '0').replace(/#/g, '1'), 2));
+
+const YEL = '#ffcf4a';
+const FONT = (s, wt = 800) => `${wt} ${s}px Nunito, ui-rounded, system-ui, sans-serif`;
+const MONO = (s) => `700 ${s}px ui-monospace, Menlo, Consolas, monospace`;
+const nf = () => new Intl.NumberFormat(lang);
+
+// 2. State + shell
+const S = { answered: store.get('codes:asked', false), answer: null, secret: null,
+  n: 3, bits: Array(8).fill(0), anim: Array(8).fill(0), target: null, goals: 0, wasDone: false,
+  rows: rowsOf(PRESETS.smile), scanT: 0, paint: null,
+  word: 'HI', sent: [], recv: [], ch: 'K' };
+const M = { sym: '', msg: '', down: 0, t1: 0, t2: 0, timers: [], play: null, lampA: 0, sos: false };
+
+const lab = shell({ key: 'codes', T, topics: TOPICS, views: ['sw', 'mo', 'px'], onLang: () => { render(); }, onView: () => { S.secret = null; stopPlay(); render(); } });
+const secret = secretLab('codes', () => ({
+  secrets: [{ emo: '🔤', title: T[lang].sec.s1[0], desc: T[lang].sec.s1[1] }, { emo: '🛰️', title: T[lang].sec.s2[0], desc: T[lang].sec.s2[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `<button class="tapbtn" id="tap"></button><input class="txt" id="word" maxlength="5" autocomplete="off" autocapitalize="off" spellcheck="false"><div class="chips" id="chips"></div>`;
+$('word').addEventListener('input', () => {
+  S.word = [...$('word').value].filter((ch) => ch.charCodeAt(0) >= 32 && ch.charCodeAt(0) < 127).slice(0, 5).join('');
+  sfx.tick(); render();
+});
+
+const ask = Object.assign(document.createElement('div'), { className: 'ask card' });
+$('overlay').append(ask);
+ask.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  if (b.dataset.a) { S.answer = +b.dataset.a; (S.answer === T[lang].ok ? sfx.good : sfx.bad)(); }
+  else { S.answered = true; store.set('codes:asked', true); }
+  render();
+});
+
+// ---- switches ----------------------------------------------------------------------------------------------
+const value = () => { let v = 0; for (let i = 0; i < S.n; i++) v += S.bits[i] << i; return v; };
+const setBits = (v) => { for (let i = 0; i < 8; i++) S.bits[i] = i < S.n ? (v >> i) & 1 : 0; };
+function newGoal() {
+  const c = 1 << S.n;
+  if (S.goals === 0) { S.n = Math.max(S.n, 4); setBits(0); S.target = 13; }
+  else { let g; do g = 1 + Math.floor(Math.random() * (c - 1)); while (g === S.target || g === value()); S.target = g; }
+  S.goals++; S.wasDone = false;
+}
+function laySw(w, h) {
+  const n = S.n, c = 1 << n, colW = Math.min((w - 24) / n, 96), x0 = (w - colW * n) / 2, H1 = h * 0.58;
+  const cols = Math.min(c, 16), rows = Math.ceil(c / cols), zy = H1 + 26, zh = h - zy - 8;
+  const cs = Math.max(3, Math.min(26, (w - 24) / cols, zh / rows));
+  return { n, c, colW, x0, H1, cols, rows, cs, gx: (w - cs * cols) / 2, gy: zy + (zh - cs * rows) / 2 };
+}
+function rr(c, x, y, w, h, r) { c.beginPath(); if (c.roundRect) c.roundRect(x, y, w, h, r); else c.rect(x, y, w, h); }
+function bulb(c, x, y, r, k, col = YEL) {
+  c.save();
+  c.beginPath(); c.arc(x, y, r, 0, 7); c.fillStyle = '#1b2033'; c.fill();
+  if (k > 0.02) { c.globalAlpha = k; c.shadowColor = col; c.shadowBlur = r * 1.6; c.fillStyle = col; c.fill(); c.shadowBlur = 0;
+    c.fillStyle = 'rgba(255,255,255,.55)'; c.beginPath(); c.arc(x - r * 0.3, y - r * 0.3, r * 0.28, 0, 7); c.fill(); }
+  c.restore();
+  c.beginPath(); c.arc(x, y, r, 0, 7); c.strokeStyle = 'rgba(130,145,190,.4)'; c.lineWidth = 1.5; c.stroke();
+}
+function drawSw(c, w, h, dt) {
+  const t = T[lang], L = laySw(w, h), val = value();
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  for (let k = 0; k < L.n; k++) {
+    const i = L.n - 1 - k, a = (S.anim[i] += ((S.bits[i] ? 1 : 0) - S.anim[i]) * Math.min(1, dt * 14)), cx = L.x0 + (k + 0.5) * L.colW;
+    bulb(c, cx, L.H1 * 0.2, Math.min(L.colW * 0.3, L.H1 * 0.15, 30), a);
+    const sw = Math.min(L.colW * 0.5, 40), sh = Math.min(L.H1 * 0.3, 58), sy = L.H1 * 0.52 - sh / 2, kr = sw * 0.4;
+    c.fillStyle = a > 0.5 ? 'rgba(255,207,74,.22)' : 'rgba(130,145,190,.14)'; rr(c, cx - sw / 2, sy, sw, sh, sw / 2); c.fill();
+    c.strokeStyle = a > 0.5 ? 'rgba(255,207,74,.6)' : 'rgba(130,145,190,.35)'; c.lineWidth = 1.5; c.stroke();
+    c.beginPath(); c.arc(cx, lerp(sy + sh - kr - 3, sy + kr + 3, a), kr, 0, 7); c.fillStyle = a > 0.5 ? YEL : '#8892ab'; c.fill();
+    c.fillStyle = a > 0.5 ? YEL : '#646C84'; c.font = FONT(Math.min(L.colW * 0.36, 22)); c.fillText(1 << i, cx, L.H1 * 0.86);
+  }
+  c.fillStyle = '#C6CDE0'; c.font = FONT(Math.max(11, Math.min(14, w / 26))); c.fillText(t.sw.cnt(L.n, L.c), w / 2, L.H1 + 10);
+  for (let v = 0; v < L.c; v++) {
+    const x = L.gx + (v % L.cols) * L.cs, y = L.gy + Math.floor(v / L.cols) * L.cs, on = v === val;
+    c.fillStyle = on ? YEL : 'rgba(130,145,190,.22)'; rr(c, x + 1, y + 1, L.cs - 2, L.cs - 2, Math.min(4, L.cs / 4)); c.fill();
+    if (S.target === v) { c.strokeStyle = '#3ddc97'; c.lineWidth = 2; c.stroke(); }
+    if (L.cs >= 17) { c.fillStyle = on ? '#10131f' : '#98A0B8'; c.font = FONT(L.cs * 0.42); c.fillText(v, x + L.cs / 2, y + L.cs / 2); }
+  }
+}
+function hitSw(x, y) {
+  const w = $('cv').clientWidth, h = $('cv').clientHeight, L = laySw(w, h);
+  if (y < L.H1) {
+    const k = Math.floor((x - L.x0) / L.colW); if (k < 0 || k >= L.n) return;
+    S.bits[L.n - 1 - k] ^= 1; sfx.snap();
+  } else {
+    const col = Math.floor((x - L.gx) / L.cs), row = Math.floor((y - L.gy) / L.cs), v = row * L.cols + col;
+    if (col < 0 || col >= L.cols || row < 0 || v < 0 || v >= L.c) return;
+    setBits(v); sfx.click();
+  }
+  render();
+}
+
+// ---- Morse -------------------------------------------------------------------------------------------------
+function commit() { if (!M.sym) return; M.msg = (M.msg + (DEC[M.sym] ?? '?')).slice(-30); M.sym = ''; M.sos = /SOS$/.test(M.msg.trim()); if (M.sos) sfx.good(); render(); }
+function stopPlay() { M.timers.forEach(clearTimeout); M.timers = []; M.play = null; }
+function pressStart() {
+  if (M.down) return;
+  stopPlay(); clearTimeout(M.t1); clearTimeout(M.t2);
+  if (M.sym.length >= 5) commit();
+  M.down = performance.now(); $('tap').classList.add('down'); sfx.click(); render();
+}
+function pressEnd() {
+  if (!M.down) return;
+  const d = performance.now() - M.down; M.down = 0; $('tap').classList.remove('down');
+  M.sym += d < 250 ? '.' : '-';
+  M.t1 = setTimeout(commit, 750);
+  M.t2 = setTimeout(() => { if (M.msg && !M.msg.endsWith(' ')) { M.msg += ' '; render(); } }, 2000);
+  render();
+}
+function playText(txt) {
+  stopPlay(); const U = 170, segs = []; let tt = 0;
+  txt.trim().split(/\s+/).forEach((word, wi) => {
+    if (wi) tt += 7 * U;
+    [...word].forEach((ch, ci) => {
+      const code = MORSE[ch]; if (!code) return;
+      if (ci) tt += 3 * U;
+      [...code].forEach((s, si) => { if (si) tt += U; const d = (s === '.' ? 1 : 3) * U; segs.push({ a: tt, b: tt + d, ch }); tt += d; });
+    });
+  });
+  if (!segs.length) return;
+  M.play = { segs, start: performance.now(), end: tt + 400 };
+  segs.forEach((sg) => M.timers.push(setTimeout(() => sfx.click(), sg.a)));
+  render();
+}
+const tapEl = $('tap');
+tapEl.addEventListener('pointerdown', (ev) => { ev.preventDefault(); try { tapEl.setPointerCapture(ev.pointerId); } catch { /* fine */ } pressStart(); });
+tapEl.addEventListener('pointerup', pressEnd);
+tapEl.addEventListener('pointercancel', pressEnd);
+tapEl.addEventListener('keydown', (ev) => { if ((ev.key === ' ' || ev.key === 'Enter') && !ev.repeat) { ev.preventDefault(); pressStart(); } });
+tapEl.addEventListener('keyup', (ev) => { if (ev.key === ' ' || ev.key === 'Enter') { ev.preventDefault(); pressEnd(); } });
+
+function glyph(c, code, x, yc, D, col) {
+  c.fillStyle = col;
+  for (const s of code) {
+    if (s === '.') { c.beginPath(); c.arc(x + D / 2, yc, D / 2, 0, 7); c.fill(); x += D * 1.9; }
+    else { rr(c, x, yc - D / 2, D * 2.4, D, D / 2); c.fill(); x += D * 3.3; }
+  }
+  return x;
+}
+function drawMo(c, w, h, dt) {
+  const t = T[lang], now = performance.now(), Ht = h * 0.4;
+  let lamp = M.down ? 1 : 0, playCh = null;
+  if (M.play) {
+    const e = now - M.play.start;
+    if (e > M.play.end) { M.play = null; render(); }
+    else for (const sg of M.play.segs) { if (e >= sg.a) { playCh = sg.ch; lamp = e < sg.b ? 1 : lamp; } }
+  }
+  M.lampA += (lamp - M.lampA) * Math.min(1, dt * 25);
+  const r = Math.min(Ht * 0.36, w * 0.12), lx = 14 + r, ly = Ht * 0.5, x1 = lx + r + 18, rw = w - x1 - 12;
+  bulb(c, lx, ly, r, M.lampA, '#ffb02e');
+  c.textBaseline = 'middle'; c.textAlign = 'left';
+  // row 1: the signal being typed / sent, decoded live
+  const code = playCh ? MORSE[playCh] : M.sym, D = Math.min(Ht * 0.1, 11), y1 = Ht * 0.25;
+  if (code) {
+    const ex = glyph(c, code, x1, y1, D, '#fff');
+    c.fillStyle = '#ffb02e'; c.font = FONT(Math.min(Ht * 0.22, 28)); c.fillText('→ ' + (playCh ?? DEC[code] ?? '?'), ex + 6, y1);
+  } else { c.fillStyle = '#646C84'; c.font = FONT(Math.min(Ht * 0.2, 22)); c.fillText('· − · −', x1, y1); }
+  // row 2: the message
+  const fs = Math.max(15, Math.min(Ht * 0.2, w / 16, 26));
+  c.font = FONT(fs); let msg = M.play ? '' : M.msg;
+  if (M.play) msg = t.mo.sending;
+  if (!msg) { c.fillStyle = '#646C84'; msg = t.mo.ph; } else c.fillStyle = M.sos ? '#3ddc97' : '#EDEFF7';
+  while (msg.length > 1 && c.measureText(msg).width > rw) msg = msg.slice(1);
+  c.fillText(msg, x1, Ht * 0.56);
+  // row 3: press meter, threshold at 0.25 s
+  const by = Ht * 0.8, bh = 16, thr = 250 / 700, dur = M.down ? now - M.down : 0;
+  c.fillStyle = 'rgba(130,145,190,.16)'; rr(c, x1, by, rw, bh, bh / 2); c.fill();
+  if (M.down) { c.fillStyle = dur < 250 ? '#ffcf4a' : '#4ea8ff'; rr(c, x1, by, Math.max(bh, Math.min(dur / 700, 1) * rw), bh, bh / 2); c.fill(); }
+  c.fillStyle = 'rgba(237,239,247,.5)'; c.fillRect(x1 + thr * rw - 1, by - 2, 2, bh + 4);
+  c.font = FONT(10, 700); c.fillStyle = '#10131f';
+  c.fillStyle = M.down ? '#10131f' : '#98A0B8'; c.fillText(t.mo.short, x1 + 8, by + bh / 2 + 0.5);
+  c.fillStyle = M.down && dur >= 250 ? '#10131f' : '#98A0B8'; c.fillText(t.mo.long, x1 + thr * rw + 8, by + bh / 2 + 0.5);
+  // table of all letters and digits
+  const cols = w < 520 ? 4 : 6, rows = CHARS.length / cols, ty = Ht + 10, rh = (h - ty - 6) / rows, cw = (w - 16) / cols, lf = Math.min(rh * 0.5, 17);
+  CHARS.forEach((ch, i) => {
+    const x = 8 + (i % cols) * cw, y = ty + Math.floor(i / cols) * rh, cd = MORSE[ch];
+    const hit = playCh === ch || (M.sym && cd === M.sym), pre = M.sym && cd.startsWith(M.sym);
+    c.globalAlpha = M.sym && !pre && !hit ? 0.3 : 1;
+    c.fillStyle = hit ? '#ffb02e' : pre ? 'rgba(255,138,61,.26)' : 'rgba(130,145,190,.1)'; rr(c, x + 1, y + 1, cw - 2, rh - 2, 5); c.fill();
+    c.font = FONT(lf); c.textAlign = 'left'; c.fillStyle = hit ? '#10131f' : '#EDEFF7'; c.fillText(ch, x + 6, y + rh / 2 + 0.5);
+    const gx = x + 8 + lf * 0.8, D2 = Math.min(rh * 0.2, (cw - lf * 0.8 - 18) / 15.6, 6);
+    glyph(c, cd, gx, y + rh / 2, D2, hit ? '#10131f' : '#C6CDE0');
+    c.globalAlpha = 1;
+  });
+}
+
+// ---- pixels ------------------------------------------------------------------------------------------------
+function layPx(w, h) {
+  const lab = 14, cs = Math.min((h - lab - 16) / 8, (w * 0.5) / 8, 44), g = cs * 8, pw = 150;
+  const gx = Math.max(12, (w - (g + 14 + pw)) / 2), gy = lab + (h - lab - g) / 2;
+  return { cs, g, gx, gy, px: gx + g + 14, pw: Math.max(60, w - (gx + g + 14) - 12) };
+}
+function drawPx(c, w, h) {
+  const L = layPx(w, h), hi = S.scanT ? Math.floor((performance.now() - S.scanT) / 140) : -1;
+  c.textBaseline = 'middle';
+  c.font = FONT(Math.min(L.cs * 0.38, 11), 700); c.textAlign = 'center'; c.fillStyle = '#646C84';
+  for (let k = 0; k < 8; k++) c.fillText(128 >> k, L.gx + (k + 0.5) * L.cs, L.gy - 9);
+  for (let r = 0; r < 8; r++) {
+    const yc = L.gy + (r + 0.5) * L.cs, row = S.rows[r], lit = r === hi;
+    if (lit) { c.fillStyle = 'rgba(255,207,74,.18)'; rr(c, L.gx - 3, yc - L.cs / 2, L.g + L.pw + 20, L.cs, 6); c.fill(); }
+    for (let k = 0; k < 8; k++) {
+      const on = (row >> (7 - k)) & 1;
+      c.fillStyle = on ? '#4ea8ff' : 'rgba(130,145,190,.14)'; rr(c, L.gx + k * L.cs + 1, yc - L.cs / 2 + 1, L.cs - 2, L.cs - 2, Math.min(5, L.cs / 5)); c.fill();
+    }
+    c.textAlign = 'left'; c.font = MONO(Math.min(L.cs * 0.5, 14)); c.fillStyle = lit ? '#fff' : '#98A0B8';
+    c.fillText(row.toString(2).padStart(8, '0'), L.px, yc);
+    c.textAlign = 'right'; c.font = FONT(Math.min(L.cs * 0.62, 20), 900); c.fillStyle = lit ? YEL : '#fff';
+    c.fillText(row, L.px + L.pw, yc);
+  }
+  if (hi > 9) S.scanT = 0;
+}
+let paintAt = -1;
+function pxCell(x, y) {
+  const L = layPx($('cv').clientWidth, $('cv').clientHeight), k = Math.floor((x - L.gx) / L.cs), r = Math.floor((y - L.gy) / L.cs);
+  return k >= 0 && k < 8 && r >= 0 && r < 8 ? [r, k] : null;
+}
+function paintPx(x, y, start) {
+  const cell = pxCell(x, y); if (!cell) return;
+  const [r, k] = cell, bit = 1 << (7 - k);
+  if (start) S.paint = S.rows[r] & bit ? 0 : 1;
+  if (S.paint === null) return;
+  const id = r * 8 + k; if (!start && id === paintAt) return; paintAt = id;
+  S.rows[r] = S.paint ? S.rows[r] | bit : S.rows[r] & ~bit;
+  S.scanT = 0; sfx.tick(); render();
+}
+
+// ---- secret 1: letters as numbers --------------------------------------------------------------------------
+function drawLetters(c, w, h) {
+  const t = T[lang], chars = [...S.word];
+  c.textBaseline = 'middle';
+  if (!chars.length) { c.fillStyle = '#646C84'; c.textAlign = 'center'; c.font = FONT(18); c.fillText(t.s1.empty, w / 2, h / 2); return; }
+  const cw = Math.min(56, w * 0.14), nw = Math.min(64, w * 0.17), bx0 = 14 + cw + nw + 8, sp = (w - 12 - bx0) / 8, rh = Math.min(64, (h - 40) / chars.length);
+  c.font = FONT(Math.min(11, sp * 0.4), 700); c.fillStyle = '#646C84'; c.textAlign = 'center';
+  for (let k = 0; k < 8; k++) c.fillText(128 >> k, bx0 + (k + 0.5) * sp, 16);
+  chars.forEach((ch, i) => {
+    const code = ch.charCodeAt(0), yc = 38 + (i + 0.5) * rh;
+    c.fillStyle = 'rgba(130,145,190,.14)'; rr(c, 14, yc - rh * 0.4, cw, rh * 0.8, 10); c.fill();
+    c.fillStyle = '#fff'; c.textAlign = 'center'; c.font = ch === ' ' ? FONT(Math.min(rh * 0.3, 12)) : FONT(Math.min(rh * 0.5, 30));
+    c.fillText(ch === ' ' ? t.s1.space : ch, 14 + cw / 2, yc);
+    c.fillStyle = '#3ddc97'; c.font = FONT(Math.min(rh * 0.42, 22), 900); c.fillText(code, 14 + cw + nw / 2, yc);
+    for (let k = 0; k < 8; k++) bulb(c, bx0 + (k + 0.5) * sp, yc, Math.min(sp * 0.36, rh * 0.3), (code >> (7 - k)) & 1, '#3ddc97');
+  });
+}
+
+// ---- secret 2: parity bit ----------------------------------------------------------------------------------
+function newPar(ch) {
+  const code = ch.charCodeAt(0), d = []; for (let i = 6; i >= 0; i--) d.push((code >> i) & 1);
+  S.ch = ch; S.sent = [...d, d.reduce((a, b) => a + b, 0) % 2]; S.recv = [...S.sent];
+}
+newPar('K');
+const parInfo = () => {
+  const code = S.recv.slice(0, 7).reduce((a, b) => a * 2 + b, 0), ones = S.recv.reduce((a, b) => a + b, 0);
+  const same = S.recv.every((b, i) => b === S.sent[i]);
+  return { ch: code >= 32 && code < 127 ? String.fromCharCode(code) : '?', ones, even: ones % 2 === 0, same };
+};
+function parRows(w, h) { const sp = (w - 28) / 8; return { sp, r: Math.min(sp * 0.34, h * 0.09), y1: h * 0.28, y2: h * 0.64 }; }
+function drawPar(c, w, h) {
+  const t = T[lang], P = parRows(w, h), I = parInfo();
+  c.textBaseline = 'middle';
+  [[S.sent, P.y1, `${t.s2.sent}: ${S.ch}`], [S.recv, P.y2, `${t.s2.recv}: ${I.ch}`]].forEach(([bits, y, lab], ri) => {
+    c.textAlign = 'left'; c.font = FONT(Math.max(13, Math.min(17, w / 22))); c.fillStyle = ri && !I.same ? '#ffb02e' : '#EDEFF7'; c.fillText(lab, 14, y - P.r - 14);
+    bits.forEach((b, i) => {
+      const x = 14 + (i + 0.5) * P.sp;
+      bulb(c, x, y, P.r, b, i === 7 ? '#3ddc97' : YEL);
+      if (i === 7) { c.beginPath(); c.arc(x, y, P.r + 4, 0, 7); c.strokeStyle = 'rgba(61,220,151,.6)'; c.lineWidth = 1.5; c.stroke(); }
+      if (ri && b !== S.sent[i]) { c.beginPath(); c.arc(x, y, P.r + 4, 0, 7); c.strokeStyle = '#ff6a5e'; c.lineWidth = 2; c.stroke(); }
+    });
+  });
+  c.textAlign = 'center'; c.font = FONT(Math.min(10, P.sp * 0.36), 700); c.fillStyle = '#646C84';
+  for (let i = 0; i < 8; i++) c.fillText(i === 7 ? t.s2.check : 64 >> i, 14 + (i + 0.5) * P.sp, P.y1 + P.r + 12);
+  c.fillStyle = '#98A0B8'; c.font = FONT(20); c.fillText('↓', w / 2, (P.y1 + P.y2) / 2);
+  c.font = FONT(Math.max(15, Math.min(22, w / 18)), 900); c.fillStyle = I.even ? '#3ddc97' : '#ff6a5e';
+  c.fillText(`${I.even ? '✓' : '✗'}  ${t.s2.ones(I.ones)}`, w / 2, h * 0.92);
+}
+function hitPar(x, y) {
+  const P = parRows($('cv').clientWidth, $('cv').clientHeight);
+  if (Math.abs(y - P.y2) > P.r * 1.8) return;
+  const i = Math.floor((x - 14) / P.sp); if (i < 0 || i > 7) return;
+  S.recv[i] ^= 1; sfx.snap(); render();
+}
+
+// ---- controls ----------------------------------------------------------------------------------------------
+$('chips').addEventListener('click', (ev) => {
+  const k = ev.target.closest('.chip')?.dataset.k; if (!k) return;
+  if (k === 's1' || k === 's2') { if (!secret.unlocked()) return secret.open(); S.secret = S.secret === k ? null : k; stopPlay(); sfx.click(); return render(); }
+  sfx.click();
+  if (k === 'fewer' && S.n > 1) { S.n--; setBits(value()); if (S.target >= 1 << S.n) S.target = null; }
+  else if (k === 'more' && S.n < 8) { S.n++; }
+  else if (k === 'clear') setBits(0);
+  else if (k === 'goal') newGoal();
+  else if (k === 'sos') playText('SOS');
+  else if (k === 'mine') playText(M.msg);
+  else if (k === 'clr') { stopPlay(); clearTimeout(M.t1); clearTimeout(M.t2); M.sym = ''; M.msg = ''; M.sos = false; }
+  else if (k.startsWith('p:')) { S.rows = rowsOf(PRESETS[k.slice(2)]); S.scanT = performance.now(); }
+  else if (k === 'pclr') { S.rows = Array(8).fill(0); S.scanT = 0; }
+  else if (k.startsWith('w:')) { S.word = k.slice(2); $('word').value = S.word; }
+  else if (k === 'newl') newPar(String.fromCharCode(65 + Math.floor(Math.random() * 26)));
+  else if (k === 'noise') { S.recv[Math.floor(Math.random() * 8)] ^= 1; sfx.push(); }
+  else if (k === 'preset') { S.recv = [...S.sent]; }
+  render();
+});
+
+$('cv').addEventListener('pointerdown', (ev) => {
+  const r = $('cv').getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top, cur = S.secret ?? lab.view;
+  if (cur === 'sw') hitSw(x, y);
+  else if (cur === 'px') { try { $('cv').setPointerCapture(ev.pointerId); } catch { /* fine */ } paintAt = -1; paintPx(x, y, true); }
+  else if (cur === 's2') hitPar(x, y);
+});
+$('cv').addEventListener('pointermove', (ev) => {
+  if (S.paint === null || (S.secret ?? lab.view) !== 'px') return;
+  const r = $('cv').getBoundingClientRect(); paintPx(ev.clientX - r.left, ev.clientY - r.top, false);
+});
+const endPaint = () => { S.paint = null; };
+$('cv').addEventListener('pointerup', endPaint);
+$('cv').addEventListener('pointercancel', endPaint);
+
+// ---- render: text, chips and readouts (the canvas redraws itself every frame) -----------------------------
+const COLORS = { sw: ['#ffcf4a', 'rgba(255,207,74,.22)'], mo: ['#ff8a3d', 'rgba(255,138,61,.22)'], px: ['#4ea8ff', 'rgba(78,168,255,.25)'], s1: ['#3ddc97', 'rgba(61,220,151,.22)'], s2: ['#f5c84c', 'rgba(245,200,76,.22)'] };
+function render() {
+  const t = T[lang], open = secret.unlocked(), cur = S.secret ?? lab.view, N = nf();
+  const chip = (k, label, on) => `<button class="chip ${on ? 'on' : ''}" data-k="${k}">${esc(label)}</button>`;
+  const sc = (k) => `<button class="chip secret ${open ? 'open' : ''} ${S.secret === k ? 'on' : ''}" data-k="${k}">${open ? esc(t.sec[k][0]) : '🔒 ???'}</button>`;
+  let mid = [];
+  if (cur === 'sw') mid = [chip('fewer', '➖ ' + t.sw.fewer), chip('more', '➕ ' + t.sw.more), chip('clear', t.sw.clear), chip('goal', t.sw.goal, S.target !== null)];
+  else if (cur === 'mo') mid = [chip('sos', t.mo.sos), chip('mine', t.mo.mine), chip('clr', t.mo.clr)];
+  else if (cur === 'px') mid = [chip('p:smile', '😊'), chip('p:heart', '❤️'), chip('p:A', 'A'), chip('p:arrow', '⬆️'), chip('pclr', t.px.clr)];
+  else if (cur === 's1') mid = [chip('w:HI', 'HI'), chip('w:Hi!', 'Hi!'), chip('w:cat', 'cat'), chip('w:123', '123')];
+  else mid = [chip('newl', t.s2.newl), chip('noise', t.s2.noise), chip('preset', t.s2.reset)];
+  $('chips').innerHTML = [sc('s1'), ...mid, sc('s2')].join('');
+  $('tap').style.display = cur === 'mo' ? '' : 'none'; $('tap').textContent = t.mo.tap;
+  $('word').style.display = cur === 's1' ? '' : 'none'; $('word').placeholder = t.s1.ph; if ($('word').value !== S.word) $('word').value = S.word;
+  const fine = `<div class="fine">${esc(t.fine[cur])}</div>`;
+  lab.setGlow(COLORS[cur][1]);
+
+  if (cur === 'sw') {
+    const n = S.n, c = 1 << n, v = value(), parts = []; for (let i = n - 1; i >= 0; i--) if (S.bits[i]) parts.push(1 << i);
+    const sum = parts.length ? `${parts.join(' + ')} = ${v}` : t.sw.off, done = S.target !== null && v === S.target;
+    if (done && !S.wasDone) sfx.good(); S.wasDone = done;
+    lab.setReadout([...Array(n).keys()].map((k) => S.bits[n - 1 - k]).join(''), `= ${N.format(v)}`, `2${sup(n)} = ${t.sw.pat(c)}`, COLORS.sw[0]);
+    if (S.target === null) lab.setState({ emo: '💡', title: t.sw.t, lead: sum, body: t.sw.body(n, c), extra: fine });
+    else if (done) lab.setState({ emo: '🎉', title: t.sw.doneT, lead: sum, body: t.sw.doneB, extra: fine });
+    else lab.setState({ emo: '🎯', title: t.sw.goalT(S.target), lead: t.sw.goalL(S.target), body: t.sw.goalB + ' ' + sum, extra: fine });
+  } else if (cur === 'mo') {
+    const code = M.sym, play = !!M.play;
+    lab.setReadout(code ? pretty(code) : '·  −', code ? `→ ${DEC[code] ?? '?'}` : '', t.mo.pill, COLORS.mo[0]);
+    const lead = M.sos ? '··· −−− ···' : play ? t.mo.sending : code ? `${pretty(code)} → ${DEC[code] ?? '?'}` : t.mo.lead;
+    lab.setState({ emo: M.sos ? '🆘' : '📡', title: M.sos ? t.mo.soT : t.mo.t, lead, body: M.sos ? t.mo.soB : t.mo.body, extra: `<p>${esc(t.mo.cmp)}</p><p>${esc(t.mo.other)}</p>${fine}` });
+  } else if (cur === 'px') {
+    const nums = S.rows.join(', ');
+    lab.setReadout('8 × 8', t.px.size, '', COLORS.px[0]);
+    lab.setState({ emo: '🖼️', title: t.px.t, lead: t.px.lead, body: t.px.body(nums), extra: `<p>${esc(t.px.extra)}</p>${fine}` });
+  } else if (cur === 's1') {
+    const chars = [...S.word], first = chars[0];
+    const bin = (ch) => ch.charCodeAt(0).toString(2).padStart(8, '0');
+    lab.setReadout(chars.length ? esc(chars.map((ch) => ch.charCodeAt(0)).join(' ')) : '–', t.s1.sub, '', COLORS.s1[0]);
+    lab.setState({ emo: '🔤', title: t.s1.t, lead: first ? `${first === ' ' ? t.s1.space : first} = ${first.charCodeAt(0)} = ${bin(first)}` : t.s1.empty, body: t.s1.body, extra: `<p>${esc(t.s1.hint)}</p>${fine}` });
+  } else {
+    const I = parInfo(), lead = I.same ? t.s2.okL : I.even ? t.s2.hidL : t.s2.badL;
+    lab.setReadout(I.even ? '✓' : '✗', t.s2.ones(I.ones), '', I.even ? '#3ddc97' : '#ff6a5e');
+    lab.setState({ emo: I.same || !I.even ? '🛰️' : '🙈', title: t.s2.t, lead, body: t.s2.body, extra: fine });
+  }
+
+  ask.style.display = S.answered ? 'none' : '';
+  if (!S.answered) ask.innerHTML = S.answer === null
+    ? `<div class="q">${esc(t.ask)}</div><div class="opts">${t.opts.map((o, i) => `<button data-a="${i}">${esc(o)}</button>`).join('')}</div>`
+    : `<div class="q" style="color:${S.answer === t.ok ? 'var(--ok)' : 'var(--wip)'}">${esc(S.answer === t.ok ? t.right : t.wrong)}</div><div class="opts"><button>${esc(t.go)} →</button></div>`;
+}
+
+// ---- drawing -----------------------------------------------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt) => {
+  const cur = S.secret ?? lab.view;
+  if (cur === 'sw') drawSw(c, w, h, dt);
+  else if (cur === 'mo') drawMo(c, w, h, dt);
+  else if (cur === 'px') drawPx(c, w, h);
+  else if (cur === 's1') drawLetters(c, w, h);
+  else drawPar(c, w, h);
+});
+render();
+</script>
+</body>
+</html>
