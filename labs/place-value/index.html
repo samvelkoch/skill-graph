@@ -1,0 +1,567 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Place value · Skill Graph</title>
+<meta name="description" content="Add cubes and watch ten of them snap into one rod, ten rods into a flat, ten flats into a big cube. Move a digit and its worth jumps times ten. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  #stage { min-height: 470px; }
+  @media (min-width: 1101px) { .lab { grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); grid-template-areas: 'hero stage' 'state stage' 'state ctrl'; } }
+  .ask { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); width: min(560px, calc(100% - 16px)); padding: 14px 16px; text-align: center; }
+  .ask .q { font: 500 21px/1.2 var(--serif); color: #fff; margin-bottom: 10px; }
+  .ask .opts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .ask button { padding: 9px 14px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130,145,190,.1); font-weight: 800; cursor: pointer; }
+  .fine { margin-top: 8px; font-size: 11px; color: var(--faint); }
+  .sl { display: flex; align-items: center; gap: 12px; margin: 0 0 12px; }
+  .sl span { font-weight: 800; font-size: 13px; color: var(--mut); min-width: 92px; }
+  .sl input { flex: 1; min-width: 0; }
+  @media (max-width: 760px) { .ask .q { font-size: 17px; } }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, store, ruPlural, lang } from '../lab.js';
+
+const F = (n) => new Intl.NumberFormat(lang).format(n);
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+const art = (n) => (n === 1 || n === 5 ? 'az' : 'a'); // Hungarian article before a spoken digit
+const placeArt = (p) => (p === 0 || p === 3 ? 'az' : 'a'); // egyes / ezres start with a vowel
+
+// ---- 1. Words ----------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Place value', title: 'Ten snaps into one',
+    lines: [['Add cubes', 'and watch ten of them snap into one rod.'], ['Move a digit', 'and its worth jumps ×10.']],
+    views: { build: '🧱 Build', digit: '🔢 One digit', make: '🎯 Make it' },
+    places: ['ones', 'tens', 'hundreds', 'thousands'],
+    place1: ['one', 'ten', 'hundred', 'thousand'],
+    sub: 'built from blocks', reset: '↺ 0',
+    ask: 'There are 9 cubes in the ones. You add one more. What happens?',
+    opts: ['Ten cubes sit in the ones', 'They snap into one ten', 'The number becomes 91'],
+    right: 'Yes! Ten ones make one ten. Watch.', wrong0: 'The ones place can only hold up to 9. Watch.', wrong2: '9 + 1 is 10, not 91. Watch the cubes.', go: 'Add the cube',
+    think: { title: 'Make a guess first', lead: 'Pick an answer above, then watch the cubes.' },
+    merged: (a, b) => ({ title: `Ten ${T.en.places[a]} → one ${T.en.place1[b]}`, lead: `Ten ${T.en.places[a]} snapped together and moved one place to the left.`, body: 'No place ever holds more than 9. That is why ten digits, 0 to 9, are enough to write any number.' }),
+    broke: (a, b) => ({ title: `One ${T.en.place1[a]} → ten ${T.en.places[b]}`, lead: `There were no ${T.en.places[b]} to take away, so one ${T.en.place1[a]} broke into ten.`, body: 'Taking away works the other way round: you break one piece from the left into ten smaller ones. In written subtraction this is called borrowing.' }),
+    idle: (n, d) => ({ title: `${F(n)}`, lead: `${d[3]} thousands, ${d[2]} hundreds, ${d[1]} tens, ${d[0]} ones.`, body: 'Each digit says how many pieces of its place there are. Tap ＋ or − under a column, or tap the column.' }),
+    full: { title: 'The table is full', lead: '9,999 is the biggest number with four places.', body: 'One more would need a fifth place: ten thousands.' },
+    times10: '×10 each step left',
+    digitState: (d, p) => ({ title: `${d} is worth ${F(d * 10 ** p)}`, lead: `The same digit ${d}, now in the ${T.en.places[p]} place.`, body: 'Every step to the left makes it worth ten times more. The digit did not change: only its place did.' }),
+    zeroChip: '0 Why zero?',
+    zero: { title: 'Zero keeps the place', lead: '2,035 is not 235.', body: 'In 2,035 there are no hundreds, but the 0 holds their place, so the 2 stays in the thousands. Without the 0 every digit would slide one place to the right.' },
+    target: 'Build this number', best: (k) => `fewest taps: ${k}`, newNum: '▶ New number',
+    makeHint: (tg, n, p, more) => ({ title: `Build ${F(tg)}`, lead: more ? `More ${T.en.places[p]} needed.` : `Too many ${T.en.places[p]}.`, body: 'Start with the biggest place: it is the quickest way. Then go right.' }),
+    made: (n, taps, best) => ({ title: `${F(n)}, done!`, lead: `You used ${taps} taps. The fewest possible is ${best}.`, body: 'The fewest taps is the sum of the digits: one piece for each unit of each digit.' }),
+    fineBuild: 'One small cube is one. A rod is 10 cubes, a flat is 100, a big cube is 1,000.',
+    fineDigit: 'Our numbers use place value: the same 10 digits change worth by position. The idea came to Europe from India through Arabic books.',
+    fineMake: 'Targets are random. Any number up to 9,999 can be built with at most 9 pieces in each place.',
+    play: '▶ Run', pause: '⏸ Pause', speed: 'Speed', place: 'Place', number: 'Number',
+    odoState: (n) => ({ title: 'The odometer', lead: `${F(n)} km`, body: 'A car’s distance counter works exactly like this: when a wheel passes 9 it goes back to 0 and pushes the next wheel by one. Watch 999 turn into 1,000.' }),
+    romanState: (n, r, len, our) => ({ title: `${F(n)} = ${r}`, lead: `Roman numerals: ${len} symbols. Ours: ${our} digits.`, body: 'Roman numerals have no places: M is always 1,000, wherever it stands, and there is no zero. That is why long numbers get long and adding them on paper is hard.' }),
+    secrets: { odo: ['Odometer', 'Count up and watch the wheels roll'], roman: ['Without places', 'Numbers the Roman way'] },
+    quiz: [
+      { q: 'What is the 7 worth in 4,725?', opts: ['7', '700', '70'], ok: 1 },
+      { q: 'How many tens make one thousand?', opts: ['10', '100', '1,000'], ok: 1 },
+      { q: 'Which number has 3 hundreds, 0 tens and 6 ones?', opts: ['36', '360', '306'], ok: 2 },
+    ],
+  },
+  ru: {
+    name: 'Разряды', title: 'Десять щёлкают в один',
+    lines: [['Добавляй кубики —', 'и смотри, как десять из них защёлкиваются в одну палочку.'], ['Двигай цифру —', 'и её значение прыгает в 10 раз.']],
+    views: { build: '🧱 Собрать', digit: '🔢 Одна цифра', make: '🎯 Собери число' },
+    places: ['единицы', 'десятки', 'сотни', 'тысячи'],
+    placesGen: ['единиц', 'десятков', 'сотен', 'тысяч'],
+    place1: ['единица', 'десяток', 'сотня', 'тысяча'],
+    place1Acc: ['единицу', 'десяток', 'сотню', 'тысячу'],
+    sub: 'собрано из кубиков', reset: '↺ 0',
+    ask: 'В единицах 9 кубиков. Ты добавляешь ещё один. Что будет?',
+    opts: ['В единицах станет десять кубиков', 'Они защёлкнутся в один десяток', 'Получится число 91'],
+    right: 'Да! Десять единиц — это один десяток. Смотри.', wrong0: 'В разряде единиц помещается не больше 9. Смотри.', wrong2: '9 + 1 = 10, а не 91. Смотри на кубики.', go: 'Добавить кубик',
+    think: { title: 'Сначала догадка', lead: 'Выбери ответ выше, а потом смотри на кубики.' },
+    merged: (a, b) => ({ title: `Десять ${T.ru.placesGen[a]} → ${T.ru.place1[b]}`, lead: `Десять ${T.ru.placesGen[a]} склеились и переехали на разряд левее.`, body: 'Ни в одном разряде не бывает больше 9. Поэтому десяти цифр, от 0 до 9, хватает, чтобы записать любое число.' }),
+    broke: (a, b) => ({ title: `${cap(T.ru.place1[a])} → десять ${T.ru.placesGen[b]}`, lead: `${cap(T.ru.placesGen[b])} не было, поэтому пришлось разбить ${T.ru.place1Acc[a]} на десять.`, body: 'Вычитание работает наоборот: берёшь кусок слева и разбиваешь его на десять маленьких. В записи столбиком это называется «занять».' }),
+    idle: (n, d) => ({ title: `${F(n)}`, lead: `Тысяч: ${d[3]}, сотен: ${d[2]}, десятков: ${d[1]}, единиц: ${d[0]}.`, body: 'Каждая цифра говорит, сколько кусков её разряда. Нажми ＋ или − под столбиком или на сам столбик.' }),
+    full: { title: 'Таблица заполнена', lead: '9 999 — самое большое число с четырьмя разрядами.', body: 'Для ещё одного нужен пятый разряд — десятки тысяч.' },
+    times10: '×10 с каждым шагом влево',
+    digitState: (d, p) => ({ title: `${d} стоит ${F(d * 10 ** p)}`, lead: `Та же цифра ${d}, теперь в разряде: ${T.ru.places[p]}.`, body: 'Каждый шаг влево делает её в десять раз дороже. Цифра не менялась — менялось только место.' }),
+    zeroChip: '0 Зачем ноль?',
+    zero: { title: 'Ноль держит место', lead: '2 035 — это не 235.', body: 'В числе 2 035 нет сотен, но 0 держит их место, и двойка остаётся в тысячах. Без нуля каждая цифра съехала бы на разряд вправо.' },
+    target: 'Собери это число', best: (k) => `меньше всего нажатий: ${k}`, newNum: '▶ Новое число',
+    makeHint: (tg, n, p, more) => ({ title: `Собери ${F(tg)}`, lead: more ? `Нужно больше: ${T.ru.places[p]}.` : `Слишком много: ${T.ru.places[p]}.`, body: 'Начни с самого старшего разряда — так быстрее. Потом двигайся вправо.' }),
+    made: (n, taps, best) => ({ title: `${F(n)} — готово!`, lead: `Ты сделал ${taps} ${ruPlural(taps, 'нажатие', 'нажатия', 'нажатий')}. Меньше всего можно за ${best}.`, body: 'Наименьшее число нажатий — сумма цифр: по одному куску на каждую единицу каждой цифры.' }),
+    fineBuild: 'Маленький кубик — единица. Палочка — 10 кубиков, пластина — 100, большой куб — 1 000.',
+    fineDigit: 'Наши числа позиционные: одни и те же 10 цифр меняют значение от места. Эта идея пришла в Европу из Индии через арабские книги.',
+    fineMake: 'Числа выбираются случайно. Любое число до 9 999 собирается не больше чем из 9 кусков в каждом разряде.',
+    play: '▶ Пуск', pause: '⏸ Пауза', speed: 'Скорость', place: 'Разряд', number: 'Число',
+    odoState: (n) => ({ title: 'Счётчик пробега', lead: `${F(n)} км`, body: 'Счётчик километров в машине работает точно так же: колёсико проходит 9, возвращается к 0 и толкает следующее на один. Смотри, как 999 превращается в 1 000.' }),
+    romanState: (n, r, len, our) => ({ title: `${F(n)} = ${r}`, lead: `Римскими: ${len} ${ruPlural(len, 'знак', 'знака', 'знаков')}. Нашими: ${our} ${ruPlural(our, 'цифра', 'цифры', 'цифр')}.`, body: 'У римских чисел нет разрядов: M всегда значит 1 000, где бы она ни стояла, и нуля нет. Поэтому большие числа выходят длинными, а складывать их на бумаге трудно.' }),
+    secrets: { odo: ['Счётчик пробега', 'Считай вверх и смотри, как крутятся колёсики'], roman: ['Без разрядов', 'Числа по-римски'] },
+    quiz: [
+      { q: 'Сколько стоит цифра 7 в числе 4 725?', opts: ['7', '700', '70'], ok: 1 },
+      { q: 'Сколько десятков в одной тысяче?', opts: ['10', '100', '1 000'], ok: 1 },
+      { q: 'В каком числе 3 сотни, 0 десятков и 6 единиц?', opts: ['36', '360', '306'], ok: 2 },
+    ],
+  },
+  hu: {
+    name: 'Helyiérték', title: 'Tíz kattan eggyé',
+    lines: [['Tegyél hozzá kockákat,', 'és nézd, ahogy tíz közülük egy rúddá kattan össze.'], ['Mozgasd a számjegyet,', 'és az értéke tízszeresére ugrik.']],
+    views: { build: '🧱 Építés', digit: '🔢 Egy számjegy', make: '🎯 Rakd ki' },
+    places: ['egyesek', 'tízesek', 'százasok', 'ezresek'],
+    place1: ['egyes', 'tízes', 'százas', 'ezres'],
+    sub: 'kockákból kirakva', reset: '↺ 0',
+    ask: 'Az egyeseknél 9 kocka van. Hozzáteszel még egyet. Mi történik?',
+    opts: ['Tíz kocka lesz az egyeseknél', 'Összekattannak egy tízessé', 'A szám 91 lesz'],
+    right: 'Igen! Tíz egyes egy tízes. Figyeld!', wrong0: 'Az egyesek helyén legfeljebb 9 fér el. Figyeld!', wrong2: '9 + 1 az 10, nem 91. Nézd a kockákat!', go: 'Hozzáteszem',
+    think: { title: 'Előbb tippelj', lead: 'Válassz egy választ fent, aztán nézd a kockákat.' },
+    merged: (a, b) => ({ title: `Tíz ${T.hu.place1[a]} → egy ${T.hu.place1[b]}`, lead: `Tíz ${T.hu.place1[a]} összekattant, és egy hellyel balra költözött.`, body: 'Egyik helyen sem lehet 9-nél több. Ezért elég tíz számjegy, 0-tól 9-ig, bármelyik szám leírásához.' }),
+    broke: (a, b) => ({ title: `Egy ${T.hu.place1[a]} → tíz ${T.hu.place1[b]}`, lead: `Nem volt ${T.hu.place1[b]}, ezért egy ${T.hu.place1[a]} tíz darabra tört.`, body: 'Az elvétel fordítva működik: egy darabot balról tíz kisebbre váltasz. Az írásbeli kivonásban ezt hívjuk átváltásnak.' }),
+    idle: (n, d) => ({ title: `${F(n)}`, lead: `${d[3]} ezres, ${d[2]} százas, ${d[1]} tízes, ${d[0]} egyes.`, body: 'Minden számjegy megmondja, hány darab van a helyén. Koppints a ＋ vagy − gombra egy oszlop alatt, vagy magára az oszlopra.' }),
+    full: { title: 'Megtelt a táblázat', lead: 'A 9999 a legnagyobb négyjegyű szám.', body: 'Még egyhez kellene egy ötödik hely: a tízezresek.' },
+    times10: '×10 minden lépéssel balra',
+    digitState: (d, p) => ({ title: `${cap(art(d))} ${d} értéke ${F(d * 10 ** p)}`, lead: `Ugyanaz a számjegy (${d}), most ${placeArt(p)} ${T.hu.places[p]} helyén.`, body: 'Minden lépés balra tízszer többet ér. A számjegy nem változott, csak a helye.' }),
+    zeroChip: '0 Miért nulla?',
+    zero: { title: 'A nulla őrzi a helyet', lead: 'A 2035 nem 235.', body: 'A 2035-ben nincs százas, de a 0 őrzi a helyét, így a 2 az ezresek helyén marad. Nulla nélkül minden számjegy egy hellyel jobbra csúszna.' },
+    target: 'Rakd ki ezt a számot', best: (k) => `legkevesebb koppintás: ${k}`, newNum: '▶ Új szám',
+    makeHint: (tg, n, p, more) => ({ title: `Rakd ki: ${F(tg)}`, lead: more ? `Több ${T.hu.place1[p]} kell.` : `Túl sok ${placeArt(p)} ${T.hu.place1[p]}.`, body: 'Kezdd a legnagyobb helyiértékkel, úgy a leggyorsabb. Aztán haladj jobbra.' }),
+    made: (n, taps, best) => ({ title: `${F(n)}, kész!`, lead: `${taps} koppintásból raktad ki. A legkevesebb ${best}.`, body: 'A legkevesebb koppintás a számjegyek összege: minden számjegy minden egységéhez egy darab.' }),
+    fineBuild: 'A kis kocka egy egyes. A rúd 10 kocka, a lap 100, a nagy kocka 1000.',
+    fineDigit: 'A számaink helyiértékesek: ugyanaz a 10 számjegy a helyétől függően ér többet vagy kevesebbet. Az ötlet Indiából, arab könyvek révén jutott Európába.',
+    fineMake: 'A számok véletlenszerűek. 9999-ig minden szám kirakható úgy, hogy egy helyen legfeljebb 9 darab van.',
+    play: '▶ Indul', pause: '⏸ Szünet', speed: 'Sebesség', place: 'Helyiérték', number: 'Szám',
+    odoState: (n) => ({ title: 'A kilométer-számláló', lead: `${F(n)} km`, body: 'Az autó kilométer-számlálója pontosan így működik: ha egy kerék túlmegy a 9-en, visszaugrik 0-ra, és eggyel továbblöki a következőt. Figyeld, ahogy a 999-ből 1000 lesz.' }),
+    romanState: (n, r, len, our) => ({ title: `${F(n)} = ${r}`, lead: `Római számmal: ${len} jel. A mienkkel: ${our} számjegy.`, body: 'A római számoknak nincs helyiértékük: az M mindig 1000, bárhol áll, és nulla sincs. Ezért a nagy számok hosszúak, és papíron nehéz összeadni őket.' }),
+    secrets: { odo: ['Kilométer-számláló', 'Számolj felfelé, és nézd a kerekeket'], roman: ['Helyiérték nélkül', 'Számok római módra'] },
+    quiz: [
+      { q: 'Mennyit ér a 7 a 4725-ben?', opts: ['7', '700', '70'], ok: 1 },
+      { q: 'Hány tízes van egy ezresben?', opts: ['10', '100', '1000'], ok: 1 },
+      { q: 'Melyik számban van 3 százas, 0 tízes és 6 egyes?', opts: ['36', '360', '306'], ok: 2 },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_THl9GLxwoL', en: 'The two digits of a two-digit number', ru: 'Две цифры двузначного числа', hu: 'A kétjegyű szám két számjegye' },
+  { id: 'mt_aPBzD28_mT', en: 'The three digits of a three-digit number', ru: 'Три цифры трёхзначного числа', hu: 'A háromjegyű szám három számjegye' },
+  { id: 'mt_98c2qwEF7Q', en: 'Place Value to 1000', ru: 'Разряды чисел до 1000', hu: 'Helyiérték 1000-ig' },
+  { id: 'mt_jY7uf0Cb7o', en: 'Place value of each digit', ru: 'Разрядное значение каждой цифры', hu: 'Az egyes számjegyek helyiértéke' },
+];
+
+// ---- 2. Maths + drawing helpers -----------------------------------------------------------------------
+const dig = (n) => [n % 10, Math.floor(n / 10) % 10, Math.floor(n / 100) % 10, Math.floor(n / 1000)]; // [ones, tens, hundreds, thousands]
+const roman = (n) => { let s = ''; for (const [v, r] of [[1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']]) while (n >= v) { s += r; n -= v; } return s; };
+const COL = ['#3ddc97', '#4ea8ff', '#f5c84c', '#ff6fa8']; // ones, tens, hundreds, thousands
+const MODE_GLOW = { build: 'rgba(61,220,151,.18)', digit: 'rgba(78,168,255,.2)', make: 'rgba(245,200,76,.2)', odo: 'rgba(255,111,168,.2)', roman: 'rgba(245,200,76,.18)' };
+const ease = (t) => t * t * (3 - 2 * t);
+const rr = (c, x, y, w, h, r) => { r = Math.min(r, w / 2, h / 2); c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); };
+const font = (px, wt = 800) => `${wt} ${Math.round(px)}px Nunito, ui-rounded, system-ui, sans-serif`;
+const hexA = (hex, a) => { const v = parseInt(hex.slice(1), 16); return `rgba(${v >> 16},${(v >> 8) & 255},${v & 255},${a})`; };
+
+// Geometry of the four columns. u = the size of one small cell: a rod is 10 u long, a flat is 10 u x 10 u.
+function geom(w, h, y0, yb) {
+  const pad = 8, cw = (w - 2 * pad) / 4, u = (cw - 8) / 12.5, dl = u * 1.4;
+  const dyo = clamp((yb - y0 - 10 * u - dl) / 9, u * 0.35, u * 1.15);
+  return { w, h, pad, cw, u, dl, y0, yb, dyo, amid: y0 + 6 * u, cx: (p) => pad + (3 - p) * cw + cw / 2, left: (p) => pad + (3 - p) * cw };
+}
+// centre of piece i inside column p (up to 10 pieces)
+function slot(G, p, i) {
+  const x = G.cx(p), u = G.u;
+  if (p === 0) return { x: x + ((i % 3) - 1) * u * 2.9, y: G.y0 + u * 1.2 + 4 + Math.floor(i / 3) * u * 2.9 };
+  if (p === 1) return { x: x + ((i % 5) - 2) * u * 2.3, y: G.y0 + 5 * u + 4 + Math.floor(i / 5) * u * 11.2 }; // two rows of rods
+  if (p === 2) return { x: x + (i - 4) * u * 0.2, y: G.y0 + 5 * u + i * G.dyo };
+  return { x: x + (i - 4) * u * 0.2, y: G.y0 + (10 * u + G.dl) / 2 + i * G.dyo };
+}
+// where the ten pieces of column p line up to become ONE piece of the next kind
+function asm(G, p, i) {
+  const x = G.cx(p), u = G.u, m = G.amid;
+  if (p === 0) return { x, y: m - 4.5 * u + i * u, sc: 1 / 2.4 };
+  if (p === 1) return { x: x + (i - 4.5) * u, y: m, sc: 1 };
+  return { x: x + (i - 4.5) * G.dl / 10, y: m - (i - 4.5) * G.dl / 10, sc: 1 };
+}
+// one block, drawn centred on (x, y)
+function drawPiece(c, G, p, x, y, sc, al, nar = 0) { // nar: 0 = chunky rod for display, 1 = true 1-cell width (lining up into a flat)
+  if (al <= 0.01 || sc <= 0.01) return;
+  const u = G.u, col = COL[p];
+  c.save(); c.globalAlpha = al; c.translate(x, y); c.scale(sc, sc);
+  c.lineJoin = 'round'; c.lineWidth = 1; c.strokeStyle = 'rgba(8,10,20,.55)'; c.fillStyle = col;
+  if (p === 0) {
+    const s = u * 2.4; rr(c, -s / 2, -s / 2, s, s, s * 0.22); c.fill(); c.stroke();
+    rr(c, -s * 0.36, -s * 0.38, s * 0.72, s * 0.24, s * 0.1); c.fillStyle = 'rgba(255,255,255,.3)'; c.fill();
+  } else if (p === 1) {
+    const w = u * lerp(1.8, 0.96, nar), hh = u * 10; c.fillRect(-w / 2, -hh / 2, w, hh); c.strokeRect(-w / 2, -hh / 2, w, hh);
+    c.strokeStyle = 'rgba(8,10,20,.35)'; c.lineWidth = 0.7; c.beginPath();
+    for (let k = 1; k < 10; k++) { c.moveTo(-w / 2, -hh / 2 + k * u); c.lineTo(w / 2, -hh / 2 + k * u); }
+    c.stroke();
+  } else if (p === 2) {
+    const s = u * 10; c.fillRect(-s / 2, -s / 2, s, s); c.strokeRect(-s / 2, -s / 2, s, s);
+    c.strokeStyle = 'rgba(8,10,20,.3)'; c.lineWidth = 0.6; c.beginPath();
+    for (let k = 1; k < 10; k++) { c.moveTo(-s / 2 + k * u, -s / 2); c.lineTo(-s / 2 + k * u, s / 2); c.moveTo(-s / 2, -s / 2 + k * u); c.lineTo(s / 2, -s / 2 + k * u); }
+    c.stroke();
+  } else {
+    const s = u * 10, d = G.dl, W = s + d, fx = -W / 2, fy = -W / 2 + d;
+    c.fillRect(fx, fy, s, s); c.strokeRect(fx, fy, s, s);
+    c.strokeStyle = 'rgba(8,10,20,.3)'; c.lineWidth = 0.6; c.beginPath();
+    for (let k = 1; k < 10; k++) { c.moveTo(fx + k * u, fy); c.lineTo(fx + k * u, fy + s); c.moveTo(fx, fy + k * u); c.lineTo(fx + s, fy + k * u); }
+    c.stroke(); c.lineWidth = 1; c.strokeStyle = 'rgba(8,10,20,.55)';
+    c.beginPath(); c.moveTo(fx, fy); c.lineTo(fx + d, fy - d); c.lineTo(fx + s + d, fy - d); c.lineTo(fx + s, fy); c.closePath(); c.fillStyle = col; c.fill(); c.fillStyle = 'rgba(255,255,255,.35)'; c.fill(); c.stroke();
+    c.beginPath(); c.moveTo(fx + s, fy); c.lineTo(fx + s + d, fy - d); c.lineTo(fx + s + d, fy + s - d); c.lineTo(fx + s, fy + s); c.closePath(); c.fillStyle = col; c.fill(); c.fillStyle = 'rgba(0,0,0,.28)'; c.fill(); c.stroke();
+  }
+  c.restore();
+}
+
+// ---- 3. State + shell ---------------------------------------------------------------------------------
+const S = {
+  d: [9, 0, 0, 0], n: 9, Q: [], cur: null, msg: null, answered: store.get('place-value:asked', false), answer: null, btns: [], colTop: 0,
+  dg: 3, pl: 0, dpos: 0, zero: false,
+  target: 0, taps: 0, madeFlag: false,
+  playing: false, acc: 0, osp: 8, rn: 1999, secret: null,
+};
+if (S.answered) { S.d = [0, 0, 0, 0]; S.n = 0; }
+
+const mode = () => S.secret || lab.view;
+const lab = shell({ key: 'place-value', T, topics: TOPICS, views: ['build', 'digit', 'make'], onLang: () => render(),
+  onView: (v) => { S.secret = null; S.playing = false; if (v === 'make') newTarget(); render(); } });
+const secret = secretLab('place-value', () => ({
+  secrets: [{ emo: '🚗', title: T[lang].secrets.odo[0], desc: T[lang].secrets.odo[1] }, { emo: '🏛️', title: T[lang].secrets.roman[0], desc: T[lang].secrets.roman[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `<div id="sl"></div><div class="chips" id="chips"></div>`;
+let slKey = '';
+const SLIDERS = { build: [], make: [], digit: [['pl', 0, 3, 'place']], odo: [['osp', 1, 60, 'speed']], roman: [['rn', 1, 3999, 'number']] };
+
+function setNumber(n) { S.Q.length = 0; S.cur = null; S.n = n; S.d = dig(n); S.msg = null; S.acc = 0; }
+function newTarget(v) {
+  let tg = v ?? 100 + Math.floor(Math.random() * 9900);
+  if (v === undefined) while (tg === S.target) tg = 100 + Math.floor(Math.random() * 9900);
+  S.target = tg; S.taps = 0; S.madeFlag = false; setNumber(0);
+}
+// one tap on a column: dir +1 adds a piece, -1 takes one away. The number is updated at once, the blocks catch up.
+function press(p, dir, user = true) {
+  const step = 10 ** p;
+  if (dir > 0) {
+    if (S.n + step > 9999) { S.msg = { k: 'full' }; sfx.bad(); renderState(); return false; }
+    S.n += step; S.Q.push({ k: 'add', p });
+  } else {
+    if (S.n - step < 0) { sfx.bad(); return false; }
+    S.n -= step; S.Q.push({ k: 'sub', p });
+  }
+  if (S.msg?.k === 'full') S.msg = null;
+  if (user && mode() === 'make') S.taps++;
+  if (user) sfx.click();
+  renderState();
+  return true;
+}
+// the animation queue: add / sub / merge / break, one step at a time
+function startOp(op) {
+  const d = S.d, p = op.p;
+  if (op.k === 'add') {
+    if (d[p] < 9) { d[p]++; if (!op.land) { S.cur = { k: 'pop', p, i: d[p] - 1, t: 0, dur: 0.16 }; sfx.tick(); } }
+    else if (p < 3) S.cur = { k: 'merge', p, t: 0, dur: 1.05 };
+  } else if (op.k === 'sub') {
+    if (d[p] > 0) { d[p]--; S.cur = { k: 'shrink', p, i: d[p], t: 0, dur: 0.2 }; sfx.tick(); }
+    else {
+      let q = p + 1; while (q <= 3 && d[q] === 0) q++;
+      if (q > 3) return;
+      const seq = []; for (let j = q; j > p; j--) seq.push({ k: 'break', p: j });
+      seq.push({ k: 'sub', p }); S.Q.unshift(...seq);
+    }
+  } else if (op.k === 'break') { d[p]--; S.cur = { k: 'break', p, t: 0, dur: 1.05 }; }
+}
+function finishOp() {
+  const cu = S.cur; S.cur = null;
+  if (cu.k === 'merge') { S.d[cu.p] = 0; S.msg = { k: 'merged', a: cu.p, b: cu.p + 1 }; S.Q.unshift({ k: 'add', p: cu.p + 1, land: true }); renderState(); }
+  else if (cu.k === 'break') { S.d[cu.p - 1] = 10; S.msg = { k: 'broke', a: cu.p, b: cu.p - 1 }; renderState(); }
+}
+function tick(dt) {
+  const m = mode();
+  if (m === 'odo' && S.playing) {
+    S.acc = Math.min(S.acc + dt * S.osp, 1.5);
+    if (!S.cur && !S.Q.length) {
+      if (S.n >= 9999) { S.playing = false; render(); }
+      else if (S.acc >= 1) { S.acc = 0; press(0, 1, false); }
+    }
+  }
+  const k = m === 'odo' && S.playing ? clamp(S.osp / 2.5, 1, 24) : 1;
+  for (let g = 0; !S.cur && S.Q.length && g < 60; g++) startOp(S.Q.shift());
+  if (S.cur) {
+    const cu = S.cur; cu.t += dt * k / cu.dur;
+    if (!cu.snd && ((cu.k === 'merge' && cu.t > 0.6) || (cu.k === 'break' && cu.t > 0.4))) { cu.snd = true; if (k < 4) sfx.snap(); }
+    if (cu.t >= 1) finishOp();
+  }
+  if (m === 'make') {
+    const done = !S.cur && !S.Q.length && S.n === S.target;
+    if (done !== S.madeFlag) { S.madeFlag = done; if (done) sfx.good(); renderState(); }
+  }
+}
+
+$('ctrlBody').addEventListener('input', (ev) => {
+  const k = ev.target.dataset.s; if (!k) return;
+  S[k] = +ev.target.value; sfx.tick(); render();
+});
+$('chips').addEventListener('click', (ev) => {
+  const k = ev.target.closest('.chip')?.dataset.k; if (!k) return;
+  if (k === 'odo' || k === 'roman') {
+    if (!secret.unlocked()) return secret.open();
+    S.playing = false;
+    if (S.secret === k) S.secret = null;
+    else {
+      S.secret = k;
+      if (k === 'odo') { if (S.n < 900) setNumber(990); S.playing = true; S.acc = 0; }
+      else S.rn = S.n >= 1 && S.n <= 3999 ? S.n : 1999;
+    }
+    sfx.click(); return render();
+  }
+  const [a, x] = k.split(':');
+  if (a === 'n') setNumber(+x);
+  else if (a === 'reset') setNumber(0);
+  else if (a === 'd') S.dg = +x;
+  else if (a === 'zero') S.zero = !S.zero;
+  else if (a === 'new') newTarget();
+  else if (a === 't') newTarget(+x);
+  else if (a === 'play') { if (!S.playing && S.n >= 9999) setNumber(990); S.playing = !S.playing; S.acc = 0; }
+  else if (a === 'o') { setNumber(+x); S.playing = true; }
+  else if (a === 'r') S.rn = +x;
+  sfx.click(); render();
+});
+
+const ask = Object.assign(document.createElement('div'), { className: 'ask card' });
+$('overlay').append(ask);
+ask.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  if (b.dataset.a) { S.answer = +b.dataset.a; (S.answer === 1 ? sfx.good : sfx.bad)(); }
+  else { S.answered = true; store.set('place-value:asked', true); setNumber(9); press(0, 1, false); sfx.snap(); }
+  render();
+});
+
+// ---- render: all text + controls ----
+function parts(n) { const d = dig(n), a = []; for (let p = 3; p >= 0; p--) if (d[p]) a.push(F(d[p] * 10 ** p)); return a.length ? a.join(' + ') : '0'; }
+
+function renderState() {
+  const t = T[lang], m = mode(), col = COL[m === 'digit' ? S.pl : 0];
+  let st, fine = t.fineBuild;
+  if (m === 'build' || m === 'make' || m === 'odo') {
+    const best = dig(S.target).reduce((a, b) => a + b, 0);
+    if (m === 'make') {
+      fine = t.fineMake;
+      if (S.n === S.target) st = { emo: '🎉', ...t.made(S.n, S.taps, best) };
+      else {
+        const a = dig(S.n), b = dig(S.target); let p = 3; while (p > 0 && a[p] === b[p]) p--;
+        st = { emo: '🎯', ...t.makeHint(S.target, S.n, p, b[p] > a[p]) };
+      }
+      lab.setReadout(F(S.n), `${t.target}: ${F(S.target)}`, t.best(best), '#f5c84c');
+    } else if (m === 'odo') {
+      st = { emo: '🚗', ...t.odoState(S.n) };
+      lab.setReadout(F(S.n), t.secrets.odo[0], '', '#ff6fa8');
+    } else {
+      const g = S.msg;
+      if (!S.answered) st = { emo: '🤔', ...t.think, body: '' };
+      else if (g?.k === 'full') st = { emo: '🚧', ...t.full };
+      else if (g?.k === 'merged') st = { emo: '✨', ...t.merged(g.a, g.b) };
+      else if (g?.k === 'broke') st = { emo: '💥', ...t.broke(g.a, g.b) };
+      else st = { emo: '🧱', ...t.idle(S.n, dig(S.n)) };
+      lab.setReadout(F(S.n), t.sub, parts(S.n), '#3ddc97');
+    }
+  } else if (m === 'digit') {
+    fine = t.fineDigit;
+    if (S.zero) { st = { emo: '0️⃣', ...t.zero }; lab.setReadout(F(2035), `≠ ${F(235)}`, '', '#f5c84c'); }
+    else { st = { emo: '🔢', ...t.digitState(S.dg, S.pl) }; lab.setReadout(F(S.dg * 10 ** S.pl), t.places[S.pl], `${S.dg} × ${F(10 ** S.pl)}`, col); }
+  } else {
+    fine = t.fineDigit;
+    const r = roman(S.rn);
+    st = { emo: '🏛️', ...t.romanState(S.rn, r, r.length, String(S.rn).length) };
+    lab.setReadout(r, F(S.rn), `${r.length} / ${String(S.rn).length}`, '#f5c84c');
+  }
+  lab.setState({ emo: st.emo, title: st.title, lead: st.lead, body: st.body, extra: `<div class="fine">${esc(fine)}</div>` });
+}
+
+function render() {
+  const t = T[lang], m = mode(), open = secret.unlocked();
+  lab.setGlow(MODE_GLOW[m]);
+  const sc = (k) => `<button class="chip secret ${open ? 'open' : ''} ${S.secret === k ? 'on' : ''}" data-k="${k}">${open ? esc(t.secrets[k][0]) : '🔒 ???'}</button>`;
+  const ch = (k, label, on) => `<button class="chip ${on ? 'on' : ''}" data-k="${k}">${esc(label)}</button>`;
+  let mid = '';
+  if (m === 'build') mid = [7, 10, 99, 305, 999, 1204].map((v) => ch(`n:${v}`, F(v), S.n === v)).join('') + ch('reset', t.reset, false);
+  else if (m === 'digit') mid = [1, 2, 3, 4, 5, 6, 7, 8, 9].map((v) => ch(`d:${v}`, String(v), S.dg === v)).join('') + ch('zero', t.zeroChip, S.zero);
+  else if (m === 'make') mid = ch('new', t.newNum, false) + [406, 1010, 2793].map((v) => ch(`t:${v}`, F(v), S.target === v)).join('');
+  else if (m === 'odo') mid = ch('play', S.playing ? t.pause : t.play, S.playing) + [990, 9990].map((v) => ch(`o:${v}`, F(v), false)).join('');
+  else mid = [4, 9, 49, 1994, 3999].map((v) => ch(`r:${v}`, F(v), S.rn === v)).join('');
+  $('chips').innerHTML = sc('odo') + mid + sc('roman');
+
+  const sliders = m === 'digit' && S.zero ? [] : SLIDERS[m];
+  const key = m + lang + sliders.length;
+  if (slKey !== key) {
+    slKey = key;
+    $('sl').innerHTML = sliders.map(([k, lo, hi, lbl]) => `<label class="sl"><span>${esc(t[lbl])}</span><input type="range" class="big" data-s="${k}" min="${lo}" max="${hi}" value="${S[k]}"></label>`).join('');
+  }
+  $('sl').querySelectorAll('input').forEach((i) => { i.value = S[i.dataset.s]; });
+  renderState();
+
+  const showAsk = m === 'build' && !S.answered;
+  ask.style.display = showAsk ? '' : 'none';
+  if (showAsk) ask.innerHTML = S.answer === null
+    ? `<div class="q">${esc(t.ask)}</div><div class="opts">${t.opts.map((o, i) => `<button data-a="${i}">${esc(o)}</button>`).join('')}</div>`
+    : `<div class="q" style="color:${S.answer === 1 ? 'var(--ok)' : 'var(--wip)'}">${esc(S.answer === 1 ? t.right : S.answer === 0 ? t.wrong0 : t.wrong2)}</div><div class="opts"><button>${esc(t.go)} →</button></div>`;
+}
+
+// ---- 4. Drawing --------------------------------------------------------------------------------------
+// the four-column scene: build, make and the odometer all use it
+function drawBuild(c, w, h, o) {
+  const t = T[lang], cu = S.cur;
+  const topH = o.make ? clamp(h * 0.27, 100, 128) : clamp(h * 0.17, 56, 76);
+  const G = geom(w, h, topH + 30, h - 62);
+  S.colTop = topH; S.btns = [];
+  const fs = clamp(G.cw * 0.55, 28, 54), tg = dig(S.target);
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  if (o.make) { c.textAlign = 'left'; c.font = font(11, 800); c.fillStyle = '#98A0B8'; c.fillText(t.target, G.pad + 4, 12); c.textAlign = 'center'; }
+  for (let p = 3; p >= 0; p--) {
+    const x = G.left(p) + 3, ww = G.cw - 6, same = o.make && S.d[p] === tg[p];
+    rr(c, x, topH + 2, ww, h - topH - 8, 14); c.fillStyle = hexA(COL[p], 0.06); c.fill(); c.strokeStyle = hexA(same ? '#3ddc97' : COL[p], same ? 0.9 : 0.28); c.lineWidth = same ? 2 : 1; c.stroke();
+    c.font = font(clamp(G.cw * 0.14, 11, 15)); c.fillStyle = COL[p]; c.fillText(t.places[p] + (same ? ' ✓' : ''), G.cx(p), topH + 17);
+    // the big number, one digit per column, in the column's colour
+    const lead = p > 0 && S.d.slice(p).every((v) => v === 0);
+    const dy = o.make ? topH * 0.72 : topH * 0.52;
+    if (o.odo) { rr(c, G.cx(p) - G.cw * 0.31, dy - fs * 0.62, G.cw * 0.62, fs * 1.24, 8); c.fillStyle = 'rgba(8,10,20,.65)'; c.fill(); c.strokeStyle = hexA(COL[p], 0.5); c.lineWidth = 1.5; c.stroke(); }
+    c.globalAlpha = lead ? 0.28 : 1; c.font = font(fs, 900); c.fillStyle = COL[p]; c.fillText(String(Math.min(S.d[p], 9)), G.cx(p), dy + 2); c.globalAlpha = 1;
+    if (o.make) { c.font = font(fs * 0.62, 900); c.fillStyle = hexA(COL[p], 0.55); c.fillText(String(tg[p]), G.cx(p), topH * 0.27 + 6); }
+  }
+  // blocks
+  for (let p = 0; p < 4; p++) {
+    const isMerge = cu?.k === 'merge' && cu.p === p, isBreakTo = cu?.k === 'break' && cu.p - 1 === p, isShr = cu?.k === 'shrink' && cu.p === p, isPop = cu?.k === 'pop' && cu.p === p;
+    let count = S.d[p]; if (isMerge || isBreakTo) count = 10; if (isShr) count = S.d[p] + 1;
+    for (let i = 0; i < count; i++) {
+      let s = slot(G, p, i), sc = 1, al = 1;
+      if (isMerge) {
+        const u = cu.t, a = asm(G, p, i), e = ease(clamp((u - 0.2) / 0.4, 0, 1));
+        if (i === 9) sc = ease(clamp(u / 0.1, 0, 1));
+        s = { x: lerp(s.x, a.x, e), y: lerp(s.y, a.y, e) }; sc *= lerp(1, a.sc, e); al = 1 - clamp((u - 0.6) / 0.08, 0, 1);
+      } else if (isBreakTo) {
+        const u = cu.t, a = asm(G, p, i), e = ease(clamp((u - 0.5) / 0.45, 0, 1));
+        al = clamp((u - 0.32) / 0.08, 0, 1); s = { x: lerp(a.x, s.x, e), y: lerp(a.y, s.y, e) }; sc = lerp(a.sc, 1, e);
+      } else if (isShr && i === S.d[p]) { sc = 1 - ease(cu.t); al = 1 - cu.t; }
+      else if (isPop && i === cu.i) sc = ease(cu.t);
+      drawPiece(c, G, p, s.x, s.y, sc, al, p === 1 && isMerge ? ease(clamp((cu.t - 0.2) / 0.4, 0, 1)) : p === 1 && isBreakTo ? 1 - ease(clamp((cu.t - 0.5) / 0.45, 0, 1)) : 0);
+    }
+  }
+  // the one piece that flies between columns
+  if (cu?.k === 'merge') {
+    const u = cu.t, p = cu.p, al = clamp((u - 0.6) / 0.08, 0, 1);
+    if (al > 0) {
+      const f = ease(clamp((u - 0.68) / 0.32, 0, 1)), to = slot(G, p + 1, S.d[p + 1]);
+      drawPiece(c, G, p + 1, lerp(G.cx(p), to.x, f), lerp(G.amid, to.y, f), 1, al);
+    }
+  } else if (cu?.k === 'break') {
+    const u = cu.t, q = cu.p, al = 1 - clamp((u - 0.32) / 0.08, 0, 1);
+    if (al > 0) {
+      const f = ease(clamp(u / 0.32, 0, 1)), from = slot(G, q, S.d[q]);
+      drawPiece(c, G, q, lerp(from.x, G.cx(q - 1), f), lerp(from.y, G.amid, f), 1, al);
+    }
+  }
+  // plus / minus buttons
+  if (o.btn) {
+    const by = h - 30, r = 17;
+    for (let p = 0; p < 4; p++) for (const dir of [-1, 1]) {
+      const x = G.cx(p) + dir * Math.min(21, G.cw * 0.23);
+      c.beginPath(); c.arc(x, by, r, 0, 7); c.fillStyle = hexA(COL[p], 0.2); c.fill(); c.strokeStyle = COL[p]; c.lineWidth = 2; c.stroke();
+      c.beginPath(); c.moveTo(x - 7, by); c.lineTo(x + 7, by); if (dir > 0) { c.moveTo(x, by - 7); c.lineTo(x, by + 7); }
+      c.strokeStyle = '#fff'; c.lineWidth = 3; c.lineCap = 'round'; c.stroke();
+      S.btns.push({ p, dir, x, y: by, r });
+    }
+  }
+}
+
+function drawDigit(c, w, h, dt, time) {
+  const t = T[lang];
+  S.dpos = lerp(S.dpos, S.pl, 1 - Math.exp(-dt * 9));
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  if (S.zero) return drawZero(c, w, h, time);
+  const cellT = 80, cellH = 56, G = geom(w, h, cellT + cellH + 16, h - 104), v = S.dg * 10 ** S.pl;
+  // big label "3 -> 300"
+  const lf = clamp(w * 0.1, 30, 46); c.font = font(lf, 900);
+  const segs = [[String(S.dg), COL[S.pl]], ['  →  ', '#98A0B8'], [F(v), COL[S.pl]]], widths = segs.map(([s]) => c.measureText(s).width), tot = widths.reduce((a, b) => a + b, 0);
+  let lx = (w - tot) / 2; c.textAlign = 'left';
+  segs.forEach(([s, col], i) => { c.fillStyle = col; c.fillText(s, lx, 30); lx += widths[i]; });
+  c.textAlign = 'center';
+  // chart: four cells, the digit slides between them
+  for (let p = 3; p >= 0; p--) {
+    const on = p === S.pl;
+    c.font = font(clamp(G.cw * 0.14, 11, 15)); c.fillStyle = COL[p]; c.fillText(t.places[p], G.cx(p), cellT - 10);
+    rr(c, G.left(p) + 3, cellT, G.cw - 6, cellH, 12); c.fillStyle = hexA(COL[p], on ? 0.2 : 0.07); c.fill(); c.strokeStyle = hexA(COL[p], on ? 0.95 : 0.3); c.lineWidth = on ? 2 : 1; c.stroke();
+  }
+  c.font = font(44, 900); c.fillStyle = COL[Math.round(S.dpos)]; c.fillText(String(S.dg), G.pad + (3 - S.dpos) * G.cw + G.cw / 2, cellT + cellH / 2 + 2);
+  // blocks under the chart: only the column the digit sits in
+  for (let p = 0; p < 4; p++) {
+    const a = clamp(1 - Math.abs(S.dpos - p), 0, 1); if (a <= 0.02) continue;
+    for (let i = 0; i < S.dg; i++) { const s = slot(G, p, i); drawPiece(c, G, p, s.x, s.y, 0.6 + 0.4 * a, a); }
+  }
+  // worth tiles: 3, 30, 300, 3 000
+  const ty = h - 90, th = 40;
+  for (let p = 3; p >= 0; p--) {
+    const on = p === S.pl;
+    rr(c, G.left(p) + 3, ty, G.cw - 6, th, 10); c.fillStyle = hexA(COL[p], on ? 0.35 : 0.08); c.fill(); c.strokeStyle = on ? '#fff' : hexA(COL[p], 0.3); c.lineWidth = on ? 2 : 1; c.stroke();
+    c.font = font(clamp(G.cw * 0.26, 12, 22), 900); c.fillStyle = on ? '#fff' : COL[p]; c.fillText(F(S.dg * 10 ** p), G.cx(p), ty + th / 2 + 1);
+  }
+  c.font = font(13, 800); c.fillStyle = '#C6CDE0'; c.fillText(t.times10, w / 2, h - 34);
+  c.strokeStyle = 'rgba(198,205,224,.6)'; c.lineWidth = 2; c.lineCap = 'round'; c.beginPath();
+  c.moveTo(w - 16, h - 16); c.lineTo(16, h - 16); c.moveTo(26, h - 22); c.lineTo(16, h - 16); c.lineTo(26, h - 10); c.stroke();
+}
+
+// "Why zero?": 235 and 2035 side by side in the same chart
+function drawZero(c, w, h, time) {
+  const t = T[lang], rowH = clamp(h * 0.15, 56, 84), G = geom(w, h, 0, h), rows = [[null, 2, 3, 5], [2, 0, 3, 5]];
+  const top0 = 40, top1 = top0 + rowH + 78;
+  for (let p = 3; p >= 0; p--) { c.font = font(clamp(G.cw * 0.14, 11, 15)); c.fillStyle = COL[p]; c.fillText(t.places[p], G.cx(p), 22); }
+  rows.forEach((row, r) => {
+    const y = r ? top1 : top0;
+    row.forEach((v, i) => {
+      const p = 3 - i, zeroCell = r === 1 && v === 0;
+      rr(c, G.left(p) + 3, y, G.cw - 6, rowH, 12); c.fillStyle = hexA(COL[p], v === null ? 0.03 : 0.14); c.fill();
+      c.setLineDash(v === null ? [4, 4] : []); c.strokeStyle = hexA(COL[p], zeroCell ? 0.6 + 0.4 * Math.sin(time * 4) : v === null ? 0.25 : 0.55); c.lineWidth = zeroCell ? 3 : 1.5; c.stroke(); c.setLineDash([]);
+      if (v !== null) { c.font = font(rowH * 0.7, 900); c.fillStyle = zeroCell ? '#fff' : COL[p]; c.fillText(String(v), G.cx(p), y + rowH / 2 + 2); }
+    });
+    c.font = font(clamp(w * 0.07, 22, 34), 900); c.fillStyle = r ? '#f5c84c' : '#fff'; c.fillText(F(r ? 2035 : 235), w / 2, y + rowH + 30);
+  });
+}
+
+function drawRoman(c, w, h) {
+  const n = S.rn, r = roman(n), ours = String(n), RC = { M: COL[3], D: COL[2], C: COL[2], L: COL[1], X: COL[1], V: COL[0], I: COL[0] };
+  const tile = (s, col, x, y, size) => { rr(c, x, y, size, size, size * 0.2); c.fillStyle = hexA(col, 0.25); c.fill(); c.strokeStyle = col; c.lineWidth = 1.5; c.stroke(); c.fillStyle = col; c.font = font(size * 0.58, 900); c.fillText(s, x + size / 2, y + size / 2 + 1); };
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  const row = (items, y, size, count) => {
+    const gap = 4, tw = items.length * (size + gap) - gap, x0 = (w - tw) / 2;
+    items.forEach(([s, col], i) => tile(s, col, x0 + i * (size + gap), y, size));
+    c.font = font(clamp(w * 0.05, 16, 22), 900); c.fillStyle = '#C6CDE0'; c.fillText(String(count), w / 2, y + size + 22);
+  };
+  const size1 = clamp((w - 24) / ours.length - 4, 24, 64), size2 = clamp((w - 24) / r.length - 4, 18, 56);
+  row([...ours].map((ch, i) => [ch, COL[ours.length - 1 - i]]), h * 0.1, size1, ours.length);
+  c.strokeStyle = 'rgba(130,145,190,.3)'; c.lineWidth = 1; c.beginPath(); c.moveTo(24, h * 0.5); c.lineTo(w - 24, h * 0.5); c.stroke();
+  row([...r].map((ch) => [ch, RC[ch]]), h * 0.58, size2, r.length);
+}
+
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  tick(dt);
+  const m = mode();
+  if (m === 'build') drawBuild(c, w, h, { btn: true });
+  else if (m === 'make') drawBuild(c, w, h, { btn: true, make: true });
+  else if (m === 'odo') drawBuild(c, w, h, { odo: true });
+  else if (m === 'roman') drawRoman(c, w, h);
+  else drawDigit(c, w, h, dt, time);
+});
+
+$('cv').addEventListener('pointerdown', (ev) => {
+  const r = $('cv').getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top, m = mode();
+  const cw = (r.width - 16) / 4, col = 3 - Math.floor((x - 8) / cw);
+  if (m === 'build' || m === 'make') {
+    if (m === 'build' && !S.answered) return;
+    const b = S.btns.find((q) => Math.hypot(x - q.x, y - q.y) <= q.r + 4);
+    if (b) press(b.p, b.dir);
+    else if (y > S.colTop && col >= 0 && col <= 3) press(col, 1);
+  } else if (m === 'digit' && !S.zero && col >= 0 && col <= 3 && y < 140) { S.pl = col; sfx.tick(); render(); }
+});
+render();
+</script>
+</body>
+</html>
