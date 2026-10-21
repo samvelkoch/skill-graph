@@ -5,14 +5,14 @@
 (() => {
   const UI = {
     en: { done: 'Done ✓', labs: 'Labs', title: 'Interactive explainers', sub: 'Learn a topic by playing with it.', open: 'Open the explorer',
-          topics: (n) => `${n} ${n === 1 ? 'topic' : 'topics'}`, all: 'All labs', show: (n) => `Show all ${n} topics with a lab`, subj: { Science: 'Science', Mathematics: 'Mathematics', Computing: 'Computing', Other: 'Other' }, more: 'More explainers are on the way.', has: 'Has an interactive explainer', find: 'Find a lab…', none: 'No labs found.', moreIn: (n) => `${n} more →` },
+          topics: (n) => `${n} ${n === 1 ? 'topic' : 'topics'}`, all: 'All labs', show: (n) => `Show all ${n} topics with a lab`, subj: { Science: 'Science', Mathematics: 'Mathematics', Computing: 'Computing', Geography: 'Geography', History: 'History', Music: 'Music', English: 'Reading', Other: 'Other' }, more: 'More explainers are on the way.', has: 'Has an interactive explainer', find: 'Find a lab…', none: 'No labs found.', moreIn: (n) => `${n} more →` },
     ru: { done: 'Пройдена ✓', labs: 'Лаборатории', title: 'Интерактивные объяснения', sub: 'Разберись в теме, играя с ней.', open: 'Открыть лабораторию',
           topics: (n) => `${n} ${n % 10 === 1 && n % 100 !== 11 ? 'тема' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'темы' : 'тем'}`,
-          all: 'Все лаборатории', show: (n) => `Показать все темы с лабораториями (${n})`, subj: { Science: 'Естествознание', Mathematics: 'Математика', Computing: 'Информатика', Other: 'Другое' }, more: 'Скоро будут и другие.', has: 'Есть интерактивное объяснение', find: 'Найти лабораторию…', none: 'Ничего не нашлось.', moreIn: (n) => `ещё ${n} →` },
+          all: 'Все лаборатории', show: (n) => `Показать все темы с лабораториями (${n})`, subj: { Science: 'Естествознание', Mathematics: 'Математика', Computing: 'Информатика', Geography: 'География', History: 'История', Music: 'Музыка', English: 'Чтение', Other: 'Другое' }, more: 'Скоро будут и другие.', has: 'Есть интерактивное объяснение', find: 'Найти лабораторию…', none: 'Ничего не нашлось.', moreIn: (n) => `ещё ${n} →` },
     hu: { done: 'Kész ✓', labs: 'Laborok', title: 'Interaktív magyarázók', sub: 'Értsd meg a témát játék közben.', open: 'A labor megnyitása',
-          topics: (n) => `${n} téma`, all: 'Minden labor', show: (n) => `Mind a ${n} laboros téma mutatása`, subj: { Science: 'Természettudomány', Mathematics: 'Matematika', Computing: 'Informatika', Other: 'Egyéb' }, more: 'Hamarosan jönnek az újak.', has: 'Interaktív magyarázó tartozik hozzá', find: 'Labor keresése…', none: 'Nincs találat.', moreIn: (n) => `még ${n} →` },
+          topics: (n) => `${n} téma`, all: 'Minden labor', show: (n) => `Mind a ${n} laboros téma mutatása`, subj: { Science: 'Természettudomány', Mathematics: 'Matematika', Computing: 'Informatika', Geography: 'Földrajz', History: 'Történelem', Music: 'Ének-zene', English: 'Olvasás', Other: 'Egyéb' }, more: 'Hamarosan jönnek az újak.', has: 'Interaktív magyarázó tartozik hozzá', find: 'Labor keresése…', none: 'Nincs találat.', moreIn: (n) => `még ${n} →` },
   };
-  const SUBJ_ORDER = ['Science', 'Mathematics', 'Computing', 'Other'];
+  const SUBJ_ORDER = ['Science', 'Mathematics', 'Computing', 'Geography', 'History', 'Music', 'English', 'Other'];
   const ALL_UP_TO = 16, PER_SUBJ = 5, HITS = 12;
   const fold = (s) => String(s ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const $ = (id) => document.getElementById(id);
