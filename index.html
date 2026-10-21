@@ -188,6 +188,7 @@
   .st { width: 14px; flex: none; text-align: center; font-weight: 800; }
   .st.known { color: var(--ok); }
   .st.learning { color: var(--wip); }
+  .unl { font: 11px var(--mono); color: var(--faint); margin-left: 6px; }
   .empty { color: var(--mut); padding: 40px 0; text-align: center; font: 500 22px var(--serif); }
 
   /* graph view */
@@ -342,6 +343,8 @@ const UI = {
         drag: '<b>Drag</b> to spin · <b>Scroll</b> to zoom · <b>Tap</b> a dot, then follow its prerequisites',
         preN: (n) => n === 1 ? 'prerequisite in total' : 'prerequisites in total', preCap: 'Every concept a learner must master before this one, traced back to the start.',
         preNone: 'A starting point: nothing has to come before it.', listTitle: 'Topics',
+        nextTitle: 'Next step', nextSub: (n) => `${n} per subject, closest to the child’s age, the ones that unlock the most first`,
+        nextAll: (n) => `All ${n} topics ready to learn`, nextFew: 'Back to the short list', unlocksN: (n) => `unlocks ${n}`,
         known: (n) => `${n} known`, done: (n) => `Show ${n} topics`,
         school: 'School curriculum', schoolNone: 'Any curriculum (all topics)', inSchool: 'In school curricula',
         schoolHint: 'Shows only the topics taught in that grade by the country’s official curriculum.',
@@ -379,6 +382,8 @@ const UI = {
         drag: '<b>Тяните</b>, чтобы вращать · <b>Колёсико</b> приближает · <b>Нажмите</b> на точку, чтобы увидеть путь к ней',
         preN: (n) => `${ruPlural(n, 'тема', 'темы', 'тем')} до неё, всего`, preCap: 'Всё, что ребёнку нужно освоить до этой темы, вплоть до самого начала.',
         preNone: 'Стартовая тема: до неё ничего учить не нужно.', listTitle: 'Темы',
+        nextTitle: 'Следующий шаг', nextSub: (n) => `по ${n} на предмет, ближе всего к возрасту ребёнка, первыми те, что открывают больше всего`,
+        nextAll: (n) => `Все темы, которые можно изучать · ${n}`, nextFew: 'Назад к короткому списку', unlocksN: (n) => `открывает ${n}`,
         known: (n) => `освоено ${n}`, done: (n) => `Показать ${n} ${ruPlural(n, 'тему', 'темы', 'тем')}`,
         school: 'Школьная программа', schoolNone: 'Любая программа (все темы)', inSchool: 'В школьных программах',
         schoolHint: 'Оставляет только темы, которые проходят в этом классе по официальной программе страны.',
@@ -414,6 +419,8 @@ const UI = {
         drag: '<b>Húzd</b> a forgatáshoz · <b>Görgess</b> a nagyításhoz · <b>Koppints</b> egy pontra az előzményeihez',
         preN: () => 'előzménytéma összesen', preCap: 'Minden, amit a gyereknek előbb el kell sajátítania, egészen az elejéig visszakövetve.',
         preNone: 'Kiinduló téma: semmi sem kell előtte.', listTitle: 'Témák',
+        nextTitle: 'Következő lépés', nextSub: (n) => `tantárgyanként ${n}, a gyerek korához legközelebb, elöl azok, amelyek a legtöbbet nyitják meg`,
+        nextAll: (n) => `Mind a ${n} tanulható téma`, nextFew: 'Vissza a rövid listához', unlocksN: (n) => `${n} témát nyit meg`,
         known: (n) => `${n} megvan`, done: (n) => `${n} téma mutatása`,
         school: 'Iskolai tanterv', schoolNone: 'Bármely tanterv (minden téma)', inSchool: 'Az iskolai tantervekben',
         schoolHint: 'Csak azokat a témákat mutatja, amelyeket az ország hivatalos tanterve szerint abban az osztályban tanulnak.',
@@ -454,10 +461,12 @@ let focus = null, chain = new Set(), chainOnly = false, back = [];
 let series = new Map(); // topic id -> its age stages (same array for every member), only for series of 2+
 const saved = store.get('filters', {});
 const f = {
-  view: params.get('view') === 'list' ? 'list' : params.has('view') || saved.v !== 2 ? 'graph' : saved.view === 'list' ? 'list' : 'graph',
+  view: params.has('view') ? (params.get('view') === 'list' ? 'list' : 'graph')
+    : saved.v === 2 ? (saved.view === 'list' ? 'list' : 'graph')
+    : matchMedia('(max-width: 720px)').matches ? 'list' : 'graph', // first visit on a phone opens the list
   ageFrom: null, ageTo: null,
   offSubj: new Set(saved.offSubj ?? []), offDom: new Set(saved.offDom ?? []),
-  status: saved.status ?? 'all', sort: saved.sort ?? 'age',
+  status: saved.status ?? 'all', nextAll: false, sort: saved.sort ?? 'age',
   school: params.get('school') ?? saved.school ?? '', // '<country>-<grade>', e.g. 'hu-4'
   labs: params.has('labs') ? params.get('labs') === '1' : saved.labs ?? false, // only topics with a lab (labs/viewer.js fills labTopics)
   offSrc: new Set(params.has('src') ? SOURCES_ALL.filter((x) => !params.get('src').split(',').includes(x)) : saved.offSrc ?? []),
@@ -672,7 +681,7 @@ $('side').addEventListener('click', (ev) => {
   if (ev.target.id === 'srcAll') { f.offSrc.clear(); return applyFilters(); }
   if (ev.target.closest('#labsOnly')) { f.labs = !f.labs; return applyFilters(); }
   const s = ev.target.closest('#status button');
-  if (s) { f.status = s.dataset.s; return applyFilters(); }
+  if (s) { f.status = s.dataset.s; f.nextAll = false; return applyFilters(); }
   const m = ev.target.closest('[data-more]');
   if (m) { const k = 'side:' + m.dataset.more; openDoms.has(k) ? openDoms.delete(k) : openDoms.add(k); return renderSide(); }
   if (ev.target.id === 'sideDone') return document.body.classList.remove('side-open');
@@ -682,7 +691,7 @@ $('side').addEventListener('click', (ev) => {
     const ids = hypoIds();
     ids.forEach((id) => { progress[id] = 'known'; });
     store.set('hypo', [...store.get('hypo', []), ...ids]); store.set('progress', progress);
-    f.status = 'next'; applyFilters(); if (focus) renderPanel(); return;
+    f.status = 'next'; f.nextAll = false; applyFilters(); if (focus) renderPanel(); return;
   }
   if (ev.target.id === 'hypoUndo') {
     store.get('hypo', []).forEach((id) => { if (progress[id] === 'known') delete progress[id]; });
@@ -728,7 +737,7 @@ function renderHero() {
 $('hero').addEventListener('click', (ev) => {
   const go = ev.target.closest('[data-go]')?.dataset.go;
   if (!go) return;
-  if (go === 'next') f.status = 'next';
+  if (go === 'next') { f.status = 'next'; f.nextAll = false; }
   setView('list'); applyFilters();
 });
 
@@ -792,8 +801,44 @@ const stIcon = (id) => progress[id] === 'known' ? '<span class="st known">✓</s
 const stageBtns = (ms) => ms.map((m) => `<button class="stage${m.id === focus ? ' on' : ''}" data-id="${m.id}">${
   progress[m.id] === 'known' ? '✓ ' : progress[m.id] === 'learning' ? '● ' : ''}${m.ageRangeStart}–${m.ageRangeEnd}</button>`).join('');
 
+// age window (± 1 year) of the chosen school grade, else of a narrowed age filter, else none
+function childAges() {
+  const g = /-(\d+)$/.exec(f.school)?.[1];
+  if (g != null) {
+    const [, a, b] = GRADES.find((x) => x[0] === +g) ?? [+g, +g + 5, +g + 6];
+    return [a - 1, b + 1];
+  }
+  return f.ageFrom !== ageMin || f.ageTo !== ageMax ? [f.ageFrom - 1, f.ageTo + 1] : null;
+}
+const topicRow = (t, extra = '') => `<li data-id="${t.id}" class="${t.id === focus ? 'sel' : ''}">${stIcon(t.id)}
+  <div class="txt">${esc(shortName(t))}${extra} ${isKey(t) ? `<span class="key" title="${UI[lang].key}">★</span>` : ''}
+  <div class="d">${esc(t.description)}</div></div><span class="age">${t.ageRangeStart}–${t.ageRangeEnd}</span></li>`;
+
+// "Next step": a few ready topics per subject, closest to the child's age and unlocking the most
+function renderNext() {
+  const u = UI[lang], N = 5, win = childAges(), by = new Map();
+  for (const id of visible) { const t = byId.get(id); (by.get(t.subject) ?? by.set(t.subject, []).get(t.subject)).push(t); }
+  const unl = (t) => dependents.get(t.id)?.length ?? 0, score = (t) => unl(t) * 10 + (t.centrality ?? 0), byScore = (a, b) => score(b) - score(a);
+  let html = `<div id="listHead"><h1>${esc(u.nextTitle)}<i>.</i></h1><span class="sub">${u.nextSub(N)}</span></div>`;
+  if (!visible.size) html += `<div class="empty">${u.empty}</div>`;
+  for (const s of SUBJECTS) {
+    const ts = by.get(s);
+    if (!ts) continue;
+    const near = win ? ts.filter((t) => t.ageRangeStart <= win[1] && t.ageRangeEnd >= win[0]).sort(byScore) : [];
+    const pick = near.length >= N ? near.slice(0, N)
+      : [...near, ...ts.filter((t) => !near.includes(t)).sort(byScore)].slice(0, N);
+    html += `<section class="group"><h2><i class="dot" style="background:${COLORS[s]}"></i>${esc(subj(s))} <span class="n">${ts.length}</span></h2>
+      <ul class="topics next">${pick.map((t) => topicRow(t, `<span class="unl">${esc(u.unlocksN(unl(t)))}</span>`)).join('')}</ul></section>`;
+  }
+  if (visible.size) html += `<p class="links"><button class="linkbtn" id="nextAll">${u.nextAll(visible.size)}</button></p>`;
+  const top = $('list').scrollTop;
+  $('list').innerHTML = html;
+  $('list').scrollTop = top;
+}
+
 function renderList() {
   if (f.view !== 'list') return;
+  if (f.status === 'next' && !f.nextAll) return renderNext();
   const u = UI[lang];
   const groups = new Map();
   for (const id of visible) {
@@ -808,6 +853,7 @@ function renderList() {
   const openAll = visible.size <= 40 || f.labs;
   let html = `<div id="listHead"><h1>${esc(u.listTitle)}<i>.</i></h1><span class="sub">${u.shown(visible.size)} · ${schoolTopics ? esc(schoolLabel()) : `${u.age.toLowerCase()} ${f.ageFrom}–${f.ageTo}`}</span>
     <select id="sort"><option value="age">${u.sortAge}</option><option value="key"${f.sort === 'key' ? ' selected' : ''}>${u.sortKey}</option></select></div>`;
+  if (f.status === 'next') html += `<p class="links"><button class="linkbtn" id="nextFew">${u.nextFew}</button></p>`;
   if (!visible.size) html += `<div class="empty">${u.empty}</div>`;
   for (const s of SUBJECTS) {
     const g = groups.get(s);
@@ -840,6 +886,7 @@ function renderList() {
 }
 
 $('list').addEventListener('click', (ev) => {
+  if (ev.target.id === 'nextAll' || ev.target.id === 'nextFew') { f.nextAll = ev.target.id === 'nextAll'; return renderList(); }
   const st = ev.target.closest('.stage');
   if (st) return select(st.dataset.id, true);
   const li = ev.target.closest('li[data-id]');
@@ -859,7 +906,7 @@ function showDomain(s, d) {
   // widen the age filter if the section lies outside it
   const lo = Math.min(...t.map((x) => x.ageRangeStart)), hi = Math.max(...t.map((x) => x.ageRangeEnd));
   if (hi < f.ageFrom || lo > f.ageTo) [f.ageFrom, f.ageTo] = [ageMin, ageMax];
-  f.status = 'all';
+  f.status = 'all'; f.nextAll = false;
   setView('list');
   applyFilters();
   document.querySelector(`details.dom[data-k="${CSS.escape(s + '|' + d)}"]`)?.scrollIntoView({ block: 'start' });
