@@ -199,6 +199,7 @@
     };
     addEventListener('keydown', key, true);
     addEventListener('resize', place);
+    addEventListener('scroll', place, { passive: true });
     timer = setInterval(place, 400); // the map, the panel and the drawer move on their own
     go(0);
   }
@@ -229,6 +230,7 @@
     clearInterval(timer);
     removeEventListener('keydown', key, true);
     removeEventListener('resize', place);
+    removeEventListener('scroll', place);
     ['tourShade', 'tourHole', 'tourCard'].forEach((id) => $(id)?.remove());
     if (opened?.topic) select(null);
     if (opened?.side) document.body.classList.remove('side-open');
