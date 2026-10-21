@@ -94,6 +94,7 @@
   function decoratePanel() {
     const body = $('panelBody'), l = byTopic.get(topic());
     if (!l || !body || body.querySelector('.labcta')) return;
+    if (body.querySelector('.stuckBtns')) return;
     const anchor = body.querySelector('#markAll') || body.querySelector('.status') || body.querySelector('h2');
     if (!anchor) return;
     const u = UI[cur()], ok = labDone(l);
