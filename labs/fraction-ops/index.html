@@ -1,0 +1,716 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fraction Moves · Skill Graph</title>
+<meta name="description" content="Simplify, add, multiply and divide fractions on one strip of equal pieces, find a number from its fraction, and check yourself before and after. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  .frac { display: inline-flex; flex-direction: column; align-items: center; line-height: 1; vertical-align: middle; font-weight: 900; }
+  .frac span:first-child { border-bottom: 3px solid currentColor; padding: 0 4px 3px; }
+  .frac span:last-child { padding-top: 3px; }
+  .readout .val { font-size: 24px; line-height: 1.5; }
+  .readout .val .frac { font-size: 26px; }
+  .op { color: var(--mut); font-weight: 800; margin: 0 .22em; }
+  .mixn { margin-right: 4px; font-weight: 900; }
+  .rule { color: var(--ok); font-weight: 800; }
+  .stepper { display: inline-flex; align-items: center; gap: 4px; }
+  .stepper button { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 900; font-size: 16px; cursor: pointer; padding: 0; }
+  .stepper button:hover { background: rgba(130, 145, 190, .25); }
+  .stepper button:disabled { opacity: .3; cursor: default; }
+  .stepper b { min-width: 26px; text-align: center; color: #fff; }
+  .slash { color: var(--faint); font-weight: 900; font-size: 20px; }
+  .tip { position: absolute; left: 12px; right: 12px; top: 8px; text-align: center; font-size: 12.5px; color: var(--mut); font-weight: 700;
+    pointer-events: none; line-height: 1.3; }
+  .btn.sm { padding: 8px 18px; font-size: 13px; }
+  .btn:disabled { opacity: .4; cursor: default; }
+  .xtra > div + div { margin-top: 6px; }
+  #ctrlBody .chips + .row2, #ctrlBody .row2 + .row2 { margin-top: 10px; }
+  #views button { padding: 6px 12px; }
+  /* the check: its own full-width screen, no scene */
+  #test { display: none; padding: 18px 20px 20px; }
+  body.testmode #stage, body.testmode #ctrl, body.testmode #state, body.testmode #gauge { display: none; }
+  body.testmode #test { display: block; }
+  body.testmode .lab { display: block; min-height: 0; }
+  body.testmode #hero { padding-bottom: 14px; }
+  body.nogauge #gauge { display: none; }
+  @media (min-width: 1101px) {
+    body.nogauge:not(.testmode) .lab { grid-template-columns: minmax(300px, 400px) minmax(0, 1fr);
+      grid-template-areas: 'hero stage' 'state stage' 'state ctrl'; }
+  }
+  @media (max-width: 760px) {
+    #views { flex-wrap: wrap; flex-basis: 100%; justify-content: center; border-radius: 18px; }
+    #views button { padding: 5px 9px; font-size: 12px; }
+    #stage { height: 330px; }
+    .readout .val .frac { font-size: 22px; }
+    .readout .val { font-size: 20px; }
+    .tip { font-size: 11.5px; }
+    #test { padding: 14px 12px 16px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, lang, ruPlural } from '../lab.js';
+import { mountCheck } from './check.js';
+
+const OPS = { en: { mul: '×', div: '÷' }, ru: { mul: '·', div: ':' }, hu: { mul: '·', div: ':' } };
+const MUL = () => OPS[lang].mul, DIV = () => OPS[lang].div;
+
+// --- words (from the plan) ----------------------------------------------------------------------------------
+const HU_TIMES = (n) => `${n}-${{ 1: 'szer', 2: 'szer', 3: 'szor', 4: 'szer', 5: 'ször', 6: 'szor', 7: 'szer', 8: 'szor', 9: 'szer', 10: 'szer' }[n] ?? 'szor'}`;
+const T = {
+en: {
+  name: 'Fraction Moves', title: 'Fractions, piece by piece',
+  lines: [['One picture for everything:', 'a strip cut into equal pieces.'], ['Simplify, add, multiply, divide', '— and solve equations.'], ['📝 Check', 'shows what has changed after a few days of practice.']],
+  views: { simplify: '✂️ Simplify', add: '➕ Add', mul: '✖️ Multiply', div: '➗ Divide', eq: '🟰 Equation', test: '📝 Check' },
+  gaugeCap: 'How much',
+  sp: { glue: 'Glue neighbours in groups of', reset: 'Start again', tip: 'Pick a group size to glue pieces',
+    leadStart: (a, b) => `${a} of ${b} equal pieces are shaded`,
+    bodyStart: 'Glue neighbouring pieces into equal groups. Which group sizes keep every group fully shaded or fully empty?',
+    leadOk: (a, b, k, a2, b2) => `Glued in groups of ${k}: ${a}/${b} = ${a2}/${b2}`,
+    bodyOk: 'Bigger pieces, fewer of them, and exactly the same amount is shaded. That is all simplifying is: divide the numerator and the denominator by the same number.',
+    leadBad: (k) => `Groups of ${k} don’t work here`,
+    bodyBad: (a, k) => `One group came out half shaded, half empty. The numerator ${a} can’t be divided by ${k} exactly, so you can’t glue in groups of ${k}.`,
+    leadDone: (a, b) => `${a}/${b} can’t be simplified any more`,
+    bodyDone: (a0, b0, g, a, b) => `No number bigger than 1 divides both ${a} and ${b}. The biggest glue for the original fraction is GCD(${a0}, ${b0}) = ${g}: glue in groups of ${g} and you simplify in one step.`,
+    rule: 'Basic property of a fraction: a/b = (a ÷ k)/(b ÷ k)',
+    pill: { can: 'can be simplified', done: 'in lowest terms' } },
+  ad: { ops: ['+ Add', '− Subtract'], cut: 'Pieces in a whole', lcd: '💡 Lowest common denominator', tip: 'Change the number of pieces until both strips fit', res: 'Result',
+    leadNo: (b, d) => `Pieces of 1/${b} and 1/${d} don’t add up directly`,
+    bodyNo: (n) => `With ${n} ${n === 1 ? 'piece' : 'pieces'} in a whole, one strip doesn’t end on a cut line. Find a number of pieces that cuts both strips exactly.`,
+    bodyCommon: (n, l) => `It works: both strips are cut into ${n} equal pieces. Bigger pieces work too: ${l} in a whole.`,
+    bodyLcd: (b, d, l) => `${l} is the lowest common denominator: LCM(${b}, ${d}) = ${l}. Now the pieces are the same size, so just count them.`,
+    mixed: (num, den, w, r) => `${num}/${den} is more than a whole: ${num}/${den} = ${w} ${r}/${den}.`,
+    pill: { no: 'pieces differ', ok: 'same pieces', lcd: 'lowest common denominator' } },
+  mu: { first: 'First fraction', second: 'Second fraction', tip: 'Change the fractions with + and −',
+    lead: (a, b, c, d) => `${c}/${d} of ${a}/${b}`,
+    body: (a, b, c, d) => `Shade ${a}/${b} of the square (columns). Now take ${c}/${d} of that part (rows). Shaded twice: ${a} × ${c} = ${a * c} cells. All cells: ${b} × ${d} = ${b * d}. That is why numerator times numerator, denominator times denominator.`,
+    smaller: 'Multiplying by a fraction less than 1 makes a number smaller: you take only part of it.',
+    bigger: 'Multiplying by a fraction greater than 1 makes a number bigger: you take more than the whole.',
+    pill: { less: 'smaller than the first', same: 'same as the first', more: 'bigger than the first' } },
+  dv: { ribbon: 'Ribbon', piece: 'Piece', m: 'm', tip: 'Pick a ribbon and a piece size',
+    leadQ: (y) => `How many pieces of ${y} m fit?`,
+    body: (y, r) => `Dividing by ${y} means: how many times does ${y} fit? Count the pieces on the ribbon. It is the same as multiplying by ${r}: ${y} and ${r} are reciprocals, ${y} × ${r} = 1.`,
+    why1: (x, d) => `${x} ÷ 1/${d} = ${x} × ${d}: every metre holds ${d} pieces of 1/${d} m.`,
+    why2: (x, c, d) => `A piece of ${c}/${d} m is ${c} such small pieces, so ${c} times fewer fit: ${x} × ${d} ÷ ${c} = ${x} × ${d}/${c}.`,
+    left: (fr) => `The last piece doesn’t fit whole: only ${fr} of it.`,
+    tiny: 'Pieces of 1/100 m: one metre holds 100 of them. Dividing by a fraction less than 1 gives an answer bigger than the number you divide.',
+    pill: { more: 'more pieces than metres', less: 'less than one piece' } },
+  eq: { modes: ['Fraction of a number', 'Number from its fraction'], next: 'Next step ▶', again: 'Start again', own: 'Your own', tip: 'Press “Next step” to fill the strip',
+    fwdQ: (N, p, q) => `Find ${p}/${q} of ${N}.`,
+    fwd1: (N, q, u) => `Step 1. Split ${N} into ${q} equal parts: ${N} ÷ ${q} = ${u} in each.`,
+    fwd2: (p, u, r) => `Step 2. Take ${p} parts: ${p} × ${u} = ${r}.`,
+    fwdRule: (N, p, q, r) => `${p}/${q} of ${N} = ${N} × ${p}/${q} = ${r}`,
+    bwdQ: (p, q, M) => `${p}/${q} of a number is ${M}. Find the number.`,
+    bwd1: (p, M, u) => `Step 1. ${p} parts are ${M}, so one part is ${M} ÷ ${p} = ${u}.`,
+    bwd2: (q, u, x) => `Step 2. The whole has ${q} parts: ${q} × ${u} = ${x}.`,
+    bwdRule: (p, q, M, x) => `${p}/${q} × x = ${M}  →  x = ${M} ÷ ${p}/${q} = ${M} × ${q}/${p} = ${x}`,
+    body: 'Draw the strip, find one part, then the whole. The same two steps solve both kinds of problem; only the direction changes.',
+    bwdBody: 'Finding a number from its fraction is dividing by that fraction. That is why the equation and the Divide station give the same answer.' },
+  secrets: { s1: ['More than a whole', 'Multiply by 3/2'], s2: ['Tiny pieces', 'Divide by 1/100'] },
+  quiz: [
+    { q: 'Why can’t you add 1/3 and 1/4 straight away?', opts: ['The pieces are different sizes: cut them the same first', 'Because 3 and 4 are different numbers', 'You can: 1/3 + 1/4 = 2/7'], ok: 0 },
+    { q: 'What is 2 ÷ 1/4?', opts: ['1/2', '6', '8'], ok: 2 },
+    { q: '3/5 of a number is 12. What is the number?', opts: ['36', '20', '7 1/5'], ok: 1 },
+  ],
+},
+ru: {
+  name: 'Действия с дробями', title: 'Дроби по кусочкам',
+  lines: [['Одна картинка на всё:', 'полоска, разрезанная на равные кусочки.'], ['Сокращаем, складываем, умножаем, делим', '— и решаем уравнения.'], ['📝 Проверка', 'покажет, что изменилось после нескольких дней занятий.']],
+  views: { simplify: '✂️ Сокращение', add: '➕ Сложение', mul: '✖️ Умножение', div: '➗ Деление', eq: '🟰 Уравнение', test: '📝 Проверка' },
+  gaugeCap: 'Сколько',
+  sp: { glue: 'Склеить соседние кусочки по', reset: 'Сначала', tip: 'Выбери, по сколько кусочков склеивать',
+    leadStart: (a, b) => `Закрашено ${a} из ${b} равных кусочков`,
+    bodyStart: 'Склей соседние кусочки в равные группы. При каком размере группы каждая будет или целиком закрашена, или целиком пустая?',
+    leadOk: (a, b, k, a2, b2) => `Склеили по ${k}: ${a}/${b} = ${a2}/${b2}`,
+    bodyOk: 'Кусочки крупнее, их меньше, а закрашено ровно столько же. Сократить дробь — это и есть разделить числитель и знаменатель на одно и то же число.',
+    leadBad: (k) => `По ${k} склеить нельзя`,
+    bodyBad: (a, k) => `Одна группа получилась наполовину закрашенной. Числитель ${a} не делится на ${k}, поэтому склеивать по ${k} нельзя.`,
+    leadDone: (a, b) => `${a}/${b} больше не сокращается`,
+    bodyDone: (a0, b0, g, a, b) => `Нет числа больше 1, на которое делятся и ${a}, и ${b}. Самый крупный «клей» для исходной дроби — НОД(${a0}, ${b0}) = ${g}: склеишь по ${g} и сократишь за один шаг.`,
+    rule: 'Основное свойство дроби: a/b = (a : k)/(b : k)',
+    pill: { can: 'можно сократить', done: 'несократимая' } },
+  ad: { ops: ['+ Сложить', '− Вычесть'], cut: 'Кусочков в целом', lcd: '💡 Общий знаменатель', tip: 'Меняй число кусочков, пока обе полоски не нарежутся ровно', res: 'Ответ',
+    leadNo: (b, d) => `Кусочки 1/${b} и 1/${d} так не складываются`,
+    bodyNo: (n) => `Когда в целом ${n} ${ruPlural(n, 'кусочек', 'кусочка', 'кусочков')}, одна из полосок кончается не на разрезе. Подбери такое число кусочков, чтобы ровно нарезались обе полоски.`,
+    bodyCommon: (n, l) => `Подходит: обе полоски нарезаны одинаково, кусочков в целом — ${n}. Но можно резать и крупнее: на ${l}.`,
+    bodyLcd: (b, d, l) => `${l} — наименьший общий знаменатель: НОК(${b}, ${d}) = ${l}. Кусочки стали одинаковыми — осталось их сосчитать.`,
+    mixed: (num, den, w, r) => `${num}/${den} больше целого: выделяем целую часть, ${num}/${den} = ${w} ${r}/${den}.`,
+    pill: { no: 'кусочки разные', ok: 'кусочки одинаковые', lcd: 'наименьший общий знаменатель' } },
+  mu: { first: 'Первая дробь', second: 'Вторая дробь', tip: 'Меняй дроби кнопками + и −',
+    lead: (a, b, c, d) => `${c}/${d} от ${a}/${b}`,
+    body: (a, b, c, d) => `Закрась ${a}/${b} квадрата (столбики). Теперь возьми ${c}/${d} от закрашенного (строчки). Закрашено дважды: ${a} · ${c} = ${a * c} ${ruPlural(a * c, 'клетка', 'клетки', 'клеток')}. Всего клеток: ${b} · ${d} = ${b * d}. Вот почему числитель умножают на числитель, а знаменатель — на знаменатель.`,
+    smaller: 'Умножение на дробь меньше 1 уменьшает число: берём только его часть.',
+    bigger: 'Умножение на дробь больше 1 увеличивает число: берём больше целого.',
+    pill: { less: 'меньше первой', same: 'как первая', more: 'больше первой' } },
+  dv: { ribbon: 'Лента', piece: 'Кусок', m: 'м', tip: 'Выбери ленту и размер куска',
+    leadQ: (y) => `Сколько кусков по ${y} м поместится?`,
+    body: (y, r) => `Разделить на ${y} — значит узнать, сколько раз ${y} помещается. Посчитай куски на ленте. Это то же, что умножить на ${r}: числа ${y} и ${r} взаимно обратные, ${y} · ${r} = 1.`,
+    why1: (x, d) => `${x} : 1/${d} = ${x} · ${d}: в каждом метре ${d} ${ruPlural(d, 'кусочек', 'кусочка', 'кусочков')} по 1/${d} м.`,
+    why2: (x, c, d) => `Кусок ${c}/${d} м — это ${c} таких кусочка, значит кусков в ${c} ${ruPlural(c, 'раз', 'раза', 'раз')} меньше: ${x} · ${d} : ${c} = ${x} · ${d}/${c}.`,
+    left: (fr) => `Последний кусок не поместился целиком — только ${fr} куска.`,
+    tiny: 'Куски по 1/100 м: в одном метре их 100. Делим на дробь меньше 1 — ответ получается больше делимого.',
+    pill: { more: 'кусков больше, чем метров', less: 'меньше одного куска' } },
+  eq: { modes: ['Дробь от числа', 'Число по его дроби'], next: 'Следующий шаг ▶', again: 'Сначала', own: 'Своя задача', tip: 'Жми «Следующий шаг», чтобы заполнить полоску',
+    fwdQ: (N, p, q) => `Найди ${p}/${q} от ${N}.`,
+    fwd1: (N, q, u) => `Шаг 1. Делим ${N} на ${q} ${ruPlural(q, 'равную часть', 'равные части', 'равных частей')}: ${N} : ${q} = ${u} в каждой.`,
+    fwd2: (p, u, r) => `Шаг 2. Берём ${p} ${ruPlural(p, 'часть', 'части', 'частей')}: ${p} · ${u} = ${r}.`,
+    fwdRule: (N, p, q, r) => `${p}/${q} от ${N} = ${N} · ${p}/${q} = ${r}`,
+    bwdQ: (p, q, M) => `${p}/${q} числа равны ${M}. Найди число.`,
+    bwd1: (p, M, u) => `Шаг 1. ${p} ${ruPlural(p, 'часть', 'части', 'частей')} — это ${M}, значит одна часть: ${M} : ${p} = ${u}.`,
+    bwd2: (q, u, x) => `Шаг 2. Всего частей ${q}: ${q} · ${u} = ${x}.`,
+    bwdRule: (p, q, M, x) => `${p}/${q} · x = ${M}  →  x = ${M} : ${p}/${q} = ${M} · ${q}/${p} = ${x}`,
+    body: 'Рисуем полоску, находим одну часть, потом всё. Эти два шага решают обе задачи, меняется только направление.',
+    bwdBody: 'Найти число по его дроби — значит разделить на эту дробь. Поэтому уравнение и станция «Деление» дают один и тот же ответ.' },
+  secrets: { s1: ['Больше целого', 'Умножь на 3/2'], s2: ['Крошечные кусочки', 'Раздели на 1/100'] },
+  quiz: [
+    { q: 'Почему нельзя сразу сложить 1/3 и 1/4?', opts: ['Кусочки разного размера — сначала нарежь их одинаково', 'Потому что 3 и 4 — разные числа', 'Можно: 1/3 + 1/4 = 2/7'], ok: 0 },
+    { q: 'Чему равно 2 : 1/4?', opts: ['1/2', '6', '8'], ok: 2 },
+    { q: '3/5 числа равны 12. Чему равно число?', opts: ['36', '20', '7 1/5'], ok: 1 },
+  ],
+},
+hu: {
+  name: 'Törtműveletek', title: 'Törtek darabról darabra',
+  lines: [['Egy kép mindenre:', 'egyenlő darabokra vágott csík.'], ['Egyszerűsíts, adj össze, szorozz, ossz', '— és oldj meg egyenletet.'], ['📝 Felmérő:', 'megmutatja, mi változott néhány nap gyakorlás után.']],
+  views: { simplify: '✂️ Egyszerűsítés', add: '➕ Összeadás', mul: '✖️ Szorzás', div: '➗ Osztás', eq: '🟰 Egyenlet', test: '📝 Felmérő' },
+  gaugeCap: 'Mennyi',
+  sp: { glue: 'Csoportméret', reset: 'Újra', tip: 'Válaszd ki, hány darabot ragasztasz össze',
+    leadStart: (a, b) => `${b} egyenlő darabból ${a} színes`,
+    bodyStart: 'Ragaszd össze a szomszédos darabokat egyenlő csoportokba. Melyik csoportméretnél lesz minden csoport vagy egészen színes, vagy egészen üres?',
+    leadOk: (a, b, k, a2, b2) => `${k} darabos csoportok: ${a}/${b} = ${a2}/${b2}`,
+    bodyOk: 'Nagyobb darabok, kevesebb belőlük, és pontosan ugyanannyi színes. Az egyszerűsítés ennyi: a számlálót és a nevezőt ugyanazzal a számmal osztjuk.',
+    leadBad: (k) => `${k} darabos csoportokkal itt nem megy`,
+    bodyBad: (a, k) => `Az egyik csoport félig színes, félig üres lett. A számláló (${a}) nem osztható maradék nélkül ennyivel: ${k}.`,
+    leadDone: (a, b) => `${a}/${b} tovább nem egyszerűsíthető`,
+    bodyDone: (a0, b0, g, a, b) => `Nincs 1-nél nagyobb szám, amellyel ${a} és ${b} is osztható. Az eredeti tört legnagyobb „ragasztója” lnko(${a0}; ${b0}) = ${g}: ${g} darabos csoportokkal egy lépésben egyszerűsítesz.`,
+    rule: 'A tört értéke nem változik: a/b = (a : k)/(b : k)',
+    pill: { can: 'egyszerűsíthető', done: 'tovább nem egyszerűsíthető' } },
+  ad: { ops: ['+ Összeadás', '− Kivonás'], cut: 'Darab egy egészben', lcd: '💡 Legkisebb közös nevező', tip: 'Változtasd a darabszámot, amíg mindkét csík pontosan illeszkedik', res: 'Eredmény',
+    leadNo: (b, d) => `Az 1/${b} és az 1/${d} darabok így nem adhatók össze`,
+    bodyNo: (n) => `Ha egy egészben ${n} darab van, az egyik csík nem vágásnál ér véget. Keress olyan darabszámot, amellyel mindkét csík pontosan felvágható.`,
+    bodyCommon: (n, l) => `Jó: mindkét csík ${n} egyenlő darabra van vágva. De nagyobb darabokkal is megy: ${l} darab egy egészben.`,
+    bodyLcd: (b, d, l) => `${l} a legkisebb közös nevező: lkkt(${b}; ${d}) = ${l}. Most már egyformák a darabok, csak meg kell számolni őket.`,
+    mixed: (num, den, w, r) => `${num}/${den} több egy egésznél: ${num}/${den} = ${w} ${r}/${den}.`,
+    pill: { no: 'különböző darabok', ok: 'egyforma darabok', lcd: 'legkisebb közös nevező' } },
+  mu: { first: 'Első tört', second: 'Második tört', tip: 'Változtasd a törteket a + és − gombokkal',
+    lead: (a, b, c, d) => `${a}/${b} ${c}/${d} része`,
+    body: (a, b, c, d) => `Színezd be a négyzet ${a}/${b} részét (oszlopok). Most ebből vegyél ${c}/${d} részt (sorok). Kétszer színezett: ${a} · ${c} = ${a * c} cella. Összes cella: ${b} · ${d} = ${b * d}. Ezért szorozzuk a számlálót a számlálóval, a nevezőt a nevezővel.`,
+    smaller: 'Ha 1-nél kisebb törttel szorzunk, a szám kisebb lesz: csak egy részét vesszük.',
+    bigger: 'Ha 1-nél nagyobb törttel szorzunk, a szám nagyobb lesz: többet veszünk az egésznél.',
+    pill: { less: 'kisebb az elsőnél', same: 'ugyanannyi', more: 'nagyobb az elsőnél' } },
+  dv: { ribbon: 'Szalag', piece: 'Darab', m: 'm', tip: 'Válassz szalagot és darabméretet',
+    leadQ: (y) => `Hány ${y} m-es darab fér bele?`,
+    body: (y, r) => `Törttel osztani annyi, mint megszámolni, hányszor fér bele. Számold meg a darabokat a szalagon. Ugyanaz, mint a reciprokával szorozni: ${y} reciproka ${r}, mert ${y} · ${r} = 1.`,
+    why1: (x, d) => `${x} : 1/${d} = ${x} · ${d}: minden méterbe ${d} darab fér, mindegyik 1/${d} m.`,
+    why2: (x, c, d) => `Egy ${c}/${d} m-es darab ${c} ilyen kis darabból áll, ezért ${HU_TIMES(c)} kevesebb fér bele: ${x} · ${d} : ${c} = ${x} · ${d}/${c}.`,
+    left: (fr) => `Az utolsó darab nem fér bele egészen, csak ennyi része: ${fr}.`,
+    tiny: 'A darabok 1/100 m hosszúak: egy méterbe 100 fér. Ha 1-nél kisebb törttel osztunk, az eredmény nagyobb lesz az osztandónál.',
+    pill: { more: 'több darab, mint méter', less: 'kevesebb egy darabnál' } },
+  eq: { modes: ['Egy szám törtrésze', 'Szám a törtrészéből'], next: 'Következő lépés ▶', again: 'Újra', own: 'Saját feladat', tip: 'Nyomd a „Következő lépés” gombot, hogy kitöltsd a csíkot',
+    fwdQ: (N, p, q) => `Mennyi ${N} ${p}/${q} része?`,
+    fwd1: (N, q, u) => `1. lépés. ${q} egyenlő rész: ${N} : ${q} = ${u} jut egy részre.`,
+    fwd2: (p, u, r) => `2. lépés. Vegyünk ${p} részt: ${p} · ${u} = ${r}.`,
+    fwdRule: (N, p, q, r) => `${N} ${p}/${q} része = ${N} · ${p}/${q} = ${r}`,
+    bwdQ: (p, q, M) => `Egy szám ${p}/${q} része ${M}. Melyik ez a szám?`,
+    bwd1: (p, M, u) => `1. lépés. ${p} rész = ${M}, tehát egy rész: ${M} : ${p} = ${u}.`,
+    bwd2: (q, u, x) => `2. lépés. Az egészben ${q} rész van: ${q} · ${u} = ${x}.`,
+    bwdRule: (p, q, M, x) => `${p}/${q} · x = ${M}  →  x = ${M} : ${p}/${q} = ${M} · ${q}/${p} = ${x}`,
+    body: 'Rajzold le a csíkot, keresd meg egy rész értékét, aztán az egészet. Ugyanez a két lépés mindkét feladatot megoldja, csak az irány más.',
+    bwdBody: 'Egy számot a törtrészéből úgy kapunk meg, hogy elosztjuk a törttel. Ezért ad az egyenlet és az Osztás állomás ugyanolyan eredményt.' },
+  secrets: { s1: ['Több mint egy egész', 'Szorozz 3/2-del'], s2: ['Apró darabok', 'Ossz 1/100-dal'] },
+  quiz: [
+    { q: 'Miért nem lehet rögtön összeadni az 1/3-ot és az 1/4-et?', opts: ['A darabok különböző méretűek: előbb vágd őket egyformára', 'Mert a 3 és a 4 különböző számok', 'Lehet: 1/3 + 1/4 = 2/7'], ok: 0 },
+    { q: 'Mennyi 2 : 1/4?', opts: ['1/2', '6', '8'], ok: 2 },
+    { q: 'Egy szám 3/5 része 12. Melyik ez a szám?', opts: ['36', '20', '7 1/5'], ok: 1 },
+  ],
+},
+};
+const TOPICS = [
+  { id: 'mt_b7T-CjOYUR', en: 'Simplifying Fractions', ru: 'Сокращение дробей', hu: 'Törtek egyszerűsítése' },
+  { id: 'mt_14T5yPXUq_', en: 'Adding Fractions (Unlike Denominators)', ru: 'Сложение дробей (разные знаменатели)', hu: 'Törtek összeadása (különböző nevezők)' },
+  { id: 'mt_o_p-3tCxiM', en: 'Mixed numbers and improper fractions', ru: 'Смешанные числа и неправильные дроби', hu: 'Vegyes számok és áltörtek' },
+  { id: 'mt_AabJisinfi', en: 'Multiplying fractions', ru: 'Умножение дробей', hu: 'Törtek szorzása' },
+  { id: 'mt_9Y96vxG_LH', en: 'Dividing fractions', ru: 'Деление дробей', hu: 'Törtek osztása' },
+  { id: 'mt_1PAWhRhpdg', en: 'Dividing by Fractions', ru: 'Деление на дроби', hu: 'Osztás törttel' },
+  { id: 'mt_VUQNveSYjQ', en: 'Using inverse operations', ru: 'Использование обратных действий', hu: 'Fordított műveletek használata' },
+  { id: 'mt_e7filQgayF', en: 'Fraction Word Problems', ru: 'Текстовые задачи с дробями', hu: 'Törtes szöveges feladatok' },
+];
+
+// --- maths and little builders -------------------------------------------------------------------------------
+const gcd = (x, y) => (y ? gcd(y, x % y) : Math.abs(x));
+const lcm = (x, y) => (x / gcd(x, y)) * y;
+const red = (n, d) => { const g = gcd(n, d) || 1; return [n / g, d / g]; };
+
+// a "piece" of an equation: html for the readout, plain text for the state title
+const F = (a, b) => `<span class="frac"><span>${a}</span><span>${b}</span></span>`;
+const I = (h, p = h) => ({ h, p });
+const num = (n) => I(String(n));
+const fr = (n, d) => (d === 1 ? num(n) : I(F(n, d), `${n}/${d}`));
+const mix = (n, d) => {
+  const w = Math.floor(n / d), r = n - w * d;
+  return !r ? num(w) : !w ? fr(n, d) : I(`<span class="mixn">${w}</span>${F(r, d)}`, `${w} ${r}/${d}`);
+};
+const op = (s) => I(`<span class="op">${esc(s)}</span>`, s);
+const txt = (s) => I(esc(s), s);
+const chain = (xs) => ({ h: xs.map((x) => x.h).join(' '), p: xs.map((x) => x.p).join(' ') });
+const EQ = () => op('=');
+// "= n/d", then "= reduced" when it differs, then "= mixed" when it is more than a whole
+function tail(n, d) {
+  const out = [EQ(), fr(n, d)], [rn, rd] = red(n, d);
+  if (rn !== n || rd !== d) out.push(EQ(), fr(rn, rd));
+  if (rn > rd && rd > 1) out.push(EQ(), mix(rn, rd));
+  return out;
+}
+// the same for a result that is already reduced
+function tailRed(n, d) {
+  const out = [EQ(), fr(n, d)];
+  if (n > d && d > 1) out.push(EQ(), mix(n, d));
+  return out;
+}
+
+const C1 = '#4ea8ff', C2 = '#f5c84c', GOOD = '#3ddc97', RED = '#ff3b30', ORG = '#ff8a3d', PURPLE = '#a855f7', PINK = '#ff5a7a';
+const GAUGE = [[0, '0'], [0.25, '1/2'], [0.5, '1'], [0.75, '3/2'], [1, '2']].map(([f, label]) => ({ f, label }));
+
+const chip = (label, act, v, on = false) => `<button class="chip ${on ? 'on' : ''}" data-act="${act}" data-v="${esc(v)}">${esc(label)}</button>`;
+const stepper = (act, key, val, lo, hi) => `<span class="stepper"><button data-act="${act}" data-v="${key}:-1" aria-label="−" ${val <= lo ? 'disabled' : ''}>−</button><b>${val}</b><button data-act="${act}" data-v="${key}:1" aria-label="+" ${val >= hi ? 'disabled' : ''}>+</button></span>`;
+const secretChip = (act, emo, key, on) => {
+  const open = secret.unlocked();
+  return `<button class="chip secret ${open ? 'open' : ''} ${on ? 'on' : ''}" data-act="${act}">${open ? `${emo} ${esc(T[lang].secrets[key][0])}` : '🔒 ???'}</button>`;
+};
+
+// --- state -------------------------------------------------------------------------------------------------
+const SP_PRESETS = [[6, 8], [4, 6], [9, 12], [8, 12], [10, 15], [12, 18], [18, 24]];
+const ADD_PRESETS = [[1, 3, 1, 4], [1, 2, 1, 3], [2, 3, 1, 4], [3, 4, 1, 6], [1, 4, 5, 6], [5, 6, 3, 8]];
+const SUB_PRESETS = [[3, 4, 1, 6], [2, 3, 1, 4], [5, 6, 3, 8], [1, 2, 1, 3]];
+const MU_PRESETS = [[1, 2, 1, 2], [2, 3, 3, 4], [3, 5, 1, 2], [4, 5, 5, 8], [1, 3, 3, 4]];
+const RIBBONS = [[1, 1], [2, 1], [3, 1], [1, 2], [3, 4]];
+const PIECES = [[1, 2], [1, 3], [1, 4], [2, 3], [3, 4], [2, 5]];
+const EQ_FWD = [[2, 3, 60], [3, 8, 120], [4, 5, 45], [5, 6, 36]];
+const EQ_BWD = [[3, 5, 24], [2, 7, 10], [3, 4, 18], [5, 6, 35]];
+
+const S = {
+  sp: { a0: 6, b0: 8, a: 6, b: 8, mode: 'start', k: 0, badK: 0, prev: [6, 8], anim: null },
+  ad: { op: '+', a: 1, b: 3, c: 1, d: 4, n: 4, p: 0, key: '' },
+  mu: { a: 2, b: 3, c: 3, d: 4, big: false, ca: 0, ra: 0, side: 0 },
+  dv: { xn: 3, xm: 1, c: 3, d: 4, tiny: false, t: 0 },
+  eq: { mode: 'fwd', p: 2, q: 3, val: 60, own: false, step: 0, sh: new Array(12).fill(0), lb: new Array(12).fill(0) },
+};
+const lab = shell({ key: 'fraction-ops', T, topics: TOPICS, views: ['simplify', 'add', 'mul', 'div', 'eq', 'test'], onLang, onView });
+$('hero').insertAdjacentHTML('afterend', '<section id="test" class="card"></section>');
+const check = mountCheck($('test'), { onGoto });
+const secret = secretLab('fraction-ops', () => ({
+  secrets: [{ emo: '📐', title: T[lang].secrets.s1[0], desc: T[lang].secrets.s1[1] }, { emo: '🔬', title: T[lang].secrets.s2[0], desc: T[lang].secrets.s2[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+const tipEl = Object.assign(document.createElement('div'), { className: 'tip' });
+$('overlay').append(tipEl);
+
+function onLang() { render(); check.setLang(lang); }
+function onView(v) {
+  S.dv.t = 0; S.ad.key = ''; S.mu.ca = 0; S.mu.ra = 0; S.eq.sh.fill(0); S.eq.lb.fill(0);
+  render();
+  if (v === 'test') check.show();
+}
+function onGoto(station) { lab.view = station; lab.renderChrome(); onView(station); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+
+// --- actions -----------------------------------------------------------------------------------------------
+$('ctrlBody').addEventListener('click', (ev) => {
+  const el = ev.target.closest('[data-act]');
+  if (el && !el.disabled) act(el.dataset.act, el.dataset.v);
+});
+function spStart(a, b) { Object.assign(S.sp, { a0: a, b0: b, a, b, mode: 'start', k: 0, badK: 0, prev: [a, b], anim: null }); }
+function adSet([a, b, c, d]) { Object.assign(S.ad, { a, b, c, d, n: Math.max(b, d), p: 0 }); }
+function eqUnit() { return S.eq.mode === 'fwd' ? S.eq.q : S.eq.p; }
+function eqReset() { S.eq.step = 0; S.eq.sh.fill(0); S.eq.lb.fill(0); }
+function eqLoad(list, i) { const [p, q, val] = list[i]; Object.assign(S.eq, { p, q, val, own: false }); eqReset(); }
+
+function act(a, v) {
+  const sp = S.sp, ad = S.ad, mu = S.mu, dv = S.dv, eq = S.eq;
+  switch (a) {
+    case 'sp-preset': spStart(...v.split('/').map(Number)); sfx.click(); break;
+    case 'sp-reset': spStart(sp.a0, sp.b0); sfx.click(); break;
+    case 'sp-glue': {
+      const k = +v;
+      if (sp.a % k === 0) {
+        sp.prev = [sp.a, sp.b]; sp.anim = { k, t: 0, fa: sp.a, fb: sp.b };
+        sp.a /= k; sp.b /= k; sp.k = k; sp.badK = 0; sp.mode = gcd(sp.a, sp.b) === 1 ? 'done' : 'ok'; sfx.snap();
+      } else { sp.anim = null; sp.mode = 'bad'; sp.badK = k; sp.k = k; sfx.bad(); }
+      break;
+    }
+    case 'ad-op': ad.op = v; adSet((v === '+' ? ADD_PRESETS : SUB_PRESETS)[0]); sfx.click(); break;
+    case 'ad-preset': adSet((ad.op === '+' ? ADD_PRESETS : SUB_PRESETS)[+v]); sfx.click(); break;
+    case 'ad-n': ad.n = clamp(ad.n + +v.split(':')[1], 1, 48); sfx.tick(); break;
+    case 'ad-lcd': ad.n = clamp(lcm(ad.b, ad.d), 1, 48); sfx.snap(); break;
+    case 'mu-preset': { const [a2, b2, c2, d2] = MU_PRESETS[+v]; Object.assign(mu, { a: a2, b: b2, c: c2, d: d2, big: false, ca: 0, ra: 0 }); sfx.click(); break; }
+    case 'mu-s1':
+      if (!secret.unlocked()) return secret.open();
+      Object.assign(mu, { a: 3, b: 4, c: 3, d: 2, big: true, ca: 0, ra: 0 }); sfx.snap(); break;
+    case 'mu-step': {
+      const [k, dl] = v.split(':'), n = +dl;
+      if (k === 'a') mu.a = clamp(mu.a + n, 1, mu.b);
+      if (k === 'b') { mu.b = clamp(mu.b + n, 1, 10); mu.a = Math.min(mu.a, mu.b); mu.ca = 0; }
+      if (k === 'c') mu.c = clamp(mu.c + n, 1, mu.big ? 2 * mu.d : mu.d);
+      if (k === 'd') { mu.d = clamp(mu.d + n, 1, 10); mu.c = Math.min(mu.c, mu.big ? 2 * mu.d : mu.d); mu.ra = 0; }
+      sfx.tick(); break;
+    }
+    case 'dv-rib': [dv.xn, dv.xm] = v.split('/').map(Number); dv.t = 0; sfx.click(); break;
+    case 'dv-piece': [dv.c, dv.d] = v.split('/').map(Number); dv.tiny = false; dv.t = 0; sfx.click(); break;
+    case 'dv-s2':
+      if (!secret.unlocked()) return secret.open();
+      dv.tiny = true; dv.t = 0; sfx.snap(); break;
+    case 'eq-mode': eq.mode = v; eqLoad(v === 'fwd' ? EQ_FWD : EQ_BWD, 0); sfx.click(); break;
+    case 'eq-preset': eqLoad(eq.mode === 'fwd' ? EQ_FWD : EQ_BWD, +v); sfx.click(); break;
+    case 'eq-own': eq.own = true; eq.val = eqUnit() * clamp(Math.round(eq.val / eqUnit()), 1, 12); eqReset(); sfx.click(); break;
+    case 'eq-step': {
+      const [k, dl] = v.split(':'), n = +dl, kk = clamp(Math.round(eq.val / eqUnit()), 1, 12);
+      if (k === 'v') eq.val = clamp(kk + n, 1, 12) * eqUnit();
+      else {
+        if (k === 'p') eq.p = clamp(eq.p + n, 1, eq.q - 1);
+        else { eq.q = clamp(eq.q + n, 2, 12); eq.p = Math.min(eq.p, eq.q - 1); }
+        eq.val = kk * eqUnit();
+      }
+      eqReset(); sfx.tick(); break;
+    }
+    case 'eq-next': if (eq.step < 2) { eq.step++; eq.step === 2 ? sfx.good() : sfx.click(); } break;
+    case 'eq-again': eqReset(); sfx.click(); break;
+  }
+  render();
+}
+
+// --- render: controls, readout, explanation ----------------------------------------------------------------
+const STATION = {
+  simplify: { emo: '✂️', color: ORG, glow: 'rgba(255, 138, 61, .26)' },
+  add: { emo: '➕', color: C1, glow: 'rgba(60, 110, 200, .32)' },
+  mul: { emo: '✖️', color: GOOD, glow: 'rgba(61, 220, 151, .2)' },
+  div: { emo: '➗', color: PURPLE, glow: 'rgba(168, 85, 247, .26)' },
+  eq: { emo: '🟰', color: PINK, glow: 'rgba(255, 90, 122, .24)' },
+};
+function render() {
+  const v = lab.view;
+  document.body.classList.toggle('testmode', v === 'test');
+  document.body.classList.toggle('nogauge', v === 'div' || v === 'eq' || v === 'test');
+  if (v === 'test') return;
+  lab.setGlow(STATION[v].glow);
+  ({ simplify: rSimplify, add: rAdd, mul: rMul, div: rDiv, eq: rEq })[v]();
+}
+function show(v, items, pill, color, st, tip, gaugeVal) {
+  const t = T[lang];
+  lab.setReadout(chain(items).h, '', pill, color);
+  lab.setState({ emo: STATION[v].emo, title: chain(items).p, lead: st.lead, body: st.body, extra: st.extra ?? '' });
+  tipEl.textContent = tip;
+  if (gaugeVal !== undefined) lab.setGauge(clamp(gaugeVal / 2, 0, 1), GAUGE, t.gaugeCap);
+}
+
+function rSimplify() {
+  const ts = T[lang].sp, s = S.sp, g = gcd(s.a, s.b), merged = s.b !== s.b0;
+  const ks = []; for (let k = 2; k <= s.b; k++) if (s.b % k === 0) ks.push(k);
+  $('ctrlBody').innerHTML = `
+    <div class="chips">${SP_PRESETS.map(([a, b]) => chip(`${a}/${b}`, 'sp-preset', `${a}/${b}`, a === s.a0 && b === s.b0)).join('')}</div>
+    <div class="row2"><span class="lbl">${esc(ts.glue)}</span>${ks.map((k) => chip(String(k), 'sp-glue', String(k), s.mode === 'bad' && s.badK === k)).join('')}</div>
+    <div class="row2"><button class="btn ghost sm" data-act="sp-reset">${esc(ts.reset)}</button></div>`;
+  const items = [fr(s.a0, s.b0), ...(merged ? [EQ(), fr(s.a, s.b)] : [])];
+  const st = { extra: `<span class="rule">${esc(ts.rule)}</span>` };
+  if (s.mode === 'bad') { st.lead = ts.leadBad(s.badK); st.body = ts.bodyBad(s.a, s.badK); }
+  else if (s.mode === 'ok') { st.lead = ts.leadOk(s.prev[0], s.prev[1], s.k, s.a, s.b); st.body = ts.bodyOk; }
+  else if (s.mode === 'done') {
+    st.lead = ts.leadDone(s.a, s.b);
+    if (merged) { st.body = ts.bodyOk; st.extra = `<div style="margin-bottom:8px">${esc(ts.bodyDone(s.a0, s.b0, gcd(s.a0, s.b0), s.a, s.b))}</div>${st.extra}`; }
+    else st.body = ts.bodyDone(s.a0, s.b0, gcd(s.a0, s.b0), s.a, s.b);
+  }
+  else { st.lead = ts.leadStart(s.a, s.b); st.body = ts.bodyStart; }
+  show('simplify', items, g === 1 ? ts.pill.done : ts.pill.can, s.mode === 'bad' ? RED : g === 1 ? GOOD : ORG, st, ts.tip, s.a / s.b);
+}
+
+function adCalc() {
+  const { a, b, c, d, n, op: o } = S.ad, l = lcm(b, d), sign = o === '+' ? 1 : -1;
+  const fa = n % b === 0, fb = n % d === 0, both = fa && fb;
+  const an = fa ? (a * n) / b : 0, cn = fb ? (c * n) / d : 0;
+  return { l, sign, fa, fb, both, an, cn, rn: an + sign * cn, val: a / b + (sign * c) / d };
+}
+function rAdd() {
+  const t = T[lang].ad, s = S.ad, v = adCalc(), { a, b, c, d, n } = s, sg = v.sign > 0 ? '+' : '−';
+  const list = s.op === '+' ? ADD_PRESETS : SUB_PRESETS;
+  $('ctrlBody').innerHTML = `
+    <div class="card seg small">${t.ops.map((l, i) => `<button class="${(i === 0) === (s.op === '+') ? 'on' : ''}" data-act="ad-op" data-v="${i ? '-' : '+'}">${esc(l)}</button>`).join('')}</div>
+    <div class="chips" style="margin-top:10px">${list.map(([a2, b2, c2, d2], i) => chip(`${a2}/${b2} ${sg} ${c2}/${d2}`, 'ad-preset', String(i), a2 === a && b2 === b && c2 === c && d2 === d)).join('')}</div>
+    <div class="row2"><span class="lbl">${esc(t.cut)}</span>${stepper('ad-n', 'n', n, 1, 48)}
+      <button class="chip ${v.both && n === v.l ? 'on' : ''}" data-act="ad-lcd">${esc(t.lcd)}</button></div>`;
+  const items = [fr(a, b), op(sg), fr(c, d), EQ()];
+  let st, pill, color;
+  if (v.both) {
+    items.push(fr(v.an, n), op(sg), fr(v.cn, n), ...tail(v.rn, n));
+    const [rn, rd] = red(v.rn, n), res = rn > rd && rd > 1 ? mix(rn, rd) : fr(rn, rd);
+    st = { lead: `${t.res}: ${res.p}`, body: n === v.l ? t.bodyLcd(b, d, v.l) : t.bodyCommon(n, v.l), extra: '' };
+    if (rn > rd && rd > 1) st.extra = esc(t.mixed(rn, rd, Math.floor(rn / rd), rn % rd));
+    pill = n === v.l ? t.pill.lcd : t.pill.ok; color = n === v.l ? GOOD : C1;
+  } else {
+    items.push(txt('?'));
+    st = { lead: t.leadNo(b, d), body: t.bodyNo(n), extra: '' };
+    pill = t.pill.no; color = RED;
+  }
+  show('add', items, pill, color, st, t.tip, v.val);
+}
+
+function rMul() {
+  const t = T[lang].mu, m = S.mu, { a, b, c, d } = m;
+  $('ctrlBody').innerHTML = `
+    <div class="chips">${secretChip('mu-s1', '📐', 's1', m.big)}${MU_PRESETS.map(([a2, b2, c2, d2], i) => chip(`${a2}/${b2} ${MUL()} ${c2}/${d2}`, 'mu-preset', String(i), !m.big && a2 === a && b2 === b && c2 === c && d2 === d)).join('')}</div>
+    <div class="row2"><span class="lbl">${esc(t.first)}</span>${stepper('mu-step', 'a', a, 1, b)}<span class="slash">/</span>${stepper('mu-step', 'b', b, 1, 10)}</div>
+    <div class="row2"><span class="lbl">${esc(t.second)}</span>${stepper('mu-step', 'c', c, 1, m.big ? 2 * d : d)}<span class="slash">/</span>${stepper('mu-step', 'd', d, 1, 10)}</div>`;
+  const items = [fr(a, b), op(MUL()), fr(c, d), ...tail(a * c, b * d)];
+  const st = { lead: t.lead(a, b, c, d), body: c > d ? t.bigger : t.body(a, b, c, d), extra: c > d ? '' : c < d ? esc(t.smaller) : '' };
+  show('mul', items, c < d ? t.pill.less : c === d ? t.pill.same : t.pill.more, c > d ? ORG : GOOD, st, t.tip, (a * c) / (b * d));
+}
+
+function dvCalc() {
+  const s = S.dv, cc = s.tiny ? 1 : s.c, dd = s.tiny ? 100 : s.d, [P, Q] = red(s.xn * dd, s.xm * cc), wN = Math.floor(P / Q);
+  return { cc, dd, P, Q, wN, rem: P - wN * Q, x: s.xn / s.xm, xp: s.xm === 1 ? String(s.xn) : `${s.xn}/${s.xm}` };
+}
+function rDiv() {
+  const t = T[lang].dv, s = S.dv, v = dvCalc();
+  $('ctrlBody').innerHTML = `
+    <div class="row2" style="margin-top:0"><span class="lbl">${esc(t.ribbon)}</span>${RIBBONS.map(([n, m]) => chip(m === 1 ? String(n) : `${n}/${m}`, 'dv-rib', `${n}/${m}`, n === s.xn && m === s.xm)).join('')}</div>
+    <div class="row2"><span class="lbl">${esc(t.piece)}</span>${PIECES.map(([c, d]) => chip(`${c}/${d}`, 'dv-piece', `${c}/${d}`, !s.tiny && c === s.c && d === s.d)).join('')}${secretChip('dv-s2', '🔬', 's2', s.tiny)}</div>`;
+  const items = [fr(s.xn, s.xm), op(DIV()), fr(v.cc, v.dd), EQ(), fr(s.xn, s.xm), op(MUL()), fr(v.dd, v.cc), ...tailRed(v.P, v.Q)];
+  const y = `${v.cc}/${v.dd}`, extra = [t.why1(v.xp, v.dd)];
+  if (v.cc > 1) extra.push(t.why2(v.xp, v.cc, v.dd));
+  if (v.rem) extra.push(t.left(`${v.rem}/${v.Q}`));
+  const st = { lead: t.leadQ(y), body: s.tiny ? t.tiny : t.body(y, fr(v.dd, v.cc).p), extra: extra.map((x) => `<div>${esc(x)}</div>`).join('') };
+  const pill = v.P < v.Q ? t.pill.less : v.P * s.xm > s.xn * v.Q ? t.pill.more : '';
+  show('div', items, pill, PURPLE, st, t.tip);
+}
+
+function eqCalc() {
+  const s = S.eq, { p, q, val } = s;
+  return s.mode === 'fwd' ? { u: val / q, r: (val / q) * p } : { u: val / p, x: (val / p) * q };
+}
+function rEq() {
+  const t = T[lang].eq, s = S.eq, e = eqCalc(), fwd = s.mode === 'fwd', { p, q, val, step } = s, list = fwd ? EQ_FWD : EQ_BWD;
+  $('ctrlBody').innerHTML = `
+    <div class="card seg small">${t.modes.map((l, i) => `<button class="${(i === 0) === fwd ? 'on' : ''}" data-act="eq-mode" data-v="${i ? 'bwd' : 'fwd'}">${esc(l)}</button>`).join('')}</div>
+    <div class="chips" style="margin-top:10px">${list.map(([p2, q2, v2], i) => chip(fwd ? `${p2}/${q2} ${MUL()} ${v2}` : `${p2}/${q2} → ${v2}`, 'eq-preset', String(i), !s.own && p2 === p && q2 === q && v2 === val)).join('')}${chip(t.own, 'eq-own', '', s.own)}</div>
+    ${s.own ? `<div class="row2">${stepper('eq-step', 'p', p, 1, q - 1)}<span class="slash">/</span>${stepper('eq-step', 'q', q, 2, 12)}<span class="slash">${fwd ? MUL() : '→'}</span>${stepper('eq-step', 'v', val, eqUnit(), 12 * eqUnit())}</div>` : ''}
+    <div class="row2"><button class="btn sm" data-act="eq-next" ${step >= 2 ? 'disabled' : ''}>${esc(t.next)}</button><button class="btn ghost sm" data-act="eq-again">${esc(t.again)}</button></div>`;
+  const lines = fwd ? [t.fwd1(val, q, e.u), t.fwd2(p, e.u, e.r)] : [t.bwd1(p, val, e.u), t.bwd2(q, e.u, e.x)];
+  const items = fwd ? [fr(p, q), op(MUL()), num(val), EQ(), step >= 2 ? num(e.r) : txt('?')]
+    : [fr(p, q), op(MUL()), txt('x'), EQ(), num(val), ...(step >= 2 ? [op('→'), txt(`x = ${e.x}`)] : [])];
+  const st = {
+    lead: fwd ? t.fwdQ(val, p, q) : t.bwdQ(p, q, val),
+    body: step ? lines.slice(0, step).join(' ') : t.body,
+    extra: step >= 2 ? `<div><span class="rule">${esc(fwd ? t.fwdRule(val, p, q, e.r) : t.bwdRule(p, q, val, e.x))}</span></div>${fwd ? '' : `<div>${esc(t.bwdBody)}</div>`}` : '',
+  };
+  show('eq', items, t.modes[fwd ? 0 : 1], PINK, st, t.tip);
+}
+
+// --- drawing helpers ---------------------------------------------------------------------------------------
+const FONT = (w, s) => `${w} ${s}px Nunito, sans-serif`;
+function label(c, s, x, y, { size = 13, w = 800, col = '#EDEFF7', al = 'center', bl = 'middle' } = {}) {
+  c.font = FONT(w, size); c.fillStyle = col; c.textAlign = al; c.textBaseline = bl; c.fillText(s, x, y);
+}
+const line = (c, x1, y1, x2, y2) => { c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); };
+// a strip of b equal cells, the first a shaded; la(i) is the alpha of the cut line i
+function strip(c, x, y, W, H, b, a, col, alpha = 1, la = () => 1, lw = 1.5) {
+  c.fillStyle = 'rgba(130,145,190,.14)'; c.fillRect(x, y, W, H);
+  c.globalAlpha = alpha; c.fillStyle = col; c.fillRect(x, y, (W * a) / b, H); c.globalAlpha = 1;
+  c.lineWidth = lw;
+  for (let i = 1; i < b; i++) {
+    const al = la(i); if (al <= 0.01) continue;
+    c.strokeStyle = `rgba(237,239,247,${(0.75 * al).toFixed(3)})`; line(c, x + (W * i) / b, y, x + (W * i) / b, y + H);
+  }
+  c.strokeStyle = 'rgba(237,239,247,.85)'; c.lineWidth = 2; c.strokeRect(x, y, W, H);
+}
+
+// station 1: the same shaded length, glued into bigger pieces
+function drawSimplify(c, w, h, dt) {
+  const s = S.sp, pad = 18, W = w - 2 * pad, x0 = pad;
+  if (s.anim) { s.anim.t += dt / 0.4; if (s.anim.t >= 1) s.anim = null; }
+  const an = s.anim, a = an ? an.fa : s.a, b = an ? an.fb : s.b;
+  const hs = clamp(h * 0.2, 46, 74), y1 = h * 0.2, h1 = Math.max(18, hs * 0.36), y2 = y1 + h1 + h * 0.15;
+  label(c, `${s.a0}/${s.b0}`, x0, y1 - 12, { size: 12, col: '#98A0B8', al: 'left' });
+  strip(c, x0, y1, W, h1, s.b0, s.a0, ORG, 0.4, () => 0.4, 1);
+  const bad = s.mode === 'bad' && !an;
+  strip(c, x0, y2, W, hs, b, a, ORG, 1, (i) => (an ? (i % an.k === 0 ? 1 : 1 - an.t) : bad ? (i % s.badK === 0 ? 1 : 0.22) : 1), 1.5);
+  if (bad) {
+    const k = s.badK, g = Math.floor(a / k), gx = x0 + (W * g * k) / b, gw = (W * k) / b;
+    c.save(); c.beginPath(); c.rect(gx, y2, gw, hs); c.clip();
+    c.strokeStyle = 'rgba(255,59,48,.85)'; c.lineWidth = 2;
+    for (let sx = gx - hs; sx < gx + gw; sx += 9) line(c, sx, y2 + hs, sx + hs, y2);
+    c.restore();
+    c.strokeStyle = RED; c.lineWidth = 3; c.strokeRect(gx + 1.5, y2 + 1.5, gw - 3, hs - 3);
+    c.strokeStyle = '#fff'; c.lineWidth = 3;
+    for (let i = k; i < b; i += k) line(c, x0 + (W * i) / b, y2, x0 + (W * i) / b, y2 + hs);
+  }
+  // the shaded length never changes
+  const xe = x0 + (W * s.a0) / s.b0;
+  c.save(); c.setLineDash([5, 4]); c.strokeStyle = 'rgba(255,255,255,.6)'; c.lineWidth = 1.5; line(c, xe, y1 - 4, xe, y2 + hs + 6); c.restore();
+  label(c, `${a}/${b}`, x0 + W / 2, y2 + hs + 26, { size: 24, w: 900 });
+}
+
+// station 2: only equal pieces can be added
+function drawAdd(c, w, h, dt) {
+  const s = S.ad, v = adCalc(), { a, b, c: cc, d, n } = s, pad = 18, W = w - 2 * pad, x0 = pad, sg = v.sign > 0 ? '+' : '−';
+  const key = [s.op, a, b, cc, d, n].join();
+  if (key !== s.key) { s.key = key; s.p = 0; }
+  if (v.both) s.p = Math.min(1, s.p + dt / 0.7);
+  const sH = clamp(h * 0.085, 24, 32), blk = sH + 28, yA = 40, yB = yA + blk, yR = yB + blk + 8, yR2 = yR + blk - 6;
+  const rows = [[yA, a, b, C1, v.fa, v.an], [yB, cc, d, C2, v.fb, v.cn]];
+  for (const [y, nn, dd, col, fits, k] of rows) {
+    const ys = y + 16;
+    label(c, `${nn}/${dd}`, x0, y + 7, { size: 14, w: 900, col, al: 'left' });
+    strip(c, x0, ys, W, sH, dd, nn, col, 0.9, () => 1, 3);
+    c.strokeStyle = 'rgba(255,255,255,.5)'; c.lineWidth = 1;
+    for (let i = 1; i < n; i++) line(c, x0 + (W * i) / n, ys, x0 + (W * i) / n, ys + sH);
+    if (fits) label(c, `✓ ${nn}/${dd} = ${k}/${n}`, x0 + W, y + 7, { size: 13, col: GOOD, al: 'right' });
+    else {
+      const xe = (nn * n) / dd, i = Math.floor(xe), near = Math.round(xe);
+      c.strokeStyle = RED; c.lineWidth = 2; c.strokeRect(x0 + (W * i) / n, ys, W / n, sH);
+      c.lineWidth = 3; line(c, x0 + (W * near) / n, ys - 4, x0 + (W * near) / n, ys + sH + 4);
+      label(c, '✗', x0 + W, y + 7, { size: 15, col: RED, al: 'right' });
+    }
+  }
+  // result: one whole, or two when the sum is more than 1
+  const rn = Math.max(0, v.rn), two = v.both && rn > n, [pn, pd] = red(rn, n);
+  const ys1 = yR + 16, ys2 = yR2 + 16;
+  label(c, v.both ? `${T[lang].ad.res}  ${pn > pd && pd > 1 ? `${Math.floor(pn / pd)} ${pn % pd}/${pd}` : pd === 1 ? pn : `${pn}/${pd}`}` : T[lang].ad.res, x0, yR + 7, { size: 13, col: '#D3D9E8', al: 'left' });
+  label(c, '1', x0 + W, yR + 7, { size: 13, col: '#98A0B8', al: 'right' });
+  if (two) label(c, '2', x0 + W, yR2 + 7, { size: 13, col: '#98A0B8', al: 'right' });
+  for (const [on, y] of [[true, ys1], [two, ys2]]) {
+    if (!on) continue;
+    c.fillStyle = 'rgba(130,145,190,.14)'; c.fillRect(x0, y, W, sH);
+  }
+  if (v.both) {
+    const total = v.sign > 0 ? v.an + v.cn : v.an, vis = Math.floor(s.p * total + 1e-6), cw = W / n;
+    for (let j = 0; j < vis; j++) {
+      const wi = Math.floor(j / n), cx = x0 + cw * (j % n), cy = wi ? ys2 : ys1;
+      const first = v.sign > 0 ? j < v.an : true, struck = v.sign < 0 && j >= v.an - v.cn;
+      c.globalAlpha = struck ? 0.3 : 0.92; c.fillStyle = first ? C1 : C2; c.fillRect(cx, cy, cw, sH); c.globalAlpha = 1;
+      if (struck) { c.strokeStyle = RED; c.lineWidth = 2; line(c, cx + 2, cy + 2, cx + cw - 2, cy + sH - 2); line(c, cx + cw - 2, cy + 2, cx + 2, cy + sH - 2); }
+      else if (cw >= 26) label(c, `1/${n}`, cx + cw / 2, cy + sH / 2, { size: 10, col: '#0A0C14' });
+    }
+    c.strokeStyle = 'rgba(237,239,247,.5)'; c.lineWidth = 1;
+    for (const [on, y] of [[true, ys1], [two, ys2]]) { if (on) for (let i = 1; i < n; i++) line(c, x0 + cw * i, y, x0 + cw * i, y + sH); }
+  } else label(c, '?', x0 + W / 2, ys1 + sH / 2, { size: 24, w: 900, col: '#646C84' });
+  c.strokeStyle = 'rgba(237,239,247,.85)'; c.lineWidth = 2; c.strokeRect(x0, ys1, W, sH);
+  if (two) c.strokeRect(x0, ys2, W, sH);
+}
+
+// station 3: a part of a part, on a unit square
+function drawMul(c, w, h, dt) {
+  const m = S.mu, { a, b, c: cc, d } = m, two = m.big && cc > d, k = Math.min(1, dt * 7);
+  m.ca += (a - m.ca) * k; m.ra += (cc - m.ra) * k;
+  if (Math.abs(m.ca - a) < 0.003) m.ca = a;
+  if (Math.abs(m.ra - cc) < 0.003) m.ra = cc;
+  const y1 = 52, target = two ? Math.min(w * 0.55, (h - y1 - 44) / 2) : Math.min(w * 0.72, h - y1 - 14);
+  m.side = m.side ? lerp(m.side, target, Math.min(1, dt * 8)) : target;
+  const side = m.side, x0 = (w - side) / 2, cw = side / b, ch = side / d;
+  for (let sq = 0; sq < (two ? 2 : 1); sq++) {
+    const y = y1 + sq * (side + 22), rowsHere = clamp(m.ra - sq * d, 0, d);
+    if (sq) { c.fillStyle = 'rgba(130,145,190,.07)'; c.fillRect(x0, y, side, side); }
+    c.fillStyle = 'rgba(78,168,255,.38)'; c.fillRect(x0, y, cw * m.ca, side);
+    c.fillStyle = 'rgba(245,200,76,.38)'; c.fillRect(x0, y, side, ch * rowsHere);
+    c.fillStyle = 'rgba(61,220,151,.92)'; c.fillRect(x0, y, cw * m.ca, ch * rowsHere);
+    c.strokeStyle = 'rgba(237,239,247,.3)'; c.lineWidth = 1;
+    for (let i = 1; i < b; i++) line(c, x0 + cw * i, y, x0 + cw * i, y + side);
+    for (let j = 1; j < d; j++) line(c, x0, y + ch * j, x0 + side, y + ch * j);
+    c.strokeStyle = '#fff'; c.lineWidth = 1.5;
+    for (let i = 0; i < Math.floor(m.ca + 1e-6); i++) for (let j = 0; j < Math.floor(rowsHere + 1e-6); j++) c.strokeRect(x0 + cw * i + 0.5, y + ch * j + 0.5, cw - 1, ch - 1);
+    c.save(); if (sq) c.setLineDash([6, 4]);
+    c.strokeStyle = 'rgba(237,239,247,.9)'; c.lineWidth = 2; c.strokeRect(x0, y, side, side); c.restore();
+  }
+  label(c, `${a}/${b}`, x0 + (cw * m.ca) / 2, y1 - 12, { size: 13, w: 900, col: C1 });
+  label(c, `${cc}/${d}`, x0 + side + 8, y1 + (ch * Math.min(m.ra, d)) / 2, { size: 13, w: 900, col: C2, al: 'left' });
+  const t = `${a * cc}/${b * d}`, fs = clamp(side * 0.15, 14, 26);
+  c.font = FONT(900, fs); c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineJoin = 'round';
+  c.lineWidth = 5; c.strokeStyle = 'rgba(10,12,20,.85)'; c.strokeText(t, x0 + side / 2, y1 + side / 2);
+  c.fillStyle = '#fff'; c.fillText(t, x0 + side / 2, y1 + side / 2);
+}
+
+// station 4: how many pieces fit on the ribbon
+function drawDiv(c, w, h, dt) {
+  const s = S.dv, v = dvCalc(), pad = 18, W = w - 2 * pad - 6, x0 = pad, L = Math.max(1, Math.ceil(v.x)), unit = W / L;
+  s.t = Math.min(s.t + dt, 60);
+  const H = clamp(h * 0.13, 30, 46), yR = h * 0.42, rl = v.x * unit, yy = yR + H + 20;
+  const pps = s.tiny ? Math.max(10, v.wN / 1.4) : 4, prog = s.t * pps, count = Math.min(v.wN, Math.floor(prog));
+  c.fillStyle = 'rgba(152,160,184,.3)'; c.fillRect(x0, yR, rl, H);
+  if (s.tiny) {
+    const tw = unit / 100;
+    for (let i = 0; i < count; i++) { c.fillStyle = i % 2 ? C1 : C2; c.fillRect(x0 + i * tw, yR, tw + 0.35, H); }
+  } else {
+    const pl = (v.cc / v.dd) * unit;
+    for (let i = 0; i < v.wN; i++) {
+      const p = clamp(prog - i, 0, 1); if (p <= 0) break;
+      const px = x0 + i * pl, lift = 6 * p;
+      c.fillStyle = i % 2 ? C1 : C2; c.globalAlpha = 0.95; c.fillRect(px + 1, yR - lift, pl - 2, H); c.globalAlpha = 1;
+      c.strokeStyle = 'rgba(10,12,20,.5)'; c.lineWidth = 1; c.strokeRect(px + 1.5, yR - lift + 0.5, pl - 3, H - 1);
+      if (p > 0.5) label(c, String(i + 1), px + pl / 2, yR - lift - 11, { size: 13, w: 900 });
+    }
+    if (v.rem && prog >= v.wN) {
+      const al = clamp(prog - v.wN, 0, 1), lx = x0 + v.wN * pl, lw = (v.rem / v.Q) * pl;
+      c.save(); c.globalAlpha = al; c.setLineDash([5, 4]); c.strokeStyle = '#fff'; c.lineWidth = 2; c.strokeRect(lx + 1, yR - 6, lw - 2, H);
+      c.setLineDash([]); label(c, `${v.rem}/${v.Q}`, lx + lw / 2, yR - 17, { size: 13, w: 900 }); c.restore();
+    }
+  }
+  // ruler: a mark every metre, thin marks every 1/d m of the piece
+  c.strokeStyle = '#98A0B8'; c.lineWidth = 1.5; line(c, x0, yy, x0 + L * unit, yy);
+  if (!s.tiny) for (let i = 1; i < v.dd * L; i++) if (i % v.dd) line(c, x0 + (unit * i) / v.dd, yy - 4, x0 + (unit * i) / v.dd, yy + 4);
+  c.strokeStyle = '#EDEFF7'; c.lineWidth = 2;
+  for (let i = 0; i <= L; i++) {
+    line(c, x0 + unit * i, yy - 8, x0 + unit * i, yy + 8);
+    label(c, i === L ? `${i} ${T[lang].dv.m}` : String(i), x0 + unit * i, yy + 21, { size: 12, col: '#D3D9E8' });
+  }
+  if (v.x !== L) {
+    c.save(); c.setLineDash([3, 3]); c.strokeStyle = '#98A0B8'; c.lineWidth = 1; line(c, x0 + rl, yR + H, x0 + rl, yy + 34); c.restore();
+    label(c, `${v.xp} ${T[lang].dv.m}`, clamp(x0 + rl, x0 + 24, x0 + W - 24), yy + 46, { size: 12, w: 900, col: '#fff' });
+  }
+  const done = prog >= v.wN + (v.rem ? 1 : 0), shown = done ? mix(v.P, v.Q).p : String(count);
+  label(c, shown, w / 2, 62, { size: s.tiny ? 30 : 26, w: 900, col: '#fff' });
+}
+
+// station 5: one part first, then the whole
+function brace(c, x1, x2, y, dir) {
+  const m = (x1 + x2) / 2, r = Math.min(7, (x2 - x1) / 4);
+  c.beginPath(); c.moveTo(x1, y); c.quadraticCurveTo(x1, y + dir * r, x1 + r, y + dir * r); c.lineTo(m - r, y + dir * r);
+  c.quadraticCurveTo(m, y + dir * r, m, y + dir * (r + 6)); c.quadraticCurveTo(m, y + dir * r, m + r, y + dir * r);
+  c.lineTo(x2 - r, y + dir * r); c.quadraticCurveTo(x2, y + dir * r, x2, y); c.stroke();
+}
+function drawEq(c, w, h, dt) {
+  const s = S.eq, e = eqCalc(), fwd = s.mode === 'fwd', { p, q, val, step } = s, pad = 18, W = w - 2 * pad, x0 = pad, pw = W / q;
+  const H = clamp(h * 0.15, 40, 58), y = h * 0.44, k = Math.min(1, dt * 6);
+  for (let i = 0; i < 12; i++) {
+    s.sh[i] += (((i < p && (!fwd || step >= 2)) ? 1 : 0) - s.sh[i]) * k;
+    s.lb[i] += ((step >= 1 ? 1 : 0) - s.lb[i]) * k;
+  }
+  const fs = clamp(Math.min(pw * 0.5, H * 0.5), 11, 22);
+  for (let i = 0; i < q; i++) {
+    const x = x0 + i * pw;
+    c.fillStyle = 'rgba(130,145,190,.14)'; c.fillRect(x, y, pw, H);
+    c.globalAlpha = s.sh[i] * 0.9; c.fillStyle = C2; c.fillRect(x, y, pw, H); c.globalAlpha = 1;
+    c.strokeStyle = 'rgba(237,239,247,.8)'; c.lineWidth = 1.5; c.strokeRect(x, y, pw, H);
+    if (s.lb[i] > 0.05) { c.globalAlpha = s.lb[i]; label(c, String(e.u), x + pw / 2, y + H / 2, { size: fs, w: 900, col: s.sh[i] > 0.5 ? '#0A0C14' : '#fff' }); c.globalAlpha = 1; }
+  }
+  c.strokeStyle = 'rgba(237,239,247,.95)'; c.lineWidth = 2.5; c.strokeRect(x0, y, W, H);
+  // the whole
+  c.strokeStyle = '#98A0B8'; c.lineWidth = 2; brace(c, x0, x0 + W, y - 5, -1);
+  const top = fwd ? String(val) : step >= 2 ? `x = ${q} ${MUL()} ${e.u} = ${e.x}` : 'x = ?';
+  label(c, top, x0 + W / 2, y - 34, { size: fwd ? 24 : 20, w: 900, col: !fwd && step >= 2 ? GOOD : '#fff' });
+  // the part that is known
+  if (p > 0) {
+    const xe = x0 + p * pw, al = clamp(s.sh[0] * 1.4, 0, 1);
+    c.save(); c.globalAlpha = al; c.strokeStyle = C2; c.lineWidth = 2; brace(c, x0, xe, y + H + 5, 1);
+    label(c, `= ${fwd ? e.r : val}`, (x0 + xe) / 2, y + H + 34, { size: 20, w: 900, col: C2 }); c.restore();
+  }
+}
+
+canvasLoop($('cv'), (c, w, h, dt) => {
+  ({ simplify: drawSimplify, add: drawAdd, mul: drawMul, div: drawDiv, eq: drawEq })[lab.view]?.(c, w, h, dt);
+});
+render();
+</script>
+</body>
+</html>
