@@ -1,0 +1,617 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Equal Groups · Skill Graph</title>
+<meta name="description" content="Put cupcakes on plates in equal groups, turn a tray on its side and see 3 × 4 become 4 × 3, then hop a frog in twos, threes and fives. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  .sq { font: 700 15px/1.35 var(--sans); color: #fff; margin: 0 0 10px; text-wrap: balance; }
+  .hint { color: var(--wip); font-size: 13px; font-weight: 700; margin: 0 0 10px; }
+  .fine { font-size: 11px; color: var(--faint); }
+  .note { font-size: 12.5px; color: var(--soft); margin-bottom: 8px; }
+  .steps { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 10px 0 12px; }
+  .stp { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .stp .lbl { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-weight: 700; }
+  .stp > div, .cnt { display: flex; align-items: center; justify-content: center; gap: 6px; }
+  .sb { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1); font-size: 20px; font-weight: 800;
+    line-height: 1; padding: 0; cursor: pointer; }
+  .sb.five { font-size: 13px; }
+  .sb:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .sb:disabled { opacity: .3; cursor: default; }
+  .stp b { min-width: 28px; text-align: center; font-size: 24px; font-weight: 900; }
+  .cnt { margin: 6px 0 12px; }
+  .cnt b { min-width: 56px; text-align: center; font-size: 30px; font-weight: 900; }
+  .opts { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0 4px; }
+  .opts .btn, .acts .btn { min-height: 40px; justify-content: center; }
+  .btn.ghost { color: var(--soft); background: rgba(130, 145, 190, .1); }
+  .btn.ghost:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .btn:disabled { opacity: .35; cursor: default; }
+  .acts { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 4px 0; }
+  .chip { min-height: 36px; }
+  .seg.small button { min-height: 34px; }
+  .dots { display: flex; gap: 6px; margin: 0 0 10px; }
+  .dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); opacity: .5; }
+  .dots i.done { background: var(--ok); opacity: 1; }
+  .dots i.on { background: #fff; opacity: 1; }
+  .shake { animation: shake .3s; }
+  @media (max-width: 760px) {
+    #stage { height: min(104vw, 460px); }
+    body[data-v=turn] #stage { height: min(120vw, 520px); }
+    body[data-v=hops] #stage { height: min(84vw, 380px); }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, ruPlural, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+// Hungarian number words that change with the number
+const HU_TIMES = { 3: 'háromszor', 4: 'négyszer', 5: 'ötször', 6: 'hatszor' };
+const HU_ACC = { 2: 'kettőt', 3: 'hármat', 4: 'négyet', 5: 'ötöt', 10: 'tízet' };
+const joinList = (l, w) => (l.length < 2 ? String(l[0]) : `${l.slice(0, -1).join(', ')} ${w} ${l[l.length - 1]}`);
+
+const T = {
+  en: {
+    name: 'Equal Groups', title: 'Equal groups',
+    lines: [['Same number', 'on every plate.'], ['Count the plates,', 'then how many on each.'], ['Turn it round:', 'the total stays.']],
+    views: { plates: '🍽️ Plates', turn: '🔄 Turn', hops: '🐸 Hops' },
+    check: 'Check', next: 'Next ▶', ready: 'Ready',
+    st: {
+      plates: ['🍽️', 'Equal groups', 'Multiplying counts groups that are all the same size.', '3 × 4: 3 groups, 4 in each. 4 + 4 + 4 = 12.'],
+      turn: ['🔄', 'Rows and columns', 'An array is equal rows.', 'Turn it: rows become columns, the total stays.'],
+      hops: ['🐸', 'Counting in steps', 'Every hop adds one more group.', 'The numbers in between are still there.'],
+    },
+    p: { free: 'Free play', story: 'Stories', plates: 'Plates', each: 'On each',
+         read: (a, b) => `${a} ${a === 1 ? 'plate' : 'plates'} of ${b}`,
+         storyText: (a, b) => `${a} plates. ${b} cupcakes on each plate. Set up the plates.`,
+         total: 'How many cupcakes in all?', right: 'Yes! Equal groups counted fast.', added: (a, b) => `${a} + ${b} adds the numbers. Count ${a} groups of ${b}.`,
+         swapped: 'That’s plates and cupcakes swapped. The total is the same, but read the story again.', wrong: (n) => `Look: ${n} in all.`,
+         trapQ: (l, a, b) => `These plates have ${joinList(l, 'and')}. Is this ${a} × ${b}?`, yes: 'Yes', no: 'No',
+         trapRight: (a, b) => `Right! The groups are not equal, so it isn’t ${a} × ${b}.`,
+         trapWrong: (a, b) => `Look again: one plate has less. ${a} × ${b} needs ${b} on every plate.` },
+    tu: { q: (r, c) => `Turn the tray on its side. ${r} rows of ${c} become ${c} rows of ${r}. Will there be…`, more: 'more', fewer: 'fewer', same: 'the same',
+          right: 'The same! Turning doesn’t add or remove an egg.', wrong: 'Watch: not one egg moved out.', divide: 'Read it as sharing',
+          divLine: (t, c, r) => `${t} eggs in rows of ${c} make ${r} rows: ${t} ÷ ${c} = ${r}`,
+          note: 'Multiplying can swap: 3 × 5 = 5 × 3. Dividing can’t: 15 ÷ 3 is not 3 ÷ 15.',
+          rowsOf: (r, c) => `${r} ${r === 1 ? 'row' : 'rows'} of ${c}` },
+    h: { q: (s, n, f) => f ? `Start at ${f}. Hop ${n} times, ${s} each time. Where will the frog land?` : `Hop ${n} times, ${s} each time. Where will the frog land?`,
+         place: 'Tap the line to put your flag.', hop: 'Hop!', right: 'Right on the flag!', oneOff: 'One hop away. Count the hops again.', wrong: (e) => `The frog landed on ${e}.` },
+    secrets: { zero: ['Zero and one', 'Empty plates and a single plate.'], split: ['Split it', 'Cut a big tray into two easy ones.'] },
+    sec: { zeroText: 'Five plates with nothing on them: 5 × 0 = 0. One plate of 7: 1 × 7 = 7. Multiplying doesn’t always make a number bigger.', cut: 'Drag the cut line' },
+    fine: 'Arrays and equal groups are standard models in primary maths (e.g. UK National Curriculum Year 2, US Common Core 2.OA.C.4).',
+    quiz: [
+      { q: 'What does 3 × 4 mean?', opts: ['3 + 4', '3 groups of 4', 'The number 34'], ok: 1 },
+      { q: '5 groups of 3, or 3 groups of 5. Which has more?', opts: ['5 groups of 3', '3 groups of 5', 'The same: 15 each'], ok: 2 },
+      { q: 'Plates hold 4, 4 and 3 cookies. Is that 3 × 4?', opts: ['Yes, three plates of about four', 'No, the groups are not equal', 'Yes, because it is 11'], ok: 1 } ],
+  },
+  ru: {
+    name: 'Равные группы', title: 'Равные группы',
+    lines: [['Поровну', 'на каждой тарелке.'], ['Сосчитай тарелки,', 'потом сколько на каждой.'], ['Поверни —', 'всего останется столько же.']],
+    views: { plates: '🍽️ Тарелки', turn: '🔄 Поворот', hops: '🐸 Прыжки' },
+    check: 'Проверить', next: 'Дальше ▶', ready: 'Готово',
+    st: {
+      plates: ['🍽️', 'Равные группы', 'Умножение считает группы одинакового размера.', '3 × 4: 3 группы, в каждой по 4. 4 + 4 + 4 = 12.'],
+      turn: ['🔄', 'Ряды и столбцы', 'Таблица — это равные ряды.', 'Поверни: ряды станут столбцами, а всего останется столько же.'],
+      hops: ['🐸', 'Счёт шагами', 'Каждый прыжок добавляет ещё одну группу.', 'Числа между прыжками никуда не делись.'],
+    },
+    p: { free: 'Сам', story: 'Задачки', plates: 'Тарелок', each: 'На каждой',
+         read: (a, b) => `${a} ${ruPlural(a, 'тарелка', 'тарелки', 'тарелок')} по ${b}`,
+         storyText: (a, b) => `${a} ${ruPlural(a, 'тарелка', 'тарелки', 'тарелок')}. На каждой по ${b} ${ruPlural(b, 'кексу', 'кекса', 'кексов')}. Расставь тарелки.`,
+         total: 'Сколько всего кексов?', right: 'Да! Равные группы считаются быстро.', added: (a, b) => `${a} + ${b} — это сложение чисел. Посчитай ${a} ${ruPlural(a, 'группу', 'группы', 'групп')} по ${b}.`,
+         swapped: 'Тарелки и кексы перепутаны. Всего столько же, но перечитай задачку.', wrong: (n) => `Смотри: всего ${n}.`,
+         trapQ: (l, a, b) => `На тарелках ${joinList(l, 'и')}. Это ${a} × ${b}?`, yes: 'Да', no: 'Нет',
+         trapRight: (a, b) => `Верно! Группы не равные, значит, это не ${a} × ${b}.`,
+         trapWrong: (a, b) => `Посмотри ещё раз: на одной меньше. Для ${a} × ${b} нужно по ${b} на каждой.` },
+    tu: { q: (r, c) => `Поверни поднос набок. ${r} ${ruPlural(r, 'ряд', 'ряда', 'рядов')} по ${c} станут ${c} ${ruPlural(c, 'рядом', 'рядами', 'рядами')} по ${r}. Яиц будет…`, more: 'больше', fewer: 'меньше', same: 'столько же',
+          right: 'Столько же! От поворота ни одно яйцо не появилось и не пропало.', wrong: 'Смотри: ни одно яйцо не ушло.', divide: 'Прочитать как деление',
+          divLine: (t, c, r) => `${t} яиц рядами по ${c} — это ${r} ${ruPlural(r, 'ряд', 'ряда', 'рядов')}: ${t} : ${c} = ${r}`,
+          note: 'В умножении можно менять местами: 3 × 5 = 5 × 3. В делении нельзя: 15 : 3 — не то же, что 3 : 15.',
+          rowsOf: (r, c) => `${r} ${ruPlural(r, 'ряд', 'ряда', 'рядов')} по ${c}` },
+    h: { q: (s, n, f) => f ? `Начни с ${f}. Прыгни ${n} ${ruPlural(n, 'раз', 'раза', 'раз')} по ${s}. Куда приземлится лягушка?` : `Прыгни ${n} ${ruPlural(n, 'раз', 'раза', 'раз')} по ${s}. Куда приземлится лягушка?`,
+         place: 'Нажми на прямую, чтобы поставить флажок.', hop: 'Прыг!', right: 'Точно на флажок!', oneOff: 'На один прыжок мимо. Пересчитай прыжки.', wrong: (e) => `Лягушка приземлилась на ${e}.` },
+    secrets: { zero: ['Ноль и один', 'Пустые тарелки и одна тарелка.'], split: ['Разрежь', 'Раздели большой поднос на два простых.'] },
+    sec: { zeroText: 'Пять пустых тарелок: 5 × 0 = 0. Одна тарелка с 7: 1 × 7 = 7. Умножение не всегда делает число больше.', cut: 'Двигай линию разреза' },
+    fine: 'Равные группы и таблицы-массивы — обычные модели в начальной математике.',
+    quiz: [
+      { q: 'Что значит 3 × 4?', opts: ['3 + 4', '3 группы по 4', 'Число 34'], ok: 1 },
+      { q: '5 групп по 3 или 3 группы по 5. Где больше?', opts: ['5 групп по 3', '3 группы по 5', 'Поровну: по 15'], ok: 2 },
+      { q: 'На тарелках 4, 4 и 3 печенья. Это 3 × 4?', opts: ['Да, три тарелки примерно по четыре', 'Нет, группы не равные', 'Да, ведь это 11'], ok: 1 } ],
+  },
+  hu: {
+    name: 'Egyenlő csoportok', title: 'Egyenlő csoportok',
+    lines: [['Ugyanannyi', 'minden tányéron.'], ['Számold meg a tányérokat,', 'aztán hogy mennyi van egyen.'], ['Fordítsd el:', 'az összes nem változik.']],
+    views: { plates: '🍽️ Tányérok', turn: '🔄 Forgatás', hops: '🐸 Ugrások' },
+    check: 'Ellenőrzés', next: 'Tovább ▶', ready: 'Kész',
+    st: {
+      plates: ['🍽️', 'Egyenlő csoportok', 'A szorzás egyforma méretű csoportokat számol.', '3 × 4: 3 csoport, mindegyikben 4. 4 + 4 + 4 = 12.'],
+      turn: ['🔄', 'Sorok és oszlopok', 'A rács egyenlő sorokból áll.', 'Fordítsd el: a sorokból oszlopok lesznek, az összes nem változik.'],
+      hops: ['🐸', 'Lépésenként számolni', 'Minden ugrás még egy csoportot ad hozzá.', 'A köztes számok is megvannak.'],
+    },
+    p: { free: 'Szabadon', story: 'Feladatok', plates: 'Tányér', each: 'Egy tányéron',
+         read: (a, b) => `${a} tányér, mindegyiken ${b}`,
+         storyText: (a, b) => `${a} tányér, mindegyiken ${b} sütemény. Rakd ki a tányérokat.`,
+         total: 'Hány sütemény van összesen?', right: 'Igen! Az egyenlő csoportokat gyorsan meg lehet számolni.', added: (a, b) => `${a === 5 ? 'Az' : 'A'} ${a} + ${b} csak összeadja a számokat. Számolj ${a} csoportot, mindegyikben ${b}.`,
+         swapped: 'Felcserélted a tányérokat és a süteményeket. Az összes ugyanannyi, de olvasd el újra a feladatot.', wrong: (n) => `Nézd: összesen ${n}.`,
+         trapQ: (l, a, b) => `A tányérokon ${joinList(l, 'és')} van. Ez ${a} × ${b}?`, yes: 'Igen', no: 'Nem',
+         trapRight: (a, b) => `Így van! A csoportok nem egyenlők, ezért ez nem ${a} × ${b}.`,
+         trapWrong: (a, b) => `Nézd meg újra: az egyiken kevesebb van. ${a} × ${b}: mindegyik tányéron ${b} kell.` },
+    tu: { q: (r, c) => `Fordítsd az oldalára a tálcát. ${r} sor, soronként ${c}, ebből ${c} sor lesz, soronként ${r}. Lesz…`, more: 'több', fewer: 'kevesebb', same: 'ugyanannyi',
+          right: 'Ugyanannyi! A forgatástól egy tojás sem lett több vagy kevesebb.', wrong: 'Nézd: egyetlen tojás sem tűnt el.', divide: 'Olvasd osztásként',
+          divLine: (t, c, r) => `${t} tojás, soronként ${c}: ez ${r} sor. ${t} : ${c} = ${r}`,
+          note: 'A szorzásban a tényezők felcserélhetők: 3 × 5 = 5 × 3. Az osztásban nem: a 15 : 3 nem ugyanaz, mint a 3 : 15.',
+          rowsOf: (r, c) => `${r} sor, soronként ${c}` },
+    h: { q: (s, n, f) => (f ? `Indulj innen: ${f}. ` : '') + `Ugorj ${HU_TIMES[n]}, mindig ${HU_ACC[s]}. Hol ér földet a béka?`,
+         place: 'Koppints a számegyenesre, és tűzd ki a zászlót.', hop: 'Hopp!', right: 'Pont a zászlón!', oneOff: 'Egy ugrással mellé. Számold újra az ugrásokat.', wrong: (e) => `A béka itt ért földet: ${e}.` },
+    secrets: { zero: ['Nulla és egy', 'Üres tányérok és egyetlen tányér.'], split: ['Vágd ketté', 'Egy nagy tálcából két könnyű.'] },
+    sec: { zeroText: 'Öt üres tányér: 5 × 0 = 0. Egy tányér 7-tel: 1 × 7 = 7. A szorzás nem mindig nagyít.', cut: 'Húzd a vágóvonalat' },
+    fine: 'Az egyenlő csoportok és a rácsok az alsós matematika szokásos modelljei.',
+    quiz: [
+      { q: 'Mit jelent a 3 × 4?', opts: ['3 + 4', '3 csoport, mindegyikben 4', 'A 34-es számot'], ok: 1 },
+      { q: '5 csoport, mindegyikben 3, vagy 3 csoport, mindegyikben 5. Melyikben van több?', opts: ['5 csoport, mindegyikben 3', '3 csoport, mindegyikben 5', 'Ugyanannyi: 15'], ok: 2 },
+      { q: 'A tányérokon 4, 4 és 3 keksz van. Ez 3 × 4?', opts: ['Igen, három tányér, nagyjából négy', 'Nem, a csoportok nem egyenlők', 'Igen, mert 11'], ok: 1 } ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_PZ909yPrEC', en: 'Multiplication as repeated addition', ru: 'Умножение как повторное сложение', hu: 'A szorzás mint ismételt összeadás' },
+  { id: 'mt_nvdpxAJTBG', en: 'Counting in 2s', ru: 'Счёт по 2', hu: 'Számolás kettesével' },
+  { id: 'mt_GRWwTDZ3wD', en: 'Arrays for multiplication', ru: 'Таблицы для умножения', hu: 'Rácsok a szorzáshoz' },
+  { id: 'mt_C9ZfT-4cgn', en: 'Commutative Multiplication', ru: 'Переместительное свойство умножения', hu: 'A szorzás felcserélhetősége' },
+  { id: 'mt_gtTl3R5buH', en: 'What Multiplication Means', ru: 'Что означает умножение', hu: 'Mit jelent a szorzás?' },
+];
+
+// --- the tasks ---------------------------------------------------------------------------------------------
+// a stories: a plates of b (the child sets them up, then predicts); a trap: plates of unequal size, claimed to be a × b
+const STORIES = [{ a: 5, b: 2 }, { a: 3, b: 4 }, { a: 4, b: 5 }, { a: 6, b: 3 }, { a: 3, b: 4, trap: [4, 4, 3] }, { a: 2, b: 6 }, { a: 4, b: 5, trap: [5, 5, 5, 4] }];
+const TURN = [[3, 5], [2, 6], [4, 3], [3, 7], [5, 4]]; // rows, columns
+const HOPS = [{ step: 2, n: 6, from: 0 }, { step: 5, n: 4, from: 0 }, { step: 3, n: 5, from: 0 }, { step: 10, n: 3, from: 20 }, { step: 4, n: 4, from: 0 }, { step: 5, n: 3, from: 25 }];
+const CUP = ['#e0728f', '#e0b050', '#5fa8a0', '#8f7fd0', '#d9825f', '#6fb36f', '#5f8fd0'];
+const ROWC = ['#ffe39a', '#bfe8d9', '#ffc8b8', '#cfc6f5'];
+const ROWD = ['#d9a82b', '#4fae8f', '#e07a5a', '#8f7fd0'];
+const ROT = 0.8, FLASH = 0.28, HOP0 = 0.25, HOPD = 0.6; // seconds
+const ease = (x) => x * x * (3 - 2 * x);
+const now = () => performance.now() / 1000;
+const exprOf = (a, b) => (a === 0 ? `0 × ${b} = 0` : a === 1 ? `1 × ${b} = ${b}` : `${a} × ${b} = ${Array(a).fill(b).join(' + ')} = ${a * b}`);
+
+// --- state -------------------------------------------------------------------------------------------------
+const S = {
+  part: 'free', sec: null, plates: 3, each: 4,
+  si: 0, sp: 1, se: 1, ph: 'set', ans: 0, revealN: 0, swapped: false, trapAns: null, tok: 0, cov: [0, 0, 0, 0, 0, 0, 0],
+  ti: 0, tAns: null, tStart: -1, tDone: false, tk: 0, divide: false, noteSeen: false, cut: 5,
+  hi: 0, flag: null, hStart: -1, hDone: false, hLanded: 0, pan: null,
+};
+const G = { ppu: 22, pad: 24, maxPan: 0, lineY: 0 }; // number-line geometry, set while drawing
+const lab = shell({ key: 'equal-groups', T, topics: TOPICS, views: ['plates', 'turn', 'hops'], onLang: render, onView: () => { S.sec = null; S.tok++; render(); } });
+const secret = secretLab('equal-groups', () => ({
+  secrets: [{ emo: '0️⃣', title: T[lang].secrets.zero[0], desc: T[lang].secrets.zero[1] }, { emo: '✂️', title: T[lang].secrets.split[0], desc: T[lang].secrets.split[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+function resetStory() {
+  const st = STORIES[S.si];
+  Object.assign(S, { sp: 1, se: 1, ph: st.trap ? 'ask' : 'set', ans: 0, revealN: 0, swapped: false, trapAns: null });
+  S.tok++;
+}
+resetStory();
+
+// --- drawing helpers -----------------------------------------------------------------------------------------
+const SANS = 'Nunito, sans-serif';
+function fitText(c, s, x, y, size, weight, color, maxW, align = 'center') {
+  let z = size;
+  c.font = `${weight} ${z}px ${SANS}`;
+  while (z > 12 && c.measureText(s).width > maxW) { z--; c.font = `${weight} ${z}px ${SANS}`; }
+  c.fillStyle = color; c.textAlign = align; c.textBaseline = 'middle'; c.fillText(s, x, y);
+}
+function pill(c, s, x, y, bg, fg, size = 14) {
+  c.font = `900 ${size}px ${SANS}`;
+  const tw = c.measureText(s).width + 16;
+  c.fillStyle = bg; c.beginPath(); c.roundRect(x - tw / 2, y - 11, tw, 22, 11); c.fill();
+  c.fillStyle = fg; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(s, x, y + 1);
+}
+function cupcake(c, x, y, s, col) {
+  const top = y - s * 0.05;
+  c.fillStyle = col; c.beginPath();
+  c.moveTo(x - s * 0.42, top); c.lineTo(x + s * 0.42, top); c.lineTo(x + s * 0.3, y + s * 0.45); c.lineTo(x - s * 0.3, y + s * 0.45); c.closePath(); c.fill();
+  c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = Math.max(1, s * 0.04);
+  for (const k of [-0.18, 0, 0.18]) { c.beginPath(); c.moveTo(x + s * k * 1.1, top + s * 0.04); c.lineTo(x + s * k * 0.8, y + s * 0.42); c.stroke(); }
+  c.fillStyle = '#fff4f6';
+  for (const [dy, rx, ry] of [[-0.02, 0.46, 0.2], [-0.2, 0.34, 0.17], [-0.34, 0.2, 0.13]]) { c.beginPath(); c.ellipse(x, top + s * dy, s * rx, s * ry, 0, 0, Math.PI * 2); c.fill(); }
+  c.fillStyle = '#e5484d'; c.beginPath(); c.arc(x, top - s * 0.5, s * 0.08, 0, Math.PI * 2); c.fill();
+}
+const SPOTS = [null, [[0, 0]], [[-0.4, 0], [0.4, 0]], [[-0.42, 0.25], [0.42, 0.25], [0, -0.38]],
+  [[-0.38, -0.36], [0.38, -0.36], [-0.38, 0.36], [0.38, 0.36]], [[-0.4, -0.4], [0.4, -0.4], [-0.4, 0.4], [0.4, 0.4], [0, 0]],
+  [[-0.56, -0.34], [0, -0.34], [0.56, -0.34], [-0.56, 0.34], [0, 0.34], [0.56, 0.34]],
+  [[0, 0], [0, -0.6], [0.52, -0.3], [0.52, 0.3], [0, 0.6], [-0.52, 0.3], [-0.52, -0.3]]];
+function plate(c, x, y, r, n, col, glow, time) {
+  c.fillStyle = 'rgba(0,0,0,.28)'; c.beginPath(); c.ellipse(x + 2, y + r * 0.12, r * 1.02, r * 0.98, 0, 0, Math.PI * 2); c.fill();
+  c.fillStyle = '#eef1fa'; c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill();
+  c.strokeStyle = '#c3cadf'; c.lineWidth = 2; c.beginPath(); c.arc(x, y, r * 0.78, 0, Math.PI * 2); c.stroke();
+  const s = r * (n <= 3 ? 0.62 : n <= 5 ? 0.52 : 0.44);
+  for (const [dx, dy] of SPOTS[n] || []) cupcake(c, x + dx * r * 0.7, y + dy * r * 0.7 + s * 0.06, s, col);
+  if (glow) {
+    c.save(); c.shadowColor = '#ff3b30'; c.shadowBlur = 10 + 12 * (0.5 + 0.5 * Math.sin(time * 5));
+    c.strokeStyle = '#ff3b30'; c.lineWidth = 5; c.beginPath(); c.arc(x, y, r + 3, 0, Math.PI * 2); c.stroke(); c.restore();
+  }
+}
+// an opaque checked napkin; cov 1 = lying on the plate, 0 = slid away
+function napkin(c, x, y, r, cov) {
+  const slide = 1 - cov, d = r * 2.25, k = 5;
+  c.save(); c.translate(x + slide * r * 3.4, y - slide * r * 0.9); c.rotate(-0.07 + slide * 0.5);
+  c.globalAlpha = cov > 0.6 ? 1 : 0.4 + cov * 1;
+  c.shadowColor = 'rgba(0,0,0,.4)'; c.shadowBlur = 8; c.shadowOffsetY = 3;
+  c.beginPath(); c.roundRect(-d / 2, -d / 2, d, d, 8); c.fillStyle = '#d4574d'; c.fill();
+  c.shadowColor = 'transparent'; c.clip();
+  c.fillStyle = '#f3d9d4';
+  for (let i = 0; i < k; i++) for (let j = 0; j < k; j++) if ((i + j) % 2 === 0) c.fillRect(-d / 2 + (i * d) / k, -d / 2 + (j * d) / k, d / k, d / k);
+  c.restore();
+}
+function egg(c, x, y, cell, fill) {
+  c.fillStyle = '#8f7f58'; c.beginPath(); c.ellipse(x, y + cell * 0.03, cell * 0.4, cell * 0.44, 0, 0, Math.PI * 2); c.fill();
+  c.fillStyle = fill; c.strokeStyle = 'rgba(60,45,20,.45)'; c.lineWidth = 1.2;
+  c.beginPath(); c.ellipse(x, y, cell * 0.31, cell * 0.39, 0, 0, Math.PI * 2); c.fill(); c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.55)'; c.beginPath(); c.ellipse(x - cell * 0.1, y - cell * 0.13, cell * 0.07, cell * 0.12, 0.3, 0, Math.PI * 2); c.fill();
+}
+
+// --- the canvas ----------------------------------------------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  const v = lab.view;
+  if (v === 'plates') drawPlates(c, w, h, dt, time);
+  else if (v === 'turn') (S.sec === 'split' ? drawSplit : drawTurn)(c, w, h, dt, time);
+  else drawHops(c, w, h, dt, time);
+});
+
+// what the plates view shows right now
+function plateScene() {
+  if (S.sec === 'zero' || S.part === 'free') {
+    return { counts: Array(S.plates).fill(S.each), label: (i) => (i + 1) * S.each, expr: exprOf(S.plates, S.each), glow: -1, cover: () => 0 };
+  }
+  const st = STORIES[S.si], { a, b } = st;
+  if (st.trap) {
+    const sum = st.trap.reduce((x, y) => x + y, 0), done = S.ph === 'done';
+    return { counts: st.trap, label: () => null, expr: done ? `${st.trap.join(' + ')} = ${sum}` : '', glow: done ? st.trap.indexOf(Math.min(...st.trap)) : -1, cover: () => 0 };
+  }
+  if (S.ph === 'set') return { counts: Array(S.sp).fill(S.se), label: () => null, expr: '', glow: -1, cover: () => (S.sp === a && S.se === b ? 1 : 0) };
+  return {
+    counts: Array(a).fill(b), label: (i) => (i < S.revealN ? (i + 1) * b : null), expr: S.ph === 'done' ? exprOf(a, b) : '', glow: -1,
+    cover: (i) => (S.ph === 'ask' ? 1 : i >= S.revealN ? 1 : 0),
+  };
+}
+function drawPlates(c, w, h, dt, time) {
+  const sc = plateScene(), n = sc.counts.length;
+  for (let i = 0; i < 7; i++) { const t = i < n ? sc.cover(i) : 0; S.cov[i] += clamp(t - S.cov[i], -dt / 0.3, dt / 0.3); }
+  const exprH = sc.expr ? 46 : 12;
+  if (n) {
+    const rows = w >= 560 || n <= 3 ? 1 : 2, cols = Math.ceil(n / rows), cw = w / cols, ch = (h - exprH - 8) / rows;
+    const r = Math.max(14, Math.min(cw * 0.44, (ch - 30) / 2, 66));
+    for (let i = 0; i < n; i++) {
+      const row = Math.floor(i / cols), inRow = Math.min(cols, n - row * cols);
+      const x = (w - inRow * cw) / 2 + ((i % cols) + 0.5) * cw, y = 8 + row * ch + r + (ch - 2 * r - 26) / 2;
+      plate(c, x, y, r, sc.counts[i], CUP[i % 7], sc.glow === i, time);
+      const lb = sc.label(i);
+      if (lb !== null && S.cov[i] < 0.5) pill(c, String(lb), x, y + r + 16, 'rgba(224,114,143,.95)', '#fff');
+      if (S.cov[i] > 0.01) napkin(c, x, y, r, S.cov[i]);
+    }
+  }
+  if (sc.expr) fitText(c, sc.expr, w / 2, h - 24, w < 420 ? 17 : 22, 800, '#fff', w - 16);
+}
+
+// the egg tray in its two orientations
+function trayMetrics(w, h, R, C, extra = 0) {
+  const topH = 62, botH = 62, maxD = Math.max(R, C);
+  const cell = Math.max(16, Math.min((w - 84) / maxD, (h - topH - botH - 14 - extra) / maxD, 58));
+  return { cell, cx: w / 2, cy: topH + (h - topH - botH) / 2, topH };
+}
+function drawTurn(c, w, h, dt, time) {
+  const [R, C] = TURN[S.ti], T = R * C, el = S.tStart < 0 ? -1 : time - S.tStart;
+  const th = el < 0 ? 0 : (Math.PI / 2) * ease(clamp(el / ROT, 0, 1));
+  const kk = el < ROT ? 0 : clamp(Math.floor((el - ROT) / FLASH) + 1, 0, C); // rows counted so far
+  if (kk > S.tk) sfx.tick();
+  S.tk = kk;
+  if (el > ROT + FLASH * C + 0.3 && !S.tDone) { S.tDone = true; S.noteSeen = true; (S.tAns === 'same' ? sfx.good : sfx.bad)(); render(); }
+  const { cell, cx, cy } = trayMetrics(w, h, R, C), lblRot = el >= ROT / 2;
+  const [A, B] = lblRot ? [C, R] : [R, C], fade = el >= 0 && el < ROT ? Math.abs(el - ROT / 2) / (ROT / 2) : 1;
+  const cosT = Math.cos(th), sinT = Math.sin(th);
+  // tray
+  c.save(); c.translate(cx, cy); c.rotate(th);
+  c.fillStyle = '#b9a77c'; c.strokeStyle = '#6e5f3d'; c.lineWidth = 2;
+  c.beginPath(); c.roundRect(-(C * cell) / 2 - 9, -(R * cell) / 2 - 9, C * cell + 18, R * cell + 18, 14); c.fill(); c.stroke();
+  c.restore();
+  // eggs stay upright while the tray turns
+  for (let i = 0; i < R; i++) for (let j = 0; j < C; j++) {
+    const ox = (j - (C - 1) / 2) * cell, oy = (i - (R - 1) / 2) * cell;
+    egg(c, cx + ox * cosT - oy * sinT, cy + ox * sinT + oy * cosT, cell, j < kk ? ROWC[j % 4] : '#f6ead0');
+  }
+  // the rows after the turn: C rows of R; a running count at the end of each
+  if (kk > 0) for (let k = 0; k < kk; k++) {
+    const y = cy + (k - (C - 1) / 2) * cell;
+    if (k === kk - 1 && el < ROT + FLASH * C) { // ring the row that is being counted
+      c.strokeStyle = ROWD[k % 4]; c.lineWidth = 2.5;
+      c.beginPath(); c.roundRect(cx - (R * cell) / 2 - 4, y - cell / 2 + 2, R * cell + 8, cell - 4, 10); c.stroke();
+    }
+    c.font = `900 14px ${SANS}`; c.fillStyle = ROWD[k % 4]; c.textAlign = 'left'; c.textBaseline = 'middle';
+    c.fillText(String((k + 1) * R), cx + (R * cell) / 2 + 14, y);
+  }
+  if (S.divide && S.tDone) for (let k = 0; k < C; k++) {
+    const y = cy + (k - (C - 1) / 2) * cell;
+    c.strokeStyle = ROWD[k % 4]; c.lineWidth = 3; c.setLineDash([]);
+    c.beginPath(); c.roundRect(cx - (R * cell) / 2 - 4, y - cell / 2 + 2, R * cell + 8, cell - 4, 10); c.stroke();
+  }
+  // labels
+  c.globalAlpha = fade;
+  fitText(c, `${A} × ${B}`, w / 2, 24, w < 420 ? 24 : 30, 900, '#fff', w - 16);
+  fitText(c, T_().tu.rowsOf(A, B), w / 2, 48, 15, 700, '#98A0B8', w - 16);
+  c.globalAlpha = 1;
+  if (kk >= C) {
+    fitText(c, `${R} × ${C} = ${T}   ·   ${C} × ${R} = ${T}`, w / 2, h - 40, w < 420 ? 16 : 20, 800, '#fff', w - 16);
+    if (S.divide) fitText(c, `${T} ÷ ${R} = ${C}`, w / 2, h - 16, w < 420 ? 17 : 20, 900, '#ffe39a', w - 16);
+  }
+}
+const T_ = () => T[lang];
+
+// secret: 7 × 6 with a cut line
+const SR = 7, SC = 6;
+function drawSplit(c, w, h) {
+  const k = S.cut, gap0 = 0.5, { cell, cx, cy } = trayMetrics(w, h, SR, SC, 0), gap = cell * gap0;
+  const cell2 = Math.max(16, Math.min(cell, (h - 62 - 62 - 14 - gap) / SR)), y0 = cy - (SR * cell2) / 2;
+  const rowY = (i) => y0 + (i + 0.5) * cell2 + (i < k ? -gap / 2 : gap / 2);
+  for (const [from, to, fill] of [[0, k, '#b9a77c'], [k, SR, '#a89a78']]) {
+    const top = rowY(from) - cell2 / 2 - 8, bot = rowY(to - 1) + cell2 / 2 + 8;
+    c.fillStyle = fill; c.strokeStyle = '#6e5f3d'; c.lineWidth = 2;
+    c.beginPath(); c.roundRect(cx - (SC * cell2) / 2 - 9, top, SC * cell2 + 18, bot - top, 12); c.fill(); c.stroke();
+  }
+  for (let i = 0; i < SR; i++) for (let j = 0; j < SC; j++) egg(c, cx + (j - (SC - 1) / 2) * cell2, rowY(i), cell2, i < k ? ROWC[0] : ROWC[1]);
+  const yc = (rowY(k - 1) + rowY(k)) / 2;
+  c.setLineDash([7, 6]); c.strokeStyle = '#fff'; c.lineWidth = 2.5;
+  c.beginPath(); c.moveTo(8, yc); c.lineTo(w - 8, yc); c.stroke(); c.setLineDash([]);
+  c.font = `24px ${SANS}`; c.fillStyle = '#fff'; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText('✂️', 10, yc - 16);
+  const rx = cx + (SC * cell2) / 2 + 16;
+  c.font = `900 16px ${SANS}`; c.textAlign = 'left';
+  c.fillStyle = ROWD[0]; c.fillText(String(k * SC), rx, (rowY(0) + rowY(k - 1)) / 2);
+  c.fillStyle = ROWD[1]; c.fillText(String((SR - k) * SC), rx, (rowY(k) + rowY(SR - 1)) / 2);
+  fitText(c, splitLine(), w / 2, 30, w < 420 ? 17 : 22, 800, '#fff', w - 16);
+  fitText(c, T_().sec.cut, w / 2, h - 26, 15, 700, '#98A0B8', w - 16);
+}
+const splitLine = () => `${SR} × ${SC} = ${S.cut} × ${SC} + ${SR - S.cut} × ${SC} = ${S.cut * SC} + ${(SR - S.cut) * SC} = ${SR * SC}`;
+function cutFromY(y) {
+  const w = $('cv').clientWidth, h = $('cv').clientHeight, { cell, cy } = trayMetrics(w, h, SR, SC, 0);
+  const cell2 = Math.max(16, Math.min(cell, (h - 62 - 62 - 14 - cell * 0.5) / SR));
+  return clamp(Math.round((y - cy) / cell2 + SR / 2), 1, SR - 1);
+}
+
+// the number line and the frog
+function drawHops(c, w, h, dt, time) {
+  const { step, n, from } = HOPS[S.hi], el = S.hStart < 0 ? -1 : time - S.hStart;
+  G.ppu = w >= 740 ? (w - 2 * G.pad) / 50 : 22; G.lineY = Math.round(h * 0.6);
+  G.maxPan = Math.max(0, 50 * G.ppu + 2 * G.pad - w);
+  S.pan = clamp(S.pan ?? G.pad + from * G.ppu - w * 0.2, 0, G.maxPan);
+  const prog = el < HOP0 ? 0 : clamp((el - HOP0) / HOPD, 0, n), landed = Math.floor(prog + 1e-9);
+  if (landed > S.hLanded) { sfx.tick(); S.hLanded = landed; }
+  if (el >= HOP0 + n * HOPD + 0.35 && !S.hDone) { S.hDone = true; render(); }
+  const world = (x) => G.pad + x * G.ppu, X = (x) => world(x) - S.pan, y = G.lineY;
+  const pos = (k) => from + step * k, j = Math.min(Math.floor(prog), n - 1), f = prog >= n ? 1 : prog - j;
+  const frogWorld = lerp(world(pos(j)), world(pos(j + 1)), f);
+  if (el >= 0) S.pan = clamp(S.pan + (frogWorld - w / 2 - S.pan) * Math.min(1, dt * 6), 0, G.maxPan);
+  const arcH = (k) => clamp(((G.ppu * step) / 2) * 0.8, 14, 64);
+  // line and ticks
+  c.strokeStyle = '#6b7390'; c.lineWidth = 3; c.beginPath(); c.moveTo(X(0) - 10, y); c.lineTo(X(50) + 10, y); c.stroke();
+  const lit = new Set(); for (let k = 1; k <= landed; k++) lit.add(pos(k));
+  for (let q = 0; q <= 50; q++) {
+    const x = X(q); if (x < -20 || x > w + 20) continue;
+    const big = q % 5 === 0;
+    c.strokeStyle = q === from ? '#5fc98a' : '#8a93b0'; c.lineWidth = big ? 2 : 1.2;
+    c.beginPath(); c.moveTo(x, y - (big ? 8 : 4)); c.lineTo(x, y + (big ? 10 : 6)); c.stroke();
+    if (big || q === from) { c.font = `${q === from ? 900 : 700} 13px ${SANS}`; c.fillStyle = q === from ? '#5fc98a' : '#98A0B8'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(String(q), x, y + 26); }
+  }
+  // arcs of the hops so far (the one in flight is drawn part-way)
+  c.lineWidth = 2.5; c.strokeStyle = '#5fc98a'; c.fillStyle = '#5fc98a';
+  for (let k = 0; k <= (prog >= n ? n - 1 : j); k++) {
+    const full = k < landed, t = full ? 1 : f;
+    if (t <= 0) continue;
+    const xa = X(pos(k)), xb = X(pos(k + 1)), xm = (xa + xb) / 2, rx = (xb - xa) / 2, ry = arcH(k);
+    c.beginPath();
+    for (let s = 0; s <= 24; s++) { const a = (Math.PI * t * s) / 24, px = xm - rx * Math.cos(a), py = y - 6 - ry * Math.sin(a); s ? c.lineTo(px, py) : c.moveTo(px, py); }
+    c.stroke();
+    if (full) { c.font = `800 13px ${SANS}`; c.textAlign = 'center'; c.textBaseline = 'bottom'; c.fillText(`+${step}`, xm, y - 6 - ry - 3); }
+  }
+  // landings light up, with their numbers on a second row
+  for (const q of lit) {
+    const x = X(q); if (x < -20 || x > w + 20) continue;
+    c.fillStyle = '#5fc98a'; c.beginPath(); c.arc(x, y, 6, 0, Math.PI * 2); c.fill();
+    pill(c, String(q), x, y + 54, '#5fc98a', '#10261b', 13);
+  }
+  // flag and frog
+  if (S.flag !== null) { c.font = `28px ${SANS}`; c.textAlign = 'left'; c.textBaseline = 'bottom'; c.fillText('🚩', X(S.flag) - 6, y - 2); c.fillStyle = '#ff3b30'; c.beginPath(); c.arc(X(S.flag), y, 4, 0, Math.PI * 2); c.fill(); }
+  const fy = y - 6 - (prog > 0 && prog < n ? arcH(j) * Math.sin(Math.PI * f) : 0);
+  c.font = `32px ${SANS}`; c.textAlign = 'center'; c.textBaseline = 'bottom'; c.fillStyle = '#fff'; c.fillText('🐸', frogWorld - S.pan, fy + 2);
+  // there is more line to the sides
+  c.font = `900 26px ${SANS}`; c.textBaseline = 'middle'; c.fillStyle = 'rgba(255,255,255,.45)';
+  if (S.pan > 2) { c.textAlign = 'left'; c.fillText('‹', 4, y - 40); }
+  if (S.pan < G.maxPan - 2) { c.textAlign = 'right'; c.fillText('›', w - 4, y - 40); }
+}
+
+// --- pointer: tap a spot on the number line, drag to pan it; drag the cut line in the secret ----------------------
+const cv = $('cv');
+let drag = null;
+cv.addEventListener('pointerdown', (ev) => {
+  const r = cv.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+  drag = { x, pan: S.pan ?? 0, moved: false };
+  try { cv.setPointerCapture(ev.pointerId); } catch { /* not capturable */ }
+  if (lab.view === 'turn' && S.sec === 'split') { const k = cutFromY(y); if (k !== S.cut) { S.cut = k; sfx.tick(); render(); } }
+});
+cv.addEventListener('pointermove', (ev) => {
+  if (!drag) return;
+  const r = cv.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+  if (lab.view === 'turn' && S.sec === 'split') { const k = cutFromY(y); if (k !== S.cut) { S.cut = k; sfx.tick(); render(); } return; }
+  if (lab.view !== 'hops' || S.hStart >= 0) return;
+  if (Math.abs(x - drag.x) > 6) drag.moved = true;
+  if (drag.moved) S.pan = clamp(drag.pan - (x - drag.x), 0, G.maxPan);
+});
+cv.addEventListener('pointerup', (ev) => {
+  const d = drag; drag = null;
+  if (!d || d.moved || lab.view !== 'hops' || S.hStart >= 0) return;
+  const r = cv.getBoundingClientRect(), v = clamp(Math.round((ev.clientX - r.left - G.pad + S.pan) / G.ppu), 0, 50);
+  S.flag = v; sfx.snap(); render();
+});
+cv.addEventListener('pointercancel', () => { drag = null; });
+
+// --- controls ------------------------------------------------------------------------------------------------
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+const rng = (k) => (k === 'plates' ? [S.sec === 'zero' ? 0 : 1, 6] : k === 'each' ? [0, S.sec === 'zero' ? 7 : 6] : k === 'ans' ? [0, 40] : [1, 6]);
+
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const act = b.dataset.act, st = STORIES[S.si];
+  if (act === 'step') {
+    const k = b.dataset.k, [lo, hi] = rng(k), n = clamp(S[k] + +b.dataset.s, lo, hi);
+    if (n === S[k]) return;
+    S[k] = n; sfx.tick();
+  } else if (act === 'part') { S.part = b.dataset.p; resetStory(); sfx.click(); }
+  else if (act === 'ready') {
+    if (S.sp === st.a && S.se === st.b) S.ph = 'ask';
+    else if (S.sp === st.b && S.se === st.a) { S.swapped = true; S.ph = 'ask'; }
+    else { sfx.bad(); const el = $('ctrlBody').querySelector('.steps'); el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake'); return; }
+    sfx.click();
+  } else if (act === 'check') {
+    const { a, b: per } = st; S.ph = 'reveal'; S.revealN = 0;
+    const tok = ++S.tok; let i = 0;
+    const end = () => { if (tok !== S.tok) return; S.ph = 'done'; (S.ans === a * per ? sfx.good : sfx.bad)(); render(); };
+    const go = () => { if (tok !== S.tok) return; S.revealN = ++i; sfx.tick(); setTimeout(i < a ? go : end, i < a ? 380 : 650); };
+    setTimeout(go, 350); showStage();
+  } else if (act === 'trap') { S.trapAns = b.dataset.v; S.ph = 'done'; (S.trapAns === 'no' ? sfx.good : sfx.bad)(); showStage(); }
+  else if (act === 'next') { S.si = (S.si + 1) % STORIES.length; resetStory(); sfx.click(); }
+  else if (act === 'tu') { S.tAns = b.dataset.v; S.tStart = now(); S.tDone = false; S.tk = 0; S.divide = false; sfx.click(); showStage(); }
+  else if (act === 'tnext') { S.ti = (S.ti + 1) % TURN.length; Object.assign(S, { tAns: null, tStart: -1, tDone: false, tk: 0, divide: false }); sfx.click(); }
+  else if (act === 'divide') { S.divide = !S.divide; sfx.click(); }
+  else if (act === 'hop') {
+    if (S.flag === null || S.hStart >= 0) return;
+    S.hStart = now(); S.hLanded = 0; S.hDone = false; sfx.click(); showStage();
+  } else if (act === 'hnext') { S.hi = (S.hi + 1) % HOPS.length; Object.assign(S, { flag: null, hStart: -1, hDone: false, hLanded: 0, pan: null }); sfx.click(); }
+  else if (act === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    const k = b.dataset.k, want = k === 'zero' ? 'plates' : 'turn';
+    if (lab.view !== want) { lab.view = want; lab.renderChrome(); S.tok++; S.sec = null; }
+    S.sec = S.sec === k ? null : k;
+    if (S.sec === 'zero') { S.plates = 5; S.each = 0; }
+    if (S.sec === 'split') S.cut = 5;
+    if (!S.sec) { S.plates = Math.max(1, S.plates); S.each = Math.min(6, S.each); }
+    sfx.click();
+  }
+  render();
+});
+
+// --- one render per change: controls, readout and the state card -----------------------------------------------
+const stepper = (k, label, val) => {
+  const [lo, hi] = rng(k);
+  return `<div class="stp"><span class="lbl">${esc(label)}</span><div>
+    <button class="sb" data-act="step" data-k="${k}" data-s="-1" aria-label="−"${val <= lo ? ' disabled' : ''}>−</button><b>${val}</b>
+    <button class="sb" data-act="step" data-k="${k}" data-s="1" aria-label="+"${val >= hi ? ' disabled' : ''}>+</button></div></div>`;
+};
+const totalStepper = (val) => {
+  const [lo, hi] = rng('ans'), btn = (s, l, cls = '') => `<button class="sb ${cls}" data-act="step" data-k="ans" data-s="${s}" aria-label="${l}"${(s < 0 ? val <= lo : val >= hi) ? ' disabled' : ''}>${l}</button>`;
+  return `<div class="cnt">${btn(-5, '−5', 'five')}${btn(-1, '−')}<b>${val}</b>${btn(1, '+')}${btn(5, '+5', 'five')}</div>`;
+};
+const dots = (n, i) => `<div class="dots">${Array.from({ length: n }, (_, k) => `<i class="${k < i ? 'done' : k === i ? 'on' : ''}"></i>`).join('')}</div>`;
+const btnHtml = (act, label, extra = '', cls = 'btn') => `<button class="${cls}" data-act="${act}" ${extra}>${esc(label)}</button>`;
+const chipsHtml = (t) => {
+  const open = secret.unlocked();
+  return `<div class="row2"><div class="chips">${[['zero', '0️⃣'], ['split', '✂️']].map(([k, e]) =>
+    `<button class="chip secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${e} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`).join('')}</div></div>`;
+};
+const setSt = (k, o = {}) => {
+  const t = T[lang], s = t.st[k];
+  lab.setState({ emo: o.emo ?? s[0], title: o.title ?? s[1], lead: o.lead ?? s[2], body: o.body ?? s[3], extra: (o.extra ?? '') + `<div class="fine">${esc(t.fine)}</div>` });
+};
+
+function render() {
+  const t = T[lang], v = lab.view;
+  document.body.dataset.v = v;
+  const out = v === 'plates' ? renderPlates(t) : v === 'turn' ? renderTurn(t) : renderHops(t);
+  $('ctrlBody').innerHTML = out + chipsHtml(t);
+}
+
+function renderPlates(t) {
+  const p = t.p, free = S.sec === 'zero' || S.part === 'free';
+  lab.setGlow('rgba(224, 114, 143, .26)');
+  const seg = S.sec ? '' : `<div class="card seg small">${[['free', p.free], ['story', p.story]].map(([k, l]) => `<button data-act="part" data-p="${k}" class="${S.part === k ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>`;
+  if (free) {
+    lab.setReadout(`${S.plates} × ${S.each}`, p.read(S.plates, S.each), '', '#e0728f');
+    setSt('plates', S.sec === 'zero' ? { emo: '0️⃣', title: t.secrets.zero[0], lead: t.sec.zeroText, body: '' } : {});
+    return `${seg}<div class="steps">${stepper('plates', p.plates, S.plates)}${stepper('each', p.each, S.each)}</div>`;
+  }
+  const st = STORIES[S.si], { a, b } = st, head = dots(STORIES.length, S.si), done = S.ph === 'done';
+  const next = btnHtml('next', t.next);
+  if (st.trap) {
+    if (!done) {
+      lab.setReadout('?', '', '', '#e0728f'); setSt('plates');
+      return `${seg}${head}<p class="sq">${esc(p.trapQ(st.trap, a, b))}</p><div class="opts">${btnHtml('trap', p.yes, 'data-v="yes"', 'btn ghost')}${btnHtml('trap', p.no, 'data-v="no"', 'btn ghost')}</div>`;
+    }
+    const sum = st.trap.reduce((x, y) => x + y, 0);
+    lab.setReadout(`${st.trap.join(' + ')} = ${sum}`, '', '', '#e0728f');
+    setSt('plates', S.trapAns === 'no' ? { emo: '✅', title: p.trapRight(a, b) } : { emo: '🤔', title: p.trapWrong(a, b) });
+    return `${seg}${head}<div class="acts">${next}</div>`;
+  }
+  if (done) {
+    lab.setReadout(`${a} × ${b}`, p.read(a, b), '', '#e0728f');
+    const n = a * b;
+    setSt('plates', S.ans === n ? { emo: '✅', title: p.right } : S.ans === a + b ? { emo: '🤔', title: p.added(a, b) } : { emo: '🤔', title: p.wrong(n) });
+    return `${seg}${head}<div class="acts">${next}</div>`;
+  }
+  lab.setReadout('?', '', '', '#e0728f');
+  if (S.ph === 'set') {
+    setSt('plates');
+    return `${seg}${head}<p class="sq">${esc(p.storyText(a, b))}</p><div class="steps">${stepper('sp', p.plates, S.sp)}${stepper('se', p.each, S.se)}</div>
+      <div class="acts">${btnHtml('ready', t.ready)}</div>`;
+  }
+  setSt('plates', S.swapped && S.ph === 'ask' ? { emo: '🔁', title: p.swapped } : {});
+  return `${seg}${head}<p class="sq">${esc(p.total)}</p>${S.ph === 'ask' ? `${totalStepper(S.ans)}<div class="acts">${btnHtml('check', t.check)}</div>` : ''}`;
+}
+
+function renderTurn(t) {
+  const u = t.tu;
+  lab.setGlow('rgba(224, 176, 80, .24)');
+  if (S.sec === 'split') {
+    lab.setReadout(`${SR} × ${SC}`, `= ${SR * SC}`, '', '#e0b050');
+    setSt('turn', { emo: '✂️', title: splitLine(), lead: t.sec.cut, body: '' });
+    return `<p class="sq">${esc(t.sec.cut)}</p>`;
+  }
+  const [R, C] = TURN[S.ti], T = R * C, head = dots(TURN.length, S.ti);
+  if (S.tAns === null) {
+    lab.setReadout(`${R} × ${C}`, '', '', '#e0b050');
+    setSt('turn', S.noteSeen ? { extra: `<div class="note">${esc(u.note)}</div>` } : {});
+    return `${head}<p class="sq">${esc(u.q(R, C))}</p><div class="opts">${[['more', u.more], ['fewer', u.fewer], ['same', u.same]].map(([k, l]) => btnHtml('tu', l, `data-v="${k}"`, 'btn ghost')).join('')}</div>`;
+  }
+  if (!S.tDone) { lab.setReadout(`${R} × ${C}`, '', '', '#e0b050'); setSt('turn'); return head; }
+  lab.setReadout(String(T), `${R} × ${C} = ${C} × ${R}`, '', '#e0b050');
+  const ok = S.tAns === 'same';
+  setSt('turn', { emo: ok ? '✅' : '🤔', title: ok ? u.right : u.wrong, lead: S.divide ? u.divLine(T, R, C) : undefined, extra: `<div class="note">${esc(u.note)}</div>` });
+  return `${head}<div class="acts">${btnHtml('divide', u.divide, '', `chip ${S.divide ? 'on' : ''}`)}${btnHtml('tnext', t.next)}</div>`;
+}
+
+function renderHops(t) {
+  const hp = t.h, { step, n, from } = HOPS[S.hi], end = from + step * n, head = dots(HOPS.length, S.hi);
+  lab.setGlow('rgba(95, 201, 138, .24)');
+  lab.setReadout(`${from} + ${step} × ${n}${S.hDone ? ` = ${end}` : ''}`, '', '', '#5fc98a');
+  if (S.hDone) {
+    const f = S.flag, verdict = f === end ? { emo: '✅', title: hp.right } : Math.abs(f - end) === step ? { emo: '🤔', title: hp.oneOff } : { emo: '🤔', title: hp.wrong(end) };
+    setSt('hops', verdict);
+    return `${head}<p class="sq">${esc(hp.q(step, n, from))}</p><div class="acts">${btnHtml('hnext', t.next)}</div>`;
+  }
+  setSt('hops');
+  const hopping = S.hStart >= 0;
+  return `${head}<p class="sq">${esc(hp.q(step, n, from))}</p>${S.flag === null ? `<p class="hint">${esc(hp.place)}</p>` : ''}
+    <div class="acts">${btnHtml('hop', hp.hop, S.flag === null || hopping ? 'disabled' : '')}</div>`;
+}
+render();
+</script>
+</body>
+</html>
