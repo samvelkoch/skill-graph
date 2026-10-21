@@ -22,6 +22,7 @@ CURRICULA = {
     'de': {'name': 'LehrplanPLUS Bayern (Grundschule, Gymnasium)', 'url': 'https://www.lehrplanplus.bayern.de/', 'grades': list(range(1, 10))},
     'us': {'name': 'Common Core, NGSS, C3', 'url': 'https://www.thecorestandards.org/', 'grades': list(range(1, 10))},
     'gb': {'name': 'National curriculum in England (2013)', 'url': 'https://www.gov.uk/government/collections/national-curriculum', 'grades': list(range(1, 10))},
+    'sg': {'name': 'MOE syllabuses: Mathematics (2021), Science (2023)', 'url': 'https://www.moe.gov.sg/primary/curriculum/syllabus', 'grades': list(range(1, 7))},
 }
 KS = {'1': '1-2', '2': '3-6', '3': '7-9'}  # England: key stage -> years
 

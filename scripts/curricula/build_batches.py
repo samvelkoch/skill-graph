@@ -42,8 +42,9 @@ SUBJECTS = {
     'us': {'English Language Arts': ENGLISH, 'Mathematics': MATHS},
     'gb': {'English': ENGLISH, 'Mathematics': MATHS, 'Science': SCIENCE, 'Geography': GEO + SCIENCE, 'History': HISTORY,
            'Computing': COMPUTING},
+    'sg': {'Mathematics': MATHS, 'Science': SCIENCE},
 }
-COUNTRIES = ('ru', 'hu', 'rs', 'de', 'us', 'gb')
+COUNTRIES = ('ru', 'hu', 'rs', 'de', 'us', 'gb', 'sg')
 TEXT_CAP = 1200
 RU_MERGE = 700  # RU paragraphs are short; merge neighbours of the same section up to this size
 
