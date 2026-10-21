@@ -1,0 +1,686 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Shape Detective · Skill Graph</title>
+<meta name="description" content="Name shapes that stand on a corner, stretch a triangle until it looks wrong, test which shapes are regular and find parallel sides that tilt. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  #stage canvas { touch-action: pan-y; }
+  body.drag #stage canvas { touch-action: none; }
+  .badges { position: absolute; left: 8px; right: 8px; bottom: 8px; display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; pointer-events: none !important; }
+  .bd { padding: 5px 11px; border-radius: 999px; background: rgba(14, 17, 28, .92); border: 1px solid var(--stroke2); font-size: 12.5px; font-weight: 700; color: var(--soft); }
+  .bd b { color: #fff; font-size: 14px; margin-right: 3px; }
+  .bd.cover { padding: 4px 34px; background: #1a1f33; font-size: 22px; font-weight: 900; color: var(--mut); }
+  .bd.y { border-color: var(--ok); color: var(--ok); }
+  .bd.n { border-color: var(--red); color: #ff7b72; }
+  .bd.y b, .bd.n b { color: inherit; }
+  .badges.show .bd { animation: pop .5s ease-out; }
+  @keyframes pop { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .qline { font: 500 19px/1.25 var(--serif); color: #fff; margin: 0 0 10px; text-wrap: balance; }
+  .ans { display: grid; gap: 8px; }
+  .ans.two { grid-template-columns: 1fr 1fr; }
+  .ans button { min-height: 44px; padding: 9px 14px; border-radius: 14px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 800; cursor: pointer; text-align: left; text-wrap: balance; }
+  .ans.two button { text-align: center; }
+  .ans button:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .ans button:disabled { cursor: default; color: var(--ink); opacity: .55; }
+  .ans button.good { border-color: var(--ok); background: rgba(61, 220, 151, .16); opacity: 1; }
+  .ans button.bad { border-color: var(--red); background: rgba(255, 59, 48, .14); opacity: 1; }
+  .push { margin-left: auto; }
+  .btn:disabled { opacity: .35; cursor: default; }
+  .chip { min-height: 36px; }
+  .fine { font-size: 11px; color: var(--faint); }
+  .stp { display: flex; align-items: center; gap: 8px; }
+  .stp .lbl { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-weight: 700; }
+  .stp div { display: flex; align-items: center; gap: 4px; }
+  .stp b { min-width: 24px; text-align: center; font-size: 20px; font-weight: 900; }
+  .sb { width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1); font-size: 18px; font-weight: 800;
+    line-height: 1; padding: 0; cursor: pointer; }
+  .sb:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .sb:disabled { opacity: .3; cursor: default; }
+  .rng { margin-top: 8px; }
+  .rng .lbl { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-weight: 700; }
+  .rng input { --track: linear-gradient(90deg, #3a4670, #3a4670); }
+  @media (max-width: 760px) {
+    #stage { height: min(100vw, 460px); }
+    .qline { font-size: 17px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, ruPlural, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Shape Detective', title: 'What makes a shape?',
+    lines: [['Count the sides', 'and the corners.'], ['Turning a shape', 'never changes its name.'], ['Check the clues', 'before you name it.']],
+    views: { name: '🔎 Name it', regular: '⭐ Regular?', lines: '📏 Lines' },
+    check: 'Check', next: 'Next ▶',
+    badges: { sides: 'sides', corners: 'corners', right: 'right angles', equal: 'equal sides', all: 'all', some: 'some', none: 'none' },
+    names: { triangle: 'triangle', square: 'square', rectangle: 'rectangle', rhombus: 'rhombus', quad: 'quadrilateral', pentagon: 'pentagon', hexagon: 'hexagon',
+             rightTri: 'right-angled', regular: 'regular' },
+    n: { puzzles: 'Puzzles', free: 'Free', reset: 'Reset', q: 'What is this shape?', sides: 'Sides', turn: 'Turn', sameName: 'Turned, but the same name: the sides and corners did not change.',
+         opts: { sq45: ['square', 'a diamond, not a square', 'rectangle'], thin: ['triangle', 'not a triangle: too thin', 'a line'],
+                 right: ['triangle', 'not a triangle: no flat bottom', 'square'], rect: ['rectangle', 'not a rectangle: it is tilted', 'only a parallelogram'],
+                 curve: ['triangle', 'not a polygon: one side is curved', 'circle'], hex: ['hexagon', 'not a hexagon: it isn’t neat', 'pentagon'],
+                 open: ['triangle', 'not a shape: it isn’t closed', 'two lines'] },
+         why: { sq45: '4 equal sides and 4 right angles: a square, whichever way it stands. “Diamond” is not a maths shape.',
+                thin: '3 straight sides, 3 corners: a triangle. Long, thin or upside down — still a triangle.',
+                right: '3 sides, 3 corners, one right angle: a right-angled triangle, just turned.',
+                rect: '4 right angles: a rectangle. Tilting it changes nothing.',
+                curve: 'A polygon has only straight sides. This one has a curved side.',
+                hex: '6 straight sides, 6 corners: a hexagon. It doesn’t have to look neat.',
+                open: 'A shape must be closed. Here one side is missing.' },
+         right_: 'Well spotted!', wrong: 'Look at the clues.' },
+    r: { q: 'Is this shape regular?', yes: 'Regular', no: 'Not regular', sides: 'All sides equal', angles: 'All angles equal',
+         why: { rhombus: 'Equal sides, but two angles are wide and two are narrow. Not regular.', rect: 'Equal angles, but the sides are not equal. Not regular.',
+                square: 'Equal sides and equal angles: regular.', tri: 'Equal sides and equal angles: regular.', hex: 'Equal sides and equal angles: regular.',
+                house: 'It looks neat, but its sides and angles differ. Not regular.', iso: 'Only two sides are equal. Not regular.' },
+         right_: 'Correct!', wrong: 'Check both clues: sides AND angles.' },
+    l: { qPar: 'Tap two sides that are parallel.', qPerp: 'Tap two sides that meet at a right angle.', none: 'There are none',
+         why: { trap: 'Parallel sides can have different lengths: they still never meet.', para: 'Both pairs are parallel, even tilted.',
+                tri: 'These two meet at a right angle, even when the triangle is turned.', kite: 'A kite has no parallel sides: every pair meets somewhere.',
+                rect: 'Neighbouring sides of a rectangle meet at right angles in any position.' },
+         right_: 'Yes!', wrong: 'Follow the dashed lines: do they meet?' },
+    cards: { name: ['🔎', 'Clues, not looks', 'Count straight sides and corners.', 'Turn it, stretch it: the clues decide the name.'],
+             regular: ['⭐', 'Regular means two things', 'All sides equal.', 'And all angles equal.'],
+             lines: ['📏', 'Parallel and perpendicular', 'Parallel lines never meet.', 'Perpendicular lines meet at a right angle. Tilt and length don’t matter.'] },
+    fine: 'Research on children’s shape ideas: Clements et al. (1999), “Young children’s concepts of shape”, JRME 30(2).',
+    secrets: { family: ['Shape family tree', 'A square belongs to more families than you think.'], many: ['A thousand sides', 'How many sides until it looks like a circle?'] },
+    sec: { famText: { quad: 'Any closed shape with 4 straight sides.', para: 'A quadrilateral with 2 pairs of parallel sides.', rect: 'A parallelogram with 4 right angles.',
+                      rhombus: 'A parallelogram with 4 equal sides.', square: 'A rectangle AND a rhombus: 4 right angles and 4 equal sides. Every square is a rectangle, but not every rectangle is a square.' },
+           famNames: { quad: 'Quadrilateral', para: 'Parallelogram', rect: 'Rectangle', rhombus: 'Rhombus', square: 'Square' },
+           manyText: 'Still straight sides and sharp corners — just very many of them. A circle has no corners at all.', sidesN: (n) => `${n} sides` },
+    quiz: [
+      { q: 'A square is turned so it stands on one corner. What is it now?', opts: ['A diamond, not a square', 'Still a square', 'A triangle'], ok: 1 },
+      { q: 'A shape has 4 equal sides, but its corners are not right angles. Is it regular?', opts: ['Yes, its sides are equal', 'No, its angles must be equal too', 'Yes, it looks neat'], ok: 1 },
+      { q: 'Two lines go the same way and never meet, but one is longer. Are they parallel?', opts: ['No, parallel lines must be equally long', 'Yes, length doesn’t matter', 'Only if they are flat'], ok: 1 } ],
+  },
+  ru: {
+    name: 'Сыщик фигур', title: 'Что делает фигуру фигурой?',
+    lines: [['Посчитай стороны', 'и углы.'], ['От поворота', 'название не меняется.'], ['Проверь улики,', 'прежде чем назвать.']],
+    views: { name: '🔎 Назови', regular: '⭐ Правильная?', lines: '📏 Стороны' },
+    check: 'Проверить', next: 'Дальше ▶',
+    badges: { sides: 'стороны', corners: 'углы', right: 'прямые углы', equal: 'равные стороны', all: 'все', some: 'некоторые', none: 'нет' },
+    names: { triangle: 'треугольник', square: 'квадрат', rectangle: 'прямоугольник', rhombus: 'ромб', quad: 'четырёхугольник', pentagon: 'пятиугольник', hexagon: 'шестиугольник',
+             rightTri: 'прямоугольный', regular: 'правильный' },
+    n: { puzzles: 'Загадки', free: 'Сам', reset: 'Сбросить', q: 'Что это за фигура?', sides: 'Стороны', turn: 'Поворот', sameName: 'Повернули, а название то же: стороны и углы не изменились.',
+         opts: { sq45: ['квадрат', 'ромбик, а не квадрат', 'прямоугольник'], thin: ['треугольник', 'не треугольник: слишком тонкий', 'отрезок'],
+                 right: ['треугольник', 'не треугольник: нет ровного низа', 'квадрат'], rect: ['прямоугольник', 'не прямоугольник: он наклонён', 'только параллелограмм'],
+                 curve: ['треугольник', 'не многоугольник: одна сторона кривая', 'круг'], hex: ['шестиугольник', 'не шестиугольник: он неаккуратный', 'пятиугольник'],
+                 open: ['треугольник', 'не фигура: она не замкнута', 'две линии'] },
+         why: { sq45: '4 равные стороны и 4 прямых угла — квадрат, как его ни поставь. Стоящий на углу квадрат часто зовут «ромбиком», но это всё равно квадрат.',
+                thin: '3 прямые стороны, 3 угла — треугольник. Длинный, тонкий, вверх ногами — всё равно треугольник.',
+                right: '3 стороны, 3 угла, один угол прямой — прямоугольный треугольник, просто повёрнутый.',
+                rect: '4 прямых угла — прямоугольник. От наклона ничего не меняется.',
+                curve: 'У многоугольника стороны только прямые. А здесь одна сторона кривая.',
+                hex: '6 прямых сторон, 6 углов — шестиугольник. Красивым он быть не обязан.',
+                open: 'Фигура должна быть замкнутой. А здесь одной стороны не хватает.' },
+         right_: 'Отлично!', wrong: 'Посмотри на улики.' },
+    r: { q: 'Это правильная фигура?', yes: 'Правильная', no: 'Неправильная', sides: 'Все стороны равны', angles: 'Все углы равны',
+         why: { rhombus: 'Стороны равны, но два угла широкие, а два узкие. Не правильная.', rect: 'Углы равны, но стороны разные. Не правильная.',
+                square: 'Равные стороны и равные углы — правильная.', tri: 'Равные стороны и равные углы — правильная.', hex: 'Равные стороны и равные углы — правильная.',
+                house: 'Выглядит аккуратно, но стороны и углы разные. Не правильная.', iso: 'Равны только две стороны. Не правильная.' },
+         right_: 'Верно!', wrong: 'Проверь обе улики: и стороны, И углы.' },
+    l: { qPar: 'Нажми на две параллельные стороны.', qPerp: 'Нажми на две стороны, которые встречаются под прямым углом.', none: 'Таких нет',
+         why: { trap: 'Параллельные стороны бывают разной длины — и всё равно никогда не встречаются.', para: 'Обе пары параллельны, даже под наклоном.',
+                tri: 'Эти две встречаются под прямым углом, даже когда треугольник повёрнут.', kite: 'У «воздушного змея» нет параллельных сторон: каждая пара где-то встречается.',
+                rect: 'Соседние стороны прямоугольника встречаются под прямым углом в любом положении.' },
+         right_: 'Да!', wrong: 'Проследи пунктир: линии встречаются?' },
+    cards: { name: ['🔎', 'Улики, а не вид', 'Считай прямые стороны и углы.', 'Поверни, растяни — название решают улики.'],
+             regular: ['⭐', 'Правильная — это два условия', 'Все стороны равны.', 'И все углы равны.'],
+             lines: ['📏', 'Параллельные и перпендикулярные', 'Параллельные прямые никогда не встречаются.', 'Перпендикулярные встречаются под прямым углом. Наклон и длина не важны.'] },
+    fine: 'Исследование детских представлений о фигурах: Clements et al. (1999), JRME 30(2).',
+    secrets: { family: ['Семейное дерево фигур', 'Квадрат состоит в большем числе семей, чем кажется.'], many: ['Тысяча сторон', 'Сколько нужно сторон, чтобы фигура стала похожа на круг?'] },
+    sec: { famText: { quad: 'Любая замкнутая фигура с 4 прямыми сторонами.', para: 'Четырёхугольник, у которого 2 пары параллельных сторон.', rect: 'Параллелограмм с 4 прямыми углами.',
+                      rhombus: 'Параллелограмм с 4 равными сторонами.', square: 'И прямоугольник, И ромб: 4 прямых угла и 4 равные стороны. Каждый квадрат — прямоугольник, но не каждый прямоугольник — квадрат.' },
+           famNames: { quad: 'Четырёхугольник', para: 'Параллелограмм', rect: 'Прямоугольник', rhombus: 'Ромб', square: 'Квадрат' },
+           manyText: 'Стороны всё ещё прямые, а углы острые — просто их очень много. У круга углов нет совсем.', sidesN: (n) => `${n} ${ruPlural(n, 'сторона', 'стороны', 'сторон')}` },
+    quiz: [
+      { q: 'Квадрат повернули, и он встал на один угол. Что это теперь?', opts: ['Ромбик, а не квадрат', 'Всё ещё квадрат', 'Треугольник'], ok: 1 },
+      { q: 'У фигуры 4 равные стороны, но углы не прямые. Она правильная?', opts: ['Да, стороны же равны', 'Нет, углы тоже должны быть равны', 'Да, она аккуратная'], ok: 1 },
+      { q: 'Две линии идут в одну сторону и никогда не встречаются, но одна длиннее. Они параллельны?', opts: ['Нет, параллельные должны быть одной длины', 'Да, длина не важна', 'Только если они лежат ровно'], ok: 1 } ],
+  },
+  hu: {
+    name: 'Alakzatnyomozó', title: 'Mitől alakzat az alakzat?',
+    lines: [['Számold meg', 'az oldalakat és a csúcsokat.'], ['Forgatástól', 'nem változik a neve.'], ['Nézd meg a nyomokat,', 'mielőtt megnevezed.']],
+    views: { name: '🔎 Nevezd meg', regular: '⭐ Szabályos?', lines: '📏 Oldalak' },
+    check: 'Ellenőrzés', next: 'Tovább ▶',
+    badges: { sides: 'oldal', corners: 'csúcs', right: 'derékszög', equal: 'egyenlő oldalak', all: 'mind', some: 'néhány', none: 'nincs' },
+    names: { triangle: 'háromszög', square: 'négyzet', rectangle: 'téglalap', rhombus: 'rombusz', quad: 'négyszög', pentagon: 'ötszög', hexagon: 'hatszög',
+             rightTri: 'derékszögű', regular: 'szabályos' },
+    n: { puzzles: 'Rejtvények', free: 'Szabadon', reset: 'Alaphelyzet', q: 'Milyen alakzat ez?', sides: 'Oldalak', turn: 'Forgatás', sameName: 'Elforgattuk, de a neve ugyanaz: az oldalak és a csúcsok nem változtak.',
+         opts: { sq45: ['négyzet', 'rombuszka, nem négyzet', 'téglalap'], thin: ['háromszög', 'nem háromszög: túl vékony', 'egy szakasz'],
+                 right: ['háromszög', 'nem háromszög: nincs egyenes alja', 'négyzet'], rect: ['téglalap', 'nem téglalap: ferde', 'csak paralelogramma'],
+                 curve: ['háromszög', 'nem sokszög: az egyik oldala görbe', 'kör'], hex: ['hatszög', 'nem hatszög: nem szép szabályos', 'ötszög'],
+                 open: ['háromszög', 'nem alakzat: nincs bezárva', 'két vonal'] },
+         why: { sq45: '4 egyenlő oldal és 4 derékszög: négyzet, akárhogy áll is. A csúcsára állított négyzetet sokan „rombusznak” hívják, de ez is négyzet.',
+                thin: '3 egyenes oldal, 3 csúcs: háromszög. Hosszú, vékony vagy fejjel lefelé — attól még háromszög.',
+                right: '3 oldal, 3 csúcs, egy derékszög: derékszögű háromszög, csak elforgatva.',
+                rect: '4 derékszög: téglalap. A döntéstől semmi sem változik.',
+                curve: 'A sokszögnek csak egyenes oldalai vannak. Ennek az egyik oldala görbe.',
+                hex: '6 egyenes oldal, 6 csúcs: hatszög. Nem kell szépnek lennie.',
+                open: 'Az alakzatnak zártnak kell lennie. Itt hiányzik egy oldal.' },
+         right_: 'Ügyes!', wrong: 'Nézd meg a nyomokat.' },
+    r: { q: 'Szabályos ez az alakzat?', yes: 'Szabályos', no: 'Nem szabályos', sides: 'Minden oldal egyenlő', angles: 'Minden szög egyenlő',
+         why: { rhombus: 'Az oldalak egyenlők, de két szög tompa, kettő hegyes. Nem szabályos.', rect: 'A szögek egyenlők, de az oldalak nem. Nem szabályos.',
+                square: 'Egyenlő oldalak és egyenlő szögek: szabályos.', tri: 'Egyenlő oldalak és egyenlő szögek: szabályos.', hex: 'Egyenlő oldalak és egyenlő szögek: szabályos.',
+                house: 'Rendezettnek tűnik, de az oldalai és a szögei különböznek. Nem szabályos.', iso: 'Csak két oldala egyenlő. Nem szabályos.' },
+         right_: 'Helyes!', wrong: 'Nézd meg mindkét nyomot: az oldalakat ÉS a szögeket.' },
+    l: { qPar: 'Koppints két párhuzamos oldalra.', qPerp: 'Koppints két oldalra, amelyek derékszögben találkoznak.', none: 'Nincs ilyen',
+         why: { trap: 'A párhuzamos oldalak lehetnek különböző hosszúak: akkor sem találkoznak soha.', para: 'Mindkét pár párhuzamos, ferdén is.',
+                tri: 'Ez a kettő derékszögben találkozik, akkor is, ha a háromszög el van forgatva.', kite: 'A deltoidnak nincsenek párhuzamos oldalai: minden pár valahol találkozik.',
+                rect: 'A téglalap szomszédos oldalai bármilyen helyzetben derékszögben találkoznak.' },
+         right_: 'Igen!', wrong: 'Kövesd a szaggatott vonalakat: találkoznak?' },
+    cards: { name: ['🔎', 'Nyomok, nem a látszat', 'Számold az egyenes oldalakat és a csúcsokat.', 'Forgasd, nyújtsd: a nevet a nyomok döntik el.'],
+             regular: ['⭐', 'A szabályos két dolgot jelent', 'Minden oldal egyenlő.', 'És minden szög egyenlő.'],
+             lines: ['📏', 'Párhuzamos és merőleges', 'A párhuzamos egyenesek soha nem találkoznak.', 'A merőlegesek derékszögben találkoznak. A dőlés és a hossz nem számít.'] },
+    fine: 'Kutatás a gyerekek alakzatfogalmairól: Clements et al. (1999), JRME 30(2).',
+    secrets: { family: ['Az alakzatok családfája', 'A négyzet több családba tartozik, mint gondolnád.'], many: ['Ezer oldal', 'Hány oldal kell, hogy körnek tűnjön?'] },
+    sec: { famText: { quad: 'Bármely zárt alakzat 4 egyenes oldallal.', para: 'Négyszög 2 pár párhuzamos oldallal.', rect: 'Paralelogramma 4 derékszöggel.',
+                      rhombus: 'Paralelogramma 4 egyenlő oldallal.', square: 'Téglalap ÉS rombusz: 4 derékszög és 4 egyenlő oldal. Minden négyzet téglalap, de nem minden téglalap négyzet.' },
+           famNames: { quad: 'Négyszög', para: 'Paralelogramma', rect: 'Téglalap', rhombus: 'Rombusz', square: 'Négyzet' },
+           manyText: 'Még mindig egyenes oldalak és éles csúcsok — csak nagyon sok. A körnek egyetlen csúcsa sincs.', sidesN: (n) => `${n} oldal` },
+    quiz: [
+      { q: 'Egy négyzetet elforgatnak, hogy az egyik csúcsán álljon. Mi lett belőle?', opts: ['Rombuszka, nem négyzet', 'Még mindig négyzet', 'Háromszög'], ok: 1 },
+      { q: 'Egy alakzatnak 4 egyenlő oldala van, de a szögei nem derékszögek. Szabályos?', opts: ['Igen, egyenlők az oldalai', 'Nem, a szögeinek is egyenlőnek kell lenniük', 'Igen, szép rendezett'], ok: 1 },
+      { q: 'Két vonal egy irányba fut, és soha nem találkozik, de az egyik hosszabb. Párhuzamosak?', opts: ['Nem, a párhuzamosaknak egyforma hosszúnak kell lenniük', 'Igen, a hossz nem számít', 'Csak ha vízszintesek'], ok: 1 } ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_KJeEeTutJI', en: '2-D shapes', ru: 'Плоские фигуры', hu: 'Síkidomok' },
+  { id: 'mt_vJUa62bxeR', en: '2-D shapes (age 7+)', ru: 'Плоские фигуры (7+ лет)', hu: 'Síkidomok (7 éves kortól)' },
+  { id: 'mt_8H2kO4k2B9', en: 'Regular and irregular polygons', ru: 'Правильные и неправильные многоугольники', hu: 'Szabályos és szabálytalan sokszögek' },
+  { id: 'mt_r8c43QB6wx', en: 'Classifying shapes by line properties', ru: 'Классификация фигур по свойствам сторон', hu: 'Alakzatok osztályozása vonaltulajdonságok szerint' },
+  { id: 'mt_liIW336odh', en: 'Classifying shapes by properties', ru: 'Классификация фигур по свойствам', hu: 'Síkidomok osztályozása tulajdonságaik szerint' },
+];
+
+// --- geometry: a shape is { v: [[x, y]...] (y points down), curve: index of a curved side, gap: index of a missing side } ---
+const rad = (d) => d * Math.PI / 180;
+const rgba = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; };
+const cross2 = (a, b) => a[0] * b[1] - a[1] * b[0];
+const sameLen = (a, b) => Math.abs(a - b) <= 0.03 * Math.max(a, b); // sides: within 3 %
+const sameAng = (a, b) => Math.abs(a - b) <= 3; // angles: within 3 degrees
+const regPoly = (n) => { const off = n % 2 ? -90 : -90 - 180 / n; return Array.from({ length: n }, (_, i) => [Math.cos(rad(off + i * 360 / n)), Math.sin(rad(off + i * 360 / n))]); };
+
+// group equal numbers (within `same`) in order of first appearance; returns the group index of every item
+function groups(list, same) {
+  const reps = [];
+  return list.map((x) => { let g = reps.findIndex((r) => same(r, x)); if (g < 0) { reps.push(x); g = reps.length - 1; } return g; });
+}
+// everything the badges, the name and the "regular" test need
+function props(sh) {
+  const v = sh.v, V = v.length, curve = sh.curve ?? -1, gap = sh.gap ?? -1, skip = (i) => i === curve || i === gap;
+  const lens = v.map((p, i) => Math.hypot(v[(i + 1) % V][0] - p[0], v[(i + 1) % V][1] - p[1]));
+  const sides = lens.filter((_, i) => !skip(i));
+  let area = 0; v.forEach((p, i) => { const q = v[(i + 1) % V]; area += p[0] * q[1] - q[0] * p[1]; });
+  const angs = v.map((c, i) => { // interior angle at vertex i, or null when a neighbouring side is curved or missing
+    const pe = (i + V - 1) % V; if (skip(pe) || skip(i)) return null;
+    const p = v[pe], q = v[(i + 1) % V], a = [p[0] - c[0], p[1] - c[1]], b = [q[0] - c[0], q[1] - c[1]];
+    let d = Math.atan2(Math.abs(cross2(a, b)), a[0] * b[0] + a[1] * b[1]) * 180 / Math.PI;
+    if (V > 3 && ((c[0] - p[0]) * (q[1] - c[1]) - (c[1] - p[1]) * (q[0] - c[0])) * area < 0) d = 360 - d; // reflex corner
+    return d;
+  });
+  const real = angs.filter((a) => a !== null), mx = Math.max(...sides), mn = Math.min(...sides);
+  const allEq = sides.length > 1 && mx - mn <= 0.03 * mx;
+  const some = sides.some((a, i) => sides.some((b, j) => i < j && sameLen(a, b)));
+  const allAng = real.length === V && Math.max(...real) - Math.min(...real) <= 3;
+  return { sides, corners: gap >= 0 ? V - 2 : V, angs, lens, right: real.filter((a) => Math.abs(a - 90) <= 3).length,
+    eq: allEq ? 'all' : some ? 'some' : 'none', allEq, allAng, regular: curve < 0 && gap < 0 && allEq && allAng,
+    lenGroup: groups(lens, sameLen), angGroup: groups(angs.map((a) => a ?? -999), sameAng) };
+}
+function nameOf(p, V) {
+  const n = T[lang].names;
+  let s = V === 3 ? n.triangle + (p.right === 1 ? ` · ${n.rightTri}` : '')
+    : V === 4 ? (p.allEq && p.right === 4 ? n.square : p.right === 4 ? n.rectangle : p.allEq ? n.rhombus : n.quad)
+    : V === 5 ? n.pentagon : n.hexagon;
+  if (p.regular) s += ` · ${n.regular}`;
+  return s;
+}
+// a polygon the child drags must never cross itself
+const ccw = (a, b, c) => (c[1] - a[1]) * (b[0] - a[0]) > (b[1] - a[1]) * (c[0] - a[0]);
+const segX = (a, b, c, d) => ccw(a, c, d) !== ccw(b, c, d) && ccw(a, b, c) !== ccw(a, b, d);
+function isSimple(v) {
+  const V = v.length;
+  for (let i = 0; i < V; i++) for (let j = i + 2; j < V; j++) {
+    if (i === 0 && j === V - 1) continue;
+    if (segX(v[i], v[(i + 1) % V], v[j], v[(j + 1) % V])) return false;
+  }
+  return true;
+}
+// parallel / perpendicular sides, from the unit coordinates (turning never changes them)
+const S3 = Math.sin(rad(3));
+const dirU = (sh, i) => { const a = sh.v[i], b = sh.v[(i + 1) % sh.v.length], L = Math.hypot(b[0] - a[0], b[1] - a[1]); return [(b[0] - a[0]) / L, (b[1] - a[1]) / L]; };
+const isPar = (sh, i, j) => Math.abs(cross2(dirU(sh, i), dirU(sh, j))) <= S3;
+const isPerp = (sh, i, j) => { const a = dirU(sh, i), b = dirU(sh, j); return Math.abs(a[0] * b[0] + a[1] * b[1]) <= S3; };
+const hasPair = (sh, q) => { const V = sh.v.length; for (let i = 0; i < V; i++) for (let j = i + 1; j < V; j++) if ((q === 'par' ? isPar : isPerp)(sh, i, j)) return true; return false; };
+
+// --- puzzles: shapes are written in their usual pose (a flat side down); rot0 is how the puzzle turns them -----------
+const PUZ = [
+  { key: 'sq45', sh: { v: [[-1, -1], [1, -1], [1, 1], [-1, 1]] }, rot0: 45, ok: 0 },
+  { key: 'thin', sh: { v: [[-1.5, .12], [1.5, .12], [.6, -.14]] }, rot0: 180, ok: 0 },
+  { key: 'right', sh: { v: [[-.9, .7], [.9, .7], [-.9, -.7]] }, rot0: 135, ok: 0 },
+  { key: 'rect', sh: { v: [[-1.5, -.5], [1.5, -.5], [1.5, .5], [-1.5, .5]] }, rot0: 30, ok: 0 },
+  { key: 'curve', sh: { v: [[-.9, .8], [1.1, .8], [-.9, -.8]], curve: 1 }, rot0: 25, ok: 1 },
+  { key: 'hex', sh: { v: [[0, -1.2], [1, .1], [.4, .1], [.4, 1], [-.5, .6], [-.8, -.2]] }, rot0: 200, ok: 0 },
+  { key: 'open', sh: { v: [[-1, .8], [1, .8], [-.2, -.9]], gap: 2 }, rot0: 20, ok: 1 },
+];
+const REG = [
+  { key: 'rhombus', sh: { v: [[-1.2, .52], [0, .52], [.6, -.52], [-.6, -.52]] } },
+  { key: 'rect', sh: { v: [[-1.4, -.9], [1.4, -.9], [1.4, .9], [-1.4, .9]] } },
+  { key: 'square', sh: { v: [[-1, -1], [1, -1], [1, 1], [-1, 1]] } },
+  { key: 'tri', sh: { v: [[0, -1], [1, .732], [-1, .732]] } },
+  { key: 'hex', sh: { v: regPoly(6) } },
+  { key: 'house', sh: { v: [[-1, 1], [1, 1], [1, -1], [0, -1.9], [-1, -1]] } },
+  { key: 'iso', sh: { v: [[0, -1.1], [.8, .8], [-.8, .8]] } },
+];
+REG.forEach((r) => { r.p = props(r.sh); });
+const LIN = [
+  { key: 'trap', q: 'par', sh: { v: [[-1.2, .6], [1.1, .6], [.4, -.6], [-.6, -.6]] }, rot0: 25 },
+  { key: 'para', q: 'par', sh: { v: [[-1.2, .6], [.6, .6], [1.2, -.6], [-.6, -.6]] }, rot0: 20 },
+  { key: 'tri', q: 'perp', sh: { v: [[-.9, .7], [.9, .7], [-.9, -.7]] }, rot0: 160 },
+  { key: 'kite', q: 'par', sh: { v: [[0, -.9], [1.1, 0], [0, 1.3], [-1.1, 0]] }, rot0: 20 },
+  { key: 'rect', q: 'perp', sh: { v: [[-1.3, .6], [1.3, .6], [1.3, -.6], [-1.3, -.6]] }, rot0: 35 },
+];
+// the family tree of the secret: [x, y] as fractions of the stage, parents, a little picture
+const FAM = {
+  quad: { at: [.5, .12], up: [], v: [[-1, .6], [.7, .8], [1, -.5], [-.6, -.8]] },
+  para: { at: [.5, .37], up: ['quad'], v: [[-1.2, .5], [.4, .5], [1.2, -.5], [-.4, -.5]] },
+  rect: { at: [.2, .63], up: ['para'], v: [[-1.2, -.7], [1.2, -.7], [1.2, .7], [-1.2, .7]] },
+  rhombus: { at: [.8, .63], up: ['para'], v: [[-1.2, .52], [0, .52], [.6, -.52], [-.6, -.52]] },
+  square: { at: [.5, .88], up: ['rect', 'rhombus'], v: [[-.8, -.8], [.8, -.8], [.8, .8], [-.8, .8]] },
+};
+const famLit = (k) => new Set([k, ...FAM[k].up.flatMap((u) => [...famLit(u)])]);
+
+const COL = { name: '#4ea8ff', regular: '#e0b050', lines: '#5fa8a0' };
+const GLOW = { name: 'rgba(78, 168, 255, .28)', regular: 'rgba(224, 176, 80, .24)', lines: 'rgba(95, 168, 160, .26)' };
+const PICK = ['#f5c84c', '#ff7ab6']; // the two sides the child taps
+const ARC = ['#4ea8ff', '#f5c84c', '#3ddc97', '#ff7ab6', '#b08cff'];
+
+// --- state -------------------------------------------------------------------------------------------------
+const shuffled = () => [0, 1, 2].sort(() => Math.random() - 0.5);
+const S = {
+  mode: 'puz', pi: 0, order: shuffled(), pick: null, rv: 0,
+  free: { n: 4, v: regPoly(4), rot: 0, moved: false },
+  sec: null, fam: 'square', many: 8,
+  ri: 0, rpick: null, rr: 0,
+  li: 0, lsel: [], lnone: false, lchecked: false, lrev: 0,
+};
+const G = {}; // screen positions from the last frame, for taps
+const lab = shell({ key: 'shapes', T, topics: TOPICS, views: ['name', 'regular', 'lines'], onLang: render, onView: () => { S.sec = null; render(); } });
+const secret = secretLab('shapes', () => ({
+  secrets: [{ emo: '🪆', title: T[lang].secrets.family[0], desc: T[lang].secrets.family[1] }, { emo: '⭕', title: T[lang].secrets.many[0], desc: T[lang].secrets.many[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="secName">
+    <div class="row2" id="nvTop" style="margin-top:0"><div class="card seg small" id="modeSeg"></div></div>
+    <div id="nvPuz"><p class="qline" id="nQ"></p><div class="ans" id="nAns"></div>
+      <div class="row2"><button class="btn push" data-act="nnext" id="nNext"></button></div></div>
+    <div id="nvFree">
+      <div class="row2" style="margin-top:0"><div class="stp"><span class="lbl" id="fSidesL"></span><div>
+        <button class="sb" data-act="fdec" aria-label="−">−</button><b id="fN"></b><button class="sb" data-act="finc" aria-label="+">+</button></div></div>
+        <button class="chip push" data-act="freset" id="fReset"></button></div>
+      <div class="rng"><span class="lbl" id="fTurnL"></span><input class="big" type="range" id="fRot" min="0" max="360" step="1" value="0"></div>
+    </div>
+    <div id="nvMany"><input class="big" type="range" id="mN" min="3" max="60" step="1" value="8"></div>
+    <div class="row2" id="nvChips"><div class="chips" id="secChips"></div></div>
+  </div>
+  <div id="secReg"><p class="qline" id="rQ"></p><div class="ans two" id="rAns"></div>
+    <div class="row2"><button class="btn push" data-act="rnext" id="rNext"></button></div></div>
+  <div id="secLines"><p class="qline" id="lQ"></p>
+    <div class="row2" style="margin-top:0"><button class="chip" data-act="lnone" id="lNone"></button><button class="btn push" data-act="lmain" id="lMain"></button></div></div>`;
+const bdEl = Object.assign(document.createElement('div'), { className: 'badges', id: 'bd' });
+$('overlay').append(bdEl);
+
+// --- drawing helpers -----------------------------------------------------------------------------------------
+// unit point -> pixel: turn by `rot` degrees about (ox, oy), scale by s, centre on (cx, cy)
+function mapper(cx, cy, s, rot, ox = 0, oy = 0) {
+  const co = Math.cos(rad(rot)), si = Math.sin(rad(rot));
+  const f = (p) => { const x = p[0] - ox, y = p[1] - oy; return [cx + s * (co * x - si * y), cy + s * (si * x + co * y)]; };
+  f.inv = (X, Y) => { const x = (X - cx) / s, y = (Y - cy) / s; return [ox + co * x + si * y, oy - si * x + co * y]; };
+  return f;
+}
+// a shape takes ~60 % of the smaller side of the free area; turning never changes its size
+function fit(sh, w, h, rot) {
+  const xs = sh.v.map((p) => p[0]), ys = sh.v.map((p) => p[1]);
+  const ox = (Math.min(...xs) + Math.max(...xs)) / 2, oy = (Math.min(...ys) + Math.max(...ys)) / 2;
+  const R = Math.max(...sh.v.map((p) => Math.hypot(p[0] - ox, p[1] - oy))) * (sh.curve !== undefined ? 1.15 : 1);
+  return mapper(w / 2, h / 2, 0.3 * Math.min(w, h) / R, rot, ox, oy);
+}
+function trace(c, sh, f) {
+  const v = sh.v, V = v.length, P = v.map(f), curve = sh.curve ?? -1, gap = sh.gap ?? -1;
+  let cx = 0, cy = 0; v.forEach((p) => { cx += p[0] / V; cy += p[1] / V; });
+  c.beginPath(); c.moveTo(...P[0]);
+  for (let i = 0; i < V; i++) {
+    const j = (i + 1) % V;
+    if (i === gap) c.moveTo(...P[j]);
+    else if (i === curve) { // bulge away from the middle of the shape
+      const a = v[i], b = v[j], mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2, dx = b[0] - a[0], dy = b[1] - a[1];
+      let nx = dy, ny = -dx; if (nx * (mx - cx) + ny * (my - cy) < 0) { nx = -nx; ny = -ny; }
+      c.quadraticCurveTo(...f([mx + nx * 0.55, my + ny * 0.55]), ...P[j]);
+    } else c.lineTo(...P[j]);
+  }
+  if (gap < 0) c.closePath();
+}
+function drawShape(c, sh, f, col) {
+  trace(c, sh, f);
+  if (sh.gap === undefined) { c.fillStyle = rgba(col, .22); c.fill(); }
+  c.lineWidth = 3; c.strokeStyle = col; c.stroke();
+  if (sh.gap !== undefined) { // the two stubs of the side that is missing in the middle
+    const A = f(sh.v[sh.gap]), B = f(sh.v[(sh.gap + 1) % sh.v.length]);
+    c.beginPath(); c.moveTo(...A); c.lineTo(A[0] + (B[0] - A[0]) * .3, A[1] + (B[1] - A[1]) * .3);
+    c.moveTo(...B); c.lineTo(B[0] + (A[0] - B[0]) * .3, B[1] + (A[1] - B[1]) * .3); c.stroke();
+  }
+}
+const unit = (a, b) => { const d = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1; return [(b[0] - a[0]) / d, (b[1] - a[1]) / d]; };
+function rightMarks(c, sh, f, p, alpha) { // a little square in every right angle
+  const V = sh.v.length, P = sh.v.map(f);
+  c.strokeStyle = `rgba(255,255,255,${.85 * alpha})`; c.lineWidth = 2;
+  p.angs.forEach((a, i) => {
+    if (a === null || Math.abs(a - 90) > 3) return;
+    const X = P[i], u = unit(X, P[(i + V - 1) % V]), w = unit(X, P[(i + 1) % V]), k = 13;
+    c.beginPath(); c.moveTo(X[0] + u[0] * k, X[1] + u[1] * k); c.lineTo(X[0] + (u[0] + w[0]) * k, X[1] + (u[1] + w[1]) * k); c.lineTo(X[0] + w[0] * k, X[1] + w[1] * k); c.stroke();
+  });
+}
+function ticks(c, P, grp, alpha) { // same number of ticks = same length
+  const V = P.length; c.strokeStyle = `rgba(255,255,255,${alpha})`; c.lineWidth = 2.5;
+  c.beginPath();
+  for (let i = 0; i < V; i++) {
+    const A = P[i], B = P[(i + 1) % V], u = unit(A, B), k = grp[i] + 1, mx = (A[0] + B[0]) / 2, my = (A[1] + B[1]) / 2;
+    for (let j = 0; j < k; j++) {
+      const o = (j - (k - 1) / 2) * 6, x = mx + u[0] * o, y = my + u[1] * o;
+      c.moveTo(x - u[1] * 8, y + u[0] * 8); c.lineTo(x + u[1] * 8, y - u[0] * 8);
+    }
+  }
+  c.stroke();
+}
+function arcs(c, P, grp, angs, alpha) { // same colour = same angle
+  const V = P.length;
+  angs.forEach((a, i) => {
+    if (a === null) return;
+    const X = P[i], A = P[(i + V - 1) % V], B = P[(i + 1) % V];
+    const a1 = Math.atan2(A[1] - X[1], A[0] - X[0]), a2 = Math.atan2(B[1] - X[1], B[0] - X[0]);
+    let d = a2 - a1; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
+    const r = clamp(0.3 * Math.min(Math.hypot(A[0] - X[0], A[1] - X[1]), Math.hypot(B[0] - X[0], B[1] - X[1])), 14, 28), col = ARC[grp[i] % ARC.length];
+    c.globalAlpha = alpha; c.beginPath(); c.moveTo(...X); c.arc(X[0], X[1], r, a1, a2, d < 0); c.closePath();
+    c.fillStyle = rgba(col, .35); c.fill(); c.lineWidth = 3; c.strokeStyle = col; c.stroke(); c.globalAlpha = 1;
+  });
+}
+function longLine(c, A, B, col, alpha) {
+  const dx = B[0] - A[0], dy = B[1] - A[1], k = 3000 / Math.hypot(dx, dy);
+  c.setLineDash([9, 7]); c.lineWidth = 2.5; c.strokeStyle = rgba(col, alpha);
+  c.beginPath(); c.moveTo(A[0] - dx * k, A[1] - dy * k); c.lineTo(A[0] + dx * k, A[1] + dy * k); c.stroke(); c.setLineDash([]);
+}
+function isect(A, B, C, D) {
+  const d1 = [B[0] - A[0], B[1] - A[1]], d2 = [D[0] - C[0], D[1] - C[1]], den = cross2(d1, d2);
+  if (Math.abs(den) < 1e-9) return null;
+  const t = cross2([C[0] - A[0], C[1] - A[1]], d2) / den;
+  return [A[0] + d1[0] * t, A[1] + d1[1] * t];
+}
+const ease = (x) => x * x * (3 - 2 * x);
+const badgesHTML = (p) => { const b = T[lang].badges;
+  return [[p.sides.length, b.sides], [p.corners, b.corners], [p.right, b.right]].map(([n, l]) => `<span class="bd"><b>${n}</b>${esc(l)}</span>`).join('')
+    + `<span class="bd">${esc(b.equal)}: <b>${esc(b[p.eq])}</b></span>`; };
+
+// --- the scene -------------------------------------------------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt) => {
+  const v = lab.view, hh = h - 58; // the bottom strip belongs to the badges
+  c.lineJoin = 'round'; c.lineCap = 'round'; G.free = G.lines = G.fam = null;
+  if (v === 'name') {
+    if (S.sec === 'family') drawFamily(c, w, h);
+    else if (S.sec === 'many') drawMany(c, w, hh);
+    else if (S.mode === 'puz') drawPuzzle(c, w, hh, dt);
+    else drawFree(c, w, hh);
+  } else if (v === 'regular') drawRegular(c, w, hh, dt);
+  else drawLines(c, w, h, dt);
+});
+
+function drawPuzzle(c, w, h, dt) {
+  const P = PUZ[S.pi], col = COL.name;
+  S.rv = clamp(S.rv + (S.pick === null ? -dt : dt), 0, 1);
+  const e = ease(S.rv), f = fit(P.sh, w, h, P.rot0 * (1 - e)); // the reveal turns it to its usual pose in one second
+  drawShape(c, P.sh, f, col);
+  if (S.pick !== null) rightMarks(c, P.sh, f, props(P.sh), e);
+}
+function drawFree(c, w, h) {
+  const F = S.free, sh = { v: F.v }, f = mapper(w / 2, h / 2, 0.3 * Math.min(w, h), F.rot), p = props(sh);
+  drawShape(c, sh, f, COL.name); rightMarks(c, sh, f, p, 1);
+  const pts = F.v.map(f); G.free = { f, pts };
+  c.lineWidth = 2.5; c.strokeStyle = COL.name; c.fillStyle = '#fff';
+  pts.forEach(([x, y]) => { c.beginPath(); c.arc(x, y, 9, 0, 7); c.fill(); c.stroke(); });
+}
+function drawMany(c, w, h) {
+  const n = S.many, R = 0.34 * Math.min(w, h), cx = w / 2, cy = h / 2, sh = { v: regPoly(n) }, f = mapper(cx, cy, R, 0);
+  c.setLineDash([4, 6]); c.lineWidth = 2; c.strokeStyle = 'rgba(255,255,255,.22)'; c.beginPath(); c.arc(cx, cy, R, 0, 7); c.stroke(); c.setLineDash([]);
+  drawShape(c, sh, f, COL.name);
+  c.fillStyle = '#fff'; sh.v.map(f).forEach(([x, y]) => { c.beginPath(); c.arc(x, y, 2.6, 0, 7); c.fill(); });
+}
+function drawFamily(c, w, h) {
+  const lit = famLit(S.fam), t = T[lang], boxes = [];
+  c.font = '800 13px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  for (const [k, n] of Object.entries(FAM)) {
+    const bw = Math.max(64, c.measureText(t.sec.famNames[k]).width + 22), bh = 66;
+    boxes.push({ k, bw, bh, x: clamp(n.at[0] * w, bw / 2 + 4, w - bw / 2 - 4), y: clamp(n.at[1] * h, bh / 2 + 4, h - bh / 2 - 4) });
+  }
+  const B = Object.fromEntries(boxes.map((b) => [b.k, b]));
+  for (const b of boxes) for (const u of FAM[b.k].up) { // lines first, the boxes cover their ends
+    const on = lit.has(b.k) && lit.has(u);
+    c.lineWidth = on ? 3.5 : 2; c.strokeStyle = on ? '#f5c84c' : 'rgba(130,145,190,.3)';
+    c.beginPath(); c.moveTo(b.x, b.y - b.bh / 2); c.lineTo(B[u].x, B[u].y + B[u].bh / 2); c.stroke();
+  }
+  for (const b of boxes) {
+    const on = lit.has(b.k), sel = b.k === S.fam;
+    c.globalAlpha = on ? 1 : .55; c.beginPath(); c.roundRect(b.x - b.bw / 2, b.y - b.bh / 2, b.bw, b.bh, 14);
+    c.fillStyle = sel ? 'rgba(245,200,76,.28)' : on ? 'rgba(245,200,76,.12)' : 'rgba(20,24,38,.85)'; c.fill();
+    c.lineWidth = sel ? 3 : 1.5; c.strokeStyle = on ? '#f5c84c' : 'rgba(130,145,190,.35)'; c.stroke();
+    const f = mapper(b.x, b.y - 11, 13, 0); drawShape(c, { v: FAM[b.k].v }, f, on ? '#f5c84c' : '#98A0B8');
+    c.lineWidth = 3; c.fillStyle = on ? '#fff' : '#98A0B8'; c.fillText(t.sec.famNames[b.k], b.x, b.y + b.bh / 2 - 13);
+    c.globalAlpha = 1;
+  }
+  G.fam = boxes;
+}
+function drawRegular(c, w, h, dt) {
+  const P = REG[S.ri], f = fit(P.sh, w, h, 0), V = P.sh.v.length;
+  S.rr = clamp(S.rr + (S.rpick === null ? -dt : dt) / 0.5, 0, 1); // plain until the answer, then the clues fade in
+  drawShape(c, P.sh, f, COL.regular);
+  if (S.rr > 0) { const pts = P.sh.v.map(f); arcs(c, pts, P.p.angGroup, P.p.angs, S.rr); ticks(c, pts, P.p.lenGroup, S.rr); }
+}
+function drawLines(c, w, h, dt) {
+  const L = LIN[S.li], sh = L.sh, V = sh.v.length, f = fit(sh, w, h, L.rot0), P = sh.v.map(f), col = COL.lines;
+  G.lines = { P, w, h };
+  S.lrev = clamp(S.lrev + (S.lchecked ? dt : -dt) / 0.5, 0, 1);
+  const rev = S.lrev, mid = (i) => [(P[i][0] + P[(i + 1) % V][0]) / 2, (P[i][1] + P[(i + 1) % V][1]) / 2];
+  const marks = [];
+  if (rev > 0) {
+    const edge = (i) => [P[i], P[(i + 1) % V]];
+    if (S.lnone) { // "there are none": all sides run on, the child sees which ones meet
+      for (let i = 0; i < V; i++) longLine(c, ...edge(i), '#9fb0ff', .55 * rev);
+      for (let i = 0; i < V; i++) for (let j = i + 2; j < V; j++) if (!(i === 0 && j === V - 1) && !isPar(sh, i, j)) { const X = isect(...edge(i), ...edge(j)); if (X) marks.push({ X }); }
+    } else if (S.lsel.length === 2) {
+      const [a, b] = S.lsel;
+      longLine(c, ...edge(a), PICK[0], .9 * rev); longLine(c, ...edge(b), PICK[1], .9 * rev);
+      if (!isPar(sh, a, b)) { const X = isect(...edge(a), ...edge(b)); if (X) marks.push({ X, sq: isPerp(sh, a, b) ? [mid(a), mid(b)] : null }); }
+    }
+  }
+  drawShape(c, sh, f, col);
+  S.lsel.forEach((i, k) => { c.lineWidth = 7; c.strokeStyle = PICK[k]; c.beginPath(); c.moveTo(...P[i]); c.lineTo(...P[(i + 1) % V]); c.stroke(); });
+  for (const m of marks) { // where the lines meet; a little square when they meet at a right angle
+    const [X, Y] = m.X; if (X < 0 || X > w || Y < 0 || Y > h) continue;
+    c.globalAlpha = rev; c.lineWidth = 2.5; c.strokeStyle = '#fff';
+    if (m.sq) {
+      const u = unit(m.X, m.sq[0]), q = unit(m.X, m.sq[1]), k = 16;
+      c.beginPath(); c.moveTo(X, Y); c.lineTo(X + u[0] * k, Y + u[1] * k); c.lineTo(X + (u[0] + q[0]) * k, Y + (u[1] + q[1]) * k); c.lineTo(X + q[0] * k, Y + q[1] * k); c.closePath();
+      c.fillStyle = 'rgba(255,255,255,.3)'; c.fill(); c.stroke();
+    } else { c.beginPath(); c.arc(X, Y, 8, 0, 7); c.stroke(); }
+    c.globalAlpha = 1;
+  }
+}
+
+// --- taps and drags on the stage -------------------------------------------------------------------------------
+let drag = -1;
+const where = (ev) => { const r = $('cv').getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; };
+$('cv').addEventListener('pointerdown', (ev) => {
+  const [X, Y] = where(ev), v = lab.view;
+  if (v === 'name' && S.sec === 'family' && G.fam) {
+    const b = G.fam.find((q) => Math.abs(X - q.x) <= q.bw / 2 && Math.abs(Y - q.y) <= q.bh / 2);
+    if (b) { S.fam = b.k; sfx.click(); render(); }
+  } else if (v === 'name' && !S.sec && S.mode === 'free' && G.free) {
+    let best = -1, bd = 28;
+    G.free.pts.forEach(([x, y], i) => { const d = Math.hypot(X - x, Y - y); if (d < bd) { bd = d; best = i; } });
+    if (best >= 0) { drag = best; $('cv').setPointerCapture(ev.pointerId); sfx.tick(); }
+  } else if (v === 'lines' && !S.lchecked && G.lines) {
+    const { P } = G.lines, V = P.length; let best = -1, bd = 24;
+    for (let i = 0; i < V; i++) {
+      const A = P[i], B = P[(i + 1) % V], dx = B[0] - A[0], dy = B[1] - A[1];
+      const t = clamp(((X - A[0]) * dx + (Y - A[1]) * dy) / (dx * dx + dy * dy), 0, 1), d = Math.hypot(X - A[0] - dx * t, Y - A[1] - dy * t);
+      if (d < bd) { bd = d; best = i; }
+    }
+    if (best < 0) return;
+    S.lnone = false;
+    if (S.lsel.includes(best)) S.lsel = S.lsel.filter((i) => i !== best);
+    else { if (S.lsel.length === 2) S.lsel.shift(); S.lsel.push(best); }
+    sfx.tick(); render();
+  }
+});
+$('cv').addEventListener('pointermove', (ev) => {
+  if (drag < 0 || !G.free) return;
+  const [X, Y] = where(ev); let q = G.free.f.inv(X, Y);
+  const r = Math.hypot(q[0], q[1]); if (r > 1.5) q = [q[0] * 1.5 / r, q[1] * 1.5 / r];
+  const cand = S.free.v.map((p, i) => (i === drag ? q : p));
+  if (isSimple(cand)) { S.free.v = cand; S.free.moved = false; render(); }
+});
+const endDrag = () => { drag = -1; };
+$('cv').addEventListener('pointerup', endDrag); $('cv').addEventListener('pointercancel', endDrag);
+
+// --- controls ------------------------------------------------------------------------------------------------
+// on a phone the controls sit below the canvas: bring the reveal into view
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+const linesOK = () => { const L = LIN[S.li], [a, b] = S.lsel; return S.lnone ? !hasPair(L.sh, L.q) : S.lsel.length === 2 && (L.q === 'par' ? isPar : isPerp)(L.sh, a, b); };
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b) return;
+  const act = b.dataset.act, F = S.free;
+  if (act === 'mode') { S.mode = b.dataset.m; sfx.click(); }
+  else if (act === 'pick') {
+    if (S.pick !== null) return;
+    S.pick = +b.dataset.i; (S.pick === PUZ[S.pi].ok ? sfx.good : sfx.bad)(); showStage();
+  } else if (act === 'nnext') { S.pi = (S.pi + 1) % PUZ.length; S.pick = null; S.rv = 0; S.order = shuffled(); sfx.click(); }
+  else if (act === 'fdec' || act === 'finc') {
+    const n = clamp(F.n + (act === 'finc' ? 1 : -1), 3, 6); if (n === F.n) return;
+    F.n = n; F.v = regPoly(n); F.moved = false; sfx.tick();
+  } else if (act === 'freset') { F.v = regPoly(F.n); F.rot = 0; F.moved = false; sfx.click(); }
+  else if (act === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    S.sec = S.sec === b.dataset.k ? null : b.dataset.k; sfx.click();
+  } else if (act === 'rpick') {
+    if (S.rpick !== null) return;
+    S.rpick = b.dataset.y === '1'; (S.rpick === REG[S.ri].p.regular ? sfx.good : sfx.bad)(); showStage();
+  } else if (act === 'rnext') { S.ri = (S.ri + 1) % REG.length; S.rpick = null; S.rr = 0; sfx.click(); }
+  else if (act === 'lnone') { if (S.lchecked) return; S.lnone = !S.lnone; if (S.lnone) S.lsel = []; sfx.click(); }
+  else if (act === 'lmain') {
+    if (S.lchecked) { S.li = (S.li + 1) % LIN.length; S.lsel = []; S.lnone = false; S.lchecked = false; S.lrev = 0; sfx.click(); }
+    else if (S.lnone || S.lsel.length === 2) { S.lchecked = true; (linesOK() ? sfx.good : sfx.bad)(); showStage(); }
+  }
+  render();
+});
+$('ctrlBody').addEventListener('input', (ev) => {
+  if (ev.target.id === 'fRot') { S.free.rot = +ev.target.value; S.free.moved = true; }
+  else if (ev.target.id === 'mN') { S.many = +ev.target.value; sfx.tick(); }
+  else return;
+  render();
+});
+
+// --- one render per change: controls, readout, badges and the state card ---------------------------------------
+function render() {
+  const v = lab.view;
+  document.body.dataset.v = v;
+  document.body.classList.toggle('drag', v === 'name' && !S.sec && S.mode === 'free');
+  $('secName').style.display = v === 'name' ? '' : 'none';
+  $('secReg').style.display = v === 'regular' ? '' : 'none';
+  $('secLines').style.display = v === 'lines' ? '' : 'none';
+  lab.setGlow(GLOW[v]);
+  bdEl.classList.remove('show');
+  if (v === 'name') renderName(T[lang]); else if (v === 'regular') renderRegular(T[lang]); else renderLines(T[lang]);
+}
+const fineHTML = (t) => `<div class="fine">${esc(t.fine)}</div>`;
+const card = (t, k, extra = {}) => { const [emo, title, lead, body] = t.cards[k]; return { emo, title, lead, body, extra: fineHTML(t), ...extra }; };
+
+function renderName(t) {
+  const n = t.n, col = COL.name, unlocked = secret.unlocked(), sec = S.sec, F = S.free;
+  const chip = (k, emo) => `<button class="chip secret ${unlocked ? 'open' : ''} ${sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${unlocked ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  $('secChips').innerHTML = chip('family', '🪆') + chip('many', '⭕');
+  $('nvTop').style.display = sec ? 'none' : '';
+  $('nvPuz').style.display = !sec && S.mode === 'puz' ? '' : 'none';
+  $('nvFree').style.display = !sec && S.mode === 'free' ? '' : 'none';
+  $('nvMany').style.display = sec === 'many' ? '' : 'none';
+  $('modeSeg').innerHTML = [['puz', n.puzzles], ['free', n.free]].map(([m, l]) => `<button data-act="mode" data-m="${m}" class="${S.mode === m ? 'on' : ''}">${esc(l)}</button>`).join('');
+  if (sec === 'family') {
+    lab.setReadout(esc(t.sec.famNames[S.fam]), '', '', col); bdEl.innerHTML = '';
+    return lab.setState({ emo: '🪆', title: t.sec.famNames[S.fam], lead: t.sec.famText[S.fam], body: '', extra: fineHTML(t) });
+  }
+  if (sec === 'many') {
+    if ($('mN').value !== String(S.many)) $('mN').value = S.many;
+    $('mN').setAttribute('aria-label', t.secrets.many[0]);
+    const p = props({ v: regPoly(S.many) });
+    lab.setReadout(esc(t.sec.sidesN(S.many)), '', '', col); bdEl.innerHTML = badgesHTML(p);
+    return lab.setState({ emo: '⭕', title: t.secrets.many[0], lead: t.sec.manyText, body: '', extra: fineHTML(t) });
+  }
+  if (S.mode === 'free') {
+    $('fSidesL').textContent = n.sides; $('fN').textContent = F.n; $('fTurnL').textContent = n.turn; $('fReset').textContent = `↺ ${n.reset}`;
+    $('fRot').setAttribute('aria-label', n.turn); if ($('fRot').value !== String(F.rot)) $('fRot').value = F.rot;
+    document.querySelectorAll('#nvFree .sb').forEach((b) => { b.disabled = (b.dataset.act === 'fdec' && F.n <= 3) || (b.dataset.act === 'finc' && F.n >= 6); });
+    const p = props({ v: F.v });
+    lab.setReadout(esc(nameOf(p, F.v.length)), '', '', col); bdEl.innerHTML = badgesHTML(p);
+    return lab.setState(card(t, 'name', F.moved ? { body: n.sameName } : {}));
+  }
+  const P = PUZ[S.pi], o = n.opts[P.key], rev = S.pick !== null, ok = S.pick === P.ok;
+  $('nQ').textContent = n.q;
+  $('nAns').innerHTML = S.order.map((i) => `<button data-act="pick" data-i="${i}" class="${rev ? (i === P.ok ? 'good' : i === S.pick ? 'bad' : '') : ''}"${rev ? ' disabled' : ''}>${esc(o[i])}</button>`).join('');
+  $('nNext').style.display = rev ? '' : 'none'; $('nNext').textContent = t.next;
+  if (!rev) { // the clues stay fully hidden behind an opaque card until the child answers
+    lab.setReadout('?', '', '', col); bdEl.innerHTML = '<span class="bd cover">?</span>'; lab.setState(card(t, 'name'));
+  } else {
+    lab.setReadout(esc(o[P.ok].split(':')[0]), '', '', col); bdEl.innerHTML = badgesHTML(props(P.sh)); bdEl.classList.add('show');
+    lab.setState({ emo: ok ? '✅' : '🤔', title: ok ? n.right_ : n.wrong, lead: n.why[P.key], body: '', extra: fineHTML(t) });
+  }
+}
+
+function renderRegular(t) {
+  const r = t.r, col = COL.regular, P = REG[S.ri], p = P.p, rev = S.rpick !== null, ok = S.rpick === p.regular;
+  $('rQ').textContent = r.q;
+  $('rAns').innerHTML = [[1, r.yes], [0, r.no]].map(([y, l]) => `<button data-act="rpick" data-y="${y}" class="${rev ? (!!y === p.regular ? 'good' : !!y === S.rpick ? 'bad' : '') : ''}"${rev ? ' disabled' : ''}>${esc(l)}</button>`).join('');
+  $('rNext').style.display = rev ? '' : 'none'; $('rNext').textContent = t.next;
+  if (!rev) { lab.setReadout('?', '', '', col); bdEl.innerHTML = ''; lab.setState(card(t, 'regular')); return; }
+  lab.setReadout(esc(p.regular ? r.yes : r.no), '', '', col);
+  bdEl.innerHTML = [[p.allEq, r.sides], [p.allAng, r.angles]].map(([y, l]) => `<span class="bd ${y ? 'y' : 'n'}"><b>${y ? '✓' : '✗'}</b>${esc(l)}</span>`).join('');
+  bdEl.classList.add('show');
+  lab.setState({ emo: ok ? '✅' : '🤔', title: ok ? r.right_ : r.wrong, lead: r.why[P.key], body: '', extra: fineHTML(t) });
+}
+
+function renderLines(t) {
+  const l = t.l, col = COL.lines, L = LIN[S.li], ready = S.lnone || S.lsel.length === 2;
+  bdEl.innerHTML = '';
+  $('lQ').textContent = L.q === 'par' ? l.qPar : l.qPerp;
+  $('lNone').textContent = l.none; $('lNone').classList.toggle('on', S.lnone); $('lNone').disabled = S.lchecked;
+  $('lMain').textContent = S.lchecked ? t.next : t.check; $('lMain').disabled = !S.lchecked && !ready;
+  lab.setReadout(L.q === 'par' ? '∥' : '⊥', '', '', col); // the symbol is the question, never the answer
+  if (!S.lchecked) return lab.setState(card(t, 'lines'));
+  const ok = linesOK();
+  lab.setState({ emo: ok ? '✅' : '🤔', title: ok ? l.right_ : l.wrong, lead: l.why[L.key], body: '', extra: fineHTML(t) });
+}
+render();
+</script>
+</body>
+</html>
