@@ -31,6 +31,9 @@
   .muted { color: var(--mut); font-weight: 700; font-size: 13px; }
   input[type=range].big:disabled { opacity: .35; cursor: default; }
   #again { margin-left: auto; }
+  .bdots { display: flex; gap: 7px; margin-top: 12px; }
+  .bdots i { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); }
+  .bdots i.now { background: #fff; } .bdots i.done { background: var(--ok); }
   @media (max-width: 760px) {
     #stage { height: min(118vw, 520px); }
     .ask .q { font-size: 18px; } .ask { padding: 10px 12px; } .ask button { padding: 7px 11px; font-size: 13px; }
@@ -67,6 +70,16 @@ function neighbours(g, C, R, x, y) {
   for (const [dx, dy] of DIRS) { const nx = x + dx, ny = y + dy; if (nx >= 0 && ny >= 0 && nx < C && ny < R && g[ny * C + nx]) n++; }
   return n;
 }
+// true if all filled squares form one piece (4-neighbour flood fill); an empty board counts as one piece
+function connected(g, C, R) {
+  const start = g.indexOf(1); if (start < 0) return true;
+  const seen = new Uint8Array(g.length), stack = [start]; let n = 0; seen[start] = 1;
+  while (stack.length) {
+    const i = stack.pop(), x = i % C, y = (i - x) / C; n++;
+    for (const [dx, dy] of DIRS) { const nx = x + dx, ny = y + dy, j = ny * C + nx; if (nx >= 0 && ny >= 0 && nx < C && ny < R && g[j] && !seen[j]) { seen[j] = 1; stack.push(j); } }
+  }
+  return n === g.reduce((s, v) => s + v, 0);
+}
 // GEO-END
 
 const nf = (x, d = 0) => new Intl.NumberFormat(lang, { maximumFractionDigits: d, minimumFractionDigits: d }).format(x);
@@ -80,7 +93,7 @@ const T = {
   en: {
     name: 'Area Lab', title: 'Room for the rabbits',
     lines: [['Same fence,', 'different room: drag the corner of the pen.'], ['Count the squares inside', '— that is the area.'], ['Walk around the edge', '— that is the perimeter.']],
-    views: { pen: '🐇 Pen', tiles: '🧱 Tiles', draw: '✏️ Draw' },
+    views: { pen: '🐇 Pen', tiles: '🧱 Tiles', draw: '✏️ Draw', build: '🧩 Build it' },
     m: 'm', m2: 'm²', unit: '1 square = 1 m × 1 m = 1 m²',
     width: 'Width', depth: 'Depth', radius: 'Radius', fence: 'Fence', wall: 'wall', squaresLbl: 'Squares',
     fenceOf: (P) => `${P} m of fence`, guessFirst: 'First, make a guess ↑',
@@ -132,17 +145,42 @@ const T = {
     presets: { start: '🧩 Gappy', rect: '▭ 3 × 4', stairs: '📶 Stairs', clear: '🧹 Clear' },
     deltaPill: (d) => `fence ${sgn(d)} m`,
     secrets: { circle: ['Round pen', 'Bend the fence into a circle'], wall: ['Use a wall', 'A wall instead of one side'] },
+    build: {
+      check: '✓ Check', next: '→ Next task', redo: '↺ Start this task again', again: '↻ Again',
+      tasks: [
+        { title: 'Make a pen from 12 squares with the shortest fence you can.', lead: 'Tap squares on or off. The fence stays secret until you press Check.' },
+        { title: 'Now the same 12 squares with the longest fence you can.', lead: 'Still one pen: every square must touch another one along a side.' },
+        { title: 'This long pen has 10 squares and 22 m of fence. Build one with more squares but less fence.', lead: 'Change the pen any way you like.' },
+        { title: 'Now move the squares: same 12, longer fence than 14 m.', lead: 'To move a square, tap it off, then tap a new place.' },
+      ],
+      ask: { q: 'You will move these 12 squares into a new shape with a longer fence. What happens to the area?', opts: ['It gets bigger', 'It stays the same', 'It gets smaller'] },
+      split: 'Two pens! Join the squares into one pen.',
+      count: (n) => `You have ${n} squares; this task needs 12.`,
+      ok: [
+        { t: 'Yes! 14 m is the shortest fence for 12 squares.', l: 'Squares packed close share their sides, so less fence is left on the outside.' },
+        { t: 'Yes! 26 m: a line or a snake of squares.', l: 'When squares share as few sides as possible, almost every side needs fence, but the area is still 12 squares.' },
+        { t: (n, p) => `Yes! ${n} squares with only ${p} m of fence.`, l: 'More room does not need more fence: a compact shape holds more with less.' },
+        { t: (p) => `Fence ${p} m, and the area is still 12 squares.`, same: 'As predicted: moving squares changes the fence, not the area.', other: 'Moving squares changes the fence, but not the area: not one square was added or taken away.' },
+      ],
+      no: [
+        (p) => `This fence is ${p} m. A shorter one is possible: squeeze the squares together.`,
+        (p) => `This fence is ${p} m. It can be longer: let fewer squares touch.`,
+        (n, p) => `${n} squares and ${p} m of fence. You need more than 10 squares and less than 22 m.`,
+        () => 'The fence is still 14 m. Pull some squares out to the side.',
+      ],
+      done: { t: 'All 4 done!', l: 'Area counts the squares inside. Perimeter is the walk around the edge. They can change separately.' },
+    },
     quiz: [
       { q: 'A rectangle is 8 cm long and 5 cm wide. What is its perimeter?', opts: ['13 cm', '26 cm', '40 cm'], ok: 1 },
       { q: 'A rectangle is tiled with 4 rows of 6 squares. What is its area?', opts: ['24 squares', '10 squares', '20 squares'], ok: 0 },
-      { q: 'A pentagon has a perimeter of 30 cm. Four of its sides are 5, 7, 6 and 4 cm. How long is the fifth side?', opts: ['22 cm', '6 cm', '8 cm'], ok: 2 },
-      { q: 'Two pens both use 24 m of fence: 2 × 10 and 6 × 6. Which has more room?', opts: ['They are the same', 'The 2 × 10 pen', 'The 6 × 6 pen'], ok: 2 },
+      { q: 'A rectangle is 4 squares by 6 squares. Someone says its area is 10. What did they do?', opts: ['Added the two sides instead of counting the squares', 'Counted every square', 'Multiplied 4 by 6'], ok: 0 },
+      { q: 'You move the 12 squares of a pen into a new shape, without adding or taking any away. The area…', opts: ['gets bigger', 'stays 12 squares', 'gets smaller'], ok: 1 },
     ],
   },
   ru: {
     name: 'Площадь', title: 'Место для кроликов',
     lines: [['Забор тот же,', 'а площадь внутри — разная: тяни угол загона.'], ['Посчитай квадраты внутри', '— это площадь.'], ['Обойди край', '— это периметр.']],
-    views: { pen: '🐇 Загон', tiles: '🧱 Плитки', draw: '✏️ Рисуй' },
+    views: { pen: '🐇 Загон', tiles: '🧱 Плитки', draw: '✏️ Рисуй', build: '🧩 Построй сам' },
     m: 'м', m2: 'м²', unit: '1 квадрат = 1 м × 1 м = 1 м²',
     width: 'Ширина', depth: 'Глубина', radius: 'Радиус', fence: 'Забор', wall: 'стена', squaresLbl: 'Квадратов',
     fenceOf: (P) => `${P} м забора`, guessFirst: 'Сначала угадай ↑',
@@ -194,17 +232,42 @@ const T = {
     presets: { start: '🧩 Со щелью', rect: '▭ 3 × 4', stairs: '📶 Лесенка', clear: '🧹 Очистить' },
     deltaPill: (d) => `забор ${sgn(d)} м`,
     secrets: { circle: ['Круглый загон', 'Согни забор в круг'], wall: ['У стены', 'Стена вместо одной стороны'] },
+    build: {
+      check: '✓ Проверить', next: '→ Следующая задача', redo: '↺ Начать задачу заново', again: '↻ Ещё раз',
+      tasks: [
+        { title: 'Собери загон из 12 квадратиков с самым коротким забором.', lead: 'Нажимай на клетки, чтобы добавить или убрать квадратик. Длину забора узнаешь, когда нажмёшь «Проверить».' },
+        { title: 'А теперь те же 12 квадратиков с самым длинным забором.', lead: 'Загон по-прежнему один: каждый квадратик должен касаться другого стороной.' },
+        { title: 'В этом длинном загоне 10 квадратиков и 22 м забора. Построй загон, где квадратиков больше, а забора меньше.', lead: 'Меняй загон как хочешь.' },
+        { title: 'Теперь перекладывай: те же 12 квадратиков, забор длиннее 14 м.', lead: 'Чтобы переложить квадратик, убери его и поставь в новое место.' },
+      ],
+      ask: { q: 'Ты переложишь эти 12 квадратиков в новую фигуру с более длинным забором. Что будет с площадью?', opts: ['Станет больше', 'Останется той же', 'Станет меньше'] },
+      split: 'Получилось два загона! Соедини квадратики в один.',
+      count: (n) => `У тебя ${rq(n, 'квадратик', 'квадратика', 'квадратиков')}, а нужно 12.`,
+      ok: [
+        { t: 'Да! 14 м — самый короткий забор для 12 квадратиков.', l: 'Плотно уложенные квадратики делят стороны между собой, и снаружи остаётся меньше забора.' },
+        { t: 'Да! 26 м: линия или змейка из квадратиков.', l: 'Когда квадратики почти не делят стороны, забор нужен почти вокруг каждого, а площадь всё равно 12 квадратиков.' },
+        { t: (n, p) => `Да! ${rq(n, 'квадратик', 'квадратика', 'квадратиков')} и всего ${p} м забора.`, l: 'Больше места не значит больше забора: компактная фигура вмещает больше при меньшем заборе.' },
+        { t: (p) => `Забор ${p} м, а площадь всё те же 12 квадратиков.`, same: 'Так и есть: перекладывая квадратики, меняешь забор, но не площадь.', other: 'Когда перекладываешь квадратики, меняется забор, но не площадь: ни один квадратик не добавился и не пропал.' },
+      ],
+      no: [
+        (p) => `Этот забор — ${p} м. Можно короче: сдвинь квадратики плотнее.`,
+        (p) => `Этот забор — ${p} м. Можно длиннее: пусть квадратики меньше касаются друг друга.`,
+        (n, p) => `${rq(n, 'квадратик', 'квадратика', 'квадратиков')} и ${p} м забора. Нужно больше 10 квадратиков и меньше 22 м.`,
+        () => 'Забор всё ещё 14 м. Вытяни часть квадратиков в сторону.',
+      ],
+      done: { t: 'Все 4 задачи решены!', l: 'Площадь — сколько квадратиков внутри. Периметр — путь вокруг края. Они меняются независимо.' },
+    },
     quiz: [
       { q: 'Длина прямоугольника 8 см, ширина 5 см. Чему равен его периметр?', opts: ['13 см', '26 см', '40 см'], ok: 1 },
       { q: 'Прямоугольник выложен 4 рядами по 6 квадратов. Какова его площадь?', opts: ['24 квадрата', '10 квадратов', '20 квадратов'], ok: 0 },
-      { q: 'Периметр пятиугольника 30 см. Четыре его стороны: 5, 7, 6 и 4 см. Чему равна пятая сторона?', opts: ['22 см', '6 см', '8 см'], ok: 2 },
-      { q: 'У двух загонов по 24 м забора: 2 × 10 и 6 × 6. В каком больше места?', opts: ['Одинаково', 'В загоне 2 × 10', 'В загоне 6 × 6'], ok: 2 },
+      { q: 'Прямоугольник 4 на 6 квадратиков. Кто-то говорит, что его площадь — 10. Что он сделал?', opts: ['Сложил две стороны вместо того, чтобы считать квадратики', 'Посчитал все квадратики', 'Умножил 4 на 6'], ok: 0 },
+      { q: 'Ты перекладываешь 12 квадратиков загона в новую фигуру, ничего не добавляя и не убирая. Площадь…', opts: ['станет больше', 'останется 12 квадратиков', 'станет меньше'], ok: 1 },
     ],
   },
   hu: {
     name: 'Területlabor', title: 'Hely a nyulaknak',
     lines: [['Ugyanaz a kerítés,', 'más a hely: húzd a kifutó sarkát.'], ['Számold meg a belső négyzeteket', '— ez a terület.'], ['Járd körbe a szélét', '— ez a kerület.']],
-    views: { pen: '🐇 Kifutó', tiles: '🧱 Kirakás', draw: '✏️ Rajzolj' },
+    views: { pen: '🐇 Kifutó', tiles: '🧱 Kirakás', draw: '✏️ Rajzolj', build: '🧩 Építsd meg' },
     m: 'm', m2: 'm²', unit: '1 négyzet = 1 m × 1 m = 1 m²',
     width: 'Szélesség', depth: 'Mélység', radius: 'Sugár', fence: 'Kerítés', wall: 'fal', squaresLbl: 'Négyzetek',
     fenceOf: (P) => `${P} m kerítés`, guessFirst: 'Előbb tippelj ↑',
@@ -256,11 +319,36 @@ const T = {
     presets: { start: '🧩 Csipkés', rect: '▭ 3 × 4', stairs: '📶 Lépcső', clear: '🧹 Törlés' },
     deltaPill: (d) => `kerítés: ${sgn(d)} m`,
     secrets: { circle: ['Kerek kifutó', 'Hajlítsd körbe a kerítést'], wall: ['Fal mellett', 'Fal az egyik oldal helyett'] },
+    build: {
+      check: '✓ Ellenőrzés', next: '→ Következő feladat', redo: '↺ Feladat újrakezdése', again: '↻ Újra',
+      tasks: [
+        { title: 'Építs kifutót 12 négyzetből a lehető legrövidebb kerítéssel.', lead: 'Koppints a mezőkre, hogy hozzáadj vagy elvegyél egy négyzetet. A kerítés hossza titok, amíg meg nem nyomod az Ellenőrzést.' },
+        { title: 'Most ugyanaz a 12 négyzet a lehető leghosszabb kerítéssel.', lead: 'Továbbra is egy kifutó: minden négyzet oldalával érjen egy másikhoz.' },
+        { title: 'Ebben a hosszú kifutóban 10 négyzet és 22 m kerítés van. Építs olyat, amelyben több a négyzet, de kevesebb a kerítés.', lead: 'Alakítsd át a kifutót, ahogy szeretnéd.' },
+        { title: 'Most rakd át: ugyanaz a 12 négyzet, 14 m-nél hosszabb kerítés.', lead: 'Egy négyzet áthelyezéséhez vedd el, majd tedd le máshova.' },
+      ],
+      ask: { q: 'Ezt a 12 négyzetet új alakba rakod át, hosszabb kerítéssel. Mi lesz a területtel?', opts: ['Nagyobb lesz', 'Ugyanannyi marad', 'Kisebb lesz'] },
+      split: 'Két kifutó lett! Kösd össze a négyzeteket egy kifutóvá.',
+      count: (n) => `${n} négyzeted van, ehhez a feladathoz 12 kell.`,
+      ok: [
+        { t: 'Igen! 14 m a legrövidebb kerítés 12 négyzethez.', l: 'A szorosan rakott négyzetek közös oldalakon osztoznak, így kívül kevesebb kerítés marad.' },
+        { t: 'Igen! 26 m: egy sor vagy kígyó a négyzetekből.', l: 'Ha a négyzeteknek alig van közös oldaluk, szinte minden oldalra kerítés kell, a terület mégis 12 négyzet.' },
+        { t: (n, p) => `Igen! ${n} négyzet, és csak ${p} m kerítés.`, l: 'Több helyhez nem kell több kerítés: egy tömör alakzat kevesebb kerítéssel is többet fogad be.' },
+        { t: (p) => `${p} m kerítés, és a terület továbbra is 12 négyzet.`, same: 'Így van: az áthelyezés a kerítést változtatja meg, a területet nem.', other: 'Az áthelyezés a kerítést változtatja meg, a területet nem: egy négyzet sem lett több vagy kevesebb.' },
+      ],
+      no: [
+        (p) => `Ez a kerítés ${p} m. Lehet rövidebb is: told össze szorosabban a négyzeteket.`,
+        (p) => `Ez a kerítés ${p} m. Lehet hosszabb is: kevesebb négyzet érjen össze.`,
+        (n, p) => `${n} négyzet és ${p} m kerítés. 10-nél több négyzet és 22 m-nél kevesebb kerítés kell.`,
+        () => 'A kerítés még mindig 14 m. Húzz ki néhány négyzetet oldalra.',
+      ],
+      done: { t: 'Mind a 4 feladat kész!', l: 'A terület a belső négyzetek száma. A kerület az út a szél mentén körbe. Egymástól függetlenül változhatnak.' },
+    },
     quiz: [
       { q: 'Egy téglalap 8 cm hosszú és 5 cm széles. Mekkora a kerülete?', opts: ['13 cm', '26 cm', '40 cm'], ok: 1 },
       { q: 'Egy téglalapot 4 sorban, soronként 6 négyzettel raktunk ki. Mekkora a területe?', opts: ['24 négyzet', '10 négyzet', '20 négyzet'], ok: 0 },
-      { q: 'Egy ötszög kerülete 30 cm. Négy oldala 5, 7, 6 és 4 cm. Milyen hosszú az ötödik oldala?', opts: ['22 cm', '6 cm', '8 cm'], ok: 2 },
-      { q: 'Két kifutóhoz egyaránt 24 méter kerítés kell: 2 × 10 és 6 × 6. Melyikben van több hely?', opts: ['Egyformák', 'A hosszúkásban (2 × 10)', 'A négyzet alakúban (6 × 6)'], ok: 2 },
+      { q: 'Egy téglalap 4-szer 6 négyzetből áll. Valaki azt mondja, a területe 10. Mit csinált?', opts: ['Összeadta a két oldalt a négyzetek megszámolása helyett', 'Megszámolt minden négyzetet', 'Összeszorozta a 4-et és a 6-ot'], ok: 0 },
+      { q: 'Egy kifutó 12 négyzetét új alakba rakod, egyet sem teszel hozzá és nem veszel el. A terület…', opts: ['nagyobb lesz', '12 négyzet marad', 'kisebb lesz'], ok: 1 },
     ],
   },
 };
@@ -284,6 +372,12 @@ const SHAPES = {
 };
 const shapeGrid = (k) => { const g = new Uint8Array(DC * DR), { at: [ax, ay], cells } = SHAPES[k]; for (const [x, y] of cells) g[(ay + y) * DC + ax + x] = 1; return g; };
 
+// build it: four tasks, each starts from a rectangle (or a line) of squares, centred on the board
+const BOARDS = [{ at: [3, 3], w: 6, h: 2 }, { at: [4, 3], w: 4, h: 3 }, { at: [1, 4], w: 10, h: 1 }, { at: [4, 3], w: 4, h: 3 }];
+const bGrid = (k) => { const g = new Uint8Array(DC * DR), { at: [ax, ay], w, h } = BOARDS[k]; for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) g[(ay + y) * DC + ax + x] = 1; return g; };
+const GOALS = [(n, p) => n === 12 && p === 14, (n, p) => n === 12 && p === 26, (n, p) => n > 10 && p < 22, (n, p) => n === 12 && p > 14];
+const PREDS = ['more', 'same', 'less'];
+
 // --- state -------------------------------------------------------------------------------------------------
 const now = () => performance.now() / 1000;
 const S = {
@@ -291,8 +385,9 @@ const S = {
   A: 24, pair: 3, tileAt: 0,
   cells: shapeGrid('start'), shape: 'start', last: null,
   asked: store.get('area:asked', false), answer: null, revealAt: 0,
+  build: { task: 0, cells: bGrid(0), pred: null, res: null, at: 0, walk: 0, shown: false, ok: false }, // res: { n, p, fb } after Check
 };
-const lab = shell({ key: 'area', T, topics: TOPICS, views: ['pen', 'tiles', 'draw'], onLang: render, onView: (v) => { if (v === 'tiles') S.tileAt = now(); if (v === 'pen') S.fillAt = now(); render(); } });
+const lab = shell({ key: 'area', T, topics: TOPICS, views: ['pen', 'tiles', 'draw', 'build'], onLang: render, onView: (v) => { if (v === 'tiles') S.tileAt = now(); if (v === 'pen') S.fillAt = now(); render(); } });
 const secret = secretLab('area', () => ({
   secrets: [{ emo: '🌕', title: T[lang].secrets.circle[0], desc: T[lang].secrets.circle[1] }, { emo: '🧱', title: T[lang].secrets.wall[0], desc: T[lang].secrets.wall[1] }],
   questions: T[lang].quiz,
@@ -310,7 +405,8 @@ $('ctrlBody').innerHTML = `
     <div class="row2" style="margin-top:0"><span class="lbl" id="lblSq"></span><div class="card seg small" id="areaSeg"></div></div>
     <div class="row2"><div class="chips" id="pairChips"></div><button class="chip" id="again"></button></div>
   </div>
-  <div id="secDraw"><div class="chips" id="drawChips"></div></div>`;
+  <div id="secDraw"><div class="chips" id="drawChips"></div></div>
+  <div id="secBuild"><div class="chips" id="buildChips"></div><div class="bdots" id="bDots"></div></div>`;
 $('slider').style.setProperty('--track', 'linear-gradient(90deg, #f5c84c, #3ddc97 50%, #f5c84c)');
 const tipEl = Object.assign(document.createElement('div'), { className: 'tip' });
 const askEl = Object.assign(document.createElement('div'), { className: 'ask card' });
@@ -353,8 +449,35 @@ $('drawChips').addEventListener('click', (ev) => {
   const b = ev.target.closest('.chip'); if (!b) return;
   S.shape = b.dataset.k; S.cells = shapeGrid(S.shape); S.last = null; sfx.click(); render();
 });
+const bCount = () => S.build.cells.reduce((s, x) => s + x, 0);
+const bWait = () => S.build.task === 3 && S.build.pred === null; // the prediction comes before any editing
+const bEditable = () => !bWait() && !S.build.ok;
+function bCheck() {
+  const b = S.build; if (!bEditable() || (b.res && !b.shown)) return;
+  const n = bCount(), p = polyPerim(b.cells, DC, DR);
+  const fb = !connected(b.cells, DC, DR) ? 'split' : b.task !== 2 && n !== 12 ? 'count' : GOALS[b.task](n, p) ? 'ok' : 'no';
+  b.res = { n, p, fb }; b.at = now(); b.shown = false; b.walk = fb === 'split' || !n ? 0 : 2.2;
+  if (!b.walk) bReveal(); else { sfx.click(); render(); }
+}
+// the walker has finished: show the fence length and the feedback
+function bReveal() {
+  const b = S.build; b.shown = true;
+  if (b.res.fb === 'ok') { b.ok = true; sfx.good(); } else sfx.bad();
+  render();
+}
+function bReset(task) { Object.assign(S.build, { task, cells: bGrid(task), res: null, shown: false, ok: false }); document.documentElement.style.setProperty('--accent', '#4ea8ff'); }
+$('buildChips').addEventListener('click', (ev) => {
+  const k = ev.target.closest('.chip')?.dataset.k; if (!k) return;
+  const b = S.build;
+  if (k === 'check') return bCheck();
+  if (k === 'next') { bReset(b.task + 1); b.pred = null; }
+  else if (k === 'again') { bReset(0); b.pred = null; }
+  else bReset(b.task);
+  sfx.click(); render();
+});
 askEl.addEventListener('click', (ev) => {
   const b = ev.target.closest('button'); if (!b) return;
+  if (b.dataset.p) { S.build.pred = b.dataset.p; sfx.click(); return render(); }
   if (b.dataset.a) { S.answer = b.dataset.a; S.revealAt = now(); (S.answer === 'square' ? sfx.good : sfx.bad)(); }
   else { S.asked = true; store.set('area:asked', true); S.P = 24; S.w = 2; S.mode = 'rect'; S.fillAt = now(); sfx.click(); }
   render();
@@ -367,6 +490,7 @@ function render() {
   $('secPen').style.display = v === 'pen' && !asking ? '' : 'none';
   $('secTiles').style.display = v === 'tiles' ? '' : 'none';
   $('secDraw').style.display = v === 'draw' ? '' : 'none';
+  $('secBuild').style.display = v === 'build' ? '' : 'none';
 
   // pen controls
   const wall = S.mode === 'wall', circ = S.mode === 'circle', K = maxK();
@@ -381,17 +505,25 @@ function render() {
   $('areaSeg').innerHTML = [12, 24].map((A) => `<button data-a="${A}" class="${A === S.A ? 'on' : ''}">${A}</button>`).join('');
   $('pairChips').innerHTML = pairsOf(S.A).map(([r, c], i) => `<button class="chip ${i === S.pair ? 'on' : ''}" data-i="${i}">${r} × ${c}</button>`).join('');
   $('again').textContent = t.tilesAgain;
+  // build controls
+  const bt = t.build, bd = S.build;
+  $('buildChips').innerHTML = bWait() ? '' : [bd.ok ? (bd.task === 3 ? ['again', bt.again, 1] : ['next', bt.next, 1]) : ['check', bt.check, 1], ['redo', bt.redo, 0]]
+    .map(([k, txt, on]) => `<button class="chip ${on ? 'on' : ''}" data-k="${k}" ${k === 'check' && bd.res && !bd.shown ? 'disabled' : ''}>${esc(txt)}</button>`).join('');
+  $('bDots').innerHTML = [0, 1, 2, 3].map((i) => `<i class="${i < bd.task || (i === bd.task && bd.ok) ? 'done' : i === bd.task ? 'now' : ''}"></i>`).join('');
   // draw controls
   $('drawChips').innerHTML = Object.keys(SHAPES).map((k) => `<button class="chip ${k === S.shape && !S.last ? 'on' : ''}" data-k="${k}">${esc(t.presets[k])}</button>`).join('');
 
   const unitLine = `<div class="fine">${esc(t.unit)}</div>`;
   if (v === 'pen') renderPen(t, unitLine, asking);
   else if (v === 'tiles') renderTiles(t, unitLine);
-  else renderDraw(t, unitLine);
+  else if (v === 'draw') renderDraw(t, unitLine);
+  else renderBuild(t, unitLine);
 
-  tipEl.textContent = v === 'pen' ? (asking ? '' : circ ? t.circleTip : wall ? t.wallTip : t.dragTip) : v === 'tiles' ? t.barsTip : t.drawTip;
-  askEl.style.display = asking ? '' : 'none';
-  if (asking) {
+  tipEl.textContent = v === 'pen' ? (asking ? '' : circ ? t.circleTip : wall ? t.wallTip : t.dragTip) : v === 'tiles' ? t.barsTip : v === 'build' && bWait() ? '' : t.drawTip;
+  const askB = v === 'build' && bWait();
+  askEl.style.display = asking || askB ? '' : 'none';
+  if (askB) askEl.innerHTML = `<div class="q">${esc(bt.ask.q)}</div><div class="opts">${PREDS.map((k, i) => `<button data-p="${k}">${esc(bt.ask.opts[i])}</button>`).join('')}</div>`;
+  else if (asking) {
     const a = t.ask;
     askEl.innerHTML = S.answer === null
       ? `<div class="q">${esc(a.q)}</div><div class="opts">${['same', 'long', 'square'].map((k) => `<button data-a="${k}">${esc(a.a[k])}</button>`).join('')}</div>`
@@ -461,6 +593,22 @@ function renderDraw(t, unitLine) {
   lab.setState({ emo: '✏️', title: t.drawTitle, lead: t.drawLead(A, P), body, extra: `${esc(t.holeNote)}${unitLine}` });
 }
 
+function renderBuild(t, unitLine) {
+  const bt = t.build, b = S.build, r = b.shown ? b.res : null, goalTest = r && (r.fb === 'ok' || r.fb === 'no'), A = bCount(), P = polyPerim(b.cells, DC, DR), k = b.task;
+  lab.setGlow('rgba(78, 168, 255, .22)');
+  lab.setReadout(`${A} ${t.m2}`, `${t.fence} ${goalTest ? P : '?'} ${t.m}`, `${k + 1}/4`, r && r.fb === 'ok' ? '#3ddc97' : '#4ea8ff');
+  const task = bt.tasks[k];
+  if (bWait()) return lab.setState({ emo: '🧩', title: bt.ask.q, lead: '', body: '', extra: unitLine });
+  if (!r) return lab.setState({ emo: '🧩', title: task.title, lead: task.lead, body: '', extra: unitLine });
+  const { n, p, fb } = r, ok = bt.ok[k];
+  const st = fb === 'split' ? { title: bt.split } : fb === 'count' ? { title: bt.count(n) }
+    : fb === 'no' ? { title: bt.no[k](k === 2 ? n : p, p) }
+    : k === 2 ? { title: ok.t(n, p), lead: ok.l }
+    : k === 3 ? { title: ok.t(p), lead: ok.l ?? (b.pred === 'same' ? ok.same : ok.other), body: `${bt.done.t} ${bt.done.l}` }
+    : { title: ok.t, lead: ok.l };
+  lab.setState({ emo: fb === 'ok' ? '🎉' : '🤔', title: st.title, lead: st.lead ?? '', body: st.body ?? '', extra: unitLine });
+}
+
 // --- drawing ------------------------------------------------------------------------------------------------
 const C = { grass: '#2e9a5d', grass2: '#36ad69', fence: '#d39a5c', post: '#f0c58a', mut: '#98A0B8', faint: '#646C84', grid: 'rgba(130,145,190,.16)', soil: 'rgba(130,145,190,.06)' };
 const EMOJI = (px) => `${px}px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
@@ -518,6 +666,35 @@ function dot(c, x, y, n) {
   const s = `${n} ${T[lang].m}`, tw = c.measureText(s).width + 10;
   c.fillStyle = 'rgba(10,12,20,.85)'; c.fillRect(x + 9, y - 20, tw, 18);
   c.fillStyle = '#fff'; c.textAlign = 'left'; c.fillText(s, x + 14, y - 11);
+}
+// the fence of a set of squares as closed loops of grid corners (an outer loop, plus one per hole)
+function fenceLoops(g) {
+  const out = new Map(), on = (x, y) => x >= 0 && y >= 0 && x < DC && y < DR && g[y * DC + x], key = (a) => a[1] * (DC + 1) + a[0];
+  const add = (a, b) => { if (!out.has(key(a))) out.set(key(a), []); out.get(key(a)).push(b); };
+  for (let y = 0; y < DR; y++) for (let x = 0; x < DC; x++) if (on(x, y)) {
+    if (!on(x, y - 1)) add([x, y], [x + 1, y]);
+    if (!on(x + 1, y)) add([x + 1, y], [x + 1, y + 1]);
+    if (!on(x, y + 1)) add([x + 1, y + 1], [x, y + 1]);
+    if (!on(x - 1, y)) add([x, y + 1], [x, y]);
+  }
+  const loops = [];
+  for (const [k, list] of out) while (list.length) {
+    const start = [k % (DC + 1), Math.floor(k / (DC + 1))], pts = [start]; let cur = list.pop();
+    while (cur[0] !== start[0] || cur[1] !== start[1]) { pts.push(cur); cur = out.get(key(cur)).pop(); }
+    loops.push(pts);
+  }
+  return loops;
+}
+// the walker goes round every loop of the fence in turn, s metres in total
+function walkLoops(c, loops, ox, oy, cell, s) {
+  let left = s;
+  for (const [li, pts] of loops.entries()) {
+    if (left <= pts.length || li === loops.length - 1) {
+      const i = Math.min(Math.floor(left), pts.length - 1), f = left - i, a = pts[i], b = pts[(i + 1) % pts.length];
+      return dot(c, ox + (a[0] + (b[0] - a[0]) * f) * cell, oy + (a[1] + (b[1] - a[1]) * f) * cell, Math.floor(s));
+    }
+    left -= pts.length;
+  }
 }
 function label(c, s, x, y, align = 'center', color = '#EDEFF7', px = 12) {
   c.fillStyle = color; c.font = font(900, px); c.textAlign = align; c.textBaseline = 'middle'; c.fillText(s, x, y);
@@ -682,11 +859,13 @@ function drawTiles(c, w, h, time) {
   });
 }
 
-function drawFree(c, w, h, time) {
-  const t = T[lang], cell = Math.max(8, Math.min((w - 24) / DC, (h - 40) / DR)), ox = (w - DC * cell) / 2, oy = 30 + (h - 30 - DR * cell) / 2;
+// the Draw board, or (build) the Build it board: no metre labels, and the walker runs only after Check
+function drawFree(c, w, h, time, build) {
+  const t = T[lang], top = build && bWait() ? (askEl.offsetHeight || 120) + 20 : 30;
+  const cell = Math.max(8, Math.min((w - 24) / DC, (h - top - 10) / DR)), ox = (w - DC * cell) / 2, oy = top + (h - top - DR * cell) / 2;
   geo = { ox, oy, cell };
   gardenGrid(c, ox, oy, DC, DR, cell);
-  const g = S.cells, on = (x, y) => x >= 0 && y >= 0 && x < DC && y < DR && g[y * DC + x];
+  const g = build ? S.build.cells : S.cells, on = (x, y) => x >= 0 && y >= 0 && x < DC && y < DR && g[y * DC + x];
   for (let y = 0; y < DR; y++) for (let x = 0; x < DC; x++) if (on(x, y)) {
     c.fillStyle = (x + y) % 2 ? C.grass2 : C.grass; c.fillRect(ox + x * cell, oy + y * cell, cell, cell);
     c.strokeStyle = 'rgba(8,30,16,.55)'; c.lineWidth = 1; c.strokeRect(ox + x * cell + 0.5, oy + y * cell + 0.5, cell - 1, cell - 1);
@@ -703,17 +882,22 @@ function drawFree(c, w, h, time) {
   }
   c.stroke();
   // the change in fence floats up from the square you just touched
-  const L = S.last;
+  const L = build ? null : S.last;
   if (L && time - L.t < 1.8) {
     const a = 1 - (time - L.t) / 1.8, col = L.d < 0 ? '61,220,151' : L.d === 0 ? '245,200,76' : '255,138,61';
     c.globalAlpha = a; label(c, `${sgn(L.d)} ${t.m}`, ox + (L.x + 0.5) * cell, oy + L.y * cell - 8 - (1 - a) * 18, 'center', `rgb(${col})`, 15); c.globalAlpha = 1;
+  }
+  const b = S.build;
+  if (build && b.res && !b.shown) {
+    const f = clamp((time - b.at) / b.walk, 0, 1);
+    if (f >= 1) bReveal(); else walkLoops(c, fenceLoops(g), ox, oy, cell, f * b.res.p);
   }
 }
 
 canvasLoop($('cv'), (c, w, h, dt, time) => {
   if (lab.view === 'pen') drawPen(c, w, h, time);
   else if (lab.view === 'tiles') drawTiles(c, w, h, time);
-  else drawFree(c, w, h, time);
+  else drawFree(c, w, h, time, lab.view === 'build');
 });
 
 // --- pointer: drag the pen corner, tap the chart, tap the fence bars, paint squares --------------------------
@@ -736,6 +920,12 @@ function paint(x, y, val) {
   S.last = { d, n, add: !!val, x, y, t: now() };
   (val && d <= 0 ? sfx.snap : sfx.click)(); render();
 }
+// build: any edit hides the fence number and the feedback again
+function paintB(x, y, val) {
+  const b = S.build, i = y * DC + x; if (!bEditable() || b.cells[i] === val) return;
+  b.cells[i] = val; b.res = null; b.shown = false;
+  sfx.click(); render();
+}
 $('cv').addEventListener('pointerdown', (ev) => {
   const [x, y] = local(ev);
   if (lab.view === 'pen') {
@@ -750,21 +940,21 @@ $('cv').addEventListener('pointerdown', (ev) => {
     const i = Math.floor((y - b.y0) / b.rowH);
     if (i >= 0 && i < b.n && i !== S.pair) { S.pair = i; S.tileAt = now(); sfx.click(); render(); }
   } else {
-    const { ox, oy, cell } = geo, cx = Math.floor((x - ox) / cell), cy = Math.floor((y - oy) / cell);
-    if (!Number.isFinite(cx) || !Number.isFinite(cy) || cx < 0 || cy < 0 || cx >= DC || cy >= DR) return;
-    const val = S.cells[cy * DC + cx] ? 0 : 1;
-    drag = { kind: 'paint', val, last: cy * DC + cx }; $('cv').setPointerCapture(ev.pointerId);
-    paint(cx, cy, val);
+    const bld = lab.view === 'build', { ox, oy, cell } = geo, cx = Math.floor((x - ox) / cell), cy = Math.floor((y - oy) / cell);
+    if (!Number.isFinite(cx) || !Number.isFinite(cy) || cx < 0 || cy < 0 || cx >= DC || cy >= DR || (bld && !bEditable())) return;
+    const val = (bld ? S.build.cells : S.cells)[cy * DC + cx] ? 0 : 1, fn = bld ? paintB : paint;
+    drag = { kind: 'paint', val, last: cy * DC + cx, fn }; $('cv').setPointerCapture(ev.pointerId);
+    fn(cx, cy, val);
   }
 });
 $('cv').addEventListener('pointermove', (ev) => {
   if (!drag) return;
   const [x, y] = local(ev);
   if (drag.kind === 'pen' && lab.view === 'pen') penPoint(x, y, false);
-  else if (drag.kind === 'paint' && lab.view === 'draw') {
+  else if (drag.kind === 'paint' && (lab.view === 'draw' || lab.view === 'build')) {
     const { ox, oy, cell } = geo, cx = Math.floor((x - ox) / cell), cy = Math.floor((y - oy) / cell);
     if (cx < 0 || cy < 0 || cx >= DC || cy >= DR || cy * DC + cx === drag.last) return;
-    drag.last = cy * DC + cx; paint(cx, cy, drag.val);
+    drag.last = cy * DC + cx; drag.fn(cx, cy, drag.val);
   }
 });
 const endDrag = () => { drag = null; };
