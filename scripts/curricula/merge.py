@@ -26,6 +26,7 @@ CURRICULA = {
     'sg': {'name': 'MOE syllabuses: Mathematics (2021), Science (2023), Art (2024), Music (2023)', 'url': 'https://www.moe.gov.sg/primary/curriculum/syllabus', 'grades': list(range(1, 9))},
     'se': {'name': 'Lgr22 (grundskolan)', 'url': 'https://www.skolverket.se/undervisning/grundskolan/laroplan-och-kursplaner-for-grundskolan', 'grades': list(range(1, 10))},
     'jp': {'name': '学習指導要領 (2017)', 'url': 'https://www.mext.go.jp/a_menu/shotou/new-cs/index.htm', 'grades': list(range(1, 10))},
+    'ee': {'name': 'Põhikooli riiklik õppekava', 'url': 'https://www.riigiteataja.ee/akt/114012011001', 'grades': list(range(1, 10))},
 }
 KS = {'1': '1-2', '2': '3-6', '3': '7-9'}  # England: key stage -> years
 
