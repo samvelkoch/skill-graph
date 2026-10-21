@@ -1,0 +1,715 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Make Ten First · Skill Graph</title>
+<meta name="description" content="Put counters together and take them away in two boxes of ten, fill the first box before you go on, and find four facts in one picture. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  .lab { grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); grid-template-areas: 'hero stage' 'state stage' 'state ctrl'; }
+  #stage canvas { touch-action: pan-y; }
+  @media (min-width: 761px) { #stage { min-height: 430px; } }
+
+  .tcard { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); width: min(560px, calc(100% - 16px)); padding: 10px 14px 12px; text-align: center; }
+  .tcard .q { font: 500 20px/1.2 var(--serif); color: #fff; margin-bottom: 8px; text-wrap: balance; }
+  .tcard .q.sm { font-size: 15px; color: var(--soft); margin-bottom: 4px; }
+  .tcard p { margin: 0 0 8px; color: var(--soft); font-size: 13px; }
+  .tcard .expr { font: 900 40px/1.1 var(--sans); letter-spacing: -.01em; color: #fff; }
+  .tcard .verdict { font: 800 15px/1.3 var(--sans); margin-bottom: 8px; text-wrap: balance; }
+  .tcard .opts { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+  .pick { width: 40px; height: 40px; padding: 0; border-radius: 50%; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .12);
+    font-size: 19px; font-weight: 900; cursor: pointer; }
+  .pick:hover:not(:disabled) { background: rgba(130, 145, 190, .28); }
+  .pick:disabled { cursor: default; opacity: .55; }
+  .pick.on { background: #fff; color: var(--bg); border-color: #fff; opacity: 1; }
+  .tcard .chip { padding: 9px 16px; font-size: 14px; }
+
+  #line { position: absolute; left: 8px; right: 8px; bottom: 8px; text-align: center; font: 900 22px/1.25 var(--sans); color: #fff;
+    opacity: 0; transition: opacity .45s; pointer-events: none; text-wrap: balance; }
+  #line.on { opacity: 1; }
+  .n.r { color: #ff7a7f; } .n.b { color: #86aee8; } .n.g { color: var(--wip); } .n.q { color: var(--wip); }
+  .bad { color: var(--wip); font-size: 17px; }
+  .fine { font-size: 11px; color: var(--faint); }
+
+  .sb { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1); font-size: 22px; font-weight: 800;
+    line-height: 1; padding: 0; cursor: pointer; }
+  .sb:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .sb:disabled { opacity: .3; cursor: default; }
+  .cnt { display: flex; align-items: center; justify-content: center; gap: 14px; }
+  .cnt b { min-width: 72px; text-align: center; font: 900 46px/1 var(--sans); }
+  .btn:disabled { opacity: .35; cursor: default; }
+  .push { margin-left: auto; }
+
+  .fcards { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .fc { position: relative; min-height: 48px; padding: 6px 4px; border-radius: 14px; border: 2px solid var(--stroke2); background: rgba(130, 145, 190, .08);
+    font: 900 19px/1.2 var(--sans); color: #fff; cursor: pointer; white-space: nowrap; }
+  .fc:disabled { cursor: default; }
+  .fc.sel { border-color: #fff; background: rgba(255, 255, 255, .16); }
+  .fc.cur { outline: 3px solid var(--wip); outline-offset: 1px; }
+  .fc.ok { border-color: var(--ok); background: rgba(61, 220, 151, .14); }
+  .fc.no { border-color: var(--red); background: rgba(255, 59, 48, .14); }
+  .fc i { position: absolute; right: 6px; top: 2px; font-size: 11px; font-style: normal; color: var(--soft); }
+
+  @media (max-width: 760px) {
+    #stage { height: 440px; }
+    body[data-v=ten] #stage { height: 520px; }
+    body[data-v=family] #stage { height: 420px; }
+    .tcard .q { font-size: 17px; }
+    .tcard .expr { font-size: 36px; }
+    #line { font-size: 19px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const HU_ACC = { 1: 'egyet', 2: 'kettőt', 3: 'hármat', 4: 'négyet', 5: 'ötöt', 6: 'hatot', 7: 'hetet', 8: 'nyolcat', 9: 'kilencet' };
+const T = {
+  en: {
+    name: 'Make Ten First', title: 'Make ten first',
+    lines: [['Two boxes of ten.', 'Fill the first one.'], ['Then go on', 'in the second box.'], ['One picture,', 'four facts.']],
+    views: { join: '🥚 Join', ten: '🔟 Make ten', family: '👪 Family' },
+    check: 'Check', next: 'Next ▶', again: 'Again',
+    join: { lid: 'Count in your head!', right: 'Yes! That’s all of them.', oneGroup: 'That is only one group. Count both colours.',
+            taken: 'That’s how many went away. How many are left?', added: 'Careful: they went away, not came in.', wrong: (n) => `Look: there are ${n}.` },
+    ten: { qAdd: (b) => `How many blue ones jump into the first box?`, qSub: (b) => `Take away ${b}. How many from the second box first?`,
+           right: 'Exactly! Ten first, then the rest.', wrong: (k) => `Only ${k} fit. Watch.`, wrongSub: (k) => `There are only ${k} there. Watch.`,
+           fewAdd: (k) => `Fill the box: ${k} fit. Watch.`, fewSub: (k) => `Empty the box: ${k} there. Watch.` },
+    family: { ask: 'Which cards fit this picture?', check: 'Check', score: (k, n) => `${k} of ${n} right`,
+              trapSwap: 'You can’t take more than you have!', trapOp: 'Adding makes more, not less.', trapNum: 'Count again. That is not what is left.',
+              right: 'Yes!', missing: 'Find the hidden number', next: 'Next picture ▶' },
+    secrets: { doubles: ['Doubles', 'Mirror boxes and near doubles.'], tens: ['Big tens', 'Hop to the next ten up to 60.'] },
+    st: { join: ['🥚', 'Put together, take away', 'Red and blue together make the total.', 'Taking away: count what is left.'],
+          ten: ['🔟', 'Ten is a stepping stone', 'Fill the first box, then go on.', 'Taking away: empty the second box first.'],
+          family: ['👪', 'A fact family', 'One picture gives four facts.', 'Adding can swap places. Taking away cannot.'] },
+    fine: 'Ten-frames and "make ten" are used in early-maths teaching worldwide.',
+    quiz: [
+      { q: '8 + 6. You make ten first. How many do you move from the 6?', opts: ['4', '2', '6'], ok: 1 },
+      { q: 'There were 9 birds. 4 flew away. How many are left?', opts: ['4', '5', '13'], ok: 1 },
+      { q: '8 + 5 = 13. Which one is also true?', opts: ['5 − 13 = 8', '13 − 5 = 8', '13 + 5 = 8'], ok: 1 } ],
+  },
+  ru: {
+    name: 'Сначала до десяти', title: 'Сначала до десяти',
+    lines: [['Две коробки по десять.', 'Заполни первую.'], ['Потом продолжай', 'во второй.'], ['Одна картинка —', 'четыре примера.']],
+    views: { join: '🥚 Вместе', ten: '🔟 До десяти', family: '👪 Семья' },
+    check: 'Проверить', next: 'Дальше ▶', again: 'Ещё раз',
+    join: { lid: 'Посчитай в уме!', right: 'Да! Это все.', oneGroup: 'Это только одна группа. Посчитай оба цвета.',
+            taken: 'Столько ушло. А сколько осталось?', added: 'Осторожно: они ушли, а не пришли.', wrong: (n) => `Смотри: их ${n}.` },
+    ten: { qAdd: (b) => `Сколько синих прыгнут в первую коробку?`, qSub: (b) => `Убираем ${b}. Сколько сначала из второй коробки?`,
+           right: 'Точно! Сначала до десяти, потом остальное.', wrong: (k) => `Помещается только ${k}. Смотри.`, wrongSub: (k) => `Там только ${k}. Смотри.`,
+           fewAdd: (k) => `Заполни коробку: помещаются ${k}. Смотри.`, fewSub: (k) => `Опустоши коробку: там ${k}. Смотри.` },
+    family: { ask: 'Какие карточки подходят к картинке?', check: 'Проверить', score: (k, n) => `Верно: ${k} из ${n}`,
+              trapSwap: 'Нельзя убрать больше, чем есть!', trapOp: 'Когда прибавляешь, становится больше, а не меньше.', trapNum: 'Посчитай ещё раз. Столько не останется.',
+              right: 'Да!', missing: 'Найди спрятанное число', next: 'Следующая картинка ▶' },
+    secrets: { doubles: ['Двойки', 'Зеркальные коробки и почти-двойки.'], tens: ['Большие десятки', 'Прыжки до следующего десятка до 60.'] },
+    st: { join: ['🥚', 'Сложить и убрать', 'Красные и синие вместе — это всего.', 'Убираем — считаем, сколько осталось.'],
+          ten: ['🔟', 'Десяток — ступенька', 'Сначала заполни первую коробку, потом дальше.', 'Убираешь — сначала опустоши вторую коробку.'],
+          family: ['👪', 'Семья примеров', 'Одна картинка даёт четыре примера.', 'В сложении можно поменять местами. В вычитании — нет.'] },
+    fine: 'Коробки на десять и приём «сначала до десяти» используют в начальной математике во многих странах.',
+    quiz: [
+      { q: '8 + 6. Сначала собираем десяток. Сколько берём из 6?', opts: ['4', '2', '6'], ok: 1 },
+      { q: 'Было 9 птиц. 4 улетели. Сколько осталось?', opts: ['4', '5', '13'], ok: 1 },
+      { q: '8 + 5 = 13. Что ещё верно?', opts: ['5 − 13 = 8', '13 − 5 = 8', '13 + 5 = 8'], ok: 1 } ],
+  },
+  hu: {
+    name: 'Előbb a tízig', title: 'Előbb a tízig',
+    lines: [['Két tízes doboz.', 'Töltsd tele az elsőt.'], ['Aztán folytasd', 'a másodikban.'], ['Egy kép,', 'négy művelet.']],
+    views: { join: '🥚 Együtt', ten: '🔟 Tízig', family: '👪 Család' },
+    check: 'Ellenőrzés', next: 'Tovább ▶', again: 'Újra',
+    join: { lid: 'Számolj fejben!', right: 'Igen! Ez mind.', oneGroup: 'Ez csak az egyik csoport. Számold mindkét színt.',
+            taken: 'Ennyi ment el. Hány maradt?', added: 'Vigyázz: elmentek, nem jöttek.', wrong: (n) => `Nézd: ${n} van.` },
+    ten: { qAdd: (b) => `Hány kék ugrik az első dobozba?`, qSub: (b) => `Elveszünk ${HU_ACC[b]}. Hányat előbb a második dobozból?`,
+           right: 'Pontosan! Előbb a tízig, aztán a többi.', wrong: (k) => `Csak ${k} fér be. Nézd.`, wrongSub: (k) => `Ott csak ${k} van. Nézd.`,
+           fewAdd: (k) => `Töltsd tele a dobozt: ${k} fér be. Nézd.`, fewSub: (k) => `Ürítsd ki a dobozt: ${k} van ott. Nézd.` },
+    family: { ask: 'Melyik kártya illik a képhez?', check: 'Ellenőrzés', score: (k, n) => `${n}-ből ${k} jó`,
+              trapSwap: 'Nem vehetsz el többet, mint amennyi van!', trapOp: 'Az összeadástól több lesz, nem kevesebb.', trapNum: 'Számolj újra. Nem ennyi marad.',
+              right: 'Igen!', missing: 'Keresd meg a rejtett számot', next: 'Következő kép ▶' },
+    secrets: { doubles: ['Duplák', 'Tükördobozok és majdnem-duplák.'], tens: ['Nagy tízesek', 'Ugrás a következő tízesig, 60-ig.'] },
+    st: { join: ['🥚', 'Összerakni, elvenni', 'A piros és a kék együtt az összes.', 'Elvételnél azt számold, ami maradt.'],
+          ten: ['🔟', 'A tíz egy lépcsőfok', 'Előbb töltsd tele az első dobozt, aztán tovább.', 'Elvételnél előbb a második dobozt ürítsd ki.'],
+          family: ['👪', 'Műveletcsalád', 'Egy képből négy művelet.', 'Az összeadásban helyet cserélhetnek, a kivonásban nem.'] },
+    fine: 'A tízes keretet és a „pótlás tízre” módszert sok ország alsós matematikájában használják.',
+    quiz: [
+      { q: '8 + 6. Előbb tízig pótolunk. Hányat veszünk át a 6-ból?', opts: ['4', '2', '6'], ok: 1 },
+      { q: '9 madár ült a fán. 4 elrepült. Hány maradt?', opts: ['4', '5', '13'], ok: 1 },
+      { q: '8 + 5 = 13. Melyik igaz még?', opts: ['5 − 13 = 8', '13 − 5 = 8', '13 + 5 = 8'], ok: 1 } ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_OvyoRo47K-', en: 'Addition as combining or putting together two', ru: 'Сложение как объединение двух групп', hu: 'Az összeadás mint két csoport egyesítése' },
+  { id: 'mt_zuKAX6lcYR', en: 'Subtraction as taking away or separating', ru: 'Вычитание как убирание или отделение', hu: 'A kivonás mint elvétel vagy leválasztás' },
+  { id: 'mt_s2mfRBoTal', en: 'Number bonds', ru: 'Состав числа', hu: 'Számpárok (számbarátok)' },
+  { id: 'mt_m1W6nTQJ2b', en: 'Addition and subtraction within 20', ru: 'Сложение и вычитание в пределах 20', hu: 'Összeadás és kivonás 20-as számkörben' },
+  { id: 'mt_ehGS_uVSJv', en: 'Inverse: addition undoes subtraction', ru: 'Обратное действие: сложение и вычитание', hu: 'Fordított művelet: az összeadás visszavonja a kivonást' },
+];
+
+// --- tasks: [first, op, second] ------------------------------------------------------------------------------
+const RED = '#e5484d', BLUE = '#5f8fd0';
+const JT = [[3, '+', 2], [6, '+', 3], [8, '+', 5], [7, '+', 6], [9, '+', 4], [9, '-', 4], [12, '-', 3], [13, '-', 5], [15, '-', 7], [11, '-', 4]];
+const TT = [[8, '+', 5], [9, '+', 4], [7, '+', 6], [8, '+', 6], [9, '+', 7], [6, '+', 5], [13, '-', 5], [12, '-', 4], [15, '-', 7], [14, '-', 6], [11, '-', 3]];
+const FR = [[8, 5], [9, 6], [7, 4], [6, 6]];
+const DBL = [[6, 6], [7, 7], [8, 8], [9, 9], [7, 8]];
+const TENS = [[28, 5], [47, 6], [56, 8]];
+
+// numbers in the text wear the colour of their counters
+const N = (n, c = '') => `<span class="n ${c}">${n}</span>`;
+const expr = (a, op, b, ans) => `${N(a, 'r')} ${op === '+' ? '+' : '−'} ${N(b, op === '+' ? 'b' : '')} = ${ans === null ? N('?', 'q') : N(ans)}`;
+
+// --- state -------------------------------------------------------------------------------------------------
+const J = { i: 0, n: 0, g: 0, phase: 'ask', tok: 0 };                       // join: ask | run | done
+const X = { i: 0, phase: 'ask', pick: 0, sec: null, d: 0, td: 0 };          // make ten (+ secrets)
+const F = { i: 0, phase: 'cards', cards: [], sel: new Set(), cur: -1, n: 0, k: 0, mg: 0 }; // family: cards | run | score | miss | mrun | mdone
+let cs = [], evs = [], lid = 0, lidT = 0, lineFn = null, L = null;
+const now = () => performance.now() / 1000;
+const at = (t, fn) => evs.push({ t, fn });
+
+const lab = shell({ key: 'make-ten', T, topics: TOPICS, views: ['join', 'ten', 'family'], onLang: render, onView: enter });
+const secret = secretLab('make-ten', () => ({
+  secrets: [{ emo: '🪞', title: T[lang].secrets.doubles[0], desc: T[lang].secrets.doubles[1] }, { emo: '🚀', title: T[lang].secrets.tens[0], desc: T[lang].secrets.tens[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="secJoin">
+    <div class="cnt"><button class="sb" data-act="jdec" aria-label="−">−</button><b id="jn">0</b><button class="sb" data-act="jinc" aria-label="+">+</button></div>
+    <div class="row2"><button class="chip" data-act="jagain" id="jAgain"></button><button class="btn push" data-act="jmain" id="jMain"></button></div>
+  </div>
+  <div id="secTen"><div class="chips" id="secChips"></div></div>
+  <div id="secFam">
+    <div class="fcards" id="fCards"></div>
+    <div class="cnt" id="fStep"><button class="sb" data-act="fdec" aria-label="−">−</button><b id="fn">0</b><button class="sb" data-act="finc" aria-label="+">+</button></div>
+    <div class="row2"><button class="btn push" data-act="fmain" id="fMain"></button></div>
+  </div>`;
+const card = Object.assign(document.createElement('div'), { className: 'tcard card' });
+const lineEl = Object.assign(document.createElement('div'), { id: 'line' });
+$('overlay').append(card, lineEl);
+
+function setLine(fn) {
+  lineFn = fn;
+  lineEl.innerHTML = fn ? fn() : '';
+  lineEl.classList.toggle('on', !!fn);
+}
+
+// --- counters: each one has a list of moves; its place is worked out from the clock every frame --------------
+// slot: { k: 'b1' | 'b2' | 'b2m' (box 2 mirrored) | 'tray', i, dy }
+const B1 = (i, dy = 0) => ({ k: 'b1', i, dy });
+const B2 = (i, dy = 0) => ({ k: 'b2', i, dy });
+const B2M = (i) => ({ k: 'b2m', i, dy: 0 });
+const TR = (i) => ({ k: 'tray', i, dy: 0 });
+const cell = (i) => (i < 10 ? B1(i) : B2(i - 10));          // cells fill left to right, top row first, box 1 then box 2
+const same = (p, q) => p.k === q.k && p.i === q.i && p.dy === q.dy;
+const ease = (k) => (k < .5 ? 2 * k * k : 1 - 2 * (1 - k) * (1 - k));
+
+function slotPos(s) {
+  const dy = s.dy * L.c;
+  if (s.k === 'tray') return [L.tray.x + L.tray.pad + (s.i + .5) * L.tray.sp, L.tray.y + L.tray.h / 2 + dy];
+  const box = s.k === 'b1' ? L.b1 : L.b2;
+  let row = s.i < 5 ? 0 : 1, col = s.i % 5;
+  if (s.k === 'b2m') { if (L.wide) col = 4 - col; else row = 1 - row; }
+  return [box.x + L.pad + (col + .5) * L.c, box.y + L.pad + (row + .5) * L.c + dy];
+}
+const mk = (col, slot) => ({ col, start: slot, segs: [], a: 1, glow: [], shake: [], pulse: false, dieAt: 0 });
+const lastSlot = (c) => (c.segs.length ? c.segs[c.segs.length - 1].to : c.start);
+const endOf = (c) => (c.segs.length ? c.segs[c.segs.length - 1].t0 + c.segs[c.segs.length - 1].dur : 0);
+// move c to a slot: starts at t0, lasts dur; o.fade = [from, to] opacity, o.arc = jump height in cells
+function go(c, to, t0, dur = .35, o = {}) {
+  c.segs.push({ from: lastSlot(c), to, t0, dur, fade: o.fade, arc: o.arc ?? (o.fade ? 0 : .55) });
+  return t0 + dur;
+}
+function appear(c, t0, dur = .3) { c.a = 0; go(c, lastSlot(c), t0, dur, { fade: [0, 1] }); }
+function pose(c, t) {
+  let p = slotPos(c.start), a = c.a;
+  for (const s of c.segs) {
+    if (t < s.t0) break;
+    const k = clamp((t - s.t0) / s.dur, 0, 1), e = ease(k), f = slotPos(s.from), g = slotPos(s.to);
+    p = [lerp(f[0], g[0], e), lerp(f[1], g[1], e) - Math.sin(Math.PI * k) * s.arc * L.c];
+    if (s.fade) a = lerp(s.fade[0], s.fade[1], e);
+    if (k < 1) break;
+  }
+  let dx = 0, glow = 0;
+  for (const [t0, t1] of c.shake) if (t >= t0 && t <= t1) dx = Math.sin((t - t0) * 48) * .09 * L.c * (1 - (t - t0) / (t1 - t0));
+  for (const [t0, t1] of c.glow) if (t >= t0 && t <= t1) glow = Math.sin(Math.PI * (t - t0) / (t1 - t0));
+  if (c.pulse) glow = Math.max(glow, .5 + .5 * Math.sin(t * 6));
+  return { x: p[0] + dx, y: p[1], a, glow };
+}
+// a new picture: spec = [{col, slot, pulse?}]; counters fade in
+function build(spec, t0) {
+  cs = spec.map((s, n) => { const c = mk(s.col, s.slot); c.pulse = !!s.pulse; appear(c, t0 + n * .025); return c; });
+}
+// the same counters walk to a new picture; missing ones fade in, extra ones fade out
+function retarget(spec, t0) {
+  const pool = { r: cs.filter((c) => c.col === 'r' && !c.dieAt), b: cs.filter((c) => c.col === 'b' && !c.dieAt) }, out = [];
+  spec.forEach((s, n) => {
+    const c = pool[s.col].shift(), tt = t0 + n * .05;
+    if (c) { if (!same(lastSlot(c), s.slot)) go(c, s.slot, tt, .5); c.pulse = !!s.pulse; out.push(c); }
+    else { const nc = mk(s.col, s.slot); nc.pulse = !!s.pulse; appear(nc, tt + .3); out.push(nc); }
+  });
+  for (const c of [...pool.r, ...pool.b]) { go(c, lastSlot(c), t0, .35, { fade: [1, 0] }); c.dieAt = t0 + .4; out.push(c); }
+  cs = out;
+}
+const reds = () => cs.filter((c) => c.col === 'r' && !c.dieAt), blues = () => cs.filter((c) => c.col === 'b' && !c.dieAt);
+
+// --- on-screen layout: two boxes of ten (side by side, or stacked on a phone) and a tray ----------------------
+function layout(w, h, y0, tray) {
+  const P = .2, wide = w >= 600, padX = 8, bot = 58;
+  const availH = Math.max(120, h - y0 - bot - 6);
+  const fac = (wide ? 2 + 2 * P : 4 + 4 * P + .3) + (tray ? 1.5 : 0);
+  let c = wide ? Math.min(52, (w - 2 * padX - 20) / (10 + 4 * P)) : Math.min(46, (w - 2 * padX) / (5 + 2 * P));
+  c = Math.min(c, availH / fac);
+  const bw = (5 + 2 * P) * c, bh = (2 + 2 * P) * c, gap = wide ? 20 : .3 * c, top = y0 + Math.max(0, (availH - fac * c) / 2) + 4;
+  const b1 = wide ? { x: w / 2 - gap / 2 - bw, y: top, w: bw, h: bh } : { x: (w - bw) / 2, y: top, w: bw, h: bh };
+  const b2 = wide ? { x: w / 2 + gap / 2, y: top, w: bw, h: bh } : { x: (w - bw) / 2, y: top + bh + gap, w: bw, h: bh };
+  const tw = wide ? 2 * bw + gap : w - 2 * padX, ty = (wide ? top + bh : top + 2 * bh + gap) + .35 * c;
+  L = { c, wide, w, h, pad: P * c, r: .39 * c, b1, b2, tray: { x: (w - tw) / 2, y: ty, w: tw, h: 1.15 * c, pad: .35 * c, sp: Math.min(1.05 * c, (tw - .7 * c) / 8) } };
+}
+
+// --- drawing -------------------------------------------------------------------------------------------------
+const rr = (c, r, rad) => { c.beginPath(); c.roundRect(r.x, r.y, r.w, r.h, rad); };
+function drawBox(c, b, key) {
+  c.fillStyle = 'rgba(130,145,190,.10)'; c.strokeStyle = 'rgba(130,145,190,.45)'; c.lineWidth = 2;
+  rr(c, b, L.c * .28); c.fill(); c.stroke();
+  c.fillStyle = 'rgba(10,12,20,.55)'; c.strokeStyle = 'rgba(130,145,190,.30)'; c.lineWidth = 1.5;
+  for (let i = 0; i < 10; i++) { const [x, y] = slotPos({ k: key, i, dy: 0 }); c.beginPath(); c.arc(x, y, L.c * .43, 0, 7); c.fill(); c.stroke(); }
+}
+function drawLid(c, r, p, label, fs) {
+  if (p < .01) return;
+  const hh = r.h * ease(p);
+  c.save(); rr(c, r, L.c * .28); c.clip();
+  const g = c.createLinearGradient(r.x, 0, r.x + r.w, 0);
+  g.addColorStop(0, '#8c5a30'); g.addColorStop(.5, '#a36b3a'); g.addColorStop(1, '#7b4c28');
+  c.fillStyle = g; c.fillRect(r.x, r.y, r.w, hh);
+  c.strokeStyle = 'rgba(40,22,10,.4)'; c.lineWidth = 2; c.beginPath();
+  for (let y = r.y + L.c * .55; y < r.y + hh - 3; y += L.c * .55) { c.moveTo(r.x, y); c.lineTo(r.x + r.w, y); }
+  c.stroke();
+  c.fillStyle = '#3b2412'; c.fillRect(r.x, r.y + hh - 4, r.w, 4);
+  c.restore();
+  if (label && p > .97) {
+    c.fillStyle = '#f6e2c4'; c.font = `900 ${fs}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillText(label, r.x + r.w / 2, r.y + r.h / 2 + 1);
+  }
+}
+function drawTens(c, w, h, y0, t) {
+  const [s, add] = TENS[X.d], e = s + add, tn = Math.ceil(s / 10) * 10, h1 = tn - s, h2 = add - h1;
+  const wide = w >= 560, lo = wide ? 20 : s - 4, hi = wide ? 65 : e + 4;
+  const xa = 22, xb = w - 22, Xp = (v) => xa + (v - lo) / (hi - lo) * (xb - xa), ay = y0 + (h - y0 - 60) * .66;
+  c.lineCap = 'round'; c.textAlign = 'center';
+  c.strokeStyle = 'rgba(190,205,255,.55)'; c.lineWidth = 3; c.beginPath(); c.moveTo(xa, ay); c.lineTo(xb, ay); c.stroke();
+  for (let v = Math.ceil(lo); v <= hi; v++) {
+    const ten = v % 10 === 0, x = Xp(v);
+    c.lineWidth = ten ? 3 : 1.5; c.strokeStyle = ten ? '#D3D9E8' : 'rgba(190,205,255,.4)';
+    c.beginPath(); c.moveTo(x, ay - (ten ? 9 : 5)); c.lineTo(x, ay + (ten ? 9 : 5)); c.stroke();
+    if (ten) { c.fillStyle = '#D3D9E8'; c.font = '800 14px Nunito, sans-serif'; c.textBaseline = 'top'; c.fillText(v, x, ay + 14); }
+  }
+  const p1 = clamp((t - X.td - .3) / .8, 0, 1), p2 = clamp((t - X.td - 1.3) / .8, 0, 1);
+  const hop = (f, g, p, extra, label) => {
+    if (p <= 0) return null;
+    const x1 = Xp(f), x2 = Xp(g), cx = (x1 + x2) / 2, rx = (x2 - x1) / 2, ry = extra + rx * .8;
+    c.strokeStyle = BLUE; c.lineWidth = 4; c.beginPath(); c.ellipse(cx, ay, rx, ry, 0, Math.PI, Math.PI + p * Math.PI); c.stroke();
+    if (p > .6) {
+      c.globalAlpha = clamp((p - .6) / .4, 0, 1); c.fillStyle = '#9dbdf0'; c.font = '900 16px Nunito, sans-serif'; c.textBaseline = 'bottom';
+      c.fillText(label, cx, ay - ry - 5); c.globalAlpha = 1;
+    }
+    return [cx - rx * Math.cos(Math.PI * p), ay - ry * Math.sin(Math.PI * p)];
+  };
+  const d1 = hop(s, tn, p1, 16, `+${h1}`), d2 = hop(tn, e, p2, 26, `+${h2}`), dot = d2 || d1 || [Xp(s), ay];
+  if (p1 >= 1) { c.strokeStyle = `rgba(245,200,76,${.55 + .35 * Math.sin(t * 5)})`; c.lineWidth = 3; c.beginPath(); c.arc(Xp(tn), ay, 14, 0, 7); c.stroke(); }
+  c.beginPath(); c.arc(dot[0], dot[1], 10, 0, 7); c.fillStyle = RED; c.fill(); c.lineWidth = 2; c.strokeStyle = 'rgba(10,12,20,.55)'; c.stroke();
+  c.textBaseline = 'top'; c.font = '900 18px Nunito, sans-serif';
+  c.fillStyle = '#ff7a7f'; c.fillText(s, Xp(s), ay + 36);
+  if (p2 >= 1) { c.fillStyle = '#86aee8'; c.fillText(e, Xp(e), ay + 36); }
+}
+
+canvasLoop($('cv'), (c, w, h, dt, t) => {
+  // clock: due events, the lid, counters that have faded out
+  if (evs.length) {
+    const due = evs.filter((e) => e.t <= t).sort((p, q) => p.t - q.t);
+    if (due.length) { evs = evs.filter((e) => e.t > t); due.forEach((e) => e.fn()); }
+  }
+  lid += clamp(lidT - lid, -dt / .5, dt / .5);
+  if (cs.some((k) => k.dieAt && t > k.dieAt)) cs = cs.filter((k) => !k.dieAt || t <= k.dieAt);
+
+  const v = lab.view, tens = v === 'ten' && X.sec === 'tens', dbl = v === 'ten' && X.sec === 'doubles';
+  const y0 = (card.offsetHeight || 60) + 16;
+  layout(w, h, y0, (v === 'join' || (v === 'ten' && !X.sec)));
+  c.lineJoin = 'round';
+  if (tens) { drawTens(c, w, h, y0, t); return; }
+
+  drawBox(c, L.b1, 'b1'); drawBox(c, L.b2, 'b2');
+  if (v === 'join' || (v === 'ten' && !X.sec)) {
+    c.setLineDash([6, 5]); c.fillStyle = 'rgba(130,145,190,.06)'; c.strokeStyle = 'rgba(130,145,190,.4)'; c.lineWidth = 1.5;
+    rr(c, L.tray, L.c * .3); c.fill(); c.stroke(); c.setLineDash([]);
+  }
+  if (dbl) { // the mirror between the two boxes
+    c.setLineDash([4, 6]); c.strokeStyle = 'rgba(255,255,255,.5)'; c.lineWidth = 2; c.beginPath();
+    if (L.wide) { c.moveTo(w / 2, L.b1.y - 6); c.lineTo(w / 2, L.b1.y + L.b1.h + 6); }
+    else { const y = L.b1.y + L.b1.h + (L.b2.y - L.b1.y - L.b1.h) / 2; c.moveTo(L.b1.x - 10, y); c.lineTo(L.b1.x + L.b1.w + 10, y); }
+    c.stroke(); c.setLineDash([]);
+  }
+  if (v === 'ten' && !X.sec && X.phase === 'ask' && TT[X.i][1] === '+') { // the free cells of box 1 glow softly
+    const k = .5 + .5 * Math.sin(t * 3);
+    c.fillStyle = `rgba(245,200,76,${.14 + .14 * k})`; c.strokeStyle = 'rgba(245,200,76,.8)'; c.lineWidth = 2;
+    for (let i = TT[X.i][0]; i < 10; i++) { const [x, y] = slotPos(B1(i)); c.beginPath(); c.arc(x, y, L.c * .43, 0, 7); c.fill(); c.stroke(); }
+  }
+  for (const k of cs) {
+    const o = pose(k, t);
+    if (o.a < .02) continue;
+    const r = L.r * (1 + .12 * o.glow);
+    c.globalAlpha = o.a;
+    if (o.glow > .02) { c.beginPath(); c.arc(o.x, o.y, r + 5, 0, 7); c.strokeStyle = `rgba(255,255,255,${.9 * o.glow})`; c.lineWidth = 3; c.stroke(); }
+    c.beginPath(); c.arc(o.x, o.y, r, 0, 7); c.fillStyle = k.col === 'r' ? RED : BLUE; c.fill();
+    c.lineWidth = 2; c.strokeStyle = 'rgba(10,12,20,.55)'; c.stroke();
+    c.beginPath(); c.arc(o.x - r * .28, o.y - r * .3, r * .28, 0, 7); c.fillStyle = 'rgba(255,255,255,.28)'; c.fill();
+  }
+  c.globalAlpha = 1;
+  if (v === 'join') { drawLid(c, L.b1, lid, T[lang].join.lid, 15); drawLid(c, L.b2, lid); drawLid(c, L.tray, lid); }
+  if (v === 'family') {
+    drawLid(c, L.b2, lid, '?', Math.round(L.c * 1.2));
+    if (MISS[F.i].hide === 'all') drawLid(c, L.b1, lid, '?', Math.round(L.c * 1.2)); // the whole is missing: both boxes are covered
+  }
+});
+
+// on a phone the controls sit below the stage: bring the reveal into view
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+
+// --- view 1: join -------------------------------------------------------------------------------------------
+function newJoin(i) {
+  const [a, op, b] = JT[i], tok = ++J.tok;
+  Object.assign(J, { i, n: 0, g: 0, phase: 'ask' });
+  evs = []; lidT = 0; setLine(null);
+  const spec = [];
+  for (let k = 0; k < a; k++) spec.push({ col: 'r', slot: cell(k) });
+  if (op === '+') for (let k = 0; k < b; k++) spec.push({ col: 'b', slot: TR(k) });
+  build(spec, now());
+  at(now() + 1.5, () => { if (tok === J.tok && J.phase === 'ask') lidT = 1; });
+  render();
+}
+function revealJoin() {
+  const [a, op, b] = JT[J.i], tot = op === '+' ? a + b : a - b;
+  J.g = J.n; J.phase = 'run'; lidT = 0; sfx.click(); showStage();
+  const T0 = now() + .65;
+  let end = T0;
+  if (op === '+') {
+    blues().forEach((c, k) => { end = Math.max(end, go(c, cell(a + k), T0 + k * .12)); at(T0 + k * .12 + .35, sfx.tick); });
+  } else {
+    for (let k = 0; k < b; k++) { end = Math.max(end, go(cs[a - 1 - k], TR(k), T0 + k * .12, .35, { fade: [1, .45] })); at(T0 + k * .12 + .35, sfx.tick); }
+  }
+  at(end + .1, () => {
+    J.phase = 'done';
+    const ok = J.g === tot;
+    (ok ? sfx.good : sfx.bad)();
+    setLine(() => {
+      if (op === '+' && a < 10 && a + b > 10) return `${N(a, 'r')} + ${N(10 - a, 'b')} + ${N(a + b - 10, 'b')} = ${N(tot)}`;
+      return expr(a, op, b, tot);
+    });
+    render();
+  });
+  render();
+}
+function joinVerdict(t) {
+  const [a, op, b] = JT[J.i], tot = op === '+' ? a + b : a - b, g = J.g;
+  if (g === tot) return [true, t.join.right];
+  if (op === '+' && (g === a || g === b)) return [false, t.join.oneGroup];
+  if (op === '-' && g === b) return [false, t.join.taken];
+  if (op === '-' && g === a + b) return [false, t.join.added];
+  return [false, t.join.wrong(tot)];
+}
+
+// --- view 2: make ten --------------------------------------------------------------------------------------
+function newTen(i) {
+  const [a, op, b] = TT[i];
+  Object.assign(X, { i, phase: 'ask', pick: 0, sec: null });
+  evs = []; lidT = 0; lid = 0; setLine(null);
+  const spec = [];
+  for (let k = 0; k < a; k++) spec.push({ col: 'r', slot: cell(k) });
+  if (op === '+') for (let k = 0; k < b; k++) spec.push({ col: 'b', slot: TR(k) });
+  build(spec, now());
+  render();
+}
+function revealTen(k) {
+  const [a, op, b] = TT[X.i], T0 = now() + .1;
+  X.pick = k; X.phase = 'run'; sfx.click(); showStage();
+  let end = T0, TB;
+  if (op === '+') {
+    const free = 10 - a, m = Math.min(k, free), bl = blues(), via = B1(7, .95);
+    for (let j = 0; j < k; j++) {
+      const t0 = T0 + j * .12;
+      if (j < free) { end = Math.max(end, go(bl[j], B1(a + j), t0)); at(t0 + .35, sfx.tick); }
+      else { go(bl[j], via, t0, .3, { arc: .3 }); end = Math.max(end, go(bl[j], TR(j), t0 + .38, .3, { arc: .3 })); at(t0 + .3, sfx.bad); }
+    }
+    TB = end + (k ? .6 : .2);
+    const need = free - m;
+    for (let j = m, q = 0; j < b; j++, q++) {
+      end = Math.max(end, go(bl[j], q < need ? B1(a + m + q) : B2(q - need), TB + q * .12));
+      at(TB + q * .12 + .35, sfx.tick);
+    }
+  } else {
+    const r2 = a - 10, m = Math.min(k, r2);
+    for (let j = 0; j < m; j++) { end = Math.max(end, go(cs[a - 1 - j], TR(j), T0 + j * .12, .35, { fade: [1, .45] })); at(T0 + j * .12 + .35, sfx.tick); }
+    for (let j = r2; j < k; j++) { const t0 = T0 + (j - r2) * .12; cs[a - 1 - j].shake.push([t0, t0 + .5]); end = Math.max(end, t0 + .5); at(t0, sfx.bad); }
+    TB = end + .6;
+    for (let q = 0; m + q < b; q++) { end = Math.max(end, go(cs[a - 1 - (m + q)], TR(m + q), TB + q * .12, .35, { fade: [1, .45] })); at(TB + q * .12 + .35, sfx.tick); }
+  }
+  at(end + .1, () => {
+    X.phase = 'done';
+    (tenVerdict(T[lang])[0] ? sfx.good : sfx.bad)();
+    setLine(() => {
+      if (op === '+') { const f = 10 - a; return `${N(a, 'r')} + ${N(b, 'b')} = ${N(a, 'r')} + ${N(f, 'b')} + ${N(b - f, 'b')} = 10 + ${N(b - f, 'b')} = ${N(a + b)}`; }
+      const r = a - 10; return `${N(a, 'r')} − ${b} = ${a} − ${r} − ${b - r} = 10 − ${b - r} = ${N(a - b, 'r')}`;
+    });
+    render();
+  });
+  render();
+}
+function tenVerdict(t) {
+  const [a, op] = TT[X.i], right = op === '+' ? 10 - a : a - 10, k = X.pick;
+  if (k === right) return [true, t.ten.right];
+  if (op === '+') return [false, k > right ? t.ten.wrong(right) : t.ten.fewAdd(right)];
+  return [false, k > right ? t.ten.wrongSub(right) : t.ten.fewSub(right)];
+}
+
+// secrets: 🪞 doubles, 🚀 big tens
+function startSecret(k) {
+  X.sec = k; X.d = 0; evs = []; lid = lidT = 0; setLine(null);
+  if (k === 'doubles') applyDouble(true); else { cs = []; startTens(); }
+  render();
+}
+function applyDouble(first) {
+  const [x, y] = DBL[X.d], t0 = now() + .05, near = x !== y, spec = [];
+  for (let i = 0; i < x; i++) spec.push({ col: 'r', slot: B1(i) });
+  for (let i = 0; i < y; i++) spec.push({ col: 'b', slot: B2M(i), pulse: near && i === y - 1 });
+  if (first) build(spec, t0); else retarget(spec, t0);
+  evs = []; setLine(null);
+  at(t0 + 1.1, () => setLine(() => near
+    ? `${N(x, 'r')} + ${N(y, 'b')} = ${N(x, 'r')} + ${N(x, 'b')} + ${N(1, 'g')} = ${N(x + y)}`
+    : `${N(x, 'r')} + ${N(y, 'b')} = ${N(x + y)}`));
+}
+function startTens() {
+  const [s, add] = TENS[X.d], tn = Math.ceil(s / 10) * 10, h1 = tn - s, h2 = add - h1;
+  X.td = now(); evs = []; setLine(null);
+  at(X.td + 1.1, sfx.tick); at(X.td + 2.1, sfx.good);
+  at(X.td + 2.1, () => setLine(() => `${N(s, 'r')} + ${N(add, 'b')} = ${N(s, 'r')} + ${N(h1, 'b')} + ${N(h2, 'b')} = ${N(s + add)}`));
+}
+function secretNext() {
+  sfx.click();
+  if (X.sec === 'doubles') { X.d = (X.d + 1) % DBL.length; applyDouble(false); }
+  else { X.d = (X.d + 1) % TENS.length; startTens(); }
+  render();
+}
+
+// --- view 3: family ----------------------------------------------------------------------------------------
+function makeCards(a, b) {
+  const c = a + b, list = [{ id: 'ab', ok: true, html: `${N(a, 'r')} + ${N(b, 'b')} = ${N(c)}` }];
+  if (a !== b) list.push({ id: 'ba', ok: true, html: `${N(b, 'b')} + ${N(a, 'r')} = ${N(c)}` });
+  list.push({ id: 'cb', ok: true, html: `${N(c)} − ${N(b, 'b')} = ${N(a, 'r')}` });
+  if (a !== b) list.push({ id: 'ca', ok: true, html: `${N(c)} − ${N(a, 'r')} = ${N(b, 'b')}` });
+  list.push({ id: 'swap', ok: false, html: `${N(b, 'b')} − ${N(c)} = ${N(a, 'r')}` });
+  list.push({ id: 'op', ok: false, html: `${N(c)} + ${N(b, 'b')} = ${N(a, 'r')}` });
+  if (a === b) list.push({ id: 'num', ok: false, html: `${N(c)} − ${N(b, 'b')} = ${N(0)}` });
+  for (let i = list.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [list[i], list[j]] = [list[j], list[i]]; }
+  return list;
+}
+function newFam(i) {
+  const [a, b] = FR[i];
+  Object.assign(F, { i, phase: 'cards', cards: makeCards(a, b), sel: new Set(), cur: -1, n: 0, k: 0, mg: 0 });
+  evs = []; lid = lidT = 0; setLine(null);
+  const spec = [];
+  for (let k = 0; k < a; k++) spec.push({ col: 'r', slot: cell(k) });
+  for (let k = 0; k < b; k++) spec.push({ col: 'b', slot: cell(a + k) });
+  build(spec, now());
+  render();
+}
+function revealCards() {
+  const [a, b] = FR[F.i], T0 = now() + .2, STEP = 1.4, R = reds(), B = blues();
+  F.phase = 'run'; F.cur = -1; sfx.click(); showStage();
+  F.cards.forEach((cd, n) => {
+    const ts = T0 + n * STEP;
+    if (cd.id === 'ab') { R.forEach((c) => c.glow.push([ts, ts + .7])); B.forEach((c) => c.glow.push([ts + .7, ts + 1.3])); }
+    else if (cd.id === 'ba') { B.forEach((c) => c.glow.push([ts, ts + .7])); R.forEach((c) => c.glow.push([ts + .7, ts + 1.3])); }
+    else if (cd.id === 'cb' || cd.id === 'ca') {
+      const out = cd.id === 'cb' ? B : R, stay = cd.id === 'cb' ? R : B;
+      out.forEach((c) => { go(c, lastSlot(c), ts + .1, .4, { fade: [1, .1] }); go(c, lastSlot(c), ts + 1.0, .3, { fade: [.1, 1] }); });
+      stay.forEach((c) => c.glow.push([ts + .1, ts + 1.0]));
+    } else { [...R, ...B].forEach((c) => c.shake.push([ts, ts + .6])); at(ts, sfx.bad); }
+    at(ts, () => {
+      F.cur = n; sfx.tick();
+      const msg = { swap: 'trapSwap', op: 'trapOp', num: 'trapNum' }[cd.id];
+      setLine(msg ? () => `<span class="bad">${esc(T_().family[msg])}</span>` : () => cd.html);
+      renderFamCards();
+    });
+  });
+  const end = T0 + F.cards.length * STEP;
+  at(end, () => {
+    F.phase = 'score'; F.cur = F.cards.length;
+    F.k = F.cards.filter((cd) => F.sel.has(cd.id) === cd.ok).length;
+    (F.k === F.cards.length ? sfx.good : sfx.bad)();
+    setLine(() => esc(T_().family.score(F.k, F.cards.length)));
+    render();
+  });
+  render();
+}
+const T_ = () => T[lang];
+const MISS = [ // which part is hidden under the lid, and the number that is missing
+  { hide: 'r', ans: (a, b) => a, eq: (a, b, c, x) => `${x(a, 'r')} + ${N(b, 'b')} = ${N(c)}` },
+  { hide: 'b', ans: (a, b) => b, eq: (a, b, c, x) => `${N(a, 'r')} + ${x(b, 'b')} = ${N(c)}` },
+  { hide: 'b', ans: (a, b) => b, eq: (a, b, c, x) => `${N(c)} − ${x(b, 'b')} = ${N(a, 'r')}` },
+  { hide: 'all', ans: (a, b, c) => c, eq: (a, b, c, x) => `${x(c)} − ${N(b, 'b')} = ${N(a, 'r')}` },
+];
+const missEq = (filled) => { const [a, b] = FR[F.i], c = a + b; return MISS[F.i].eq(a, b, c, (v, col) => (filled ? N(v, col) : N('□', 'q'))); };
+function enterMissing() {
+  const [a, b] = FR[F.i], m = MISS[F.i], T0 = now() + .1, spec = [];
+  Object.assign(F, { phase: 'miss', n: 0 }); sfx.click(); setLine(null);
+  if (m.hide === 'r') for (let k = 0; k < b; k++) spec.push({ col: 'b', slot: B1(k) });
+  else { for (let k = 0; k < a; k++) spec.push({ col: 'r', slot: B1(k) }); if (m.hide === 'all') for (let k = 0; k < b; k++) spec.push({ col: 'b', slot: B2(k) }); }
+  retarget(spec, T0);
+  at(T0 + 1.0, () => { if (F.phase === 'miss') lidT = 1; });
+  render();
+}
+function revealMissing() {
+  const [a, b] = FR[F.i], c = a + b, m = MISS[F.i], T0 = now() + .6;
+  F.mg = F.n; F.phase = 'mrun'; lidT = 0; sfx.click(); showStage();
+  let end = T0;
+  if (m.hide === 'all') blues().forEach((k, i) => { end = Math.max(end, go(k, cell(a + i), T0 + i * .12)); at(T0 + i * .12 + .35, sfx.tick); });
+  else {
+    const col = m.hide, n = m.hide === 'r' ? a : b;
+    for (let i = 0; i < n; i++) { const k = mk(col, B2(i)); appear(k, T0 + i * .12); cs.push(k); end = Math.max(end, endOf(k)); at(T0 + i * .12 + .2, sfx.tick); }
+  }
+  at(end + .1, () => {
+    F.phase = 'mdone';
+    (F.mg === m.ans(a, b, c) ? sfx.good : sfx.bad)();
+    setLine(() => missEq(true));
+    render();
+  });
+  render();
+}
+
+// --- controls ------------------------------------------------------------------------------------------------
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const a = b.dataset.act;
+  if (a === 'jdec' || a === 'jinc') { if (J.phase !== 'ask') return; J.n = clamp(J.n + (a === 'jinc' ? 1 : -1), 0, 20); sfx.tick(); render(); }
+  else if (a === 'jmain') { if (J.phase === 'ask') revealJoin(); else if (J.phase === 'done') { sfx.click(); newJoin((J.i + 1) % JT.length); } }
+  else if (a === 'jagain') { sfx.click(); newJoin(J.i); }
+  else if (a === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    sfx.click();
+    if (X.sec === b.dataset.k) newTen(X.i); else startSecret(b.dataset.k);
+  }
+  else if (a === 'fdec' || a === 'finc') { if (F.phase !== 'miss') return; F.n = clamp(F.n + (a === 'finc' ? 1 : -1), 0, 20); sfx.tick(); render(); }
+  else if (a === 'fcard') {
+    if (F.phase !== 'cards') return;
+    const id = b.dataset.id; F.sel.has(id) ? F.sel.delete(id) : F.sel.add(id); sfx.tick(); render();
+  }
+  else if (a === 'fmain') {
+    if (F.phase === 'cards') { if (F.sel.size) revealCards(); }
+    else if (F.phase === 'score') enterMissing();
+    else if (F.phase === 'miss') revealMissing();
+    else if (F.phase === 'mdone') { sfx.click(); newFam((F.i + 1) % FR.length); }
+  }
+});
+card.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b || b.disabled) return;
+  if (b.dataset.pick) { if (X.phase === 'ask') revealTen(+b.dataset.pick); }
+  else if (b.dataset.act === 'tnext') { sfx.click(); newTen((X.i + 1) % TT.length); }
+  else if (b.dataset.act === 'tagain') { sfx.click(); newTen(X.i); }
+  else if (b.dataset.act === 'snext') secretNext();
+});
+function enter(v) {
+  evs = []; lid = lidT = 0; setLine(null); X.sec = null;
+  if (v === 'join') newJoin(J.i); else if (v === 'ten') newTen(X.i); else newFam(F.i);
+}
+
+// --- render: cards, controls, readout and the state card --------------------------------------------------------
+function renderFamCards() {
+  const shown = F.phase === 'run' || F.phase === 'score';
+  $('fCards').innerHTML = F.cards.map((cd, n) => {
+    const seen = shown && n <= F.cur, dec = F.sel.has(cd.id) === cd.ok;
+    const cls = [F.sel.has(cd.id) && !seen ? 'sel' : '', seen ? (dec ? 'ok' : 'no') : '', F.phase === 'run' && n === F.cur ? 'cur' : ''].join(' ');
+    return `<button class="fc ${cls}" data-act="fcard" data-id="${cd.id}"${F.phase !== 'cards' ? ' disabled' : ''}>${cd.html}${seen ? `<i>${cd.ok ? '✔' : '✘'}</i>` : ''}</button>`;
+  }).join('');
+}
+function render() {
+  const t = T[lang], v = lab.view;
+  document.body.dataset.v = v;
+  $('secJoin').style.display = v === 'join' ? '' : 'none';
+  $('secTen').style.display = v === 'ten' ? '' : 'none';
+  $('secFam').style.display = v === 'family' ? '' : 'none';
+  if (lineFn) lineEl.innerHTML = lineFn();
+  if (v === 'join') renderJoin(t); else if (v === 'ten') renderTen(t); else renderFam(t);
+}
+const fine = () => `<div class="fine">${esc(T[lang].fine)}</div>`;
+function stateOf(base, verdict) {
+  lab.setState(verdict ? { emo: verdict[0] ? '✅' : '🤔', title: verdict[1], lead: base[2], body: base[3], extra: fine() }
+    : { emo: base[0], title: base[1], lead: base[2], body: base[3], extra: fine() });
+}
+
+function renderJoin(t) {
+  const [a, op, b] = JT[J.i], tot = op === '+' ? a + b : a - b, done = J.phase === 'done', e = expr(a, op, b, done ? tot : null);
+  lab.setGlow('rgba(229, 72, 77, .22)');
+  card.innerHTML = `<div class="expr">${e}</div>`;
+  $('jn').textContent = J.n;
+  document.querySelectorAll('#secJoin .sb').forEach((x) => { x.disabled = J.phase !== 'ask'; });
+  $('jMain').textContent = done ? t.next : t.check; $('jMain').disabled = J.phase === 'run';
+  $('jAgain').textContent = t.again; $('jAgain').hidden = !done;
+  lab.setReadout(e, '', '', RED);
+  stateOf(t.st.join, done ? joinVerdict(t) : null);
+}
+
+function renderTen(t) {
+  const [a, op, b] = TT[X.i], tot = op === '+' ? a + b : a - b, open = secret.unlocked();
+  lab.setGlow('rgba(245, 200, 76, .22)');
+  const sc = (k, emo) => `<button class="chip secret ${open ? 'open' : ''} ${X.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  $('secChips').innerHTML = sc('doubles', '🪞') + sc('tens', '🚀');
+  if (X.sec) {
+    const s = t.secrets[X.sec], e = X.sec === 'doubles' ? DBL[X.d] : TENS[X.d];
+    card.innerHTML = `<div class="q">${X.sec === 'doubles' ? '🪞' : '🚀'} ${esc(s[0])}</div><p>${esc(s[1])}</p><div class="opts"><button class="chip" data-act="snext">${esc(t.next)}</button></div>`;
+    lab.setReadout(`${N(e[0], 'r')} + ${N(e[1], 'b')} = ${N(e[0] + e[1])}`, '', '', '#f5c84c');
+    lab.setState({ emo: X.sec === 'doubles' ? '🪞' : '🚀', title: s[0], lead: s[1], body: '', extra: fine() });
+    return;
+  }
+  const done = X.phase === 'done', ask = X.phase === 'ask', verdict = done ? tenVerdict(t) : null;
+  if (done) card.innerHTML = `<div class="verdict" style="color:${verdict[0] ? 'var(--ok)' : 'var(--wip)'}">${esc(verdict[1])}</div>
+    <div class="opts"><button class="chip" data-act="tagain">${esc(t.again)}</button><button class="chip on" data-act="tnext">${esc(t.next)}</button></div>`;
+  else card.innerHTML = `<div class="q">${esc(op === '+' ? t.ten.qAdd(b) : t.ten.qSub(b))}</div>
+    <div class="opts">${Array.from({ length: b }, (_, i) => i + 1).map((k) => `<button class="pick ${!ask && X.pick === k ? 'on' : ''}" data-pick="${k}"${ask ? '' : ' disabled'}>${k}</button>`).join('')}</div>`;
+  lab.setReadout(expr(a, op, b, done ? tot : null), '', '', '#f5c84c');
+  stateOf(t.st.ten, verdict);
+}
+
+function renderFam(t) {
+  const [a, b] = FR[F.i], c = a + b, miss = F.phase === 'miss' || F.phase === 'mrun' || F.phase === 'mdone', done = F.phase === 'mdone';
+  lab.setGlow('rgba(95, 143, 208, .28)');
+  $('fCards').style.display = miss ? 'none' : '';
+  $('fStep').style.display = miss ? '' : 'none';
+  if (miss) {
+    card.innerHTML = `<div class="q sm">${esc(t.family.missing)}</div><div class="expr">${missEq(done)}</div>`;
+    $('fn').textContent = F.n;
+    document.querySelectorAll('#fStep .sb').forEach((x) => { x.disabled = F.phase !== 'miss'; });
+    lab.setReadout(missEq(done), '', '', '#5f8fd0');
+  } else {
+    card.innerHTML = `<div class="q" style="margin:0">${esc(t.family.ask)}</div>`;
+    renderFamCards();
+    lab.setReadout(`${N(a, 'r')} + ${N(b, 'b')}`, '', '', '#5f8fd0');
+  }
+  const m = $('fMain');
+  m.textContent = F.phase === 'score' ? t.family.missing : done ? t.family.next : t.family.check;
+  m.disabled = F.phase === 'run' || F.phase === 'mrun' || (F.phase === 'cards' && F.sel.size === 0);
+  const base = t.st.family;
+  if (done) stateOf(base, F.mg === MISS[F.i].ans(a, b, c) ? [true, t.family.right] : [false, t.join.wrong(MISS[F.i].ans(a, b, c))]);
+  else if (F.phase === 'score' || miss) lab.setState({ emo: F.k === F.cards.length ? '✅' : '🤔', title: t.family.score(F.k, F.cards.length), lead: base[2], body: base[3], extra: fine() });
+  else stateOf(base, null);
+}
+
+newJoin(0);
+</script>
+</body>
+</html>
