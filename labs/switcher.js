@@ -13,6 +13,8 @@ const UI = {
         all: (n) => `Mind a ${n} labor →`, more: (n) => `Még ${n} az áttekintésben →`,
         subj: { Science: 'Természettudomány', Mathematics: 'Matematika', Computing: 'Informatika', 'Life Skills': 'Életvitel', Other: 'Egyéb' } },
 };
+// the same service worker as the map (../sw.js, scope: the whole site), so a lab opened first also gets cached
+if ('serviceWorker' in navigator) navigator.serviceWorker.register(new URL('../sw.js', import.meta.url)).catch(() => {});
 const SAME = 5, HITS = 12;
 const base = new URL('./', import.meta.url); // the labs/ folder
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
