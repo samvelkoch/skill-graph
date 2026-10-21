@@ -5,13 +5,13 @@
 const UI = {
   en: { btn: 'Other labs', find: 'Find a lab…', near: 'Nearby in the graph', same: (s) => `More in ${s}`, none: 'No labs found.',
         all: (n) => `All ${n} labs →`, more: (n) => `${n} more in the overview →`,
-        subj: { Science: 'Science', Mathematics: 'Mathematics', Computing: 'Computing', Other: 'Other' } },
+        subj: { Science: 'Science', Mathematics: 'Mathematics', Computing: 'Computing', 'Life Skills': 'Life skills', Other: 'Other' } },
   ru: { btn: 'Другие лаборатории', find: 'Найти лабораторию…', near: 'Рядом в графе', same: (s) => `Ещё: ${s.toLowerCase()}`, none: 'Ничего не нашлось.',
         all: (n) => `Все лаборатории (${n}) →`, more: (n) => `Ещё ${n} в обзоре →`,
-        subj: { Science: 'Естествознание', Mathematics: 'Математика', Computing: 'Информатика', Other: 'Другое' } },
+        subj: { Science: 'Естествознание', Mathematics: 'Математика', Computing: 'Информатика', 'Life Skills': 'Жизненные навыки', Other: 'Другое' } },
   hu: { btn: 'További laborok', find: 'Labor keresése…', near: 'A közelben a térképen', same: (s) => `További: ${s.toLowerCase()}`, none: 'Nincs találat.',
         all: (n) => `Mind a ${n} labor →`, more: (n) => `Még ${n} az áttekintésben →`,
-        subj: { Science: 'Természettudomány', Mathematics: 'Matematika', Computing: 'Informatika', Other: 'Egyéb' } },
+        subj: { Science: 'Természettudomány', Mathematics: 'Matematika', Computing: 'Informatika', 'Life Skills': 'Életvitel', Other: 'Egyéb' } },
 };
 const SAME = 5, HITS = 12;
 const base = new URL('./', import.meta.url); // the labs/ folder

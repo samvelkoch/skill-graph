@@ -1,0 +1,702 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Volcano · Skill Graph</title>
+<meta name="description" content="Watch pressure push melted rock up a volcano, then erupt again and again and see the mountain build itself, layer by layer. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  body.nogauge #gauge { display: none; }
+  .ask { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); width: min(560px, calc(100% - 16px)); padding: 14px 16px; text-align: center; }
+  .ask .q { font: 500 21px/1.2 var(--serif); color: #fff; margin-bottom: 10px; }
+  .ask .opts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .ask button { padding: 9px 14px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130,145,190,.1); font-weight: 800; cursor: pointer; }
+  .fine { margin-top: 8px; font-size: 11px; color: var(--faint); }
+  .sl { display: flex; align-items: center; gap: 12px; margin: 0 0 2px; }
+  .sl span { font-weight: 800; font-size: 13px; color: var(--mut); min-width: 76px; }
+  .sl input { flex: 1; min-width: 0; }
+  .ends { padding-left: 88px; }
+  @media (max-width: 760px) {
+    .ask .q { font-size: 17px; }
+    .ask { padding: 10px 12px; }
+    .ask button { flex: 1 1 100%; padding: 6px 12px; font-size: 13px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, store, ruPlural, lang } from '../lab.js';
+
+const F = (n) => new Intl.NumberFormat(lang).format(n);
+
+// ---- 1. Words ----------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Volcano', title: 'A mountain that builds itself',
+    lines: [['Watch the pressure', 'push melted rock up the pipe.'], ['Erupt again and again', 'and every eruption adds a layer.']],
+    views: { inside: '🔥 Inside', build: '🏔️ Build' },
+    gauge: 'pressure', gLow: 'calm', gHigh: 'erupts',
+    erupt: '🌋 Erupt', sleep: '⏸ Sleep', wake: '▶ Wake up',
+    lbl: { chamber: 'magma chamber', vent: 'vent', crater: 'crater', layers: 'old layers', magma: 'magma', lava: 'lava', ash: 'ash cloud', sea: 'sea', basalt: 'hard basalt', sand: 'soft sand and clay', lake: 'Lake Balaton' },
+    ask: 'Where does the lava come from?',
+    opts: ['A fire burning inside the mountain', 'Melted rock from deep underground', 'Rock heated by the Sun'],
+    right: 'Yes! It is rock so hot that it melted, deep under the volcano.', wrong0: 'Nothing burns in there. The rock itself is melted. Watch.', wrong2: 'The Sun only warms the surface. The heat comes from deep inside the Earth. Watch.', go: 'Make it erupt',
+    think: { title: 'Make a guess first', lead: 'Pick an answer above, then watch.' },
+    insideIdle: { title: 'The volcano is filling up', lead: 'Melted rock collects in the magma chamber, kilometres down.', body: 'Gas bubbles in the magma push harder and harder, like a shaken bottle of fizzy water. Tap a label to learn the part.' },
+    eruptingInside: { title: 'Eruption!', lead: 'Underground it was magma. Out in the air it is called lava.', body: 'Same melted rock, two names. Lava can be about 700 to 1 200 °C, hotter than any oven at home.' },
+    sleeping: { title: 'Sleeping volcano', lead: 'Nothing comes out, but the magma may still be down there.', body: 'A volcano that has not erupted for a long time but could again is called dormant. One that will never erupt again is extinct.' },
+    parts: {
+      chamber: { title: 'Magma chamber', lead: 'A big pocket of melted rock deep underground.', body: 'This is where the magma waits and gas pressure builds up before an eruption.' },
+      vent: { title: 'Vent', lead: 'The pipe from the chamber up to the surface.', body: 'Magma rises through it when the pressure is high enough.' },
+      crater: { title: 'Crater', lead: 'The bowl-shaped opening at the top.', body: 'Lava, ash and gas come out here.' },
+      layers: { title: 'Layers', lead: 'Every old eruption left a layer.', body: 'Cut a volcano open and you see stripes of hardened lava and ash, the oldest at the bottom.' },
+      lava: { title: 'Lava', lead: 'Magma that has reached the surface.', body: 'It flows, cools and turns into solid rock.' },
+      ash: { title: 'Ash', lead: 'Rock blasted into tiny pieces.', body: 'Sticky, gassy magma explodes into ash that can rise many kilometres into the sky.' },
+      magma: { title: 'Magma', lead: 'Melted rock while it is still underground.', body: 'As soon as it comes out, we call it lava.' },
+    },
+    slSticky: 'Magma', runny: 'runny', sticky: 'sticky and gassy',
+    resetB: '↺ Flat ground', presetShield: '🏝️ Like Mauna Loa', presetStrato: '🗻 Like Fuji',
+    layersSub: (n) => (n === 1 ? 'layer' : 'layers'), shape: { flat: 'no mountain yet', shield: 'shield volcano', strato: 'cone volcano', mixed: 'in between' },
+    buildState: {
+      flat: { title: 'Flat ground', lead: 'Just a crack with magma below.', body: 'Choose how runny the magma is, then tap Erupt. Watch where each layer goes.' },
+      shield: { title: 'A wide, gentle volcano', lead: 'Runny lava flows far before it cools.', body: 'Layer after layer it builds a broad dome shaped like a warrior’s shield lying on the ground. Mauna Loa in Hawaii grew like this.' },
+      strato: { title: 'A steep cone', lead: 'Sticky magma traps gas, then explodes.', body: 'Ash and short, thick lava flows pile up close to the crater, so the cone gets steep. Mount Fuji in Japan is built of such layers.' },
+      mixed: { title: 'Something in between', lead: 'Different eruptions, different layers.', body: 'Real volcanoes often change their behaviour over thousands of years, and the layers record it.' },
+    },
+    islandDown: (k) => ({ title: 'Under the sea', lead: `${k} ${k === 1 ? 'layer' : 'layers'} so far, still below the waves.`, body: 'Volcanoes erupt under the sea too. Each eruption piles more rock on the sea floor.' }),
+    islandUp: { title: 'A new island!', lead: 'The volcano has broken through the sea surface.', body: 'This really happened near Iceland: in 1963 an eruption 130 m below the sea built the island of Surtsey. It kept erupting until 1967.' },
+    slTime: 'Time', then: 'about 8 million years ago', now: 'today',
+    balatonState: { title: 'Volcanoes by Lake Balaton', lead: 'Millions of years ago volcanoes erupted here, into soft sand and mud.', body: 'Rain and rivers wash soft ground away, but hard basalt lava resists. Move the slider and watch what is left.' },
+    balatonEnd: { title: 'Flat-topped hills', lead: 'The soft ground has gone. The hard lava cap stayed on top.', body: 'That is why hills like Badacsony and Szent György-hegy north of Lake Balaton have flat tops and steep basalt walls. They are the remains of volcanoes.' },
+    fineInside: 'Simplified cut-away, not to scale: a real magma chamber is kilometres deep.',
+    fineBuild: 'A simple model: runny magma flows far, sticky magma piles up and explodes. Real volcanoes mix both.',
+    fineIsland: 'Surtsey: south of Iceland, 1963–1967.',
+    fineBalaton: 'Bakony–Balaton Geopark: volcanism there started about 8 million years ago.',
+    secrets: { island: ['New island', 'Grow a volcano out of the sea'], balaton: ['Lake Balaton hills', 'What is left of old volcanoes'] },
+    quiz: [
+      { q: 'What do we call lava while it is still underground?', opts: ['Magma', 'Ash', 'Crater'], ok: 0 },
+      { q: 'Which magma makes the most violent eruptions?', opts: ['Runny, with little gas', 'Sticky, with lots of gas', 'Cold magma'], ok: 1 },
+      { q: 'How does a volcano get taller?', opts: ['It is pushed up from below like a tent', 'Each eruption adds a layer of lava or ash', 'Rain piles mud on it'], ok: 1 },
+    ],
+  },
+  ru: {
+    name: 'Вулкан', title: 'Гора, которая строит себя сама',
+    lines: [['Смотри, как давление', 'гонит расплавленный камень вверх по жерлу.'], ['Извергайся снова и снова —', 'каждое извержение добавляет слой.']],
+    views: { inside: '🔥 Внутри', build: '🏔️ Строим' },
+    gauge: 'давление', gLow: 'спокойно', gHigh: 'извержение',
+    erupt: '🌋 Извержение', sleep: '⏸ Уснуть', wake: '▶ Проснуться',
+    lbl: { chamber: 'магматический очаг', vent: 'жерло', crater: 'кратер', layers: 'старые слои', magma: 'магма', lava: 'лава', ash: 'пепловое облако', sea: 'море', basalt: 'твёрдый базальт', sand: 'мягкий песок и глина', lake: 'Балатон' },
+    ask: 'Откуда берётся лава?',
+    opts: ['Внутри горы горит огонь', 'Это расплавленный камень из глубины', 'Камень нагрело Солнце'],
+    right: 'Да! Это камень, такой горячий, что расплавился глубоко под вулканом.', wrong0: 'Там ничего не горит. Расплавлен сам камень. Смотри.', wrong2: 'Солнце греет только поверхность. Жар идёт из глубины Земли. Смотри.', go: 'Устроить извержение',
+    think: { title: 'Сначала догадка', lead: 'Выбери ответ выше, а потом смотри.' },
+    insideIdle: { title: 'Вулкан наполняется', lead: 'Расплавленный камень собирается в магматическом очаге, на глубине в километры.', body: 'Пузырьки газа в магме давят всё сильнее, как в бутылке газировки, если её потрясти. Нажми на подпись, чтобы узнать про эту часть.' },
+    eruptingInside: { title: 'Извержение!', lead: 'Под землёй это была магма. На воздухе её называют лавой.', body: 'Один и тот же расплавленный камень, два названия. Лава бывает примерно от 700 до 1 200 °C — горячее любой домашней духовки.' },
+    sleeping: { title: 'Спящий вулкан', lead: 'Ничего не выходит, но магма внизу, возможно, ещё есть.', body: 'Вулкан, который давно не извергался, но может проснуться, называют спящим. Тот, что больше никогда не извергнется, — потухшим.' },
+    parts: {
+      chamber: { title: 'Магматический очаг', lead: 'Большой карман расплавленного камня глубоко под землёй.', body: 'Здесь магма ждёт, а давление газа растёт перед извержением.' },
+      vent: { title: 'Жерло', lead: 'Труба от очага до поверхности.', body: 'По ней поднимается магма, когда давление достаточно велико.' },
+      crater: { title: 'Кратер', lead: 'Чаша-воронка на вершине.', body: 'Отсюда выходят лава, пепел и газ.' },
+      layers: { title: 'Слои', lead: 'Каждое старое извержение оставило слой.', body: 'Если разрезать вулкан, видны полосы застывшей лавы и пепла, самые старые — внизу.' },
+      lava: { title: 'Лава', lead: 'Магма, которая вышла на поверхность.', body: 'Она течёт, остывает и превращается в твёрдый камень.' },
+      ash: { title: 'Пепел', lead: 'Камень, разорванный на крошечные кусочки.', body: 'Вязкая магма с газом взрывается пеплом, который поднимается в небо на много километров.' },
+      magma: { title: 'Магма', lead: 'Расплавленный камень, пока он под землёй.', body: 'Как только он выходит наружу, его называют лавой.' },
+    },
+    slSticky: 'Магма', runny: 'жидкая', sticky: 'вязкая, с газом',
+    resetB: '↺ Ровная земля', presetShield: '🏝️ Как Мауна-Лоа', presetStrato: '🗻 Как Фудзи',
+    layersSub: (n) => ruPlural(n, 'слой', 'слоя', 'слоёв'), shape: { flat: 'горы ещё нет', shield: 'щитовой вулкан', strato: 'вулкан-конус', mixed: 'что-то среднее' },
+    buildState: {
+      flat: { title: 'Ровная земля', lead: 'Только трещина, а под ней магма.', body: 'Выбери, насколько жидкая магма, и нажми «Извержение». Смотри, куда ложится каждый слой.' },
+      shield: { title: 'Широкий пологий вулкан', lead: 'Жидкая лава утекает далеко, прежде чем застыть.', body: 'Слой за слоем она строит широкий купол, похожий на лежащий щит. Так вырос Мауна-Лоа на Гавайях.' },
+      strato: { title: 'Крутой конус', lead: 'Вязкая магма держит газ, а потом взрывается.', body: 'Пепел и короткие густые потоки лавы копятся у кратера, и конус становится крутым. Так сложена гора Фудзи в Японии.' },
+      mixed: { title: 'Что-то среднее', lead: 'Разные извержения — разные слои.', body: 'Настоящие вулканы за тысячи лет часто меняют характер, и слои это записывают.' },
+    },
+    islandDown: (k) => ({ title: 'Под водой', lead: `Уже ${k} ${ruPlural(k, 'слой', 'слоя', 'слоёв')}, но пока под волнами.`, body: 'Вулканы извергаются и под морем. Каждое извержение насыпает на дно ещё камня.' }),
+    islandUp: { title: 'Новый остров!', lead: 'Вулкан пробился сквозь поверхность моря.', body: 'Так было на самом деле у Исландии: в 1963 году извержение на глубине 130 м построило остров Сюртсей. Он извергался до 1967 года.' },
+    slTime: 'Время', then: 'около 8 млн лет назад', now: 'сегодня',
+    balatonState: { title: 'Вулканы у Балатона', lead: 'Миллионы лет назад здесь извергались вулканы — прямо в мягкий песок и ил.', body: 'Дожди и реки смывают мягкую землю, а твёрдая базальтовая лава держится. Двигай ползунок и смотри, что останется.' },
+    balatonEnd: { title: 'Горы с плоской вершиной', lead: 'Мягкая земля ушла. Твёрдая шапка из лавы осталась наверху.', body: 'Поэтому у гор Бадачонь и Сент-Дьёрдь к северу от Балатона плоские вершины и крутые базальтовые стены. Это остатки вулканов.' },
+    fineInside: 'Упрощённый разрез, не в масштабе: настоящий очаг лежит на глубине в километры.',
+    fineBuild: 'Простая модель: жидкая магма растекается, вязкая копится и взрывается. Настоящие вулканы смешивают оба типа.',
+    fineIsland: 'Сюртсей: к югу от Исландии, 1963–1967.',
+    fineBalaton: 'Геопарк Баконь–Балатон: вулканы там начали извергаться около 8 млн лет назад.',
+    secrets: { island: ['Новый остров', 'Вырасти вулкан из моря'], balaton: ['Горы Балатона', 'Что осталось от старых вулканов'] },
+    quiz: [
+      { q: 'Как называют лаву, пока она ещё под землёй?', opts: ['Магма', 'Пепел', 'Кратер'], ok: 0 },
+      { q: 'Какая магма даёт самые сильные взрывы?', opts: ['Жидкая, с малым количеством газа', 'Вязкая, с большим количеством газа', 'Холодная магма'], ok: 1 },
+      { q: 'Как вулкан становится выше?', opts: ['Его выталкивает снизу, как палатку', 'Каждое извержение добавляет слой лавы или пепла', 'Дождь наносит на него грязь'], ok: 1 },
+    ],
+  },
+  hu: {
+    name: 'Vulkán', title: 'A hegy, amely saját magát építi',
+    lines: [['Figyeld, ahogy a nyomás', 'felfelé nyomja az olvadt kőzetet a kürtőben.'], ['Törj ki újra és újra:', 'minden kitörés egy új réteget rak rá.']],
+    views: { inside: '🔥 Belül', build: '🏔️ Építés' },
+    gauge: 'nyomás', gLow: 'nyugodt', gHigh: 'kitör',
+    erupt: '🌋 Kitörés', sleep: '⏸ Alvás', wake: '▶ Ébresztő',
+    lbl: { chamber: 'magmakamra', vent: 'kürtő', crater: 'kráter', layers: 'régi rétegek', magma: 'magma', lava: 'láva', ash: 'hamufelhő', sea: 'tenger', basalt: 'kemény bazalt', sand: 'puha homok és agyag', lake: 'Balaton' },
+    ask: 'Honnan jön a láva?',
+    opts: ['A hegy belsejében tűz ég', 'Mélyről jövő olvadt kőzet', 'A Nap felhevítette a követ'],
+    right: 'Igen! Olyan forró kőzet, hogy megolvadt, mélyen a vulkán alatt.', wrong0: 'Ott semmi sem ég. Maga a kőzet olvadt meg. Figyeld!', wrong2: 'A Nap csak a felszínt melegíti. A hő a Föld mélyéből jön. Figyeld!', go: 'Kitörés!',
+    think: { title: 'Előbb tippelj', lead: 'Válassz egy választ fent, aztán figyeld.' },
+    insideIdle: { title: 'A vulkán telik', lead: 'Az olvadt kőzet a magmakamrában gyűlik, kilométerekkel lent.', body: 'A magmában lévő gázbuborékok egyre jobban nyomnak, mint egy felrázott szódásüvegben. Koppints egy feliratra, és megtudod, mi az.' },
+    eruptingInside: { title: 'Kitörés!', lead: 'A föld alatt magma volt. A felszínen lávának hívjuk.', body: 'Ugyanaz az olvadt kőzet, két néven. A láva nagyjából 700–1200 °C-os, forróbb bármelyik otthoni sütőnél.' },
+    sleeping: { title: 'Alvó vulkán', lead: 'Nem jön ki semmi, de lent még lehet magma.', body: 'Ha egy vulkán régóta nem tört ki, de még kitörhet, szunnyadónak hívjuk. Ha soha többé nem tör ki, kialudt.' },
+    parts: {
+      chamber: { title: 'Magmakamra', lead: 'Olvadt kőzettel teli nagy üreg mélyen a föld alatt.', body: 'Itt várakozik a magma, és itt nő a gáz nyomása kitörés előtt.' },
+      vent: { title: 'Kürtő', lead: 'A cső a magmakamrától a felszínig.', body: 'Ezen tör fel a magma, ha elég nagy a nyomás.' },
+      crater: { title: 'Kráter', lead: 'A tál alakú nyílás a csúcson.', body: 'Itt jön ki a láva, a hamu és a gáz.' },
+      layers: { title: 'Rétegek', lead: 'Minden régi kitörés hagyott egy réteget.', body: 'Ha kettévágnál egy vulkánt, megszilárdult láva- és hamucsíkokat látnál, a legrégebbit alul.' },
+      lava: { title: 'Láva', lead: 'A felszínre jutott magma.', body: 'Folyik, lehűl, és szilárd kőzetté válik.' },
+      ash: { title: 'Hamu', lead: 'Apró darabokra robbant kőzet.', body: 'A sűrű, gázos magma hamuvá robban, amely sok kilométer magasra száll.' },
+      magma: { title: 'Magma', lead: 'Olvadt kőzet, amíg a föld alatt van.', body: 'Amint kijut, lávának hívjuk.' },
+    },
+    slSticky: 'Magma', runny: 'híg', sticky: 'sűrű és gázos',
+    resetB: '↺ Sík talaj', presetShield: '🏝️ Mint a Mauna Loa', presetStrato: '🗻 Mint a Fudzsi',
+    layersSub: () => 'réteg', shape: { flat: 'még nincs hegy', shield: 'pajzsvulkán', strato: 'kúpos vulkán', mixed: 'átmeneti' },
+    buildState: {
+      flat: { title: 'Sík talaj', lead: 'Csak egy repedés, alatta magma.', body: 'Válaszd ki, mennyire híg a magma, aztán koppints a Kitörésre. Figyeld, hová kerül az egyes rétegek anyaga.' },
+      shield: { title: 'Széles, lankás vulkán', lead: 'A híg láva messzire folyik, mielőtt lehűl.', body: 'Rétegről rétegre széles kupolát épít, olyat, mint egy földre fektetett pajzs. Így nőtt a hawaii Mauna Loa.' },
+      strato: { title: 'Meredek kúp', lead: 'A sűrű magma bezárja a gázt, aztán robban.', body: 'A hamu és a rövid, vastag lávafolyások a kráter körül halmozódnak fel, ezért a kúp meredek lesz. A japán Fudzsi ilyen rétegekből áll.' },
+      mixed: { title: 'Valami a kettő között', lead: 'Más-más kitörés, más-más réteg.', body: 'Az igazi vulkánok gyakran változtatják a viselkedésüket több ezer év alatt, és a rétegek ezt megőrzik.' },
+    },
+    islandDown: (k) => ({ title: 'A tenger alatt', lead: `Már ${k} réteg, de még a hullámok alatt.`, body: 'A tenger alatt is törnek ki vulkánok. Minden kitörés újabb kőzetet halmoz a tengerfenékre.' }),
+    islandUp: { title: 'Új sziget!', lead: 'A vulkán áttörte a tenger felszínét.', body: 'Ez tényleg megtörtént Izland mellett: 1963-ban egy 130 méter mélyen kezdődő kitörés építette fel Surtsey szigetét. 1967-ig tört ki.' },
+    slTime: 'Idő', then: 'kb. 8 millió éve', now: 'ma',
+    balatonState: { title: 'Vulkánok a Balatonnál', lead: 'Millió évekkel ezelőtt itt vulkánok törtek ki, bele a puha homokba és iszapba.', body: 'Az eső és a patakok elhordják a puha talajt, de a kemény bazaltláva ellenáll. Mozgasd a csúszkát, és nézd, mi marad.' },
+    balatonEnd: { title: 'Lapos tetejű hegyek', lead: 'A puha talaj eltűnt. A kemény lávasapka fent maradt.', body: 'Ezért lapos a teteje és meredek a bazaltfala a Balaton északi partján álló tanúhegyeknek, mint a Badacsony és a Szent György-hegy. Ezek vulkánok maradványai.' },
+    fineInside: 'Egyszerűsített metszet, nem méretarányos: egy igazi magmakamra kilométerekkel lent van.',
+    fineBuild: 'Egyszerű modell: a híg magma messzire folyik, a sűrű felhalmozódik és robban. Az igazi vulkánok keverik a kettőt.',
+    fineIsland: 'Surtsey: Izlandtól délre, 1963–1967.',
+    fineBalaton: 'Bakony–Balaton Geopark: a vulkáni működés ott kb. 8 millió éve kezdődött.',
+    secrets: { island: ['Új sziget', 'Növessz vulkánt a tengerből'], balaton: ['Balatoni tanúhegyek', 'Mi marad a régi vulkánokból'] },
+    quiz: [
+      { q: 'Hogy hívjuk a lávát, amíg még a föld alatt van?', opts: ['Magma', 'Hamu', 'Kráter'], ok: 0 },
+      { q: 'Melyik magma okozza a leghevesebb kitöréseket?', opts: ['A híg, kevés gázzal', 'A sűrű, sok gázzal', 'A hideg magma'], ok: 1 },
+      { q: 'Hogyan lesz magasabb egy vulkán?', opts: ['Alulról felnyomják, mint egy sátrat', 'Minden kitörés egy réteg lávát vagy hamut rak rá', 'Az eső sarat hord rá'], ok: 1 },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_S9SKah-yi_', en: 'What Is a Volcano', ru: 'Что такое вулкан', hu: 'Mi a vulkán' },
+  { id: 'mt_QtIAWOcoQT', en: 'Inside a Volcano', ru: 'Внутри вулкана', hu: 'Egy vulkán belsejében' },
+  { id: 'mt_W4j7T_PnGH', en: 'Eruption Types & Volcano Shape', ru: 'Типы извержений и форма вулканов', hu: 'Kitörésfajták és a vulkánok alakja' },
+];
+
+// ---- 2. Model: a mountain is the sum of its layers -----------------------------------------------------
+// A layer is a bump centred on the vent: amp = height (share of canvas height), ww = half-width (share of canvas width),
+// g = how much of it has been laid down so far (0..1, animated while an eruption builds it).
+const bump = (u) => { u = Math.abs(u); if (u >= 1) return 0; const q = 1 - u * u; return q * q; };
+const ease = (g) => g * g * (3 - 2 * g);
+const mkLayer = (type, amp, ww, g = 1) => ({ type, amp, ww, g });
+const rnd = (a, b) => a + Math.random() * (b - a);
+const hash = (i) => { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+const font = (px, wt = 800) => `${wt} ${Math.round(px)}px Nunito, ui-rounded, system-ui, sans-serif`;
+const mix = (a, b, t) => a.map((v, i) => Math.round(lerp(v, b[i], t)));
+const rgb = (a) => `rgb(${a[0]},${a[1]},${a[2]})`;
+
+// height of the mountain (px) at distance dx from the vent; the crater is a small bowl cut into the top
+function prof(L, dx, w, h) {
+  let s = 0, pk = 0;
+  for (const l of L) { const a = l.amp * l.g * h; s += a * bump(dx / (l.ww * w)); pk += a; }
+  return s - Math.min(pk * 0.1, h * 0.03) * bump(dx / Math.max(8, w * 0.04));
+}
+const peakPx = (L, h) => L.reduce((s, l) => s + l.amp * l.g * h, 0);
+
+const SC = {
+  inside: { layers: [['lava', .034, .34], ['ash', .036, .24], ['lava', .032, .30], ['ash', .034, .20], ['lava', .030, .26], ['ash', .032, .17]].map((a) => mkLayer(...a)), n: 6, sts: [], alt: 0 },
+  build: { layers: [], n: 0, sts: [], alt: 0 },
+  island: { layers: [], n: 0, sts: [], alt: 0 },
+};
+// where things sit in the cut-away, for each scene
+function geo(key, w, h) {
+  if (key === 'inside') return { gy: h * .40, chY: h * .84, rx: Math.min(w * .17, 110), ry: h * .075, sea: null };
+  if (key === 'build') return { gy: h * .55, chY: h * .87, rx: Math.min(w * .15, 100), ry: h * .06, sea: null };
+  return { gy: h * .72, chY: h * .90, rx: Math.min(w * .15, 100), ry: h * .05, sea: h * .35 };
+}
+
+// ---- 3. State + shell --------------------------------------------------------------------------------
+const S = { p: 0.3, sleep: false, er: null, queue: 0, st: 20, bt: 0, btv: 0, sel: null, secret: null, islandUp: false,
+  answered: store.get('volcano:asked', false), answer: null, pt: [], bub: [], bacc: 0, hits: [], geom: null, lavaPts: [], ashC: null,
+  boom: 0, flash: 0, dims: { w: 360, h: 300 }, lastOk: null, gv: -1 };
+
+const mode = () => S.secret || lab.view;
+const sceneKey = () => { const m = mode(); return m === 'inside' || m === 'build' || m === 'island' ? m : null; };
+const lab = shell({ key: 'volcano', T, topics: TOPICS, views: ['inside', 'build'], onLang: () => render(),
+  onView: () => { S.secret = null; endNow(); S.sel = null; S.p = lab.view === 'inside' ? 0.3 : 0; S.lastOk = null; render(); } });
+const secret = secretLab('volcano', () => ({
+  secrets: [{ emo: '🏝️', title: T[lang].secrets.island[0], desc: T[lang].secrets.island[1] }, { emo: '⛰️', title: T[lang].secrets.balaton[0], desc: T[lang].secrets.balaton[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `<div id="sl"></div><div class="chips" id="chips"></div>`;
+let slKey = '';
+
+// ---- eruptions: rise (pressure) -> go (lava, ash, a new layer) -> done ----
+function startErupt(key, quick) {
+  const kind = key === 'island' ? 'island' : S.st < 40 ? 'runny' : S.st <= 70 ? 'mid' : 'sticky';
+  S.er = { phase: 'rise', key, kind, t: 0, ts: quick ? 3 : 1, hold: 0, rate: { runny: .9, mid: 1.1, sticky: 1.6, island: 1.1 }[kind] };
+  sfx.click();
+}
+function beginGo(e) {
+  const { w, h } = S.dims, sc = SC[e.key], s = S.st / 100, tt = (a, b) => clamp((s - a) / (b - a), 0, 1);
+  e.phase = 'go'; e.t = 0; e.flip = true; e.acc = 0; e.sacc = 0; e.aacc = 0; e.grow = []; e.lava = null; e.ash = null; e.fountain = null; e.feed = 1.4; e.D = 0; e.col = 1;
+  let lavaDef = null, ashDef = null;
+  if (e.kind === 'runny') lavaDef = { ww: lerp(.46, .36, tt(0, .4)), amp: .022, start: .15, speed: .55, thick: 5 };
+  else if (e.kind === 'mid') {
+    if (sc.alt++ % 2 === 0) { lavaDef = { ww: lerp(.30, .22, tt(.4, .7)), amp: .026, start: .3, speed: .3, thick: 5 }; e.fountain = { dur: 1.4, rate: 34 }; }
+    else { ashDef = { ww: lerp(.24, .17, tt(.4, .7)), amp: .032, start: .2, emit: 1.2, rate: 26 }; e.fountain = { dur: .9, rate: 20 }; }
+  } else if (e.kind === 'sticky') {
+    ashDef = { ww: lerp(.15, .11, tt(.7, 1)), amp: .032, start: 0, emit: 2.4, rate: 70, boom: true };
+    lavaDef = { ww: .085, amp: .016, start: 1.0, speed: .1, thick: 8 }; e.feed = 2.0;
+  } else if (e.kind === 'island') {
+    ashDef = { ww: .2, amp: .03, start: .3, emit: 1.0, rate: 24 }; lavaDef = { ww: .17, amp: .026, start: .5, speed: .25, thick: 5 }; e.fountain = { dur: 1.2, rate: 24 };
+  } else { // inside: nothing is added, the mountain stays as it is
+    lavaDef = { D: .3, speed: .2, start: .2, thick: 5, keep: true }; ashDef = { emit: 1.8, rate: 28, start: .3, keep: true }; e.fountain = { dur: 1.6, rate: 30 }; e.feed = 1.6;
+  }
+  let end = e.feed + 3.2;
+  if (ashDef) {
+    e.ash = ashDef;
+    if (!ashDef.keep) { const l = mkLayer('ash', ashDef.amp, ashDef.ww, 0); sc.layers.push(l); e.grow.push({ l, g0: ashDef.start + .5, gd: 2.8 }); }
+    end = Math.max(end, ashDef.start + ashDef.emit + 3.4);
+  }
+  if (lavaDef) {
+    e.lava = lavaDef; e.D = (lavaDef.keep ? lavaDef.D : lavaDef.ww) * w;
+    const fd = e.D / (lavaDef.speed * w);
+    if (!lavaDef.keep) { const l = mkLayer('lava', lavaDef.amp, lavaDef.ww, 0); sc.layers.push(l); e.grow.push({ l, g0: lavaDef.start, gd: Math.max(.5, fd) }); }
+    end = Math.max(end, lavaDef.start + fd + 3.2);
+  }
+  e.end = end;
+  if (e.key === 'build' || e.key === 'island') { sc.n++; sc.sts.push(S.st); }
+  if (e.kind === 'sticky') { S.boom = 6; S.flash = 1; for (let i = 0; i < 50; i++) spawnAsh(h, true); sfx.push(); sfx.snap(); } else sfx.push();
+  render();
+}
+function finish(e) {
+  e.grow.forEach((g) => { g.l.g = 1; });
+  S.er = null; S.p = 0; S.lavaPts = []; S.ashC = null; render();
+}
+function endNow() {
+  if (S.er) S.er.grow?.forEach((g) => { g.l.g = 1; });
+  S.er = null; S.queue = 0; S.pt = []; S.bub = []; S.lavaPts = []; S.ashC = null; S.flash = 0; S.boom = 0;
+}
+function resetBuild() {
+  const key = S.secret === 'island' ? 'island' : 'build', sc = SC[key];
+  endNow(); sc.layers = []; sc.n = 0; sc.sts = []; sc.alt = 0; S.p = 0; if (key === 'island') S.islandUp = false;
+}
+function doErupt() {
+  const m = mode();
+  if (S.er || S.queue > 0) return;
+  if (m === 'inside') {
+    if (S.p < 0.4) return sfx.bad();
+    S.sleep = false; S.er = { phase: 'rise', key: 'inside', kind: 'inside', t: 0, ts: 1, hold: 0, rate: 1.1 }; sfx.click();
+  } else if (m === 'build' || m === 'island') startErupt(m, false);
+}
+const shapeOf = () => {
+  const sc = SC.build; if (!sc.n) return 'flat';
+  const avg = sc.sts.reduce((a, b) => a + b, 0) / sc.sts.length;
+  return avg < 40 ? 'shield' : avg > 60 ? 'strato' : 'mixed';
+};
+
+$('ctrlBody').addEventListener('input', (ev) => {
+  const k = ev.target.dataset.s; if (!k) return;
+  S[k] = +ev.target.value; sfx.tick(); render();
+});
+$('chips').addEventListener('click', (ev) => {
+  const k = ev.target.closest('.chip')?.dataset.k; if (!k) return;
+  if (k === 'island' || k === 'balaton') {
+    if (!secret.unlocked()) return secret.open();
+    S.secret = S.secret === k ? null : k; endNow(); S.sel = null; S.lastOk = null;
+    if (k === 'balaton') { S.bt = 0; S.btv = 0; }
+    S.p = S.secret === null && lab.view === 'inside' ? 0.3 : 0; sfx.click(); return render();
+  }
+  if (k === 'erupt') doErupt();
+  else if (k === 'sleep') { S.sleep = !S.sleep; sfx.click(); }
+  else if (k === 'reset') { resetBuild(); sfx.click(); }
+  else if (k === 'shield' || k === 'strato') { resetBuild(); S.st = k === 'shield' ? 10 : 90; S.queue = 10; sfx.click(); }
+  render();
+});
+
+const ask = Object.assign(document.createElement('div'), { className: 'ask card' });
+$('overlay').append(ask);
+ask.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  if (b.dataset.a) { S.answer = +b.dataset.a; (S.answer === 1 ? sfx.good : sfx.bad)(); }
+  else { S.answered = true; store.set('volcano:asked', true); S.p = 0.2; S.er = { phase: 'rise', key: 'inside', kind: 'inside', t: 0, ts: 1, hold: 0, rate: 0.9 }; sfx.snap(); }
+  render();
+});
+
+// ---- render: all text + controls ----
+function render() {
+  const t = T[lang], m = mode(), open = secret.unlocked();
+  lab.setGlow(m === 'island' ? 'rgba(78,168,255,.22)' : m === 'balaton' ? 'rgba(217,199,154,.2)' : 'rgba(255,138,61,.22)');
+  document.body.classList.toggle('nogauge', m === 'balaton');
+  const sc = (k) => `<button class="chip secret ${open ? 'open' : ''} ${S.secret === k ? 'on' : ''}" data-k="${k}">${open ? esc(t.secrets[k][0]) : '🔒 ???'}</button>`;
+  const ch = (k, label, on) => `<button class="chip ${on ? 'on' : ''}" data-k="${k}">${esc(label)}</button>`;
+  let mid = '';
+  if (m === 'inside') mid = ch('erupt', t.erupt, false) + ch('sleep', S.sleep ? t.wake : t.sleep, S.sleep);
+  else if (m === 'build') mid = ch('erupt', t.erupt, false) + ch('shield', t.presetShield, false) + ch('strato', t.presetStrato, false) + ch('reset', t.resetB, false);
+  else if (m === 'island') mid = ch('erupt', t.erupt, false) + ch('reset', t.resetB, false);
+  $('chips').innerHTML = sc('island') + mid + sc('balaton');
+  S.lastOk = null;
+
+  const key = m + lang;
+  if (slKey !== key) {
+    slKey = key;
+    $('sl').innerHTML = m === 'build'
+      ? `<label class="sl"><span>${esc(t.slSticky)}</span><input type="range" class="big" data-s="st" min="0" max="100" style="--track:linear-gradient(90deg,#ff8a3d,#8a6a5a)"></label><div class="ends"><span>${esc(t.runny)}</span><span>${esc(t.sticky)}</span></div>`
+      : m === 'balaton'
+        ? `<label class="sl"><span>${esc(t.slTime)}</span><input type="range" class="big" data-s="bt" min="0" max="100" style="--track:linear-gradient(90deg,#d9c79a,#4ea8ff)"></label><div class="ends"><span>${esc(t.then)}</span><span>${esc(t.now)}</span></div>`
+        : '';
+  }
+  $('sl').querySelectorAll('input').forEach((i) => { i.value = S[i.dataset.s]; });
+
+  let st, fine = '', val = '', sub = '', pill = '', col = '#ff8a3d';
+  if (m === 'inside') {
+    const n = SC.inside.n; fine = t.fineInside; val = F(n); sub = t.layersSub(n);
+    if (!S.answered) st = { emo: '🤔', ...t.think, body: '' };
+    else if (S.sel) st = { emo: { chamber: '🟠', vent: '🕳️', crater: '🏔️', layers: '🪨', lava: '🌋', ash: '☁️', magma: '🔥' }[S.sel], ...t.parts[S.sel] };
+    else if (S.er?.phase === 'go') st = { emo: '🌋', ...t.eruptingInside };
+    else if (S.sleep) st = { emo: '😴', ...t.sleeping };
+    else st = { emo: '🔥', ...t.insideIdle };
+  } else if (m === 'build') {
+    const n = SC.build.n, shp = shapeOf(); fine = t.fineBuild; val = F(n); sub = t.layersSub(n); pill = t.shape[shp];
+    st = { emo: { flat: '🌱', shield: '🏝️', strato: '🗻', mixed: '⛰️' }[shp], ...t.buildState[shp] };
+  } else if (m === 'island') {
+    const n = SC.island.n; fine = t.fineIsland; val = F(n); sub = t.layersSub(n); col = '#4ea8ff';
+    st = S.islandUp ? { emo: '🏝️', ...t.islandUp } : { emo: '🌊', ...t.islandDown(n) };
+  } else {
+    fine = t.fineBalaton; val = '⏳'; sub = S.bt < 10 ? t.then : S.bt > 90 ? t.now : t.slTime; col = '#d9c79a';
+    st = S.bt >= 99 ? { emo: '🍇', ...t.balatonEnd } : { emo: '⛰️', ...t.balatonState };
+  }
+  lab.setReadout(val, sub, pill, col);
+  lab.setState({ emo: st.emo, title: st.title, lead: st.lead, body: st.body, extra: `<div class="fine">${esc(fine)}</div>` });
+  lab.setGauge(S.p, [{ f: 0, label: t.gLow }, { f: 1, label: t.gHigh }], t.gauge); S.gv = S.p;
+
+  const showAsk = m === 'inside' && !S.answered;
+  ask.style.display = showAsk ? '' : 'none';
+  if (showAsk) ask.innerHTML = S.answer === null
+    ? `<div class="q">${esc(t.ask)}</div><div class="opts">${t.opts.map((o, i) => `<button data-a="${i}">${esc(o)}</button>`).join('')}</div>`
+    : `<div class="q" style="color:${S.answer === 1 ? 'var(--ok)' : 'var(--wip)'}">${esc(S.answer === 1 ? t.right : S.answer === 0 ? t.wrong0 : t.wrong2)}</div><div class="opts"><button>${esc(t.go)} →</button></div>`;
+}
+
+// ---- particles and the clock of the scene ----
+function craterPos(key, w, h) { const G = geo(key, w, h); return { x: w / 2, y: G.gy - prof(SC[key].layers, 0, w, h) }; }
+function spawnSpark(w, h) {
+  const key = sceneKey(), c = craterPos(key, w, h), a = -Math.PI / 2 + rnd(-.55, .55), sp = rnd(.45, .8) * h;
+  S.pt.push({ k: 'spark', x: c.x + rnd(-3, 3), y: c.y - 2, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, age: 0, life: 2 });
+}
+function spawnAsh(h, burst) {
+  const w = S.dims.w, c = craterPos(sceneKey(), w, h), a = -Math.PI / 2 + rnd(-.45, .45), sp = rnd(.3, burst ? .5 : .38) * h;
+  S.pt.push({ k: 'ash', x: c.x + rnd(-4, 4), y: c.y - 4, vx: Math.cos(a) * sp * .5 + 14, vy: Math.sin(a) * sp, age: 0, life: rnd(3.4, 5), r0: rnd(3, 5), r1: rnd(12, burst ? 24 : 18), g: rnd(95, 150) });
+}
+function spawnSteam(x, y) { S.pt.push({ k: 'steam', x: x + rnd(-6, 6), y, vx: rnd(-6, 12), vy: -rnd(22, 45), age: 0, life: 2.2, r0: 4, r1: 16 }); }
+
+function update(dt, w, h) {
+  S.dims = { w, h };
+  const key = sceneKey(); if (!key) return;
+  if (key === 'inside' && !S.answered) return;
+  const sc = SC[key], G = geo(key, w, h), cx = w / 2, g = G.gy;
+  if (!S.er && S.queue > 0 && key === 'build') { S.queue--; startErupt('build', true); }
+  const e = S.er;
+  if (!e) {
+    if (key === 'inside') { if (!S.sleep) { S.p = Math.min(1, S.p + dt / 12); if (S.p >= 1) { S.er = { phase: 'rise', key: 'inside', kind: 'inside', t: 0, ts: 1, hold: 0, rate: 1 }; beginGo(S.er); } } }
+    else S.p = Math.max(0, S.p - dt * 2);
+  } else if (e.phase === 'rise') {
+    S.p = Math.min(1, S.p + dt * e.rate);
+    if (S.p >= 1) { e.hold += dt; if (e.hold >= (e.kind === 'sticky' ? .5 : 0)) beginGo(e); }
+  } else {
+    e.t += dt;
+    e.grow.forEach((q) => { q.l.g = ease(clamp((e.t - q.g0) / q.gd, 0, 1)); });
+    const c = craterPos(key, w, h), above = G.sea === null || c.y < G.sea;
+    if (e.fountain && e.t < e.fountain.dur && above) { e.acc += e.fountain.rate * dt; while (e.acc >= 1) { e.acc--; spawnSpark(w, h); } }
+    if (e.ash && e.t >= (e.ash.start || 0) && e.t < (e.ash.start || 0) + e.ash.emit && above) { e.aacc += e.ash.rate * dt; while (e.aacc >= 1) { e.aacc--; spawnAsh(h, false); } }
+    if (key === 'island') { // steam where hot lava meets the sea
+      const lavaOn = e.t < (e.lava.start + e.D / (e.lava.speed * w) + .5);
+      if (lavaOn) {
+        e.sacc += 16 * dt;
+        while (e.sacc >= 1) {
+          e.sacc--;
+          if (above) {
+            const side = Math.random() < .5 ? -1 : 1; let x = 0;
+            while (x < w * .4 && g - prof(sc.layers, side * x, w, h) < G.sea) x += 4;
+            if (x < w * .4) spawnSteam(cx + side * x, G.sea);
+          } else spawnSteam(cx, G.sea);
+        }
+      }
+      if (!S.islandUp && peakPx(sc.layers, h) >= g - G.sea) { S.islandUp = true; sfx.good(); render(); }
+    }
+    S.p = Math.max(0, 1 - e.t / 2.5); e.col = 1 - clamp((e.t - e.feed) / 1.5, 0, 1);
+    if (e.t >= e.end) finish(e);
+  }
+  // bubbles: more pressure, more bubbles
+  const go = S.er?.phase === 'go';
+  if (!go) { S.bacc += (1.5 + 14 * S.p) * dt; while (S.bacc >= 1 && S.bub.length < 70) { S.bacc--; S.bub.push({ x: cx + rnd(-.7, .7) * G.rx, y: G.chY + rnd(-.3, .6) * G.ry, r: rnd(1.5, 3.8), v: rnd(18, 38) * (h / 300) * (1 + S.p * 2) }); } S.bacc = Math.min(S.bacc, 1); }
+  const yTop = g - prof(sc.layers, 0, w, h), chTop = G.chY - G.ry * .85, col = go ? S.er.col : S.p, colY = chTop + (yTop - chTop) * col;
+  S.bub = S.bub.filter((b) => { b.y -= b.v * dt; if (b.y < chTop) b.x += (cx - b.x) * Math.min(1, dt * 6); return b.y > colY + 2 && b.y > yTop; });
+  // particles
+  S.pt = S.pt.filter((q) => {
+    q.age += dt;
+    if (q.k === 'spark') { q.vy += h * 1.4 * dt; q.x += q.vx * dt; q.y += q.vy * dt; return q.age < q.life && q.y < g - prof(sc.layers, q.x - cx, w, h) - 1; }
+    if (q.k === 'ash') { q.vy = Math.min(q.vy + h * .3 * dt, h * .07); q.vx += (14 - q.vx) * dt; q.x += q.vx * dt; q.y += q.vy * dt; return q.age < q.life && q.y < g - prof(sc.layers, q.x - cx, w, h) - 1; }
+    q.x += q.vx * dt; q.y += q.vy * dt; return q.age < q.life;
+  });
+  const ash = S.pt.filter((q) => q.k === 'ash' && q.age > .3);
+  S.ashC = ash.length > 6 ? { x: ash.reduce((a, q) => a + q.x, 0) / ash.length, y: ash.reduce((a, q) => a + q.y, 0) / ash.length } : null;
+  S.flash = Math.max(0, S.flash - dt * 2.5); S.boom = Math.max(0, S.boom - dt * 14);
+}
+
+// ---- 4. Drawing --------------------------------------------------------------------------------------
+const LAVA_HOT = [255, 138, 61], LAVA_CORE = [255, 226, 120], LAVA_COLD = [61, 58, 69];
+let ashPat = null;
+function ashPattern(c) {
+  if (ashPat) return ashPat;
+  const p = document.createElement('canvas'); p.width = p.height = 10; const x = p.getContext('2d');
+  x.fillStyle = '#b9ad97'; x.fillRect(0, 0, 10, 10); x.fillStyle = '#8d826e';
+  x.beginPath(); x.arc(2.5, 2.5, 1.1, 0, 7); x.arc(7.5, 7, 1.1, 0, 7); x.arc(7.5, 1.5, .7, 0, 7); x.arc(2, 8, .7, 0, 7); x.fill();
+  return (ashPat = c.createPattern(p, 'repeat'));
+}
+function pathRR(c, x, y, w, h, r) { r = Math.min(r, w / 2, h / 2); c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
+
+function drawSky(c, w, bottom, glow, cx, cy, h) {
+  const sk = c.createLinearGradient(0, 0, 0, bottom);
+  sk.addColorStop(0, '#1b1f45'); sk.addColorStop(.6, '#46386d'); sk.addColorStop(1, '#c97b5a');
+  c.fillStyle = sk; c.fillRect(0, 0, w, bottom);
+  if (glow > 0.01) { const r = c.createRadialGradient(cx, cy, 0, cx, cy, h * .7); r.addColorStop(0, `rgba(255,150,70,${.38 * glow})`); r.addColorStop(1, 'rgba(255,150,70,0)'); c.fillStyle = r; c.fillRect(0, 0, w, bottom); }
+}
+function drawGround(c, w, h, G, island) {
+  const g = c.createLinearGradient(0, G.gy, 0, h); g.addColorStop(0, '#34293a'); g.addColorStop(1, '#16121b');
+  c.fillStyle = g; c.fillRect(0, G.gy, w, h - G.gy);
+  c.strokeStyle = 'rgba(255,255,255,.05)'; c.lineWidth = 2;
+  for (let k = 0; k < 5; k++) {
+    const y0 = G.gy + (h - G.gy) * (k + .6) / 5.4; c.beginPath();
+    for (let x = 0; x <= w; x += 12) c.lineTo(x, y0 + Math.sin(x * .02 + k * 2) * 3 + hash(k) * 4);
+    c.stroke();
+  }
+  c.fillStyle = island ? '#8a7656' : '#4c6044'; c.fillRect(0, G.gy, w, 3);
+}
+function drawMountain(c, L, cx, gy, w, h) {
+  const act = L.filter((l) => l.g > 0.002); if (!act.length) return;
+  const W = Math.max(...act.map((l) => l.ww * w)), N = 100, cw = Math.max(8, w * .04);
+  const run = new Float32Array(N + 1), rows = []; let pk = 0;
+  for (const l of act) {
+    const a = l.amp * l.g * h, ww = l.ww * w; pk += a; const cd = Math.min(pk * .1, h * .03), ys = new Float32Array(N + 1);
+    for (let j = 0; j <= N; j++) { const dx = -W + 2 * W * j / N; run[j] += a * bump(dx / ww); ys[j] = gy - (run[j] - cd * bump(dx / cw)); }
+    rows.push({ l, ys });
+  }
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const { l, ys } = rows[i];
+    c.beginPath(); c.moveTo(cx - W, gy);
+    for (let j = 0; j <= N; j++) c.lineTo(cx - W + 2 * W * j / N, ys[j]);
+    c.lineTo(cx + W, gy); c.closePath();
+    c.fillStyle = l.type === 'ash' ? ashPattern(c) : (i % 2 ? '#4b4753' : '#3c3944'); c.fill();
+    c.strokeStyle = 'rgba(0,0,0,.4)'; c.lineWidth = 1; c.beginPath();
+    for (let j = 0; j <= N; j++) c[j ? 'lineTo' : 'moveTo'](cx - W + 2 * W * j / N, ys[j]);
+    c.stroke();
+  }
+}
+
+// labels: a pill of text, a thin leader line and a dot on the part. Registers a tap area.
+function tag(c, w, key, text, px, py, ax, ay, align, opt = {}) {
+  c.font = font(12.5);
+  let lines = [text];
+  if (c.measureText(text).width > w * .34 && text.includes(' ')) {
+    const mid = text.length / 2; let best = -1;
+    for (let i = 0; i < text.length; i++) if (text[i] === ' ' && (best < 0 || Math.abs(i - mid) < Math.abs(best - mid))) best = i;
+    lines = [text.slice(0, best), text.slice(best + 1)];
+  }
+  const tw = Math.max(...lines.map((s) => c.measureText(s).width)) + 14, th = lines.length * 15 + 7;
+  let x = align === 'r' ? px - tw : align === 'c' ? px - tw / 2 : px; x = clamp(x, 4, w - tw - 4);
+  const y = py - th / 2, sel = S.sel === key && mode() === 'inside';
+  c.globalAlpha = opt.alpha ?? 1;
+  if (ax !== undefined) {
+    const sx = clamp(ax, x, x + tw), sy = clamp(ay, y, y + th);
+    c.strokeStyle = 'rgba(237,239,247,.7)'; c.lineWidth = 1; c.beginPath(); c.moveTo(sx, sy); c.lineTo(ax, ay); c.stroke();
+    c.fillStyle = '#fff'; c.beginPath(); c.arc(ax, ay, 2.6, 0, 7); c.fill();
+  }
+  pathRR(c, x, y, tw, th, 9); c.fillStyle = 'rgba(14,16,32,.8)'; c.fill();
+  c.strokeStyle = opt.edge || (sel ? '#fff' : 'rgba(255,255,255,.28)'); c.lineWidth = sel || opt.edge ? 2 : 1; c.stroke();
+  c.fillStyle = '#EDEFF7'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  lines.forEach((s, i) => c.fillText(s, x + tw / 2, y + 3.5 + 7.5 + i * 15));
+  c.globalAlpha = 1;
+  if (!opt.noHit) S.hits.push({ key, x, y, w: tw, h: th });
+}
+
+function drawLava(c, e, sc, cx, gy, w, h) {
+  S.lavaPts = []; if (!e.lava) return;
+  const tt = e.t - e.lava.start; if (tt <= 0) return;
+  const sp = e.lava.speed * w, Dc = Math.min(e.D, sp * tt), step = 5; c.lineCap = 'round';
+  for (const side of [-1, 1]) {
+    let prev = null;
+    for (let x = 0; ; x += step) {
+      const xx = Math.min(x, Dc), reach = e.lava.start + xx / sp, age = e.t - Math.max(reach, e.feed), temp = clamp(1 - age / 3, 0, 1);
+      const px = cx + side * xx, py = gy - prof(sc.layers, side * xx, w, h) - 2;
+      if (prev) {
+        c.strokeStyle = rgb(mix(LAVA_COLD, LAVA_HOT, prev[2])); c.lineWidth = e.lava.thick; c.beginPath(); c.moveTo(prev[0], prev[1]); c.lineTo(px, py); c.stroke();
+        c.strokeStyle = rgb(mix(LAVA_COLD, LAVA_CORE, temp * temp)); c.lineWidth = e.lava.thick * .4; c.stroke();
+      }
+      prev = [px, py, temp]; if (xx >= Dc) break;
+    }
+    S.lavaPts.push([cx + side * Dc * .5, gy - prof(sc.layers, side * Dc * .5, w, h) - 2]);
+  }
+}
+
+function drawScene(c, w, h, dt, time, key) {
+  const sc = SC[key], G = geo(key, w, h), cx = w / 2, gy = G.gy, e = S.er, go = e?.phase === 'go';
+  const pw = Math.max(4, w * .012), chTop = G.chY - G.ry * .85, cw = Math.max(8, w * .04);
+  const yTop = gy - prof(sc.layers, 0, w, h), col = go ? e.col : S.p, colY = chTop + (yTop - chTop) * col;
+  S.geom = { cx, gy, chTop, chY: G.chY, rx: G.rx, ry: G.ry, pw, yTop, cw, colY };
+  const heat = go ? clamp(1 - (e.t - e.feed) / 3.5, 0, 1) : 0;
+  let sh = (e && e.phase === 'rise' && e.kind === 'sticky' ? .4 + 2.2 * S.p ** 3 : 0) + S.boom * .5;
+  c.save(); if (sh > 0) c.translate(rnd(-sh, sh), rnd(-sh, sh));
+  const sea = G.sea;
+  drawSky(c, w, sea ?? gy, heat, cx, yTop, h);
+  if (sea !== null) { const wg = c.createLinearGradient(0, sea, 0, gy); wg.addColorStop(0, '#2a74b8'); wg.addColorStop(1, '#123a6b'); c.fillStyle = wg; c.fillRect(0, sea, w, gy - sea); }
+  drawGround(c, w, h, G, sea !== null);
+  drawMountain(c, sc.layers, cx, gy, w, h);
+
+  // the pipe, the magma column in it, and the chamber
+  c.fillStyle = '#120e16'; pathRR(c, cx - pw, yTop, pw * 2, chTop - yTop + 6, 2); c.fill();
+  const pulse = .5 + .5 * Math.sin(time * 2.2);
+  if (col > 0.01) {
+    const mg = c.createLinearGradient(0, colY, 0, chTop); mg.addColorStop(0, '#ffb347'); mg.addColorStop(1, '#e8431f');
+    c.fillStyle = mg; c.fillRect(cx - pw + 1, colY, pw * 2 - 2, chTop - colY + 6);
+  }
+  const gl = c.createRadialGradient(cx, G.chY, 0, cx, G.chY, G.rx * 1.8); gl.addColorStop(0, `rgba(255,120,40,${.28 + .15 * pulse + .2 * S.p})`); gl.addColorStop(1, 'rgba(255,120,40,0)');
+  c.fillStyle = gl; c.fillRect(cx - G.rx * 1.8, G.chY - G.rx * 1.8, G.rx * 3.6, G.rx * 3.6);
+  c.fillStyle = '#1a1118'; c.beginPath(); c.ellipse(cx, G.chY, G.rx + 4, G.ry + 4, 0, 0, 7); c.fill();
+  const cg = c.createRadialGradient(cx, G.chY - G.ry * .2, 0, cx, G.chY, G.rx); cg.addColorStop(0, '#ffc15a'); cg.addColorStop(.55, '#f0561f'); cg.addColorStop(1, '#a3200f');
+  c.save(); c.translate(cx, G.chY); c.scale(1 + .02 * pulse, 1 + .03 * pulse); c.translate(-cx, -G.chY); c.fillStyle = cg; c.beginPath(); c.ellipse(cx, G.chY, G.rx, G.ry, 0, 0, 7); c.fill(); c.restore();
+  for (const b of S.bub) { c.strokeStyle = 'rgba(255,236,170,.85)'; c.lineWidth = 1; c.beginPath(); c.arc(b.x, b.y, b.r, 0, 7); c.stroke(); }
+  if (go) { const lg = c.createRadialGradient(cx, yTop, 0, cx, yTop, 28); lg.addColorStop(0, `rgba(255,190,90,${.7 * (1 - clamp((e.t - e.feed) / 1.5, 0, 1))})`); lg.addColorStop(1, 'rgba(255,150,60,0)'); c.fillStyle = lg; c.fillRect(cx - 30, yTop - 30, 60, 60); }
+  if (S.sel && key === 'inside') { // highlight the chosen part
+    c.strokeStyle = '#fff'; c.lineWidth = 2;
+    if (S.sel === 'chamber') { c.beginPath(); c.ellipse(cx, G.chY, G.rx + 5, G.ry + 5, 0, 0, 7); c.stroke(); }
+    else if (S.sel === 'vent') { pathRR(c, cx - pw - 2, yTop, pw * 2 + 4, chTop - yTop + 6, 3); c.stroke(); }
+    else if (S.sel === 'crater') { c.beginPath(); c.arc(cx, yTop - 2, cw * 1.1, Math.PI * 1.05, Math.PI * 1.95); c.stroke(); }
+  }
+  if (go) drawLava(c, e, sc, cx, gy, w, h); else S.lavaPts = [];
+  for (const q of S.pt) {
+    if (q.k === 'spark') { c.fillStyle = q.age < .5 ? '#ffd45e' : '#ff8a3d'; c.beginPath(); c.arc(q.x, q.y, 2.4, 0, 7); c.fill(); }
+    else if (q.k === 'ash') {
+      const f = q.age / q.life, r = lerp(q.r0, q.r1, Math.min(1, f * 1.5)); c.globalAlpha = .55 * Math.min(1, (1 - f) / .3);
+      c.fillStyle = `rgb(${q.g},${q.g - 4},${q.g + 6})`; c.beginPath(); c.arc(q.x, q.y, r, 0, 7); c.fill(); c.globalAlpha = 1;
+    }
+  }
+  if (S.flash > 0) { const fr = h * .22 * (1.3 - S.flash * .3), fg = c.createRadialGradient(cx, yTop, 0, cx, yTop, fr); fg.addColorStop(0, `rgba(255,240,200,${S.flash})`); fg.addColorStop(.4, `rgba(255,160,70,${S.flash * .6})`); fg.addColorStop(1, 'rgba(255,120,40,0)'); c.fillStyle = fg; c.beginPath(); c.arc(cx, yTop, fr, 0, 7); c.fill(); }
+
+  if (sea !== null) { // the sea in front of the volcano
+    const ov = c.createLinearGradient(0, sea, 0, gy); ov.addColorStop(0, 'rgba(60,150,220,.5)'); ov.addColorStop(1, 'rgba(20,70,140,.68)');
+    c.fillStyle = ov; c.fillRect(0, sea, w, gy - sea);
+    c.strokeStyle = 'rgba(200,230,255,.85)'; c.lineWidth = 2; c.beginPath();
+    for (let x = 0; x <= w; x += 8) c[x ? 'lineTo' : 'moveTo'](x, sea + Math.sin(x * .05 + time * 1.5) * 2);
+    c.stroke();
+  }
+  for (const q of S.pt) if (q.k === 'steam') { const f = q.age / q.life; c.globalAlpha = .42 * (1 - f); c.fillStyle = '#f2f6ff'; c.beginPath(); c.arc(q.x, q.y, lerp(q.r0, q.r1, f), 0, 7); c.fill(); c.globalAlpha = 1; }
+
+  // labels
+  S.hits = [];
+  const t = T[lang].lbl;
+  if (key === 'inside') {
+    const flank = (f) => { let x = 0; const hh = prof(sc.layers, 0, w, h) * f; while (x < w / 2 && prof(sc.layers, x, w, h) > hh) x += 3; return { x: cx + x, y: gy - prof(sc.layers, x, w, h) }; };
+    tag(c, w, 'chamber', t.chamber, 6, G.chY, cx - G.rx * .7, G.chY, 'l');
+    tag(c, w, 'vent', t.vent, w - 6, chTop - (chTop - gy) * .45, cx + pw, chTop - (chTop - gy) * .45, 'r');
+    tag(c, w, 'crater', t.crater, 6, Math.max(16, yTop - 28), cx - cw * .5, yTop, 'l');
+    const f = flank(.35); tag(c, w, 'layers', t.layers, w - 6, gy + 16, f.x, f.y + 2, 'r');
+    if (go && e.lava && S.lavaPts[1] && e.t > .9) tag(c, w, 'lava', t.lava, S.lavaPts[1][0] + 12, S.lavaPts[1][1] - 26, S.lavaPts[1][0], S.lavaPts[1][1], 'c');
+    if (S.ashC) tag(c, w, 'ash', t.ash, S.ashC.x, S.ashC.y, undefined, undefined, 'c', { alpha: .95 });
+    if (!go && col > .1) tag(c, w, 'magma', t.magma, cx + pw + 12, colY, cx + pw, colY, 'l');
+    else if (go && e.t < .9) { // the key moment: the word "magma" reaches the crater and becomes "lava"
+      const fl = clamp(e.t / .5, 0, 1), px = cx + pw + 12;
+      tag(c, w, 'magma', t.magma, px, yTop - fl * 8, cx + pw, yTop, 'l', { alpha: 1 - fl, edge: '#ffb347', noHit: true });
+      tag(c, w, 'lava', t.lava, px, yTop - 8 + (1 - fl) * 8, cx + pw, yTop, 'l', { alpha: fl, edge: '#ffb347' });
+    }
+  } else if (key === 'island') {
+    tag(c, w, 'sea', t.sea, 6, (sea + gy) / 2 - 10, 40, (sea + gy) / 2 - 10, 'l', { noHit: true });
+  }
+  c.restore();
+}
+
+function drawBalaton(c, w, h, dt, time) {
+  const t = T[lang], cx = w / 2;
+  S.btv += (S.bt / 100 - S.btv) * (1 - Math.exp(-dt * 8));
+  const E = ease(clamp(S.btv, 0, 1)), gy0 = h * .5, D = h * .16, Hc = h * .2, ww = w * .38, capW = w * .1, tc = h * .035;
+  const Ht = Hc * bump(capW / ww), pwE = capW * (1.15 - .2 * E), edge = w * .035, yW = gy0 + D * .62;
+  const ty = (dx) => { const hs = Math.min(Hc * bump(dx / ww), Ht), m = clamp((pwE + edge - Math.abs(dx)) / edge, 0, 1); return gy0 - hs + D * E * (1 - m); };
+  drawSky(c, w, h, 0, cx, 0, h);
+  const N = 120, xs = []; for (let j = 0; j <= N; j++) xs.push(-w / 2 + w * j / N);
+  const outline = () => { c.beginPath(); c.moveTo(0, h); xs.forEach((dx) => c.lineTo(cx + dx, ty(dx))); c.lineTo(w, h); c.closePath(); };
+  // soft sand, in layers that follow the old surface
+  c.save(); outline(); c.clip();
+  const cols = ['#dccb9c', '#cdb985', '#d6c9a8', '#c4ae7e'];
+  for (let k = 0; k < 16; k++) {
+    const o0 = k * h * .03 - h * .02, o1 = (k + 1) * h * .03 - h * .02, top = (dx) => gy0 - Math.min(Hc * bump(dx / ww), Ht);
+    c.beginPath(); xs.forEach((dx, j) => c[j ? 'lineTo' : 'moveTo'](cx + dx, top(dx) + o0));
+    for (let j = N; j >= 0; j--) c.lineTo(cx + xs[j], top(xs[j]) + o1);
+    c.closePath(); c.fillStyle = cols[k % 4]; c.fill();
+  }
+  c.restore();
+  // the lake sits where the ground has sunk below its level
+  if (yW < gy0 + D * E + 1) {
+    c.beginPath(); xs.forEach((dx, j) => c[j ? 'lineTo' : 'moveTo'](cx + dx, yW));
+    for (let j = N; j >= 0; j--) c.lineTo(cx + xs[j], Math.max(yW, ty(xs[j])));
+    c.closePath(); const lg = c.createLinearGradient(0, yW, 0, h); lg.addColorStop(0, '#4a9be0'); lg.addColorStop(1, '#1d5a96'); c.fillStyle = lg; c.fill();
+    c.strokeStyle = 'rgba(220,240,255,.7)'; c.lineWidth = 1.5; c.beginPath();
+    let pen = false;
+    for (let x = 0; x <= w; x += 8) { if (ty(x - cx) > yW) { c[pen ? 'lineTo' : 'moveTo'](x, yW + Math.sin(x * .05 + time) * 1.5); pen = true; } else pen = false; }
+    c.stroke();
+  }
+  // vineyards on the slopes that are left
+  const va = clamp((E - .7) / .3, 0, 1);
+  if (va > 0) for (const side of [-1, 1]) for (let dx = pwE + edge + 4; dx < ww * .85; dx += 6) {
+    const y0 = ty(side * dx); if (y0 > yW - 3) continue;
+    for (let r = 0; r < 3; r++) { c.globalAlpha = va; c.fillStyle = (Math.floor(dx / 6) + r) % 3 ? '#6aa84f' : '#8e44ad'; c.fillRect(cx + side * dx + r, y0 + 4 + r * 5, 2.5, 2.5); }
+    c.globalAlpha = 1;
+  }
+  // the hard basalt cap
+  const capTop = gy0 - Ht - tc, capX = cx - capW * 1.05;
+  pathRR(c, capX, capTop, capW * 2.1, tc + 2, 4); c.fillStyle = '#2d2f3a'; c.fill();
+  c.strokeStyle = '#4a4d5e'; c.lineWidth = 1.2;
+  for (let k = 1; k < 6; k++) { const x = capX + capW * 2.1 * k / 6; c.beginPath(); c.moveTo(x, capTop + 3); c.lineTo(x, capTop + tc); c.stroke(); }
+  c.fillStyle = 'rgba(255,255,255,.15)'; c.fillRect(capX + 3, capTop, capW * 2.1 - 6, 2);
+  // rain while the slider moves
+  if (Math.abs(S.bt / 100 - S.btv) > .004) { c.strokeStyle = 'rgba(190,215,255,.45)'; c.lineWidth = 1; for (let i = 0; i < 28; i++) { const x = hash(i) * w, y = ((hash(i + 40) * h + time * 320) % (h * .5)); c.beginPath(); c.moveTo(x, y); c.lineTo(x - 3, y + 10); c.stroke(); } }
+  S.hits = [];
+  const tl = t.lbl;
+  tag(c, w, 'basalt', tl.basalt, w - 6, capTop - 16, cx + capW * .6, capTop + tc * .5, 'r', { noHit: true });
+  tag(c, w, 'sand', tl.sand, 6, gy0 + h * .12, cx - capW * .6, gy0 - Ht + h * .05, 'l', { noHit: true });
+  if (yW < gy0 + D * E - 4) tag(c, w, 'lake', tl.lake, w - 6, yW + h * .1, cx + w * .38, yW + 8, 'r', { noHit: true });
+}
+
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  const m = mode();
+  if (m === 'balaton') { drawBalaton(c, w, h, dt, time); return; }
+  dt *= S.er?.ts ?? 1;
+  update(dt, w, h);
+  drawScene(c, w, h, dt, time, sceneKey());
+  if (Math.abs(S.p - S.gv) > .004) { lab.setGauge(S.p); S.gv = S.p; }
+  const ok = m !== 'inside' || (S.p >= .4 && !S.er);
+  if (ok !== S.lastOk) { S.lastOk = ok; const b = $('chips').querySelector('[data-k="erupt"]'); if (b) b.style.opacity = ok ? '' : '.45'; }
+});
+
+// tapping a label (or the part itself) in the inside view shows what it is
+$('cv').addEventListener('pointerdown', (ev) => {
+  if (mode() !== 'inside' || !S.answered || !S.geom) return;
+  const r = $('cv').getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top, g = S.geom, { w, h } = S.dims;
+  let key = null;
+  const hit = [...S.hits].reverse().find((q) => x >= q.x - 4 && x <= q.x + q.w + 4 && y >= q.y - 4 && y <= q.y + q.h + 4);
+  if (hit) key = hit.key;
+  else if (Math.abs(x - g.cx) < g.cw * 1.3 && Math.abs(y - g.yTop) < 16) key = 'crater';
+  else if (Math.abs(x - g.cx) < g.pw + 8 && y > g.yTop && y < g.chTop) key = 'vent';
+  else if (((x - g.cx) / g.rx) ** 2 + ((y - g.chY) / g.ry) ** 2 < 1.2) key = 'chamber';
+  else if (S.lavaPts.some((p) => Math.hypot(p[0] - x, p[1] - y) < 24)) key = 'lava';
+  else if (S.ashC && Math.hypot(S.ashC.x - x, S.ashC.y - y) < 44) key = 'ash';
+  else if (y < g.gy && y > g.gy - prof(SC.inside.layers, x - g.cx, w, h) - 4 && y <= g.gy) key = 'layers';
+  S.sel = key === S.sel ? null : key; sfx.click(); render();
+});
+render();
+</script>
+</body>
+</html>
