@@ -3,7 +3,8 @@
 Usage: python3 scripts/curricula/merge.py <batch dir> <mapped dir> <out json> [<gap out dir>]
 
 US and England items come from the standards the Marble topics carry (data/curriculum-standards.json).
-The optional gap dir holds the links of items no Marble topic covered to the topics in data/extra/.
+The optional gap dir holds the links of items no Marble topic covered to the topics in data/extra/; a gap file
+may also carry its own `items` (e.g. art and music lessons that never went through the batches).
 
 Output: {version, curricula: {country: {name, url, grades}}, items: [[country, subject, grade, title]],
 links: {topicId: [[item index, 1 core | 0 related], ...]}}. Only items with at least one link are kept.
@@ -22,7 +23,7 @@ CURRICULA = {
     'de': {'name': 'LehrplanPLUS Bayern (Grundschule, Gymnasium)', 'url': 'https://www.lehrplanplus.bayern.de/', 'grades': list(range(1, 10))},
     'us': {'name': 'Common Core, NGSS, C3', 'url': 'https://www.thecorestandards.org/', 'grades': list(range(1, 10))},
     'gb': {'name': 'National curriculum in England (2013)', 'url': 'https://www.gov.uk/government/collections/national-curriculum', 'grades': list(range(1, 10))},
-    'sg': {'name': 'MOE syllabuses: Mathematics (2021), Science (2023)', 'url': 'https://www.moe.gov.sg/primary/curriculum/syllabus', 'grades': list(range(1, 7))},
+    'sg': {'name': 'MOE syllabuses: Mathematics (2021), Science (2023), Art (2024), Music (2023)', 'url': 'https://www.moe.gov.sg/primary/curriculum/syllabus', 'grades': list(range(1, 9))},
 }
 KS = {'1': '1-2', '2': '3-6', '3': '7-9'}  # England: key stage -> years
 
@@ -92,7 +93,9 @@ def main(batch_dir, mapped_dir, out, gap_dir=None):
         data = Path(__file__).resolve().parents[2] / 'data'
         known = {t['id'] for f in ('topics.json', 'extra/topics.json') for t in json.load(open(data / f))['topics']}
         for f in sorted(Path(gap_dir).glob('*.json')):
-            for key, pairs in json.load(open(f))['links'].items():
+            g = json.load(open(f))
+            meta.update({it['key']: it for it in g.get('items', [])})
+            for key, pairs in g['links'].items():
                 add(key, [(t, kind) for t, kind in pairs if t in known], len(pairs))
     # US and England: the standards Marble's own topics already carry
     data = Path(__file__).resolve().parents[2] / 'data'
