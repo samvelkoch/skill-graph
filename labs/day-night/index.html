@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day and Night · Skill Graph</title>
+<meta name="description" content="Spin the Earth and watch day and night, the Sun crossing your sky and clocks in different time zones. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  @media (min-width: 1101px) { .lab { grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); grid-template-areas: 'hero stage' 'state stage' 'state ctrl'; } }
+  .ask { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); width: min(560px, calc(100% - 16px)); padding: 14px 16px; text-align: center; z-index: 3; }
+  .ask .q { font: 500 21px/1.2 var(--serif); color: #fff; margin-bottom: 10px; }
+  .ask .opts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .ask button { padding: 9px 14px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130,145,190,.1); font-weight: 800; cursor: pointer; }
+  .fine { margin-top: 8px; font-size: 11px; color: var(--faint); }
+  .row { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
+  .row .chip { flex: none; min-width: 92px; justify-content: center; }
+  #cities { margin-top: 8px; }
+  #cv { touch-action: pan-y; }
+  @media (max-width: 760px) { .ask .q { font-size: 17px; } }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, store, lang } from '../lab.js';
+
+// 1. Words ---------------------------------------------------------------------------------------------------
+const T = {
+  en: { name: 'Day and Night', title: 'Spin the Earth, get day and night',
+        lines: [['Drag the Earth', 'or press play, and watch the cities.'], ['Switch the view', 'to stand on the Earth and to compare clocks.']],
+        views: { spin: '🌍 Spin', sky: '🧍 Your sky', zones: '🕐 Time zones' },
+        ask: 'Why does the Sun cross the sky every day?', opts: ['The Sun moves round the Earth', 'The Earth spins', 'Clouds carry it'],
+        right: 'Yes! The Earth spins. Watch it from above.', wrong: 'Many people think so! Look from above the North Pole and decide.', go: 'Show me',
+        chips: { noon: 'Noon', set: 'Sunset', mid: 'Midnight', rise: 'Sunrise', play: '▶ Play', pause: '⏸ Pause' },
+        city: { bud: 'Budapest', ny: 'New York', tok: 'Tokyo', syd: 'Sydney' },
+        loc: { bud: 'in Budapest', ny: 'in New York', tok: 'in Tokyo', syd: 'in Sydney' },
+        clockIn: (l) => `time ${l}`,
+        phase: { night: 'night', rise: 'sunrise', day: 'day', set: 'sunset' },
+        lead: { night: 'This side of the Earth faces away from the Sun, so it is night here.', rise: 'The spin is carrying this place into the sunlight: sunrise.',
+                day: 'This place faces the Sun, so it is day here.', set: 'The spin is carrying this place out of the sunlight: sunset.' },
+        body: { spin: 'Half of the Earth is always lit. The Earth turns once in about 24 hours, so each place takes its turn in the light, and the Sun seems to move.',
+                sky: 'You cannot feel the spin, so it looks as if the Sun moves. The Earth turns from west to east, so the Sun seems to rise in the east, climb, and set in the west.',
+                zones: 'Places far apart face the Sun at different moments, so their clocks differ. Going east, each one-hour band is one hour ahead.' },
+        dayIn: 'Daytime now:', none: '—', dayW: 'DAY', nightW: 'NIGHT', you: 'you',
+        E: 'E', W: 'W', S: 'S', N: 'N', lookS: 'You face south: east is on your left, west on your right.', lookN: 'You face north (southern hemisphere): east is on your right, west on your left.',
+        yday: 'yesterday', tmrw: 'tomorrow', today: 'today', bpClock: 'Budapest time',
+        fine: {
+          spin: 'A simplified model: the Earth seen from above the North Pole, cut into 24 one-hour slices. Cities sit on the rim at their real longitudes. The sky icon uses the longitude (sunrise about 6:00, sunset about 18:00), the clock uses standard time. One turn takes about 24 hours.',
+          sky: 'A simplified model: the Sun always rises due east and sets due west, like on an equinox day. Real paths depend on the date and the latitude.',
+          zones: 'A simplified model: 24 one-hour bands, standard (winter) time, no summer time. Real time zones follow borders. UTC offsets: Budapest +1, New York −5, Tokyo +9, Sydney +10.',
+          stop: 'A qualitative model: the orbit is drawn as a circle and the sizes are not to scale. A year is about 365 days.',
+          iss: 'A simplified model: a circular orbit over the equator, drawn bigger than real. The International Space Station circles the Earth in about 92 minutes.' },
+        secrets: { stop: ['Earth stops spinning', 'What if a day lasted a year?'], iss: ['Space station', 'A sunrise every 90 minutes'] },
+        sc: { stopTitle: 'No spin: one day lasts a year',
+              stopLead: { day: 'The pin faces the Sun and keeps facing it, day after day.', night: 'Now the pin is on the dark side, and it stays dark for months.' },
+              stopBody: 'The Earth would still go round the Sun once in about 365 days. Each place would get about half a year of daylight, then about half a year of night: one day and one night together would last a whole year.',
+              stopVal: (d) => `Day ${d}`, stopSub: 'of 365',
+              issTitle: 'A sunrise about every 90 minutes',
+              issLead: 'The station circles the Earth in about 92 minutes, so every orbit it flies from light into shadow and back.',
+              issBody: 'In one of our days (1440 minutes) that makes about 16 sunrises, because 1440 ÷ 92 ≈ 15.7. The Earth below turns only a little during one orbit.',
+              issVal: (h, m) => `${h} h ${m} min`, issSub: (n) => `sunrises seen: ${n}`, sun: 'in sunlight', shade: 'in shadow', sunW: 'Sun' },
+        quiz: [
+          { q: 'How long does the Earth take to turn once around its axis?', opts: ['About 1 hour', 'About 24 hours', 'About 365 days'], ok: 1 },
+          { q: 'What happens to a place that turns away from the Sun?', opts: ['It is day there', 'The Sun switches off', 'It is night there'], ok: 2 },
+          { q: 'Why does the Sun seem to move across the sky?', opts: ['Because we turn with the Earth', 'Because the Sun goes round us every day', 'Because clouds push it'], ok: 0 }] },
+  ru: { name: 'День и ночь', title: 'Вращаем Землю — получаем день и ночь',
+        lines: [['Крути Землю', 'или нажми «Пуск» и следи за городами.'], ['Переключай вид,', 'чтобы встать на Землю и сравнить часы.']],
+        views: { spin: '🌍 Вращение', sky: '🧍 Твоё небо', zones: '🕐 Часовые пояса' },
+        ask: 'Почему Солнце каждый день проходит по небу?', opts: ['Солнце ходит вокруг Земли', 'Земля вращается', 'Его несут облака'],
+        right: 'Да! Земля вращается. Посмотри на неё сверху.', wrong: 'Многие так думают! Посмотри сверху, с Северного полюса, и реши сам.', go: 'Покажи',
+        chips: { noon: 'Полдень', set: 'Закат', mid: 'Полночь', rise: 'Рассвет', play: '▶ Пуск', pause: '⏸ Пауза' },
+        city: { bud: 'Будапешт', ny: 'Нью-Йорк', tok: 'Токио', syd: 'Сидней' },
+        loc: { bud: 'в Будапеште', ny: 'в Нью-Йорке', tok: 'в Токио', syd: 'в Сиднее' },
+        clockIn: (l) => `время ${l}`,
+        phase: { night: 'ночь', rise: 'рассвет', day: 'день', set: 'закат' },
+        lead: { night: 'Эта сторона Земли отвёрнута от Солнца, поэтому здесь ночь.', rise: 'Вращение выносит это место на свет: рассвет.',
+                day: 'Это место повёрнуто к Солнцу, поэтому здесь день.', set: 'Вращение уносит это место из света: закат.' },
+        body: { spin: 'Половина Земли всегда освещена. Земля делает один оборот примерно за 24 часа, поэтому каждое место по очереди попадает на свет, а Солнце кажется движущимся.',
+                sky: 'Вращения не чувствуешь, поэтому кажется, что движется Солнце. Земля поворачивается с запада на восток, поэтому Солнце встаёт на востоке, поднимается и садится на западе.',
+                zones: 'Далёкие места поворачиваются к Солнцу в разное время, поэтому часы там разные. Идём на восток — каждый часовой пояс на час впереди.' },
+        dayIn: 'Сейчас день:', none: '—', dayW: 'ДЕНЬ', nightW: 'НОЧЬ', you: 'ты',
+        E: 'В', W: 'З', S: 'Ю', N: 'С', lookS: 'Ты смотришь на юг: восток слева, запад справа.', lookN: 'Ты смотришь на север (южное полушарие): восток справа, запад слева.',
+        yday: 'вчера', tmrw: 'завтра', today: 'сегодня', bpClock: 'время в Будапеште',
+        fine: {
+          spin: 'Упрощённая модель: Земля, какой её видно сверху, с Северного полюса, разрезана на 24 часовых доли. Города стоят на краю на своих настоящих долготах. Значок неба считается по долготе (рассвет около 6:00, закат около 18:00), часы показывают поясное время. Один оборот — около 24 часов.',
+          sky: 'Упрощённая модель: Солнце всегда встаёт точно на востоке и садится точно на западе, как в день равноденствия. Настоящий путь зависит от даты и широты.',
+          zones: 'Упрощённая модель: 24 часовых пояса, стандартное (зимнее) время, без перевода на летнее. Настоящие пояса идут по границам. Сдвиги от UTC: Будапешт +1, Нью-Йорк −5, Токио +9, Сидней +10.',
+          stop: 'Качественная модель: орбита нарисована кругом, размеры не в масштабе. Год — около 365 суток.',
+          iss: 'Упрощённая модель: круговая орбита над экватором, нарисована крупнее настоящей. Международная космическая станция облетает Землю примерно за 92 минуты.' },
+        secrets: { stop: ['Земля перестала вращаться', 'А если бы сутки длились год?'], iss: ['Космическая станция', 'Рассвет каждые 90 минут'] },
+        sc: { stopTitle: 'Без вращения: сутки длились бы год',
+              stopLead: { day: 'Булавка смотрит на Солнце и смотрит на него день за днём.', night: 'Теперь булавка на тёмной стороне, и там темно месяцами.' },
+              stopBody: 'Земля всё равно обходила бы Солнце примерно за 365 суток. Каждое место получало бы около полугода света, потом около полугода ночи: день и ночь вместе длились бы целый год.',
+              stopVal: (d) => `День ${d}`, stopSub: 'из 365',
+              issTitle: 'Рассвет примерно каждые 90 минут',
+              issLead: 'Станция облетает Землю примерно за 92 минуты, поэтому каждый виток она вылетает из света в тень и обратно.',
+              issBody: 'За наши сутки (1440 минут) выходит около 16 рассветов, ведь 1440 ÷ 92 ≈ 15,7. Сама Земля за один виток поворачивается лишь немного.',
+              issVal: (h, m) => `${h} ч ${m} мин`, issSub: (n) => `рассветов: ${n}`, sun: 'на свету', shade: 'в тени', sunW: 'Солнце' },
+        quiz: [
+          { q: 'За какое время Земля делает один оборот вокруг своей оси?', opts: ['Примерно за 1 час', 'Примерно за 24 часа', 'Примерно за 365 дней'], ok: 1 },
+          { q: 'Что происходит с местом, которое отвернулось от Солнца?', opts: ['Там день', 'Солнце выключается', 'Там ночь'], ok: 2 },
+          { q: 'Почему кажется, что Солнце движется по небу?', opts: ['Потому что мы поворачиваемся вместе с Землёй', 'Потому что Солнце за сутки обходит Землю', 'Потому что его толкают облака'], ok: 0 }] },
+  hu: { name: 'Nappal és éjszaka', title: 'Forgasd a Földet: lesz nappal és éjszaka',
+        lines: [['Forgasd a Földet', 'vagy nyomd meg a lejátszást, és figyeld a városokat.'], ['Válts nézetet,', 'hogy ráállhass a Földre, és összevethesd az órákat.']],
+        views: { spin: '🌍 Forgás', sky: '🧍 Az égbolt', zones: '🕐 Időzónák' },
+        ask: 'Miért vonul át a Nap minden nap az égen?', opts: ['A Nap kering a Föld körül', 'A Föld forog', 'A felhők viszik'],
+        right: 'Igen! A Föld forog. Nézd meg felülről.', wrong: 'Sokan így gondolják! Nézd meg az Északi-sark felől, és döntsd el.', go: 'Mutasd',
+        chips: { noon: 'Dél', set: 'Naplemente', mid: 'Éjfél', rise: 'Napkelte', play: '▶ Indít', pause: '⏸ Szünet' },
+        city: { bud: 'Budapest', ny: 'New York', tok: 'Tokió', syd: 'Sydney' },
+        loc: { bud: 'Budapesten', ny: 'New Yorkban', tok: 'Tokióban', syd: 'Sydney-ben' },
+        clockIn: (l) => `${l} az idő`,
+        phase: { night: 'éjszaka', rise: 'napkelte', day: 'nappal', set: 'napnyugta' },
+        lead: { night: 'A Föld ezen oldala elfordul a Naptól, ezért itt éjszaka van.', rise: 'A forgás a napfénybe viszi ezt a helyet: napkelte.',
+                day: 'Ez a hely a Nap felé néz, ezért itt nappal van.', set: 'A forgás kiviszi ezt a helyet a napfényből: napnyugta.' },
+        body: { spin: 'A Föld felét mindig megvilágítja a Nap. A Föld nagyjából 24 óra alatt fordul körbe, így minden hely sorra kerül a fényben, és a Nap mozgónak látszik.',
+                sky: 'A forgást nem érzed, ezért úgy tűnik, mintha a Nap mozogna. A Föld nyugatról keletre fordul, ezért a Nap keleten kel, felemelkedik, és nyugaton nyugszik le.',
+                zones: 'A távoli helyek más-más pillanatban néznek a Nap felé, ezért az óráik különbözők. Kelet felé minden egyórás sáv egy órával előrébb jár.' },
+        dayIn: 'Most nappal van:', none: '—', dayW: 'NAPPAL', nightW: 'ÉJSZAKA', you: 'te',
+        E: 'K', W: 'Ny', S: 'D', N: 'É', lookS: 'Dél felé nézel: a kelet balra van, a nyugat jobbra.', lookN: 'Észak felé nézel (déli félteke): a kelet jobbra van, a nyugat balra.',
+        yday: 'tegnap', tmrw: 'holnap', today: 'ma', bpClock: 'budapesti idő',
+        fine: {
+          spin: 'Egyszerűsített modell: a Föld az Északi-sark fölül nézve, 24 egyórás szeletre vágva. A városok a peremen állnak, valódi hosszúsági fokukon. Az égbolt-jel a hosszúságból számolódik (napkelte kb. 6:00, napnyugta kb. 18:00), az óra zónaidőt mutat. Egy fordulat kb. 24 óra.',
+          sky: 'Egyszerűsített modell: a Nap mindig pontosan keleten kel és nyugaton nyugszik, mint egy napéjegyenlőségi napon. A valódi pálya a dátumtól és a szélességtől függ.',
+          zones: 'Egyszerűsített modell: 24 egyórás sáv, téli (zónaidő) óraállás, nyári időszámítás nélkül. A valódi időzónák az országhatárokat követik. UTC-eltolás: Budapest +1, New York −5, Tokió +9, Sydney +10.',
+          stop: 'Minőségi modell: a pályát körként rajzoltuk, a méretek nem arányosak. Egy év kb. 365 nap.',
+          iss: 'Egyszerűsített modell: körpálya az egyenlítő felett, a valódinál nagyobbra rajzolva. A Nemzetközi Űrállomás kb. 92 perc alatt kerüli meg a Földet.' },
+        secrets: { stop: ['A Föld megáll', 'Mi lenne, ha egy nap egy évig tartana?'], iss: ['Űrállomás', 'Napkelte kb. 90 percenként'] },
+        sc: { stopTitle: 'Forgás nélkül egy nap egy évig tartana',
+              stopLead: { day: 'A kitűző a Nap felé néz, és napról napra arra néz.', night: 'Most a kitűző a sötét oldalon van, és hónapokig sötét marad.' },
+              stopBody: 'A Föld így is kb. 365 nap alatt kerülné meg a Napot. Minden hely kb. fél évig kapna napfényt, aztán kb. fél évig éjszaka lenne: egy nappal és egy éjszaka együtt egy egész évig tartana.',
+              stopVal: (d) => `${d}. nap`, stopSub: '/ 365',
+              issTitle: 'Kb. 90 percenként egy napkelte',
+              issLead: 'Az űrállomás kb. 92 perc alatt kerüli meg a Földet, ezért minden körön átrepül a fényből az árnyékba, majd vissza.',
+              issBody: 'A mi egy napunk alatt (1440 perc) ez kb. 16 napkelte, mert 1440 ÷ 92 ≈ 15,7. A Föld egy kör alatt csak keveset fordul.',
+              issVal: (h, m) => `${h} ó ${m} perc`, issSub: (n) => `napkelték: ${n}`, sun: 'napfényben', shade: 'árnyékban', sunW: 'Nap' },
+        quiz: [
+          { q: 'Mennyi idő alatt fordul körbe a Föld a tengelye körül?', opts: ['Körülbelül 1 óra', 'Körülbelül 24 óra', 'Körülbelül 365 nap'], ok: 1 },
+          { q: 'Mi történik azzal a hellyel, amely elfordul a Naptól?', opts: ['Ott nappal van', 'A Nap kikapcsol', 'Ott éjszaka van'], ok: 2 },
+          { q: 'Miért tűnik úgy, hogy a Nap átvonul az égen?', opts: ['Mert a Földdel együtt forgunk', 'Mert a Nap naponta megkerüli a Földet', 'Mert a felhők tolják'], ok: 0 }] },
+};
+const TOPICS = [
+  { id: 'mt_w2xiMNkyyX', en: 'Earth\'s Spin & Orbit', ru: 'Вращение Земли и её орбита', hu: 'A Föld forgása és keringése' },
+  { id: 'mt_q15w--Fb5H', en: 'Earth\'s rotation and day/night', ru: 'Вращение Земли и смена дня и ночи', hu: 'A Föld forgása és a nappal-éjszaka váltakozás' },
+];
+
+// 2. Model: well-known coordinates, standard-time UTC offsets ----------------------------------------------------
+const CITIES = [
+  { k: 'bud', lon: 19.04, off: 1, lat: 47.5, col: '#ffb347' },
+  { k: 'ny', lon: -74.0, off: -5, lat: 40.7, col: '#4ea8ff' },
+  { k: 'tok', lon: 139.7, off: 9, lat: 35.7, col: '#ff6b8a' },
+  { k: 'syd', lon: 151.2, off: 10, lat: -33.9, col: '#5be3a0' },
+];
+const ISS_MIN = 92, ISS_RING = 1.3;          // orbit time in minutes (well known); ring radius / Earth radius (drawn, not real)
+const mod = (x, m) => ((x % m) + m) % m;
+const pad = (n) => String(n).padStart(2, '0');
+const clock = (h) => { const m = Math.floor(mod(h, 24) * 60 + 1e-6) % 1440; return `${pad(Math.floor(m / 60))}:${pad(m % 60)}`; };
+const phaseOf = (s) => (s >= 5 && s < 7 ? 'rise' : s >= 7 && s < 17 ? 'day' : s >= 17 && s < 19 ? 'set' : 'night');
+const EMO = { night: '🌙', rise: '🌅', day: '☀️', set: '🌇' };
+const sinAlt = (s) => Math.sin(Math.PI * (s - 6) / 12);
+const toA = (c) => (typeof c === 'string' ? [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16)) : c);
+const mixA = (a, b, t) => { a = toA(a); b = toA(b); return a.map((v, i) => lerp(v, b[i], t)); };
+const css = (a) => `rgb(${a.map(Math.round).join(',')})`;
+function skyCols(s) {
+  const dw = clamp((s + 0.15) / 0.5, 0, 1), tw = clamp(1 - Math.abs(s - 0.05) / 0.28, 0, 1) * 0.85;
+  return { top: mixA('#060a1f', '#2f78d6', dw), hor: mixA(mixA('#101a3d', '#a9d6ff', dw), '#ff8a4a', tw), dw };
+}
+
+const S = { t: 9, d: 0, m: 0, city: 0, play: true, drag: false, answered: store.get('day-night:asked', false), answer: null, secret: null, geo: null };
+const utc = () => S.t - 1;                                  // S.t is the clock in Budapest (UTC+1)
+const sol = (c) => mod(utc() + c.lon / 15, 24);              // local solar hour from longitude
+const zoneH = (c) => mod(utc() + c.off, 24);                 // clock hour in the city's standard time zone
+const solarTarget = (hr) => mod(hr - CITIES[0].lon / 15 + 1, 24); // Budapest clock at which Budapest has solar hour `hr`
+
+const lab = shell({ key: 'day-night', T, topics: TOPICS, views: ['spin', 'sky', 'zones'], onLang: () => render(), onView: () => { S.secret = null; render(); } });
+const secret = secretLab('day-night', () => ({
+  secrets: [{ emo: '🧊', title: T[lang].secrets.stop[0], desc: T[lang].secrets.stop[1] }, { emo: '🛰️', title: T[lang].secrets.iss[0], desc: T[lang].secrets.iss[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+// 3. Controls ------------------------------------------------------------------------------------------------------
+$('ctrlBody').innerHTML = `<div class="row"><button class="chip" id="play"></button><input type="range" class="big" id="scrub" min="0" max="1439" step="1" value="540"></div>
+  <div class="chips" id="chips"></div><div class="chips" id="cities"></div>`;
+const MODE = () => (S.secret === 'stop' ? { max: 365, get: () => S.d, set: (v) => { S.d = v; }, rate: 30 }
+  : S.secret === 'iss' ? { max: 300, get: () => S.m, set: (v) => { S.m = v; }, rate: 28 }
+  : { max: 1439, get: () => mod(S.t, 24) * 60, set: (v) => { S.t = v / 60; }, rate: 72 });
+$('scrub').addEventListener('input', () => { MODE().set(+$('scrub').value); S.play = false; sfx.tick(); syncPlay(); });
+$('play').onclick = () => { S.play = !S.play; sfx.click(); syncPlay(); };
+function syncPlay() { $('play').textContent = S.play ? T[lang].chips.pause : T[lang].chips.play; }
+$('chips').addEventListener('click', (ev) => {
+  const k = ev.target.closest('.chip')?.dataset.k; if (!k) return;
+  if (k === 'stop' || k === 'iss') { if (!secret.unlocked()) return secret.open(); S.secret = S.secret === k ? null : k; S.play = true; }
+  else { S.secret = null; S.play = false; S.t = solarTarget({ noon: 12, set: 18, mid: 0, rise: 6 }[k.slice(2)]); }
+  sfx.click(); render();
+});
+$('cities').addEventListener('click', (ev) => {
+  const k = ev.target.closest('.chip')?.dataset.c; if (k === undefined) return;
+  S.city = +k; sfx.click(); render();
+});
+
+const ask = Object.assign(document.createElement('div'), { className: 'ask card' });
+$('overlay').append(ask);
+ask.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  if (b.dataset.a) { S.answer = +b.dataset.a; (S.answer === 1 ? sfx.good : sfx.bad)(); }
+  else { S.answered = true; store.set('day-night:asked', true); }
+  render();
+});
+
+// 4. Words on screen ---------------------------------------------------------------------------------------------
+let lastSig = '';
+function render() { lastSig = ''; paintStatic(); refresh(); }
+function paintStatic() {
+  const t = T[lang], open = secret.unlocked();
+  const sc = (k) => `<button class="chip secret ${open ? 'open' : ''} ${S.secret === k ? 'on' : ''}" data-k="${k}">${open ? esc(t.secrets[k][0]) : '🔒 ???'}</button>`;
+  $('chips').innerHTML = [sc('stop'), ...['rise', 'noon', 'set', 'mid'].map((k) => `<button class="chip" data-k="p:${k}">${esc(t.chips[k])}</button>`), sc('iss')].join('');
+  $('cities').style.display = lab.view === 'sky' && !S.secret ? '' : 'none';
+  $('cities').innerHTML = CITIES.map((c, i) => `<button class="chip ${i === S.city ? 'on' : ''}" data-c="${i}">${esc(t.city[c.k])}</button>`).join('');
+  const md = MODE(), sc2 = $('scrub'); sc2.max = md.max; sc2.value = md.get(); syncPlay();
+  ask.style.display = S.answered ? 'none' : '';
+  if (!S.answered) ask.innerHTML = S.answer === null
+    ? `<div class="q">${esc(t.ask)}</div><div class="opts">${t.opts.map((o, i) => `<button data-a="${i}">${esc(o)}</button>`).join('')}</div>`
+    : `<div class="q" style="color:${S.answer === 1 ? 'var(--ok)' : 'var(--wip)'}">${esc(S.answer === 1 ? t.right : t.wrong)}</div><div class="opts"><button>${esc(t.go)} →</button></div>`;
+}
+function refresh() {
+  const t = T[lang];
+  let val, sub, pill, color, glow, st;
+  if (S.secret === 'stop') {
+    const d = Math.min(365, Math.round(S.d)), day = Math.cos(2 * Math.PI * S.d / 365) > 0;
+    val = t.sc.stopVal(d); sub = t.sc.stopSub; pill = t.phase[day ? 'day' : 'night'];
+    color = day ? '#ffb347' : '#7b8cff'; glow = day ? 'rgba(255,190,80,.22)' : 'rgba(100,120,255,.22)';
+    st = { emo: '🧊', title: t.sc.stopTitle, lead: t.sc.stopLead[day ? 'day' : 'night'], body: t.sc.stopBody, extra: `<div class="fine">${esc(t.fine.stop)}</div>` };
+  } else if (S.secret === 'iss') {
+    const i = issState(S.m);
+    val = t.sc.issVal(Math.floor(S.m / 60), pad(Math.floor(S.m % 60))); sub = t.sc.issSub(i.rises); pill = i.sun ? t.sc.sun : t.sc.shade;
+    color = i.sun ? '#ffb347' : '#7b8cff'; glow = i.sun ? 'rgba(255,190,80,.22)' : 'rgba(100,120,255,.22)';
+    st = { emo: '🛰️', title: t.sc.issTitle, lead: t.sc.issLead, body: t.sc.issBody, extra: `<div class="fine">${esc(t.fine.iss)}</div>` };
+  } else {
+    const fc = lab.view === 'sky' ? CITIES[S.city] : CITIES[0], ph = phaseOf(sol(fc)), up = sinAlt(sol(fc)) > 0;
+    val = clock(zoneH(fc)); sub = t.clockIn(t.loc[fc.k]); pill = `${EMO[ph]} ${t.phase[ph]}`;
+    color = up ? '#ffb347' : '#7b8cff'; glow = up ? 'rgba(255,190,80,.22)' : 'rgba(100,120,255,.22)';
+    let body = t.body[lab.view], extra = `<div class="fine">${esc(t.fine[lab.view])}</div>`;
+    if (lab.view === 'spin') body += ` ${t.dayIn} ${CITIES.filter((c) => sinAlt(sol(c)) > 0).map((c) => t.city[c.k]).join(', ') || t.none}`;
+    if (lab.view === 'sky') extra = `<div class="fine">${esc(fc.lat < 0 ? t.lookN : t.lookS)}</div>` + extra;
+    st = { emo: EMO[ph], title: lab.view === 'zones' ? `${t.city.bud} · ${t.bpClock}` : `${t.city[fc.k]} · ${t.phase[ph]}`, lead: lab.view === 'zones' ? t.body.zones : t.lead[ph], body: lab.view === 'zones' ? '' : body, extra };
+    if (lab.view === 'zones') { st.title = t.views.zones.replace(/^\S+\s/, ''); st.lead = t.body.zones; st.body = ''; }
+  }
+  const sig = JSON.stringify([lang, lab.view, S.secret, val, sub, pill, st.title, st.lead, st.body, st.extra]);
+  if (sig === lastSig) return; lastSig = sig;
+  lab.setReadout(val, sub, pill, color); lab.setGlow(glow); lab.setState(st);
+}
+function issState(m) {
+  const as = Math.asin(1 / ISS_RING), psi = 2 * Math.PI * m / ISS_MIN;
+  const shade = Math.cos(psi) < 0 && Math.abs(Math.sin(psi)) < 1 / ISS_RING;
+  const exit = (Math.PI + as) / (2 * Math.PI) * ISS_MIN;                     // minutes until the first sunrise (ISS starts on the sunny side)
+  return { sun: !shade, rises: m >= exit ? Math.floor((m - exit) / ISS_MIN) + 1 : 0, since: m >= exit ? mod(m - exit, ISS_MIN) : 99, psi };
+}
+
+// 5. Drawing -------------------------------------------------------------------------------------------------------
+function rr(c, x, y, w, h, r) { c.beginPath(); if (c.roundRect) c.roundRect(x, y, w, h, r); else c.rect(x, y, w, h); }
+function drawSun(c, x, y, r, time) {
+  const g = c.createRadialGradient(x, y, r * 0.4, x, y, r * 3);
+  g.addColorStop(0, 'rgba(255,200,90,.55)'); g.addColorStop(1, 'rgba(255,200,90,0)');
+  c.fillStyle = g; c.beginPath(); c.arc(x, y, r * 3, 0, 7); c.fill();
+  c.strokeStyle = 'rgba(255,210,110,.8)'; c.lineWidth = Math.max(2, r * 0.1); c.lineCap = 'round';
+  for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6 + time * 0.2; c.beginPath(); c.moveTo(x + Math.cos(a) * r * 1.2, y + Math.sin(a) * r * 1.2); c.lineTo(x + Math.cos(a) * r * 1.55, y + Math.sin(a) * r * 1.55); c.stroke(); }
+  c.fillStyle = '#ffd166'; c.beginPath(); c.arc(x, y, r, 0, 7); c.fill();
+}
+function drawRays(c, sx, cx, cy, R, time) {
+  c.save(); c.strokeStyle = 'rgba(255,209,102,.4)'; c.lineWidth = 2; c.setLineDash([8, 9]); c.lineDashOffset = -time * 24;
+  for (const j of [-0.8, -0.45, 0, 0.45, 0.8]) { const ex = cx + Math.sqrt(1 - j * j) * R + 4; c.beginPath(); c.moveTo(sx, cy + j * R); c.lineTo(ex, cy + j * R); c.stroke(); }
+  c.restore();
+}
+// rot: screen angle of the Greenwich meridian; sunA: screen angle of the direction to the Sun
+function drawEarth(c, x, y, R, rot, sunA, words) {
+  c.save(); c.beginPath(); c.arc(x, y, R, 0, 7); c.clip();
+  const g = c.createRadialGradient(x - R * 0.3, y - R * 0.3, R * 0.1, x, y, R); g.addColorStop(0, '#2a6fb8'); g.addColorStop(1, '#14427a');
+  c.fillStyle = g; c.fillRect(x - R, y - R, 2 * R, 2 * R);
+  for (let i = 0; i < 24; i++) {
+    const a0 = rot - (i + 0.5) * Math.PI / 12, a1 = rot - (i - 0.5) * Math.PI / 12;
+    if (i % 2 === 0) { c.fillStyle = 'rgba(255,255,255,.07)'; c.beginPath(); c.moveTo(x, y); c.arc(x, y, R, a0, a1); c.closePath(); c.fill(); }
+    c.strokeStyle = i === 0 ? 'rgba(255,255,255,.55)' : 'rgba(255,255,255,.16)'; c.lineWidth = i === 0 ? 1.6 : 1;
+    c.beginPath(); c.moveTo(x, y); c.lineTo(x + Math.cos(a0) * R, y + Math.sin(a0) * R); c.stroke();
+  }
+  c.translate(x, y); c.rotate(sunA);
+  const n = c.createLinearGradient(R * 0.1, 0, -R * 0.1, 0); n.addColorStop(0, 'rgba(3,5,24,0)'); n.addColorStop(1, 'rgba(3,5,24,.66)');
+  c.fillStyle = n; c.fillRect(-R, -R, 2 * R, 2 * R);
+  c.restore();
+  if (words) {
+    c.save(); c.font = `900 ${Math.max(9, R * 0.13)}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = 'rgba(255,255,255,.4)';
+    c.fillText(words[0], x + Math.cos(sunA) * R * 0.55, y + Math.sin(sunA) * R * 0.55); c.fillText(words[1], x - Math.cos(sunA) * R * 0.55, y - Math.sin(sunA) * R * 0.55); c.restore();
+  }
+  c.strokeStyle = 'rgba(130,180,255,.6)'; c.lineWidth = 2; c.beginPath(); c.arc(x, y, R, 0, 7); c.stroke();
+  c.fillStyle = '#fff'; c.beginPath(); c.arc(x, y, Math.max(2, R * 0.03), 0, 7); c.fill();
+}
+function dot(c, x, y, col, r) { c.fillStyle = col; c.strokeStyle = '#fff'; c.lineWidth = 2; c.beginPath(); c.arc(x, y, r, 0, 7); c.fill(); c.stroke(); }
+
+function drawSpin(c, w, h, time) {
+  const t = T[lang], R = Math.min(w * 0.23, h * 0.3), cx = w * 0.44, cy = h * 0.5, sr = clamp(h * 0.09, 16, 32), sx = w - sr - 10;
+  S.geo = { cx, cy };
+  const rotG = -(utc() - 12) * Math.PI / 12;
+  drawSun(c, sx, cy, sr, time);
+  drawRays(c, sx - sr * 1.7, cx, cy, R, time);
+  drawEarth(c, cx, cy, R, rotG, 0, [t.dayW, t.nightW]);
+  // spin arrow around the pole: the Earth turns anticlockwise seen from above the North Pole (west to east)
+  const ar = R * 0.2, e = -2.0; c.strokeStyle = '#fff'; c.lineWidth = 2; c.lineCap = 'round';
+  c.beginPath(); c.arc(cx, cy, ar, -0.3, e, true); c.stroke();
+  const tx = cx + ar * Math.cos(e), ty = cy + ar * Math.sin(e), dx = Math.sin(e), dy = -Math.cos(e), s = ar * 0.45;
+  c.beginPath(); c.moveTo(tx - dx * s - dy * s * 0.5, ty - dy * s + dx * s * 0.5); c.lineTo(tx, ty); c.lineTo(tx - dx * s + dy * s * 0.5, ty - dy * s - dx * s * 0.5); c.stroke();
+  const fs = clamp(w / 30, 10.5, 13);
+  c.font = `800 ${fs}px Nunito, system-ui, sans-serif`; c.textBaseline = 'middle';
+  const boxes = CITIES.map((ct) => {
+    const a = rotG - ct.lon * Math.PI / 180, nm = t.city[ct.k], bw = Math.max(c.measureText(nm).width + fs * 2.1, fs * 4.6);
+    return { ct, a, nm, bw, bh: fs * 2.7, x: 0, y: 0 };
+  });
+  const place = (b, extra) => {
+    const ux = Math.cos(b.a), uy = Math.sin(b.a), d = Math.abs(ux) * b.bw / 2 + Math.abs(uy) * b.bh / 2 + 8 + extra;
+    b.x = clamp(cx + ux * (R + d), b.bw / 2 + 2, w - b.bw / 2 - 2); b.y = clamp(cy + uy * (R + d), b.bh / 2 + 2, h - b.bh / 2 - 2);
+  };
+  const hit = (p, q) => Math.abs(p.x - q.x) < (p.bw + q.bw) / 2 + 3 && Math.abs(p.y - q.y) < (p.bh + q.bh) / 2 + 3;
+  boxes.forEach((b, i) => { let ex = 0; place(b, 0); while (ex < 90 && boxes.slice(0, i).some((q) => hit(b, q))) { ex += 8; place(b, ex); } });
+  for (const b of boxes) {
+    const { ct } = b, hr = sol(ct), ph = phaseOf(hr);
+    dot(c, cx + Math.cos(b.a) * R, cy + Math.sin(b.a) * R, ct.col, Math.max(4.5, R * 0.05));
+    rr(c, b.x - b.bw / 2, b.y - b.bh / 2, b.bw, b.bh, 8); c.fillStyle = 'rgba(10,14,35,.82)'; c.fill(); c.strokeStyle = ct.col; c.lineWidth = 1.5; c.stroke();
+    c.textAlign = 'center'; c.font = `${fs * 1.45}px serif`; c.fillText(EMO[ph], b.x - b.bw / 2 + fs * 1.0, b.y);
+    c.textAlign = 'left'; c.fillStyle = '#fff'; c.font = `800 ${fs}px Nunito, system-ui, sans-serif`; c.fillText(b.nm, b.x - b.bw / 2 + fs * 1.85, b.y - fs * 0.7);
+    c.fillStyle = ct.col; c.font = `900 ${fs * 1.05}px Nunito, system-ui, sans-serif`; c.fillText(clock(zoneH(ct)), b.x - b.bw / 2 + fs * 1.85, b.y + fs * 0.75);
+  }
+}
+
+function drawSky(c, w, h, time) {
+  const t = T[lang], ct = CITIES[S.city], hr = sol(ct), al = Math.PI * (hr - 6) / 12, sn = Math.sin(al), hy = h * 0.66, flip = ct.lat < 0 ? -1 : 1;
+  const { top, hor, dw } = skyCols(sn);
+  const g = c.createLinearGradient(0, 0, 0, hy); g.addColorStop(0, css(top)); g.addColorStop(1, css(hor)); c.fillStyle = g; c.fillRect(0, 0, w, hy);
+  c.fillStyle = '#fff';
+  const sa = clamp((0.15 - sn) / 0.4, 0, 1);
+  if (sa > 0) for (let i = 0; i < 46; i++) { const px = (Math.sin(i * 91.7) * 0.5 + 0.5) * w, py = (Math.sin(i * 53.3 + 1) * 0.5 + 0.5) * hy * 0.85; c.globalAlpha = sa * (0.4 + 0.5 * Math.sin(time * 2 + i)); c.fillRect(px, py, 1.6, 1.6); }
+  c.globalAlpha = 1;
+  const sr = clamp(h * 0.06, 14, 26), sxp = w * (0.5 - Math.cos(al) * 0.44 * flip), syp = hy - sn * hy * 0.74;
+  if (syp - sr < hy) drawSun(c, sxp, syp, sr, time);
+  const gg = c.createLinearGradient(0, hy, 0, h); gg.addColorStop(0, css(mixA('#0b1511', '#3b7d4a', dw))); gg.addColorStop(1, css(mixA('#060a08', '#1f4a2b', dw)));
+  c.fillStyle = gg; c.fillRect(0, hy, w, h - hy);
+  c.fillStyle = 'rgba(255,255,255,.35)'; c.fillRect(0, hy, w, 1.5);
+  const fs = clamp(w / 28, 11, 14); c.font = `900 ${fs * 1.1}px Nunito, system-ui, sans-serif`; c.fillStyle = '#fff'; c.textBaseline = 'alphabetic';
+  c.textAlign = 'left'; c.fillText(flip > 0 ? t.E : t.W, 10, hy - 8); c.textAlign = 'right'; c.fillText(flip > 0 ? t.W : t.E, w - 10, hy - 8);
+  c.textAlign = 'center'; c.fillStyle = 'rgba(255,255,255,.7)'; c.fillText(flip > 0 ? t.S : t.N, w / 2, hy - 8);
+  // the person
+  const px = w / 2, fy = hy + (h - hy) * 0.55, ph = clamp(h * 0.17, 30, 64);
+  c.fillStyle = 'rgba(0,0,0,.28)'; c.beginPath(); c.ellipse(px, fy, ph * 0.3, ph * 0.06, 0, 0, 7); c.fill();
+  c.strokeStyle = '#ffe3c4'; c.lineWidth = Math.max(2.5, ph * 0.07); c.lineCap = 'round'; c.lineJoin = 'round';
+  c.beginPath(); c.moveTo(px - ph * 0.13, fy); c.lineTo(px, fy - ph * 0.42); c.lineTo(px + ph * 0.13, fy); c.moveTo(px, fy - ph * 0.42); c.lineTo(px, fy - ph * 0.78);
+  c.moveTo(px - ph * 0.2, fy - ph * 0.48); c.lineTo(px, fy - ph * 0.7); c.lineTo(px + ph * 0.2, fy - ph * 0.48); c.stroke();
+  c.fillStyle = '#ffe3c4'; c.beginPath(); c.arc(px, fy - ph * 0.9, ph * 0.12, 0, 7); c.fill();
+  c.fillStyle = 'rgba(255,255,255,.75)'; c.font = `800 ${fs}px Nunito, system-ui, sans-serif`; c.fillText(t.you, px, fy + fs + 4);
+  // inset: where you stand on the spinning Earth, with the horizon as a tangent line
+  const ri = clamp(Math.min(w, h) * 0.13, 26, 48), ix = ri + 14, iy = h - ri - 12, rotG = -(utc() - 12) * Math.PI / 12, a = rotG - ct.lon * Math.PI / 180;
+  drawEarth(c, ix, iy, ri, rotG, 0, null);
+  const dx = ix + Math.cos(a) * ri, dy = iy + Math.sin(a) * ri, tx = -Math.sin(a), ty = Math.cos(a);
+  c.strokeStyle = '#fff'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(dx - tx * ri * 0.7, dy - ty * ri * 0.7); c.lineTo(dx + tx * ri * 0.7, dy + ty * ri * 0.7); c.stroke();
+  dot(c, dx, dy, ct.col, 4);
+  c.font = `${fs * 1.3}px serif`; c.textAlign = 'left'; c.fillStyle = '#fff'; c.fillText('☀️', ix + ri + 8, iy + 4);
+}
+
+function drawZones(c, w, h, time) {
+  const t = T[lang], u = utc(), slot = w / 4, rc = clamp(Math.min(slot * 0.36, h * 0.13), 16, 40), ys = h * 0.62, hs = h * 0.16, bw = w / 24;
+  const fs = clamp(w / 34, 10, 13);
+  // bands: local clock hour in each one-hour band (UTC offset -11 ... +12)
+  for (let k = -11; k <= 12; k++) {
+    const x0 = (k + 11) * bw, hrk = mod(u + k, 24), { top, hor } = skyCols(sinAlt(hrk));
+    const gr = c.createLinearGradient(0, ys, 0, ys + hs); gr.addColorStop(0, css(top)); gr.addColorStop(1, css(hor)); c.fillStyle = gr; c.fillRect(x0, ys, bw + 0.5, hs);
+    c.strokeStyle = 'rgba(255,255,255,.12)'; c.lineWidth = 1; c.strokeRect(x0, ys, bw, hs);
+    if (bw >= 13) { c.fillStyle = '#fff'; c.font = `800 ${Math.min(11, bw * 0.62)}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(String(Math.floor(hrk)), x0 + bw / 2, ys + hs / 2); }
+    if (bw >= 22 || k % 3 === 0) { c.fillStyle = 'rgba(255,255,255,.55)'; c.font = `700 ${Math.min(10.5, bw * 0.5 + 2)}px Nunito, sans-serif`; c.textBaseline = 'alphabetic'; c.fillText(k > 0 ? `+${k}` : k < 0 ? `−${-k}` : '0', x0 + bw / 2, ys + hs + 13); }
+  }
+  const kk = mod(12 - u + 11.5, 24) - 11.5, sx = (kk + 11.5) * bw;     // the Sun is overhead (local noon) in this band and slides west
+  c.font = `${fs * 2}px serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('☀️', sx, ys + hs + 36 + (bw < 22 ? 0 : 4));
+  // clocks
+  CITIES.forEach((ct, i) => {
+    const x = slot * (i + 0.5), yc = 30 + rc, hrz = zoneH(ct), ph = phaseOf(sol(ct)), day = sinAlt(sol(ct)) > 0;
+    c.fillStyle = '#fff'; c.font = `800 ${fs}px Nunito, system-ui, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(t.city[ct.k], x, 14);
+    c.fillStyle = day ? '#fdf3e0' : '#1a2248'; c.strokeStyle = ct.col; c.lineWidth = 3; c.beginPath(); c.arc(x, yc, rc, 0, 7); c.fill(); c.stroke();
+    c.strokeStyle = day ? 'rgba(20,20,40,.45)' : 'rgba(255,255,255,.45)'; c.lineWidth = 1;
+    for (let j = 0; j < 12; j++) { const a = j * Math.PI / 6; c.beginPath(); c.moveTo(x + Math.cos(a) * rc * 0.82, yc + Math.sin(a) * rc * 0.82); c.lineTo(x + Math.cos(a) * rc * 0.94, yc + Math.sin(a) * rc * 0.94); c.stroke(); }
+    const hand = (ang, len, wd) => { c.lineWidth = wd; c.lineCap = 'round'; c.beginPath(); c.moveTo(x, yc); c.lineTo(x + Math.cos(ang) * rc * len, yc + Math.sin(ang) * rc * len); c.stroke(); };
+    c.strokeStyle = day ? '#1a2248' : '#fff'; hand((hrz % 12) / 12 * 2 * Math.PI - Math.PI / 2, 0.5, Math.max(2, rc * 0.09)); hand((hrz % 1) * 2 * Math.PI - Math.PI / 2, 0.78, Math.max(1.5, rc * 0.06));
+    c.font = `${fs * 1.3}px serif`; c.fillText(EMO[ph], x + rc * 0.62, yc - rc * 0.7 - 2);
+    c.fillStyle = ct.col; c.font = `900 ${fs * 1.2}px Nunito, system-ui, sans-serif`; c.fillText(clock(hrz), x, yc + rc + 14);
+    const dd = Math.floor((S.t - 1 + ct.off) / 24);
+    c.fillStyle = 'rgba(255,255,255,.65)'; c.font = `700 ${fs * 0.9}px Nunito, system-ui, sans-serif`; c.fillText(dd < 0 ? t.yday : dd > 0 ? t.tmrw : t.today, x, yc + rc + 14 + fs * 1.25);
+    const bx = (ct.off + 11.5) * bw, y0 = yc + rc + 14 + fs * 1.25 + fs * 0.9;
+    c.strokeStyle = ct.col; c.lineWidth = 1.5; c.setLineDash([4, 3]); c.beginPath(); c.moveTo(x, y0); c.lineTo(bx, ys); c.stroke(); c.setLineDash([]);
+    c.lineWidth = 3; c.strokeRect(ct.off * bw + 11 * bw, ys, bw, hs);
+  });
+}
+
+function drawStop(c, w, h, time) {
+  const t = T[lang], cx = w / 2, cy = h * 0.5, ro = Math.min(w * 0.34, h * 0.37), sr = ro * 0.24, re = ro * 0.23;
+  const ang = -2 * Math.PI * S.d / 365, ex = cx + Math.cos(ang) * ro, ey = cy + Math.sin(ang) * ro, sunA = ang + Math.PI;
+  c.strokeStyle = 'rgba(255,255,255,.22)'; c.lineWidth = 1.5; c.setLineDash([6, 7]); c.beginPath(); c.arc(cx, cy, ro, 0, 7); c.stroke(); c.setLineDash([]);
+  drawSun(c, cx, cy, sr, time);
+  drawEarth(c, ex, ey, re, 0, sunA, null);                       // no spin: the pattern never turns
+  const pa = Math.PI, day = Math.cos(pa - sunA) > 0;             // the pin points to a fixed direction in space
+  dot(c, ex + Math.cos(pa) * re, ey + Math.sin(pa) * re, day ? '#ffd166' : '#7b8cff', Math.max(4.5, re * 0.15));
+  const fs = clamp(w / 30, 11, 14); c.fillStyle = '#fff'; c.font = `800 ${fs}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText(`📍 ${t.phase[day ? 'day' : 'night']}`, ex, ey + (ey > cy ? re + fs * 1.4 : -re - fs * 1.4));
+  c.fillStyle = 'rgba(255,255,255,.6)'; c.fillText(t.sc.sunW, cx, cy + sr * 1.9);
+}
+
+function drawIss(c, w, h, time) {
+  const t = T[lang], R = Math.min(w * 0.2, h * 0.22), cx = w * 0.42, cy = h * 0.5, r = R * ISS_RING, sr = clamp(h * 0.09, 16, 32), sx = w - sr - 10, i = issState(S.m);
+  const sg = c.createLinearGradient(cx, 0, 0, 0); sg.addColorStop(0, 'rgba(0,0,12,.5)'); sg.addColorStop(1, 'rgba(0,0,12,.05)');
+  c.fillStyle = sg; c.fillRect(0, cy - R, cx, 2 * R);
+  drawSun(c, sx, cy, sr, time); drawRays(c, sx - sr * 1.7, cx, cy, R, time);
+  drawEarth(c, cx, cy, R, -(S.m / 60) * Math.PI / 12, 0, null);
+  c.strokeStyle = 'rgba(255,255,255,.3)'; c.lineWidth = 1.5; c.setLineDash([5, 6]); c.beginPath(); c.arc(cx, cy, r, 0, 7); c.stroke(); c.setLineDash([]);
+  const px = cx + Math.cos(i.psi) * r, py = cy - Math.sin(i.psi) * r, fs = clamp(w / 28, 12, 16);
+  c.fillStyle = i.sun ? 'rgba(255,209,102,.35)' : 'rgba(123,140,255,.3)'; c.beginPath(); c.arc(px, py, fs * 1.2, 0, 7); c.fill();
+  c.font = `${fs * 1.6}px serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('🛰️', px, py);
+  if (i.since < 6) { c.font = `${fs * 1.8}px serif`; c.fillText('🌅', px + (px > cx ? 1 : -1) * fs * 2.2, py - fs * 1.6); }
+  c.fillStyle = 'rgba(255,255,255,.7)'; c.font = `800 ${fs * 0.9}px Nunito, sans-serif`; c.fillText('ISS', px, py + fs * 1.9);
+}
+
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  if (S.play && !S.drag) {
+    if (S.secret === 'stop') S.d = mod(S.d + dt * 30, 365);
+    else if (S.secret === 'iss') S.m = mod(S.m + dt * 28, 300);
+    else S.t = mod(S.t + dt * 1.2, 24);
+    const md = MODE(); $('scrub').value = md.get();
+  }
+  if (S.secret === 'stop') drawStop(c, w, h, time); else if (S.secret === 'iss') drawIss(c, w, h, time);
+  else if (lab.view === 'sky') drawSky(c, w, h, time); else if (lab.view === 'zones') drawZones(c, w, h, time); else drawSpin(c, w, h, time);
+  refresh();
+});
+
+// drag the Earth: turning it by hand changes the time
+let lastAng = 0;
+$('cv').addEventListener('pointerdown', (ev) => {
+  if (S.secret || lab.view !== 'spin' || !S.geo) return;
+  const r = $('cv').getBoundingClientRect(); lastAng = Math.atan2(ev.clientY - r.top - S.geo.cy, ev.clientX - r.left - S.geo.cx);
+  S.drag = true; try { $('cv').setPointerCapture(ev.pointerId); } catch { /* ignore */ }
+});
+$('cv').addEventListener('pointermove', (ev) => {
+  if (!S.drag) return;
+  const r = $('cv').getBoundingClientRect(), a = Math.atan2(ev.clientY - r.top - S.geo.cy, ev.clientX - r.left - S.geo.cx);
+  let da = a - lastAng; if (da > Math.PI) da -= 2 * Math.PI; if (da < -Math.PI) da += 2 * Math.PI;
+  lastAng = a; S.t = mod(S.t - da * 12 / Math.PI, 24); S.play = false; syncPlay(); $('scrub').value = MODE().get();
+});
+const endDrag = () => { S.drag = false; };
+$('cv').addEventListener('pointerup', endDrag); $('cv').addEventListener('pointercancel', endDrag);
+render();
+</script>
+</body>
+</html>
