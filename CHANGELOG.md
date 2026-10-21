@@ -8,6 +8,7 @@ Dataset releases are versioned independently of the taxonomy `version` field
 
 ### Added
 - The viewer installs as a home-screen app (web manifest, icons, service worker); the labs work offline after the first visit. The chosen language is remembered for app launches.
+- Marble's teaching research (`data/teaching-research.json`, 1,049 records, upstream export of 2026-10-19) and its schema. 1,048 records match topics in this fork; the validator checks the record count and the list of unmatched topic IDs.
 
 ## [1.0.0] — 2026-07-08
 
