@@ -50,8 +50,12 @@ SUBJECTS = {
     'jp': {'国語': ENGLISH + LANG, '算数': COMPUTING, '数学': MATHS, '理科': SCIENCE, '社会': HISTORY + GEO + CIVICS + SOCIAL,
            '生活': WORLD, '家庭': ['Life Skills', 'Personal & Social Development'],
            '技術・家庭': ['Life Skills', 'Personal & Social Development'] + COMPUTING + SCIENCE},
+    'ee': {'Eesti keel': ENGLISH + LANG, 'Kirjandus': ENGLISH + LANG, 'Matemaatika': MATHS, 'Loodusõpetus': SCIENCE + GEO,
+           'Bioloogia': SCIENCE, 'Füüsika': SCIENCE, 'Keemia': SCIENCE, 'Geograafia': GEO + SCIENCE,
+           'Inimeseõpetus': SOCIAL, 'Ajalugu': HISTORY, 'Ühiskonnaõpetus': SOCIAL + CIVICS, 'Informaatika': COMPUTING,
+           'Tööõpetus ja tehnoloogia': ['Life Skills', 'Personal & Social Development'] + SCIENCE},
 }
-COUNTRIES = ('ru', 'hu', 'rs', 'de', 'us', 'gb', 'sg', 'se', 'jp')
+COUNTRIES = ('ru', 'hu', 'rs', 'de', 'us', 'gb', 'sg', 'se', 'jp', 'ee')
 TEXT_CAP = 1200
 RU_MERGE = 700  # RU paragraphs are short; merge neighbours of the same section up to this size
 
