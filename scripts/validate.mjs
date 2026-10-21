@@ -89,6 +89,17 @@ for (const [name, meta] of Object.entries(manifest.files ?? {})) {
   check(actual === meta.sha256, `checksum mismatch for ${name}`);
 }
 
+// --- teaching research (copied from upstream; joins to our topics by topicId) ---
+const research = load('teaching-research.json');
+check(research.recordCount === research.records.length, `teaching research: recordCount != length`);
+check(manifest.counts.teachingResearch === research.records.length, `teaching research: manifest count != records`);
+const orphans = research.records.map((r) => r.topicId).filter((id) => !topicIds.has(id));
+const expectedOrphans = manifest.teachingResearch?.orphanTopicIds ?? [];
+check(
+  orphans.length === expectedOrphans.length && orphans.every((id) => expectedOrphans.includes(id)),
+  `teaching research: topicIds not in topics.json [${orphans}] != manifest orphanTopicIds [${expectedOrphans}]`,
+);
+
 // --- report -----------------------------------------------------------------
 if (errors.length) {
   console.error(`✗ ${errors.length} problem(s):`);
@@ -97,6 +108,7 @@ if (errors.length) {
 }
 console.log(
   `✓ valid — ${topics.topics.length} topics, ${deps.dependencies.length} dependencies, ` +
-    `${standardKeys.size} standards, ${clusters.clusters.length} clusters. ` +
+    `${standardKeys.size} standards, ${clusters.clusters.length} clusters, ` +
+    `${research.records.length} research records (${orphans.length} for topics not in this fork). ` +
     `Referential integrity + checksums OK.`,
 );
