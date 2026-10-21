@@ -24,6 +24,7 @@ CURRICULA = {
     'us': {'name': 'Common Core, NGSS, C3', 'url': 'https://www.thecorestandards.org/', 'grades': list(range(1, 10))},
     'gb': {'name': 'National curriculum in England (2013)', 'url': 'https://www.gov.uk/government/collections/national-curriculum', 'grades': list(range(1, 10))},
     'sg': {'name': 'MOE syllabuses: Mathematics (2021), Science (2023), Art (2024), Music (2023)', 'url': 'https://www.moe.gov.sg/primary/curriculum/syllabus', 'grades': list(range(1, 9))},
+    'se': {'name': 'Lgr22 (grundskolan)', 'url': 'https://www.skolverket.se/undervisning/grundskolan/laroplan-och-kursplaner-for-grundskolan', 'grades': list(range(1, 10))},
 }
 KS = {'1': '1-2', '2': '3-6', '3': '7-9'}  # England: key stage -> years
 
