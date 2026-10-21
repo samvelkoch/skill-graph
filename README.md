@@ -43,6 +43,7 @@ All data lives in [`data/`](data/) as UTF-8 JSON. See [`schema/`](schema/) for J
 | [`data/dependencies.json`](data/dependencies.json) | Prerequisite **edges** (`topicId` depends on `prerequisiteId`). |
 | [`data/curriculum-standards.json`](data/curriculum-standards.json) | The source curriculum standards, grouped by curriculum. |
 | [`data/clusters.json`](data/clusters.json) | Parent-friendly domain summaries. |
+| [`data/teaching-research.json`](data/teaching-research.json) | Marble's teaching research for 1,049 Mathematics and Science topics (`records[]`, joined by `topicId`): pedagogy, misconceptions, proposed activities, assessment and sources. Copied unchanged from upstream; it was exported against upstream's larger `topics.json`, so one record (`mt_HlNSurPVDp`, Line graphs) has no topic in this fork. Agent-authored guidance, not empirically validated; schema in [`schema/teaching-research.schema.json`](schema/teaching-research.schema.json). |
 | [`data/manifest.json`](data/manifest.json) | Counts, per-subject breakdown, per-file checksums. |
 
 ### A topic
@@ -107,7 +108,7 @@ This dataset is **multi-licensed** — read this before you use or redistribute 
 | Layer | License |
 |---|---|
 | **The database** — the collection, structure, IDs, topic↔topic and topic↔standard relationships | [**ODbL 1.0**](LICENSE) — free for research **and** commercial use, **attribution** required, **share-alike** (derivative *databases* must stay open under ODbL). |
-| **The textual content Marble authored** — topic `description`/`name`/`evidence`/`assessmentPrompt`, dependency `reason`s, cluster `summary`s | [**CC BY-SA 4.0**](LICENSE-CONTENT) — same spirit: attribution + share-alike. |
+| **The textual content Marble authored** — topic `description`/`name`/`evidence`/`assessmentPrompt`, dependency `reason`s, cluster `summary`s, teaching-research prose in `teaching-research.json` | [**CC BY-SA 4.0**](LICENSE-CONTENT) — same spirit: attribution + share-alike. |
 | **`curriculum-standards.json`** — extracted from third-party frameworks | **Not** Marble's to relicense. Each source is under **its own upstream license** — see [**PROVENANCE.md**](PROVENANCE.md). |
 
 **Why share-alike + still commercial-friendly:** ODbL distinguishes a *derivative database* (extend/modify the taxonomy → must stay open) from a *produced work* (use it inside a product, model, or app → stays yours). So you can build a commercial product on this without open-sourcing your product; you only owe back improvements to the *taxonomy itself*.
