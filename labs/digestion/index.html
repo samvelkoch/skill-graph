@@ -353,7 +353,9 @@ function drawFX(c, time) {
 
 // --- the body picture (journey, jobs and the upside-down secret) -----------------------------------------------
 // an x-ray child: opaque head and limbs, a see-through torso, organs inside. Light comes from the top left.
-const BODY = new Path2D('M -8 36 L -8 52 L -30 56 Q -46 58 -46 74 L -43 214 Q -42 228 -28 228 L 28 228 Q 42 228 43 214 L 46 74 Q 46 58 30 56 L 8 52 L 8 36 Z');
+// a child's torso: the neck flares into sloping, rounded shoulders; the sides ease in at the waist and out again at the hips
+const BODY = new Path2D('M -8 36 L -8.4 47 C -12 50.5 -25 53 -35 55.5 C -45 58 -51 63.5 -50.6 76 C -50.2 100 -47 128 -45.2 152 C -44.6 172 -50 190 -49.8 207 C -49.6 222 -42 229 -28 229 L 28 229 C 42 229 49.6 222 49.8 207 C 50 190 44.6 172 45.2 152 C 47 128 50.2 100 50.6 76 C 51 63.5 45 58 35 55.5 C 25 53 12 50.5 8.4 47 L 8 36 Z');
+const BODYX = new Path2D(); BODYX.rect(-400, -400, 800, 1200); BODYX.addPath(BODY); // clip with 'evenodd': everything outside the torso
 const VIEW = { K: 1, ox: 0, oy: 0, on: false };
 const MUSH = '#b9722e', DARK = '#5e3b1e';
 const SKIN_OUT = '#9A6A50';
@@ -476,7 +478,49 @@ function limb(c, x1, y1, x2, y2, r1, r2) { // a tapered capsule from (x1,y1) to 
   const a = Math.atan2(y2 - y1, x2 - x1);
   c.beginPath(); c.arc(x2, y2, r2, a - Math.PI / 2, a + Math.PI / 2); c.arc(x1, y1, r1, a + Math.PI / 2, a + Math.PI * 1.5); c.closePath(); c.fill(); c.stroke();
 }
-function hand(c, x, y) { c.beginPath(); c.arc(x, y, 5.6, 0, 7); c.fill(); c.stroke(); }
+// an arm and its mitten hand as one smooth outline: round shoulder, a swell at the biceps, a slight elbow, a slim wrist,
+// a palm that ends in a rounded tip. dy = +1 hangs down, -1 reaches up; a1/a2: angle of the upper arm / forearm from the vertical.
+const ARM_R = [[0, 8.2], [10, 8.4], [26, 7.2], [44, 5.9], [56, 6.1], [72, 5], [82, 4.2], [90, 5.6]];
+function armShape(sg, a1, a2, dy) {
+  const L1 = 44, L2 = 38, LH = 14, S = [sg * 51, 67];
+  const d1 = [sg * Math.sin(a1), dy * Math.cos(a1)], d2 = [sg * Math.sin(a2), dy * Math.cos(a2)];
+  const E = [S[0] + d1[0] * L1, S[1] + d1[1] * L1], Wr = [E[0] + d2[0] * L2, E[1] + d2[1] * L2], H = [Wr[0] + d2[0] * LH, Wr[1] + d2[1] * LH];
+  const pts = resample(catmull([S, E, Wr, H], 8), 1.2);
+  let len = 0; const cum = pts.map((p, i) => (i && (len += Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1])), len));
+  const U = cum.map((v) => v / len * (L1 + L2 + LH));
+  const R = (u) => {
+    if (u >= 90) return 5.6 * Math.sqrt(Math.max(0, 1 - ((u - 90) / 6) ** 2));
+    let k = 0; while (k < ARM_R.length - 2 && u > ARM_R[k + 1][0]) k++;
+    const [u0, r0] = ARM_R[k], [u1, r1] = ARM_R[k + 1], t = clamp((u - u0) / (u1 - u0), 0, 1);
+    return r0 + (r1 - r0) * t * t * (3 - 2 * t);
+  };
+  const N = pts.length, nr = pts.map((p, i) => {
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(N - 1, i + 1)], l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    return [-(b[1] - a[1]) / l, (b[0] - a[0]) / l, (b[0] - a[0]) / l, (b[1] - a[1]) / l]; // normal, tangent
+  });
+  const left = pts.map((p, i) => [p[0] + nr[i][0] * R(U[i]), p[1] + nr[i][1] * R(U[i])]);
+  const right = pts.map((p, i) => [p[0] - nr[i][0] * R(U[i]), p[1] - nr[i][1] * R(U[i])]);
+  const path = new Path2D(), [n0x, n0y] = nr[0], r0 = R(0);
+  path.moveTo(...left[0]); left.forEach((q) => path.lineTo(...q)); for (let i = N - 1; i >= 0; i--) path.lineTo(...right[i]);
+  path.arc(pts[0][0], pts[0][1], r0, Math.atan2(-n0y, -n0x), Math.atan2(n0y, n0x), true); path.closePath();
+  const iT = U.findIndex((u) => u >= 85), [nx, ny, tx, ty] = nr[iT];
+  const sI = nx * sg < 0 ? 1 : -1, ix = nx * sI, iy = ny * sI; // unit normal pointing at the body
+  const ax = pts[iT][0] + ix * 3.2, ay = pts[iT][1] + iy * 3.2, c38 = Math.cos(.66), s38 = Math.sin(.66);
+  const thumb = [ax, ay, ax + (tx * c38 + ix * s38) * 8.5, ay + (ty * c38 + iy * s38) * 8.5];
+  const sL = nr[Math.floor(N / 3)][0] < 0 ? 1 : -1, hi = new Path2D(); // a soft light streak down the left edge (light from the top left)
+  for (let i = 4; i < N; i++) { if (U[i] > 78) break; const q = [pts[i][0] + nr[i][0] * sL * R(U[i]) * .5, pts[i][1] + nr[i][1] * sL * R(U[i]) * .5]; i === 4 ? hi.moveTo(...q) : hi.lineTo(...q); }
+  return { path, thumb, hi };
+}
+const ARM_DOWN = { '-1': armShape(-1, .227, .332, 1), '1': armShape(1, .227, .332, 1) };   // A-pose: about 13-19 degrees out of the vertical
+const ARM_UP = { '-1': armShape(-1, .07, .06, -1), '1': armShape(1, .07, .06, -1) };      // handstand: straight up in body space, down on the floor
+function drawArm(c, A, skin) {
+  c.save(); c.lineCap = 'round';
+  c.strokeStyle = SKIN_OUT; c.lineWidth = 6.8; c.beginPath(); c.moveTo(A.thumb[0], A.thumb[1]); c.lineTo(A.thumb[2], A.thumb[3]); c.stroke();
+  c.strokeStyle = skin; c.lineWidth = 5; c.stroke();
+  c.restore();
+  c.fillStyle = skin; c.fill(A.path); c.stroke(A.path);
+  c.save(); c.globalAlpha *= .4; c.strokeStyle = '#fff'; c.lineWidth = 1.6; c.stroke(A.hi); c.restore();
+}
 const HEADP = new Path2D('M -19 20 C -19 0 19 0 19 20 C 19 34 10 43 0 43 C -10 43 -19 34 -19 20 Z');
 const HAIR = new Path2D('M -20 21 C -23 3 -8 -3 3 -2 C 15 -2 23 7 20 21 C 17 14 10 9 3 9 C -4 9 -14 11 -20 21 Z');
 function head(c, time) {
@@ -598,36 +642,37 @@ function kidney(c, x, y, rot, dir) { // a bean, curved in towards the middle of 
 
 // P: the pose of everything that moves: { hl, chew, apple, pieces, lump, blob, plug, poop, glass, kid, churn, flip, spawn }
 function drawBody(c, w, h, time, P) {
-  const flip = !!P.flip, K = flip ? Math.min(h * .86 / 266, w / 150) : Math.min(h / 262, w / 175);
+  const flip = !!P.flip, K = flip ? Math.min(h * .86 / 290, w / 150) : Math.min(h / 262, w / 182);
   const oy = (h - 262 * K) / 2 + 16 * K;
   VIEW.K = K; VIEW.ox = w / 2; VIEW.oy = oy; VIEW.on = !flip;
   c.save();
-  if (flip) { c.translate(w / 2, h * .5); c.scale(K, K); c.rotate(Math.PI); c.translate(0, -118); } else { c.translate(w / 2, oy); c.scale(K, K); }
+  if (flip) { c.translate(w / 2, h * .5); c.scale(K, K); c.rotate(Math.PI); c.translate(0, -117); } else { c.translate(w / 2, oy); c.scale(K, K); }
   c.lineCap = 'round'; c.lineJoin = 'round';
   const hl = P.hl ?? -1, dimA = (i) => (hl < 0 || hl === i ? 1 : .25), vesA = hl < 0 || hl === 3 || hl === 4 ? 1 : .25, bgA = hl < 0 ? 1 : .5;
   const skin = lin(c, -50, 30, 50, 210, [[0, '#F7D6B6'], [1, '#E2A982']]);
 
   if (flip) { // the floor under the hands
-    c.fillStyle = lin(c, 0, -12, 0, -70, [[0, '#DCC8A6'], [1, '#BFA982']]); c.fillRect(-w / K, -70, 2 * w / K, 58);
-    c.strokeStyle = '#9C8A66'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(-w / K, -12); c.lineTo(w / K, -12); c.stroke();
+    c.fillStyle = lin(c, 0, -29, 0, -90, [[0, '#DCC8A6'], [1, '#BFA982']]); c.fillRect(-w / K, -90, 2 * w / K, 61);
+    c.strokeStyle = '#9C8A66'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(-w / K, -29); c.lineTo(w / K, -29); c.stroke();
   }
-  // arms (and, upside down, the legs in the air)
-  c.save(); c.shadowColor = 'rgba(90,60,40,.3)'; c.shadowBlur = 7 * K; c.shadowOffsetY = 2.5 * K;
+  // arms (and, upside down, the legs in the air); only the part outside the torso, the torso itself stays see-through
+  c.save(); c.clip(BODYX, 'evenodd');
+  c.shadowColor = 'rgba(90,60,40,.3)'; c.shadowBlur = 7 * K; c.shadowOffsetY = 2.5 * K;
   c.fillStyle = skin; c.strokeStyle = SKIN_OUT; c.lineWidth = .9;
   for (const sg of [-1, 1]) {
+    drawArm(c, (flip ? ARM_UP : ARM_DOWN)[sg], skin);
     if (flip) {
-      limb(c, sg * 49, 64, sg * 54, -2, 7, 5); hand(c, sg * 54, -4);
-      limb(c, sg * 18, 222, sg * 22, 250, 9, 6.5);
-      c.save(); c.fillStyle = '#5F7FB8'; c.beginPath(); c.roundRect(sg * 22 - 7, 250, 14, 8, 4); c.fill(); c.stroke(); c.restore();
-    } else { limb(c, sg * 49, 64, sg * 72, 112, 7.2, 5); hand(c, sg * 74.5, 118.5); }
+      limb(c, sg * 24, 222, sg * 26, 252, 12, 8.5);
+      c.save(); c.fillStyle = '#5F7FB8'; c.beginPath(); c.roundRect(sg * 26 - 10, 252, 20, 9, 4); c.fill(); c.stroke(); c.restore();
+    }
   }
   c.restore();
 
   // the see-through torso, with a soft glow inside
   c.save(); c.globalAlpha = .4; c.fillStyle = skin; c.fill(BODY); c.restore();
   c.save(); c.clip(BODY);
-  c.fillStyle = rad(c, 0, 135, 0, 110, [[0, 'rgba(255,255,255,.7)'], [1, 'rgba(255,255,255,.08)']]); c.fillRect(-50, 30, 100, 205);
-  c.fillStyle = lin(c, -46, 0, 46, 0, [[0, 'rgba(255,255,255,.28)'], [.3, 'rgba(255,255,255,0)'], [.8, 'rgba(150,90,60,0)'], [1, 'rgba(150,90,60,.14)']]); c.fillRect(-50, 30, 100, 205);
+  c.fillStyle = rad(c, 0, 135, 0, 110, [[0, 'rgba(255,255,255,.7)'], [1, 'rgba(255,255,255,.08)']]); c.fillRect(-56, 30, 112, 205);
+  c.fillStyle = lin(c, -50, 0, 50, 0, [[0, 'rgba(255,255,255,.28)'], [.3, 'rgba(255,255,255,0)'], [.8, 'rgba(150,90,60,0)'], [1, 'rgba(150,90,60,.14)']]); c.fillRect(-56, 30, 112, 205);
   c.restore();
   c.strokeStyle = SKIN_OUT; c.lineWidth = 1; c.stroke(BODY);
 
@@ -873,6 +918,7 @@ function villiScene(c, w, h, time, dt) {
 const M_SEG = [.3, .3, 6, 1.5];                       // metres: mouth + oesophagus, stomach, small intestine, large intestine
 const M0 = [0, .3, .6, 6.6];
 const SPTS = [[...mouthR, ...oesR.slice(1)], stomR, siR, liR].map((a) => a.filter((_, i) => i % 2 === 0 || i === a.length - 1));
+const COIL_XC = (() => { const xs = SPTS.flat().map((q) => q[0]); return (Math.min(...xs) + Math.max(...xs)) / 2; })(); // the coil's own centre, so it can be centred
 const SW = [5, 13, 5, 12];                            // widths on the ground (not to scale)
 const unroll = (time) => (St.pick[0] === null ? 0 : ease(clamp((time - St.t0) / 2, 0, 1)));
 const reachM = (p) => 9 * clamp(1.25 * p - .25, 0, 1); // how much of the tube lies straight so far
@@ -938,12 +984,24 @@ function cross(c, x, y, r, kind) {
 }
 function stretchScene(c, w, h, time) {
   const t = T[lang].s, pad = clamp(w * .045, 12, 30), ppm = (w - 2 * pad) / 9, gy = h - 104, base = gy - 16;
-  const p = unroll(time), revealed = St.pick[0] !== null, boxH = clamp(h * .5, 100, 230), cs = boxH / 196;
+  const p = unroll(time), revealed = St.pick[0] !== null;
+  // the coil: centred, over the line, tall (about half the stage or more) with a margin above for the widest loop and its glow
+  const boxH = clamp(Math.min(h * .62, gy - 14 - 36), 100, 320), cs = boxH / 196, coilTop = gy - 14 - boxH, coilX = w / 2 - COIL_XC * cs;
   c.save(); c.globalAlpha = 1; c.lineCap = 'round'; c.lineJoin = 'round';
-  // the ground line: dashed and open-ended until the tube is stretched
-  c.strokeStyle = revealed ? 'rgba(120,95,65,.35)' : 'rgba(120,95,65,.5)'; c.lineWidth = 1.5; c.setLineDash(revealed ? [] : [6, 6]);
-  c.beginPath(); c.moveTo(pad, gy); c.lineTo(w - pad, gy); c.stroke(); c.setLineDash([]);
-  if (!revealed) { c.font = '800 26px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = INK; c.fillText('?', w - pad - 10, gy - 18); }
+  if (revealed) { // the ground line
+    c.strokeStyle = 'rgba(120,95,65,.35)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(pad, gy); c.lineTo(w - pad, gy); c.stroke();
+  } else { // a dimension line under the coil: |<-- ? -->|  "how long would this be laid out straight?"
+    const ax = pad + 6, bx = w - pad - 6, d = 7;
+    c.strokeStyle = 'rgba(120,95,65,.65)'; c.lineWidth = 1.6; c.setLineDash([6, 6]);
+    c.beginPath(); c.moveTo(ax + 4, gy); c.lineTo(w / 2 - 26, gy); c.moveTo(w / 2 + 26, gy); c.lineTo(bx - 4, gy); c.stroke(); c.setLineDash([]);
+    c.lineWidth = 1.8; c.beginPath();
+    c.moveTo(ax, gy - 9); c.lineTo(ax, gy + 9); c.moveTo(bx, gy - 9); c.lineTo(bx, gy + 9);
+    c.moveTo(ax + d, gy - d * .7); c.lineTo(ax, gy); c.lineTo(ax + d, gy + d * .7);
+    c.moveTo(bx - d, gy - d * .7); c.lineTo(bx, gy); c.lineTo(bx - d, gy + d * .7); c.stroke();
+    c.fillStyle = '#1E1A2B'; c.beginPath(); c.arc(w / 2, gy, 18, 0, 7); c.fill();
+    c.strokeStyle = GOLD; c.lineWidth = 1.5; c.stroke();
+    c.font = '800 22px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#fff'; c.fillText('?', w / 2, gy + 1);
+  }
   // the tube: every point slides from the coil to its place on the line
   const glowSI = St.pick[1] !== null;
   SPTS.forEach((pts, j) => {
@@ -951,7 +1009,7 @@ function stretchScene(c, w, h, time) {
     let tm = 0;
     pts.forEach(([x, y], i) => {
       const m = M0[j] + M_SEG[j] * i / (n - 1), tg = ease(clamp((p * 1.25 - m / 9) / .25, 0, 1));
-      line.push([lerp(pad + (x + 36) * cs, pad + m * ppm, tg), lerp(gy + 8 - boxH + (y - 28) * cs, gy, tg)]);
+      line.push([lerp(coilX + x * cs, pad + m * ppm, tg), lerp(coilTop + (y - 28) * cs, gy, tg)]);
       if (i === n >> 1) tm = tg;
     });
     const wid = lerp([6.2, 17, 4.2, 11.5][j] * cs, SW[j], tm), path = mkPath(line);
