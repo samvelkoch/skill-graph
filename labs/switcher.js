@@ -5,17 +5,18 @@
 const UI = {
   en: { btn: 'Other labs', find: 'Find a lab…', near: 'Nearby in the graph', same: (s) => `More in ${s}`, none: 'No labs found.',
         all: (n) => `All ${n} labs →`, more: (n) => `${n} more in the overview →`,
-        subj: { Science: 'Science', Mathematics: 'Mathematics', Computing: 'Computing', Geography: 'Geography', History: 'History', Music: 'Music', English: 'Reading', 'Life Skills': 'Life skills', Other: 'Other' } },
+        subj: { Science: 'Science', Mathematics: 'Mathematics', Computing: 'Computing', Geography: 'Geography', History: 'History', Music: 'Music', English: 'Reading', Hungarian: 'Hungarian language', 'Life Skills': 'Life skills', Other: 'Other' } },
   ru: { btn: 'Другие лаборатории', find: 'Найти лабораторию…', near: 'Рядом в графе', same: (s) => `Ещё: ${s.toLowerCase()}`, none: 'Ничего не нашлось.',
         all: (n) => `Все лаборатории (${n}) →`, more: (n) => `Ещё ${n} в обзоре →`,
-        subj: { Science: 'Естествознание', Mathematics: 'Математика', Computing: 'Информатика', Geography: 'География', History: 'История', Music: 'Музыка', English: 'Чтение', 'Life Skills': 'Жизненные навыки', Other: 'Другое' } },
+        subj: { Science: 'Естествознание', Mathematics: 'Математика', Computing: 'Информатика', Geography: 'География', History: 'История', Music: 'Музыка', English: 'Чтение', Hungarian: 'Венгерский язык', 'Life Skills': 'Жизненные навыки', Other: 'Другое' } },
   hu: { btn: 'További laborok', find: 'Labor keresése…', near: 'A közelben a gráfon', same: (s) => `További: ${s.toLowerCase()}`, none: 'Nincs találat.',
         all: (n) => `Mind a ${n} labor →`, more: (n) => `Még ${n} az áttekintésben →`,
-        subj: { Science: 'Természettudomány', Mathematics: 'Matematika', Computing: 'Informatika', Geography: 'Földrajz', History: 'Történelem', Music: 'Ének-zene', English: 'Olvasás', 'Life Skills': 'Életvitel', Other: 'Egyéb' } },
+        subj: { Science: 'Természettudomány', Mathematics: 'Matematika', Computing: 'Informatika', Geography: 'Földrajz', History: 'Történelem', Music: 'Ének-zene', English: 'Olvasás', Hungarian: 'Magyar nyelv', 'Life Skills': 'Életvitel', Other: 'Egyéb' } },
 };
 // the same service worker as the map (../sw.js, scope: the whole site), so a lab opened first also gets cached
 if ('serviceWorker' in navigator) navigator.serviceWorker.register(new URL('../sw.js', import.meta.url)).catch(() => {});
 const SAME = 5, HITS = 12;
+const FLAG = { hu: '🇭🇺' };
 const base = new URL('./', import.meta.url); // the labs/ folder
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const cur = () => (UI[document.documentElement.lang] ? document.documentElement.lang : 'en');
@@ -57,6 +58,10 @@ async function main() {
   const me = labs.find((l) => location.pathname.includes(`/${l.path.replace(/\/$/, '')}/`));
   const href = (l) => `${new URL(l.path.replace(/^labs\//, ''), base).pathname}?lang=${cur()}`;
   const ages = (l) => info[l.id]?.age;
+  // a lab made for speakers of one language (registry "lang") is "local" in every other UI language: kept out of the nearby / same-subject
+  // groups (unless this lab is of that language too) but found by search, marked with a flag
+  const isLocal = (l) => !!l.lang && l.lang !== cur();
+  const listed = (l) => !isLocal(l) || me?.lang === l.lang;
   const overview = (q) => `${base.pathname}?lang=${cur()}${q ? `&q=${encodeURIComponent(q)}` : ''}`;
 
   document.head.insertAdjacentHTML('beforeend', `<style>${css}</style>`);
@@ -67,7 +72,7 @@ async function main() {
   document.body.append(menu);
   const q = menu.querySelector('#labSwQ'), list = menu.querySelector('#labSwList');
 
-  const item = (l) => { const a = ages(l); return `<a class="it" href="${href(l)}"><span class="e">${l.emoji}</span>${esc(tx(l.title))}${a ? `<small>${a[0]}–${a[1]}</small>` : ''}</a>`; };
+  const item = (l, flag) => { const a = ages(l); return `<a class="it" href="${href(l)}"><span class="e">${l.emoji}</span>${flag && isLocal(l) ? `${FLAG[l.lang] ?? '🌐'} ` : ''}${esc(tx(l.title))}${a ? `<small>${a[0]}–${a[1]}</small>` : ''}</a>`; };
   const render = () => {
     const u = UI[cur()], s = fold(q.value.trim());
     btn.innerHTML = `🧪 <span class="t">${esc(u.btn)}</span> ▾`;
@@ -76,13 +81,13 @@ async function main() {
     if (s) {
       // every language's title, plus this language's blurb
       const hits = labs.filter((l) => l !== me && fold([...Object.values(l.title), tx(l.blurb)].join(' ')).includes(s));
-      html = hits.length ? hits.slice(0, HITS).map(item).join('') + (hits.length > HITS ? `<a class="all" href="${overview(q.value.trim())}">${esc(u.more(hits.length - HITS))}</a>` : '')
+      html = hits.length ? hits.slice(0, HITS).map((l) => item(l, true)).join('') + (hits.length > HITS ? `<a class="all" href="${overview(q.value.trim())}">${esc(u.more(hits.length - HITS))}</a>` : '')
         : `<div class="none">${esc(u.none)}</div>`;
     } else {
-      const near = (me ? info[me.id]?.near ?? [] : []).map((id) => byId.get(id)).filter(Boolean);
+      const near = (me ? info[me.id]?.near ?? [] : []).map((id) => byId.get(id)).filter((l) => l && listed(l));
       const taken = new Set([me, ...near]);
       const mid = me && ages(me) ? (ages(me)[0] + ages(me)[1]) / 2 : 0;
-      const same = labs.filter((l) => !taken.has(l) && l.subject === me?.subject)
+      const same = labs.filter((l) => !taken.has(l) && listed(l) && l.subject === me?.subject)
         .sort((a, b) => Math.abs((ages(a)?.[0] ?? 0) - mid) - Math.abs((ages(b)?.[0] ?? 0) - mid)).slice(0, SAME);
       html = (near.length ? `<div class="grp">${esc(u.near)}</div>${near.map(item).join('')}` : '')
         + (same.length ? `<div class="grp">${esc(u.same(u.subj[me.subject] ?? me.subject))}</div>${same.map(item).join('')}` : '');
