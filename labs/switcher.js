@@ -5,13 +5,13 @@
 const UI = {
   en: { btn: 'Other labs', find: 'Find a lab…', near: 'Nearby in the graph', same: (s) => `More in ${s}`, none: 'No labs found.',
         all: (n) => `All ${n} labs →`, more: (n) => `${n} more in the overview →`,
-        subj: { Science: 'Science', Mathematics: 'Mathematics', Computing: 'Computing', Geography: 'Geography', History: 'History', Music: 'Music', English: 'Reading', Hungarian: 'Hungarian language', 'Life Skills': 'Life skills', Other: 'Other' } },
+        subj: { Science: 'Science', Mathematics: 'Mathematics', Computing: 'Computing', Geography: 'Geography', History: 'History', Music: 'Music', 'Visual Arts': 'Art', English: 'Reading', Hungarian: 'Hungarian language', 'Life Skills': 'Life skills', Other: 'Other' } },
   ru: { btn: 'Другие лаборатории', find: 'Найти лабораторию…', near: 'Рядом в графе', same: (s) => `Ещё: ${s.toLowerCase()}`, none: 'Ничего не нашлось.',
         all: (n) => `Все лаборатории (${n}) →`, more: (n) => `Ещё ${n} в обзоре →`,
-        subj: { Science: 'Естествознание', Mathematics: 'Математика', Computing: 'Информатика', Geography: 'География', History: 'История', Music: 'Музыка', English: 'Чтение', Hungarian: 'Венгерский язык', 'Life Skills': 'Жизненные навыки', Other: 'Другое' } },
+        subj: { Science: 'Естествознание', Mathematics: 'Математика', Computing: 'Информатика', Geography: 'География', History: 'История', Music: 'Музыка', 'Visual Arts': 'Изобразительное искусство', English: 'Чтение', Hungarian: 'Венгерский язык', 'Life Skills': 'Жизненные навыки', Other: 'Другое' } },
   hu: { btn: 'További laborok', find: 'Labor keresése…', near: 'A közelben a gráfon', same: (s) => `További: ${s.toLowerCase()}`, none: 'Nincs találat.',
         all: (n) => `Mind a ${n} labor →`, more: (n) => `Még ${n} az áttekintésben →`,
-        subj: { Science: 'Természettudomány', Mathematics: 'Matematika', Computing: 'Informatika', Geography: 'Földrajz', History: 'Történelem', Music: 'Ének-zene', English: 'Olvasás', Hungarian: 'Magyar nyelv', 'Life Skills': 'Életvitel', Other: 'Egyéb' } },
+        subj: { Science: 'Természettudomány', Mathematics: 'Matematika', Computing: 'Informatika', Geography: 'Földrajz', History: 'Történelem', Music: 'Ének-zene', 'Visual Arts': 'Vizuális kultúra', English: 'Olvasás', Hungarian: 'Magyar nyelv', 'Life Skills': 'Életvitel', Other: 'Egyéb' } },
 };
 // the same service worker as the map (../sw.js, scope: the whole site), so a lab opened first also gets cached
 if ('serviceWorker' in navigator) navigator.serviceWorker.register(new URL('../sw.js', import.meta.url)).catch(() => {});
