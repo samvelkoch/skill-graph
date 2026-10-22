@@ -1,50 +1,86 @@
-# Marble Skill Taxonomy
+# Skill Graph
 
-An open, structured taxonomy of **what children learn** across the primary/elementary years — decomposed into fine-grained "micro-topics", wired into a prerequisite graph, and aligned to national curriculum standards. Produced by [Marble](https://withmarble.com).
+An open map of **what children learn** from about age 4 to 16, and a set of interactive **labs** that explain one idea each. A parent uses the map to see where a child is and what comes next; a child uses the labs to play with an idea until it makes sense. Everything is in English, Russian and Hungarian.
 
-> **Version:** `v1` · **Topics:** 1,590 · **Prerequisite edges:** 3,221 · **Subjects:** 8
+**Open it:** [samvelkoch.github.io/skill-graph](https://samvelkoch.github.io/skill-graph/) · **Labs:** [samvelkoch.github.io/skill-graph/labs/](https://samvelkoch.github.io/skill-graph/labs/) · **Help build it:** [CONTRIBUTING.md](CONTRIBUTING.md)
 
-## See it
+Skill Graph started as a fork of the [Marble Skill Taxonomy](https://withmarble.com/curriculum) and keeps its data and licenses (see [License](#license)). On top of it, this project adds the viewer, the labs, translations, ten national school curricula and about 500 topics the taxonomy lacked.
 
-![The taxonomy as a rotating 3D graph: every dot a micro-topic, colored by subject, wired by prerequisites](media/curriculum-viz.gif)
+![The graph as a rotating 3D map: every dot a topic, colored by subject, wired by prerequisites](media/curriculum-viz.gif)
 
-Every dot is a micro-topic, colored by subject; height is age; each thread is a prerequisite ([full-quality video](media/curriculum-viz.mp4)). Explore it interactively at [withmarble.com/curriculum](https://withmarble.com/curriculum), or in this fork's own viewer with English, Russian and Hungarian text: [samvelkoch.github.io/skill-graph](https://samvelkoch.github.io/skill-graph/) (source: [`index.html`](index.html)): browse topics by age, grade and subject as a list or as the 3D graph, open any concept to see what it builds on and unlocks, and mark what a child already knows to get the topics that are ready to learn next (progress stays in the browser). A short guided tour ([`tour.js`](tour.js)) opens on the first visit and from the **?** button. The viewer can be added to the home screen as an app ([`manifest.webmanifest`](manifest.webmanifest) + [`sw.js`](sw.js)), and the labs work offline after the first visit.
+## What it does
 
+**For parents: the map** ([`index.html`](index.html))
 
-## What this is
+- About **2,080 topics** in 13 subjects, each with a plain description, an age range and the signs that a child has got it.
+- About **4,000 prerequisite links**: open any topic to see what it builds on and what it unlocks.
+- Browse as a list or as a 3D map; filter by age, school grade, subject, or by a **national school curriculum** (10 countries, grades 1–8 or 1–9).
+- Mark what a child already knows (“Known”, “Learning”); **Ready to learn** then shows the topics whose prerequisites are all known.
+- Progress stays in the browser. A file or a link moves it to another device. The site can be installed as a home-screen app.
 
-Most curriculum data is either a flat list of standards or locked inside a product. This dataset is a **connected graph of learning**:
+**For children: the labs** ([`labs/`](labs/))
 
-- **1,590 micro-topics** — a single, teachable idea (e.g. *"Building sentences"*, *"Apparent brightness of stars"*), each with a plain-language description, mastery **evidence** criteria, a type (conceptual / procedural / representational / language / meta), a subject + domain, and an approximate age range.
-- **3,221 prerequisite dependencies** — a directed acyclic graph: *"topic X depends on prerequisite Y"*, each edge tagged `hard`/`soft` and carrying a one-line **reason**.
-- **Curriculum alignment** — each micro-topic links to the standards it was distilled from (NGSS, Common Core, the UK National Curriculum, and more).
-- **Domain clusters** — 183 parent-friendly one-paragraph summaries per (subject, domain, age band).
+- 70+ small interactive pages, each built around **one idea and one picture** that makes it obvious: magnets, seasons, fractions, the heart, food webs and more.
+- Each lab links back to its topics on the map. A three-question quiz unlocks two “secret” experiments and marks the lab’s topics as “Learning” on the map.
+- Phone first; no sign-up, no points, no ads.
 
-### Subjects
+## How it works
 
-| Subject | Topics |
-|---|---:|
-| Science | 547 |
-| Mathematics | 503 |
-| English | 286 |
-| History | 90 |
-| Personal & Social Development | 88 |
-| Life Skills | 37 |
-| Computing | 21 |
-| Learning to Learn | 18 |
+It is a **static site**: plain HTML, CSS and JavaScript plus JSON data. There is no backend, no build step, no accounts and no package to install. GitHub Pages serves the `main` branch as it is, so whatever is merged into `main` is live within a few minutes.
 
-## Files
+| Path | What it is |
+|---|---|
+| [`index.html`](index.html) | The map (viewer). One file: styles, UI strings in EN/RU/HU, list view and the 3D graph. |
+| [`tour.js`](tour.js) | The short guided tour of the map (first visit and the **?** button). |
+| [`labs/`](labs/) | The labs: one folder per lab (`labs/<id>/index.html`), the overview [`labs/index.html`](labs/index.html), the shared skeleton [`labs/lab.js`](labs/lab.js) + [`labs/lab.css`](labs/lab.css), the list of labs [`labs/registry.json`](labs/registry.json) and the generated [`labs/catalog.json`](labs/catalog.json). |
+| [`data/`](data/) | The Marble taxonomy as published upstream: topics, prerequisites, curriculum standards, domain summaries, teaching research. |
+| [`data/extra/`](data/extra/) | Topics and prerequisites added by this project to cover school-curriculum content the taxonomy lacks (arts, music, geography, history, literature and more). |
+| [`data/school-curricula.json`](data/school-curricula.json) | Ten national curricula, item by item, linked to topics. |
+| [`data/i18n/`](data/i18n/), [`data/extra/i18n/`](data/extra/i18n/) | Russian and Hungarian translations of all topic text. |
+| [`scripts/`](scripts/) | Checks and generators (Node, no dependencies) and the curriculum pipeline ([`scripts/curricula/`](scripts/curricula/), Python). |
+| [`manifest.webmanifest`](manifest.webmanifest), [`sw.js`](sw.js) | The home-screen app and offline cache. |
 
-All data lives in [`data/`](data/) as UTF-8 JSON. See [`schema/`](schema/) for JSON Schemas and [`manifest.json`](data/manifest.json) for counts + SHA-256 checksums.
+## Run it locally
+
+You need any static web server (the pages load JSON with `fetch`, which does not work from `file://`), for example:
+
+```bash
+python3 -m http.server 8000
+```
+
+Then open <http://localhost:8000/> for the map and <http://localhost:8000/labs/> for the labs. Add `?lang=ru` or `?lang=hu` for the other languages.
+
+To run the same checks as CI (Node 22, nothing to install):
+
+```bash
+npm run check
+```
+
+## Contributing
+
+Help is welcome, especially:
+
+- **a new lab** or a better version of an existing one;
+- **your country’s school curriculum**, mapped onto the topics;
+- **fixes** to topics, prerequisites, ages or translations;
+- **translations** of the interface and the labs.
+
+[CONTRIBUTING.md](CONTRIBUTING.md) has the path for each of these.
+
+## The data
+
+All data is UTF-8 JSON. JSON Schemas for the upstream files are in [`schema/`](schema/); counts and SHA-256 checksums are in [`data/manifest.json`](data/manifest.json).
 
 | File | What it holds |
 |---|---|
-| [`data/topics.json`](data/topics.json) | The micro-topics (graph **nodes**). |
-| [`data/dependencies.json`](data/dependencies.json) | Prerequisite **edges** (`topicId` depends on `prerequisiteId`). |
-| [`data/curriculum-standards.json`](data/curriculum-standards.json) | The source curriculum standards, grouped by curriculum. |
-| [`data/clusters.json`](data/clusters.json) | Parent-friendly domain summaries. |
-| [`data/teaching-research.json`](data/teaching-research.json) | Marble's teaching research for 1,049 Mathematics and Science topics (`records[]`, joined by `topicId`): pedagogy, misconceptions, proposed activities, assessment and sources. Copied unchanged from upstream; it was exported against upstream's larger `topics.json`, so one record (`mt_HlNSurPVDp`, Line graphs) has no topic in this fork. Agent-authored guidance, not empirically validated; schema in [`schema/teaching-research.schema.json`](schema/teaching-research.schema.json). |
-| [`data/manifest.json`](data/manifest.json) | Counts, per-subject breakdown, per-file checksums. |
+| [`data/topics.json`](data/topics.json) | 1,590 Marble micro-topics (graph **nodes**). |
+| [`data/dependencies.json`](data/dependencies.json) | 3,221 prerequisite **edges** (`topicId` depends on `prerequisiteId`). |
+| [`data/curriculum-standards.json`](data/curriculum-standards.json) | The source curriculum standards the Marble topics were distilled from (NGSS, Common Core, the UK National Curriculum and more), grouped by curriculum. |
+| [`data/clusters.json`](data/clusters.json) | 183 parent-friendly domain summaries. |
+| [`data/teaching-research.json`](data/teaching-research.json) | Marble’s teaching research for 1,049 Mathematics and Science topics: pedagogy, misconceptions, activities, assessment and sources. Copied unchanged from upstream; one record (`mt_HlNSurPVDp`) has no topic in this fork. Agent-authored guidance, not empirically validated. |
+| [`data/extra/topics.json`](data/extra/topics.json), [`dependencies.json`](data/extra/dependencies.json) | 490 added topics and 791 edges, same shape as the upstream files. Each added topic lists the `curricula` (countries) it covers. |
+| [`data/school-curricula.json`](data/school-curricula.json) | `curricula` (country → name, source URL, grades), `items` (`[country, subject, grade, title]`, 5,401 items) and `links` (topic → items it covers). |
+| [`data/i18n/<lang>/`](data/i18n/) | `strings.json` holds the translation; the localized datasets next to it are generated. See [`data/i18n/README.md`](data/i18n/README.md). |
 
 ### A topic
 
@@ -68,9 +104,9 @@ All data lives in [`data/`](data/) as UTF-8 JSON. See [`schema/`](schema/) for J
 }
 ```
 
-- `id` — stable identifier (`mt_…`), referenced by dependencies and by neighbours.
-- `standards` — keys into `curriculum-standards.json` (`"<curriculum-slug>:<code>"`).
-- `assessmentPrompt` — a natural-language check for the idea. Contains a `{{name}}` placeholder (the child's name); substitute or strip before display.
+- `id`: stable identifier (`mt_…` upstream; added topics use their own prefixes), referenced by dependencies, curricula and labs.
+- `standards`: keys into `curriculum-standards.json` (`"<curriculum-slug>:<code>"`).
+- `assessmentPrompt`: a natural-language check. `{{name}}` is the child’s name; substitute or strip it before display.
 
 ### A dependency
 
@@ -79,11 +115,11 @@ All data lives in [`data/`](data/) as UTF-8 JSON. See [`schema/`](schema/) for J
   "reason": "Must understand vibrations make sound before finding volume patterns" }
 ```
 
-`topicId` **depends on** `prerequisiteId`. Reverse the edge to get "unlocks".
+`topicId` **depends on** `prerequisiteId`. Reverse the edge to get “unlocks”.
 
-## Using it
+### Using the data elsewhere
 
-Pure data — no runtime, no dependencies. Load the JSON and go.
+Load the JSON and go:
 
 ```js
 import topics from './data/topics.json' with { type: 'json' };
@@ -95,32 +131,23 @@ const prereqs = deps.dependencies
   .map(d => byId.get(d.prerequisiteId).name);
 ```
 
-Validate structure + referential integrity:
-
-```bash
-node scripts/validate.mjs
-```
-
 ## License
 
-This dataset is **multi-licensed** — read this before you use or redistribute it.
+The data is **multi-licensed**. Read this before you use or redistribute it.
 
 | Layer | License |
 |---|---|
-| **The database** — the collection, structure, IDs, topic↔topic and topic↔standard relationships | [**ODbL 1.0**](LICENSE) — free for research **and** commercial use, **attribution** required, **share-alike** (derivative *databases* must stay open under ODbL). |
-| **The textual content Marble authored** — topic `description`/`name`/`evidence`/`assessmentPrompt`, dependency `reason`s, cluster `summary`s, teaching-research prose in `teaching-research.json` | [**CC BY-SA 4.0**](LICENSE-CONTENT) — same spirit: attribution + share-alike. |
-| **`curriculum-standards.json`** — extracted from third-party frameworks | **Not** Marble's to relicense. Each source is under **its own upstream license** — see [**PROVENANCE.md**](PROVENANCE.md). |
+| **The database**: the collection, structure, IDs, topic↔topic and topic↔standard relationships | [**ODbL 1.0**](LICENSE): free for research **and** commercial use, **attribution** required, **share-alike** (derivative *databases* must stay open under ODbL). |
+| **The text Marble authored**: topic `description`/`name`/`evidence`/`assessmentPrompt`, dependency `reason`s, cluster `summary`s, teaching-research prose | [**CC BY-SA 4.0**](LICENSE-CONTENT): attribution + share-alike. |
+| **Translations and added topics** ([`data/i18n/`](data/i18n/), [`data/extra/`](data/extra/)) | Derivative work: the text is under **CC BY-SA 4.0** with attribution to Marble (as stated in [`data/i18n/README.md`](data/i18n/README.md) and `data/extra/topics.json`); as part of the database it falls under the **ODbL 1.0** share-alike above. |
+| **`curriculum-standards.json`**: extracted from third-party frameworks | **Not** Marble’s to relicense. Each source keeps **its own upstream license**; see [**PROVENANCE.md**](PROVENANCE.md). |
 
-**Why share-alike + still commercial-friendly:** ODbL distinguishes a *derivative database* (extend/modify the taxonomy → must stay open) from a *produced work* (use it inside a product, model, or app → stays yours). So you can build a commercial product on this without open-sourcing your product; you only owe back improvements to the *taxonomy itself*.
+**Share-alike and still commercial-friendly:** ODbL separates a *derivative database* (extend or modify the taxonomy → it must stay open) from a *produced work* (use it inside a product, model or app → that stays yours). You can build a commercial product on the data without open-sourcing the product; you owe back only improvements to the data itself.
 
 ### Attribution
 
-Any use must credit:
+Any use of the data must credit:
 
 > Marble Skill Taxonomy (v1) · © Generative Spark, Inc. (Marble) · https://withmarble.com · licensed under ODbL 1.0 (database) and CC BY-SA 4.0 (content).
 
-Plus the upstream notices in [PROVENANCE.md](PROVENANCE.md) for any curriculum standards you use. See [CITATION.cff](CITATION.cff) for a formal citation.
-
-## What's *not* here
-
-Deliberately excluded from this release: semantic embeddings (derived, recomputable) and any per-child / user data (never published). See [CHANGELOG.md](CHANGELOG.md).
+Plus the upstream notices in [PROVENANCE.md](PROVENANCE.md) for any curriculum standards you use. See [CITATION.cff](CITATION.cff) for a formal citation and [CHANGELOG.md](CHANGELOG.md) for the upstream release notes.

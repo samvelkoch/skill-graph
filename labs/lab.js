@@ -23,25 +23,29 @@ export const store = {
   set(k, v) { try { localStorage.setItem('sg-lab:' + k, JSON.stringify(v)); } catch { /* not persisted */ } },
 };
 
+const CONTRIB = 'https://github.com/samvelkoch/skill-graph/blob/main/CONTRIBUTING.md';
 const UI = {
   en: { brand: 'Labs', back: 'Back to the map', topics: 'In the skill graph', sound: 'Sound', views: 'View',
         secretKick: 'Secret lab', secretTitle: 'Two extreme experiments are locked.',
         secretAsk: (n) => `Answer <b>${n} quick questions</b> to unlock both.`, start: 'Start the challenge', later: 'Not now',
         qn: (i, n) => `Secret lab · question ${i} of ${n}`, wrong: 'Not quite. Look at the lab and try again!',
         doneTitle: 'Unlocked!', doneText: 'Both secret experiments are open. Find them at the ends of the row.', go: 'Let’s go', marked: 'This lab’s topics are now marked “Learning” on the map.',
-        lic: 'Topics from the Marble Skill Taxonomy (ODbL 1.0 / CC BY-SA 4.0), translated. The lab is a simplified model, not a measuring tool.' },
+        lic: 'Topics from the Marble Skill Taxonomy (ODbL 1.0 / CC BY-SA 4.0), translated. The lab is a simplified model, not a measuring tool.',
+        contrib: 'Skill Graph is open source: help build it' },
   ru: { brand: 'Лаборатории', back: 'Назад к карте', topics: 'В графе навыков', sound: 'Звук', views: 'Вид',
         secretKick: 'Секретная лаборатория', secretTitle: 'Два экстремальных опыта под замком.',
         secretAsk: (n) => `Ответь на <b>${n} ${ruPlural(n, 'короткий вопрос', 'коротких вопроса', 'коротких вопросов')}</b>, чтобы открыть оба.`, start: 'Принять вызов', later: 'Не сейчас',
         qn: (i, n) => `Секретная лаборатория · вопрос ${i} из ${n}`, wrong: 'Не совсем. Посмотри на опыт и попробуй ещё раз!',
         doneTitle: 'Открыто!', doneText: 'Оба секретных опыта открыты. Они по краям ряда кнопок.', go: 'Вперёд', marked: 'Темы этой лаборатории отмечены на карте как «Изучаем».',
-        lic: 'Темы из Marble Skill Taxonomy (ODbL 1.0 / CC BY-SA 4.0), перевод. Лаборатория — упрощённая модель, а не измерительный прибор.' },
+        lic: 'Темы из Marble Skill Taxonomy (ODbL 1.0 / CC BY-SA 4.0), перевод. Лаборатория — упрощённая модель, а не измерительный прибор.',
+        contrib: 'Skill Graph — открытый проект: его можно дополнить' },
   hu: { brand: 'Laborok', back: 'Vissza a térképhez', topics: 'A készségtérképen', sound: 'Hang', views: 'Nézet',
         secretKick: 'Titkos labor', secretTitle: 'Két extrém kísérlet le van zárva.',
         secretAsk: (n) => `Válaszolj <b>${n} rövid kérdésre</b>, és mindkettő kinyílik.`, start: 'Jöhet a kihívás', later: 'Most nem',
         qn: (i, n) => `Titkos labor · ${i}. kérdés / ${n}`, wrong: 'Nem egészen. Nézd meg a kísérletet, és próbáld újra!',
         doneTitle: 'Kinyílt!', doneText: 'Mindkét titkos kísérlet elérhető. A gombsor két végén találod őket.', go: 'Gyerünk', marked: 'A labor témái a térképen „Tanulja” jelölést kaptak.',
-        lic: 'A témák a Marble Skill Taxonomyból származnak (ODbL 1.0 / CC BY-SA 4.0), fordítás. A labor egyszerűsített modell, nem mérőeszköz.' },
+        lic: 'A témák a Marble Skill Taxonomyból származnak (ODbL 1.0 / CC BY-SA 4.0), fordítás. A labor egyszerűsített modell, nem mérőeszköz.',
+        contrib: 'A Skill Graph nyílt forráskódú: bárki hozzátehet' },
 };
 
 // --- sound: tiny synthesized blips, off until the visitor turns it on -------------------------------------
@@ -117,7 +121,7 @@ export function shell(cfg) {
     $('foot').innerHTML = `<b>${esc(u.topics)}</b>${(cfg.topics ?? []).map((t) => {
       const p = new URLSearchParams({ topic: t.id }); if (lang !== 'en') p.set('lang', lang);
       return `<a href="../../?${p}">${esc(t[lang])}</a>`;
-    }).join('')}<span class="lic">${esc(u.lic)}</span>`;
+    }).join('')}<span class="lic">${esc(u.lic)} <a class="contrib" href="${CONTRIB}" target="_blank" rel="noopener">${esc(u.contrib)}</a></span>`;
   };
 
   $('langs').addEventListener('click', (ev) => {
