@@ -168,7 +168,7 @@ const ROUNDS = {
   more: [{ sc: 'lions', ok: 2 }, { sc: 'antlion', ok: 3 }, { sc: 'falcon', ok: 1 }, { sc: 'cham', ok: 0 }],
 };
 // how long each reveal plays, in seconds (the last frame stays on screen)
-const DUR = { croc: 7.4, 'croc:b': 6, cheetah: 7.8, wolves: 7.6, spider: 5.4, lions: 7, antlion: 6, falcon: 4.8, cham: 4.2, howl: 7.2, owl: 7.8, jumper: 5.6 };
+const DUR = { croc: 4.6, 'croc:b': 6, cheetah: 5.4, 'cheetah:b': 4.2, wolves: 5.8, spider: 4.4, lions: 5.6, antlion: 5.2, falcon: 4.2, cham: 3.6, howl: 7.2, owl: 7.8, jumper: 4.6 };
 const durOf = (id, body) => DUR[id + (body ? ':b' : '')] ?? DUR[id];
 const ACCENT = { croc: ['#2F7F86', 'rgba(47,127,134,.3)'], cheetah: ['#D9B45B', 'rgba(217,180,91,.28)'], wolves: ['#6C83B5', 'rgba(108,131,181,.3)'], howl: ['#6C83B5', 'rgba(108,131,181,.3)'],
   spider: ['#8FBF6B', 'rgba(143,191,107,.26)'], lions: ['#D9B45B', 'rgba(217,180,91,.28)'], antlion: ['#E5C48A', 'rgba(229,196,138,.26)'], falcon: ['#5FA8E8', 'rgba(95,168,232,.28)'],
@@ -241,128 +241,290 @@ const sparkle = (c, x, y, r, a) => {
 };
 
 // --- four-legged animals, side view, facing right ---------------------------------------------------------------
-// the origin is the middle of the body; legs hang down to groundOf(sp)
+// The origin is the middle of the body; the legs hang down to groundOf(sp). Each species has its own body outline,
+// leg proportions, head, tail and markings. The shoulder, neck and head position are shared, so muzzleAt() holds.
+
+// a point along a polyline (u = 0..1): x, y, unit tangent, and the interpolated width
+function along(pts, u, ws) {
+  const n = pts.length - 1, f = clamp01(u) * n, i = Math.min(n - 1, Math.floor(f)), k = f - i, p = pts[i], q = pts[i + 1];
+  const dx = q[0] - p[0], dy = q[1] - p[1], d = Math.hypot(dx, dy) || 1;
+  return [mx(p[0], q[0], k), mx(p[1], q[1], k), dx / d, dy / d, ws ? mx(ws[i], ws[i + 1], k) : 0];
+}
+// a tapered limb along pts (widths ws). The outline runs along both sides only, so no cap line shows where it joins the body
+function limb(c, pts, ws, fill, stroke, lw = 1) {
+  const A = [], B = [], n = pts.length;
+  for (let i = 0; i < n; i++) {
+    const p = pts[Math.max(0, i - 1)], q = pts[Math.min(n - 1, i + 1)];
+    let dx = q[0] - p[0], dy = q[1] - p[1]; const d = Math.hypot(dx, dy) || 1; dx /= d; dy /= d;
+    A.push([pts[i][0] - dy * ws[i] / 2, pts[i][1] + dx * ws[i] / 2]); B.push([pts[i][0] + dy * ws[i] / 2, pts[i][1] - dx * ws[i] / 2]);
+  }
+  c.beginPath(); c.moveTo(A[0][0], A[0][1]);
+  for (let i = 1; i < n; i++) c.lineTo(A[i][0], A[i][1]);
+  for (let i = n - 1; i >= 0; i--) c.lineTo(B[i][0], B[i][1]);
+  c.closePath(); c.fillStyle = fill; c.fill();
+  if (stroke) {
+    c.strokeStyle = stroke; c.lineWidth = lw; c.lineJoin = 'round'; c.lineCap = 'round';
+    for (const S of [A, B]) { c.beginPath(); c.moveTo(S[0][0], S[0][1]); for (let i = 1; i < n; i++) c.lineTo(S[i][0], S[i][1]); c.stroke(); }
+  }
+}
+// short dark bands across a limb (the zebra's legs)
+function limbBands(c, pts, ws, col) {
+  c.strokeStyle = col; c.lineWidth = 1.8; c.lineCap = 'butt';
+  for (const u of [.1, .26, .42, .58, .74, .9]) {
+    const [x, y, dx, dy, w] = along(pts, u, ws), hw = w / 2 + .4;
+    c.beginPath(); c.moveTo(x - dy * hw, y + dx * hw); c.lineTo(x + dy * hw, y - dx * hw); c.stroke();
+  }
+}
+// an eye with a dark pupil and a white highlight
+function eyeAt(c, x, y, r, iris) {
+  ell(c, x, y, r * 1.25, r); fillStroke(c, iris, 'rgba(10,8,6,.7)', .8);
+  circ(c, x + r * .2, y, r * .55); c.fillStyle = '#120D09'; c.fill();
+  circ(c, x - r * .15, y - r * .38, r * .34); c.fillStyle = '#fff'; c.fill();
+}
+
+// --- heads: drawn in the head's own frame (origin = middle of the head, x along the face, nose at x = hr*.72 + snout*.88)
+function wolfHead(c, sp, mouth) {
+  const hr = sp.headR, sn = sp.snout, ol = sp.out, nx = hr * .72 + sn * .88, col = sp.col;
+  const ear = (dx, fill, inner) => {
+    c.beginPath(); c.moveTo(-hr * .78 + dx, -hr * .25); c.lineTo(-hr * .5 + dx, -hr * 1.95); c.lineTo(hr * .3 + dx, -hr * .72); c.closePath(); fillStroke(c, fill, ol, 1);
+    if (inner) { c.beginPath(); c.moveTo(-hr * .6 + dx, -hr * .5); c.lineTo(-hr * .48 + dx, -hr * 1.5); c.lineTo(hr * .05 + dx, -hr * .74); c.closePath(); c.fillStyle = inner; c.fill(); }
+  };
+  ear(-hr * .34, shade(col, -.3));
+  // thick fur ruff on the cheek
+  c.beginPath(); c.moveTo(-hr * .9, hr * .05); c.lineTo(-hr * 1.05, hr * 1.0); c.lineTo(-hr * .3, hr * .8); c.lineTo(hr * .1, hr * 1.15); c.lineTo(hr * .35, hr * .6); c.closePath(); fillStroke(c, sp.belly, ol, 1);
+  ell(c, 0, 0, hr, hr * .9); fillStroke(c, lg(c, 0, -hr, 0, hr, [[0, shade(col, -.15)], [1, col]]), ol, 1.1);
+  // the muzzle: filled as a closed shape, stroked only along its top and bottom edge
+  c.beginPath(); c.moveTo(hr * .2, -hr * .5); c.quadraticCurveTo(hr * .85, -hr * .42, nx, -hr * .12); c.lineTo(nx, hr * .2); c.quadraticCurveTo(hr * .9, hr * .42, hr * .1, hr * .5);
+  c.fillStyle = lg(c, 0, -hr * .5, 0, hr * .5, [[0, col], [1, sp.muz]]); c.fill(); c.strokeStyle = ol; c.lineWidth = 1; c.stroke();
+  const jx = hr * .1, jy = hr * .45, jl = nx - jx - 1, rot = mouth * .55;
+  if (mouth > .02) {
+    const lx = jx + jl * Math.cos(rot), ly = jy + jl * Math.sin(rot);
+    c.beginPath(); c.moveTo(jx, jy - 2); c.lineTo(nx - 1, hr * .2); c.lineTo(lx, ly - 1); c.closePath(); c.fillStyle = '#5A1F25'; c.fill();
+    c.fillStyle = '#F4F1E8';
+    for (const dx of [3.5, 8]) { c.beginPath(); c.moveTo(nx - dx, hr * .2); c.lineTo(nx - dx + 1.6, hr * .2 + 3.2 * Math.min(1, mouth * 2)); c.lineTo(nx - dx + 3.2, hr * .2); c.closePath(); c.fill(); }
+  }
+  c.save(); c.translate(jx, jy); c.rotate(rot);
+  c.beginPath(); c.moveTo(-hr * .2, -hr * .12); c.lineTo(jl, -hr * .08); c.lineTo(jl + .6, hr * .1); c.lineTo(jl * .6, hr * .3); c.lineTo(0, hr * .32); c.closePath(); fillStroke(c, sp.muz, ol, 1);
+  c.restore();
+  ell(c, nx - .8, 0, 2.7, 2.2); c.fillStyle = '#15151A'; c.fill();
+  ear(0, col, shade(col, -.45));
+  c.strokeStyle = 'rgba(30,34,44,.7)'; c.lineWidth = 1.2; c.lineCap = 'round'; c.beginPath(); c.moveTo(hr * .05, -hr * .5); c.lineTo(hr * .62, -hr * .26); c.stroke();
+  eyeAt(c, hr * .36, -hr * .2, 2.1, sp.eye);
+}
+function zebraHead(c, sp) {
+  const hr = sp.headR, sn = sp.snout, ol = sp.out, nx = hr * .72 + sn * .88;
+  const ear = (dx, fill) => {
+    c.beginPath(); c.moveTo(-hr * .6 + dx, -hr * .55); c.lineTo(-hr * .5 + dx, -hr * 2.05); c.lineTo(-hr * .05 + dx, -hr * .75); c.closePath(); fillStroke(c, fill, ol, 1);
+    c.beginPath(); c.moveTo(-hr * .56 + dx, -hr * 1.45); c.lineTo(-hr * .5 + dx, -hr * 2.05); c.lineTo(-hr * .24 + dx, -hr * 1.2); c.closePath(); c.fillStyle = '#1D1B1C'; c.fill();
+  };
+  ear(-hr * .3, '#C9C5B9');
+  smooth(c, [[-hr * .95, -hr * .1], [-hr * .5, -hr * .95], [hr * .45, -hr * .85], [nx - 3, -hr * .3], [nx + .5, hr * .1], [nx - 2, hr * .5], [hr * .55, hr * .62], [hr * .05, hr * .98], [-hr * .75, hr * .65]]);
+  fillStroke(c, lg(c, 0, -hr, 0, hr, [[0, '#E3E0D6'], [1, '#FBFAF6']]), ol, 1.1);
+  // dark soft muzzle, nostril, mouth line
+  ell(c, nx - sn * .24, hr * .12, sn * .32, hr * .44); c.fillStyle = sp.muz; c.fill();
+  ell(c, nx - 2, hr * .02, 1.7, 1.3); c.fillStyle = '#0F0D0C'; c.fill();
+  c.strokeStyle = '#1D1B1C'; c.lineCap = 'round'; c.lineWidth = 1; c.beginPath(); c.moveTo(nx - 4, hr * .42); c.lineTo(hr * .5, hr * .52); c.stroke();
+  // stripes across the face and the forelock
+  c.lineWidth = 2; for (let i = 0; i < 4; i++) { c.beginPath(); c.moveTo(-hr * .35 + i * hr * .42, -hr * .92); c.quadraticCurveTo(-hr * .45 + i * hr * .42, -hr * .2, -hr * .1 + i * hr * .38, hr * .55 - i * .5); c.stroke(); }
+  c.lineWidth = 2.4; for (let i = 0; i < 3; i++) { c.beginPath(); c.moveTo(-hr * .5 + i * 3, -hr * .85); c.lineTo(-hr * .72 + i * 3.5, -hr * 1.35); c.stroke(); }
+  ear(0, '#E8E5DB');
+  eyeAt(c, hr * .34, -hr * .28, 2.1, sp.eye);
+}
+function deerHead(c, sp) {
+  const hr = sp.headR, sn = sp.snout, ol = sp.out, nx = hr * .72 + sn * .88;
+  for (const [dx, col, lw] of [[3.5, '#5A3F26', 2.6], [0, '#8A6A43', 3.2]]) {
+    const p0 = [-hr * .3 + dx, -hr * .7], p1 = [-hr * 1.4 + dx, -hr * 2.9], p2 = [hr * 1.0 + dx, -hr * 4.3];
+    c.strokeStyle = col; c.lineCap = 'round'; c.lineWidth = lw; c.beginPath(); c.moveTo(p0[0], p0[1]); c.quadraticCurveTo(p1[0], p1[1], p2[0], p2[1]); c.stroke();
+    for (const u of [.25, .45, .65, .85]) {
+      const bx = (1 - u) * (1 - u) * p0[0] + 2 * u * (1 - u) * p1[0] + u * u * p2[0], by = (1 - u) * (1 - u) * p0[1] + 2 * u * (1 - u) * p1[1] + u * u * p2[1];
+      c.lineWidth = lw * .72; c.beginPath(); c.moveTo(bx, by); c.lineTo(bx + hr * (1.2 - u * .3), by - hr * (.55 + u * .35)); c.stroke();
+    }
+  }
+  const ear = (fill) => { c.beginPath(); c.moveTo(-hr * .7, -hr * .3); c.quadraticCurveTo(-hr * 1.6, -hr * 1.5, -hr * 1.15, -hr * 2.0); c.quadraticCurveTo(-hr * .2, -hr * 1.4, hr * .15, -hr * .75); c.closePath(); fillStroke(c, fill, ol, 1); };
+  ear(shade(sp.col, -.3));
+  smooth(c, [[-hr * .9, -hr * .05], [-hr * .45, -hr * .9], [hr * .4, -hr * .8], [nx - 3, -hr * .25], [nx + .5, hr * .1], [nx - 2, hr * .42], [hr * .5, hr * .55], [hr * .05, hr * .92], [-hr * .7, hr * .6]]);
+  fillStroke(c, lg(c, 0, -hr, 0, hr, [[0, shade(sp.col, -.1)], [1, shade(sp.col, .15)]]), ol, 1.1);
+  ell(c, nx - sn * .25, hr * .15, sn * .3, hr * .38); c.fillStyle = sp.muz; c.fill();
+  ell(c, nx - 1.2, hr * .0, 2.5, 2); c.fillStyle = '#15110D'; c.fill();
+  ear(sp.col);
+  c.fillStyle = '#B88A66'; c.beginPath(); c.moveTo(-hr * .6, -hr * .5); c.quadraticCurveTo(-hr * 1.1, -hr * 1.2, -hr * .95, -hr * 1.55); c.quadraticCurveTo(-hr * .4, -hr * 1.2, -hr * .1, -hr * .7); c.closePath(); c.fill();
+  eyeAt(c, hr * .32, -hr * .28, 2.2, sp.eye);
+}
+function gazelleHead(c, sp) {
+  const hr = sp.headR, sn = sp.snout, ol = sp.out, nx = hr * .72 + sn * .88;
+  // ringed, lyre-shaped horns
+  const p0 = [-hr * .1, -hr * .8], p1 = [-hr * 1.3, -hr * 3.2], p2 = [-hr * .1, -hr * 5.0];
+  const bz = (u) => [(1 - u) * (1 - u) * p0[0] + 2 * u * (1 - u) * p1[0] + u * u * p2[0], (1 - u) * (1 - u) * p0[1] + 2 * u * (1 - u) * p1[1] + u * u * p2[1]];
+  c.strokeStyle = '#2D2118'; c.lineCap = 'round'; c.lineWidth = 2.4; c.beginPath(); c.moveTo(p0[0], p0[1]); c.quadraticCurveTo(p1[0], p1[1], p2[0], p2[1]); c.stroke();
+  c.strokeStyle = '#8C7A5E'; c.lineWidth = 1.1;
+  for (let u = .12; u < .95; u += .12) { const a = bz(u), b = bz(u + .02), dx = b[0] - a[0], dy = b[1] - a[1], d = Math.hypot(dx, dy) || 1; c.beginPath(); c.moveTo(a[0] - dy / d * 1.7, a[1] + dx / d * 1.7); c.lineTo(a[0] + dy / d * 1.7, a[1] - dx / d * 1.7); c.stroke(); }
+  const ear = (fill) => { c.beginPath(); c.moveTo(-hr * .7, -hr * .3); c.lineTo(-hr * 2.0, -hr * 1.3); c.lineTo(-hr * .1, -hr * .75); c.closePath(); fillStroke(c, fill, ol, .9); };
+  ear(shade(sp.col, -.3));
+  smooth(c, [[-hr * .9, -hr * .05], [-hr * .45, -hr * .9], [hr * .4, -hr * .8], [nx - 2.5, -hr * .25], [nx + .5, hr * .1], [nx - 1.5, hr * .42], [hr * .5, hr * .55], [hr * .05, hr * .92], [-hr * .7, hr * .6]]);
+  fillStroke(c, lg(c, 0, -hr, 0, hr, [[0, sp.col], [1, '#EBD7B4']]), ol, 1);
+  // white face stripe above, dark stripe from the eye to the nose
+  c.lineCap = 'round'; c.strokeStyle = '#FBF1DC'; c.lineWidth = 1.7; c.beginPath(); c.moveTo(-hr * .1, -hr * .62); c.lineTo(nx - 3, -hr * .2); c.stroke();
+  c.strokeStyle = 'rgba(43,32,24,.9)'; c.lineWidth = 1.8; c.beginPath(); c.moveTo(hr * .3, -hr * .05); c.lineTo(nx - 2, hr * .12); c.stroke();
+  ell(c, nx - 1, hr * .02, 1.9, 1.5); c.fillStyle = '#15110D'; c.fill();
+  ear(sp.col);
+  eyeAt(c, hr * .28, -hr * .3, 1.9, sp.eye);
+}
+function lionHead(c, sp) {
+  const hr = sp.headR, sn = sp.snout, ol = sp.out, nx = hr * .72 + sn * .88;
+  const ear = (dx, fill) => { circ(c, -hr * .42 + dx, -hr * .8, sp.ear * .55); fillStroke(c, fill, ol, 1); circ(c, -hr * .42 + dx, -hr * .78, sp.ear * .3); c.fillStyle = '#3A2A1C'; c.fill(); };
+  ear(-hr * .32, shade(sp.col, -.25));
+  ell(c, 0, 0, hr, hr * .88); fillStroke(c, lg(c, 0, -hr, 0, hr, [[0, shade(sp.col, -.12)], [1, sp.col]]), ol, 1.1);
+  ell(c, hr * .72 + sn * .3, hr * .22, sn * .72, hr * .46); fillStroke(c, lg(c, 0, -hr * .2, 0, hr * .7, [[0, sp.muz], [1, '#F6EAD0']]), ol, 1);
+  ell(c, nx - sn * .5, hr * .6, sn * .45, hr * .2); c.fillStyle = '#FBF3E0'; c.fill();
+  ell(c, nx - .6, hr * .02, 3, 2.3); c.fillStyle = sp.nose || '#8A5A4A'; c.fill();
+  c.fillStyle = 'rgba(60,40,28,.7)'; for (const [dx, dy] of [[-5, .3], [-8, .6], [-6, .9], [-9, .2]]) { circ(c, nx + dx, hr * dy, .55); c.fill(); }
+  c.strokeStyle = '#2A1C12'; c.lineWidth = 1; c.lineCap = 'round'; c.beginPath(); c.moveTo(nx - .5, hr * .1); c.lineTo(nx - .5, hr * .36); c.quadraticCurveTo(nx - 5, hr * .6, nx - sn * .8, hr * .5); c.stroke();
+  // the dark "tear line" under the eye
+  c.lineWidth = 1.4; c.beginPath(); c.moveTo(hr * .34, -hr * .12); c.quadraticCurveTo(hr * .5, hr * .1, hr * .62, hr * .3); c.stroke();
+  ear(0, sp.col);
+  eyeAt(c, hr * .34, -hr * .28, 2.2, '#C98A2E');
+}
+
+// --- species ---------------------------------------------------------------------------------------------------------
 const SPECIES = {
   wolf: {
-    len: 58, h: 26, legL: 30, w: 6, col: '#8F95A1', back: '#5F6571', belly: '#D9DCE2', paw: '#4B505A', out: '#2D313A', muz: '#C9CDD5',
-    neck: 17, headR: 9.5, snout: 12, ear: 7, eye: '#FFD166', tail: { type: 'bush', len: 27, w: 10, col: '#7D8390', tip: '#2D3038', ang: 2.1 },
+    len: 60, h: 27, legL: 33, w: 6.2, col: '#8F95A1', back: '#565C69', belly: '#D9DCE2', paw: '#454A55', out: '#2D313A', muz: '#C9CDD5', toe: 'paw',
+    neck: 17, neckW: [19, 14, 12, 11.5], headR: 9.5, snout: 12.5, eye: '#FFD166', head: wolfHead,
+    tail: { type: 'bush', len: 30, w: 11, col: '#7D8390', tip: '#2D3038', ang: 2.05 },
+    body: [[-.52, -.2], [-.4, -.47], [-.12, -.5], [.18, -.5], [.4, -.44], [.55, -.14], [.52, .26], [.34, .54], [.12, .42], [-.12, .3], [-.34, .34], [-.5, .2]],
     deco(c, sp) {
-      c.fillStyle = 'rgba(40,44,56,.35)'; ell(c, -sp.len * .02, -sp.h * .46, sp.len * .36, sp.h * .2); c.fill();
-      c.strokeStyle = 'rgba(30,34,44,.3)'; c.lineWidth = 1;
-      for (let i = 0; i < 30; i++) { const x = -sp.len * .45 + R(i) * sp.len * .9, y = -sp.h * .48 + R(i + 40) * sp.h * .55; c.beginPath(); c.moveTo(x, y); c.lineTo(x - 4, y + 4); c.stroke(); }
-      c.fillStyle = sp.belly; c.beginPath(); c.moveTo(sp.len * .3, sp.h * .2); c.lineTo(sp.len * .52, sp.h * .02); c.lineTo(sp.len * .5, sp.h * .3); c.lineTo(sp.len * .36, sp.h * .46); c.closePath(); c.fill();
+      const L = sp.len, H = sp.h;
+      c.fillStyle = 'rgba(38,42,54,.42)'; ell(c, -L * .02, -H * .42, L * .36, H * .2); c.fill();
+      c.strokeStyle = 'rgba(30,34,44,.28)'; c.lineWidth = 1; c.lineCap = 'round';
+      for (let i = 0; i < 34; i++) { const x = -L * .46 + R(i) * L * .9, y = -H * .46 + R(i + 40) * H * .7; c.beginPath(); c.moveTo(x, y); c.lineTo(x - 4, y + 4.5); c.stroke(); }
+      c.fillStyle = sp.belly; c.beginPath(); c.moveTo(L * .28, H * .15); c.lineTo(L * .56, -H * .05); c.lineTo(L * .52, H * .34); c.lineTo(L * .34, H * .58); c.closePath(); c.fill();
     },
-    head(c, sp) { c.fillStyle = sp.belly; c.beginPath(); c.moveTo(-sp.headR * .3, sp.headR * .45); c.lineTo(sp.headR * .8, sp.headR * .55); c.lineTo(sp.headR * .1, sp.headR * 1.35); c.closePath(); c.fill(); },
   },
   zebra: {
-    len: 70, h: 34, legL: 36, w: 6.4, col: '#F1EFE8', back: '#E6E3D8', belly: '#FFFFFF', paw: '#2A2724', out: '#2A2724', muz: '#4A413A',
-    neck: 28, headR: 9.5, snout: 15, ear: 7, eye: '#2A1E14', mane: '#1E1C1B', tail: { type: 'thin', len: 24, w: 3, col: '#2A2724', tip: '#1E1C1B', ang: 2.2 },
+    len: 72, h: 36, legL: 38, w: 6, col: '#F1EFE8', back: '#DEDBCF', belly: '#FFFFFF', paw: '#2A2724', out: '#2A2724', muz: '#4A413A', bands: '#1D1B1C',
+    neck: 30, neckW: [25, 18, 14, 13], headR: 9.8, snout: 19, eye: '#2A1E14', head: zebraHead,
+    tail: { type: 'thin', len: 26, w: 3.4, col: '#2A2724', tip: '#1E1C1B', tuft: 5, ang: 2.2 },
+    body: [[-.5, -.3], [-.4, -.5], [-.1, -.5], [.22, -.5], [.45, -.42], [.54, -.1], [.46, .34], [.2, .52], [-.1, .52], [-.36, .46], [-.52, .2]],
     deco(c, sp) {
-      c.strokeStyle = '#1D1B1C'; c.lineWidth = 2.8; c.lineCap = 'round';
-      for (let i = -7; i <= 7; i++) { const x = i * sp.len * .066; c.beginPath(); c.moveTo(x + 5, -sp.h * .6); c.quadraticCurveTo(x + 1, 0, x - 4, sp.h * .6); c.stroke(); }
+      const L = sp.len, H = sp.h;
+      c.strokeStyle = '#1D1B1C'; c.lineCap = 'round';
+      for (let i = -8; i <= 8; i++) {
+        const x = i * L * .058, bend = i < -4 ? (i + 4) * 1.6 : 0;
+        c.lineWidth = 3.4 - Math.abs(i) * .09; c.beginPath(); c.moveTo(x + 5, -H * .62); c.quadraticCurveTo(x + 1 + bend, 0, x - 5 + bend * 1.6, H * .62); c.stroke();
+      }
+      c.fillStyle = lg(c, 0, H * .22, 0, H * .5, [[0, 'rgba(255,255,255,0)'], [1, 'rgba(255,255,255,.9)']]); c.fillRect(-L, H * .22, 2 * L, H);
     },
-    head(c, sp) { c.strokeStyle = '#1D1B1C'; c.lineWidth = 1.8; for (let i = 0; i < 3; i++) { c.beginPath(); c.moveTo(-sp.headR * .2 + i * 3.5, -sp.headR * .8); c.lineTo(-sp.headR * .5 + i * 3.5, sp.headR * .2); c.stroke(); } },
-  },
-  deer: {
-    len: 74, h: 34, legL: 44, w: 6, col: '#B3683B', back: '#8F4C2A', belly: '#E4C9A2', paw: '#2E1E14', out: '#4B2A17', muz: '#D9B88C',
-    neck: 28, headR: 9, snout: 14, ear: 8, eye: '#1F140C', tail: { type: 'thin', len: 8, w: 4.5, col: '#EAD9B8', tip: '#EAD9B8', ang: 2.4 },
-    deco(c, sp) { ell(c, -sp.len * .44, -sp.h * .05, 7, 11); c.fillStyle = '#F2E6CB'; c.fill(); },
-    head(c, sp) {
-      const hr = sp.headR;
-      for (const [dx, col] of [[3, '#4E3520'], [0, '#6A4A2E']]) {
-        c.strokeStyle = col; c.lineCap = 'round'; c.lineWidth = 2.6;
-        const p0 = [-hr * .3 + dx, -hr * .7], p1 = [-hr * 1.3 + dx, -hr * 2.8], p2 = [hr * .9 + dx, -hr * 4.1];
-        c.beginPath(); c.moveTo(...p0); c.quadraticCurveTo(...p1, ...p2); c.stroke();
-        for (const u of [.3, .55, .8]) {
-          const bx = (1 - u) * (1 - u) * p0[0] + 2 * u * (1 - u) * p1[0] + u * u * p2[0], by = (1 - u) * (1 - u) * p0[1] + 2 * u * (1 - u) * p1[1] + u * u * p2[1];
-          c.lineWidth = 2; c.beginPath(); c.moveTo(bx, by); c.lineTo(bx + hr * 1.1, by - hr * .6); c.stroke();
-        }
+    neckDeco(c, sp, np, nW, nx, ny) {
+      c.strokeStyle = '#1D1B1C'; c.lineCap = 'round';
+      for (let u = .06; u < 1; u += .13) {
+        const [x, y, dx, dy, w] = along(np, u, nW);
+        c.lineWidth = 2.7 - u * .9; c.beginPath(); c.moveTo(x - dy * w * .46, y + dx * w * .46); c.lineTo(x + dy * w * .46, y - dx * w * .46); c.stroke();
+      }
+      c.strokeStyle = '#1E1C1B'; c.lineWidth = 2.5;
+      for (let u = 0; u <= 1; u += .08) {
+        const [x, y, dx, dy, w] = along(np, u, nW), bx = x + nx * (w / 2 - 1), by = y + ny * (w / 2 - 1), l = 5 + R(u * 40) * 2.5;
+        c.beginPath(); c.moveTo(bx, by); c.lineTo(bx + nx * l - dx * 1.5, by + ny * l - dy * 1.5); c.stroke();
       }
     },
   },
+  deer: {
+    len: 74, h: 33, legL: 48, w: 5.4, col: '#B3683B', back: '#85471F', belly: '#E4C9A2', paw: '#2E1E14', out: '#4B2A17', muz: '#D9B88C',
+    neck: 30, neckW: [25, 17, 12, 10.5], headR: 9, snout: 16, eye: '#1F140C', head: deerHead,
+    tail: { type: 'thin', len: 9, w: 5.5, col: '#EAD9B8', tip: '#EAD9B8', tuft: 3.2, ang: 2.4 },
+    body: [[-.52, -.22], [-.42, -.46], [-.12, -.5], [.2, -.48], [.44, -.42], [.54, -.12], [.46, .3], [.26, .46], [-.02, .4], [-.28, .38], [-.48, .2]],
+    deco(c, sp) {
+      const L = sp.len, H = sp.h;
+      ell(c, -L * .46, -H * .02, L * .1, H * .3); c.fillStyle = '#F2E6CB'; c.fill();
+      c.strokeStyle = 'rgba(70,35,15,.3)'; c.lineWidth = 1; c.lineCap = 'round';
+      for (let i = 0; i < 28; i++) { const x = -L * .42 + R(i) * L * .85, y = -H * .46 + R(i + 40) * H * .6; c.beginPath(); c.moveTo(x, y); c.lineTo(x - 3, y + 3.5); c.stroke(); }
+    },
+  },
   gazelle: {
-    len: 44, h: 19, legL: 32, w: 3.8, col: '#C99058', back: '#A8703E', belly: '#F4E8D2', paw: '#2B2018', out: '#6B4524', muz: '#E8D3B0',
-    neck: 18, headR: 6.4, snout: 9, ear: 7, eye: '#1F140C', tail: { type: 'thin', len: 8, w: 3, col: '#2B2018', tip: '#2B2018', ang: 2.6 },
-    deco(c, sp) { c.strokeStyle = 'rgba(60,36,18,.75)'; c.lineWidth = 2.4; c.beginPath(); c.moveTo(-sp.len * .4, sp.h * .1); c.lineTo(sp.len * .4, sp.h * .1); c.stroke(); },
-    head(c, sp) {
-      const hr = sp.headR; c.strokeStyle = '#2D2118'; c.lineCap = 'round'; c.lineWidth = 2;
-      c.beginPath(); c.moveTo(-hr * .1, -hr * .8); c.quadraticCurveTo(-hr * 1.1, -hr * 3, -hr * .3, -hr * 4.6); c.stroke();
-      c.strokeStyle = 'rgba(43,32,24,.8)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(hr * .2, -hr * .1); c.lineTo(hr * 1.5, hr * .3); c.stroke();
+    len: 46, h: 19, legL: 34, w: 3.6, col: '#C99058', back: '#A8703E', belly: '#F4E8D2', paw: '#2B2018', out: '#6B4524', muz: '#E8D3B0',
+    neck: 19, neckW: [11, 7.6, 6.2, 5.8], headR: 6.4, snout: 10, eye: '#1F140C', head: gazelleHead,
+    tail: { type: 'thin', len: 12, w: 2.6, col: '#2B2018', tip: '#2B2018', tuft: 3, ang: 2.6 },
+    body: [[-.52, -.2], [-.4, -.5], [-.1, -.5], [.2, -.5], [.44, -.4], [.54, -.1], [.46, .28], [.24, .44], [-.04, .36], [-.3, .36], [-.5, .2]],
+    deco(c, sp) {
+      const L = sp.len, H = sp.h;
+      c.fillStyle = '#F7EEDA'; c.fillRect(-L, H * .2, 2 * L, H);
+      c.strokeStyle = 'rgba(58,34,16,.85)'; c.lineWidth = H * .17; c.lineCap = 'round'; c.beginPath(); c.moveTo(-L * .42, H * .1); c.lineTo(L * .4, H * .1); c.stroke();
+      ell(c, -L * .5, -H * .12, L * .09, H * .3); c.fillStyle = '#FFF8EA'; c.fill();
     },
   },
   lion: {
-    len: 70, h: 30, legL: 26, w: 8, col: '#D5A96A', back: '#B98B4E', belly: '#EBD3A6', paw: '#9A7340', out: '#7A5A30', muz: '#EBD3A6', nose: '#8A5A4A',
-    neck: 16, headR: 10.5, snout: 10, ear: 7, earRound: true, eye: '#2A1E14', tail: { type: 'thin', len: 34, w: 3.6, col: '#D5A96A', tip: '#4A3320', ang: 2.7 },
+    len: 72, h: 31, legL: 28, w: 8.4, col: '#D5A96A', back: '#B58645', belly: '#EBD3A6', paw: '#A67E48', out: '#7A5A30', muz: '#EBD3A6', nose: '#8A5A4A', toe: 'paw',
+    neck: 16, neckW: [22, 17, 14.5, 13.5], headR: 10.5, snout: 10, ear: 7, eye: '#2A1E14', head: lionHead,
+    tail: { type: 'thin', len: 38, w: 4, col: '#D5A96A', tip: '#4A3320', tuft: 6, ang: 2.7 },
+    body: [[-.52, -.18], [-.42, -.48], [-.12, -.5], [.2, -.5], [.44, -.44], [.56, -.12], [.5, .3], [.3, .46], [.08, .36], [-.14, .34], [-.36, .4], [-.52, .22]],
   },
 };
 const groundOf = (sp) => sp.h * .22 + sp.legL;
 
 function quad(c, sp, o = {}) {
-  const { len, h } = sp, walking = o.ph != null, amp = o.amp ?? .5, headA = o.headA ?? -.3, mouth = o.mouth ?? 0;
-  const L1 = sp.legL * .52, L2 = sp.legL * .48, ay = h * .22;
+  const { len, h } = sp, walking = o.ph != null, amp = o.amp ?? .5, headA = o.headA ?? -.3, mouth = o.mouth ?? 0, rear = o.rear || 0;
+  const ay = h * .22, fx0 = len * .5 - h * .3, hx0 = -len * .5 + h * .3;
   const leg = (x, off, hind, dark) => {
-    const a = TAU * ((o.ph ?? 0) + off), th = walking ? amp * Math.sin(a) : (hind ? .1 : 0), bend = walking ? Math.max(0, Math.cos(a)) * amp * 1.5 : (hind ? .22 : .05);
-    const jx = x + Math.sin(th) * L1, jy = ay + Math.cos(th) * L1, t2 = th - bend, fx = jx + Math.sin(t2) * L2, fy = jy + Math.cos(t2) * L2;
-    c.lineCap = 'round'; c.lineJoin = 'round';
-    c.strokeStyle = dark ? shade(sp.col, -.28) : sp.col; c.lineWidth = sp.w; c.beginPath(); c.moveTo(x, ay); c.lineTo(jx, jy); c.stroke();
-    c.lineWidth = sp.w * .72; c.beginPath(); c.moveTo(jx, jy); c.lineTo(fx, fy); c.stroke();
-    ell(c, fx + sp.w * .22, fy, sp.w * .62, sp.w * .4); fillStroke(c, dark ? shade(sp.paw, -.2) : sp.paw);
+    const a = TAU * ((o.ph ?? 0) + off), L = sp.legL, W = sp.w;
+    let th = walking ? amp * Math.sin(a) : 0, bend = walking ? Math.max(0, Math.cos(a)) * amp * 1.5 : 0, pts, ws;
+    if (rear) { if (hind) th -= .1 * rear; else { th = mx(th, .9, rear); bend = mx(bend, 1.5, rear); } }
+    if (hind) { // thigh forward, shin back, then the long foot bone: the hock
+      const K = 1.106, a1 = th + .5, a2 = th - .55 - bend * .8, a3 = th + .1 - bend * 1.2;
+      const p1 = [x + Math.sin(a1) * L * .36 * K, ay + Math.cos(a1) * L * .36 * K], p2 = [p1[0] + Math.sin(a2) * L * .34 * K, p1[1] + Math.cos(a2) * L * .34 * K];
+      pts = [[x, ay], p1, p2, [p2[0] + Math.sin(a3) * L * .3 * K, p2[1] + Math.cos(a3) * L * .3 * K]]; ws = [W * 1.7, W * 1.05, W * .62, W * .52];
+    } else {
+      const t2 = th - bend, k = [x + Math.sin(th) * L * .5, ay + Math.cos(th) * L * .5];
+      pts = [[x, ay], [mx(x, k[0], .5), mx(ay, k[1], .5)], k, [k[0] + Math.sin(t2) * L * .5, k[1] + Math.cos(t2) * L * .5]]; ws = [W * 1.3, W * 1.0, W * .66, W * .5];
+    }
+    limb(c, pts, ws, dark ? shade(sp.col, -.28) : sp.col, sp.out, 1);
+    if (sp.bands) limbBands(c, pts, ws, sp.bands);
+    const F = pts[3], pw = dark ? shade(sp.paw, -.2) : sp.paw;
+    if (sp.toe === 'paw') { ell(c, F[0] + W * .3, F[1] - W * .38, W * .9, W * .52); fillStroke(c, pw, sp.out, .8); }
+    else { ell(c, F[0] + W * .2, F[1] - W * .28, W * .66, W * .42); c.fillStyle = pw; c.fill(); }
   };
-  const fx0 = len * .5 - h * .3, hx0 = -len * .5 + h * .3;
-  // tail, then the far legs
+  // tail first, then the legs (the body covers where they join it)
   const tl = sp.tail, ta = tl.ang + (o.tailA ?? 0) + (walking ? Math.sin(TAU * o.ph) * .08 : 0);
   c.save(); c.translate(-len * .5 + 3, -h * .2); c.rotate(ta);
   if (tl.type === 'bush') {
-    ell(c, tl.len * .5, 0, tl.len * .55, tl.w * .5); fillStroke(c, tl.col, sp.out, 1);
-    ell(c, tl.len * .95, 0, tl.len * .22, tl.w * .38); c.fillStyle = tl.tip; c.fill();
+    limb(c, [[0, 0], [tl.len * .35, 1], [tl.len * .7, 2], [tl.len, 1]], [tl.w * .5, tl.w, tl.w * .95, tl.w * .35], lg(c, 0, -tl.w, 0, tl.w, [[0, shade(tl.col, -.2)], [1, tl.col]]), sp.out, 1);
+    ell(c, tl.len * .95, 1, tl.len * .16, tl.w * .38); c.fillStyle = tl.tip; c.fill();
   } else {
-    c.strokeStyle = tl.col; c.lineWidth = tl.w; c.lineCap = 'round'; c.beginPath(); c.moveTo(0, 0); c.quadraticCurveTo(tl.len * .5, tl.len * .18, tl.len, 0); c.stroke();
-    ell(c, tl.len + 2, 0, tl.w * 1.2, tl.w * 1.6); c.fillStyle = tl.tip; c.fill();
+    limb(c, [[0, 0], [tl.len * .45, tl.len * .1], [tl.len * .9, tl.len * .1]], [tl.w, tl.w * .75, tl.w * .6], tl.col, sp.out, .8);
+    ell(c, tl.len * .9 + tl.tuft * .55, tl.len * .1, tl.tuft, tl.tuft * .55, .1); c.fillStyle = tl.tip; c.fill();
   }
   c.restore();
-  leg(fx0, .5, false, true); leg(hx0, 0, true, true);
-  // body
-  const bp = [[-len * .5, -h * .28], [-len * .28, -h * .5], [len * .1, -h * .5], [len * .42, -h * .4], [len * .52, -h * .05], [len * .4, h * .4], [len * .05, h * .5], [-len * .3, h * .46], [-len * .52, h * .12]];
-  smooth(c, bp); fillStroke(c, lg(c, 0, -h * .5, 0, h * .5, [[0, sp.back], [.45, sp.col], [.85, sp.belly]]), sp.out, 1.2);
-  if (sp.deco) { c.save(); smooth(c, bp); c.clip(); sp.deco(c, sp); c.restore(); }
-  leg(fx0, 0, false, false); leg(hx0, .5, true, false);
-  // neck and head
+  leg(fx0, .5, false, true); leg(hx0, 0, true, true); leg(fx0, 0, false, false); leg(hx0, .5, true, false);
+  // body: shaded from the back to the belly, with the species' markings and a soft light from the top left
+  const bp = sp.body.map(([fx, fy]) => [fx * len, fy * h]);
+  smooth(c, bp); fillStroke(c, lg(c, 0, -h * .5, 0, h * .5, [[0, sp.back], [.42, sp.col], [.88, sp.belly]]), sp.out, 1.2);
+  c.save(); smooth(c, bp); c.clip();
+  if (sp.deco) sp.deco(c, sp);
+  c.fillStyle = lg(c, -len * .3, -h * .5, len * .1, h * .1, [[0, 'rgba(255,255,255,.18)'], [1, 'rgba(255,255,255,0)']]); c.fillRect(-len, -h, len * 2, h * 2);
+  c.restore();
+  // neck, shaded across its width, then the head
   const Sx = len * .5 - h * .2, Sy = -h * .2, Hx = Sx + sp.neck * Math.cos(headA), Hy = Sy + sp.neck * Math.sin(headA);
-  c.lineCap = 'round'; c.strokeStyle = sp.col; c.lineWidth = h * .52; c.beginPath(); c.moveTo(Sx - 3, Sy + 1); c.lineTo(mx(Sx, Hx, .6), mx(Sy, Hy, .6)); c.stroke();
-  c.lineWidth = sp.headR * 1.55; c.beginPath(); c.moveTo(mx(Sx, Hx, .5), mx(Sy, Hy, .5)); c.lineTo(Hx, Hy); c.stroke();
-  if (sp.mane) {
-    const nx = Math.sin(headA), ny = -Math.cos(headA);
-    c.strokeStyle = sp.mane; c.lineWidth = 2.6;
-    for (let u = 0; u <= 1; u += .1) { const px = mx(Sx, Hx, u) + nx * h * .26, py = mx(Sy, Hy, u) + ny * h * .26; c.beginPath(); c.moveTo(px, py); c.lineTo(px + nx * 5 - 2, py + ny * 5); c.stroke(); }
-  }
-  const hr = sp.headR;
-  c.save(); c.translate(Hx, Hy); c.rotate(headA + .25);
-  c.fillStyle = sp.col; c.strokeStyle = sp.out; c.lineWidth = 1;
-  if (sp.earRound) circ(c, -hr * .3, -hr * .78, sp.ear * .55);
-  else { c.beginPath(); c.moveTo(-hr * .6, -hr * .5); c.lineTo(-hr * .35, -hr * .55 - sp.ear); c.lineTo(hr * .15, -hr * .72); c.closePath(); }
-  c.fill(); c.stroke();
-  ell(c, 0, 0, hr, hr * .88); fillStroke(c, sp.col, sp.out, 1.1);
-  if (mouth > .02) {
-    ell(c, hr * .55 + sp.snout * .45, hr * .42 + mouth * 3, sp.snout * .4, mouth * hr * .35); c.fillStyle = '#5A1F25'; c.fill();
-    c.save(); c.translate(hr * .55, hr * .4); c.rotate(mouth * .55); ell(c, sp.snout * .42, hr * .12, sp.snout * .55, hr * .2); fillStroke(c, shade(sp.col, -.1), sp.out, 1); c.restore();
-  }
-  ell(c, hr * .72 + sp.snout * .3, hr * .2, sp.snout * .62, hr * .42); fillStroke(c, sp.muz || shade(sp.col, .18), sp.out, 1);
-  ell(c, hr * .72 + sp.snout * .88, hr * .08, 2.4, 1.9); c.fillStyle = sp.nose || '#1A1A1D'; c.fill();
-  if (sp.head) sp.head(c, sp, mouth);
-  ell(c, hr * .3, -hr * .28, 2.4, 2.1); fillStroke(c, sp.eye, 'rgba(0,0,0,.6)', .8);
-  circ(c, hr * .34, -hr * .28, 1.1); c.fillStyle = '#15110D'; c.fill();
-  circ(c, hr * .3 - .6, -hr * .28 - .8, .75); c.fillStyle = '#fff'; c.fill();
-  c.restore();
+  const nx = Math.sin(headA), ny = -Math.cos(headA), nW = sp.neckW, mxp = mx(Sx, Hx, .5), myp = mx(Sy, Hy, .5);
+  const np = [[Sx - 7, Sy + 5], [mx(Sx, Hx, .35), mx(Sy, Hy, .35)], [mx(Sx, Hx, .7), mx(Sy, Hy, .7)], [Hx, Hy]];
+  limb(c, np, nW, lg(c, mxp + nx * nW[1], myp + ny * nW[1], mxp - nx * nW[1], myp - ny * nW[1], [[0, sp.back], [.55, sp.col], [1, mix(sp.col, sp.belly, .45)]]), sp.out, 1.1);
+  if (sp.neckDeco) sp.neckDeco(c, sp, np, nW, nx, ny);
+  c.save(); c.translate(Hx, Hy); c.rotate(headA + .25); sp.head(c, sp, mouth); c.restore();
 }
 // where the muzzle tip is on screen, for effects that start at the mouth
 function muzzleAt(sp, a, sc, dir, x, gy, lift = 0) {
   const Sx = sp.len * .5 - sp.h * .2, Sy = -sp.h * .2, Hx = Sx + sp.neck * Math.cos(a), Hy = Sy + sp.neck * Math.sin(a), ang = a + .25, d = sp.headR * .72 + sp.snout * .88;
   return [x + dir * (Hx + Math.cos(ang) * d) * sc, gy - groundOf(sp) * sc + lift + (Hy + Math.sin(ang) * d) * sc];
 }
+// a soft ground shadow: a flat ellipse, dark in the middle and fading to nothing
+function groundShadow(c, x, y, rx, col) {
+  c.save(); c.translate(x, y); c.scale(1, .14);
+  c.fillStyle = rg(c, 0, 0, 0, rx, [[0, col], [1, col.replace(/[\d.]+\)\s*$/, '0)')]]); circ(c, 0, 0, rx); c.fill();
+  c.restore();
+}
+// o.rear: 0..1 rears up on the hind legs (turns about the hind feet, folds the front legs)
 function drawQuad(c, sp, x, gy, sc, dir, o = {}) {
   c.save();
-  ell(c, x, gy + 1, sp.len * .5 * sc, 4 * sc); c.fillStyle = o.shc || 'rgba(0,0,0,.22)'; c.fill();
+  groundShadow(c, x, gy + 1.5, sp.len * .62 * sc, o.shc || 'rgba(0,0,0,.3)');
   c.translate(x, gy - groundOf(sp) * sc + (o.lift || 0)); c.scale(dir * sc, sc); c.globalAlpha = 1;
+  if (o.rear) { const px = -sp.len * .5 + sp.h * .3, py = groundOf(sp); c.translate(px, py); c.rotate(-o.rear * .6); c.translate(-px, -py); }
   quad(c, sp, o);
   c.restore();
 }
@@ -414,12 +576,12 @@ function cheetahHead(c, x, y, a, mouth = 0) {
   c.fillStyle = 'rgba(42,28,14,.8)'; for (const [dx, dy] of [[-1, -4.5], [1.5, -5], [-3, -2.5], [-3.5, 1]]) { circ(c, dx, dy, .85); c.fill(); }
   c.restore();
 }
-// g: -1 = bunched up, +1 = stretched out; stand: 0..1 = standing still; crouch: 0..1; tail: swing angle; origin = middle of the body, ground at +41
+// g: -1 = bunched up, +1 = stretched out; stand: 0..1 = standing still; crouch: 0..1; reach: 0..1 = fully stretched, front paws out; tail: swing angle; origin = middle of the body, ground at +41
 const CHG = 41;
 function cheetah(c, o) {
-  const g = o.g, stand = o.stand || 0, crouch = o.crouch || 0;
+  const reach = o.reach || 0, g = mx(o.g, 1, reach), stand = o.stand || 0, crouch = o.crouch || 0;
   const len = 40 + 10 * g * (1 - stand), arch = ((1 - stand) * (5 - 7 * g) + 1) * (1 - crouch * .55);
-  const hx = -len / 2, sx = len / 2, col = '#E6B04E', belly = '#F5DDA0', dark = '#2A1C0E';
+  const hx = -len / 2, sx = len / 2, col = '#E6B04E', belly = '#F5DDA0', dark = '#2A1C0E', ol = '#6B4719';
   const sY = (k) => -arch * Math.sin(k * Math.PI);
   // tail: rings of dark and gold, streaming out behind
   const base = mx(Math.PI + .12, 2.15, stand), sw = o.tail || 0;
@@ -430,53 +592,49 @@ function cheetah(c, o) {
     c.strokeStyle = j >= 2 && j % 2 === 1 ? dark : (j === 7 ? dark : col); c.lineWidth = 5.6 - j * .15;
     c.beginPath(); c.moveTo(tx, ty); c.lineTo(nx, ny); c.stroke(); tx = nx; ty = ny;
   }
-  const leg = (x, th, bend, far) => {
-    const jx = x + Math.sin(th) * 17, jy = 5 + Math.cos(th) * 17, t2 = th - bend, fx = jx + Math.sin(t2) * 19, fy = jy + Math.cos(t2) * 19;
-    c.strokeStyle = far ? shade(col, -.25) : col; c.lineWidth = 5.2; c.beginPath(); c.moveTo(x, 5); c.lineTo(jx, jy); c.stroke();
-    c.lineWidth = 3.8; c.beginPath(); c.moveTo(jx, jy); c.lineTo(fx, fy); c.stroke();
-    ell(c, fx + 1.4, fy, 3.4, 2.3); fillStroke(c, far ? '#8A6322' : '#D29A3C', '#5A3B14', .8);
+  // legs: long and thin. The hind leg has a thigh, a shin and a long foot bone (the hock)
+  const leg = (x, th, bend, far, hind) => {
+    const L = 36, ay = 5, K = 1.106; let pts, ws;
+    if (hind) {
+      const a1 = th + .5, a2 = th - .55 - bend * .8, a3 = th + .1 - bend * 1.2;
+      const p1 = [x + Math.sin(a1) * L * .36 * K, ay + Math.cos(a1) * L * .36 * K], p2 = [p1[0] + Math.sin(a2) * L * .34 * K, p1[1] + Math.cos(a2) * L * .34 * K];
+      pts = [[x, ay], p1, p2, [p2[0] + Math.sin(a3) * L * .3 * K, p2[1] + Math.cos(a3) * L * .3 * K]]; ws = [9, 5.6, 3.6, 3.2];
+    } else {
+      const t2 = th - bend, k = [x + Math.sin(th) * L * .5, ay + Math.cos(th) * L * .5];
+      pts = [[x, ay], [mx(x, k[0], .5), mx(ay, k[1], .5)], k, [k[0] + Math.sin(t2) * L * .5, k[1] + Math.cos(t2) * L * .5]]; ws = [7.4, 5.4, 4, 3.2];
+    }
+    limb(c, pts, ws, far ? shade(col, -.25) : col, ol, 1);
+    if (!far) { c.fillStyle = 'rgba(42,28,14,.85)'; for (const [u, d] of [[.25, -.6], [.45, .7], [.62, -.4]]) { const [px, py, , , w] = along(pts, u, ws); circ(c, px + d * w * .3, py, .85); c.fill(); } }
+    const F = pts[3];
+    ell(c, F[0] + 1.3, F[1] - 1, 3.5, 2.3); fillStroke(c, far ? '#8A6322' : '#D29A3C', '#5A3B14', .8);
   };
-  const sf = 1 - stand, thF = mx(g * .8 + .12, .02, stand), thH = mx(-g * .8 - .05, -.04, stand);
+  const thF = mx(g * .8 + .12, .02, stand), thH = mx(-g * .8 - .05, -.04, stand);
   const bF = mx(.25 + .45 * (1 - g) / 2 + crouch * .3, .1, stand), bH = mx(.3 + .45 * (1 - g) / 2 + crouch * .3, .16, stand);
-  leg(sx - 4, thF * .9 + .22 * sf, bF + .1, true); leg(hx + 5, thH * .9 - .2 * sf, bH + .1, true);
-  // body
+  leg(sx - 4, mx(thF, .95, reach), mx(bF, -.1, reach), true, false); leg(hx + 5, thH, bH, true, true);
+  leg(sx - 4, mx(thF, 1.25, reach), mx(bF, -.1, reach), false, false); leg(hx + 5, thH, bH, false, true);
+  // body: a slim waist and a deep chest, spotted
   const ht = [6.5, 7, 8.2, 9.5, 9], hb = [6.5, 5.4, 6.2, 9, 10.5], ks = [0, .25, .5, .75, 1], pts = [];
   ks.forEach((k, i) => pts.push([mx(hx, sx, k), sY(k) - ht[i]]));
   for (let i = 4; i >= 0; i--) pts.push([mx(hx, sx, ks[i]) + (i === 4 ? 3 : 0), sY(ks[i]) * .75 + hb[i]]);
-  smooth(c, pts); fillStroke(c, lg(c, 0, -14, 0, 14, [[0, '#D79C3C'], [.45, col], [1, belly]]), '#6B4719', 1.1);
+  smooth(c, pts); fillStroke(c, lg(c, 0, -14, 0, 14, [[0, '#CE9338'], [.45, col], [1, belly]]), ol, 1.2);
   c.save(); smooth(c, pts); c.clip(); c.fillStyle = 'rgba(42,28,14,.85)';
-  for (let i = 0; i < 38; i++) { circ(c, mx(hx - 4, sx + 3, R(i)), -arch * .5 + (R(i + 60) - .5) * 17, 1 + R(i + 9) * .9); c.fill(); }
+  for (let i = 0; i < 42; i++) { circ(c, mx(hx - 4, sx + 3, R(i)), -arch * .5 + (R(i + 60) - .5) * 17, 1 + R(i + 9) * .9); c.fill(); }
+  c.fillStyle = lg(c, hx, -14, sx * .4, 6, [[0, 'rgba(255,255,255,.22)'], [1, 'rgba(255,255,255,0)']]); c.fillRect(hx - 6, -22, len + 14, 40);
   c.restore();
-  leg(sx - 4, thF, bF, false); leg(hx + 5, thH, bH, false);
-  // neck and head
+  // neck and head: small and round on a long neck
   const hy = sY(1) - 9 + (o.hbob || 0) + crouch * 3, hX = sx + 14, ha = o.ha ?? -.06;
-  c.strokeStyle = col; c.lineWidth = 9; c.beginPath(); c.moveTo(sx - 3, sY(1) - 3); c.lineTo(hX - 3, hy + 1); c.stroke();
+  limb(c, [[sx - 4, sY(1) - 3], [mx(sx - 4, hX - 3, .5), mx(sY(1) - 3, hy + 1, .5)], [hX - 3, hy + 1]], [11, 8.2, 7.4], lg(c, 0, -16, 0, 6, [[0, '#D79C3C'], [1, col]]), ol, 1);
   cheetahHead(c, hX, hy, ha, o.mouth || 0);
 }
-// resting after the sprint, panting, side view, facing right; origin on the ground
-function cheetahLie(c, time) {
-  const col = '#E6B04E', belly = '#F5DDA0', breath = .5 + .5 * Math.sin(time * 8), mouth = .55 + .3 * breath;
-  c.lineCap = 'round';
-  c.strokeStyle = col; c.lineWidth = 5; c.beginPath(); c.moveTo(-30, -7); c.bezierCurveTo(-52, -6, -60, -1, -70, -2); c.stroke();
-  c.strokeStyle = '#2A1C0E'; c.lineWidth = 5.4; c.beginPath(); c.moveTo(-60, -3); c.lineTo(-65, -2.4); c.moveTo(-68, -2.1); c.lineTo(-74, -2.8); c.stroke();
-  const bp = [[-34, -9], [-22, -26], [-4, -24], [18, -23], [34, -18], [38, -6], [18, 0], [-8, 1], [-30, 1]];
-  bp[3][1] -= breath * 1.6; bp[2][1] -= breath * 1.3;
-  smooth(c, bp); fillStroke(c, lg(c, 0, -26, 0, 2, [[0, '#D79C3C'], [.5, col], [1, belly]]), '#6B4719', 1.1);
-  c.save(); smooth(c, bp); c.clip(); c.fillStyle = 'rgba(42,28,14,.85)';
-  for (let i = 0; i < 34; i++) { circ(c, -34 + R(i) * 74, -24 + R(i + 30) * 24, 1 + R(i + 9) * .9); c.fill(); }
-  c.restore();
-  ell(c, -22, -9, 14, 11); fillStroke(c, '#DDA844', '#6B4719', 1);
-  c.strokeStyle = col; c.lineWidth = 5; c.beginPath(); c.moveTo(26, -8); c.lineTo(46, -2); c.stroke();
-  ell(c, 49, -2, 5.2, 2.6); fillStroke(c, '#D29A3C', '#5A3B14', .8);
-  c.lineWidth = 8; c.strokeStyle = col; c.beginPath(); c.moveTo(32, -17); c.lineTo(44, -26); c.stroke();
-  cheetahHead(c, 49, -29, .18, mouth);
-}
 
-// pure functions of time for the chase: how far the camera has scrolled and how far the gallop has gone
-function runInteg(t) {
+// The chase is a pure function of time. At t = F it freezes: in the hunt the cheetah is stretched out with its front paw reaching
+// for the gazelle's hind leg; in the body view it is in the middle of a sharp turn with its tail swung out.
+const chaseEnd = (body) => (body ? 4 : 5.1);
+// how far the camera has scrolled and how far the gallop has gone; in the hunt the sprint slows into the frozen frame
+function runInteg(t, F, slow) {
   let sc = 0, ph = 0; const n = Math.ceil(t / .05);
   for (let i = 0; i < n; i++) {
-    const tt = Math.min(t, (i + .5) * .05), dt = Math.min(.05, t - i * .05), sp = ramp(tt, .7, 1.9) * (1 - ramp(tt, 5, 5.9));
+    const tt = Math.min(t, (i + .5) * .05), dt = Math.min(.05, t - i * .05), sp = ramp(tt, .7, 1.9) * (slow ? 1 - ramp(tt, F - .6, F) : 1);
     sc += 255 * sp * dt; ph += 3.1 * sp * dt;
   }
   return [sc, ph];
@@ -485,81 +643,59 @@ const zigAmp = (tt) => lin(tt, .9, 1.7);
 const zigTri = (tt) => { const u = (tt - .9) / 1.8 + .25; return 4 * Math.abs(u - Math.round(u)) - 1; };
 const gazY = (tt) => 212 + 18 * zigAmp(tt) * zigTri(tt);
 const cheY = (tt) => 236 + 18 * zigAmp(tt - .4) * zigTri(tt - .4);
-const cheX = (tt) => 105 + 82 * ramp(tt, .7, 2.4);
-
+const cheX = (tt) => 100 + 78 * ramp(tt, .7, 2.4) + 7 * ramp(tt, 3.2, 4.9);
 function plain(c, e) {
-  const { t, time, E, body } = e, W = E.x1 - E.x0;
-  const [scroll, phase] = runInteg(t), spd = ramp(t, .7, 1.9) * (1 - ramp(t, 5, 5.9));
+  const { t, time, E, body } = e, W = E.x1 - E.x0, F = chaseEnd(body), tt = Math.min(t, F);
+  const [scroll, phase] = runInteg(tt, F, !body), spd = ramp(tt, .7, 1.9) * (body ? 1 : 1 - ramp(tt, F - .6, F));
+  const reach = body ? 0 : ramp(tt, 3.9, F - .1);
   plainBg(c, E, time, scroll);
-  // the gazelle: grazes, notices, flees in zigzags
-  const gx = 300 + 28 * ramp(t, .6, 3) + 200 * ramp(t, 4.4, 5.8), gy = gazY(t), gsc = .9 + (gy - 196) * .004;
-  if (gx < E.x1 + 60) {
-    const fl = t > .5;
-    drawQuad(c, SPECIES.gazelle, gx, gy, gsc, 1, { ph: fl ? t * 2.4 : null, amp: .8, headA: mx(.95, -.35, ramp(t, .3, .7)) + (fl ? 0 : Math.sin(time * 1.3) * .04), lift: fl ? -Math.abs(Math.sin(t * 5)) * 10 : 0, shc: 'rgba(90,60,20,.25)' });
-  }
+  // the gazelle: grazes, notices, flees in zigzags and, in the last moment, leaps
+  const gx = 286 + 20 * ramp(tt, .6, 3), gy = gazY(tt), gsc = 1.35 + (gy - 196) * .004, fl = tt > .5, leap = ramp(tt, F - .7, F - .1);
+  drawQuad(c, SPECIES.gazelle, gx, gy, gsc, 1, { ph: fl ? tt * 2.4 : null, amp: .8, headA: mx(.95, -.35, ramp(tt, .3, .7)) + (fl ? 0 : Math.sin(time * 1.3) * .04), lift: fl ? -mx(Math.abs(Math.sin(tt * 5)) * 10, 13, leap) : 0, shc: 'rgba(90,60,20,.3)' });
   // dust behind the paws
   for (let k = 0; k < 40; k++) {
-    const ts = 1 + k * .11; if (ts > 5.4 || t < ts) continue;
-    const age = t - ts; if (age > 1.3) continue;
-    const wx = runInteg(ts)[0] + cheX(ts) - 36 - scroll, wy = cheY(ts) - 5 - age * 8, r = 7 + age * 20;
-    c.fillStyle = rg(c, wx, wy, 0, r, [[0, `rgba(235,214,166,${.5 * (1 - age / 1.3)})`], [1, 'rgba(235,214,166,0)']]); circ(c, wx, wy, r); c.fill();
+    const ts = 1 + k * .11; if (ts > F || tt < ts) continue;
+    const age = tt - ts; if (age > 1.3) continue;
+    const wx = runInteg(ts, F, !body)[0] + cheX(ts) - 46 - scroll, wy = cheY(ts) - 6 - age * 8, r = 8 + age * 22;
+    c.fillStyle = rg(c, wx, wy, 0, r, [[0, `rgba(235,214,166,${.55 * (1 - age / 1.3)})`], [1, 'rgba(235,214,166,0)']]); circ(c, wx, wy, r); c.fill();
   }
-  // the cheetah
-  if (t < 5.95) {
-    const crouch = body ? 0 : 1 - ramp(t, .35, .9), stand = body ? 1 - ramp(t, .5, 1) : 0;
-    const gg = -Math.cos(TAU * phase), cy = cheY(t), cs = 1.25;
-    const lift = -4 * Math.max(0, Math.sin(TAU * phase)) * spd, swing = clamp(((cheY(t + .06) - cheY(t - .06)) / .12) * .04, -.7, .7) * spd * (body ? 1.8 : 1);
-    c.save();
-    ell(c, cheX(t), cy + 2, 36, 5); c.fillStyle = 'rgba(90,60,20,.25)'; c.fill();
-    c.translate(cheX(t), cy - CHG * cs + crouch * 13 * cs + lift); c.scale(cs, cs);
-    cheetah(c, { g: gg, stand, crouch, tail: swing, hbob: Math.sin(TAU * phase * 2) * 1.2 * spd });
-    c.restore();
-  } else if (t > 5.8) {
-    c.save(); c.translate(196, 236); c.scale(1.25, 1.25); cheetahLie(c, time); c.restore();
-  }
-  if (spd > .35 && t < 5.4) {
+  // the cheetah: waits standing and watching, then crouches, springs and runs
+  const crouch = body ? 0 : ramp(tt, .1, .5) * (1 - ramp(tt, .55, 1)), stand = body ? 1 - ramp(tt, .5, 1) : 1 - ramp(tt, .1, .7);
+  const gg = -Math.cos(TAU * phase), cy = cheY(tt), cs = 1.55;
+  const lift = -5 * Math.max(0, Math.sin(TAU * phase)) * spd, swing = clamp(((cheY(tt + .06) - cheY(tt - .06)) / .12) * .04, -.7, .7) * (body ? 1.8 : 1 - reach * .85);
+  c.save();
+  groundShadow(c, cheX(tt), cy + 2, 66, 'rgba(90,60,20,.32)');
+  c.translate(cheX(tt), cy - CHG * cs + crouch * 13 * cs + lift); c.scale(cs, cs);
+  cheetah(c, { g: gg, stand, crouch, reach, tail: swing * (body ? spd : 1), hbob: Math.sin(TAU * phase * 2) * 1.2 * spd, mouth: reach * .35 });
+  c.restore();
+  if (spd > .35) {
     c.strokeStyle = `rgba(255,248,225,${.5 * spd})`; c.lineWidth = 1.6; c.lineCap = 'round';
-    for (let i = 0; i < 9; i++) { const y = 176 + R(i) * 90, x = E.x0 + ((((R(i + 5) * W - time * 420) % W) + W) % W), l = 30 + R(i + 2) * 50; c.beginPath(); c.moveTo(x, y); c.lineTo(x + l, y); c.stroke(); }
+    for (let i = 0; i < 9; i++) { const y = 176 + R(i) * 90, x = E.x0 + ((((R(i + 5) * W - tt * 420) % W) + W) % W), l = 30 + R(i + 2) * 50; c.beginPath(); c.moveTo(x, y); c.lineTo(x + l, y); c.stroke(); }
   }
-  if (!body) nearGrass(c, E, time, scroll, 24); else nearGrass(c, E, time, scroll, 14);
-  // the dust cloud that ends the chase
-  if (t > 5 && t < 7.7) {
-    for (let i = 0; i < 26; i++) {
-      const d = R(i + 100) * .6, a = ramp(t, 5 + d, 5.9 + d) * (1 - ramp(t, 6.5, 7.6)) * .92;
-      if (a < .01) continue;
-      const x = 205 + (R(i) - .5) * 190, y = 222 + (R(i + 30) - .5) * 60 - (t - 5) * 4, r = 26 + R(i + 60) * 38;
-      c.fillStyle = rg(c, x, y, 0, r, [[0, `rgba(236,214,164,${a})`], [.7, `rgba(226,198,140,${a * .8})`], [1, 'rgba(226,198,140,0)']]); circ(c, x, y, r); c.fill();
-    }
-  }
+  nearGrass(c, E, time, scroll, body ? 14 : 22);
 }
 
 // --- lions: three or four lionesses creep up from different sides ---------------------------------------------------
-const LION0 = [[64, 238], [102, 224], [132, 244], [84, 210]];
-const LION1 = [[238, 258], [258, 230], [252, 200], [232, 176]];
+const LION0 = [[58, 252], [128, 238], [44, 214], [122, 214]];
+const LION1 = [[214, 264], [268, 238], [238, 208], [196, 184]];
 function lions(c, e) {
   const { t, time, E } = e;
   plainBg(c, E, time, 0);
   // the herd, far away, looks up at the end
-  const alert = ramp(t, 4.3, 4.9);
-  [[330, 205], [352, 214], [372, 200], [344, 192], [316, 218]].forEach(([x, y], i) => drawQuad(c, SPECIES.gazelle, x, y, .5, -1, { headA: mx(.95, -.2, alert), shc: 'rgba(90,60,20,.22)' }));
+  const alert = ramp(t, 4, 4.6);
+  [[318, 190], [346, 196], [372, 186], [332, 178], [358, 202]].forEach(([x, y]) => drawQuad(c, SPECIES.gazelle, x, y, .55, -1, { headA: mx(.95, -.2, alert), shc: 'rgba(90,60,20,.22)' }));
   const p = ramp(t, .6, 5);
   const items = LION0.map((a, i) => {
     const b = LION1[i], pos = mixPt(a, b, p), dd = dist(a, b) * p, moving = t > .6 && t < 5.1;
-    return { y: pos[1], fn: () => drawQuad(c, SPECIES.lion, pos[0], pos[1], .82 + (pos[1] - 200) * .0025, 1, { ph: moving ? dd / 38 + i * .13 : null, amp: .34, headA: t > .9 ? mx(-.3, .42, ramp(t, .6, 1.3)) : -.3, mouth: 0, tailA: Math.sin(time * 2 + i) * .15, shc: 'rgba(90,60,20,.28)' }) };
+    return { y: pos[1], fn: () => drawQuad(c, SPECIES.lion, pos[0], pos[1], .98 + (pos[1] - 200) * .003, 1, { ph: moving ? dd / 40 + i * .13 : null, amp: .34, headA: t > .9 ? mx(-.3, .42, ramp(t, .6, 1.3)) : -.3, mouth: 0, tailA: Math.sin(time * 2 + i) * .15, shc: 'rgba(90,60,20,.32)' }) };
   });
   items.sort((a, b) => a.y - b.y).forEach((it) => it.fn());
   nearGrass(c, E, time, 0, 16);
-  if (t > 5.2) {
-    for (let i = 0; i < 22; i++) {
-      const d = R(i + 100) * .5, a = ramp(t, 5.2 + d, 6 + d) * .92, x = 280 + (R(i) - .5) * 190, y = 215 + (R(i + 30) - .5) * 70, r = 28 + R(i + 60) * 36;
-      c.fillStyle = rg(c, x, y, 0, r, [[0, `rgba(236,214,164,${a})`], [.7, `rgba(226,198,140,${a * .8})`], [1, 'rgba(226,198,140,0)']]); circ(c, x, y, r); c.fill();
-    }
-    fillAll(c, E, `rgba(236,214,164,${ramp(t, 6.1, 6.9) * .9})`);
-  }
 }
 
 // --- river: the crocodile ---------------------------------------------------------------------------------------------
 const WL = 204; // the water line where the crocodile floats
+const CROC_REST = WL + 4; // the back line at rest: only the eyes and the nostrils are above the water
 function reeds(c, x, y, n, hgt, time, spread = 40) {
   for (let i = 0; i < n; i++) {
     const bx = x + (R(i * 1.3 + x) - .5) * spread, h = hgt * (.6 + R(i + x) * .6), sway = Math.sin(time * 1.1 + i + x * .1) * 3;
@@ -572,8 +708,12 @@ function reeds(c, x, y, n, hgt, time, spread = 40) {
 // facing right, local y = 0 is the line of the back; length about 190
 function crocBody(c, open, time) {
   const G = '#5E7C3C', D = '#3C5428', L = '#86A358', O = '#26381A', tw = Math.sin(time * 1.3) * 3;
-  // two stubby legs, mostly hidden
-  for (const lx of [-30, 20]) { ell(c, lx, 25, 8, 6); fillStroke(c, D, O, 1); }
+  const backY = (x) => (x < -40 ? 2 + (x + 84) * .01 + tw * (-x - 40) * .01 : -3);
+  // two stubby legs with toes, mostly hidden
+  for (const lx of [-30, 20]) {
+    limb(c, [[lx, 16], [lx + 4, 25], [lx - 1, 31]], [11, 8, 6.5], D, O, 1);
+    c.strokeStyle = O; c.lineWidth = 1; c.lineCap = 'round'; for (const dx of [-4, 0, 4]) { c.beginPath(); c.moveTo(lx - 1 + dx * .3, 31); c.lineTo(lx - 2 + dx, 35); c.stroke(); }
+  }
   c.beginPath();
   c.moveTo(-98, 5 + tw);
   c.bezierCurveTo(-70, tw * .6, -40, -2, -8, -3);
@@ -582,13 +722,21 @@ function crocBody(c, open, time) {
   c.bezierCurveTo(14, 25, -26, 26, -52, 17);
   c.bezierCurveTo(-72, 11, -88, 8 + tw, -98, 5 + tw);
   c.closePath();
-  fillStroke(c, lg(c, 0, -4, 0, 26, [[0, L], [.35, G], [1, D]]), O, 1.3);
-  // bumpy ridge along the back
-  c.fillStyle = shade(G, -.15); c.strokeStyle = O; c.lineWidth = 1;
-  for (let x = -84; x <= 30; x += 9) { const y = x < -40 ? 2 + (x + 84) * .01 + tw * (-x - 40) * .01 : -3; c.beginPath(); c.moveTo(x - 4, y + 1); c.quadraticCurveTo(x, y - 7, x + 4, y + 1); c.closePath(); c.fill(); c.stroke(); }
-  // lighter scale marks
-  c.strokeStyle = 'rgba(20,34,12,.28)'; c.lineWidth = 1;
-  for (let i = 0; i < 26; i++) { const x = -80 + i * 5.5, y = 6 + (R(i) * 10); c.beginPath(); c.arc(x, y, 2.4, .2, 2.9); c.stroke(); }
+  fillStroke(c, lg(c, 0, -4, 0, 26, [[0, L], [.35, G], [1, D]]), O, 1.4);
+  // darker cross bands on the tail and small scale marks on the flank
+  c.save(); c.clip();
+  c.fillStyle = 'rgba(30,48,20,.24)'; for (const x of [-88, -70, -52]) { c.beginPath(); c.moveTo(x, -6); c.lineTo(x + 6, -6); c.lineTo(x + 2, 24); c.lineTo(x - 4, 24); c.closePath(); c.fill(); }
+  c.strokeStyle = 'rgba(20,34,12,.3)'; c.lineWidth = 1;
+  for (let i = 0; i < 28; i++) { const x = -82 + i * 5.2, y = 7 + (R(i) * 10); c.beginPath(); c.arc(x, y, 2.4, .2, 2.9); c.stroke(); }
+  c.restore();
+  // scutes: two rows of bony plates along the back, smaller towards the tail, and a sharp keel on the tail
+  for (let i = 0; i < 17; i++) {
+    const x = 34 - i * 7.4, k = i / 16, y = backY(x), w = 6.4 * (1 - k * .4), hh = 2.8 * (1 - k * .3);
+    c.beginPath(); c.roundRect(x - w / 2, y - hh + 1.8, w, hh, 1.2); fillStroke(c, lg(c, 0, y - hh, 0, y, [[0, '#9DB36A'], [1, G]]), O, .9);
+    c.beginPath(); c.roundRect(x - w / 2 + 3.5, y + 2.8, w * .8, hh * .8, 1.1); fillStroke(c, shade(G, -.1), O, .8);
+  }
+  c.fillStyle = shade(G, -.15); c.strokeStyle = O; c.lineWidth = .9;
+  for (let x = -92; x < -50; x += 8) { const y = backY(x); c.beginPath(); c.moveTo(x - 3.5, y + 1); c.lineTo(x, y - 6); c.lineTo(x + 3.5, y + 1); c.closePath(); c.fill(); c.stroke(); }
   // lower jaw, mouth, upper jaw
   const hxp = 38, hyp = 9;
   c.save(); c.translate(hxp, hyp); c.rotate(open * .55); c.translate(-hxp, -hyp);
@@ -601,13 +749,33 @@ function crocBody(c, open, time) {
   c.beginPath(); c.moveTo(34, -1); c.bezierCurveTo(54, -4, 76, -1, 90, 4); c.quadraticCurveTo(93, 8, 89, 10); c.lineTo(38, 11); c.closePath();
   fillStroke(c, lg(c, 0, -4, 0, 12, [[0, L], [.5, G], [1, D]]), O, 1.3);
   if (open > .15) { c.fillStyle = '#F4F1E4'; for (let x = 50; x < 88; x += 6) { c.beginPath(); c.moveTo(x, 10); c.lineTo(x + 2, 14); c.lineTo(x + 4, 10); c.closePath(); c.fill(); } }
-  // nostril bump and eye bump on top
-  ell(c, 85, 1, 4, 3.2); fillStroke(c, G, O, 1); ell(c, 85.5, .6, 1.3, 1); c.fillStyle = '#0E1608'; c.fill();
-  ell(c, 52, -1.5, 6.8, 5.4); fillStroke(c, lg(c, 0, -7, 0, 4, [[0, L], [1, G]]), O, 1.2);
-  ell(c, 53.5, -1.2, 3.6, 3.2); c.fillStyle = '#D8C24A'; c.fill();
-  ell(c, 54, -1.2, .9, 3); c.fillStyle = '#111'; c.fill();
-  circ(c, 52.6, -2.8, .9); c.fillStyle = '#fff'; c.fill();
+  // the nostril knob and the eye dome, both raised above the snout: the last things to go under the water
+  ell(c, 85.5, -1.6, 4.6, 4); fillStroke(c, lg(c, 0, -5.6, 0, 2.4, [[0, L], [1, G]]), O, 1);
+  ell(c, 86.2, -2.6, 1.4, 1.1); c.fillStyle = '#0E1608'; c.fill();
+  ell(c, 52, -6.2, 7.2, 6); fillStroke(c, lg(c, 0, -12.2, 0, 0, [[0, L], [1, G]]), O, 1.2);
+  ell(c, 53.8, -6, 3.9, 3.6); c.fillStyle = '#D8C24A'; c.fill();
+  ell(c, 54.4, -6, .95, 3.2); c.fillStyle = '#111'; c.fill();
+  circ(c, 52.8, -7.8, 1); c.fillStyle = '#fff'; c.fill();
   c.restore();
+}
+// a splash: a crown of white water, a mist and flying drops. k = how much it has grown (0..1), age = seconds since it burst
+function splash(c, x, y, k, age, back) {
+  if (k < .01) return;
+  if (back) {
+    c.fillStyle = rg(c, x, y - 22 * k, 0, 62 * k, [[0, 'rgba(255,255,255,.92)'], [.65, 'rgba(244,248,251,.7)'], [1, 'rgba(244,248,251,0)']]); circ(c, x, y - 22 * k, 62 * k); c.fill();
+    for (let i = 0; i < 11; i++) {
+      const a = -Math.PI / 2 + (i - 5) * .27 + (R(i + 3) - .5) * .1, l = (46 + R(i) * 26) * k, tx = x + Math.cos(a) * l, ty = y + Math.sin(a) * l;
+      limb(c, [[x + Math.cos(a) * 4, y], [mx(x, tx, .55), mx(y, ty, .55)], [tx, ty]], [11, 7, 2.4], 'rgba(255,255,255,.95)', 'rgba(190,220,232,.8)', 1);
+    }
+    for (let i = 0; i < 44; i++) {
+      const a = -Math.PI / 2 + (R(i) - .5) * 2.2, sp = 40 + 100 * R(i + 7), px = x + Math.cos(a) * sp * age * .95, py = y + Math.sin(a) * sp * age + 70 * age * age;
+      c.fillStyle = 'rgba(255,255,255,.95)'; circ(c, px, py, (2 + 4.5 * R(i + 3)) * (1 - .4 * lin(age, .4, 1.1))); c.fill();
+    }
+  } else {
+    // foam on the water in front, with a few low drops
+    ell(c, x, y + 3, 56 * k, 7 * k); fillStroke(c, 'rgba(255,255,255,.75)', 'rgba(200,228,238,.9)', 1.2);
+    for (let i = 0; i < 12; i++) { const a = (R(i + 20) - .5) * 3, sp = 30 + 60 * R(i + 30), px = x + Math.sin(a) * sp * age * .8, py = y + 4 - Math.cos(a) * sp * age * .5 + 60 * age * age; c.fillStyle = 'rgba(255,255,255,.95)'; circ(c, px, py, 1.6 + 2.4 * R(i + 40)); c.fill(); }
+  }
 }
 function river(c, e) {
   const { t, time, E, body } = e, W = E.x1 - E.x0;
@@ -624,64 +792,46 @@ function river(c, e) {
     const y = 128 + R(i) * (E.y1 - 130), k = (y - 118) / 180, x = E.x0 + (((R(i + 20) * W + Math.sin(time * .5 + i) * 6 + time * 3 * (.3 + k)) % W)), len = 8 + 22 * k * (.5 + R(i + 5));
     c.strokeStyle = `rgba(255,255,255,${.1 + .12 * R(i + 11)})`; c.beginPath(); c.moveTo(x, y); c.quadraticCurveTo(x + len / 2, y - 1.5, x + len, y); c.stroke();
   }
-  // the crocodile
-  let cx, back, rot = 0, open = 0, show = true;
-  const sink = body ? ramp(t, .5, 2.6) : 1, lunge = body ? 0 : ramp(t, 2.1, 2.55) * (1 - ramp(t, 2.8, 3.1));
+  // the crocodile: at rest only the eyes and nostrils show. In the strike its head and chest burst out of the water, the jaws snap and stay there
+  const sink = body ? ramp(t, .5, 2.6) : 1, lunge = body ? 0 : ramp(t, 2.1, 2.55);
+  let cx, back, rot = 0, open = 0;
   if (!body) {
     cx = 100 + 16 * lin(t, 0, 2.1) + 60 * ramp(t, 2.1, 2.7);
-    back = WL - 5 - 24 * lunge; rot = -.3 * lunge; open = ramp(t, 2.3, 2.55) * (1 - ramp(t, 2.75, 3.05)); show = t < 3.2;
-  } else { cx = 120 + 8 * lin(t, 2.6, 6); back = WL - 5 - 27 * (1 - sink); }
-  if (show) {
-    c.save(); c.beginPath(); c.rect(E.x0 - 5, E.y0 - 5, W + 10, WL - E.y0 + 5); c.clip();
-    c.translate(cx, back); c.rotate(rot); c.scale(1.2, 1.2); crocBody(c, open, time); c.restore();
-    // waterline foam and the tiny ripples around the eyes and nostrils
-    ell(c, cx + 20, WL + 1, 108, 3.2); c.strokeStyle = `rgba(255,255,255,${.12 + .25 * sink * (1 - lunge)})`; c.lineWidth = 1.4; c.stroke();
-    if (lunge < .05 && sink > .6) for (const [dx, k0] of [[62, 0], [104, .33]]) for (let j = 0; j < 2; j++) {
-      const ph = (time * .55 + j * .5 + k0) % 1;
-      ell(c, cx + dx, WL + 1, 6 + 16 * ph, 1.8 + 3.6 * ph); c.strokeStyle = `rgba(255,255,255,${.6 * (1 - ph) * sink})`; c.lineWidth = 1.3; c.stroke();
-    }
-    // a breath at the nostrils
-    if (body && t > 3) for (let k = 0; k < 3; k++) {
-      const age = ((t - 3.1 - k * 1.3) % 3.9);
-      if (t - 3.1 - k * 1.3 < 0 || age > 1.1) continue;
-      const px = cx + 107 + age * 6, py = WL - 9 - age * 16;
-      c.fillStyle = `rgba(240,248,250,${.55 * (1 - age / 1.1)})`; circ(c, px, py, 2.5 + age * 6); c.fill();
-    }
+    back = CROC_REST - 13 * lunge; rot = -.3 * lunge; open = ramp(t, 2.3, 2.55) * (1 - ramp(t, 2.75, 3.05));
+  } else { cx = 120 + 8 * lin(t, 2.6, 6); back = CROC_REST - 37 * (1 - sink); }
+  const SX = 251, sage = Math.min(t - 2.55, 1.05), sk = ramp(t, 2.5, 3.1);
+  if (!body && t > 2.5) splash(c, SX, WL + 1, sk, sage, true);
+  c.save(); c.beginPath(); c.rect(E.x0 - 5, E.y0 - 5, W + 10, WL - E.y0 + 5); c.clip();
+  c.translate(cx, back); c.rotate(rot); c.scale(1.2, 1.2); crocBody(c, open, time); c.restore();
+  // waterline foam and the tiny ripples around the eyes and nostrils
+  ell(c, cx + 20, WL + 1, 108, 3.2); c.strokeStyle = `rgba(255,255,255,${.12 + .25 * sink * (1 - lunge)})`; c.lineWidth = 1.4; c.stroke();
+  if (lunge < .05 && sink > .6) for (const [dx, k0] of [[62, 0], [104, .33]]) for (let j = 0; j < 2; j++) {
+    const ph = (time * .55 + j * .5 + k0) % 1;
+    ell(c, cx + dx, WL + 1, 6 + 16 * ph, 1.8 + 3.6 * ph); c.strokeStyle = `rgba(255,255,255,${.6 * (1 - ph) * sink})`; c.lineWidth = 1.3; c.stroke();
   }
-  // calm rings after the splash
+  // a breath at the nostrils
+  if (body && t > 3) for (let k = 0; k < 3; k++) {
+    const age = ((t - 3.1 - k * 1.3) % 3.9);
+    if (t - 3.1 - k * 1.3 < 0 || age > 1.1) continue;
+    const px = cx + 107 + age * 6, py = WL - 4 - age * 16;
+    c.fillStyle = `rgba(240,248,250,${.55 * (1 - age / 1.1)})`; circ(c, px, py, 2.5 + age * 6); c.fill();
+  }
+  // rings spreading on the water after the splash
   if (!body && t > 3.3) for (let k = 0; k < 3; k++) {
     const age = t - 3.3 - k * .55; if (age < 0 || age > 2.4) continue;
-    ell(c, 255, 209, 10 + age * 55, 2 + age * 9); c.strokeStyle = `rgba(255,255,255,${.5 * (1 - age / 2.4)})`; c.lineWidth = 1.6; c.stroke();
+    ell(c, SX, 209, 10 + age * 55, 2 + age * 9); c.strokeStyle = `rgba(255,255,255,${.5 * (1 - age / 2.4)})`; c.lineWidth = 1.6; c.stroke();
   }
   // the muddy bank on the right
   const bank = [[E.x1 + 12, 198], [352, 202], [330, 207], [300, 213], [268, 216], [250, 228], [240, 256], [236, E.y1 + 12], [E.x1 + 12, E.y1 + 12]];
   smooth(c, bank); fillStroke(c, lg(c, 0, 198, 0, E.y1, [[0, '#B38B58'], [.5, '#9C7A4E'], [1, '#6E5230']]), 'rgba(60,40,20,.45)', 2);
   c.fillStyle = 'rgba(255,230,170,.18)'; ell(c, 330, 212, 46, 3); c.fill();
   c.fillStyle = 'rgba(70,48,26,.35)'; for (let i = 0; i < 20; i++) { ell(c, 262 + R(i) * 150, 224 + R(i + 9) * 70, 3 + R(i + 4) * 5, 1.6 + R(i + 6) * 2); c.fill(); }
-  // the zebra drinks, then escapes
-  let zx = 306, zdir = -1, hop = 0, zo = { headA: 1.0 + .05 * Math.sin(time * 1.6) };
-  if (!body) {
-    if (t > 2.35 && t < 3.3) zo = { headA: mx(1.0, -.5, ramp(t, 2.35, 2.6)) };
-    if (t >= 3.3) {
-      const u = ramp(t, 3.3, 7.2); zx = 306 + 260 * u; zdir = 1; zo = { ph: (t - 3.3) * 2.4, amp: .85, headA: -.2 };
-      hop = -Math.abs(Math.sin((t - 3.3) * 4.4)) * 15 * lin(t, 3.3, 3.9);
-    }
-  }
-  if (zx < E.x1 + 80) drawQuad(c, SPECIES.zebra, zx, 213, 1, zdir, { ...zo, lift: hop, shc: 'rgba(40,25,10,.3)' });
+  // the zebra drinks; when the croc bursts out it throws its head up, rears and leaps back, and stays in the air
+  let zo = { headA: 1.0 + .05 * Math.sin(time * 1.6) }, zlift = 0;
+  if (!body && t > 2.35) { zo = { headA: mx(1.0, -.5, ramp(t, 2.35, 2.65)), rear: ramp(t, 2.4, 2.95) }; zlift = -13 * ramp(t, 2.4, 2.8); }
+  drawQuad(c, SPECIES.zebra, 318, 216, 1.45, -1, { ...zo, lift: zlift, shc: 'rgba(40,25,10,.38)' });
   reeds(c, 262, 232, 9, 40, time, 26); reeds(c, E.x0 + 22, E.y1 - 4, 11, 62, time, 44); reeds(c, E.x0 + 60, E.y1 - 10, 8, 44, time, 30); reeds(c, E.x1 - 24, E.y1 - 4, 8, 52, time, 30);
-  // the strike: spray, then a white wall of water that hides everything for a moment
-  if (!body && t > 2.5 && t < 4.4) {
-    const age = t - 2.55, fade = 1 - ramp(t, 3.4, 4.3);
-    c.save(); c.globalAlpha = fade;
-    const gr = ramp(t, 2.55, 3.1) * 300; c.fillStyle = rg(c, 258, 196, 0, gr, [[0, 'rgba(255,255,255,.98)'], [.7, 'rgba(244,247,251,.9)'], [1, 'rgba(244,247,251,0)']]); circ(c, 258, 196, gr); c.fill();
-    for (let i = 0; i < 44; i++) {
-      const a = -Math.PI / 2 + (R(i) - .5) * 2.8, sp = 60 + 130 * R(i + 7), px = 258 + Math.cos(a) * sp * age * .9, py = 208 + Math.sin(a) * sp * age + 160 * age * age;
-      c.fillStyle = `rgba(255,255,255,${1 - lin(age, .6, 1.7)})`; circ(c, px, py, (3 + 7 * R(i + 3)) * (1 - lin(age, .5, 1.6) * .7)); c.fill();
-    }
-    c.restore();
-  }
-  const ov = ramp(t, 2.9, 3.1) * (1 - ramp(t, 3.35, 4.3));
-  if (!body && ov > .004) fillAll(c, E, `rgba(244,247,251,${ov})`);
+  if (!body && t > 2.5) splash(c, SX, WL + 1, sk, sage, false);
 }
 
 // --- snowy forest: wolves ---------------------------------------------------------------------------------------------
@@ -711,42 +861,41 @@ function forestBg(c, E, time) {
   for (let i = 0; i < 9; i++) { ell(c, E.x0 + R(i + 40) * W, 190 + R(i + 50) * 90, 30 + R(i) * 40, 5 + R(i + 6) * 5); c.fill(); }
   fir(c, E.x0 + 30, 226, 1.15); fir(c, E.x1 - 28, 232, 1.25); fir(c, E.x1 - 80, 200, .7); fir(c, E.x0 + 90, 196, .65);
 }
-const WLF0 = [[58, 246], [92, 238], [44, 230], [122, 248], [84, 224]];
-const WLF1 = [0, 1, 2, 3, 4].map((k) => [186 - k * 26, 240 - k * 2]);
-const DEER = [270, 224];
-const WLF2 = [0, 1, 2, 3, 4].map((k) => { const a = k / 5 * TAU + .5; return [DEER[0] + 104 * Math.cos(a), DEER[1] + 32 * Math.sin(a)]; });
+const WLF0 = [[84, 248], [150, 236], [40, 222], [108, 210]];
+const WLF1 = [[212, 250], [172, 238], [132, 226], [96, 214]];
+const DEER = [255, 228];
+const WLF2 = [[345, 238], [190, 246], [150, 208], [322, 198]];
+const wolfSc = (y) => .88 + (y - 190) * .004;
 function wolvesScene(c, e) {
   const { t, time, E } = e;
   forestBg(c, E, time);
   const p1 = ramp(t, .4, 2.9), p2 = ramp(t, 3, 5.2);
-  const items = [{ y: DEER[1], fn: () => drawQuad(c, SPECIES.deer, DEER[0], DEER[1], 1, -1, { headA: 1.05 + Math.sin(time * 1.2) * .03, tailA: Math.sin(time * 3) * .15, shc: 'rgba(40,60,110,.28)' }) }];
+  const items = [{ y: DEER[1], fn: () => drawQuad(c, SPECIES.deer, DEER[0], DEER[1], 1.3, -1, { headA: 1.05 + Math.sin(time * 1.2) * .03, tailA: Math.sin(time * 3) * .15, shc: 'rgba(40,60,110,.32)' }) }];
   WLF0.forEach((a, k) => {
-    const m1 = mixPt(a, WLF1[k], p1), pos = mixPt(m1, WLF2[k], p2), sc = .72 + (pos[1] - 190) * .006;
+    const m1 = mixPt(a, WLF1[k], p1), pos = mixPt(m1, WLF2[k], p2), sc = wolfSc(pos[1]);
     const path = dist(a, WLF1[k]) * p1 + dist(WLF1[k], WLF2[k]) * p2, moving = (t > .4 && t < 2.95) || (t > 3 && t < 5.25);
     const dir = DEER[0] > pos[0] ? 1 : -1;
-    items.push({ y: pos[1], fn: () => drawQuad(c, SPECIES.wolf, pos[0], pos[1], sc, dir, { ph: moving ? path / (58 * sc) + k * .1 : null, amp: .5, headA: mx(moving ? -.12 : -.25, .12, lin(p2, .3, .7)), tailA: Math.sin(time * 1.5 + k) * .06, shc: 'rgba(40,60,110,.3)' }) });
+    items.push({ y: pos[1], fn: () => drawQuad(c, SPECIES.wolf, pos[0], pos[1], sc, dir, { ph: moving ? path / (58 * sc) + k * .1 : null, amp: .5, headA: mx(moving ? -.12 : -.25, .12, lin(p2, .3, .7)), tailA: Math.sin(time * 1.5 + k) * .06, shc: 'rgba(40,60,110,.34)' }) });
   });
   items.sort((a, b) => a.y - b.y).forEach((it) => it.fn());
-  snowfall(c, E, time, 60 + Math.round(120 * ramp(t, 5, 7)), .85, 1);
-  const ov = ramp(t, 5.5, 7.1);
-  if (ov > .004) { fillAll(c, E, `rgba(244,247,251,${ov})`); snowfall(c, E, time, 120, ov * .9, 1.3); }
+  snowfall(c, E, time, 90, .85, 1);
 }
 
 // --- snowy hills: wolves howl and come together ---------------------------------------------------------------------
-const HOWL = [{ p0: [112, 226], p1: [190, 240], s: 1.1, dir: 1, hs: .8 }, { p0: [322, 196], p1: [252, 240], s: .85, dir: -1, hs: 2.1 }, { p0: [224, 172], p1: [220, 232], s: .6, dir: 1, hs: 3.3 }];
+const HOWL = [{ p0: [112, 228], p1: [146, 246], s: 1.25, dir: 1, hs: .8 }, { p0: [322, 198], p1: [266, 242], s: 1.0, dir: -1, hs: 2.1 }, { p0: [212, 172], p1: [206, 226], s: .72, dir: 1, hs: 3.3 }];
 function howl(c, e) {
   const { t, time, E } = e;
   forestBg(c, E, time);
   // low snowy mounds the wolves stand on
-  for (const [x, y, rx, ry] of [[104, 232, 80, 16], [324, 202, 66, 12], [224, 176, 46, 8]]) {
+  for (const [x, y, rx, ry] of [[110, 234, 88, 16], [322, 204, 70, 12], [212, 178, 50, 8]]) {
     ell(c, x, y, rx, ry); c.fillStyle = lg(c, 0, y - ry, 0, y + ry, [[0, '#FFFFFF'], [1, '#D3DFF2']]); c.fill();
   }
   const walk = ramp(t, 5, 6.7), items = [];
   HOWL.forEach((w, i) => {
     const pos = mixPt(w.p0, w.p1, walk), on = ramp(t, w.hs, w.hs + .5) * (1 - ramp(t, w.hs + 2.2, w.hs + 2.7)), moving = t > 5 && t < 6.75;
-    const a = mx(-.25, -1.2, on), dir = i === 2 ? 1 : (pos[0] < 220 ? 1 : -1);
+    const a = mx(-.25, -1.2, on), dir = i === 2 ? 1 : (pos[0] < 215 ? 1 : -1);
     items.push({ y: pos[1], fn: () => {
-      drawQuad(c, SPECIES.wolf, pos[0], pos[1], w.s, dir, { ph: moving ? dist(w.p0, w.p1) * walk / (58 * w.s) + i * .15 : null, amp: .5, headA: a, mouth: on * .7, shc: 'rgba(40,60,110,.3)' });
+      drawQuad(c, SPECIES.wolf, pos[0], pos[1], w.s, dir, { ph: moving ? dist(w.p0, w.p1) * walk / (58 * w.s) + i * .15 : null, amp: .5, headA: a, mouth: on * .7, shc: 'rgba(40,60,110,.34)' });
       // sound rings leave the mouth while it howls
       if (on > .3) {
         const m = muzzleAt(SPECIES.wolf, a, w.s, dir, pos[0], pos[1]);
@@ -774,7 +923,7 @@ function wpt(i, f, t) {
   let x = WC[0] + rr * Math.cos(a), y = WC[1] + rr * Math.sin(a);
   if (t > T_HIT) {
     const d = Math.hypot(x - HIT[0], y - HIT[1]), age = t - T_HIT;
-    const amp = 7 * Math.exp(-age * .6) * Math.exp(-d / 150) * Math.min(1, age / .08), ph = Math.sin(age * 34 - d * .07) * amp;
+    const amp = (7 * Math.exp(-age * .6) + 1.2) * Math.exp(-d / 150) * Math.min(1, age / .08), ph = Math.sin(age * 34 - d * .07) * amp;
     x += -Math.sin(a) * ph + Math.cos(a) * ph * .35; y += Math.cos(a) * ph + Math.sin(a) * ph * .35;
   }
   return [x, y];
@@ -857,14 +1006,13 @@ function webScene(c, e) {
   // the fly flies in, bumps into the web and buzzes
   const fu = ramp(t, .15, T_HIT), S0 = [E.x1 + 30, 30];
   if (t < T_HIT) {
-    if (fu > 0) { const px = mx(S0[0], HIT[0], fu) + Math.sin(t * 22) * (1 - fu) * 6, py = mx(S0[1], HIT[1], fu) + Math.sin(t * 17 + 1) * (1 - fu) * 8; flyDraw(c, px, py, time, Math.PI + .4, 1.4); }
-  } else flyDraw(c, HIT[0] + Math.sin(time * 50) * 1.3, HIT[1] + Math.cos(time * 43) * 1.1, time, Math.PI + .4 + Math.sin(time * 30) * .15, 1.4);
+    if (fu > 0) { const px = mx(S0[0], HIT[0], fu) + Math.sin(t * 22) * (1 - fu) * 6, py = mx(S0[1], HIT[1], fu) + Math.sin(t * 17 + 1) * (1 - fu) * 8; flyDraw(c, px, py, time, Math.PI + .4, 1.7); }
+  } else flyDraw(c, HIT[0] + Math.sin(time * 50) * 1.3, HIT[1] + Math.cos(time * 43) * 1.1, time, Math.PI + .4 + Math.sin(time * 30) * .15, 1.7);
   // the spider: waits in the middle, turns, runs along a thread
   const turn = ramp(t, 1.1, 1.5), u = ramp(t, 1.45, 3.3), ah = Math.atan2(HIT[1] - WC[1], HIT[0] - WC[0]);
   const head = mx(Math.PI / 2, ah, turn), amp = lin(t, 1.45, 1.6) * (1 - lin(t, 3.2, 3.4));
-  const sx = mx(WC[0], HIT[0], u * (1 - 17 / 78)), sy = mx(WC[1], HIT[1], u * (1 - 17 / 78));
-  spiderTop(c, sx, sy, head, 1.3, (t - 1.45) * 4.5, amp);
-  const fade = ramp(t, 3, 4.8); if (fade > .004) fillAll(c, E, `rgba(246,242,210,${fade})`);
+  const sx = mx(WC[0], HIT[0], u * (1 - 26 / 78)), sy = mx(WC[1], HIT[1], u * (1 - 26 / 78));
+  spiderTop(c, sx, sy, head, 1.55, (t - 1.45) * 4.5, amp);
 }
 
 // --- antlion: a sand pit in cross-section -------------------------------------------------------------------------------
@@ -905,7 +1053,7 @@ function antlion(c, e) {
     const u = (time * .8 + R(i)) % 1, x = mx(bx - PIT.w * .92, bx - 8, u), y = surf(x) - 2; circ(c, x, y, 1.3); c.fillStyle = '#D9B67A'; c.fill();
   }
   // the antlion: only its head and big jaws show at the bottom
-  const jaw = .5 + .5 * Math.sin(time * 2.2) * (t > 2 ? 1.4 : .6);
+  const jaw = mx(.5 + .5 * Math.sin(time * 2.2) * (t > 2 ? 1.4 : .6), 1.15, ramp(t, 4, 4.6));
   ell(c, bx, by + 3, 10, 7); fillStroke(c, '#6B4A2E', '#3A2616', 1);
   c.lineCap = 'round';
   for (const s of [-1, 1]) {
@@ -916,20 +1064,16 @@ function antlion(c, e) {
   for (const s of [-1, 1]) { circ(c, bx + s * 4, by - 1, 1.5); c.fillStyle = '#E8D9C0'; c.fill(); circ(c, bx + s * 4, by - 1, .7); c.fillStyle = '#150C08'; c.fill(); }
   // the ant: walks, slips over the rim, slides down
   const ax = t < 1.5 ? mx(104, 134, lin(t, .2, 1.5)) : mx(134, bx - 10, ramp(t, 1.6, 4.5)) + Math.sin(t * 9) * 1.2 * lin(t, 1.8, 2.2);
-  if (t < 5) {
+  {
     const ay = surf(ax), sl = Math.atan2(surf(ax + 1) - surf(ax - 1), 2), slide = lin(t, 1.5, 1.9);
     antDraw(c, ax, ay - 2.5, sl * slide, 1.5, t < 1.5 ? t * 3.2 : t * 5);
   }
   // sand flicked up from the bottom
-  for (let k = 0; k < 3; k++) {
-    const age = t - (2.1 + k * .8); if (age < 0 || age > .95) continue;
+  for (let k = 0; k < 4; k++) {
+    const last = k === 3, age = last ? Math.min(t - 4.5, .5) : t - (2.1 + k * .8); if (age < 0 || (!last && age > .95)) continue;
     for (let i = 0; i < 12; i++) {
       const vx = (R(i + k * 13) - .7) * 80, vy = -(80 + R(i + 3 + k) * 60); circ(c, bx + vx * age, by - 4 + vy * age + 190 * age * age, 1.6); c.fillStyle = `rgba(217,182,122,${1 - age / .95})`; c.fill();
     }
-  }
-  if (t > 4.4) {
-    const g = ramp(t, 4.4, 5.3) * 120; c.fillStyle = rg(c, bx, by - 6, 0, g, [[0, 'rgba(226,194,134,.95)'], [.7, 'rgba(226,194,134,.8)'], [1, 'rgba(226,194,134,0)']]); circ(c, bx, by - 6, g); c.fill();
-    fillAll(c, E, `rgba(236,208,148,${ramp(t, 4.9, 5.8)})`);
   }
 }
 
@@ -978,11 +1122,11 @@ function falconScene(c, e) {
   }
   c.fillStyle = '#B0463B'; c.fillRect(296, 186, 16, 9); c.beginPath(); c.moveTo(294, 186); c.lineTo(304, 179); c.lineTo(314, 186); c.closePath(); c.fillStyle = '#7C2F2A'; c.fill();
   // the falcon soars, then dives
-  const uu = Math.pow(lin(t, 1.2, 3.7), 1.7), P0 = [124, 62], P1 = [150, 66], P2 = [262, 208];
+  const uu = Math.pow(lin(t, 1.2, 3.7), 1.7), P0 = [124, 62], P1 = [150, 66], P2 = [256, 150];
   const bz = (u) => [(1 - u) * (1 - u) * P0[0] + 2 * u * (1 - u) * P1[0] + u * u * P2[0], (1 - u) * (1 - u) * P0[1] + 2 * u * (1 - u) * P1[1] + u * u * P2[1]];
   let pos, ang, sc;
   if (t < 1.2) { const am = 1 - lin(t, .5, 1.2); pos = [P0[0] + 14 * Math.sin(time * 1.1) * am, P0[1] + 5 * Math.sin(time * 1.7) * am]; ang = .05 * Math.sin(time * 1.1) * am; sc = 1; }
-  else { const p = bz(uu), q = bz(Math.min(1, uu + .01)); pos = p; ang = uu < .02 ? 0 : Math.atan2(q[1] - p[1], q[0] - p[0]); sc = mx(1, 1.7, uu); }
+  else { const p = bz(uu), q = bz(Math.min(1, uu + .01)); pos = p; ang = uu < .02 ? 0 : Math.atan2(q[1] - p[1], q[0] - p[0]); sc = mx(1, 2.05, uu); }
   const fold = ramp(t, 1.2, 1.9);
   if (t >= 1.2 && uu > .03) {
     c.save(); c.translate(pos[0], pos[1]); c.rotate(ang); c.lineCap = 'round';
@@ -990,11 +1134,9 @@ function falconScene(c, e) {
     c.restore();
   }
   c.save(); c.translate(pos[0], pos[1]); c.rotate(ang); c.scale(sc, sc); falconDraw(c, fold); c.restore();
-  // a pigeon, far away, flying on
-  const bx = 262 + Math.min(t, 3.4) * 4, byy = 208 + Math.sin(time * 2) * 1;
-  c.strokeStyle = '#4A5568'; c.lineWidth = 1.8; c.lineCap = 'round'; const fl = Math.sin(time * 14) * 4;
-  c.beginPath(); c.moveTo(bx - 9, byy - fl); c.quadraticCurveTo(bx - 3, byy - 2, bx, byy); c.quadraticCurveTo(bx + 3, byy - 2, bx + 9, byy - fl); c.stroke();
-  const fa = ramp(t, 3.3, 4.2); if (fa > .004) fillAll(c, E, `rgba(255,255,255,${fa})`);
+  // a pigeon, far below, flying on: the dive stops just short of it
+  const bx = 338 + 8 * lin(t, 0, 3.7), byy = 200 + Math.sin(time * 2) * 1 - 5 * ramp(t, 3, 3.7);
+  c.save(); c.translate(bx, byy); c.rotate(-.12 * ramp(t, 3, 3.7)); c.scale(1.05, 1.05); pigeonDraw(c, 0, 0, time); c.restore();
 }
 
 // --- chameleon: a tongue that shoots out ---------------------------------------------------------------------------------
@@ -1023,8 +1165,8 @@ function chameleonScene(c, e) {
   circ(c, -11, -1, 4.2); fillStroke(c, '#7A5E2C', '#2A200E', 1); circ(c, -12.5, -2.4, 1.1); c.fillStyle = '#10100C'; c.fill();
   c.restore();
   // the chameleon, as still as a leaf, rocking a little
-  const rock = Math.sin(time * 1.1) * .012 + Math.sin(time * .7) * .008, lean = ramp(t, 1.8, 2.2) * (1 - ramp(t, 2.9, 3.4)) * 2;
-  const mouth = ramp(t, 2.1, 2.25) * (1 - ramp(t, 2.9, 3.2)), look = ramp(t, 1, 1.6);
+  const rock = Math.sin(time * 1.1) * .012 + Math.sin(time * .7) * .008, lean = ramp(t, 1.8, 2.2) * 2;
+  const mouth = ramp(t, 2.1, 2.25), look = ramp(t, 1, 1.6);
   const g = [166, branchY(166) - 8];
   c.save(); c.translate(g[0], g[1]); c.rotate(rock); c.translate(lean, 0); c.lineCap = 'round'; c.lineJoin = 'round';
   // tail curled like a spring
@@ -1060,7 +1202,6 @@ function chameleonScene(c, e) {
     circ(c, tip[0], tip[1], 5.4); fillStroke(c, '#EE8AA0', '#A83C58', 1); circ(c, tip[0] - 1.5, tip[1] - 1.6, 1.5); c.fillStyle = 'rgba(255,255,255,.8)'; c.fill();
   }
   c.restore();
-  const fa = ramp(t, 2.7, 3.8); if (fa > .004) fillAll(c, E, `rgba(120,176,96,${fa})`);
 }
 
 // --- shared: the magnifier ring and screen-space labels ---------------------------------------------------------------
@@ -1215,7 +1356,6 @@ function jumperScene(c, e) {
   if (t > 3) { c.strokeStyle = 'rgba(255,255,255,.85)'; c.lineWidth = 1.4; c.beginPath(); c.moveTo(A[0], A[1] + 8); c.quadraticCurveTo((A[0] + sp[0]) / 2, Math.max(A[1], sp[1]) + 22 * u, sp[0], sp[1] + 14 * sc); c.stroke(); }
   flyDraw(c, fly[0], fly[1], time, Math.PI * .9 + Math.sin(time * 6) * .1, 1.7);
   jumperDraw(c, sp[0], sp[1], sc * 1.5, look, rot, spread);
-  const fa = ramp(t, 3.9, 5); if (fa > .004) fillAll(c, E, `rgba(240,248,225,${fa})`);
 }
 
 const SC = { croc: river, cheetah: plain, wolves: wolvesScene, spider: webScene, lions, antlion, falcon: falconScene, cham: chameleonScene, howl, owl: owlScene, jumper: jumperScene };
@@ -1243,7 +1383,7 @@ function cur() {
 
 // --- the magnifier (view 2): slides over the part, shows it bigger, shrinks away when the reveal starts -----------------
 // [x, y, zoom, radius] of the lens when it rests on the part
-const LENSPOS = { croc: [203, 172, 1.9, 52], spider: [200, 152], cheetah: [64, 208], wolves: () => muzzleAt(SPECIES.wolf, -.25, 1.1, 1, 112, 226) };
+const LENSPOS = { croc: [203, 172, 1.9, 52], spider: [200, 150, 2, 48], cheetah: [54, 207, 1.8, 50], wolves: () => [...muzzleAt(SPECIES.wolf, -.25, HOWL[0].s, 1, HOWL[0].p0[0], HOWL[0].p0[1]), 2, 48] };
 function drawLens(c, env, k, time) {
   const P = k.P; let pos = LENSPOS[k.round.lens]; if (typeof pos === 'function') pos = pos();
   const Z = pos[2] ?? 2.4, RR = pos[3] ?? 46;
