@@ -67,7 +67,7 @@ function createGraph2D(el, opts) {
 
   function project() {
     const cr = Math.cos(cam.rotY), sr = Math.sin(cam.rotY), ct = Math.cos(cam.tilt), st = Math.sin(cam.tilt);
-    const sc = S * cam.zoom, ox = W / 2 + cam.offX, oy = H / 2 + cam.offY, ds = clamp(Math.sqrt(sc), 0.9, 2.4);
+    const sc = S * cam.zoom, ox = W / 2 + cam.offX, oy = H / 2 + cam.offY, ds = clamp(Math.sqrt(sc), 0.6, 2.4);
     for (let i = 0, j = 0; i < N; i++, j += 3) {
       const x = X[i], y = Y[i] - cam.panY, z = Z[i];
       const x1 = x * cr - z * sr, z1 = x * sr + z * cr; // rotY around the vertical axis

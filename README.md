@@ -14,7 +14,7 @@ Skill Graph started as a fork of the [Marble Skill Taxonomy](https://withmarble.
 
 - About **2,080 topics** in 13 subjects, each with a plain description, an age range and the signs that a child has got it.
 - About **4,000 prerequisite links**: open any topic to see what it builds on and what it unlocks.
-- Browse as a list or as a 3D map; filter by age, school grade, subject, or by a **national school curriculum** (10 countries, grades 1–8 or 1–9).
+- Browse as a topic list or as a rotating graph; filter by age, school grade, subject, or by a **national school curriculum** (10 countries, grades 1–8 or 1–9).
 - Mark what a child already knows (“Known”, “Learning”); **Ready to learn** then shows the topics whose prerequisites are all known.
 - Progress stays in the browser. A file or a link moves it to another device. The site can be installed as a home-screen app.
 
@@ -30,7 +30,8 @@ It is a **static site**: plain HTML, CSS and JavaScript plus JSON data. There is
 
 | Path | What it is |
 |---|---|
-| [`index.html`](index.html) | The map (viewer). One file: styles, UI strings in EN/RU/HU, list view and the 3D graph. |
+| [`index.html`](index.html) | The map (viewer). One file: styles, UI strings in EN/RU/HU, list view and the graph. |
+| [`graph2d.js`](graph2d.js) | The graph renderer: a 2D canvas, no WebGL, no CDN; positions come from [`data/layout.json`](data/layout.json), made by `node scripts/layout.mjs`. |
 | [`tour.js`](tour.js) | The short guided tour of the map (first visit and the **?** button). |
 | [`labs/`](labs/) | The labs: one folder per lab (`labs/<id>/index.html`), the overview [`labs/index.html`](labs/index.html), the shared skeleton [`labs/lab.js`](labs/lab.js) + [`labs/lab.css`](labs/lab.css), the list of labs [`labs/registry.json`](labs/registry.json) and the generated [`labs/catalog.json`](labs/catalog.json). |
 | [`curricula/index.html`](curricula/index.html) | The curricula page: each national curriculum, its issuer, grades and how much of it is linked. |
