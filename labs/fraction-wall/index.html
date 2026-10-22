@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fraction Wall · Skill Graph</title>
+<meta name="description" content="Shade bricks on a fraction wall and slide a laser line to see which fractions are equal, find 1/2 on a sixths line, and cut every piece in two. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  #stage canvas { touch-action: pan-y; } /* horizontal drags belong to the laser, vertical swipes still scroll the page */
+  @media (min-width: 1101px) {
+    .lab { grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); grid-template-areas: 'hero stage' 'state stage' 'state ctrl'; }
+  }
+  @media (min-width: 761px) { #stage { min-height: 460px; } }
+
+  /* a fraction written the way it is read in a book: top, bar, bottom */
+  .fr { display: inline-flex; flex-direction: column; align-items: center; line-height: 1.1; font-weight: 900; vertical-align: middle; }
+  .fr i { font-style: normal; display: block; padding: 0 3px; }
+  .fr i:first-child { border-bottom: 2px solid currentColor; }
+  .readout .val { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .readout .val .fr { font-size: 19px; }
+  .readout .val .sg { font-size: 26px; color: var(--mut); }
+  .fine { font-size: 11px; color: var(--faint); }
+
+  .ansrow { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-bottom: 4px; }
+  .ans { min-width: 78px; min-height: 58px; padding: 6px 16px; border-radius: 16px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    cursor: pointer; font-size: 24px; font-weight: 900; display: inline-flex; align-items: center; justify-content: center; }
+  .ans:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .ans:disabled { cursor: default; opacity: .55; }
+  .ans .fr { font-size: 17px; }
+  .ans.good, .ans.bad { opacity: 1; }
+  .ans.good { border-color: var(--ok); background: rgba(61, 220, 151, .18); }
+  .ans.bad { border-color: var(--red); background: rgba(255, 59, 48, .16); }
+  .nextrow { display: flex; justify-content: center; margin-top: 10px; }
+  .nextrow:empty { display: none; }
+  .btn:disabled { opacity: .35; cursor: default; }
+  .chip.tall { min-height: 40px; padding: 8px 14px; font-size: 13px; }
+  .ends { margin-bottom: 4px; }
+  #laserR { --track: linear-gradient(90deg, #ff3b30, #ff3b30); }
+
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 4px; }
+  .stp { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .stp .lbl { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-weight: 700; }
+  .stp div { display: flex; align-items: center; justify-content: center; gap: 4px; }
+  .sb { width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1); font-size: 18px; font-weight: 800;
+    line-height: 1; padding: 0; cursor: pointer; }
+  .sb:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .sb:disabled { opacity: .3; cursor: default; }
+  .stp b { min-width: 28px; text-align: center; font-size: 20px; font-weight: 900; }
+  .divrow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: center; }
+  .divrow .ans { min-width: 72px; }
+
+  @media (max-width: 760px) {
+    #stage { height: min(112vw, 500px); }
+    body[data-v=cut] #stage { height: min(88vw, 340px); }
+    body[data-v=simplest] #stage { height: min(72vw, 300px); }
+    body[data-v=hundred] #stage { height: min(100vw, 420px); }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Fraction Wall', title: 'Same amount, different names',
+    lines: [['Equal fractions', 'end at the same edge.'], ['Cut every piece in two:', 'twice the pieces, same amount.'], ['Adding to top and bottom', 'changes the size.']],
+    views: { wall: '🧱 Wall', line: '📏 Line', cut: '✂️ Cut' },
+    check: 'Check', next: 'Next ▶', right: 'Yes!', wrong: 'Look at the edges.', reset: 'Start again',
+    w: { q: 'Which is more?', equal: '=', laser: 'Drag the laser line', free: 'Free', game: 'Puzzles',
+         why: ['1/2 and 2/4 end at the same edge: equal.', '2/3 is not 3/4: adding 1 to top and bottom changes the size. 3/4 is bigger.',
+               '4/6 has bigger numbers, but it is the same amount as 2/3.', '3/8 is a little more than 2/8, which is 1/4.', '6/12 and 3/6 are both one half.', '5/6 reaches further than 3/4.'],
+         add: 'Adding the same number to top and bottom does not keep a fraction equal.', bigNums: 'Bigger numbers don’t mean a bigger fraction.' },
+    l: { q: (f, line) => `Tap ${f} on the ${line} line.`, lines: { halves: 'halves', thirds: 'thirds', quarters: 'quarters', sixths: 'sixths', eighths: 'eighths' },
+         none: 'It isn’t on this line', noneWhy: 'It is there! Equal fractions are the same point: look where the dashed line crosses.', right: 'Same point!', wrong: 'Follow the dashed line down.' },
+    c: { mul: '× 2 top and bottom', add: '+ 1 top and bottom', q1: 'Will 2/3 become the same amount as 4/6?', q2: 'Will 2/3 become the same amount as 3/4?', yes: 'Same amount', no: 'Different amount',
+         mulWhy: 'Each third is cut into two sixths: twice as many pieces, each half the size. Same amount.', addWhy: 'Adding 1 to top and bottom makes a different fraction: 3/4 is bigger than 2/3.',
+         free: 'Try your own', times: 'Multiply by', top: 'Top', bottom: 'Bottom' },
+    secrets: { simplest: ['Simplest form', 'Divide top and bottom to make it simpler.'], hundred: ['Out of 100', 'Fractions as hundredths.'] },
+    sec: { simpleText: '12/16 = 6/8 = 3/4. Dividing top and bottom by the same number merges pieces: still the same amount.',
+           hundredText: 'Fractions with 100 at the bottom are decimals in disguise: 1/4 = 25/100 = 0.25.' },
+    cards: {
+      wall: ['🧱', 'Equivalent fractions', 'They look different but are the same amount.', 'On the wall they end at the same edge.'],
+      line: ['📏', 'One point, many names', 'Equal fractions sit at the same point on a number line.', 'Finer cuts give the same point a new name.'],
+      cut: ['✂️', 'The rule', 'Multiply top and bottom by the same number: same amount.', 'Add the same number to both: a different amount.'],
+    },
+    fine: 'Equivalent fractions: US Common Core 3.NF.A.3 and 4.NF.A.1; UK National Curriculum Year 3–4. The “adding to top and bottom” error is described by the IES practice guide on fractions (2010).',
+    quiz: [
+      { q: 'Is 2/3 equal to 3/4, because you added 1 to both?', opts: ['Yes, you did the same to both', 'No: adding changes the size; multiplying both keeps it', 'Only sometimes'], ok: 1 },
+      { q: 'Which is bigger: 4/6 or 2/3?', opts: ['4/6, the numbers are bigger', 'They are equal', '2/3'], ok: 1 },
+      { q: 'Where is 1/2 on a line cut into sixths?', opts: ['at 1/6', 'at 3/6', 'there is no 1/2 on it'], ok: 1 } ],
+  },
+  ru: {
+    name: 'Стена дробей', title: 'Одинаково, но по-разному',
+    lines: [['Равные дроби', 'кончаются у одного края.'], ['Разрежь каждый кусок пополам:', 'кусков вдвое больше, а всего столько же.'], ['Если прибавить к числителю и знаменателю,', 'размер меняется.']],
+    views: { wall: '🧱 Стена', line: '📏 Прямая', cut: '✂️ Разрежь' },
+    check: 'Проверить', next: 'Дальше ▶', right: 'Да!', wrong: 'Посмотри на края.', reset: 'Сначала',
+    w: { q: 'Что больше?', equal: '=', laser: 'Двигай лазерную линию', free: 'Сам', game: 'Загадки',
+         why: ['1/2 и 2/4 кончаются у одного края: они равны.', '2/3 — это не 3/4: если прибавить 1 сверху и снизу, размер меняется. 3/4 больше.',
+               'У 4/6 числа больше, но это столько же, сколько 2/3.', '3/8 чуть больше, чем 2/8, то есть 1/4.', '6/12 и 3/6 — это обе половина.', '5/6 тянется дальше, чем 3/4.'],
+         add: 'Если прибавить одно и то же к числителю и знаменателю, дробь не останется равной.', bigNums: 'Большие числа — ещё не значит большая дробь.' },
+    l: { q: (f, line) => `Нажми на ${f} на прямой с ${line}.`, lines: { halves: 'половинами', thirds: 'третями', quarters: 'четвертями', sixths: 'шестыми', eighths: 'восьмыми' },
+         none: 'Её нет на этой прямой', noneWhy: 'Есть! Равные дроби — это одна и та же точка: посмотри, где проходит пунктир.', right: 'Та же точка!', wrong: 'Проследи за пунктиром вниз.' },
+    c: { mul: '× 2 сверху и снизу', add: '+ 1 сверху и снизу', q1: 'Станет ли 2/3 тем же количеством, что 4/6?', q2: 'Станет ли 2/3 тем же количеством, что 3/4?', yes: 'Столько же', no: 'Не столько же',
+         mulWhy: 'Каждая треть разрезана на две шестых: кусков вдвое больше, каждый вдвое меньше. Всего столько же.', addWhy: 'Если прибавить 1 сверху и снизу, получится другая дробь: 3/4 больше, чем 2/3.',
+         free: 'Попробуй сам', times: 'Умножить на', top: 'Сверху', bottom: 'Снизу' },
+    secrets: { simplest: ['Несократимая дробь', 'Дели числитель и знаменатель, чтобы упростить.'], hundred: ['Из 100', 'Дроби как сотые.'] },
+    sec: { simpleText: '12/16 = 6/8 = 3/4. Деление числителя и знаменателя на одно число склеивает куски: всего столько же.',
+           hundredText: 'Дроби со знаменателем 100 — это переодетые десятичные: 1/4 = 25/100 = 0,25.' },
+    cards: {
+      wall: ['🧱', 'Равные дроби', 'Выглядят по-разному, но это одно и то же количество.', 'На стене они кончаются у одного края.'],
+      line: ['📏', 'Одна точка — много имён', 'Равные дроби стоят в одной точке на числовой прямой.', 'Более мелкие деления дают той же точке новое имя.'],
+      cut: ['✂️', 'Правило', 'Умножь числитель и знаменатель на одно число — получится столько же.', 'Прибавь к обоим одно число — получится другое количество.'],
+    },
+    fine: 'Равные дроби в школьных программах 3–4 классов. Ошибку «прибавить к числителю и знаменателю» описывает руководство IES по дробям (2010).',
+    quiz: [
+      { q: '2/3 равно 3/4, ведь мы прибавили 1 к обоим?', opts: ['Да, с обоими сделали одно и то же', 'Нет: прибавление меняет размер, а умножение обоих — нет', 'Только иногда'], ok: 1 },
+      { q: 'Что больше: 4/6 или 2/3?', opts: ['4/6 — числа же больше', 'Они равны', '2/3'], ok: 1 },
+      { q: 'Где 1/2 на прямой, разделённой на шестые?', opts: ['на 1/6', 'на 3/6', 'её там нет'], ok: 1 } ],
+  },
+  hu: {
+    name: 'Törtfal', title: 'Ugyanannyi, más néven',
+    lines: [['Az egyenlő törtek', 'ugyanannál a szélnél érnek véget.'], ['Vágj ketté minden darabot:', 'kétszer annyi darab, ugyanannyi rész.'], ['Ha a számlálóhoz és a nevezőhöz hozzáadsz,', 'megváltozik a nagysága.']],
+    views: { wall: '🧱 Fal', line: '📏 Számegyenes', cut: '✂️ Vágás' },
+    check: 'Ellenőrzés', next: 'Tovább ▶', right: 'Igen!', wrong: 'Nézd meg a széleket.', reset: 'Újra',
+    w: { q: 'Melyik a több?', equal: '=', laser: 'Húzd a lézervonalat', free: 'Szabadon', game: 'Rejtvények',
+         why: ['Az 1/2 és a 2/4 ugyanannál a szélnél ér véget: egyenlők.', 'A 2/3 nem 3/4: ha fent és lent is hozzáadsz 1-et, megváltozik a nagysága. A 3/4 a nagyobb.',
+               'A 4/6-ban nagyobbak a számok, de ugyanannyi, mint a 2/3.', 'A 3/8 kicsit több, mint a 2/8, ami 1/4.', 'A 6/12 és a 3/6 is egy fél.', 'Az 5/6 messzebbre ér, mint a 3/4.'],
+         add: 'Ha a számlálóhoz és a nevezőhöz ugyanannyit adsz, a tört nem marad egyenlő.', bigNums: 'A nagyobb számok nem jelentenek nagyobb törtet.' },
+    l: { q: (f, line) => `Koppints erre: ${f} – a ${line} osztott vonalon.`, lines: { halves: 'felekre', thirds: 'harmadokra', quarters: 'negyedekre', sixths: 'hatodokra', eighths: 'nyolcadokra' },
+         none: 'Nincs rajta ezen a vonalon', noneWhy: 'Rajta van! Az egyenlő törtek ugyanaz a pont: nézd, hol metszi a szaggatott vonal.', right: 'Ugyanaz a pont!', wrong: 'Kövesd lefelé a szaggatott vonalat.' },
+    c: { mul: '× 2 fent és lent', add: '+ 1 fent és lent', q1: 'Ugyanannyi lesz a 2/3, mint a 4/6?', q2: 'Ugyanannyi lesz a 2/3, mint a 3/4?', yes: 'Ugyanannyi', no: 'Nem ugyanannyi',
+         mulWhy: 'Minden harmadot két hatodra vágunk: kétszer annyi darab, mindegyik fele akkora. Ugyanannyi.', addWhy: 'Ha fent és lent is hozzáadsz 1-et, más tört lesz: a 3/4 nagyobb a 2/3-nál.',
+         free: 'Próbáld ki magad', times: 'Szorzás', top: 'Fent', bottom: 'Lent' },
+    secrets: { simplest: ['Legegyszerűbb alak', 'Oszd el a számlálót és a nevezőt, hogy egyszerűbb legyen.'], hundred: ['Századokban', 'Törtek századrészként.'] },
+    sec: { simpleText: '12/16 = 6/8 = 3/4. Ha a számlálót és a nevezőt ugyanazzal osztod, a darabok összeolvadnak: ugyanannyi marad.',
+           hundredText: 'A 100-as nevezőjű törtek álruhás tizedes törtek: 1/4 = 25/100 = 0,25.' },
+    cards: {
+      wall: ['🧱', 'Egyenlő törtek', 'Másképp néznek ki, de ugyanannyit jelentenek.', 'A falon ugyanannál a szélnél érnek véget.'],
+      line: ['📏', 'Egy pont, sok név', 'Az egyenlő törtek a számegyenes ugyanazon pontján vannak.', 'A finomabb beosztás új nevet ad ugyanannak a pontnak.'],
+      cut: ['✂️', 'A szabály', 'Szorozd a számlálót és a nevezőt ugyanazzal: ugyanannyi marad.', 'Adj mindkettőhöz ugyanannyit: más lesz a mennyiség.'],
+    },
+    fine: 'Az egyenlő törtek a 3–4. osztályos tananyag része. A „hozzáadunk fent és lent” hibát az IES törtekről szóló útmutatója (2010) írja le.',
+    quiz: [
+      { q: 'A 2/3 egyenlő a 3/4-del, mert mindkettőhöz 1-et adtunk?', opts: ['Igen, mindkettővel ugyanazt csináltuk', 'Nem: az összeadás megváltoztatja a nagyságát, a szorzás nem', 'Csak néha'], ok: 1 },
+      { q: 'Melyik a nagyobb: 4/6 vagy 2/3?', opts: ['A 4/6, mert nagyobbak a számok', 'Egyenlők', 'A 2/3'], ok: 1 },
+      { q: 'Hol van az 1/2 a hatodokra osztott számegyenesen?', opts: ['az 1/6-nál', 'a 3/6-nál', 'nincs rajta'], ok: 1 } ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_ebPelt-qAl', en: 'Equivalent fractions (age 9+)', ru: 'Равные дроби (9+ лет)', hu: 'Egyenértékű törtek (9 éves kortól)' },
+  { id: 'mt_Ep7TDFuYUa', en: 'Equivalent fractions on a number line', ru: 'Равные дроби на числовой прямой', hu: 'Egyenlő értékű törtek a számegyenesen' },
+];
+
+// --- data ----------------------------------------------------------------------------------------------------
+const D = [1, 2, 3, 4, 6, 8, 12]; // the rows of the wall; all of them divide 24, so the laser can snap to 24ths
+const COL = ['#e5484d', '#f08c3a', '#e0b050', '#6fb36f', '#5fa8a0', '#5f8fd0', '#8f7fd0'];
+const GREEN = '#3ddc97', RED = '#ff3b30', INK = '#15182a';
+// predict rounds: which of two fractions is more?
+const PUZ = [{ a: [2, 4], b: [1, 2] }, { a: [2, 3], b: [3, 4] }, { a: [4, 6], b: [2, 3] }, { a: [3, 8], b: [1, 4] }, { a: [6, 12], b: [3, 6] }, { a: [5, 6], b: [3, 4] }];
+const LINES = [['halves', 2], ['thirds', 3], ['quarters', 4], ['sixths', 6], ['eighths', 8]];
+const LQ = [{ n: 1, d: 2, line: 'sixths' }, { n: 3, d: 4, line: 'eighths' }, { n: 2, d: 3, line: 'sixths' }, { n: 1, d: 4, line: 'eighths' }];
+const HUN = [[1, 2], [1, 4], [3, 4], [1, 5], [2, 5]];
+const rowOf = (d) => D.indexOf(d);
+const cmpOf = (p) => p.a[0] * p.b[1] - p.b[0] * p.a[1]; // > 0: the first is bigger
+const edgeOf = (p, d) => { const n = Math.round(p * d); return Math.abs(p * d - n) < 1e-6 ? n : null; }; // is p exactly on a brick edge of the 1/d row?
+
+// --- state ---------------------------------------------------------------------------------------------------
+const now = () => performance.now() / 1000;
+const S = {
+  wmode: 'game', wi: 0, wg: null, wrev: false, wAt: -9, shade: D.map(() => 0), lk: 12, drag: false, sec: null,
+  hist: [[12, 16]], mFrom: 16, mAt: -9, hi: 1, hshow: 0,
+  li: 0, lsel: null, lnone: false, lrev: false, lAt: -9,
+  cm: 'mul', cg: null, crev: false, cAt: -9, ca: 2, cb: 3, ck: 2,
+};
+const lab = shell({ key: 'fraction-wall', T, topics: TOPICS, views: ['wall', 'line', 'cut'], onLang: render, onView: () => { S.sec = null; if (lab.view === 'cut' && S.cm === 'free') S.cAt = now(); render(); } });
+const secret = secretLab('fraction-wall', () => ({
+  secrets: [{ emo: '🔽', title: T[lang].secrets.simplest[0], desc: T[lang].secrets.simplest[1] }, { emo: '💯', title: T[lang].secrets.hundred[0], desc: T[lang].secrets.hundred[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="secWall">
+    <div id="wMain">
+      <div class="row2" style="margin-top:0"><div class="card seg small" id="wModes"></div></div>
+      <div id="wGame"><div class="row2"><div class="ansrow" id="wAns" style="width:100%"></div></div><div class="nextrow" id="wNext"></div></div>
+      <div id="wFree">
+        <input id="laserR" class="big" type="range" min="0" max="24" step="1" value="12">
+        <div class="ends"><span>0</span><span>1</span></div>
+        <div class="row2" style="margin-top:0"><button class="chip tall" data-act="reset" id="wReset"></button></div>
+      </div>
+    </div>
+    <div id="wSecCtl"></div>
+    <div class="row2"><div class="chips" id="secChips"></div></div>
+  </div>
+  <div id="secLine"><div class="nextrow" id="lBtns" style="margin-top:0;gap:10px;flex-wrap:wrap"></div></div>
+  <div id="secCut">
+    <div class="row2" style="margin-top:0"><div class="card seg small" id="cModes"></div></div>
+    <div class="row2"><div class="ansrow" id="cAns" style="width:100%"></div></div>
+    <div class="nextrow" id="cNext"></div>
+    <div class="steps" id="cSteps"></div>
+  </div>`;
+
+// --- drawing helpers ------------------------------------------------------------------------------------------
+const BGC = [10, 12, 20];
+const mix = (hex, k) => { const n = parseInt(hex.slice(1), 16); return `rgb(${[(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v, i) => Math.round(v * (1 - k) + BGC[i] * k)).join(',')})`; };
+const rr = (c, x, y, w, h, r) => { c.beginPath(); c.roundRect(x, y, w, h, Math.min(r, w / 2, h / 2)); };
+const FONT = (size, wt = 900) => `${wt} ${size}px Nunito, sans-serif`;
+const txt = (c, s, x, y, size, color, wt = 800, align = 'center') => {
+  c.save(); c.globalAlpha = 1; c.font = FONT(size, wt); c.textAlign = align; c.textBaseline = 'middle'; c.fillStyle = color; c.fillText(s, x, y); c.restore();
+};
+// a stacked fraction (top, bar, bottom) centred on (cx, cy); a whole number when the bottom is 1
+function fracAt(c, n, d, cx, cy, size, color) {
+  if (d === 1) return txt(c, String(n), cx, cy, size * 1.15, color, 900);
+  c.save(); c.globalAlpha = 1; c.font = FONT(size); c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = color;
+  const ws = Math.max(c.measureText(n).width, c.measureText(d).width) + 5, off = size * 0.62;
+  c.fillText(n, cx, cy - off); c.fillText(d, cx, cy + off + 1); c.fillRect(cx - ws / 2, cy - 0.9, ws, 1.8);
+  c.restore();
+}
+function glowLine(c, x, y1, y2, color, width = 3) {
+  c.save(); c.globalAlpha = 1; c.strokeStyle = color; c.lineWidth = width; c.lineCap = 'round'; c.shadowColor = color; c.shadowBlur = 16;
+  c.beginPath(); c.moveTo(x, y1); c.lineTo(x, y2); c.stroke(); c.restore();
+}
+function blade(c, x, y) { // the little knife head that leads a cut
+  c.save(); c.globalAlpha = 1; c.fillStyle = '#e8ecf8'; c.strokeStyle = '#0A0C14'; c.lineWidth = 1.5;
+  c.beginPath(); c.moveTo(x - 6, y - 13); c.lineTo(x + 6, y - 13); c.lineTo(x, y + 3); c.closePath(); c.fill(); c.stroke(); c.restore();
+}
+// a bar of b pieces with a shaded; with k > 1 every piece is cut into k (prog(i) = how far the knife is through piece i)
+function drawBar(c, x, y, W, H, b, a, k, prog, col) {
+  c.save(); rr(c, x, y, W, H, 8); c.clip();
+  c.fillStyle = mix(col, .66); c.fillRect(x, y, W, H);
+  c.fillStyle = col; c.fillRect(x, y, W * a / b, H);
+  c.restore();
+  c.save(); c.globalAlpha = 1; c.lineCap = 'round';
+  if (k > 1) for (let i = 0; i < b; i++) {
+    const p = prog ? prog(i) : 1; if (p <= 0) continue;
+    for (let m = 1; m < k; m++) {
+      const cx = x + W * (i + m / k) / b;
+      c.strokeStyle = 'rgba(255,255,255,.9)'; c.lineWidth = 2; c.beginPath(); c.moveTo(cx, y); c.lineTo(cx, y + H * p); c.stroke();
+      if (p < 1) blade(c, cx, y + H * p);
+    }
+  }
+  c.strokeStyle = '#0A0C14'; c.lineWidth = 2.5; c.beginPath();
+  for (let j = 1; j < b; j++) { const ex = x + W * j / b; c.moveTo(ex, y); c.lineTo(ex, y + H); }
+  c.stroke();
+  rr(c, x, y, W, H, 8); c.strokeStyle = '#98A0B8'; c.lineWidth = 1.5; c.stroke();
+  c.restore();
+}
+
+// --- the wall ------------------------------------------------------------------------------------------------
+function wallGeo(w, h) {
+  const x0 = 50, x1 = w - 10, top = 12, strip = 46, gap = 3;
+  const rh = Math.min(64, (h - top - strip - gap * 6) / 7);
+  return { x0, x1, W: x1 - x0, top, rh, gap, bottom: top + 7 * rh + 6 * gap };
+}
+function drawWall(c, w, h, time) {
+  const g = wallGeo(w, h), free = S.wmode === 'free', pz = PUZ[S.wi];
+  const shade = D.map(() => 0), hl = []; // shade: how much of the wall each row is coloured, 0..1
+  let lp = null, done = true, same = false, glowX = null;
+  if (free) {
+    D.forEach((d, i) => { shade[i] = S.shade[i] / d; });
+    lp = S.lk / 24;
+    const vs = shade.filter((s) => s > 0);
+    if (vs.length > 1 && vs.every((s) => Math.abs(s - vs[0]) < 1e-9)) glowX = vs[0];
+  } else if (S.wrev) {
+    const { a, b } = pz, va = a[0] / a[1], vb = b[0] / b[1], mx = Math.max(va, vb);
+    const prog = clamp((time - S.wAt) / 1.1, 0, 1);
+    done = prog >= 1; lp = mx * prog * prog * (3 - 2 * prog);
+    shade[rowOf(a[1])] = Math.min(va, lp); shade[rowOf(b[1])] = Math.min(vb, lp);
+    hl.push(rowOf(a[1]), rowOf(b[1]));
+    same = done && cmpOf(pz) === 0; if (same) glowX = mx;
+  }
+  const lit = lp !== null && done, bs = clamp(g.rh * 0.28, 12, 15);
+  D.forEach((d, i) => {
+    const y = g.top + i * (g.rh + g.gap), col = COL[i], sx = shade[i] * g.W;
+    for (let j = 0; j < d; j++) {
+      const bx = g.x0 + g.W * j / d, bw = g.W / d, fw = clamp(sx - (bx - g.x0), 0, bw);
+      c.save(); rr(c, bx + 0.75, y, bw - 1.5, g.rh, 6); c.fillStyle = mix(col, .66); c.fill();
+      if (fw > 0) { c.clip(); c.fillStyle = col; c.fillRect(bx, y, fw, g.rh); }
+      c.restore();
+      rr(c, bx + 0.75, y, bw - 1.5, g.rh, 6); c.lineWidth = 1.5; c.strokeStyle = '#0A0C14'; c.stroke();
+      fracAt(c, 1, d, bx + bw / 2, y + g.rh / 2, bs, fw > bw / 2 ? INK : '#D3D9E8');
+    }
+    // the label of the row: the unit fraction, or the fraction at the laser when it sits on a brick edge
+    const e = lit ? edgeOf(lp, d) : null, ly = y + g.rh / 2;
+    if (e !== null) fracAt(c, e, d, 27, ly, 15, GREEN);
+    else if (hl.includes(i) && done) { const f = rowOf(pz.a[1]) === i ? pz.a : pz.b; fracAt(c, f[0], f[1], 27, ly, 15, '#fff'); }
+    else fracAt(c, 1, d, 27, ly, 14, '#98A0B8');
+  });
+  for (const i of hl) { const y = g.top + i * (g.rh + g.gap); rr(c, g.x0 - 1, y - 1, g.W + 2, g.rh + 2, 7); c.strokeStyle = '#fff'; c.lineWidth = 2; c.stroke(); }
+  if (glowX !== null) {
+    const gx = g.x0 + g.W * glowX;
+    c.save(); c.fillStyle = 'rgba(61,220,151,.16)'; c.fillRect(gx - 9, g.top - 6, 18, g.bottom - g.top + 12); c.restore();
+    glowLine(c, gx, g.top - 6, g.bottom + 6, GREEN, 3);
+  }
+  if (lp !== null) {
+    const lx = g.x0 + g.W * lp, col = same ? GREEN : RED;
+    glowLine(c, lx, g.top - 6, g.bottom + (free ? 14 : 6), col, 3);
+    if (lit) D.forEach((d, i) => {
+      if (edgeOf(lp, d) === null) return;
+      c.save(); c.globalAlpha = 1; c.fillStyle = '#fff'; c.beginPath(); c.arc(lx, g.top + i * (g.rh + g.gap) + g.rh / 2, 4.5, 0, 7); c.fill(); c.restore();
+    });
+    if (free) { // the handle
+      c.save(); c.globalAlpha = 1; c.fillStyle = RED; c.strokeStyle = '#fff'; c.lineWidth = 2.5;
+      c.beginPath(); c.arc(lx, g.bottom + 16, 10, 0, 7); c.fill(); c.stroke(); c.restore();
+      txt(c, T[lang].w.laser, g.x0 + g.W / 2, g.bottom + 37, 12, '#98A0B8', 700);
+    }
+  }
+}
+
+// --- the number lines ------------------------------------------------------------------------------------------
+function lineGeo(w, h) { const ch = (h - 16) / 5; return { x0: 28, x1: w - 28, W: w - 56, top: 8, ch, ly: Math.min(26, ch * 0.34) }; }
+function drawLine(c, w, h, time) {
+  const g = lineGeo(w, h), q = LQ[S.li], tl = LINES.findIndex(([k]) => k === q.line), dl = LINES[tl][1], ans = q.n * dl / q.d;
+  const own = LINES.findIndex(([, d]) => d === q.d), rev = S.lrev, prog = rev ? clamp((time - S.lAt) / 0.9, 0, 1) : 0;
+  const yL = (i) => g.top + i * g.ch + g.ly, topY = g.top + 2, botY = yL(4) + 30, yo = yL(own);
+  const reached = (i) => { const y = yL(i); return y >= yo ? y - yo <= prog * (botY - yo) + 1 : yo - y <= prog * (yo - topY) + 1; };
+  const tx = g.x0 + g.W * q.n / q.d;
+  // the named line wears a soft band
+  rr(c, 6, g.top + tl * g.ch + 2, w - 12, g.ch - 4, 12); c.fillStyle = 'rgba(78,168,255,.10)'; c.fill(); c.strokeStyle = 'rgba(78,168,255,.6)'; c.lineWidth = 1.5; c.stroke();
+  if (rev) { // the dashed line drops from the fraction on its own line through all the lines
+    c.save(); c.setLineDash([7, 5]); c.strokeStyle = GREEN; c.lineWidth = 2.5; c.lineCap = 'round';
+    c.beginPath(); c.moveTo(tx, yo - prog * (yo - topY)); c.lineTo(tx, yo + prog * (botY - yo)); c.stroke(); c.restore();
+  }
+  LINES.forEach(([, d], i) => {
+    const y = yL(i);
+    c.save(); c.globalAlpha = 1; c.strokeStyle = i === tl ? '#fff' : '#98A0B8'; c.lineWidth = 3; c.lineCap = 'round';
+    c.beginPath(); c.moveTo(g.x0, y); c.lineTo(g.x1, y); c.stroke(); c.restore();
+    for (let k = 0; k <= d; k++) {
+      const x = g.x0 + g.W * k / d, hit = rev && reached(i) && k * q.d === q.n * d, mine = i === tl && S.lsel === k;
+      if (mine && !rev) { c.save(); c.fillStyle = '#4ea8ff'; c.beginPath(); c.arc(x, y, 11, 0, 7); c.fill(); c.restore(); }
+      if (i === tl && rev && k === ans) { c.save(); c.fillStyle = 'rgba(61,220,151,.28)'; c.strokeStyle = GREEN; c.lineWidth = 2.5; c.beginPath(); c.arc(x, y, 12, 0, 7); c.fill(); c.stroke(); c.restore(); }
+      if (i === tl && rev && mine && k !== ans) { c.save(); c.strokeStyle = RED; c.lineWidth = 2.5; c.beginPath(); c.arc(x, y, 12, 0, 7); c.stroke(); c.restore(); }
+      if (hit) { c.save(); c.fillStyle = GREEN; c.shadowColor = GREEN; c.shadowBlur = 12; c.beginPath(); c.arc(x, y, 7, 0, 7); c.fill(); c.restore(); }
+      c.save(); c.globalAlpha = 1; c.strokeStyle = hit ? '#fff' : mine && !rev ? '#fff' : '#D3D9E8'; c.lineWidth = 2.5; c.beginPath(); c.moveTo(x, y - 6); c.lineTo(x, y + 6); c.stroke(); c.restore();
+      const col = hit ? GREEN : '#98A0B8';
+      if (k === 0 || k === d) txt(c, k === 0 ? '0' : '1', x, y + 24, 14, hit ? GREEN : '#D3D9E8', 900);
+      else fracAt(c, k, d, x, y + 25, 12, col);
+    }
+  });
+}
+
+// --- the bar that gets cut ----------------------------------------------------------------------------------------
+function drawCut(c, w, h, time) {
+  const t = T[lang], x0 = 56, W = w - x0 - 14, BH = 56, m = S.cm, rev = S.crev;
+  let a = 2, b = 3, k = 1;
+  if (m === 'free') { a = S.ca; b = S.cb; k = S.ck; } else if (m === 'mul' && rev) k = 2;
+  const el = time - S.cAt, stag = Math.min(0.4, 1.0 / b), prog = (i) => clamp((el - i * stag) / 0.4, 0, 1);
+  const done = k === 1 || el >= (b - 1) * stag + 0.4, two = m === 'add';
+  const cy1 = two ? h * 0.5 - 56 : h * 0.5, cy2 = h * 0.5 + 56, ex = x0 + W * a / b;
+  if (m !== 'free') txt(c, t.c[m], w / 2, 20, 13, '#D3D9E8', 800);
+  drawBar(c, x0, cy1 - BH / 2, W, BH, b, a, k, prog, '#5fa8a0');
+  fracAt(c, done ? a * k : a, done ? b * k : b, 28, cy1, 20, '#fff');
+  if (m !== 'add' && k > 1 && done) glowLine(c, ex, cy1 - BH / 2 - 10, cy1 + BH / 2 + 10, GREEN, 3);
+  if (two && rev) {
+    const p = clamp((time - S.cAt) / 0.5, 0, 1), y2 = cy2 - BH / 2;
+    c.save(); c.globalAlpha = p;
+    drawBar(c, x0, y2, W, BH, 4, 3, 1, null, '#e0b050');
+    c.fillStyle = '#f5c84c'; c.fillRect(x0 + W * 2 / 3, y2, W * (3 / 4 - 2 / 3), BH); // the part that sticks out
+    c.strokeStyle = '#0A0C14'; c.lineWidth = 2.5; c.strokeRect(x0 + W * 2 / 3, y2, W * (3 / 4 - 2 / 3), BH);
+    c.restore();
+    fracAt(c, 3, 4, 28, cy2, 20, '#fff');
+    c.save(); c.globalAlpha = p; glowLine(c, x0 + W * 2 / 3, cy1 - BH / 2 - 12, cy2 + BH / 2 + 12, RED, 3); c.restore();
+  }
+}
+
+// --- the secret scenes ---------------------------------------------------------------------------------------------
+function drawSimplest(c, w, h, time) {
+  const [a, b] = S.hist.at(-1), x = 14, W = w - 28, BH = 64, cy = h * 0.58, fa = clamp((time - S.mAt) / 0.6, 0, 1);
+  drawBar(c, x, cy - BH / 2, W, BH, b, a, 1, null, '#5fa8a0');
+  if (fa < 1 && S.mFrom !== b) { // the edges that disappear when pieces merge fade out
+    c.save(); c.globalAlpha = 1 - fa; c.strokeStyle = '#0A0C14'; c.lineWidth = 2.5; c.beginPath();
+    for (let j = 1; j < S.mFrom; j++) if ((j * b) % S.mFrom !== 0) { const ex = x + W * j / S.mFrom; c.moveTo(ex, cy - BH / 2); c.lineTo(ex, cy + BH / 2); }
+    c.stroke(); c.restore();
+  }
+  fracAt(c, a, b, w / 2, cy - BH / 2 - 48, 22, '#fff');
+}
+function drawHundred(c, w, h, dt) {
+  const [n, d] = HUN[S.hi], target = n / d * 100;
+  S.hshow += clamp(target - S.hshow, -dt * 90, dt * 90);
+  const cnt = Math.round(S.hshow), g = Math.min(w - 24, h - 40), cell = g / 10, x0 = (w - g) / 2, y0 = 8;
+  for (let i = 0; i < 100; i++) {
+    rr(c, x0 + (i % 10) * cell + 1.5, y0 + Math.floor(i / 10) * cell + 1.5, cell - 3, cell - 3, 4);
+    c.fillStyle = i < cnt ? '#5fa8a0' : 'rgba(130,145,190,.14)'; c.fill();
+  }
+  txt(c, `${cnt} / 100`, w / 2, y0 + g + 20, 14, '#D3D9E8', 800);
+}
+
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  const v = lab.view;
+  c.lineJoin = 'round';
+  if (v === 'wall') { if (S.sec === 'simplest') drawSimplest(c, w, h, time); else if (S.sec === 'hundred') drawHundred(c, w, h, dt); else drawWall(c, w, h, time); }
+  else if (v === 'line') drawLine(c, w, h, time);
+  else drawCut(c, w, h, time);
+});
+
+// --- taps and drags on the canvas ------------------------------------------------------------------------------
+const cv = $('cv');
+const pt = (ev) => { const r = cv.getBoundingClientRect(); return { x: ev.clientX - r.left, y: ev.clientY - r.top, w: r.width, h: r.height }; };
+function moveLaser(p, g) {
+  const k = clamp(Math.round((p.x - g.x0) / g.W * 24), 0, 24);
+  if (k !== S.lk) { S.lk = k; sfx.tick(); }
+}
+function tapBrick(p, g) {
+  const i = Math.floor((p.y - g.top) / (g.rh + g.gap));
+  if (i < 0 || i > 6 || (p.y - g.top) - i * (g.rh + g.gap) > g.rh || p.x < g.x0 || p.x >= g.x1) return;
+  const d = D[i], j = Math.floor((p.x - g.x0) / (g.W / d));
+  S.shade[i] = S.shade[i] === j + 1 ? j : j + 1; sfx.snap();
+}
+function tapLine(p) {
+  if (S.lrev) return;
+  const g = lineGeo(p.w, p.h), tl = LINES.findIndex(([k]) => k === LQ[S.li].line), dl = LINES[tl][1], top = g.top + tl * g.ch;
+  if (p.y < top || p.y > top + g.ch) return;
+  S.lsel = clamp(Math.round((p.x - g.x0) / g.W * dl), 0, dl); S.lnone = false; sfx.tick();
+}
+cv.addEventListener('pointerdown', (ev) => {
+  const p = pt(ev), v = lab.view;
+  if (v === 'wall') {
+    if (S.sec || S.wmode !== 'free') return;
+    const g = wallGeo(p.w, p.h);
+    if (p.y > g.bottom + 2) { S.drag = true; try { cv.setPointerCapture(ev.pointerId); } catch { /* no capture */ } moveLaser(p, g); }
+    else tapBrick(p, g);
+  } else if (v === 'line') tapLine(p);
+  else return;
+  render();
+});
+cv.addEventListener('pointermove', (ev) => { if (!S.drag) return; const p = pt(ev); moveLaser(p, wallGeo(p.w, p.h)); render(); });
+['pointerup', 'pointercancel'].forEach((n) => cv.addEventListener(n, () => { S.drag = false; }));
+
+// --- controls --------------------------------------------------------------------------------------------------
+// on a phone the controls sit below the canvas: bring the reveal into view
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+const setCm = (m) => { S.cm = m; S.cg = null; S.crev = false; S.cAt = now(); };
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act], [data-d]'); if (!b || b.disabled) return;
+  const act = b.dataset.act;
+  if (b.dataset.d) { // steppers of the free cut
+    const k = b.dataset.d, hi = k === 'ck' ? 4 : k === 'ca' ? S.cb : 6;
+    const n = clamp(S[k] + +b.dataset.s, 1, hi); if (n === S[k]) return;
+    S[k] = n; if (S.ca > S.cb) S.ca = S.cb; S.cAt = now(); sfx.tick();
+  } else if (act === 'wmode') { S.wmode = b.dataset.m; sfx.click(); }
+  else if (act === 'wans') {
+    S.wg = b.dataset.g; S.wrev = true; S.wAt = now();
+    const p = cmpOf(PUZ[S.wi]), ok = p > 0 ? 'l' : p < 0 ? 'r' : 'e';
+    (S.wg === ok ? sfx.good : sfx.bad)(); showStage();
+  } else if (act === 'wnext') { S.wi = (S.wi + 1) % PUZ.length; S.wg = null; S.wrev = false; sfx.click(); }
+  else if (act === 'reset') {
+    if (S.sec === 'simplest') { S.hist = [[12, 16]]; S.mFrom = 16; S.mAt = now(); } else { S.shade = D.map(() => 0); S.lk = 12; }
+    sfx.click();
+  } else if (act === 'sec') {
+    const k = b.dataset.k;
+    if (!secret.unlocked()) return secret.open();
+    if (S.sec === k) S.sec = null;
+    else { S.sec = k; if (k === 'simplest') { S.hist = [[12, 16]]; S.mFrom = 16; S.mAt = -9; } else { S.hi = 1; S.hshow = 0; } } // each secret sets itself up
+    sfx.click();
+  } else if (act === 'div') {
+    const n = +b.dataset.n, [a, bb] = S.hist.at(-1);
+    if (a % n || bb % n) return;
+    S.mFrom = bb; S.mAt = now(); S.hist.push([a / n, bb / n]); sfx.snap();
+  } else if (act === 'hpick') { S.hi = +b.dataset.i; sfx.tick(); }
+  else if (act === 'lcheck') {
+    if (S.lsel === null) return;
+    const q = LQ[S.li], dl = LINES.find(([k]) => k === q.line)[1];
+    S.lrev = true; S.lAt = now(); (S.lsel === q.n * dl / q.d ? sfx.good : sfx.bad)(); showStage();
+  } else if (act === 'lnone') { S.lnone = true; S.lsel = null; S.lrev = true; S.lAt = now(); sfx.bad(); showStage(); }
+  else if (act === 'lnext') { S.li = (S.li + 1) % LQ.length; S.lsel = null; S.lnone = false; S.lrev = false; sfx.click(); }
+  else if (act === 'cm') { setCm(b.dataset.m); sfx.click(); }
+  else if (act === 'cans') {
+    S.cg = b.dataset.g; S.crev = true; S.cAt = now();
+    (S.cg === (S.cm === 'mul' ? 'y' : 'n') ? sfx.good : sfx.bad)(); showStage();
+  } else if (act === 'cnext') { setCm(S.cm === 'mul' ? 'add' : 'free'); sfx.click(); }
+  render();
+});
+$('ctrlBody').addEventListener('input', (ev) => {
+  if (ev.target.id !== 'laserR') return;
+  const k = +ev.target.value; if (k !== S.lk) { S.lk = k; sfx.tick(); } render();
+});
+
+// --- one render per change: controls, readout and the state card ----------------------------------------------------
+const fr = (n, d) => d === 1 ? `<span>${n}</span>` : `<span class="fr"><i>${n}</i><i>${d}</i></span>`;
+const sg = (s) => `<span class="sg">${s}</span>`;
+const fineHtml = (t) => `<div class="fine">${esc(t.fine)}</div>`;
+const card = (t, k) => { const [emo, title, lead, body] = t.cards[k]; return { emo, title, lead, body, extra: fineHtml(t) }; };
+
+function render() {
+  const t = T[lang], v = lab.view;
+  document.body.dataset.v = v === 'wall' && S.sec ? S.sec : v;
+  $('secWall').style.display = v === 'wall' ? '' : 'none';
+  $('secLine').style.display = v === 'line' ? '' : 'none';
+  $('secCut').style.display = v === 'cut' ? '' : 'none';
+  if (v === 'wall') renderWall(t); else if (v === 'line') renderLine(t); else renderCut(t);
+}
+
+function renderWall(t) {
+  const game = S.wmode === 'game', sec = S.sec, open = secret.unlocked();
+  lab.setGlow('rgba(224, 176, 80, .22)');
+  const sc = (k, emo) => `<button class="chip tall secret ${open ? 'open' : ''} ${sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  $('secChips').innerHTML = sc('simplest', '🔽') + sc('hundred', '💯');
+  $('wMain').style.display = sec ? 'none' : '';
+  $('wSecCtl').style.display = sec ? '' : 'none';
+  if (sec) return renderSecret(t);
+  $('wSecCtl').innerHTML = '';
+  $('wModes').innerHTML = [['game', t.w.game], ['free', t.w.free]].map(([m, l]) => `<button data-act="wmode" data-m="${m}" class="${S.wmode === m ? 'on' : ''}">${esc(l)}</button>`).join('');
+  $('wGame').style.display = game ? '' : 'none';
+  $('wFree').style.display = game ? 'none' : '';
+  $('wReset').textContent = t.reset;
+  if (game) {
+    const pz = PUZ[S.wi], p = cmpOf(pz), ok = p > 0 ? 'l' : p < 0 ? 'r' : 'e', rev = S.wrev;
+    const btn = (g, inner) => `<button class="ans ${rev ? (g === ok ? 'good' : g === S.wg ? 'bad' : '') : ''}" data-act="wans" data-g="${g}"${rev ? ' disabled' : ''}>${inner}</button>`;
+    $('wAns').innerHTML = btn('l', fr(...pz.a)) + btn('e', esc(t.w.equal)) + btn('r', fr(...pz.b));
+    $('wNext').innerHTML = rev ? `<button class="btn" data-act="wnext">${esc(t.next)}</button>` : '';
+    if (!rev) {
+      lab.setReadout(fr(...pz.a) + sg('?') + fr(...pz.b), t.w.q, '', '#e0b050');
+      lab.setState(card(t, 'wall'));
+    } else {
+      lab.setReadout(fr(...pz.a) + sg(p > 0 ? '&gt;' : p < 0 ? '&lt;' : '=') + fr(...pz.b), '', '', '#e0b050');
+      lab.setState({ emo: S.wg === ok ? '✅' : '🤔', title: S.wg === ok ? t.right : t.wrong, lead: t.w.why[S.wi], body: S.wi === 1 ? t.w.add : S.wi === 2 ? t.w.bigNums : '', extra: fineHtml(t) });
+    }
+    return;
+  }
+  if ($('laserR').value !== String(S.lk)) $('laserR').value = S.lk;
+  $('laserR').setAttribute('aria-label', t.w.laser);
+  const rows = D.map((d, i) => [S.shade[i], d]).filter(([n]) => n > 0);
+  const eq = rows.length > 1 && rows.every(([n, d]) => n * rows[0][1] === rows[0][0] * d);
+  lab.setReadout(rows.length ? rows.map(([n, d]) => fr(n, d)).join(sg(eq ? '=' : '')) : '0', '', '', '#e0b050');
+  lab.setState(card(t, 'wall'));
+}
+
+function renderSecret(t) {
+  if (S.sec === 'simplest') {
+    const [a, b] = S.hist.at(-1), can = (n) => a % n === 0 && b % n === 0, end = !can(2) && !can(3) && !can(5);
+    lab.setGlow('rgba(95, 168, 160, .26)');
+    $('wSecCtl').innerHTML = `<div class="divrow">${[2, 4].map((n) => `<button class="ans" data-act="div" data-n="${n}"${can(n) ? '' : ' disabled'}>÷ ${n}</button>`).join('')}
+      <button class="chip tall" data-act="reset">${esc(t.reset)}</button></div>`;
+    lab.setReadout(S.hist.map(([x, y]) => fr(x, y)).join(sg('=')), '', '', '#5fa8a0');
+    lab.setState({ emo: '🔽', title: t.secrets.simplest[0], lead: end ? t.sec.simpleText : t.secrets.simplest[1], body: '', extra: '' });
+  } else {
+    const [n, d] = HUN[S.hi], x = n / d * 100, dec = String(x / 100).replace('.', lang === 'en' ? '.' : ',');
+    lab.setGlow('rgba(95, 168, 160, .26)');
+    $('wSecCtl').innerHTML = `<div class="divrow">${HUN.map(([a, b], i) => `<button class="chip tall ${i === S.hi ? 'on' : ''}" data-act="hpick" data-i="${i}">${a}/${b}</button>`).join('')}</div>`;
+    lab.setReadout(fr(n, d) + sg('=') + fr(x, 100) + sg('=') + `<span>${dec}</span>`, '', '', '#5fa8a0');
+    lab.setState({ emo: '💯', title: t.secrets.hundred[0], lead: t.sec.hundredText, body: '', extra: '' });
+  }
+}
+
+function renderLine(t) {
+  const q = LQ[S.li], dl = LINES.find(([k]) => k === q.line)[1], ans = q.n * dl / q.d, rev = S.lrev;
+  lab.setGlow('rgba(78, 168, 255, .26)');
+  $('lBtns').innerHTML = rev ? `<button class="btn" data-act="lnext">${esc(t.next)}</button>`
+    : `<button class="btn" data-act="lcheck"${S.lsel === null ? ' disabled' : ''}>${esc(t.check)}</button><button class="chip tall" data-act="lnone">${esc(t.l.none)}</button>`;
+  const qs = t.l.q(`${q.n}/${q.d}`, t.l.lines[q.line]);
+  if (!rev) {
+    lab.setReadout(fr(q.n, q.d) + sg('?'), qs, '', '#4ea8ff');
+    lab.setState(card(t, 'line'));
+  } else {
+    const ok = !S.lnone && S.lsel === ans;
+    lab.setReadout(fr(q.n, q.d) + sg('=') + fr(ans, dl), qs, '', '#4ea8ff');
+    lab.setState(S.lnone ? { emo: '🤔', title: t.l.wrong, lead: t.l.noneWhy, body: '', extra: fineHtml(t) }
+      : { emo: ok ? '✅' : '🤔', title: ok ? t.l.right : t.l.wrong, lead: t.cards.line[2], body: t.cards.line[3], extra: fineHtml(t) });
+  }
+}
+
+function renderCut(t) {
+  const m = S.cm, rev = S.crev, free = m === 'free';
+  lab.setGlow('rgba(240, 140, 58, .22)');
+  $('cModes').innerHTML = [['mul', t.c.mul], ['add', t.c.add], ['free', t.c.free]].map(([k, l]) => `<button data-act="cm" data-m="${k}" class="${m === k ? 'on' : ''}">${esc(l)}</button>`).join('');
+  $('cAns').style.display = free ? 'none' : '';
+  $('cSteps').style.display = free ? '' : 'none';
+  $('cNext').innerHTML = !free && rev ? `<button class="btn" data-act="cnext">${esc(t.next)}</button>` : '';
+  if (!free) {
+    const ok = m === 'mul' ? 'y' : 'n';
+    const btn = (g, label) => `<button class="ans ${rev ? (g === ok ? 'good' : g === S.cg ? 'bad' : '') : ''}" data-act="cans" data-g="${g}"${rev ? ' disabled' : ''} style="font-size:15px">${esc(label)}</button>`;
+    $('cAns').innerHTML = btn('y', t.c.yes) + btn('n', t.c.no);
+    const q = m === 'mul' ? t.c.q1 : t.c.q2;
+    if (!rev) {
+      lab.setReadout(fr(2, 3) + sg('?'), q, '', '#f08c3a');
+      lab.setState({ emo: '✂️', title: t.c[m], lead: '', body: '', extra: '' });
+    } else {
+      lab.setReadout(fr(2, 3) + sg(m === 'mul' ? '=' : '&lt;') + (m === 'mul' ? fr(4, 6) : fr(3, 4)), q, '', '#f08c3a');
+      lab.setState({ emo: S.cg === ok ? '✅' : '🤔', title: S.cg === ok ? t.right : t.wrong, lead: m === 'mul' ? t.c.mulWhy : t.c.addWhy, body: '', extra: '' });
+    }
+    return;
+  }
+  const { ca: a, cb: b, ck: k } = S;
+  $('cSteps').innerHTML = [['ca', t.c.top, a, S.cb, `${a}`], ['cb', t.c.bottom, b, 6, `${b}`], ['ck', t.c.times, k, 4, `×${k}`]].map(([key, lbl, val, hi, shown]) =>
+    `<div class="stp"><span class="lbl">${esc(lbl)}</span><div>
+      <button class="sb" data-d="${key}" data-s="-1" aria-label="−"${val <= 1 ? ' disabled' : ''}>−</button><b>${shown}</b>
+      <button class="sb" data-d="${key}" data-s="1" aria-label="+"${val >= hi ? ' disabled' : ''}>+</button></div></div>`).join('');
+  lab.setReadout(fr(a, b) + (k > 1 ? sg('=') + fr(a * k, b * k) : ''), '', '', '#f08c3a');
+  lab.setState(card(t, 'cut'));
+}
+render();
+</script>
+</body>
+</html>
