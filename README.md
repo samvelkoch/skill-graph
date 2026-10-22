@@ -33,6 +33,7 @@ It is a **static site**: plain HTML, CSS and JavaScript plus JSON data. There is
 | [`index.html`](index.html) | The map (viewer). One file: styles, UI strings in EN/RU/HU, list view and the 3D graph. |
 | [`tour.js`](tour.js) | The short guided tour of the map (first visit and the **?** button). |
 | [`labs/`](labs/) | The labs: one folder per lab (`labs/<id>/index.html`), the overview [`labs/index.html`](labs/index.html), the shared skeleton [`labs/lab.js`](labs/lab.js) + [`labs/lab.css`](labs/lab.css), the list of labs [`labs/registry.json`](labs/registry.json) and the generated [`labs/catalog.json`](labs/catalog.json). |
+| [`curricula/index.html`](curricula/index.html) | The curricula page: each national curriculum, its issuer, grades and how much of it is linked. |
 | [`data/`](data/) | The Marble taxonomy as published upstream: topics, prerequisites, curriculum standards, domain summaries, teaching research. |
 | [`data/extra/`](data/extra/) | Topics and prerequisites added by this project to cover school-curriculum content the taxonomy lacks (arts, music, geography, history, literature and more). |
 | [`data/school-curricula.json`](data/school-curricula.json) | Ten national curricula, item by item, linked to topics. |

@@ -4,7 +4,7 @@
 // Fonts are cache-first. Paths are relative to the worker: the site lives under a subpath (…/skill-graph/). Nothing in data/ is precached.
 const CACHE = 'sg-v2'; // bump only when the precache list changes; correctness does not depend on it
 const SHELL = ['./', 'index.html', 'graph2d.js', 'tour.js', 'manifest.webmanifest', 'favicon.svg', 'favicon-32.png', 'apple-touch-icon.png',
-  'icon-192.png', 'icon-512.png', 'labs/', 'labs/lab.js', 'labs/lab.css', 'labs/switcher.js', 'labs/viewer.js',
+  'icon-192.png', 'icon-512.png', 'labs/', 'curricula/', 'labs/lab.js', 'labs/lab.css', 'labs/switcher.js', 'labs/viewer.js',
   'labs/registry.json', 'labs/catalog.json', 'labs/fraction-ops/check.js'];
 const CDN = ['fonts.googleapis.com', 'fonts.gstatic.com']; // cache-first
 const rel = (p) => new URL(p, self.registration.scope).href;
