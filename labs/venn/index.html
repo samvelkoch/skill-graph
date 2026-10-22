@@ -1,0 +1,899 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Two Hoops · Skill Graph</title>
+<meta name="description" content="Sort toys into two hoops, find what goes in the middle, count which group has more, and guess a secret sorting rule. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  #stage canvas { touch-action: pan-y; }
+  .ask { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); width: min(560px, calc(100% - 16px)); padding: 12px 14px; text-align: center; z-index: 2; }
+  .ask .q { font: 500 21px/1.2 var(--serif); color: #fff; margin-bottom: 10px; text-wrap: balance; }
+  .ask .opts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .ask button { padding: 8px 16px; min-height: 40px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .12);
+    font-weight: 800; font-size: 13.5px; cursor: pointer; }
+  .ask button:hover:not(:disabled) { background: rgba(130, 145, 190, .28); }
+  .ask button.go { background: #fff; color: var(--bg); border-color: #fff; }
+  .ask button:disabled { opacity: .4; cursor: default; }
+  .ask p { margin: 0 0 10px; color: var(--soft); font-size: 13px; text-wrap: balance; }
+  .ask .verdict { font-weight: 900; margin-bottom: 4px; }
+  .fine { font-size: 11px; color: var(--faint); }
+  @media (max-width: 760px) {
+    #stage { height: min(158vw, 660px); }
+    body[data-v=count] #stage { height: min(150vw, 620px); }
+    body[data-v=rule] #stage { height: min(132vw, 540px); }
+    .ask .q { font-size: 18px; margin-bottom: 8px; }
+    .ask { padding: 10px 12px; }
+  }
+  @media (min-width: 761px) {
+    #stage { min-height: 560px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Two Hoops', title: 'One rule for each hoop',
+    lines: [['A red hoop', 'and a wheels hoop.'], ['Where does', 'each toy belong?'], ['And what if', 'it fits both?']],
+    views: { sort: '⭕ Sort', count: '🔢 Count', rule: '🕵️ Guess my rule' },
+    next: 'Next ▶', again: '↻ Again', right: 'You got it!', wrong: 'Not quite. Watch!',
+    rules: { red: 'red things', wheels: 'has wheels' },
+    s: { q1: 'The fire engine is red AND has wheels. Where should it go?', o1: ['in the red hoop', 'in the wheels hoop', 'in both hoops at once'],
+         r1: 'Push the hoops together: the middle belongs to both hoops. Things that fit both rules go there.',
+         check: 'Check', done: 'All sorted! Two in each place.',
+         hint: { red: 'Is it red? Does it have wheels?', both: 'Only things that fit both rules go in the middle.', wheels: 'Does it have wheels? Is it red?', out: 'Things that fit neither rule stay outside the hoops.' },
+         tap: 'Tap a toy, then a place.' },
+    c: { q1: 'Which group has more?', o1: ['the teddies', 'the buttons', 'the same'],
+         r1: 'The teddies take up more space, but there are only 3. Line them up one in each box: 5 buttons is more.',
+         q2: 'How many things have wheels altogether?', o2: ['2', '4', '6'], r2: 'Wheels only (2) and both (2): 4 things with wheels.',
+         heads: ['red only', 'both', 'wheels only', 'neither'] },
+    r: { q: 'What is the secret rule?', opts: [['lives in water', 'is blue', 'has legs'], ['is yellow', 'is food', 'is small'], ['is round', 'is a toy', 'is orange']],
+         why: ['They all live in water. The cat and the bird don’t — and a whale does.', 'They are all yellow. A lemon fits too; a red apple doesn’t.', 'They are all round. A book is not round, so it stays out.'] },
+    secrets: { carroll: ['Carroll table', 'The same sort, as a table.'], three: ['Three hoops', 'Red, round and small.'] },
+    sec: { carrollText: 'A Carroll table shows the same sorting in four boxes: red or not, wheels or not.', drop: 'Drop the next one',
+           threeText: 'With three hoops, the very middle is for things that fit all three rules — like a small red apple.', notRed: 'not red', noWheels: 'no wheels', round: 'round', small: 'small' },
+    quiz: [
+      { q: 'A red car goes in the red hoop and the wheels hoop. Where?', opts: ['in the red hoop', 'in the middle, where they overlap', 'outside'], ok: 1 },
+      { q: 'A banana is not red and has no wheels. Where?', opts: ['outside both hoops', 'in the middle', 'in the red hoop'], ok: 0 },
+      { q: '3 big teddies or 5 small buttons: which is more?', opts: ['the teddies', 'the buttons', 'the same'], ok: 1 } ],
+    st: {
+      sort: [['⭕', 'Two rules', 'Red hoop: red things. Blue hoop: things with wheels.', ''], ['⭕', 'The middle is for both', 'Fits one rule: its hoop. Fits both: the middle. Fits neither: outside.', '']],
+      count: [['🔢', 'More or bigger?', 'Count, don’t just look.', ''], ['🔢', 'Count, don’t measure', 'Big things can still be fewer. Line them up to compare.', '']],
+      rule: [['🕵️', 'Secret rule', 'What do all the things in the hoop share?', ''], ['🕵️', 'Test your rule', 'A good rule tells you where any new thing goes.', '']] },
+    fine: 'Venn diagrams are named after John Venn (1880); Carroll diagrams after Lewis Carroll, the author of “Alice in Wonderland”.',
+  },
+  ru: {
+    name: 'Два обруча', title: 'В каждом обруче — своё правило',
+    lines: [['Красный обруч', 'и обруч с колёсами.'], ['Куда положить', 'каждую игрушку?'], ['А если', 'подходит к обоим?']],
+    views: { sort: '⭕ Сортировка', count: '🔢 Счёт', rule: '🕵️ Угадай правило' },
+    next: 'Дальше ▶', again: '↻ Ещё раз', right: 'Верно!', wrong: 'Не совсем. Смотри!',
+    rules: { red: 'красное', wheels: 'с колёсами' },
+    s: { q1: 'Пожарная машина красная И с колёсами. Куда её положить?', o1: ['в красный обруч', 'в обруч с колёсами', 'в оба обруча сразу'],
+         r1: 'Сдвинь обручи: середина принадлежит обоим. Туда попадает то, что подходит под оба правила.',
+         check: 'Проверить', done: 'Всё разложено! В каждом месте по два.',
+         hint: { red: 'Оно красное? У него есть колёса?', both: 'В середину попадает только то, что подходит под оба правила.', wheels: 'У него есть колёса? Оно красное?', out: 'То, что не подходит ни под одно правило, остаётся снаружи.' },
+         tap: 'Нажми на игрушку, потом на место.' },
+    c: { q1: 'В какой группе больше?', o1: ['медвежата', 'пуговицы', 'поровну'],
+         r1: 'Медвежата занимают больше места, но их всего 3. Разложи по одному в клеточку: пуговиц 5 — больше.',
+         q2: 'Сколько всего предметов с колёсами?', o2: ['2', '4', '6'], r2: 'Только с колёсами (2) и в середине (2): 4 предмета с колёсами.',
+         heads: ['только красное', 'оба', 'только колёса', 'ни то ни другое'] },
+    r: { q: 'Какое тайное правило?', opts: [['живёт в воде', 'синее', 'есть ноги'], ['жёлтое', 'еда', 'маленькое'], ['круглое', 'игрушка', 'оранжевое']],
+         why: ['Все они живут в воде. Кошка и птица — нет, а кит — да.', 'Все они жёлтые. Лимон тоже подходит, красное яблоко — нет.', 'Все они круглые. Книга не круглая, поэтому остаётся снаружи.'] },
+    secrets: { carroll: ['Таблица Кэрролла', 'Та же сортировка — таблицей.'], three: ['Три обруча', 'Красное, круглое и маленькое.'] },
+    sec: { carrollText: 'Таблица Кэрролла показывает ту же сортировку в четырёх клетках: красное или нет, с колёсами или нет.', drop: 'Бросить следующий',
+           threeText: 'С тремя обручами в самую середину попадает то, что подходит под все три правила, — например, маленькое красное яблоко.', notRed: 'не красное', noWheels: 'без колёс', round: 'круглое', small: 'маленькое' },
+    quiz: [
+      { q: 'Красная машинка подходит и к красному обручу, и к обручу с колёсами. Куда её?', opts: ['в красный обруч', 'в середину, где обручи пересекаются', 'наружу'], ok: 1 },
+      { q: 'Банан не красный и без колёс. Куда его?', opts: ['наружу, мимо обоих обручей', 'в середину', 'в красный обруч'], ok: 0 },
+      { q: '3 больших медвежонка или 5 маленьких пуговиц: чего больше?', opts: ['медвежат', 'пуговиц', 'поровну'], ok: 1 } ],
+    st: {
+      sort: [['⭕', 'Два правила', 'Красный обруч — красное. Синий — то, что с колёсами.', ''], ['⭕', 'Середина — для обоих', 'Подходит под одно правило — в его обруч. Под оба — в середину. Ни под одно — наружу.', '']],
+      count: [['🔢', 'Больше или крупнее?', 'Считай, а не только смотри.', ''], ['🔢', 'Считай, а не меряй', 'Больших предметов может быть меньше. Выстрой в ряд и сравни.', '']],
+      rule: [['🕵️', 'Тайное правило', 'Что общего у всего, что в обруче?', ''], ['🕵️', 'Проверь правило', 'Хорошее правило говорит, куда положить любую новую вещь.', '']] },
+    fine: 'Диаграммы Венна названы в честь Джона Венна (1880), таблицы Кэрролла — в честь Льюиса Кэрролла, автора «Алисы в Стране чудес».',
+  },
+  hu: {
+    name: 'Két karika', title: 'Minden karikának egy szabálya van',
+    lines: [['Egy piros karika', 'és egy kerekes karika.'], ['Hová kerül', 'az egyes játék?'], ['És ha', 'mindkettőbe illik?']],
+    views: { sort: '⭕ Válogatás', count: '🔢 Számolás', rule: '🕵️ Találd ki a szabályt' },
+    next: 'Tovább ▶', again: '↻ Újra', right: 'Eltaláltad!', wrong: 'Nem egészen. Figyeld!',
+    rules: { red: 'piros', wheels: 'van kereke' },
+    s: { q1: 'A tűzoltóautó piros ÉS van kereke. Hová kerüljön?', o1: ['a piros karikába', 'a kerekes karikába', 'egyszerre mindkettőbe'],
+         r1: 'Told össze a karikákat: a közepük mindkettőhöz tartozik. Ide kerül, ami mindkét szabálynak megfelel.',
+         check: 'Ellenőrzés', done: 'Minden a helyén! Mindenhol kettő.',
+         hint: { red: 'Piros? Van kereke?', both: 'Középre csak az kerül, ami mindkét szabálynak megfelel.', wheels: 'Van kereke? Piros?', out: 'Ami egyik szabálynak sem felel meg, kint marad.' },
+         tap: 'Koppints egy játékra, aztán egy helyre.' },
+    c: { q1: 'Melyik csoportban van több?', o1: ['a macikéban', 'a gombokéban', 'egyformán'],
+         r1: 'A macik több helyet foglalnak, de csak 3 van belőlük. Tedd őket egyesével egy-egy dobozba: 5 gomb a több.',
+         q2: 'Összesen hány dolognak van kereke?', o2: ['2', '4', '6'], r2: 'Csak kerekes (2) és középen (2): 4 kerekes dolog.',
+         heads: ['csak piros', 'mindkettő', 'csak kerekes', 'egyik sem'] },
+    r: { q: 'Mi a titkos szabály?', opts: [['vízben él', 'kék', 'van lába'], ['sárga', 'étel', 'kicsi'], ['kerek', 'játék', 'narancssárga']],
+         why: ['Mind vízben él. A macska és a madár nem, a bálna igen.', 'Mind sárga. A citrom is ide illik, a piros alma nem.', 'Mind kerek. A könyv nem kerek, ezért kint marad.'] },
+    secrets: { carroll: ['Carroll-táblázat', 'Ugyanaz a válogatás, táblázatban.'], three: ['Három karika', 'Piros, kerek és kicsi.'] },
+    sec: { carrollText: 'A Carroll-táblázat négy rekeszben mutatja ugyanazt: piros vagy nem, van kereke vagy nincs.', drop: 'Jöhet a következő',
+           threeText: 'Három karikánál a legközepére az kerül, ami mindhárom szabálynak megfelel — például egy kis piros alma.', notRed: 'nem piros', noWheels: 'nincs kereke', round: 'kerek', small: 'kicsi' },
+    quiz: [
+      { q: 'A piros kisautó a piros és a kerekes karikába is illik. Hová kerül?', opts: ['a piros karikába', 'középre, ahol a karikák fedik egymást', 'kívülre'], ok: 1 },
+      { q: 'A banán nem piros, és nincs kereke. Hová kerül?', opts: ['mindkét karikán kívül', 'középre', 'a piros karikába'], ok: 0 },
+      { q: '3 nagy maci vagy 5 kis gomb: melyik a több?', opts: ['a macik', 'a gombok', 'egyformán'], ok: 1 } ],
+    st: {
+      sort: [['⭕', 'Két szabály', 'Piros karika: piros dolgok. Kék karika: aminek van kereke.', ''], ['⭕', 'A közép mindkettőé', 'Egy szabály: a saját karikája. Mindkettő: középre. Egyik sem: kívülre.', '']],
+      count: [['🔢', 'Több vagy nagyobb?', 'Számolj, ne csak nézd.', ''], ['🔢', 'Számolj, ne mérj', 'A nagy dolgokból is lehet kevesebb. Állítsd sorba, és hasonlítsd össze.', '']],
+      rule: [['🕵️', 'Titkos szabály', 'Mi a közös mindenben, ami a karikában van?', ''], ['🕵️', 'Próbáld ki a szabályt', 'Egy jó szabály megmondja, hová kerül bármilyen új dolog.', '']] },
+    fine: 'A Venn-diagram John Vennről (1880), a Carroll-diagram Lewis Carrollról, az „Alice Csodaországban” szerzőjéről kapta a nevét.',
+  },
+};
+const TOPICS = [
+  { id: 'mt_xppl18avyY', en: 'Sorting into categories', ru: 'Сортировка по категориям', hu: 'Szétválogatás kategóriákba' },
+  { id: 'mt_ylXdiVRAYv', en: 'Sorting Data into Categories', ru: 'Сортировка данных по категориям', hu: 'Adatok szétválogatása kategóriákba' },
+];
+
+// --- data ----------------------------------------------------------------------------------------------------
+// mask bits for two hoops: 1 = red, 2 = wheels. Zones: red only, both, wheels only, outside.
+const ITEMS = [
+  { id: 'fire', e: '🚒', red: 1, wh: 1 }, { id: 'car', e: '🚗', red: 1, wh: 1 }, { id: 'straw', e: '🍓', red: 1, wh: 0 }, { id: 'balloon', e: '🎈', red: 1, wh: 0 },
+  { id: 'bus', e: '🚌', red: 0, wh: 1 }, { id: 'scooter', e: '🛴', red: 0, wh: 1 }, { id: 'banana', e: '🍌', red: 0, wh: 0 }, { id: 'teddy', e: '🧸', red: 0, wh: 0 },
+];
+const maskOf = (it) => (it.red ? 1 : 0) | (it.wh ? 2 : 0);
+const ZONE_OF = ['out', 'red', 'blue', 'both'];
+const MASK_OF = { out: 0, red: 1, blue: 2, both: 3 };
+// three hoops: bits 1 = red, 2 = round, 4 = small
+const THREE = [{ e: '🔴', m: 7 }, { e: '🍎', m: 7 }, { e: '🏀', m: 2 }, { e: '🟥', m: 5 }, { e: '🧱', m: 1 }, { e: '🍒', m: 5 }, { e: '🔵', m: 6 }];
+const ROUNDS = [
+  { inn: ['🐟', '🐬', '🐙', '🦀'], out: ['🐈', '🐦'], test: '🐳', testIn: true, icon: '💧' },
+  { inn: ['🍌', '🌽', '🧀', '🐤'], out: ['🍎', '🥦'], test: '🍋', testIn: true, icon: '🟡' },
+  { inn: ['⚽', '🍊', '🌍', '🎾'], out: ['📦', '🎲'], test: '📘', testIn: false, icon: '⚪' },
+];
+const COL = { rug: '#E9C99A', red: '#E04848', blue: '#4C7FE0', purple: '#A06EE6', token: '#FFF6E6', good: '#5BD38A', bad: '#FF6B6B', d1: '#D4A86E', d2: '#C08B52', ink: '#5A3A1A' };
+const HOOP = { red: ['#FF8A8A', '#E04848'], blue: ['#8FB8FF', '#4C7FE0'], yellow: ['#FFE08A', '#E7A92A'] };
+const BTN_COLS = [COL.red, COL.blue, COL.purple, COL.good, COL.token];
+const EMOJI = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+const TAU = Math.PI * 2;
+
+// --- small helpers ---------------------------------------------------------------------------------------------
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const R0 = (r) => Math.max(0, r); // arc() throws on a negative radius
+const eio = (t) => { t = clamp01(t); return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; };
+const eoBack = (t) => { t = clamp01(t); const c1 = 1.70158, c3 = c1 + 1; return Math.max(0, 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2)); };
+const clock = () => performance.now() / 1000;
+const hexRGB = (h) => { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+const hexA = (h, a) => { const [r, g, b] = hexRGB(h); return `rgba(${r},${g},${b},${a})`; };
+const mix = (h, k) => { const [r, g, b] = hexRGB(h); return `rgb(${Math.round(lerp(r, 255, k))},${Math.round(lerp(g, 255, k))},${Math.round(lerp(b, 255, k))})`; };
+const shuffle = (a) => { a = [...a]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+function wrapLines(c, text, maxW) {
+  const lines = []; let cur = '';
+  for (const wd of String(text).split(' ')) {
+    const tst = cur ? `${cur} ${wd}` : wd;
+    if (c.measureText(tst).width > maxW && cur) { lines.push(cur); cur = wd; } else cur = tst;
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+// --- drawing: rug, hoops, tags, tokens, buttons, pills ------------------------------------------------------------
+let rugKey = '', rugImg = null;
+function rug(c, w, h) {
+  const d = Math.min(window.devicePixelRatio || 1, 2), key = `${Math.round(w)}x${Math.round(h)}@${d}`;
+  if (key !== rugKey) {
+    rugKey = key; rugImg = document.createElement('canvas');
+    rugImg.width = Math.round(w * d); rugImg.height = Math.round(h * d);
+    const r = rugImg.getContext('2d'); r.scale(d, d);
+    const g = r.createRadialGradient(w / 2, h * 0.45, Math.min(w, h) * 0.1, w / 2, h / 2, Math.max(w, h) * 0.75);
+    g.addColorStop(0, '#EFD3A5'); g.addColorStop(0.55, COL.rug); g.addColorStop(1, '#DDB787');
+    r.fillStyle = g; r.beginPath(); r.roundRect(3, 3, w - 6, h - 6, 26); r.fill();
+    r.lineWidth = 2; r.strokeStyle = COL.d2; r.stroke();
+    r.lineWidth = 1.5; r.strokeStyle = hexA(COL.d2, 0.7); r.beginPath(); r.roundRect(11, 11, w - 22, h - 22, 18); r.stroke();
+    r.strokeStyle = hexA(COL.d1, 0.9); r.beginPath(); r.roundRect(27, 27, w - 54, h - 54, 8); r.stroke();
+    const dm = (x, y, s, col) => { r.fillStyle = col; r.beginPath(); r.moveTo(x, y - s); r.lineTo(x + s, y); r.lineTo(x, y + s); r.lineTo(x - s, y); r.closePath(); r.fill(); };
+    let k = 0;
+    for (let x = 30; x <= w - 30; x += 15, k++) { const col = k % 2 ? COL.d1 : COL.d2; dm(x, 19, 4.6, col); dm(x, h - 19, 4.6, col); }
+    k = 0;
+    for (let y = 30; y <= h - 30; y += 15, k++) { const col = k % 2 ? COL.d1 : COL.d2; dm(19, y, 4.6, col); dm(w - 19, y, 4.6, col); }
+    let seed = 11; // fabric noise from a seeded random
+    const rnd = () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    r.fillStyle = 'rgba(110,70,20,.06)';
+    for (let i = 0; i < 300; i++) { r.beginPath(); r.arc(8 + rnd() * (w - 16), 8 + rnd() * (h - 16), 0.6 + rnd() * 0.9, 0, TAU); r.fill(); }
+  }
+  c.drawImage(rugImg, 0, 0, w, h);
+}
+
+function hoop(c, x, y, R, [lo, hi], o = {}) {
+  const r = R * (1 + (o.wob || 0));
+  c.save(); c.lineCap = 'round';
+  if (!o.flat) { c.fillStyle = hexA(hi, 0.07); c.beginPath(); c.arc(x, y, R0(r), 0, TAU); c.fill(); }
+  const g = c.createLinearGradient(x - r, y - r, x + r, y + r); g.addColorStop(0, lo); g.addColorStop(1, hi);
+  if (!o.flat) { c.shadowColor = 'rgba(70,40,10,.38)'; c.shadowBlur = 10; c.shadowOffsetX = 4; c.shadowOffsetY = 7; }
+  c.strokeStyle = g; c.lineWidth = 10; c.beginPath(); c.arc(x, y, R0(r), 0, TAU); c.stroke();
+  c.shadowColor = 'transparent'; c.shadowBlur = 0; c.shadowOffsetX = 0; c.shadowOffsetY = 0;
+  c.setLineDash([7, 11]); c.strokeStyle = 'rgba(255,255,255,.22)'; c.stroke(); c.setLineDash([]); // tape stripes
+  c.lineWidth = 1; c.strokeStyle = 'rgba(60,20,10,.3)';
+  c.beginPath(); c.arc(x, y, R0(r + 5), 0, TAU); c.stroke();
+  c.beginPath(); c.arc(x, y, R0(r - 5), 0, TAU); c.stroke();
+  c.lineWidth = 2.5; c.strokeStyle = 'rgba(255,255,255,.8)';
+  c.beginPath(); c.arc(x, y, R0(r - 1), Math.PI * 1.05, Math.PI * 1.42); c.stroke();
+  c.strokeStyle = 'rgba(255,255,255,.55)';
+  c.beginPath(); c.arc(x, y, R0(r - 1), Math.PI * 1.47, Math.PI * 1.53); c.stroke();
+  c.lineWidth = 2; c.strokeStyle = 'rgba(40,10,0,.18)';
+  c.beginPath(); c.arc(x, y, R0(r + 1.5), Math.PI * 0.1, Math.PI * 0.5); c.stroke();
+  c.restore();
+}
+// let hoop A pass over hoop B at their upper crossing, so the two rings look linked
+function weave(c, A, B, colsA) {
+  const d = B.x - A.x;
+  if (d >= 2 * A.r - 4) return;
+  const iy = A.y - Math.sqrt(Math.max(0, A.r * A.r - d * d / 4)), ix = (A.x + B.x) / 2;
+  c.save(); c.beginPath(); c.arc(ix, iy, 17, 0, TAU); c.clip();
+  hoop(c, A.x, A.y, A.r, colsA, { flat: true }); c.restore();
+}
+
+// a little card tied to a hoop with a string; face: {icon, text}; flip squeezes it sideways
+function tag(c, W, face, tx, ty, hx, hy, R, o = {}) {
+  c.save(); c.font = '800 13px Nunito, sans-serif';
+  const iw = face.icon ? 24 : 0, tw = c.measureText(face.text).width, cw = iw + tw + 22, ch = 28;
+  tx = clamp(tx, 8 + cw / 2, W - 8 - cw / 2);
+  const dx = tx - hx, dy = ty - hy, len = Math.hypot(dx, dy) || 1, ax = hx + dx / len * R, ay = hy + dy / len * R;
+  c.globalAlpha = o.alpha ?? 1;
+  const rot = (o.rot ?? 0.04) + Math.sin(o.t * 1.3 + tx) * 0.012;
+  // string from the knot on the ring to the hole in the card
+  const hole = [tx - cw / 2 + 9, ty - ch / 2 + 7];
+  c.strokeStyle = '#8A5A2B'; c.lineWidth = 1.6; c.lineCap = 'round';
+  c.beginPath(); c.moveTo(ax, ay); c.quadraticCurveTo((ax + hole[0]) / 2 + 3, (ay + hole[1]) / 2 + 6, hole[0], hole[1]); c.stroke();
+  c.fillStyle = '#8A5A2B'; c.beginPath(); c.arc(ax, ay, 3, 0, TAU); c.fill();
+  c.translate(tx, ty); c.rotate(rot); c.scale(Math.max(0.02, o.sx ?? 1), 1);
+  c.shadowColor = 'rgba(60,35,10,.35)'; c.shadowBlur = 6; c.shadowOffsetY = 3;
+  c.fillStyle = COL.token; c.beginPath(); c.roundRect(-cw / 2, -ch / 2, cw, ch, 9); c.fill();
+  c.shadowColor = 'transparent'; c.shadowBlur = 0; c.shadowOffsetY = 0;
+  c.lineWidth = 1.5; c.strokeStyle = COL.d2; c.stroke();
+  c.fillStyle = COL.d2; c.beginPath(); c.arc(-cw / 2 + 9, -ch / 2 + 7, 2.2, 0, TAU); c.fill();
+  c.textBaseline = 'middle'; c.textAlign = 'left'; c.fillStyle = '#000';
+  if (face.icon) { c.font = `15px ${EMOJI}`; c.fillText(face.icon, -cw / 2 + 11, 2); }
+  c.font = '800 13px Nunito, sans-serif'; c.fillStyle = COL.ink; c.fillText(face.text, -cw / 2 + 11 + iw, 1.5);
+  c.restore();
+}
+
+function token(c, x, y, r, e, o = {}) {
+  const a = o.alpha ?? 1;
+  if (a <= 0.01 || r <= 0.5) return;
+  const lift = o.lift || 0, k = 1 + lift * 0.15;
+  c.save(); c.globalAlpha = a; c.translate(x, y); c.scale((o.sx || 1) * k, (o.sy || 1) * k);
+  c.shadowColor = 'rgba(60,35,10,.4)'; c.shadowBlur = 6 + lift * 12; c.shadowOffsetX = 1 + lift * 2; c.shadowOffsetY = 3 + lift * 9;
+  const g = c.createRadialGradient(-r * 0.35, -r * 0.4, r * 0.1, 0, 0, r * 1.05);
+  g.addColorStop(0, '#FFFCF4'); g.addColorStop(0.6, COL.token); g.addColorStop(1, '#EBD3A8');
+  c.fillStyle = g; c.beginPath(); c.arc(0, 0, R0(r), 0, TAU); c.fill();
+  c.shadowColor = 'transparent'; c.shadowBlur = 0; c.shadowOffsetX = 0; c.shadowOffsetY = 0;
+  c.lineWidth = 1.5; c.strokeStyle = 'rgba(150,100,45,.7)'; c.stroke();
+  c.lineWidth = 1; c.strokeStyle = 'rgba(255,255,255,.75)'; c.beginPath(); c.arc(0, 0, R0(r - 3.5), 0, TAU); c.stroke();
+  c.globalAlpha = a; c.fillStyle = '#000'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.font = `${Math.round(r * 1.5)}px ${EMOJI}`; c.fillText(e, 0, r * 0.06);
+  if (o.sel || o.glow) { // selected: a white ring; or a pulsing one to point at the toy
+    c.lineWidth = 2.5; c.strokeStyle = `rgba(255,255,255,${o.glow ? 0.45 + 0.4 * Math.sin(o.t * 5) : 0.95})`;
+    c.beginPath(); c.arc(0, 0, R0(r + 4.5), 0, TAU); c.stroke();
+  }
+  if (o.ring) {
+    const col = o.ring === 'good' ? COL.good : COL.bad;
+    c.lineWidth = 3.5; c.strokeStyle = col; c.beginPath(); c.arc(0, 0, R0(r + 3.5), 0, TAU); c.stroke();
+    if (o.ring === 'good') { // a small tick badge, so colour is not the only signal
+      const bx = r * 0.72, by = -r * 0.72, br = Math.max(6, r * 0.36);
+      c.fillStyle = col; c.beginPath(); c.arc(bx, by, br, 0, TAU); c.fill();
+      c.strokeStyle = '#fff'; c.lineWidth = 2; c.lineCap = 'round'; c.lineJoin = 'round';
+      c.beginPath(); c.moveTo(bx - br * 0.45, by + br * 0.02); c.lineTo(bx - br * 0.1, by + br * 0.38); c.lineTo(bx + br * 0.5, by - br * 0.32); c.stroke();
+    }
+  }
+  c.restore();
+}
+
+// a sewing button drawn from shapes: rim, dish, four holes and a cross of thread
+function button(c, x, y, r, col, o = {}) {
+  if (r <= 0.5) return;
+  c.save(); c.translate(x, y); c.scale(o.sx || 1, o.sy || 1);
+  const lift = o.lift || 0;
+  c.shadowColor = 'rgba(60,35,10,.4)'; c.shadowBlur = 4 + lift * 8; c.shadowOffsetY = 2 + lift * 6;
+  const g = c.createRadialGradient(-r * 0.4, -r * 0.45, r * 0.1, 0, 0, r * 1.1);
+  g.addColorStop(0, mix(col, 0.55)); g.addColorStop(0.5, col); g.addColorStop(1, hexA(col, 1));
+  c.fillStyle = g; c.beginPath(); c.arc(0, 0, R0(r), 0, TAU); c.fill();
+  c.shadowColor = 'transparent'; c.shadowBlur = 0; c.shadowOffsetY = 0;
+  c.lineWidth = Math.max(1, r * 0.08); c.strokeStyle = 'rgba(60,30,10,.55)'; c.stroke();
+  c.lineWidth = Math.max(1, r * 0.07); c.strokeStyle = 'rgba(255,255,255,.45)'; c.beginPath(); c.arc(0, 0, R0(r * 0.7), 0, TAU); c.stroke();
+  c.strokeStyle = 'rgba(60,30,10,.25)'; c.beginPath(); c.arc(0, 0, R0(r * 0.62), 0, TAU); c.stroke();
+  const hp = r * 0.24;
+  c.strokeStyle = COL.token; c.lineWidth = Math.max(1, r * 0.1); c.lineCap = 'round';
+  c.beginPath(); c.moveTo(-hp, -hp); c.lineTo(hp, hp); c.moveTo(hp, -hp); c.lineTo(-hp, hp); c.stroke();
+  c.fillStyle = 'rgba(40,20,5,.7)';
+  for (const [hx, hy] of [[-hp, -hp], [hp, -hp], [-hp, hp], [hp, hp]]) { c.beginPath(); c.arc(hx, hy, R0(r * 0.11), 0, TAU); c.fill(); }
+  c.restore();
+}
+
+function pill(c, W, text, x, y, o = {}) {
+  c.save(); const size = o.size || 13; c.font = `800 ${size}px Nunito, sans-serif`;
+  const tw = c.measureText(text).width + 20, th = size + 12;
+  const px = clamp(x - tw / 2, 6, Math.max(6, W - 6 - tw));
+  c.globalAlpha = o.alpha ?? 1; c.fillStyle = 'rgba(30,20,12,.8)'; c.beginPath(); c.roundRect(px, y - th / 2, tw, th, th / 2); c.fill();
+  c.fillStyle = o.color || COL.token; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(text, px + tw / 2, y + 1); c.restore();
+}
+
+const FX = [];
+function spawnConfetti(w, h) {
+  const cols = [COL.red, COL.blue, COL.purple, COL.good, COL.token, COL.bad];
+  for (let i = 0; i < 90; i++) FX.push({ x: w / 2 + (Math.random() - 0.5) * w * 0.3, y: h * 0.32, vx: (Math.random() - 0.5) * 420, vy: -Math.random() * 520 - 120,
+    rot: Math.random() * 6, vr: (Math.random() - 0.5) * 12, col: cols[i % cols.length], life: 2.4 + Math.random() * 0.8, sz: 5 + Math.random() * 5 });
+}
+function drawFX(c, dt) {
+  for (let i = FX.length - 1; i >= 0; i--) {
+    const p = FX[i]; p.life -= dt; if (p.life <= 0) { FX.splice(i, 1); continue; }
+    p.vy += 900 * dt; p.vx *= 0.992; p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt;
+    c.save(); c.globalAlpha = Math.min(1, p.life / 0.6); c.translate(p.x, p.y); c.rotate(p.rot); c.fillStyle = p.col;
+    c.fillRect(-p.sz / 2, -p.sz * 0.28, p.sz, p.sz * 0.56); c.restore();
+  }
+}
+
+// --- tokens that glide along curved paths and squash on landing ------------------------------------------------
+const mkTk = () => ({ x: 0, y: 0, s: 1, tx: 0, ty: 0, ts: 1, tw: null, landAt: -9, shakeAt: -9, key: undefined });
+const TK = {}; ITEMS.forEach((it) => { TK[it.id] = mkTk(); });
+const TK3 = THREE.map(mkTk);
+function tkState(tk, t) {
+  if (tk.tw) {
+    const w = tk.tw, u = clamp01((t - w.t0) / w.dur);
+    if (u >= 1) { tk.x = tk.tx; tk.y = tk.ty; tk.s = tk.ts; tk.tw = null; tk.landAt = t; }
+    else {
+      const e = eio(u), dx = tk.tx - w.fx, dy = tk.ty - w.fy, len = Math.hypot(dx, dy) || 1, bow = Math.sin(Math.PI * e) * Math.min(len * 0.2, 60) * w.side;
+      return { x: lerp(w.fx, tk.tx, e) - dy / len * bow, y: lerp(w.fy, tk.ty, e) + dx / len * bow, s: lerp(w.fs, tk.ts, e), lift: Math.sin(Math.PI * u), sx: 1, sy: 1 };
+    }
+  }
+  const k = t - tk.landAt, sq = k >= 0 && k < 0.45 ? 0.16 * Math.exp(-7 * k) * Math.cos(20 * k) : 0;
+  return { x: tk.x, y: tk.y, s: tk.s, lift: 0, sx: 1 + sq, sy: 1 - sq };
+}
+// the target changes with the layout every frame (settled tokens just follow); a new slot key starts a glide
+function setTarget(tk, x, y, sc, key, t, side = 1) {
+  tk.tx = x; tk.ty = y; tk.ts = sc;
+  if (tk.key === undefined) { tk.x = x; tk.y = y; tk.s = sc; tk.key = key; return; }
+  if (tk.key !== key) {
+    const cur = tkState(tk, t), dist = Math.hypot(x - cur.x, y - cur.y);
+    tk.x = cur.x; tk.y = cur.y; tk.s = cur.s;
+    tk.tw = { fx: cur.x, fy: cur.y, fs: cur.s, t0: t, dur: clamp(0.3 + dist / 900, 0.3, 0.85), side };
+    tk.key = key;
+  } else if (!tk.tw) { tk.x = x; tk.y = y; tk.s = sc; }
+}
+
+// --- state ---------------------------------------------------------------------------------------------------------
+const newSort = () => ({ ans: null, go: false, ov: 0, ovT: 0, pos: {}, seq: {}, seqN: 0, sel: null, ok: {}, bad: {}, hintZone: '', hov: null, mode: null, carT: 0, thrT: 0, three: { n: 0 } });
+const newCount = () => ({ step: 0, ans: [null, null], at: [0, 0], tb: 0 });
+const newRule = () => ({ round: 0, ans: null, at: 0, pop: clock(), order: [shuffle([0, 1, 2]), shuffle([0, 1, 2]), shuffle([0, 1, 2])] });
+const S = { s: newSort(), c: newCount(), r: newRule(), top: 160, g: null, dy: 0 };
+
+const lab = shell({ key: 'venn', T, topics: TOPICS, views: ['sort', 'count', 'rule'], onLang: render, onView: onView });
+const secret = secretLab('venn', () => ({
+  secrets: [{ emo: '📋', title: T[lang].secrets.carroll[0], desc: T[lang].secrets.carroll[1] }, { emo: '🔺', title: T[lang].secrets.three[0], desc: T[lang].secrets.three[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+const askEl = Object.assign(document.createElement('div'), { className: 'ask card' });
+$('overlay').append(askEl);
+
+// --- geometry: two hoops, tray, Carroll table, three hoops ----------------------------------------------------------
+// Everything in the hoop scene is computed for a frame that starts at y = 0; the question panel pushes the scene down by dy.
+function sortGeo(w, h) {
+  const tr = clamp(w / 17, 20, 27), cols = w >= 560 ? 8 : 4, rows = 8 / cols;
+  const trayH = rows * (2 * tr + 12) + 16, trayY = h - 10 - trayH;
+  const tagH = 58, outBand = 2 * tr + 22, areaH = trayY - 6, usable = areaH - 90; // 90 px kept free for the panel
+  const R = Math.max(40, Math.min((w - 72) / 4, (usable - tagH - outBand) / 2, 125));
+  const slack = Math.max(0, usable - tagH - 2 * R - outBand);
+  return { w, h, tr, cols, trayH, trayY, areaH, usable, R, cx: w / 2, cy: tagH + R + slack * 0.1,
+    dA: 2 * R + clamp(w - 72 - 4 * R, 16, 70), dO: R, key: `${Math.round(w)}x${Math.round(h)}` };
+}
+const hoopsAt = (g, ov) => { const d = lerp(g.dA, g.dO, ov); return [{ x: g.cx - d / 2, y: g.cy, r: g.R }, { x: g.cx + d / 2, y: g.cy, r: g.R }]; };
+function traySlot(g, i) {
+  const col = i % g.cols, row = Math.floor(i / g.cols), sx = Math.min((g.w - 40) / g.cols, 2 * g.tr + 22);
+  return { x: g.w / 2 + (col - (g.cols - 1) / 2) * sx, y: g.trayY + 8 + g.tr + 4 + row * (2 * g.tr + 12) };
+}
+function carGeo(g) {
+  const hw = clamp(g.w * 0.2, 64, 100), hh = 40, x0 = 14, cw = (g.w - 28 - hw) / 2;
+  const ch = Math.min(125, (g.usable - 12 - hh) / 2), th = hh + 2 * ch;
+  return { x0, y0: Math.max(6, (g.usable - th) / 2), hw, hh, cw, ch };
+}
+function threeGeo(g) {
+  const tr = clamp(g.w / 20, 16, 22), top = 50, s = 0.95;
+  const R = Math.max(40, Math.min((g.w - 56) / (2 + s), (g.usable - top - 8) / (1.866 * s + 2), 120)), d = R * s;
+  const y1 = top + R + Math.max(0, (g.usable - top - (2 + 0.866 * s) * R) / 4), cx = g.w / 2;
+  return { tr, R, area: { x0: 10, y0: 0, x1: g.w - 10, y1: g.usable },
+    hoops: [{ x: cx - d / 2, y: y1, r: R }, { x: cx + d / 2, y: y1, r: R }, { x: cx, y: y1 + 0.866 * d, r: R }] };
+}
+
+// token slots inside one region of the hoops: a greedy packing around the region's centre, shrinking the tokens if needed
+const slotMemo = new Map();
+function findSlots(hoops, mask, area, tr, n) {
+  const key = `${hoops.map((h) => `${h.x | 0},${h.y | 0},${h.r | 0}`).join(';')}|${mask}|${area.x0 | 0},${area.y0 | 0},${area.x1 | 0},${area.y1 | 0}|${tr | 0}|${n}`;
+  const hit = slotMemo.get(key); if (hit) return hit;
+  if (slotMemo.size > 600) slotMemo.clear();
+  let best = null;
+  for (const sc of [1, 0.82, 0.68, 0.56]) {
+    const r = tr * sc, m = r + 8;
+    const valid = (x, y) => hoops.every((h, i) => { const d = Math.hypot(x - h.x, y - h.y); return (mask >> i) & 1 ? d <= h.r - m : d >= h.r + m; });
+    const step = Math.max(4, r / 3.5), pts = [];
+    for (let y = area.y0 + r; y <= area.y1 - r; y += step) for (let x = area.x0 + r; x <= area.x1 - r; x += step) if (valid(x, y)) pts.push([x, y]);
+    if (!pts.length) continue;
+    const ax = pts.reduce((a, p) => a + p[0], 0) / pts.length, ay = pts.reduce((a, p) => a + p[1], 0) / pts.length;
+    pts.sort((p, q) => Math.hypot(p[0] - ax, p[1] - ay) - Math.hypot(q[0] - ax, q[1] - ay));
+    let out = []; const gap = 2 * r + 4;
+    for (const p of pts) { if (out.every((q) => Math.hypot(q[0] - p[0], q[1] - p[1]) >= gap)) { out.push(p); if (out.length >= n) break; } }
+    if (out.length > 1) { // centre the group on the region
+      const sx = ax - out.reduce((a, p) => a + p[0], 0) / out.length, sy = ay - out.reduce((a, p) => a + p[1], 0) / out.length;
+      const moved = out.map((p) => [p[0] + sx, p[1] + sy]);
+      if (moved.every((p) => valid(p[0], p[1]) && p[0] >= area.x0 + r && p[0] <= area.x1 - r && p[1] >= area.y0 + r && p[1] <= area.y1 - r)) out = moved;
+    }
+    if (!best || out.length > best.pts.length) best = { sc, pts: out, any: [ax, ay] };
+    if (out.length >= n) break;
+  }
+  if (!best) best = { sc: 0.56, pts: [], any: [(area.x0 + area.x1) / 2, (area.y0 + area.y1) / 2] };
+  while (best.pts.length < n) best.pts.push(best.pts.length ? best.pts[best.pts.length - 1] : best.any);
+  slotMemo.set(key, best);
+  return best;
+}
+function zoneSlots(g, zone, n) {
+  const area = zone === 'out' ? { x0: 22, y0: g.cy, x1: g.w - 22, y1: g.usable } : { x0: 18, y0: 0, x1: g.w - 18, y1: g.usable };
+  return findSlots(hoopsAt(g, 1), MASK_OF[zone], area, g.tr, n);
+}
+function zoneAt(g, x, y) {
+  if (y >= g.trayY - 4) return 'tray';
+  const hs = hoopsAt(g, 1), yy = y - S.dy, a = Math.hypot(x - hs[0].x, yy - hs[0].y) < g.R, b = Math.hypot(x - hs[1].x, yy - hs[1].y) < g.R;
+  return a && b ? 'both' : a ? 'red' : b ? 'blue' : 'out';
+}
+
+// where every sorting token wants to be this frame
+function assignSort(g, dy, t) {
+  const s = S.s, lists = { red: [], both: [], blue: [], out: [] }, tray = [];
+  ITEMS.forEach((it, i) => { const z = s.pos[it.id] || 'tray'; (z === 'tray' ? tray : lists[z]).push(i); });
+  if (s.mode === 'carroll') {
+    const cg = carGeo(g), cnt = [0, 0, 0, 0];
+    ITEMS.forEach((it) => {
+      const col = it.red ? 0 : 1, row = it.wh ? 0 : 1, ci = row * 2 + col, k = cnt[ci]++;
+      const cx = cg.x0 + cg.hw + col * cg.cw + cg.cw / 2, cy = cg.y0 + cg.hh + row * cg.ch + cg.ch / 2;
+      setTarget(TK[it.id], cx + (k ? 1 : -1) * (g.tr + 6), cy + dy + 6, 1, `car:${ci}:${k}`, t);
+    });
+    return;
+  }
+  tray.forEach((i) => { const p = traySlot(g, i); setTarget(TK[ITEMS[i].id], p.x, p.y, 1, `tray:${i}`, t, i % 2 ? 1 : -1); });
+  for (const z in lists) {
+    const arr = lists[z].sort((a, b) => (s.seq[ITEMS[a].id] || 0) - (s.seq[ITEMS[b].id] || 0));
+    if (!arr.length) continue;
+    const sl = zoneSlots(g, z, arr.length);
+    arr.forEach((i, k) => setTarget(TK[ITEMS[i].id], sl.pts[k][0], sl.pts[k][1] + dy, sl.sc, `${z}:${k}:${arr.length}`, t, k % 2 ? 1 : -1));
+  }
+}
+function assignThree(g, dy, t) {
+  const th = threeGeo(g), n = S.s.three.n, groups = {};
+  THREE.forEach((it, i) => {
+    if (i < n) (groups[it.m] ??= []).push(i);
+    else { const p = traySlot(g, i); setTarget(TK3[i], p.x, p.y, g.tr / th.tr, `tray:${i}`, t, i % 2 ? 1 : -1); }
+  });
+  for (const m in groups) {
+    const arr = groups[m], sl = findSlots(th.hoops, +m, th.area, th.tr, arr.length);
+    arr.forEach((i, k) => setTarget(TK3[i], sl.pts[k][0], sl.pts[k][1] + dy, sl.sc, `m${m}:${k}:${arr.length}`, t, k % 2 ? 1 : -1));
+  }
+}
+
+// --- scene: two hoops (also used small in the count view) ------------------------------------------------------------
+function drawTwo(c, W, hs, ov, alpha, t) {
+  const [A, B] = hs, T_ = T[lang];
+  c.save(); c.globalAlpha = alpha;
+  if (ov > 0.01) { // the overlap tints purple
+    c.save(); c.beginPath(); c.arc(A.x, A.y, R0(A.r), 0, TAU); c.clip();
+    c.fillStyle = `rgba(160,110,230,${0.18 * clamp01(ov * 1.5)})`; c.beginPath(); c.arc(B.x, B.y, R0(B.r), 0, TAU); c.fill(); c.restore();
+  }
+  hoop(c, A.x, A.y, A.r, HOOP.red); hoop(c, B.x, B.y, B.r, HOOP.blue);
+  weave(c, A, B, HOOP.red);
+  tag(c, W, { icon: '🔴', text: T_.rules.red }, A.x - A.r * 0.25, A.y - A.r - 22, A.x, A.y, A.r, { rot: -0.05, t });
+  tag(c, W, { icon: '🛞', text: T_.rules.wheels }, B.x + B.r * 0.25, B.y - B.r - 22, B.x, B.y, B.r, { rot: 0.05, t });
+  c.restore();
+}
+function zoneGlow(c, hs, zone, g, t) {
+  const [A, B] = hs, a = 0.16 + 0.06 * Math.sin(t * 6);
+  c.save();
+  const disc = (h) => { c.beginPath(); c.arc(h.x, h.y, R0(h.r), 0, TAU); };
+  const hole = (h) => { c.moveTo(h.x + h.r, h.y); c.arc(h.x, h.y, R0(h.r), 0, TAU); };
+  if (zone === 'red') { disc(A); c.clip(); c.beginPath(); c.rect(0, 0, g.w, g.h); hole(B); c.fillStyle = hexA(COL.red, a + 0.08); c.fill('evenodd'); }
+  else if (zone === 'blue') { disc(B); c.clip(); c.beginPath(); c.rect(0, 0, g.w, g.h); hole(A); c.fillStyle = hexA(COL.blue, a + 0.08); c.fill('evenodd'); }
+  else if (zone === 'both') { disc(A); c.clip(); disc(B); c.fillStyle = hexA(COL.purple, a + 0.14); c.fill(); }
+  else if (zone === 'out') {
+    for (const h of hs) { c.beginPath(); c.rect(0, 0, g.w, g.h); hole(h); c.clip('evenodd'); }
+    c.fillStyle = `rgba(255,255,255,${a})`; c.fillRect(14, g.cy - 2, g.w - 28, g.usable - g.cy + 8);
+  }
+  c.restore();
+}
+function drawTray(c, g, alpha) {
+  c.save(); c.globalAlpha = alpha;
+  c.fillStyle = 'rgba(150,100,50,.2)'; c.beginPath(); c.roundRect(10, g.trayY, g.w - 20, g.trayH, 18); c.fill();
+  c.lineWidth = 2; c.strokeStyle = hexA(COL.d2, 0.9); c.stroke();
+  c.lineWidth = 1; c.strokeStyle = 'rgba(255,246,230,.45)'; c.beginPath(); c.roundRect(13, g.trayY + 3, g.w - 26, g.trayH - 6, 15); c.stroke();
+  c.restore();
+}
+function drawCarroll(c, g, alpha) {
+  if (alpha <= 0.01) return;
+  const cg = carGeo(g), t_ = T[lang], tx = cg.x0 + cg.hw;
+  c.save(); c.globalAlpha = alpha; c.font = '800 13px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  const head = (x, y, w, h, [lo, hi], text, rad) => {
+    const gr = c.createLinearGradient(x, y, x, y + h); gr.addColorStop(0, lo); gr.addColorStop(1, hi);
+    c.fillStyle = gr; c.beginPath(); c.roundRect(x + 2, y + 2, w - 4, h - 4, rad); c.fill();
+    c.lineWidth = 1.5; c.strokeStyle = 'rgba(60,30,10,.35)'; c.stroke();
+    c.fillStyle = '#fff'; const ls = wrapLines(c, text, w - 14);
+    ls.forEach((l, i) => c.fillText(l, x + w / 2, y + h / 2 + (i - (ls.length - 1) / 2) * 15));
+  };
+  const tan = ['#D9B27E', '#B98547'];
+  head(tx, cg.y0, cg.cw, cg.hh, HOOP.red, t_.rules.red, 12); head(tx + cg.cw, cg.y0, cg.cw, cg.hh, tan, t_.sec.notRed, 12);
+  head(cg.x0, cg.y0 + cg.hh, cg.hw, cg.ch, HOOP.blue, t_.rules.wheels, 12); head(cg.x0, cg.y0 + cg.hh + cg.ch, cg.hw, cg.ch, tan, t_.sec.noWheels, 12);
+  const tints = [[COL.purple, 0.3], [COL.blue, 0.24], [COL.red, 0.24], [COL.token, 0.4]]; // both, wheels only, red only, neither
+  for (let row = 0; row < 2; row++) for (let col = 0; col < 2; col++) {
+    const [tc, ta] = tints[row * 2 + col], x = tx + col * cg.cw, y = cg.y0 + cg.hh + row * cg.ch;
+    c.fillStyle = 'rgba(255,246,230,.55)'; c.beginPath(); c.roundRect(x + 2, y + 2, cg.cw - 4, cg.ch - 4, 12); c.fill();
+    c.fillStyle = hexA(tc, ta); c.fill(); c.lineWidth = 1.5; c.strokeStyle = hexA(COL.d2, 0.9); c.stroke();
+  }
+  c.restore();
+}
+function drawThreeScene(c, g, alpha, t) {
+  if (alpha <= 0.01) return;
+  const th = threeGeo(g), [A, B, Y] = th.hoops, t_ = T[lang];
+  c.save(); c.globalAlpha = alpha;
+  const lens = (p, q, col, a) => { c.save(); c.beginPath(); c.arc(p.x, p.y, R0(p.r), 0, TAU); c.clip(); c.fillStyle = hexA(col, a); c.beginPath(); c.arc(q.x, q.y, R0(q.r), 0, TAU); c.fill(); c.restore(); };
+  lens(A, B, COL.purple, 0.12); lens(A, Y, '#E7A92A', 0.12); lens(B, Y, '#E7A92A', 0.12);
+  c.save(); c.beginPath(); c.arc(A.x, A.y, R0(A.r), 0, TAU); c.clip(); c.beginPath(); c.arc(B.x, B.y, R0(B.r), 0, TAU); c.clip();
+  c.fillStyle = hexA(COL.purple, 0.16); c.beginPath(); c.arc(Y.x, Y.y, R0(Y.r), 0, TAU); c.fill(); c.restore();
+  hoop(c, A.x, A.y, A.r, HOOP.red); hoop(c, B.x, B.y, B.r, HOOP.blue); hoop(c, Y.x, Y.y, Y.r, HOOP.yellow);
+  weave(c, A, B, HOOP.red); weave(c, B, Y, HOOP.blue);
+  tag(c, g.w, { icon: '🔴', text: t_.rules.red }, A.x - A.r * 0.45, A.y - A.r - 22, A.x, A.y, A.r, { rot: -0.05, t });
+  tag(c, g.w, { icon: '⚪', text: t_.sec.round }, B.x + B.r * 0.45, B.y - B.r - 22, B.x, B.y, B.r, { rot: 0.05, t });
+  tag(c, g.w, { icon: '🐜', text: t_.sec.small }, 70, Y.y + Y.r * 0.8, Y.x, Y.y, Y.r, { rot: -0.04, t });
+  c.restore();
+}
+
+// --- draw: view 1 ---------------------------------------------------------------------------------------------------------
+function drawSort(c, w, h, dt, t) {
+  const s = S.s, g = sortGeo(w, h); S.g = g;
+  s.ov += clamp(s.ovT - s.ov, -dt / 1.15, dt / 1.15);
+  s.carT += clamp((s.mode === 'carroll' ? 1 : 0) - s.carT, -dt / 0.5, dt / 0.5);
+  s.thrT += clamp((s.mode === 'three' ? 1 : 0) - s.thrT, -dt / 0.5, dt / 0.5);
+  const dy = Math.max(0, Math.min(S.top, g.trayY - 10 - (g.cy + g.R))); S.dy = dy;
+  assignSort(g, dy, t);
+  if (s.mode === 'three' || s.thrT > 0.01) assignThree(g, dy, t);
+  const ov = eio(s.ov), hs = hoopsAt(g, ov), ha = (1 - s.carT) * (1 - s.thrT);
+  drawTray(c, g, 1);
+  c.save(); c.translate(0, dy);
+  if (ha > 0.01 && s.sel && s.hov && s.hov !== 'tray' && s.ov >= 0.99) { c.globalAlpha = ha; zoneGlow(c, hs, s.hov, g, t); }
+  drawTwo(c, w, hs, ov, ha, t);
+  drawCarroll(c, g, s.carT);
+  drawThreeScene(c, g, s.thrT, t);
+  c.restore();
+  // tokens
+  const order = ITEMS.map((it) => it.id).sort((a, b) => (s.sel === a) - (s.sel === b) || (TK[a].tw ? 1 : 0) - (TK[b].tw ? 1 : 0));
+  for (const id of order) {
+    const it = ITEMS.find((q) => q.id === id), tk = TK[id], st = tkState(tk, t), sel = s.sel === id;
+    let y = st.y, lift = st.lift;
+    if (sel) { lift = 1; y -= 3 + Math.sin(t * 5) * 2; }
+    const ks = t - tk.shakeAt, shake = ks >= 0 && ks < 0.5 ? Math.sin(ks * 55) * 7 * (1 - ks / 0.5) : 0;
+    const ring = s.mode === 'carroll' || s.mode === 'zones' ? null : s.bad[id] ? 'bad' : s.ok[id] ? 'good' : null;
+    token(c, st.x + shake, y, g.tr * st.s, it.e, { lift, sx: st.sx, sy: st.sy, alpha: 1 - s.thrT, ring, sel, glow: s.ans === null && id === 'fire', t });
+  }
+  if (s.thrT > 0.01) {
+    const th = threeGeo(g);
+    THREE.forEach((it, i) => { const st = tkState(TK3[i], t); token(c, st.x, st.y, th.tr * st.s, it.e, { lift: st.lift, sx: st.sx, sy: st.sy, alpha: s.thrT }); });
+  }
+}
+
+// --- draw: view 2 (count) ---------------------------------------------------------------------------------------------------------
+function countGeo(w, h, top) {
+  const y0 = top + 4, rh = Math.max(220, h - y0 - 10);
+  const rA = Math.min(40, w * 0.105), rb = 15, bs = Math.min((w - 60) / 5, 62), gap = 5;
+  const aY = y0 + rh * 0.24, bY = y0 + rh * 0.7, x0 = (w - (5 * bs + 4 * gap)) / 2, rowA = y0 + rh * 0.18, rowB = rowA + bs + 40;
+  const A = [[0.2, -6], [0.5, 8], [0.8, -4]].map(([fx, jy]) => [w * fx, aY + jy]);
+  const B = [[-34, -10], [0, -18], [34, -8], [-17, 20], [17, 20]].map(([dx, dy]) => [w / 2 + dx, bY + dy]);
+  return { y0, rh, rA, rb, bs, gap, aY, bY, A, B, boxA: (i) => [x0 + i * (bs + gap) + bs / 2, rowA + bs / 2], boxB: (i) => [x0 + i * (bs + gap) + bs / 2, rowB + bs / 2], x0, rowA, rowB };
+}
+function drawCountQ1(c, w, h, dt, t) {
+  const G = countGeo(w, h, S.top), rev = S.c.ans[0] !== null, k = rev ? t - S.c.at[0] : -1;
+  const matA = rev ? 1 - clamp01((k - 0.15) / 0.5) : 1;
+  c.save(); c.globalAlpha = matA;
+  c.fillStyle = 'rgba(255,246,230,.2)'; c.strokeStyle = 'rgba(255,246,230,.55)'; c.lineWidth = 2; c.setLineDash([8, 7]);
+  c.beginPath(); c.roundRect(w * 0.05, G.aY - G.rA - 20, w * 0.9, 2 * G.rA + 40, 26); c.fill(); c.stroke();
+  c.beginPath(); c.roundRect(w / 2 - 74, G.bY - 52, 148, 106, 22); c.fill(); c.stroke();
+  c.restore();
+  if (rev) { // two rows of equal boxes, one toy in each
+    const ba = clamp01(k / 0.5);
+    c.save(); c.globalAlpha = ba;
+    const row = (n, f) => { for (let i = 0; i < n; i++) { const [bx, by] = f(i); c.fillStyle = 'rgba(255,246,230,.7)'; c.beginPath(); c.roundRect(bx - G.bs / 2, by - G.bs / 2, G.bs, G.bs, 10); c.fill(); c.lineWidth = 1.5; c.strokeStyle = hexA(COL.d2, 0.9); c.stroke(); } };
+    row(3, G.boxA); row(5, G.boxB); c.restore();
+  }
+  const fly = (i, from, to, i0) => {
+    const u = rev ? clamp01((k - 0.35 - i * 0.16) / 0.75) : 0, e = eio(u);
+    const dx = to[0] - from[0], dy = to[1] - from[1], len = Math.hypot(dx, dy) || 1, bow = Math.sin(Math.PI * e) * Math.min(len * 0.18, 50) * (i % 2 ? 1 : -1);
+    const kk = rev ? k - (0.35 + i * 0.16 + 0.75) : -1, sq = kk >= 0 && kk < 0.45 ? 0.16 * Math.exp(-7 * kk) * Math.cos(20 * kk) : 0;
+    return { x: lerp(from[0], to[0], e) - dy / len * bow, y: lerp(from[1], to[1], e) + dx / len * bow, e, u, sq, kk, lift: Math.sin(Math.PI * u) * 0.7, i0 };
+  };
+  const nums = [];
+  G.A.forEach((p, i) => { const f = fly(i, p, G.boxA(i)); token(c, f.x, f.y, lerp(G.rA, G.bs * 0.42, f.e), '🧸', { lift: f.lift, sx: 1 + f.sq, sy: 1 - f.sq }); nums.push([f, G.boxA(i), i]); });
+  G.B.forEach((p, i) => { const f = fly(i, p, G.boxB(i)); button(c, f.x, f.y, lerp(G.rb, G.bs * 0.34, f.e), BTN_COLS[i], { lift: f.lift, sx: 1 + f.sq, sy: 1 - f.sq }); nums.push([f, G.boxB(i), i]); });
+  c.save(); c.textAlign = 'left'; c.textBaseline = 'top'; c.font = '900 12px Nunito, sans-serif';
+  for (const [f, [bx, by], i] of nums) if (f.kk > 0) { c.globalAlpha = clamp01(f.kk * 6); c.fillStyle = '#8A5A2B'; c.fillText(String(i + 1), bx - G.bs / 2 + 5, by - G.bs / 2 + 3); }
+  c.restore();
+  const done = rev ? k - (0.35 + 4 * 0.16 + 0.75) : -1;
+  if (done > 0.2) { // two boxes more
+    const a = clamp01((done - 0.2) * 3), [x3, y3] = G.boxB(3), [x4] = G.boxB(4);
+    c.save(); c.globalAlpha = a; c.strokeStyle = COL.good; c.lineWidth = 3; c.setLineDash([7, 5]);
+    c.beginPath(); c.roundRect(x3 - G.bs / 2 - 3, y3 - G.bs / 2 - 3, x4 - x3 + G.bs + 6, G.bs + 6, 12); c.stroke(); c.restore();
+    pill(c, w, '+2', (x3 + x4) / 2, y3 + G.bs / 2 + 22, { alpha: a, color: '#8AF0B4', size: 14 });
+  }
+}
+function miniGeo(w, y0, y1) {
+  const tr = 16, tagH = 42, outBand = 2 * tr + 14;
+  const R = Math.max(36, Math.min((w - 72) / 3.2, (y1 - y0 - tagH - outBand) / 2, 110)), cy = y0 + tagH + R;
+  return { tr, R, cy, hs: [{ x: w / 2 - R / 2, y: cy, r: R }, { x: w / 2 + R / 2, y: cy, r: R }], y0, y1 };
+}
+function drawTable(c, w, y0, t) {
+  const x0 = 12, cw = (w - 24) / 4, hh = 50, bh = 80, heads = T[lang].c.heads, k = t - S.c.tb;
+  const cols = [HOOP.red, ['#C9A4F5', COL.purple], HOOP.blue, ['#D9B27E', '#B98547']], zs = [1, 3, 2, 0]; // red only, both, wheels only, neither
+  const mem = zs.map((m) => ITEMS.filter((it) => maskOf(it) === m).map((it) => it.e));
+  c.font = '800 12px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  for (let i = 0; i < 4; i++) {
+    const u = (k - i * 0.3) / 0.5, a = clamp01(u * 2);
+    if (a <= 0) continue;
+    const mx = x0 + i * cw + cw / 2, my = y0 + (hh + bh) / 2, sc = Math.max(0.01, eoBack(u));
+    c.save(); c.globalAlpha = a; c.translate(mx, my); c.scale(sc, sc); c.translate(-mx, -my);
+    const x = x0 + i * cw + 1.5, W = cw - 3, gr = c.createLinearGradient(0, y0, 0, y0 + hh); gr.addColorStop(0, cols[i][0]); gr.addColorStop(1, cols[i][1]);
+    c.fillStyle = gr; c.beginPath(); c.roundRect(x, y0, W, hh, [12, 12, 0, 0]); c.fill();
+    c.fillStyle = 'rgba(255,246,230,.82)'; c.beginPath(); c.roundRect(x, y0 + hh, W, bh, [0, 0, 12, 12]); c.fill();
+    c.lineWidth = 1.5; c.strokeStyle = hexA(COL.d2, 0.9); c.beginPath(); c.roundRect(x, y0, W, hh + bh, 12); c.stroke();
+    c.fillStyle = '#fff'; c.font = '800 12px Nunito, sans-serif';
+    const ls = wrapLines(c, heads[i], W - 8); ls.forEach((l, j) => c.fillText(l, mx, y0 + hh / 2 + (j - (ls.length - 1) / 2) * 14));
+    const tr = Math.min(16, cw * 0.19);
+    mem[i].forEach((e, j) => token(c, mx + (j ? 1 : -1) * (tr + 3), y0 + hh + 25, tr, e, { alpha: a }));
+    const n = Math.round(2 * clamp01((k - i * 0.3 - 0.35) / 0.5));
+    c.fillStyle = COL.ink; c.font = '900 22px Nunito, sans-serif'; c.fillText(String(n), mx, y0 + hh + bh - 17);
+    c.restore();
+  }
+  return y0 + hh + bh;
+}
+function drawCountQ2(c, w, h, dt, t) {
+  const rev = S.c.ans[1] !== null, k = rev ? t - S.c.at[1] : -1;
+  const y0 = S.top + 6, hh = 130, tbl = drawTable(c, w, y0, t);
+  const mg = miniGeo(w, tbl + 40, h - 10), [A, B] = mg.hs;
+  if (rev) { // the whole wheels hoop glows
+    const pulse = 0.28 + 0.1 * Math.sin(k * 5), a = clamp01(k / 0.4);
+    c.save(); c.globalAlpha = a;
+    c.fillStyle = hexA(COL.blue, pulse); c.beginPath(); c.arc(B.x, B.y, R0(B.r + 3), 0, TAU); c.fill();
+    c.shadowColor = COL.blue; c.shadowBlur = 24; c.strokeStyle = hexA(COL.blue, 0.9); c.lineWidth = 4; c.beginPath(); c.arc(B.x, B.y, R0(B.r + 2), 0, TAU); c.stroke();
+    c.restore();
+    const x1 = 12 + (w - 24) / 4, x2 = 12 + (w - 24) * 3 / 4; // the same two columns in the table
+    c.save(); c.globalAlpha = a; c.strokeStyle = COL.blue; c.lineWidth = 3; c.shadowColor = COL.blue; c.shadowBlur = 12;
+    c.beginPath(); c.roundRect(x1 - 1, y0 - 3, x2 - x1 + 2, hh + 6, 14); c.stroke(); c.restore();
+    pill(c, w, '2 + 2 = 4', w / 2, tbl + 20, { alpha: clamp01((k - 0.5) * 3), size: 15 });
+  }
+  drawTwo(c, w, mg.hs, 1, 1, t);
+  const area = (z) => (z === 'out' ? { x0: 22, y0: mg.cy, x1: w - 22, y1: mg.y1 } : { x0: 18, y0: mg.y0, x1: w - 18, y1: mg.y1 });
+  for (const z of ['red', 'both', 'blue', 'out']) {
+    const its = ITEMS.filter((it) => ZONE_OF[maskOf(it)] === z), sl = findSlots(mg.hs, MASK_OF[z], area(z), mg.tr, its.length);
+    its.forEach((it, j) => {
+      const popping = rev && (z === 'both' || z === 'blue'), kk = k - 0.25 - j * 0.12 - (z === 'blue' ? 0.3 : 0);
+      const pop = popping && kk > 0 && kk < 0.7 ? 1 + 0.35 * Math.sin(Math.PI * kk / 0.7) : 1;
+      token(c, sl.pts[j][0], sl.pts[j][1], mg.tr * sl.sc * pop, it.e, { lift: pop > 1 ? (pop - 1) * 2 : 0 });
+    });
+  }
+}
+function drawCount(c, w, h, dt, t) { if (S.c.step === 0) drawCountQ1(c, w, h, dt, t); else drawCountQ2(c, w, h, dt, t); }
+
+// --- draw: view 3 (guess my rule) --------------------------------------------------------------------------------------------------------
+function ruleGeo(w, h, top) {
+  const tr = clamp(w / 16, 21, 28), avail = h - top - 6;
+  const R = Math.max(60, Math.min(w / 2 - 2 * tr - 30, (avail - 34 - 2 * tr - 34) / 2, 130));
+  const slack = Math.max(0, avail - 34 - 2 * R - 2 * tr - 24), cx = w / 2, cy = top + 34 + R + slack * 0.4;
+  const yb = Math.min(cy + R + tr + 16, h - tr - 8);
+  return { tr, R, cx, cy, yb, S0: [cx + R * 0.5, yb] };
+}
+const IN_OFF = [[-0.42, -0.36], [0.4, -0.38], [-0.36, 0.38], [0.42, 0.34]];
+function pathAt(pts, times, k) {
+  if (k <= times[0]) return pts[0];
+  for (let i = 1; i < pts.length; i++) if (k <= times[i]) { const u = eio((k - times[i - 1]) / (times[i] - times[i - 1])); return [lerp(pts[i - 1][0], pts[i][0], u), lerp(pts[i - 1][1], pts[i][1], u)]; }
+  return pts[pts.length - 1];
+}
+function drawRule(c, w, h, dt, t) {
+  const r = S.r, G = ruleGeo(w, h, S.top), rd = ROUNDS[r.round], t_ = T[lang], rev = r.ans !== null, k = rev ? t - r.at : -1;
+  const FL = 0.9; // the test toy starts after the tag has flipped
+  const kf = k - FL, impact = 0.75;
+  let wob = 0;
+  if (rev && !rd.testIn && kf > impact) wob = 0.03 * Math.exp(-6 * (kf - impact)) * Math.sin(40 * (kf - impact));
+  hoop(c, G.cx, G.cy, G.R, HOOP.red, { wob });
+  const fl = clamp01(k / 0.6), back = fl > 0.5;
+  tag(c, w, back ? { icon: rd.icon, text: t_.r.opts[r.round][0] } : { icon: '❓', text: '???' }, G.cx - G.R * 0.1, G.cy - G.R - 24, G.cx, G.cy, G.R,
+    { sx: rev ? Math.abs(Math.cos(Math.PI * fl)) : 1, rot: -0.03, t });
+  const idle = (i) => Math.sin(t * 1.6 + i * 1.7) * 1.4;
+  const popOf = (i) => eoBack((t - r.pop - i * 0.09) / 0.4);
+  rd.inn.forEach((e, i) => token(c, G.cx + IN_OFF[i][0] * G.R, G.cy + IN_OFF[i][1] * G.R + idle(i), G.tr * popOf(i), e));
+  rd.out.forEach((e, i) => token(c, G.cx - G.R - G.tr - 14, G.cy + (i ? 0.42 : -0.42) * G.R + idle(i + 4), G.tr * popOf(i + 4), e));
+  if (rev && kf > -0.25) { // the test toy
+    const S0 = G.S0, win = [S0[0] + 10, S0[1] + 8], zc = [G.cx, G.cy];
+    let p, sq = 0, ring = null;
+    if (rd.testIn) { p = pathAt([S0, win, zc], [0, 0.35, 1.2], kf); if (kf > 1.2) { const q = kf - 1.2; sq = q < 0.45 ? 0.16 * Math.exp(-7 * q) * Math.cos(20 * q) : 0; ring = 'good'; } }
+    else {
+      const dx = S0[0] - G.cx, dy = S0[1] - G.cy, L = Math.hypot(dx, dy) || 1, C = [G.cx + dx / L * (G.R + 5 + G.tr), G.cy + dy / L * (G.R + 5 + G.tr)];
+      const F = [Math.min(w - G.tr - 8, S0[0] + 46), S0[1]];
+      p = pathAt([S0, win, C, F], [0, 0.35, impact, 1.45], kf);
+      const q = kf - impact; sq = q > 0 && q < 0.4 ? 0.16 * Math.exp(-8 * q) * Math.cos(26 * q) : 0;
+    }
+    token(c, p[0], p[1], G.tr * eoBack((kf + 0.25) / 0.3), rd.test, { sx: 1 + sq, sy: 1 - sq, ring, lift: kf > 0 && kf < 1.2 && rd.testIn ? Math.sin(Math.PI * kf / 1.2) * 0.6 : 0 });
+  }
+}
+
+// --- main draw -------------------------------------------------------------------------------------------------------------------------------
+const loop = canvasLoop($('cv'), (c, w, h, dt, t) => {
+  const askH = askEl.style.display === 'none' ? 0 : askEl.offsetHeight, tgt = askH ? askH + 16 : 0;
+  S.top += (tgt - S.top) * Math.min(1, dt * 10); if (Math.abs(tgt - S.top) < 0.3) S.top = tgt;
+  rug(c, w, h);
+  if (lab.view === 'sort') drawSort(c, w, h, dt, t); else if (lab.view === 'count') drawCount(c, w, h, dt, t); else drawRule(c, w, h, dt, t);
+  drawFX(c, dt);
+});
+
+// --- input: tap a toy, then a place -----------------------------------------------------------------------------------------------------------
+const stageXY = (ev) => { const r = $('cv').getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; };
+$('cv').addEventListener('click', (ev) => {
+  if (lab.view !== 'sort') return;
+  const s = S.s, g = S.g; if (!g || s.ans === null || !s.go || s.mode) return;
+  const [x, y] = stageXY(ev), t = clock();
+  let hit = null, best = 1e9;
+  for (const it of ITEMS) { const st = tkState(TK[it.id], t), d = Math.hypot(x - st.x, y - st.y); if (d <= Math.max(20, g.tr * st.s + 4) && d < best) { hit = it.id; best = d; } }
+  if (hit) {
+    const z = s.pos[hit] || 'tray';
+    if (s.sel === hit) { s.sel = null; sfx.tick(); }
+    else if (s.sel && z !== 'tray') dropItem(s.sel, z);
+    else { s.sel = hit; sfx.click(); }
+    return;
+  }
+  if (s.sel) { const z = zoneAt(g, x, y); if (z === 'tray' || s.ov >= 0.99) dropItem(s.sel, z); }
+});
+$('cv').addEventListener('pointermove', (ev) => {
+  const s = S.s; if (lab.view !== 'sort' || !s.sel || !S.g) return;
+  const [x, y] = stageXY(ev); s.hov = zoneAt(S.g, x, y);
+});
+$('cv').addEventListener('pointerleave', () => { S.s.hov = null; });
+
+// --- actions -------------------------------------------------------------------------------------------------------------------------------------
+const showStage = () => { // on a phone the stage can be out of view: bring the reveal into it
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+function onView() { S.s.sel = null; S.s.hov = null; render(); }
+function moveItem(id, zone) {
+  const s = S.s;
+  if (zone === 'tray') delete s.pos[id]; else s.pos[id] = zone;
+  s.seq[id] = ++s.seqN; delete s.ok[id]; delete s.bad[id];
+}
+function dropItem(id, zone) {
+  const s = S.s; s.sel = null; s.hintZone = '';
+  if ((s.pos[id] || 'tray') !== zone) { moveItem(id, zone); sfx.snap(); }
+  render();
+}
+const allOk = () => ITEMS.every((it) => S.s.ok[it.id]);
+function checkSort() {
+  const s = S.s, t = clock(); let firstBad = '';
+  for (const it of ITEMS) {
+    const z = s.pos[it.id]; if (!z || s.ok[it.id]) continue;
+    if (z === ZONE_OF[maskOf(it)]) s.ok[it.id] = true;
+    else { s.bad[it.id] = true; TK[it.id].shakeAt = t; firstBad ||= z; setTimeout(() => { if (S.s === s && s.bad[it.id]) { moveItem(it.id, 'tray'); render(); } }, 650); }
+  }
+  s.sel = null; s.hintZone = firstBad === 'blue' ? 'wheels' : firstBad;
+  if (firstBad) sfx.bad(); else sfx.good();
+  if (allOk()) { sfx.good(); if (S.g) spawnConfetti(S.g.w, S.g.h); }
+  render();
+}
+function enterCarroll() {
+  const s = S.s;
+  if (s.ans === null) { s.ans = -1; s.ovT = 1; s.go = true; } // skipped the question: set the hoops up ourselves
+  ITEMS.forEach((it) => { const z = ZONE_OF[maskOf(it)]; if (s.pos[it.id] !== z) { s.pos[it.id] = z; s.seq[it.id] = ++s.seqN; } s.ok[it.id] = true; delete s.bad[it.id]; });
+  s.sel = null; s.mode = 'zones'; s.hintZone = '';
+  const wait = s.ov < 0.95 ? 1900 : 900;
+  setTimeout(() => { if (S.s === s && s.mode === 'zones') { s.mode = 'carroll'; render(); } }, wait);
+}
+function chipAct(k) {
+  if (!secret.unlocked()) return secret.open();
+  const s = S.s; s.sel = null; sfx.click();
+  if (k === 'carroll') { if (s.mode === 'carroll' || s.mode === 'zones') s.mode = null; else enterCarroll(); }
+  else if (s.mode === 'three') s.mode = null;
+  else { s.mode = 'three'; s.three = { n: 0 }; TK3.forEach((tk) => { tk.key = undefined; tk.tw = null; }); if (s.ans === null) { s.ans = -1; s.ovT = 1; s.go = true; } }
+  render();
+}
+function answer(a) {
+  const v = lab.view, t = clock();
+  if (v === 'sort') {
+    const s = S.s; if (s.ans !== null) return;
+    s.ans = a; s.ovT = 1; (a === 2 ? sfx.good : sfx.bad)(); sfx.push();
+    setTimeout(() => { if (S.s === s) { moveItem('fire', 'both'); s.ok.fire = true; render(); } }, 1300);
+  } else if (v === 'count') {
+    const c = S.c, q = c.step; if (c.ans[q] !== null) return;
+    c.ans[q] = a; c.at[q] = t; (a === 1 ? sfx.good : sfx.bad)();
+  } else {
+    const r = S.r; if (r.ans !== null) return;
+    r.ans = a; r.at = t; (a === 0 ? sfx.good : sfx.bad)();
+  }
+  showStage(); render();
+}
+function act(name) {
+  const v = lab.view;
+  if (name === 'go') S.s.go = true;
+  else if (name === 'check') return checkSort();
+  else if (name === 'drop') { const th = S.s.three; if (th.n < THREE.length) { th.n++; sfx.snap(); } }
+  else if (name === 'again') {
+    if (v === 'sort') { S.s = newSort(); ITEMS.forEach((it) => { TK[it.id] = mkTk(); }); }
+    else if (v === 'count') S.c = newCount(); else S.r = newRule();
+  } else if (name === 'next') {
+    if (v === 'count') { S.c.step = 1; S.c.tb = clock(); } else { S.r.round++; S.r.ans = null; S.r.pop = clock(); }
+  }
+  sfx.click(); render();
+}
+askEl.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b || b.disabled) return;
+  if (b.dataset.a !== undefined) answer(+b.dataset.a); else act(b.dataset.act);
+});
+$('ctrlBody').addEventListener('click', (ev) => { const b = ev.target.closest('[data-chip]'); if (b) chipAct(b.dataset.chip); });
+
+// --- render: the question panel, readout, state card and secret chips -----------------------------------------------------------------------------
+const verdict = (ok, t) => `<div class="verdict" style="color:${ok ? 'var(--ok)' : 'var(--wip)'}">${esc(ok ? t.right : t.wrong)}</div>`;
+const askBtns = (labels, order) => `<div class="opts">${order.map((i) => `<button data-a="${i}">${esc(labels[i])}</button>`).join('')}</div>`;
+const goBtn = (name, label) => `<div class="opts"><button class="go" data-act="${name}">${esc(label)}</button></div>`;
+const fine = (t) => `<div class="fine">${esc(t.fine)}</div>`;
+function setCard(t, v, full) { const [emo, title, lead, body] = t.st[v][full ? 1 : 0]; lab.setState({ emo, title, lead, body, extra: fine(t) }); }
+
+function render() {
+  const t = T[lang], v = lab.view;
+  document.body.dataset.v = v;
+  askEl.style.display = '';
+  if (v === 'sort') renderSort(t); else if (v === 'count') renderCount(t); else renderRule(t);
+}
+function renderSort(t) {
+  const s = S.s, asked = s.ans !== null, placed = ITEMS.filter((it) => (s.pos[it.id] || 'tray') !== 'tray').length;
+  lab.setGlow('rgba(224, 72, 72, .26)');
+  lab.setReadout(`${placed} / 8`, '', asked && s.ans >= 0 ? (s.ans === 2 ? t.right : t.wrong) : '', '#E04848');
+  setCard(t, 'sort', asked);
+  const done = allOk();
+  if (s.mode === 'three') askEl.innerHTML = `<p>${esc(t.sec.threeText)}</p>${s.three.n < THREE.length ? goBtn('drop', t.sec.drop) : ''}`;
+  else if (s.mode) askEl.innerHTML = `<p style="margin:0">${esc(t.sec.carrollText)}</p>`;
+  else if (!asked) askEl.innerHTML = `<div class="q">${esc(t.s.q1)}</div>${askBtns(t.s.o1, [0, 1, 2])}`;
+  else if (!s.go) askEl.innerHTML = `${verdict(s.ans === 2, t)}<p>${esc(t.s.r1)}</p>${goBtn('go', t.next)}`;
+  else {
+    const canCheck = ITEMS.some((it) => s.pos[it.id] && !s.ok[it.id]);
+    askEl.innerHTML = done
+      ? `<div class="verdict" style="color:var(--ok)">${esc(t.s.done)}</div><div class="opts"><button data-act="again">${esc(t.again)}</button></div>`
+      : `<p>${esc(s.hintZone ? t.s.hint[s.hintZone] : t.s.tap)}</p><div class="opts"><button class="go" data-act="check"${canCheck ? '' : ' disabled'}>${esc(t.s.check)}</button></div>`;
+  }
+  const open = secret.unlocked();
+  const chip = (k, emo, on) => `<button class="chip secret ${open ? 'open' : ''} ${on ? 'on' : ''}" data-chip="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  $('ctrlBody').innerHTML = `<div class="chips">${chip('carroll', '📋', s.mode === 'carroll' || s.mode === 'zones')}${chip('three', '🔺', s.mode === 'three')}</div>`;
+  $('ctrlBody').style.display = '';
+}
+function renderCount(t) {
+  const c = S.c, q = c.step, a = c.ans[q];
+  lab.setGlow('rgba(76, 127, 224, .26)');
+  lab.setReadout(a === null ? '?' : q === 0 ? '3 &lt; 5' : '4', q === 0 ? '● ○' : '○ ●', a === null ? '' : a === 1 ? t.right : t.wrong, '#4C7FE0');
+  setCard(t, 'count', c.ans[0] !== null);
+  const [qt, ot, rt] = q === 0 ? [t.c.q1, t.c.o1, t.c.r1] : [t.c.q2, t.c.o2, t.c.r2];
+  if (a === null) askEl.innerHTML = `<div class="q">${esc(qt)}</div>${askBtns(ot, [0, 1, 2])}`;
+  else askEl.innerHTML = `${verdict(a === 1, t)}<p>${esc(rt)}</p>${goBtn(q === 0 ? 'next' : 'again', q === 0 ? t.next : t.again)}`;
+  $('ctrlBody').innerHTML = ''; $('ctrlBody').style.display = 'none';
+}
+function renderRule(t) {
+  const r = S.r, a = r.ans, rd = r.round, last = rd === ROUNDS.length - 1;
+  lab.setGlow('rgba(160, 110, 230, .26)');
+  lab.setReadout(`${rd + 1} / 3`, [0, 1, 2].map((i) => (i < rd ? '●' : i === rd ? '◉' : '○')).join(' '), a === null ? '' : a === 0 ? t.right : t.wrong, '#A06EE6');
+  setCard(t, 'rule', rd > 0 || a !== null);
+  if (a === null) askEl.innerHTML = `<div class="q">${esc(t.r.q)}</div>${askBtns(t.r.opts[rd], r.order[rd])}`;
+  else askEl.innerHTML = `${verdict(a === 0, t)}<p>${esc(t.r.why[rd])}</p>${goBtn(last ? 'again' : 'next', last ? t.again : t.next)}`;
+  $('ctrlBody').innerHTML = ''; $('ctrlBody').style.display = 'none';
+}
+render();
+</script>
+</body>
+</html>
