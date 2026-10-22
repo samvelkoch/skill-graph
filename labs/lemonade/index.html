@@ -1,0 +1,994 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The Lemonade Stand · Skill Graph</title>
+<meta name="description" content="Pick what to sell for the weather, put the plan in order, and set the price of your lemonade to earn the biggest profit. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  .fine { font-size: 11px; color: var(--faint); }
+  .lm-q { font: 500 20px/1.2 var(--serif); color: #fff; margin-bottom: 10px; text-wrap: balance; }
+  .lm-opts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .lm-opts.col { grid-template-columns: 1fr; }
+  .lm-ans { padding: 9px 8px; min-height: 44px; border-radius: 14px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 800; font-size: 13px; line-height: 1.25; cursor: pointer; text-wrap: balance; }
+  .lm-ans:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .lm-ans:disabled { cursor: default; }
+  .lm-ans .e { display: block; font-size: 24px; line-height: 1.15; margin-bottom: 2px; }
+  .lm-ans.good { border-color: var(--ok); background: rgba(61, 220, 151, .18); }
+  .lm-ans.bad { border-color: var(--red); background: rgba(255, 59, 48, .16); }
+  .lm-ans.dim { opacity: .5; }
+  .lm-msg { margin-top: 10px; font-size: 13px; line-height: 1.5; color: var(--soft); }
+  .lm-msg:empty { display: none; }
+  .lm-msg b { display: block; font-size: 15px; margin-bottom: 2px; }
+  .lm-price { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 2px; font-size: 13px; color: var(--mut); }
+  .lm-price b { color: #fff; font-size: 20px; font-weight: 900; }
+  .btn:disabled { opacity: .35; cursor: default; }
+  .lm-main { margin-left: auto; }
+
+  /* the plan: a corkboard with pinned cards (HTML on top of the cork drawn on the canvas) */
+  #lmBoard { position: absolute; inset: 0; overflow: hidden; }
+  .lm-slot, .lm-card { position: absolute; left: 0; top: 0; }
+  .lm-slot { border: 2px dashed rgba(255, 243, 196, .6); border-radius: 10px; background: rgba(70, 40, 12, .22); display: grid; place-items: center;
+    color: rgba(255, 243, 196, .75); font: 900 26px var(--sans); transition: box-shadow .5s, border-color .5s, background .5s; }
+  #lmBoard.done .lm-slot { border-style: solid; border-color: #FFD84A; box-shadow: 0 0 16px rgba(255, 216, 74, .65); }
+  .lm-card { transition: transform .55s cubic-bezier(.3, 1.35, .5, 1), opacity .35s; cursor: pointer; touch-action: manipulation; }
+  .lm-in { position: relative; width: 100%; height: 100%; display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 8px; border-radius: 9px;
+    background: linear-gradient(#FFF9DA, #FFF3C4 60%, #F1E1A2); box-shadow: 0 3px 7px rgba(40, 20, 0, .4), inset 0 -2px 0 rgba(150, 100, 30, .22);
+    color: #4b2f14; font-weight: 800; font-size: 12.5px; line-height: 1.15; overflow: hidden; }
+  .lm-in .e { font-size: 24px; flex: none; line-height: 1; }
+  .lm-in .t { min-width: 0; overflow-wrap: anywhere; }
+  .lm-pin { position: absolute; top: 3px; right: 6px; width: 12px; height: 12px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #fff 0 12%, #FF7A7A 13% 52%, #A5262C 100%); box-shadow: 0 2px 2px rgba(0, 0, 0, .4); }
+  .lm-in.shake { animation: lmShake .42s; }
+  @keyframes lmShake { 20% { transform: translateX(-7px) rotate(-2deg); } 60% { transform: translateX(7px) rotate(2deg); } }
+  .lm-toast { position: absolute; left: 50%; bottom: 10px; transform: translate(-50%, 8px); max-width: calc(100% - 20px); padding: 8px 14px; border-radius: 14px;
+    background: rgba(20, 30, 52, .9); color: #fff; font-weight: 800; font-size: 13px; text-align: center; opacity: 0; transition: opacity .25s, transform .25s; pointer-events: none; }
+  .lm-toast.on { opacity: 1; transform: translate(-50%, 0); }
+
+  body[data-v=plan] #stage { min-height: 400px; }
+  @media (max-width: 760px) {
+    body[data-v=idea] #stage { height: min(94vw, 410px); }
+    body[data-v=plan] #stage { height: min(134vw, 540px); min-height: 0; }
+    body[data-v=stand] #stage { height: min(122vw, 520px); }
+    .lm-q { font-size: 18px; }
+    .lm-in { font-size: 12.5px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, ruPlural, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'The Lemonade Stand', title: 'From idea to profit',
+    lines: [['A sunny street.', ''], ['Something to sell,', 'a plan, a price.'], ['Will your stand', 'make money?']],
+    views: { idea: '💡 Idea', plan: '📝 Plan', stand: '🍋 The stand' },
+    next: 'Next ▶', again: '↻ Again', right: 'Right!', wrong: 'Not quite. Look!', coins: 'coins',
+    hmm: 'hmm…', coinW: (n) => (n === 1 ? 'coin' : 'coins'),
+    i: { q: 'What would sell best today?',
+         opts: [['🍋 cold lemonade', '🍲 hot soup', '🧣 scarves'], ['🍋 cold lemonade', '☂️ umbrellas', '🕶️ sunglasses'], ['🍦 ice cream', '☕ hot cocoa', '🩴 flip-flops']],
+         why: ['On a hot day people want something cold to drink.', 'When it rains, people need umbrellas.', 'When it’s freezing, a hot drink warms you up.'],
+         weather: ['a hot sunny day', 'a rainy day', 'a cold snowy day'] },
+    p: { q: 'What comes first?', o: ['count the money', 'have an idea', 'sell'],
+         steps: ['💡 have an idea', '🛒 buy lemons, sugar and cups', '🍋 make the lemonade', '🪧 make a price sign', '🧾 sell', '💰 count the money'],
+         wrong: 'Not yet — what has to happen before that?', done: 'A good plan: idea, buy, make, sign, sell, count.' },
+    s: { q1: 'One glass costs you 2 coins to make. You sell it for 2 coins. How much do you earn?', o1: ['nothing', 'a lot', '2 coins a glass'],
+         r1: 'Nothing! 18 glasses bring in 36 coins, but making them cost 36 coins too. Profit = money in − money out = 0.',
+         q2: 'Which price earns the most in a day?', o2: ['8 coins — the highest', '5 coins', '1 coin — the cheapest'],
+         r2: 'At 5 coins: 9 glasses, 27 coins profit. At 8 nobody buys; at 1 you lose money on every glass.',
+         price: 'price', open: '▶ Open the stand', in: 'money in', out: 'money out', profit: 'profit', sold: (n) => `sold ${n} ${n === 1 ? 'glass' : 'glasses'}` },
+    secrets: { sign: ['A bigger sign', 'Advertising costs money too.'], leftover: ['Too much lemonade', 'What if nobody drinks it?'] },
+    sec: { signText: 'The sign costs 6 coins but brings more customers: at 5 coins you sell 15 glasses and earn 45 − 6 = 39 instead of 27.',
+           leftText: 'Making 20 glasses but selling 9 means 11 wasted glasses: 22 coins lost. Plan how much to make!' },
+    st: { idea: { n: ['💡', 'What to sell?', 'Look at the weather.', ''], f: ['💡', 'A good idea', 'Sell what people need right now.', ''] },
+          plan: { n: ['📝', 'Six steps', 'Put them in order.', ''], f: ['📝', 'A simple plan', 'Idea → buy → make → sign → sell → count.', ''] },
+          stand: { n: ['🍋', 'Your stand', 'Set a price and open.', ''], f: ['🍋', 'Profit = in − out', 'The best price is not the highest.', ''] } },
+    fine: 'Coins here are pretend coins, and the customers follow a simple made-up rule.',
+    quiz: [
+      { q: 'Profit is…', opts: ['money in minus money out', 'all the money in the till', 'the price of one glass'], ok: 0 },
+      { q: 'A glass costs 2 coins to make and you sell it for 2. You…', opts: ['earn nothing', 'earn a lot'], ok: 0 },
+      { q: 'A very high price usually means…', opts: ['more customers', 'fewer customers'], ok: 1 } ],
+  },
+  ru: {
+    name: 'Лимонадный киоск', title: 'От идеи до прибыли',
+    lines: [['Солнечная улица.', ''], ['Что продать,', 'план, цена.'], ['Заработает ли', 'твой киоск?']],
+    views: { idea: '💡 Идея', plan: '📝 План', stand: '🍋 Киоск' },
+    next: 'Дальше ▶', again: '↻ Ещё раз', right: 'Верно!', wrong: 'Не совсем. Смотри!', coins: 'монет',
+    hmm: 'хм…', coinW: (n) => ruPlural(n, 'монета', 'монеты', 'монет'),
+    i: { q: 'Что сегодня лучше всего продастся?',
+         opts: [['🍋 холодный лимонад', '🍲 горячий суп', '🧣 шарфы'], ['🍋 холодный лимонад', '☂️ зонты', '🕶️ тёмные очки'], ['🍦 мороженое', '☕ горячее какао', '🩴 шлёпанцы']],
+         why: ['В жару хочется холодного питья.', 'Когда идёт дождь, нужны зонты.', 'В мороз горячий напиток согревает.'],
+         weather: ['жаркий солнечный день', 'дождливый день', 'морозный снежный день'] },
+    p: { q: 'С чего всё начинается?', o: ['посчитать деньги', 'придумать идею', 'продавать'],
+         steps: ['💡 придумать идею', '🛒 купить лимоны, сахар и стаканчики', '🍋 сделать лимонад', '🪧 нарисовать табличку с ценой', '🧾 продавать', '💰 посчитать деньги'],
+         wrong: 'Рано — что должно быть до этого?', done: 'Хороший план: идея, покупка, приготовление, табличка, продажа, подсчёт.' },
+    s: { q1: 'Один стакан обходится тебе в 2 монеты. Ты продаёшь его за 2 монеты. Сколько ты заработаешь?', o1: ['ничего', 'много', 'по 2 монеты со стакана'],
+         r1: 'Ничего! 18 стаканов приносят 36 монет, но и сделать их стоило 36 монет. Прибыль = доходы − расходы = 0.',
+         q2: 'При какой цене за день заработаешь больше всего?', o2: ['8 монет — самая высокая', '5 монет', '1 монета — самая низкая'],
+         r2: 'При 5 монетах: 9 стаканов, прибыль 27 монет. За 8 никто не покупает, а за 1 ты теряешь деньги на каждом стакане.',
+         price: 'цена', open: '▶ Открыть киоск', in: 'доходы', out: 'расходы', profit: 'прибыль', sold: (n) => `продано ${n} ${ruPlural(n, 'стакан', 'стакана', 'стаканов')}` },
+    secrets: { sign: ['Большая вывеска', 'Реклама тоже стоит денег.'], leftover: ['Слишком много лимонада', 'А если его никто не выпьет?'] },
+    sec: { signText: 'Вывеска стоит 6 монет, но приводит больше покупателей: при цене 5 продаёшь 15 стаканов и зарабатываешь 45 − 6 = 39 вместо 27.',
+           leftText: 'Сделал 20 стаканов, а продал 9 — значит, 11 пропало: потеряно 22 монеты. Планируй, сколько готовить!' },
+    st: { idea: { n: ['💡', 'Что продавать?', 'Посмотри на погоду.', ''], f: ['💡', 'Хорошая идея', 'Продавай то, что людям нужно сейчас.', ''] },
+          plan: { n: ['📝', 'Шесть шагов', 'Расставь их по порядку.', ''], f: ['📝', 'Простой план', 'Идея → покупка → приготовление → табличка → продажа → подсчёт.', ''] },
+          stand: { n: ['🍋', 'Твой киоск', 'Назначь цену и открывайся.', ''], f: ['🍋', 'Прибыль = доходы − расходы', 'Лучшая цена — не самая высокая.', ''] } },
+    fine: 'Монеты здесь игрушечные, а покупатели ведут себя по простому придуманному правилу.',
+    quiz: [
+      { q: 'Прибыль — это…', opts: ['доходы минус расходы', 'все деньги в кассе', 'цена одного стакана'], ok: 0 },
+      { q: 'Стакан стоит тебе 2 монеты, а продаёшь ты его за 2. Ты…', opts: ['ничего не зарабатываешь', 'зарабатываешь много'], ok: 0 },
+      { q: 'Очень высокая цена обычно значит…', opts: ['больше покупателей', 'меньше покупателей'], ok: 1 } ],
+  },
+  hu: {
+    name: 'A limonádés stand', title: 'Az ötlettől a haszonig',
+    lines: [['Egy napos utca.', ''], ['Valami, amit eladhatsz,', 'egy terv, egy ár.'], ['Hoz pénzt', 'a standod?']],
+    views: { idea: '💡 Ötlet', plan: '📝 Terv', stand: '🍋 A stand' },
+    next: 'Tovább ▶', again: '↻ Újra', right: 'Így van!', wrong: 'Nem egészen. Nézd!', coins: 'érme',
+    hmm: 'hmm…', coinW: () => 'érme',
+    i: { q: 'Mi fogy ma a legjobban?',
+         opts: [['🍋 hideg limonádé', '🍲 forró leves', '🧣 sálak'], ['🍋 hideg limonádé', '☂️ esernyők', '🕶️ napszemüvegek'], ['🍦 fagylalt', '☕ forró kakaó', '🩴 papucsok']],
+         why: ['Kánikulában az emberek valami hideget szeretnének inni.', 'Ha esik, esernyő kell.', 'Fagyban a forró ital felmelegít.'],
+         weather: ['forró, napos nap', 'esős nap', 'hideg, havas nap'] },
+    p: { q: 'Mi jön legelőször?', o: ['megszámolni a pénzt', 'kitalálni egy ötletet', 'árulni'],
+         steps: ['💡 ötlet kitalálása', '🛒 citrom, cukor és poharak vásárlása', '🍋 a limonádé elkészítése', '🪧 ártábla festése', '🧾 árulás', '💰 a pénz megszámolása'],
+         wrong: 'Még nem — minek kell ezt megelőznie?', done: 'Jó terv: ötlet, vásárlás, készítés, tábla, árulás, számolás.' },
+    s: { q1: 'Egy pohár elkészítése 2 érmébe kerül. 2 érméért adod el. Mennyit keresel?', o1: ['semmit', 'sokat', 'poharanként 2 érmét'],
+         r1: 'Semmit! 18 pohár 36 érmét hoz, de az elkészítésük is 36 érmébe került. Haszon = bevétel − kiadás = 0.',
+         q2: 'Melyik árral keresed a legtöbbet egy nap alatt?', o2: ['8 érme — a legmagasabb', '5 érme', '1 érme — a legolcsóbb'],
+         r2: '5 érmével: 9 pohár, 27 érme haszon. 8-ért senki sem vesz, 1-ért pedig minden pohárral pénzt veszítesz.',
+         price: 'ár', open: '▶ Nyisd ki a standot!', in: 'bevétel', out: 'kiadás', profit: 'haszon', sold: (n) => `${n} pohár elfogyott` },
+    secrets: { sign: ['Nagyobb tábla', 'A reklám is pénzbe kerül.'], leftover: ['Túl sok limonádé', 'Mi van, ha senki sem issza meg?'] },
+    sec: { signText: 'A tábla 6 érmébe kerül, de több vevőt hoz: 5 érmés árnál 15 poharat adsz el, és 45 − 6 = 39 érmét keresel 27 helyett.',
+           leftText: 'Ha 20 poharat készítesz, de csak 9-et adsz el, 11 kárba vész: 22 érme veszteség. Tervezd meg, mennyit készítesz!' },
+    st: { idea: { n: ['💡', 'Mit áruljunk?', 'Nézd meg az időjárást!', ''], f: ['💡', 'Jó ötlet', 'Azt árusítsd, amire most szükségük van az embereknek.', ''] },
+          plan: { n: ['📝', 'Hat lépés', 'Tedd őket sorba!', ''], f: ['📝', 'Egyszerű terv', 'Ötlet → vásárlás → készítés → tábla → árulás → számolás.', ''] },
+          stand: { n: ['🍋', 'A standod', 'Állíts be árat, és nyiss ki!', ''], f: ['🍋', 'Haszon = bevétel − kiadás', 'A legjobb ár nem a legmagasabb.', ''] } },
+    fine: 'Az érmék itt játékpénzek, a vevők pedig egy egyszerű, kitalált szabály szerint viselkednek.',
+    quiz: [
+      { q: 'A haszon…', opts: ['bevétel mínusz kiadás', 'az összes pénz a kasszában', 'egy pohár ára'], ok: 0 },
+      { q: 'Egy pohár 2 érmébe kerül, és 2-ért adod el. Ekkor…', opts: ['semmit sem keresel', 'sokat keresel'], ok: 0 },
+      { q: 'A nagyon magas ár általában…', opts: ['több vevőt jelent', 'kevesebb vevőt jelent'], ok: 1 } ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_RTwmvr9R7V', en: 'Having a Business Idea', ru: 'Бизнес-идея', hu: 'Vállalkozási ötlet' },
+  { id: 'mt_phpn6KhCAv', en: 'Making a Simple Plan', ru: 'Простой план', hu: 'Egyszerű terv készítése' },
+];
+
+// --- the money model: one glass costs 2 coins, sold = 24 − 3 × price, profit = (price − 2) × sold -------------
+const COST = 2, SIGN_COST = 6, MADE = 20;
+const soldAt = (p, sign) => Math.max(0, (sign ? 30 : 24) - 3 * p);
+const profitAt = (p) => (p - COST) * soldAt(p, false);
+
+// --- palette and small helpers ---------------------------------------------------------------------------
+const C = { lemon: '#FFD84A', awn: '#FFF3C4', wood: '#B9824F', green: '#4CC38A', red: '#E5484D', sky: '#9AD0FF', bg: '#22314F' };
+const SKIN = ['#FF8A65', '#7E9CFF', '#B58CFF', C.green, '#FFB84D', '#FF7BA9'];
+const FONT = 'Nunito, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+const hexRgb = (h) => { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+const mix = (a, b, t) => { const A = hexRgb(a), B = hexRgb(b); return `#${A.map((v, i) => Math.round(v + (B[i] - v) * t).toString(16).padStart(2, '0')).join('')}`; };
+const shade = (h, k) => mix(h, '#000000', k);
+const tint = (h, k) => mix(h, '#ffffff', k);
+const rgba = (h, a) => { const [r, g, b] = hexRgb(h); return `rgba(${r},${g},${b},${a})`; };
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+const ease = (t) => (t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+const easeOut = (t) => 1 - Math.pow(1 - t, 3);
+const backOut = (t) => { const c1 = 1.9, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+const fmt = (n) => (n < 0 ? `−${-n}` : String(n));
+function rng(seed) {
+  return () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+const rr = (c, x, y, w, h, r) => { c.beginPath(); c.roundRect(x, y, Math.max(0, w), Math.max(0, h), Math.max(0, Math.min(r, w / 2, h / 2))); };
+const circ = (c, x, y, r) => { c.beginPath(); c.arc(x, y, Math.max(0, r), 0, Math.PI * 2); };
+const ell = (c, x, y, rx, ry, rot = 0) => { c.beginPath(); c.ellipse(x, y, Math.max(0, rx), Math.max(0, ry), rot, 0, Math.PI * 2); };
+
+// drawing state shared by the scene functions (set every frame)
+let SCL = 1;                    // screen pixels per unit of the current transform, so text can stay a fixed pixel size
+let VX = 0, VY = 0, VS = 1;     // scene origin and scale on screen
+let CW = 0, CHH = 0, TNOW = 0;  // canvas size and time
+const LB = [];                  // labels collected in scene units, drawn in screen pixels afterwards
+const sx = (x) => VX + x * VS, sy = (y) => VY + y * VS;
+
+// text with a fixed pixel size inside a scaled transform
+function txt(c, s, x, y, px, col, wt = 800, al = 'center') {
+  c.save(); c.scale(1 / SCL, 1 / SCL); c.font = `${wt} ${px}px ${FONT}`; c.textAlign = al; c.textBaseline = 'middle'; c.fillStyle = col;
+  c.fillText(s, x * SCL, y * SCL); c.restore();
+}
+function emo(c, ch, x, y, px, a = 1) {
+  c.save(); c.scale(1 / SCL, 1 / SCL); c.globalAlpha = a; c.fillStyle = '#000'; c.font = `${px}px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText(ch, x * SCL, y * SCL); c.restore();
+}
+// a dark rounded pill with (wrapped) text, in screen pixels, kept inside the canvas
+function pillText(c, text, cx, cy, o = {}) {
+  const px = o.px || 13, max = o.max || CW - 16;
+  c.save(); c.font = `${o.wt || 800} ${px}px ${FONT}`;
+  const lines = []; let cur = '';
+  for (const wd of String(text).split(' ')) {
+    const tst = cur ? `${cur} ${wd}` : wd;
+    if (c.measureText(tst).width > max - 22 && cur) { lines.push(cur); cur = wd; } else cur = tst;
+  }
+  lines.push(cur);
+  const tw = Math.max(...lines.map((l) => c.measureText(l).width)), pw = tw + 22, ph = lines.length * (px + 4) + 10;
+  const x = clamp(cx - pw / 2, 6, Math.max(6, CW - pw - 6)), y = clamp(cy - ph / 2, 6, Math.max(6, CHH - ph - 6));
+  rr(c, x, y, pw, ph, Math.min(14, ph / 2)); c.fillStyle = o.bg || 'rgba(20,30,52,.82)'; c.fill();
+  if (o.stroke) { c.lineWidth = 1.5; c.strokeStyle = o.stroke; c.stroke(); }
+  c.fillStyle = o.color || '#fff'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  lines.forEach((l, i) => c.fillText(l, x + pw / 2, y + 5 + (px + 4) * (i + .5)));
+  c.restore();
+  return { x, y, w: pw, h: ph };
+}
+
+// --- small illustrated objects (all in scene units, light from the top left) -----------------------------
+function lemon(c, x, y, r, rot = -.35) {
+  c.save(); c.translate(x, y); c.rotate(rot);
+  const g = c.createRadialGradient(-r * .35, -r * .3, r * .1, 0, 0, r * 1.2);
+  g.addColorStop(0, tint(C.lemon, .55)); g.addColorStop(.5, C.lemon); g.addColorStop(1, shade(C.lemon, .25));
+  c.beginPath(); c.moveTo(-r * 1.18, 0); c.quadraticCurveTo(-r * 1.0, -r * .86, 0, -r * .86); c.quadraticCurveTo(r * 1.0, -r * .86, r * 1.18, 0);
+  c.quadraticCurveTo(r * 1.0, r * .86, 0, r * .86); c.quadraticCurveTo(-r * 1.0, r * .86, -r * 1.18, 0); c.closePath();
+  c.fillStyle = g; c.fill(); c.lineWidth = Math.max(1, r * .08); c.strokeStyle = shade(C.lemon, .45); c.stroke();
+  ell(c, -r * .32, -r * .38, r * .34, r * .14, -.35); c.fillStyle = 'rgba(255,255,255,.55)'; c.fill();
+  ell(c, r * .3, -r * 1.02, r * .5, r * .22, -.5); c.fillStyle = C.green; c.fill(); c.strokeStyle = shade(C.green, .4); c.lineWidth = Math.max(.8, r * .06); c.stroke();
+  c.restore();
+}
+function slice(c, x, y, r) {
+  circ(c, x, y, r); c.fillStyle = C.lemon; c.fill(); c.lineWidth = 1; c.strokeStyle = shade(C.lemon, .35); c.stroke();
+  circ(c, x, y, r * .84); c.fillStyle = C.awn; c.fill();
+  circ(c, x, y, r * .72); c.fillStyle = tint(C.lemon, .25); c.fill();
+  c.strokeStyle = 'rgba(200,150,0,.5)'; c.lineWidth = .8; c.beginPath();
+  for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; c.moveTo(x, y); c.lineTo(x + Math.cos(a) * r * .72, y + Math.sin(a) * r * .72); }
+  c.stroke();
+}
+function cup(c, x, y, s) { // paper cup, (x, y) is the bottom centre, s the height
+  const tw = s * .46, bw = s * .33;
+  c.beginPath(); c.moveTo(x - tw, y - s); c.lineTo(x + tw, y - s); c.lineTo(x + bw, y); c.lineTo(x - bw, y); c.closePath();
+  const g = c.createLinearGradient(x - tw, 0, x + tw, 0); g.addColorStop(0, '#E4EAF4'); g.addColorStop(.35, '#FFFFFF'); g.addColorStop(1, '#BFCADD');
+  c.fillStyle = g; c.fill(); c.lineWidth = Math.max(.8, s * .05); c.strokeStyle = 'rgba(40,50,80,.55)'; c.stroke();
+  const y1 = y - s * .72, y2 = y - s * .38, w1 = tw - (tw - bw) * .28, w2 = tw - (tw - bw) * .62;
+  c.beginPath(); c.moveTo(x - w1, y1); c.lineTo(x + w1, y1); c.lineTo(x + w2, y2); c.lineTo(x - w2, y2); c.closePath(); c.fillStyle = C.lemon; c.fill();
+  ell(c, x, y - s, tw, s * .12); c.fillStyle = '#F6F8FC'; c.fill(); c.stroke();
+  ell(c, x, y - s, tw * .82, s * .075); c.fillStyle = shade(C.lemon, .08); c.fill();
+}
+function coin(c, x, y, r, col = C.lemon) {
+  const g = c.createRadialGradient(x - r * .35, y - r * .35, r * .1, x, y, r);
+  g.addColorStop(0, tint(col, .6)); g.addColorStop(.6, col); g.addColorStop(1, shade(col, .25));
+  circ(c, x, y, r); c.fillStyle = g; c.fill(); c.lineWidth = Math.max(.8, r * .18); c.strokeStyle = shade(col, .45); c.stroke();
+  circ(c, x, y, r * .58); c.lineWidth = Math.max(.6, r * .1); c.strokeStyle = shade(col, .3); c.stroke();
+}
+
+// a round friendly customer; (x, y) are the feet
+function person(c, p) {
+  const { x, y, r, col } = p, face = p.face || 0, ph = p.ph || 0, moving = !!p.moving, sq = p.sq || 0;
+  c.save(); c.globalAlpha = 1; c.translate(x, y); c.scale(1 + sq, 1 - sq);
+  const bob = moving ? -Math.abs(Math.sin(ph)) * r * .16 : 0, cy = -r * 1.02 + bob, dk = shade(col, .38), fx = face * r * .14, hs = face || 1;
+  ell(c, 0, .5, r * .95, r * .24); c.fillStyle = 'rgba(0,0,0,.24)'; c.fill();
+  for (const sd of [-1, 1]) { // feet
+    const lift = moving ? Math.max(0, Math.sin(ph + (sd > 0 ? Math.PI : 0))) * r * .3 : 0;
+    ell(c, sd * r * .42, -r * .12 - lift, r * .34, r * .2); c.fillStyle = dk; c.fill();
+  }
+  if (p.gear === 'rain') { // umbrella: pole, then the canopy above the head
+    c.strokeStyle = dk; c.lineWidth = Math.max(1, r * .1); c.beginPath(); c.moveTo(0, cy - r * 1.6); c.lineTo(0, cy - r * .85); c.stroke();
+    for (let i = 0; i < 4; i++) {
+      c.beginPath(); c.moveTo(0, cy - r * 1.6); c.arc(0, cy - r * 1.6, r * 1.5, Math.PI + i * Math.PI / 4, Math.PI + (i + 1) * Math.PI / 4); c.closePath();
+      c.fillStyle = i % 2 ? tint(col, .55) : shade(col, .1); c.fill();
+    }
+    c.lineWidth = Math.max(.8, r * .06); c.strokeStyle = shade(col, .5); c.beginPath(); c.arc(0, cy - r * 1.6, r * 1.5, Math.PI, 0); c.closePath(); c.stroke();
+  }
+  const g = c.createRadialGradient(-r * .36, cy - r * .42, r * .08, 0, cy, r * 1.15);
+  g.addColorStop(0, tint(col, .45)); g.addColorStop(.55, col); g.addColorStop(1, shade(col, .3));
+  circ(c, 0, cy, r); c.fillStyle = g; c.fill(); c.lineWidth = Math.max(1, r * .07); c.strokeStyle = shade(col, .5); c.stroke();
+  for (const sd of [-1, 1]) { // little arms
+    const sw = moving ? Math.sin(ph + (sd > 0 ? 0 : Math.PI)) * r * .14 : 0;
+    ell(c, sd * r * .98, cy + r * .3 + sw, r * .19, r * .25); c.fillStyle = col; c.fill(); c.lineWidth = Math.max(.8, r * .05); c.strokeStyle = shade(col, .5); c.stroke();
+  }
+  if (p.cup) cup(c, hs * r * 1.18, cy + r * .42, r * .62);
+  // face
+  for (const sd of [-1, 1]) {
+    ell(c, fx + sd * r * .3, cy - r * .12, r * .19, r * .24); c.fillStyle = '#fff'; c.fill(); c.lineWidth = Math.max(.6, r * .04); c.strokeStyle = 'rgba(40,40,70,.5)'; c.stroke();
+    circ(c, fx + sd * r * .3 + face * r * .07, cy - r * .1, r * .1); c.fillStyle = '#1b2236'; c.fill();
+    circ(c, fx + sd * r * .3 + face * r * .07 - r * .03, cy - r * .15, r * .035); c.fillStyle = '#fff'; c.fill();
+    ell(c, fx + sd * r * .52, cy + r * .2, r * .13, r * .08); c.fillStyle = 'rgba(255,110,110,.35)'; c.fill();
+  }
+  c.strokeStyle = '#4a2418'; c.lineWidth = Math.max(1, r * .07); c.lineCap = 'round';
+  if (p.mood === 'hmm') {
+    c.beginPath(); c.moveTo(fx - r * .16, cy + r * .34); c.lineTo(fx + r * .16, cy + r * .3); c.stroke();
+    c.beginPath(); c.moveTo(fx + r * .14, cy - r * .5); c.lineTo(fx + r * .48, cy - r * .42); c.stroke();
+  } else if (p.mood === 'happy') {
+    c.beginPath(); c.arc(fx, cy + r * .12, r * .3, .15 * Math.PI, .85 * Math.PI); c.stroke();
+  } else { c.beginPath(); c.arc(fx, cy + r * .2, r * .2, .2 * Math.PI, .8 * Math.PI); c.stroke(); }
+  if (p.gear === 'snow') { // bobble hat and scarf
+    c.beginPath(); c.arc(0, cy - r * .28, r * .88, Math.PI * 1.07, Math.PI * 1.93); c.closePath(); c.fillStyle = C.red; c.fill(); c.lineWidth = Math.max(.8, r * .06); c.strokeStyle = shade(C.red, .45); c.stroke();
+    rr(c, -r * .9, cy - r * .52, r * 1.8, r * .22, r * .1); c.fillStyle = C.awn; c.fill(); c.stroke();
+    circ(c, 0, cy - r * 1.2, r * .2); c.fillStyle = '#fff'; c.fill(); c.stroke();
+    rr(c, -r * .88, cy + r * .5, r * 1.76, r * .26, r * .12); c.fillStyle = C.red; c.fill(); c.stroke();
+    rr(c, r * .3, cy + r * .6, r * .3, r * .5, r * .1); c.fillStyle = C.red; c.fill(); c.stroke();
+  } else if (p.gear !== 'rain') {
+    if (p.hat === 1) { // cap
+      c.beginPath(); c.arc(fx * .5, cy - r * .4, r * .82, Math.PI * 1.06, Math.PI * 1.94); c.closePath(); c.fillStyle = shade(col, .35); c.fill(); c.lineWidth = Math.max(.8, r * .05); c.strokeStyle = shade(col, .6); c.stroke();
+      ell(c, hs * r * .5, cy - r * .5, r * .55, r * .13); c.fillStyle = shade(col, .5); c.fill();
+    } else if (p.hat === 2) { // a tuft of hair
+      c.strokeStyle = shade(col, .55); c.lineWidth = Math.max(1, r * .12);
+      for (const [dx, a] of [[-.2, -.5], [0, 0], [.2, .5]]) { c.beginPath(); c.moveTo(dx * r * .5, cy - r * .96); c.quadraticCurveTo(dx * r + a * r * .3, cy - r * 1.25, dx * r + a * r * .7, cy - r * 1.4); c.stroke(); }
+    }
+  }
+  c.restore();
+}
+function badge(c, x, y, r, ok, k) { // green tick or red cross
+  if (k <= 0) return;
+  c.save(); c.globalAlpha = 1; c.translate(x, y); c.scale(k, k);
+  const col = ok ? C.green : C.red, g = c.createRadialGradient(-r * .3, -r * .3, r * .1, 0, 0, r);
+  g.addColorStop(0, tint(col, .4)); g.addColorStop(1, shade(col, .2));
+  circ(c, 0, 0, r); c.fillStyle = g; c.fill(); c.lineWidth = Math.max(1.5, r * .16); c.strokeStyle = '#fff'; c.stroke();
+  c.lineWidth = Math.max(1.6, r * .2); c.lineCap = 'round'; c.lineJoin = 'round'; c.strokeStyle = '#fff'; c.beginPath();
+  if (ok) { c.moveTo(-r * .42, 0); c.lineTo(-r * .1, r * .32); c.lineTo(r * .45, -r * .32); } else { c.moveTo(-r * .32, -r * .32); c.lineTo(r * .32, r * .32); c.moveTo(r * .32, -r * .32); c.lineTo(-r * .32, r * .32); }
+  c.stroke(); c.restore();
+}
+
+// --- the street: sky, hills, pavement, weather ------------------------------------------------------------
+const rd = rng(21);
+const RAIN = Array.from({ length: 90 }, () => ({ x: rd(), y: rd(), v: 520 + rd() * 260, l: 10 + rd() * 8 }));
+const SNOW = Array.from({ length: 70 }, () => ({ x: rd(), y: rd(), v: 22 + rd() * 36, s: 1.3 + rd() * 2.2, f: .6 + rd() * 1.2, p: rd() * 6 }));
+function cloud(c, x, y, k, col, a) {
+  c.save(); c.globalAlpha *= a;
+  const bl = [[0, 0, 22], [26, -12, 28], [58, -2, 23], [30, 6, 22], [-16, 6, 16], [76, 6, 14]];
+  for (const [dx, dy, r] of bl) { circ(c, x + dx * k, y + dy * k + 5 * k, r * k); c.fillStyle = 'rgba(30,50,90,.12)'; c.fill(); }
+  for (const [dx, dy, r] of bl) { circ(c, x + dx * k, y + dy * k, r * k); c.fillStyle = col; c.fill(); }
+  c.restore();
+}
+function backdrop(c, w, h, wx, hy, time) {
+  const sk = [[mix(C.sky, '#3F8FE0', .55), tint(C.sky, .55)], ['#5F7090', '#A5B2C8'], ['#A6BFE4', '#EAF2FF']][wx];
+  let g = c.createLinearGradient(0, 0, 0, hy); g.addColorStop(0, sk[0]); g.addColorStop(1, sk[1]); c.fillStyle = g; c.fillRect(0, 0, w, h);
+  if (wx === 0) { // the sun
+    const X = w - Math.min(84, w * .2), Y = Math.max(58, hy * .2);
+    g = c.createRadialGradient(X, Y, 8, X, Y, 170); g.addColorStop(0, 'rgba(255,244,190,.9)'); g.addColorStop(1, 'rgba(255,244,190,0)'); c.fillStyle = g; c.fillRect(0, 0, w, hy);
+    c.save(); c.translate(X, Y); c.rotate(time * .08); c.fillStyle = 'rgba(255,240,170,.2)';
+    for (let i = 0; i < 12; i++) { c.rotate(Math.PI / 6); c.beginPath(); c.moveTo(-9, -36); c.lineTo(9, -36); c.lineTo(0, -150); c.closePath(); c.fill(); }
+    c.restore();
+    g = c.createRadialGradient(X - 8, Y - 8, 3, X, Y, 32); g.addColorStop(0, '#FFFBE0'); g.addColorStop(.6, C.lemon); g.addColorStop(1, shade(C.lemon, .1));
+    circ(c, X, Y, 31); c.fillStyle = g; c.fill();
+    for (const [b, y, k, v] of [[.1, .18, .9, 9], [.55, .3, .7, 6], [.8, .12, .55, 12]]) cloud(c, ((b * (w + 260) + time * v) % (w + 260)) - 130, hy * y, k, 'rgba(255,255,255,.95)', 1);
+  } else if (wx === 1) {
+    for (let i = -1; i < w / 66 + 2; i++) cloud(c, i * 66 + Math.sin(time * .25 + i) * 8, 14 + (i & 1) * 16, 1.5, '#4F5A72', .97);
+    for (let i = -1; i < w / 90 + 2; i++) cloud(c, i * 90 + 30 + Math.sin(time * .2 + i * 2) * 10, 40 + (i & 1) * 12, 1.2, '#69758D', .9);
+  } else {
+    for (const [b, y, k, v] of [[.05, .12, 1.2, 6], [.5, .26, .95, 4], [.85, .1, .8, 8]]) cloud(c, ((b * (w + 260) + time * v) % (w + 260)) - 130, hy * y, k, 'rgba(236,243,252,.95)', 1);
+  }
+  // hills
+  const hc = [['#A9DDBF', '#86CDA8'], ['#8C9BA3', '#788B91'], ['#E6EFF9', '#D4E2F1']][wx];
+  for (let L = 0; L < 2; L++) {
+    c.beginPath(); c.moveTo(0, hy + 2);
+    for (let x = 0; x <= w + 20; x += 20) c.lineTo(x, hy - (L ? 12 : 30) - (L ? 7 : 16) * Math.sin(x * (L ? .021 : .011) + L * 2 + 1));
+    c.lineTo(w, hy + 2); c.closePath(); c.fillStyle = hc[L]; c.fill();
+  }
+  // pavement
+  const pv = [[mix(C.awn, C.wood, .28), mix(C.awn, C.wood, .55)], [shade(mix(C.awn, C.wood, .45), .3), shade(mix(C.awn, C.wood, .55), .38)], ['#F6F9FF', '#D3E1F2']][wx];
+  g = c.createLinearGradient(0, hy, 0, h); g.addColorStop(0, pv[0]); g.addColorStop(1, pv[1]); c.fillStyle = g; c.fillRect(0, hy, w, h - hy);
+  c.fillStyle = 'rgba(0,0,0,.14)'; c.fillRect(0, hy, w, 2); c.fillStyle = 'rgba(255,255,255,.35)'; c.fillRect(0, hy + 2, w, 1.5);
+  c.strokeStyle = wx === 2 ? 'rgba(110,140,190,.18)' : 'rgba(80,50,20,.12)'; c.lineWidth = 1; c.beginPath();
+  const vx = w / 2, vy = hy - 90;
+  for (let i = -8; i <= 8; i++) { const xb = vx + i * 90; c.moveTo(vx + (xb - vx) * (hy - vy) / (h - vy), hy); c.lineTo(xb, h); }
+  for (const f of [.16, .4, .7]) { const Y = hy + (h - hy) * f; c.moveTo(0, Y); c.lineTo(w, Y); }
+  c.stroke();
+  if (wx === 1) { c.fillStyle = 'rgba(190,210,240,.10)'; for (let i = 0; i < 6; i++) { rr(c, w * (.08 + i * .17), hy + (h - hy) * .3, 26, (h - hy) * .6, 10); c.fill(); } }
+  if (wx === 2) { for (const [fx, k] of [[.1, 1], [.4, .8], [.72, 1.1], [.95, .9]]) { ell(c, w * fx, hy + 8, 60 * k, 9 * k); c.fillStyle = 'rgba(255,255,255,.8)'; c.fill(); } }
+}
+function weatherFx(c, w, h, wx, hy, time) {
+  c.save();
+  if (wx === 1) {
+    for (let i = 0; i < 5; i++) { // ripples in puddles
+      const ph = (time * .9 + i * .37) % 1, rx = 6 + ph * 24, X = w * (.12 + i * .19), Y = hy + (h - hy) * (.55 + (i % 2) * .22);
+      ell(c, X, Y, rx, rx * .28); c.strokeStyle = `rgba(255,255,255,${(1 - ph) * .5})`; c.lineWidth = 1.2; c.stroke();
+    }
+    c.strokeStyle = 'rgba(200,222,250,.5)'; c.lineWidth = 1.3; c.lineCap = 'round'; c.beginPath();
+    for (const r of RAIN) { const Y = (r.y * h + time * r.v) % h, X = (r.x * (w + 80) + Y * .22) % (w + 80) - 40; c.moveTo(X, Y); c.lineTo(X - 3.5, Y + r.l); }
+    c.stroke();
+  } else if (wx === 2) {
+    c.fillStyle = 'rgba(255,255,255,.88)';
+    for (const r of SNOW) { circ(c, r.x * w + Math.sin(time * r.f + r.p) * 14, (r.y * h + time * r.v) % h, r.s); c.fill(); }
+  }
+  c.restore();
+}
+function tree(c, x, y, wx) {
+  ell(c, x + 6, y + 2, 36, 6); c.fillStyle = 'rgba(0,0,0,.18)'; c.fill();
+  let g = c.createLinearGradient(x - 7, 0, x + 7, 0); g.addColorStop(0, tint(C.wood, .12)); g.addColorStop(1, shade(C.wood, .38));
+  c.beginPath(); c.moveTo(x - 8, y); c.quadraticCurveTo(x - 5, y - 40, x - 4, y - 80); c.lineTo(x + 4, y - 80); c.quadraticCurveTo(x + 5, y - 40, x + 8, y); c.closePath();
+  c.fillStyle = g; c.fill(); c.lineWidth = 1.3; c.strokeStyle = shade(C.wood, .55); c.stroke();
+  const base = wx === 1 ? '#5E9C7E' : wx === 2 ? '#7FAA94' : C.green;
+  const bl = [[0, -98, 34], [-27, -82, 26], [27, -84, 27], [-12, -121, 24], [16, -116, 25]];
+  for (const [dx, dy, r] of bl) {
+    g = c.createRadialGradient(x + dx - r * .3, y + dy - r * .35, r * .1, x + dx, y + dy, r * 1.05);
+    g.addColorStop(0, tint(base, .38)); g.addColorStop(.6, base); g.addColorStop(1, shade(base, .3));
+    circ(c, x + dx, y + dy, r); c.fillStyle = g; c.fill();
+  }
+  if (wx === 2) for (const [dx, dy, r] of bl) { ell(c, x + dx, y + dy - r * .72, r * .62, r * .26); c.fillStyle = 'rgba(255,255,255,.92)'; c.fill(); }
+}
+
+// --- the stall: wooden counter, striped awning, jug, cups, till, sign ---------------------------------------
+const TILL = { bump: 0 };
+function jug(c, x, y, time) { // glass jug of lemonade, (x, y) the bottom centre
+  c.strokeStyle = 'rgba(255,255,255,.6)'; c.lineWidth = 4; c.beginPath(); c.moveTo(x + 15, y - 40); c.bezierCurveTo(x + 32, y - 42, x + 32, y - 12, x + 15, y - 12); c.stroke();
+  ell(c, x + 6, y + 1, 26, 3.5); c.fillStyle = 'rgba(255,216,74,.28)'; c.fill();
+  const body = () => { c.beginPath(); c.moveTo(x - 16, y - 50); c.lineTo(x - 18, y - 8); c.quadraticCurveTo(x - 18, y, x - 10, y); c.lineTo(x + 10, y); c.quadraticCurveTo(x + 18, y, x + 18, y - 8); c.lineTo(x + 16, y - 50); c.closePath(); };
+  body(); c.fillStyle = 'rgba(210,236,255,.22)'; c.fill();
+  c.save(); body(); c.clip();
+  let g = c.createLinearGradient(x - 18, 0, x + 18, 0); g.addColorStop(0, shade(C.lemon, .15)); g.addColorStop(.35, C.lemon); g.addColorStop(.65, tint(C.lemon, .3)); g.addColorStop(1, shade(C.lemon, .25));
+  c.fillStyle = g; c.fillRect(x - 20, y - 38, 40, 40);
+  ell(c, x, y - 38, 16.5, 3.2); c.fillStyle = tint(C.lemon, .55); c.fill();
+  for (const [dx, dy, a] of [[-7, -32, .3], [6, -29, -.4], [-1, -22, .6], [8, -15, .2]]) { // ice
+    const bob = Math.sin(time * 1.6 + dx) * .8;
+    c.save(); c.translate(x + dx, y + dy + bob); c.rotate(a); rr(c, -4.5, -4.5, 9, 9, 2); c.fillStyle = 'rgba(255,255,255,.5)'; c.fill(); c.lineWidth = 1; c.strokeStyle = 'rgba(255,255,255,.85)'; c.stroke(); c.restore();
+  }
+  slice(c, x + 9, y - 37 + Math.sin(time * 1.3) * .6, 7); slice(c, x - 10, y - 17, 7);
+  c.restore();
+  c.save(); body(); c.clip();
+  rr(c, x - 13, y - 44, 3.5, 30, 2); c.fillStyle = 'rgba(255,255,255,.5)'; c.fill();
+  rr(c, x - 7.5, y - 40, 2, 16, 1); c.fillStyle = 'rgba(255,255,255,.28)'; c.fill();
+  c.beginPath(); c.moveTo(x + 2, y - 50); c.lineTo(x + 10, y - 50); c.lineTo(x - 2, y); c.lineTo(x - 10, y); c.closePath(); c.fillStyle = 'rgba(255,255,255,.1)'; c.fill();
+  c.restore();
+  body(); c.lineWidth = 1.6; c.strokeStyle = 'rgba(255,255,255,.65)'; c.stroke();
+  ell(c, x, y - 50, 16, 3.5); c.stroke();
+  c.beginPath(); c.moveTo(x - 16, y - 50); c.lineTo(x - 22, y - 53); c.lineTo(x - 15, y - 47); c.stroke();
+}
+function till(c, x, y) { // little tin cash register
+  const b = TILL.bump; c.save(); c.translate(x, y - b * 2);
+  let g = c.createLinearGradient(0, -22, 0, 0); g.addColorStop(0, '#B8C5D6'); g.addColorStop(1, '#6E7E96');
+  rr(c, -19, -22, 38, 22, 3); c.fillStyle = g; c.fill(); c.lineWidth = 1.3; c.strokeStyle = '#2B3650'; c.stroke();
+  c.beginPath(); c.moveTo(-19, -22); c.lineTo(19, -22); c.lineTo(14, -35); c.lineTo(-14, -35); c.closePath();
+  g = c.createLinearGradient(0, -35, 0, -22); g.addColorStop(0, '#DCE5F0'); g.addColorStop(1, '#9AAAC0'); c.fillStyle = g; c.fill(); c.stroke();
+  rr(c, -10, -32, 20, 7, 2); c.fillStyle = '#1B3A2C'; c.fill();
+  c.fillStyle = C.green; c.fillRect(-7, -30, 6, 2.5); c.fillRect(1, -30, 5, 2.5);
+  c.fillStyle = 'rgba(255,255,255,.75)'; for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) { circ(c, -10 + i * 6, -16 + j * 6, 1.8); c.fill(); }
+  rr(c, -15 + 0, -6 + b * 2, 30, 5, 2); c.fillStyle = '#4A5873'; c.fill();
+  circ(c, 22, -14, 2.6); c.fillStyle = '#4A5873'; c.fill(); c.strokeStyle = '#2B3650'; c.lineWidth = 2; c.beginPath(); c.moveTo(22, -14); c.lineTo(25, -24); c.stroke();
+  c.restore();
+}
+function awning(c, snow) {
+  const N = 8, x0 = -98, sw = 196 / N, line = shade(C.lemon, .5);
+  c.lineJoin = 'round';
+  for (let i = 0; i < N; i++) { // slanted roof
+    const col = i % 2 ? C.awn : C.lemon, a = x0 + i * sw, b = a + sw, ta = -72 + i * 18, tb = ta + 18;
+    c.beginPath(); c.moveTo(a, -124); c.lineTo(ta, -152); c.lineTo(tb, -152); c.lineTo(b, -124); c.closePath();
+    c.fillStyle = shade(col, .06); c.fill(); c.lineWidth = 1.3; c.strokeStyle = line; c.stroke();
+  }
+  rr(c, -96, -108, 192, 20, 6); c.fillStyle = 'rgba(0,0,0,.22)'; c.fill(); // shade under the valance
+  for (let i = 0; i < N; i++) { // valance with scallops
+    const col = i % 2 ? C.awn : C.lemon, a = x0 + i * sw;
+    c.beginPath(); c.moveTo(a, -124); c.lineTo(a + sw, -124); c.lineTo(a + sw, -106); c.arc(a + sw / 2, -106, sw / 2, 0, Math.PI, false); c.closePath();
+    const g = c.createLinearGradient(0, -124, 0, -92); g.addColorStop(0, tint(col, .35)); g.addColorStop(.6, col); g.addColorStop(1, shade(col, .1));
+    c.fillStyle = g; c.fill(); c.lineWidth = 1.4; c.strokeStyle = line; c.stroke();
+  }
+  rr(c, -96, -124, 192, 3, 1); c.fillStyle = 'rgba(255,255,255,.4)'; c.fill();
+  if (snow) {
+    c.fillStyle = '#fff'; c.strokeStyle = '#C9D9EC'; c.lineWidth = 1;
+    c.beginPath(); c.moveTo(-76, -149); for (let i = 0; i <= 6; i++) c.quadraticCurveTo(-76 + i * 25.3 + 6, -168, -76 + (i + 1) * 25.3 - 6 > 76 ? 76 : -76 + (i + 1) * 25.3, -150); c.lineTo(76, -149); c.closePath(); c.fill(); c.stroke();
+    for (let i = 0; i < 8; i++) { ell(c, x0 + i * sw + sw / 2, -124, 9, 4); c.fillStyle = '#fff'; c.fill(); }
+  }
+}
+function stall(c, o) {
+  const k = o.k || 1, full = o.mode === 'full', dk = shade(C.wood, .55), time = TNOW;
+  c.save(); c.translate(o.x, o.y); c.scale(k, k);
+  const prev = SCL; SCL = prev * k; c.lineJoin = 'round'; c.lineCap = 'round';
+  ell(c, 0, 3, 114, 11); c.fillStyle = 'rgba(0,0,0,.22)'; c.fill();
+  let g = c.createLinearGradient(0, -124, 0, -54); g.addColorStop(0, shade(C.wood, .55)); g.addColorStop(1, shade(C.wood, .36));
+  c.fillStyle = g; c.fillRect(-82, -124, 164, 72);
+  c.strokeStyle = 'rgba(0,0,0,.2)'; c.lineWidth = 1; c.beginPath(); for (let x = -61; x < 80; x += 20.5) { c.moveTo(x, -124); c.lineTo(x, -54); } c.stroke();
+  for (const px of [-90, 82]) { // posts
+    g = c.createLinearGradient(px, 0, px + 8, 0); g.addColorStop(0, tint(C.wood, .22)); g.addColorStop(1, shade(C.wood, .3));
+    c.fillStyle = g; c.fillRect(px, -128, 8, 128); c.lineWidth = 1.3; c.strokeStyle = dk; c.strokeRect(px, -128, 8, 128);
+  }
+  // counter front
+  g = c.createLinearGradient(0, -46, 0, 0); g.addColorStop(0, mix(C.wood, '#ffffff', .08)); g.addColorStop(1, shade(C.wood, .3));
+  rr(c, -94, -46, 188, 46, 3); c.fillStyle = g; c.fill(); c.lineWidth = 1.5; c.strokeStyle = dk; c.stroke();
+  c.strokeStyle = 'rgba(0,0,0,.2)'; c.lineWidth = 1; c.beginPath(); for (let x = -64; x < 90; x += 30) { c.moveTo(x, -44); c.lineTo(x, -2); } c.stroke();
+  if (full && o.made) { // rack of ready cups (the "too much lemonade" experiment)
+    rr(c, -80, -41, 160, 34, 5); c.fillStyle = 'rgba(30,16,4,.6)'; c.fill(); c.lineWidth = 1.2; c.strokeStyle = dk; c.stroke();
+    const gone = o.made - o.stock;
+    for (let i = 0; i < o.made; i++) {
+      const X = -64 + (i % 10) * 14.2, Y = i < 10 ? -30 : -15;
+      circ(c, X, Y, 6); c.fillStyle = 'rgba(0,0,0,.45)'; c.fill();
+      if (i >= gone) { const cg = c.createRadialGradient(X - 2, Y - 2, 1, X, Y, 6); cg.addColorStop(0, tint(C.lemon, .5)); cg.addColorStop(1, C.lemon); circ(c, X, Y, 5.2); c.fillStyle = cg; c.fill(); c.lineWidth = 1.2; c.strokeStyle = '#fff'; c.stroke(); }
+    }
+  } else if (full) lemon(c, 0, -23, 16);
+  // counter top
+  g = c.createLinearGradient(0, -56, 0, -46); g.addColorStop(0, tint(C.wood, .38)); g.addColorStop(1, tint(C.wood, .1));
+  rr(c, -98, -56, 196, 11, 4); c.fillStyle = g; c.fill(); c.lineWidth = 1.5; c.strokeStyle = dk; c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.4)'; c.fillRect(-94, -54.5, 188, 1.4);
+  g = c.createLinearGradient(0, -45, 0, -39); g.addColorStop(0, 'rgba(0,0,0,.3)'); g.addColorStop(1, 'rgba(0,0,0,0)'); c.fillStyle = g; c.fillRect(-94, -45, 188, 6);
+
+  if (full) {
+    jug(c, -58, -56, time);
+    for (let i = 0; i < 3; i++) cup(c, -14, -56 - i * 5, 17); // stack of paper cups
+    cup(c, 8, -56, 17); cup(c, 21, -56, 17);
+    till(c, 56, -56);
+    if (o.big) { // the big painted sign on the roof
+      c.fillStyle = shade(C.wood, .2); c.fillRect(-52, -172, 7, 26); c.fillRect(45, -172, 7, 26); c.strokeStyle = dk; c.lineWidth = 1.2; c.strokeRect(-52, -172, 7, 26); c.strokeRect(45, -172, 7, 26);
+      g = c.createLinearGradient(0, -218, 0, -164); g.addColorStop(0, tint(C.awn, .4)); g.addColorStop(1, C.awn);
+      rr(c, -76, -218, 152, 54, 8); c.fillStyle = g; c.fill(); c.lineWidth = 5; c.strokeStyle = C.wood; c.stroke(); c.lineWidth = 1.2; c.strokeStyle = dk; rr(c, -78.5, -220.5, 157, 59, 9); c.stroke();
+      lemon(c, -36, -190, 21, -.3);
+      cup(c, 40, -172, 36);
+      for (const [X, Y, r] of [[-4, -202, 6], [8, -184, 4.5]]) { c.fillStyle = C.lemon; c.beginPath(); for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4 - Math.PI / 2, rad = i % 2 ? r * .35 : r; c.lineTo(X + Math.cos(a) * rad, Y + Math.sin(a) * rad); } c.closePath(); c.fill(); c.lineWidth = .8; c.strokeStyle = shade(C.lemon, .4); c.stroke(); }
+      for (let i = 0; i < 16; i++) { // blinking bulbs around the edge
+        const t = i / 16, pos = t < .5 ? [-76 + t * 2 * 152, -218] : [76 - (t - .5) * 2 * 152, -164], on = (Math.floor(time * 3) + i) % 2 === 0;
+        circ(c, pos[0], pos[1], 2.4); c.fillStyle = on ? '#FFF8C8' : shade(C.lemon, .3); c.fill();
+        if (on) { circ(c, pos[0], pos[1], 5); c.fillStyle = 'rgba(255,216,74,.3)'; c.fill(); }
+      }
+    }
+  } else { // products on the counter
+    for (const dx of [-50, 0, 50]) { ell(c, dx, -57, 16, 3); c.fillStyle = 'rgba(0,0,0,.18)'; c.fill(); emo(c, o.e, dx, -57 - 11 / SCL, 22); }
+  }
+  // hanging price sign (full) or round shop sign (product)
+  if (full) {
+    const sway = Math.sin(time * 1.3) * .025;
+    c.save(); c.translate(0, -100); c.rotate(sway);
+    c.strokeStyle = shade(C.wood, .45); c.lineWidth = 1.4; c.beginPath(); c.moveTo(-22, 0); c.lineTo(-22, 10); c.moveTo(22, 0); c.lineTo(22, 10); c.stroke();
+    g = c.createLinearGradient(0, 8, 0, 40); g.addColorStop(0, tint(C.awn, .4)); g.addColorStop(1, C.awn);
+    rr(c, -34, 8, 68, 34, 5); c.fillStyle = g; c.fill(); c.lineWidth = 2.2; c.strokeStyle = shade(C.wood, .25); c.stroke();
+    rr(c, -30.5, 11.5, 61, 27, 3); c.lineWidth = 1; c.strokeStyle = rgba(C.wood, .6); c.stroke();
+    const pr = o.price;
+    if (pr === null || pr === undefined) txt(c, '?', 0, 25, 22, '#7A4A1A', 900);
+    else { txt(c, String(pr), -9, 25, 24, '#7A4A1A', 900); coin(c, 16, 25, 7.5); }
+    c.restore();
+  } else {
+    const rl = 23 / SCL, cy = -158 - rl;
+    c.strokeStyle = shade(C.wood, .3); c.lineWidth = 3; c.beginPath(); c.moveTo(0, -152); c.lineTo(0, cy + rl); c.stroke();
+    g = c.createRadialGradient(-rl * .3, cy - rl * .3, rl * .1, 0, cy, rl); g.addColorStop(0, '#fff'); g.addColorStop(1, C.awn);
+    circ(c, 0, cy, rl); c.fillStyle = g; c.fill(); c.lineWidth = 4 / SCL; c.strokeStyle = C.wood; c.stroke();
+    emo(c, o.e, 0, cy + 1 / SCL, 27);
+  }
+  awning(c, o.snow);
+  SCL = prev; c.restore();
+}
+
+// --- state --------------------------------------------------------------------------------------------------
+const RIGHT = [0, 1, 1], WX_EMO = ['☀️', '🌧️', '❄️'];
+const XS = [62, 180, 298];
+const I = { ri: 0, pick: null, ok: [], t0: 0, crowd: [] };               // idea
+const P = { stage: 'q', pick: null, n: 0, slot: [-1, -1, -1, -1, -1, -1], cell: [5, 0, 1, 2, 3, 4], toastT: 0 };   // plan
+const SD = { st: 'q1', pick1: null, pick2: null, price: 3, D: null, sec: null };   // the stand
+const BAR = { on: false, t: 0, vals: new Array(8).fill(null), done: false, best: -1 };
+const POT = { in: 0, out: 0 };
+const FX = [];
+
+const lab = shell({ key: 'lemonade', T, topics: TOPICS, views: ['idea', 'plan', 'stand'], onLang: () => { buildBoard(); render(); }, onView: render });
+const secret = secretLab('lemonade', () => ({
+  secrets: [{ emo: '🪧', title: T[lang].secrets.sign[0], desc: T[lang].secrets.sign[1] }, { emo: '🥤', title: T[lang].secrets.leftover[0], desc: T[lang].secrets.leftover[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="lmIdea">
+    <div class="lm-q" id="iQ"></div><div class="lm-opts" id="iOpts"></div><div class="lm-msg" id="iMsg"></div>
+    <div class="row2"><button class="btn lm-main" id="iMain" data-act="iNext"></button></div>
+  </div>
+  <div id="lmPlan">
+    <div class="lm-q" id="pQ"></div><div class="lm-opts col" id="pOpts"></div><div class="lm-msg" id="pMsg"></div>
+    <div class="row2"><button class="btn lm-main" id="pMain" data-act="pAgain"></button></div>
+  </div>
+  <div id="lmStand">
+    <div class="lm-q" id="sQ"></div><div class="lm-opts col" id="sOpts"></div>
+    <div id="sFree"><div class="lm-price"><span id="sPriceLbl"></span></div>
+      <input type="range" class="big" id="sRange" min="1" max="8" step="1" style="--track:linear-gradient(90deg,#FFF3C4,#FFD84A)">
+      <div class="ends"><span>1</span><span>8</span></div></div>
+    <div class="lm-msg" id="sMsg"></div>
+    <div class="row2"><div class="chips" id="sChips"></div><button class="btn lm-main" id="sMain" data-act="sMain"></button></div>
+  </div>`;
+$('overlay').insertAdjacentHTML('beforeend', '<div id="lmBoard"></div>');
+
+// on a phone the controls sit below the canvas: bring the reveal into view
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+
+// --- the days: customers walk by, some stop and buy, some look at the price and walk on --------------------
+const ORDER = (() => {
+  const w = []; for (let k = 0; k < 8; k++) for (let j = 0; j < 3; j++) w.push(k);   // three people who would pay up to each of 0..7 coins
+  const r = rng(7); for (let i = w.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [w[i], w[j]] = [w[j], w[i]]; }
+  return w;
+})();
+const STAND = { x: 180, y: 214 }, TILL_AT = [236, 124], CUP_AT = [164, 156], POT_RED = [52, 226], POT_GREEN = [308, 226];
+function makeDay(o) {
+  const quick = !!o.quick, sc = quick ? .18 : 1, gap = quick ? .026 : .22, speed = quick ? 520 : 95;
+  const seq = []; ORDER.forEach((w, i) => { seq.push(w); if (o.sign && i % 4 === 3) seq.push(8); });   // the big sign brings 6 more
+  const custs = seq.map((w, i) => {
+    const dir = i % 2 ? -1 : 1, buy = w >= o.price, spotX = dir > 0 ? [150, 126, 102][i % 3] : [210, 234, 258][i % 3], startX = dir > 0 ? -28 : 388;
+    const q = { i, buy, dir, startX, spotX, speed, birth: i * gap, tw: Math.abs(spotX - startX) / speed, y: 246 + (i % 3) * 10, col: SKIN[(i * 5 + 2) % 6], hat: i % 3, taken: false, costed: false, paid: false };
+    if (buy) { q.cup0 = q.tw + .2 * sc; q.cup1 = q.cup0 + .35 * sc; q.coin0 = q.cup1 + .03 * sc; q.coin1 = q.coin0 + .4 * sc; q.leave = q.coin1 + .2 * sc; }
+    else { q.hm0 = q.tw + .1 * sc; q.hm1 = q.tw + .95 * sc; q.leave = q.tw + 1.05 * sc; }
+    q.end = q.leave + (dir > 0 ? 392 - spotX : spotX + 32) / speed;
+    return q;
+  });
+  const made = o.made || 0;
+  return { price: o.price, quick, sc, mode: o.mode, sign: !!o.sign, made, stock: made, custs, T: 0, in: 0, sold: 0, done: false,
+    out: made ? made * COST : o.sign ? SIGN_COST : 0, perSale: made ? 0 : COST, end: Math.max(...custs.map((q) => q.birth + q.end)) };
+}
+function beginDay(o) {
+  SD.D = makeDay(o); POT.in = 0; POT.out = 0; TILL.bump = 0; FX.length = 0;
+  if (!o.quick) sfx.click();
+}
+function updateStand(dt) {
+  TILL.bump = Math.max(0, TILL.bump - dt * 4);
+  const D = SD.D, ti = D ? D.in : 0, to = D ? D.out : 0;
+  POT.in += (ti - POT.in) * Math.min(1, dt * 9); POT.out += (to - POT.out) * Math.min(1, dt * 9);
+  if (!D || D.done) return;
+  D.T += dt;
+  for (const q of D.custs) {
+    const lt = D.T - q.birth; if (lt < 0 || !q.buy) continue;
+    if (!q.taken && lt >= q.cup0) { q.taken = true; if (D.made) D.stock--; }
+    if (!q.costed && lt >= q.cup0 + .4 * D.sc) { q.costed = true; D.out += D.perSale; }
+    if (!q.paid && lt >= q.coin1) {
+      q.paid = true; D.in += D.price; D.sold++; TILL.bump = 1;
+      if (!D.quick) { FX.push({ t0: TNOW, text: `+${D.price}` }); sfx.snap(); }
+    }
+  }
+  if (D.T >= D.end) finishDay();
+}
+function finishDay() {
+  const D = SD.D; D.done = true;
+  if (D.mode === 'sweep') {
+    BAR.vals[D.price - 1] = D.in - D.out;
+    if (D.price < 8) { beginDay({ price: D.price + 1, quick: true, mode: 'sweep' }); sfx.tick(); }
+    else {
+      BAR.done = true; BAR.best = BAR.vals.indexOf(Math.max(...BAR.vals));
+      SD.D = null; POT.in = 0; POT.out = 0; SD.st = 'free'; sfx.good(); render();
+    }
+  } else render();
+}
+const dayRunning = () => !!SD.D && !SD.D.done;
+const signPrice = () => (SD.D ? SD.D.price : SD.st === 'q1' || SD.st === 'r1' ? 2 : SD.st === 'q2' ? null : SD.price);
+
+// --- drawing: the idea view (three stalls, weather) --------------------------------------------------------
+function drawIdea(c, w, h, time) {
+  const t = T[lang], ri = I.ri, wx = ri, s = Math.min(w / 360, h / 300, 1.8), ox = (w - 360 * s) / 2, oy = h - 300 * s, hy = oy + 196 * s;
+  backdrop(c, w, h, wx, hy, time);
+  c.save(); c.translate(ox, oy); c.scale(s, s); SCL = s; VX = ox; VY = oy; VS = s;
+  tree(c, 18, 206, wx); tree(c, 344, 206, wx);
+  const emos = t.i.opts[ri].map((o) => o.split(' ')[0]);
+  for (let j = 0; j < 3; j++) stall(c, { x: XS[j], y: 222, k: .56, mode: 'product', e: emos[j], snow: wx === 2 });
+  const el = time - I.t0, revealed = I.pick !== null;
+  const list = [];
+  if (revealed) for (const q of I.crowd) {
+    if (el < q.delay) continue;
+    const u = clamp01((el - q.delay) / q.dur), arrived = el - q.delay - q.dur, moving = u < 1;
+    list.push({ x: lerp(q.sx, q.tx, ease(u)), y: q.y, r: 12.5, col: q.col, hat: q.hat, gear: wx === 1 ? 'rain' : wx === 2 ? 'snow' : null, moving, ph: el * 9 + q.tx,
+      face: moving ? (q.sx < q.tx ? 1 : -1) : 0, cup: arrived > .35, mood: arrived > .35 ? 'happy' : 'neutral', sq: arrived > 0 && arrived < .25 ? .11 * Math.sin(arrived / .25 * Math.PI) : 0 });
+  }
+  list.sort((a, b) => a.y - b.y).forEach((p) => person(c, p));
+  if (revealed) {
+    const bu = clamp01((el - .3) / .4);
+    badge(c, XS[RIGHT[ri]] + 42, 222 - .56 * 150, 12.5, true, backOut(bu));
+    if (I.pick !== RIGHT[ri]) badge(c, XS[I.pick] + 42, 222 - .56 * 150, 12.5, false, backOut(bu));
+  }
+  c.restore();
+  weatherFx(c, w, h, wx, hy, time);
+  pillText(c, `${WX_EMO[wx]} ${t.i.weather[wx]}`, 0, 0, { px: 14, max: w - 12 });  // top left corner (the pill is clamped inside the canvas)
+  if (revealed && el > 1) {
+    const ok = I.pick === RIGHT[ri];
+    pillText(c, `${ok ? t.right : t.wrong} ${t.i.why[ri]}`, w / 2, 62, { px: 13, color: '#fff', stroke: ok ? C.green : C.red, bg: 'rgba(20,30,52,.88)' });
+  }
+}
+
+// --- drawing: the corkboard behind the plan cards ----------------------------------------------------------
+let cork = null;
+function drawPlan(c, w, h, time) {
+  if (!cork || cork.w !== w || cork.h !== h) {
+    const cv = document.createElement('canvas'); cv.width = Math.ceil(w); cv.height = Math.ceil(h); const k = cv.getContext('2d'), r = rng(3);
+    const g = k.createRadialGradient(w * .4, h * .35, 20, w / 2, h / 2, Math.max(w, h) * .75); g.addColorStop(0, '#D4A06A'); g.addColorStop(1, '#A87038');
+    k.fillStyle = g; k.fillRect(0, 0, w, h);
+    for (let i = 0; i < w * h / 90; i++) { k.fillStyle = r() > .5 ? 'rgba(80,42,14,.28)' : 'rgba(255,225,170,.3)'; k.beginPath(); k.arc(r() * w, r() * h, .5 + r() * 1.5, 0, Math.PI * 2); k.fill(); }
+    cork = { w, h, cv };
+  }
+  c.drawImage(cork.cv, 0, 0, w, h);
+  const done = P.stage === 'done';
+  if (done) { c.save(); c.shadowColor = C.lemon; c.shadowBlur = 22; c.lineWidth = 5; c.strokeStyle = `rgba(255,216,74,${.55 + .3 * Math.sin(time * 3)})`; rr(c, 4, 4, w - 8, h - 8, 10); c.stroke(); c.restore(); }
+  // wooden frame
+  c.lineWidth = 10; c.strokeStyle = shade(C.wood, .35); rr(c, 5, 5, w - 10, h - 10, 8); c.stroke();
+  c.lineWidth = 1.5; c.strokeStyle = 'rgba(255,255,255,.25)'; rr(c, 10.5, 10.5, w - 21, h - 21, 4); c.stroke();
+  if (LAYOUT.mid) { c.strokeStyle = 'rgba(70,35,10,.4)'; c.lineWidth = 2; c.setLineDash([8, 7]); c.beginPath(); c.moveTo(18, LAYOUT.mid); c.lineTo(w - 18, LAYOUT.mid); c.stroke(); c.setLineDash([]); }
+}
+
+// --- drawing: the stand view ---------------------------------------------------------------------------------
+function pot(c, x, y, n, col) {
+  const W = 46, H = 62;
+  rr(c, x - W / 2, y - H, W, H, 9); c.fillStyle = 'rgba(8,16,34,.38)'; c.fill();
+  c.save(); rr(c, x - W / 2 + 2, y - H, W - 4, H - 2, 8); c.clip();
+  const tot = Math.min(72, Math.round(n));
+  c.lineWidth = .8; c.strokeStyle = shade(C.lemon, .5);
+  for (let k = 0; k < tot; k++) {
+    const layer = (k / 3) | 0, j = k % 3, X = x + (j - 1) * 11 + (layer % 2 ? 3.5 : -2.5), Y = y - 6 - layer * 2.3;
+    ell(c, X, Y, 8.4, 3.2); c.fillStyle = (layer + j) % 2 ? C.lemon : tint(C.lemon, .2); c.fill(); c.stroke();
+  }
+  c.restore();
+  const g = c.createLinearGradient(x - W / 2, 0, x + W / 2, 0); g.addColorStop(0, 'rgba(255,255,255,.3)'); g.addColorStop(.3, rgba(col, .1)); g.addColorStop(1, 'rgba(255,255,255,.16)');
+  rr(c, x - W / 2, y - H, W, H, 9); c.fillStyle = g; c.fill(); c.lineWidth = 1.6; c.strokeStyle = 'rgba(255,255,255,.65)'; c.stroke();
+  rr(c, x - W / 2, y - 11, W, 11, 5); c.fillStyle = rgba(col, .75); c.fill(); c.lineWidth = 1.2; c.strokeStyle = shade(col, .4); c.stroke();
+  rr(c, x - W / 2 + 6, y - H + 9, 4, H - 28, 2); c.fillStyle = 'rgba(255,255,255,.45)'; c.fill();
+  ell(c, x, y - H, W / 2, 4); c.lineWidth = 1.4; c.strokeStyle = 'rgba(255,255,255,.75)'; c.stroke();
+  ell(c, x + W / 2 - 6, y - H - 2, 3, 6, -.4); c.fillStyle = 'rgba(255,255,255,.35)'; c.fill();
+}
+function chart(c, x, y, w, h, a, t, cur) {
+  c.save(); c.globalAlpha = a;
+  rr(c, x, y, w, h, 14); c.fillStyle = 'rgba(20,30,52,.88)'; c.fill(); c.lineWidth = 1; c.strokeStyle = 'rgba(154,208,255,.3)'; c.stroke();
+  c.font = `800 12px ${FONT}`; c.textBaseline = 'middle';
+  const capW = c.measureText(t.s.price).width, padL = capW + 24, top = 32, bot = 26;
+  const px = x + padL, pw = w - padL - 10, py = y + top, ph = h - top - bot, vmax = 30, vmin = -24, sc = ph / (vmax - vmin), zy = py + vmax * sc, bw = pw / 8;
+  c.textAlign = 'left'; c.fillStyle = C.awn; c.font = `800 13px ${FONT}`; c.fillText(t.s.profit, x + 12, y + 16);
+  c.font = `800 12px ${FONT}`; c.fillStyle = '#98A0B8'; c.fillText(t.s.price, x + 12, y + h - 13);
+  c.strokeStyle = 'rgba(255,255,255,.4)'; c.lineWidth = 1; c.beginPath(); c.moveTo(px - 4, zy); c.lineTo(px + pw, zy); c.stroke();
+  c.textAlign = 'right'; c.fillStyle = '#98A0B8'; c.fillText('0', px - 8, zy);
+  const D = SD.D;
+  if (cur >= 0) { rr(c, px + cur * bw + 1, py - 4, bw - 2, ph + 8, 7); c.fillStyle = 'rgba(255,255,255,.08)'; c.fill(); c.lineWidth = 1.4; c.strokeStyle = 'rgba(255,255,255,.7)'; c.stroke(); }
+  for (let i = 0; i < 8; i++) {
+    c.textAlign = 'center'; c.font = `800 12px ${FONT}`; c.fillStyle = i === cur ? '#fff' : '#D3D9E8'; c.fillText(String(i + 1), px + (i + .5) * bw, y + h - 13);
+    let v = BAR.vals[i]; if (D && !D.done && D.mode === 'sweep' && D.price === i + 1) v = D.in - D.out;
+    if (v === null) continue;
+    const bx = px + i * bw + bw * .14, wd = bw * .72, bh = Math.abs(v) * sc, best = BAR.done && i === BAR.best, col = best ? C.lemon : v >= 0 ? C.green : C.red;
+    if (bh > .5) {
+      c.save(); if (best) { c.shadowColor = C.lemon; c.shadowBlur = 12 + 6 * Math.sin(TNOW * 4); }
+      const g = c.createLinearGradient(0, v >= 0 ? zy - bh : zy, 0, v >= 0 ? zy : zy + bh); g.addColorStop(0, v >= 0 ? tint(col, .35) : col); g.addColorStop(1, v >= 0 ? col : tint(col, .1));
+      rr(c, bx, v >= 0 ? zy - bh : zy, wd, bh, Math.min(4, bh / 2)); c.fillStyle = g; c.fill(); c.lineWidth = 1; c.strokeStyle = shade(col, .35); c.stroke(); c.restore();
+    }
+    c.fillStyle = best ? C.lemon : '#EDEFF7'; c.textBaseline = 'middle'; c.fillText(fmt(v), bx + wd / 2, v >= 0 ? zy - bh - 9 : zy + bh + 9);
+  }
+  c.restore();
+}
+function drawStand(c, w, h, dt, time) {
+  const t = T[lang], D = SD.D;
+  updateStand(dt);
+  readoutStand();
+  const narrow = w < 560;
+  BAR.t += clamp((BAR.on && !SD.sec ? 1 : 0) - BAR.t, -dt * 2.5, dt * 2.5);
+  const ct = ease(BAR.t);
+  let rw = w, s;
+  if (narrow) s = Math.min(w / 360, (h - 128 * ct) / 300, 1.8);
+  else { rw = w - (Math.min(340, w * .42) + 10) * ct; s = Math.min(rw / 360, h / 300, 1.8); }
+  const ox = (rw - 360 * s) / 2, oy = h - 300 * s, hy = oy + 196 * s;
+  backdrop(c, w, h, 0, hy, time);
+  c.save(); c.beginPath(); c.rect(0, 0, rw, h); c.clip();
+  c.translate(ox, oy); c.scale(s, s); SCL = s; VX = ox; VY = oy; VS = s;
+  tree(c, 34, 206, 0);
+  const quick = D?.quick, rack = SD.sec === 'leftover';
+  stall(c, { x: STAND.x, y: STAND.y, k: 1, mode: 'full', price: signPrice(), big: SD.sec === 'sign', made: rack ? MADE : 0, stock: D?.made ? D.stock : MADE });
+  pot(c, POT_RED[0], POT_RED[1], POT.out, C.red); pot(c, POT_GREEN[0], POT_GREEN[1], POT.in, C.green);
+  LB.length = 0;
+  LB.push({ k: 'pot', x: POT_RED[0], y: POT_RED[1] - 62 - 22, title: t.s.out, val: Math.round(POT.out), col: C.red });
+  LB.push({ k: 'pot', x: POT_GREEN[0], y: POT_GREEN[1] - 62 - 22, title: t.s.in, val: Math.round(POT.in), col: C.green });
+  const ppl = [];
+  if (D) for (const q of D.custs) {
+    const lt = D.T - q.birth; if (lt < 0 || lt > q.end) continue;
+    let x, moving = false, face = q.dir, mood = 'neutral';
+    if (lt < q.tw) { x = q.startX + q.dir * q.speed * lt; moving = true; }
+    else if (lt < q.leave) { x = q.spotX; face = 0; }
+    else { x = q.spotX + q.dir * q.speed * (lt - q.leave); moving = true; }
+    if (!D.quick) { if (q.buy) mood = lt >= q.cup1 ? 'happy' : 'neutral'; else if (lt >= q.hm0 && lt < q.leave) mood = 'hmm'; }
+    const st = lt - q.tw;
+    ppl.push({ q, lt, x, y: q.y, r: 19, col: q.col, hat: q.hat, face, moving, mood, ph: lt * (D.quick ? 30 : 11), cup: q.buy && lt >= q.cup1, sq: st > 0 && st < .18 * D.sc ? .1 * Math.sin(st / (.18 * D.sc) * Math.PI) : 0 });
+    if (!D.quick && mood === 'hmm') LB.push({ k: 'hmm', x, y: q.y - 19 * 2.3 });
+  }
+  ppl.sort((a, b) => a.y - b.y).forEach((p) => person(c, p));
+  if (D && !quick) for (const p of ppl) { // a cup and a coin in the air
+    const { q, lt } = p, arc = (A, B, u, hgt) => [lerp(A[0], B[0], u), lerp(A[1], B[1], u) - hgt * Math.sin(Math.PI * u)];
+    if (q.buy && lt >= q.cup0 && lt < q.cup1) { const [X, Y] = arc(CUP_AT, [p.x + (p.face || 1) * 20, p.y - 14], ease((lt - q.cup0) / (q.cup1 - q.cup0)), 26); cup(c, X, Y, 12); }
+    if (q.buy && lt >= q.coin0 && lt < q.coin1) { const [X, Y] = arc([p.x + 8, p.y - 30], TILL_AT, ease((lt - q.coin0) / (q.coin1 - q.coin0)), 34); coin(c, X, Y, 5.5); }
+    if (q.buy && D.perSale && lt >= q.cup0 && lt < q.cup0 + .4) { const [X, Y] = arc(CUP_AT, [POT_RED[0], POT_RED[1] - 66], ease((lt - q.cup0) / .4), 46); coin(c, X, Y, 4.5, C.red); }
+  }
+  c.restore();
+  // floating +price
+  c.save();
+  for (let i = FX.length - 1; i >= 0; i--) {
+    const f = FX[i], u = (time - f.t0) / .9; if (u > 1) { FX.splice(i, 1); continue; }
+    c.globalAlpha = 1 - u * u; c.font = `900 15px ${FONT}`; c.textAlign = 'center'; c.fillStyle = '#7CF0B4'; c.strokeStyle = 'rgba(10,20,30,.7)'; c.lineWidth = 3;
+    const X = sx(TILL_AT[0]), Y = sy(TILL_AT[1] - 18) - u * 30; c.strokeText(f.text, X, Y); c.fillText(f.text, X, Y);
+  }
+  c.restore();
+  for (const l of LB) { // labels in screen pixels
+    if (l.k === 'hmm') {
+      const X = sx(l.x), Y = sy(l.y), r = pillText(c, t.hmm, X, Y, { px: 12, bg: '#fff', color: C.bg, wt: 800, max: 90 });
+      c.fillStyle = '#fff'; c.beginPath(); c.moveTo(r.x + r.w / 2 - 5, r.y + r.h - 1); c.lineTo(r.x + r.w / 2 + 5, r.y + r.h - 1); c.lineTo(r.x + r.w / 2, r.y + r.h + 6); c.closePath(); c.fill();
+    } else {
+      c.save(); c.font = `800 12px ${FONT}`; const w1 = c.measureText(l.title).width; c.font = `900 17px ${FONT}`; const w2 = c.measureText(String(l.val)).width;
+      const bw = Math.max(w1, w2) + 18, bh = 40, X = clamp(sx(l.x) - bw / 2, 4, w - bw - 4), Y = sy(l.y) - bh / 2;
+      rr(c, X, Y, bw, bh, 11); c.fillStyle = 'rgba(20,30,52,.86)'; c.fill(); c.lineWidth = 1.6; c.strokeStyle = l.col; c.stroke();
+      c.textAlign = 'center'; c.textBaseline = 'middle'; c.font = `800 12px ${FONT}`; c.fillStyle = '#D3D9E8'; c.fillText(l.title, X + bw / 2, Y + 11);
+      c.font = `900 17px ${FONT}`; c.fillStyle = l.col === C.green ? '#7CF0B4' : '#FF8A8E'; c.fillText(String(l.val), X + bw / 2, Y + 29); c.restore();
+    }
+  }
+  // the profit chart: beside the stand, or above it on a phone
+  if (ct > .01) {
+    if (narrow) chart(c, 8, 8, w - 16, Math.max(90, oy - 14), ct, t, chartCur());
+    else { const cw = Math.min(340, w * .42), chh = Math.min(h - 16, 330); chart(c, w - cw - 8, h - chh - 8, cw, chh, ct, t, chartCur()); }
+  }
+}
+function chartCur() { const D = SD.D; return D ? D.price - 1 : SD.st === 'free' ? SD.price - 1 : -1; }
+
+// --- the plan: cards on a corkboard ----------------------------------------------------------------------------
+const LAYOUT = { mid: 0 };
+function buildBoard() {
+  const steps = T[lang].p.steps;
+  $('lmBoard').innerHTML = steps.map((_, i) => `<div class="lm-slot" data-s="${i}"><span>${i + 1}</span></div>`).join('')
+    + steps.map((s, i) => { const k = s.indexOf(' '); return `<div class="lm-card" data-c="${i}"><div class="lm-in"><i class="lm-pin"></i><span class="e">${s.slice(0, k)}</span><span class="t">${esc(s.slice(k + 1))}</span></div></div>`; }).join('')
+    + '<div class="lm-toast" id="lmToast"></div>';
+  layoutPlan();
+}
+function layoutPlan() {
+  const W = $('stage').clientWidth, H = $('stage').clientHeight;
+  if (!W || !H) return;
+  const cols = W >= 560 ? 3 : 2, rows = 6 / cols, padX = 18, gap = 10, cw = Math.floor((W - padX * 2 - gap * (cols - 1)) / cols), ch = cols === 3 ? 66 : 62;
+  const blockH = rows * ch + (rows - 1) * gap, free = H - 2 * blockH - 36, top = Math.max(18, free / 2 + 4), poolTop = top + blockH + 36;
+  LAYOUT.mid = top + blockH + 18;
+  const at = (i, y0) => [padX + (i % cols) * (cw + gap), y0 + Math.floor(i / cols) * (ch + gap)];
+  $('lmBoard').querySelectorAll('.lm-slot').forEach((el, i) => {
+    const [x, y] = at(i, top); el.style.width = `${cw}px`; el.style.height = `${ch}px`; el.style.transform = `translate(${x}px,${y}px)`;
+  });
+  $('lmBoard').querySelectorAll('.lm-card').forEach((el, i) => {
+    const placed = P.slot[i] >= 0, [x, y] = placed ? at(P.slot[i], top) : at(P.cell[i], poolTop), rot = placed ? ((i * 5) % 3 - 1) * 1.1 : ((i * 37) % 7 - 3) * .9, shown = P.stage !== 'q';
+    el.style.width = `${cw}px`; el.style.height = `${ch}px`; el.style.transform = `translate(${x}px,${y}px) rotate(${rot}deg)`;
+    el.style.opacity = shown ? 1 : 0; el.style.pointerEvents = shown && !placed ? 'auto' : 'none'; el.style.zIndex = placed ? 1 : 2;
+  });
+  $('lmBoard').classList.toggle('done', P.stage === 'done');
+}
+new ResizeObserver(layoutPlan).observe($('stage'));
+let toastTimer = 0;
+function toast(msg, keep) {
+  const el = $('lmToast'); if (!el) return;
+  el.textContent = msg; el.classList.add('on'); clearTimeout(toastTimer);
+  if (!keep) toastTimer = setTimeout(() => el.classList.remove('on'), 2400);
+}
+$('lmBoard').addEventListener('click', (ev) => {
+  const el = ev.target.closest('.lm-card'); if (!el || P.stage !== 'order') return;
+  const i = +el.dataset.c; if (P.slot[i] >= 0) return;
+  if (i === P.n) {
+    P.slot[i] = P.n; P.n++; sfx.snap();
+    if (P.n === 6) { P.stage = 'done'; sfx.good(); toast(T[lang].p.done, true); } else $('lmToast').classList.remove('on');
+  } else {
+    sfx.bad(); const inn = el.firstElementChild; inn.classList.remove('shake'); void inn.offsetWidth; inn.classList.add('shake'); toast(T[lang].p.wrong);
+  }
+  layoutPlan(); render();
+});
+function resetPlan() {
+  const r = [1, 2, 3, 4, 5];
+  do { for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; } } while (r.every((v, i) => v === i + 1));
+  P.cell = [5, ...r.map((v) => 0)]; r.forEach((card, pos) => { P.cell[card] = pos; });
+  P.stage = 'q'; P.pick = null; P.n = 0; P.slot = [-1, -1, -1, -1, -1, -1];
+  $('lmToast').classList.remove('on'); layoutPlan(); render();
+}
+
+// --- controls -----------------------------------------------------------------------------------------------
+const verdict = (ok) => `<b style="color:${ok ? 'var(--ok)' : 'var(--wip)'}">${esc(ok ? T[lang].right : T[lang].wrong)}</b>`;
+const optCls = (j, pick, right) => (pick === null ? '' : j === right ? 'good' : j === pick ? 'bad' : 'dim');
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const act = b.dataset.act, j = +b.dataset.j;
+  if (act === 'iPick' && I.pick === null) {
+    I.pick = j; I.ok[I.ri] = j === RIGHT[I.ri]; I.t0 = performance.now() / 1000;
+    const cx = XS[RIGHT[I.ri]], r = rng(5 + I.ri * 3);
+    I.crowd = [0, 1, 2, 3].map((k) => ({ tx: cx + (k - 1.5) * 24, y: 248 + (k % 2) * 8, sx: k % 2 ? 392 : -32, delay: .15 + k * .4, dur: 1.4 + r() * .3, col: SKIN[(k * 2 + I.ri) % 6], hat: k % 3 }));
+    (I.ok[I.ri] ? sfx.good : sfx.bad)(); render(); showStage();
+  } else if (act === 'iNext') {
+    if (I.ri < 2) { I.ri++; I.pick = null; I.crowd = []; sfx.click(); } else { I.ri = 0; I.pick = null; I.ok = []; I.crowd = []; sfx.click(); }
+    render();
+  } else if (act === 'pPick' && P.pick === null) {
+    P.pick = j; P.slot[0] = 0; P.n = 1; P.stage = 'order'; (j === 1 ? sfx.good : sfx.bad)(); layoutPlan(); render(); showStage();
+  } else if (act === 'pAgain') { sfx.click(); resetPlan(); }
+  else if (act === 'sPick') {
+    if (SD.st === 'q1' && SD.pick1 === null) { SD.pick1 = j; SD.st = 'r1'; (j === 0 ? sfx.good : sfx.bad)(); beginDay({ price: 2, mode: 'r1' }); render(); showStage(); }
+    else if (SD.st === 'q2' && SD.pick2 === null) {
+      SD.pick2 = j; SD.st = 'r2'; (j === 1 ? sfx.good : sfx.bad)(); BAR.on = true; BAR.done = false; BAR.vals.fill(null);
+      beginDay({ price: 1, quick: true, mode: 'sweep' }); render(); showStage();
+    }
+  } else if (act === 'sMain') {
+    if (SD.st === 'r1' && SD.D?.done) { SD.st = 'q2'; SD.D = null; POT.in = POT.out = 0; sfx.click(); render(); }
+    else if (SD.st === 'free' && !dayRunning()) { beginDay({ price: SD.price, sign: SD.sec === 'sign', made: SD.sec === 'leftover' ? MADE : 0, mode: 'free' }); render(); showStage(); }
+  } else if (act === 'sec') {
+    const k = b.dataset.k;
+    if (!secret.unlocked()) return secret.open();
+    if (dayRunning()) return;
+    if (SD.sec === k) { SD.sec = null; SD.D = null; POT.in = POT.out = 0; sfx.click(); render(); return; }
+    SD.sec = k; SD.st = 'free'; SD.price = 5; SD.D = null; POT.in = POT.out = 0;
+    beginDay({ price: 5, sign: k === 'sign', made: k === 'leftover' ? MADE : 0, mode: 'free' }); render(); showStage();
+  }
+});
+$('sRange').addEventListener('input', (ev) => {
+  if (SD.st !== 'free' || dayRunning()) return;
+  SD.price = +ev.target.value; sfx.tick();
+  if (SD.D) { SD.D = null; POT.in = POT.out = 0; }
+  render();
+});
+
+// --- the readout of the stand follows the running day, so it is refreshed every frame as well as in render() ---
+let roKey = '';
+function readoutStand() {
+  if (lab.view !== 'stand') return;
+  const D = SD.D, t = T[lang];
+  let val, sub = '', pill = '', col = C.lemon;
+  if (!D) val = SD.st === 'q1' || SD.st === 'q2' ? '?' : '–';
+  else { const pr = D.in - D.out; val = fmt(pr); sub = t.s.sold(D.sold); pill = `${D.in} − ${D.out}`; col = pr > 0 ? C.green : pr < 0 ? C.red : C.lemon; }
+  const key = [val, sub, pill, col, lang].join('|');
+  if (key === roKey) return;
+  roKey = key;
+  lab.setReadout(`<span style="color:${D ? (col === C.lemon ? '#fff' : col === C.green ? '#7CF0B4' : '#FF8A8E') : '#fff'}">${val}</span>`, sub, pill, col);
+}
+
+// --- one render per change ----------------------------------------------------------------------------------
+function setCard(key, full) {
+  const [emoji, title, lead, body] = T[lang].st[key][full ? 'f' : 'n'];
+  lab.setState({ emo: emoji, title, lead, body, extra: `<div class="fine">${esc(T[lang].fine)}</div>` });
+}
+function render() {
+  const v = lab.view;
+  document.body.dataset.v = v;
+  $('lmIdea').style.display = v === 'idea' ? '' : 'none';
+  $('lmPlan').style.display = v === 'plan' ? '' : 'none';
+  $('lmStand').style.display = v === 'stand' ? '' : 'none';
+  $('lmBoard').style.display = v === 'plan' ? '' : 'none';
+  roKey = '';
+  if (v === 'idea') renderIdea(); else if (v === 'plan') renderPlan(); else renderStand();
+}
+function renderIdea() {
+  const t = T[lang], ri = I.ri, picked = I.pick !== null, k = I.ok.filter(Boolean).length, end = picked && ri === 2;
+  lab.setGlow('rgba(255, 216, 74, .22)');
+  $('iQ').textContent = t.i.q;
+  $('iOpts').innerHTML = t.i.opts[ri].map((o, j) => { const sp = o.indexOf(' ');
+    return `<button class="lm-ans ${optCls(j, I.pick, RIGHT[ri])}" data-act="iPick" data-j="${j}"${picked ? ' disabled' : ''}><span class="e">${o.slice(0, sp)}</span>${esc(o.slice(sp + 1))}</button>`; }).join('');
+  $('iMsg').innerHTML = picked ? `${verdict(I.ok[ri])}${esc(t.i.why[ri])}` : '';
+  $('iMain').style.display = picked ? '' : 'none';
+  $('iMain').textContent = ri < 2 ? t.next : t.again;
+  const rightOpt = t.i.opts[ri][RIGHT[ri]];
+  lab.setReadout(end ? `${k}/3` : `${ri + 1}/3`, t.i.weather[ri], picked ? rightOpt : '', C.lemon);
+  setCard('idea', end);
+}
+function renderPlan() {
+  const t = T[lang], q = P.pick !== null, done = P.stage === 'done';
+  lab.setGlow('rgba(185, 130, 79, .28)');
+  $('pQ').textContent = t.p.q;
+  $('pOpts').innerHTML = t.p.o.map((o, j) => `<button class="lm-ans ${optCls(j, P.pick, 1)}" data-act="pPick" data-j="${j}"${q ? ' disabled' : ''}>${esc(o)}</button>`).join('');
+  $('pMsg').innerHTML = done ? esc(t.p.done) : q ? verdict(P.pick === 1) : '';
+  $('pMain').style.display = done ? '' : 'none'; $('pMain').textContent = t.again;
+  lab.setReadout(`${P.n}/6`, '', '', '#D9A066');
+  setCard('plan', done);
+  layoutPlan();
+}
+function renderStand() {
+  const t = T[lang], st = SD.st, D = SD.D, free = st === 'free', open = secret.unlocked(), first = st === 'q1' || st === 'r1';
+  lab.setGlow('rgba(255, 216, 74, .24)');
+  $('sQ').style.display = free ? 'none' : ''; $('sOpts').style.display = free ? 'none' : '';
+  $('sQ').textContent = first ? t.s.q1 : t.s.q2;
+  const list = first ? t.s.o1 : t.s.o2, pick = first ? SD.pick1 : SD.pick2, right = first ? 0 : 1;
+  $('sOpts').innerHTML = list.map((o, j) => `<button class="lm-ans ${optCls(j, pick, right)}" data-act="sPick" data-j="${j}"${pick !== null ? ' disabled' : ''}>${esc(o)}</button>`).join('');
+  $('sFree').style.display = free ? '' : 'none';
+  const rg = $('sRange'); if (+rg.value !== SD.price) rg.value = SD.price;
+  rg.disabled = dayRunning() || SD.sec === 'leftover';
+  $('sPriceLbl').innerHTML = `${esc(t.s.price)}: <b>${SD.price}</b> ${esc(t.coinW(SD.price))}`;
+  let msg = '';
+  if (SD.sec) msg = esc(SD.sec === 'sign' ? t.sec.signText : t.sec.leftText);
+  else if (st === 'r1') msg = `${verdict(SD.pick1 === 0)}${esc(t.s.r1)}`;
+  else if (st === 'r2' || free) msg = SD.pick2 !== null ? `${verdict(SD.pick2 === 1)}${esc(t.s.r2)}` : '';
+  $('sMsg').innerHTML = msg;
+  const mainShow = (st === 'r1' && D?.done) || free;
+  $('sMain').style.display = mainShow ? '' : 'none';
+  $('sMain').textContent = free ? t.s.open : t.next; $('sMain').dataset.act = 'sMain';
+  $('sMain').disabled = free && dayRunning();
+  $('sChips').innerHTML = [['sign', '🪧'], ['leftover', '🥤']].map(([k, e]) => `<button class="chip secret ${open ? 'open' : ''} ${SD.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${e} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`).join('');
+  setCard('stand', st === 'r2' || free);
+  readoutStand();
+}
+
+// --- the loop --------------------------------------------------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  CW = w; CHH = h; TNOW = time; LB.length = 0; SCL = 1;
+  const v = lab.view;
+  if (v === 'idea') drawIdea(c, w, h, time);
+  else if (v === 'plan') drawPlan(c, w, h, time);
+  else drawStand(c, w, h, dt, time);
+});
+buildBoard();
+render();
+</script>
+</body>
+</html>
