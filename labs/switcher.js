@@ -9,7 +9,7 @@ const UI = {
   ru: { btn: 'Другие лаборатории', find: 'Найти лабораторию…', near: 'Рядом в графе', same: (s) => `Ещё: ${s.toLowerCase()}`, none: 'Ничего не нашлось.',
         all: (n) => `Все лаборатории (${n}) →`, more: (n) => `Ещё ${n} в обзоре →`,
         subj: { Science: 'Естествознание', Mathematics: 'Математика', Computing: 'Информатика', Geography: 'География', History: 'История', Music: 'Музыка', English: 'Чтение', 'Life Skills': 'Жизненные навыки', Other: 'Другое' } },
-  hu: { btn: 'További laborok', find: 'Labor keresése…', near: 'A közelben a térképen', same: (s) => `További: ${s.toLowerCase()}`, none: 'Nincs találat.',
+  hu: { btn: 'További laborok', find: 'Labor keresése…', near: 'A közelben a gráfon', same: (s) => `További: ${s.toLowerCase()}`, none: 'Nincs találat.',
         all: (n) => `Mind a ${n} labor →`, more: (n) => `Még ${n} az áttekintésben →`,
         subj: { Science: 'Természettudomány', Mathematics: 'Matematika', Computing: 'Informatika', Geography: 'Földrajz', History: 'Történelem', Music: 'Ének-zene', English: 'Olvasás', 'Life Skills': 'Életvitel', Other: 'Egyéb' } },
 };
