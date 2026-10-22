@@ -1,0 +1,887 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fractions on the Line · Skill Graph</title>
+<meta name="description" content="Cut a ribbon one unit long into equal pieces, lay it on the number line, and find where 3/4, 5/4 and 2/3 really live. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  /* the stage is a night-blue card; the canvas paints on top of it */
+  #stage { border-radius: 20px; overflow: hidden; border: 1px solid var(--stroke); background: linear-gradient(160deg, #1D2347, #2B3366); }
+  #stage canvas { touch-action: pan-y; }
+  body[data-v=place] #stage canvas { touch-action: none; cursor: grab; }
+  #gauge { display: none; }
+  @media (min-width: 1101px) {
+    .lab { grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); grid-template-areas: 'hero stage' 'state stage' 'state ctrl'; }
+  }
+  @media (max-width: 760px) { #stage { height: min(100vw, 440px); } }
+
+  .q { font: 500 20px/1.25 var(--serif); color: #fff; margin: 0 0 10px; text-wrap: balance; }
+  .obs { display: flex; flex-wrap: wrap; gap: 8px; }
+  .ob { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 16px; min-height: 40px; border-radius: 999px;
+    border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1); font-weight: 800; cursor: pointer; }
+  .ob:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .ob:disabled { cursor: default; opacity: .55; }
+  .ob.pick { border-color: #fff; opacity: 1; }
+  .ob.good { border-color: #5BD38A; background: rgba(91, 211, 138, .18); opacity: 1; }
+  .ob.bad { border-color: #FF6B6B; background: rgba(255, 107, 107, .16); opacity: 1; }
+  .verdict { font-weight: 900; margin: 12px 0 4px; }
+  .ptxt { color: var(--soft); font-size: 13px; margin: 0 0 10px; }
+  .fine { font-size: 11px; color: var(--faint); }
+  /* stacked fraction, used in buttons, questions and the readout */
+  .fr { display: inline-flex; flex-direction: column; align-items: center; vertical-align: middle; line-height: 1.05; font-weight: 900; font-size: .85em; }
+  .fr > i { font-style: normal; padding: 0 3px; }
+  .fr > i:first-child { border-bottom: 2px solid currentColor; padding-bottom: 1px; }
+  .fr > i:last-child { padding-top: 1px; }
+  .val .fr { font-size: .8em; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 0 1.5px rgba(0, 0, 0, .35) inset; }
+
+  .steps { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .stp { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .stp .lbl { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-weight: 700; }
+  .stp div { display: flex; align-items: center; justify-content: center; gap: 4px; }
+  .sb { width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1); font-size: 18px; font-weight: 800;
+    line-height: 1; padding: 0; cursor: pointer; }
+  .sb:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .sb:disabled { opacity: .3; cursor: default; }
+  .stp b { min-width: 28px; text-align: center; font-size: 22px; font-weight: 900; }
+  .btn:disabled { opacity: .35; cursor: default; }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Fractions on the Line', title: 'Every fraction has its place',
+    lines: [['A ribbon', 'one unit long.'], ['Cut it', 'into equal pieces.'], ['Walk the pieces', 'and plant a flag.']],
+    views: { ribbon: '🎀 Ribbon', place: '📍 Place it', race: '🐌 Snail race' },
+    next: 'Next ▶', right: 'You got it!', wrong: 'Not quite. Watch the ribbon.',
+    r: { q1: 'Where does 3/4 live on the number line?', o1: ['between 3 and 4', 'between 0 and 1', 'at 3'],
+         r1: 'Cut the stretch from 0 to 1 into 4 equal parts and walk 3 of them. 3/4 is less than one whole.',
+         q2: 'And where does 5/4 live?', o2: ['between 0 and 1', 'just past 1', 'at 5'],
+         r2: '5 quarters: 4 quarters make one whole, plus one more quarter. 5/4 is just past 1.',
+         q3: 'Where is 4/4?', o3: ['exactly on 1', 'at 4', 'between 3 and 4'],
+         r3: 'All 4 pieces of the ribbon: one whole. 4/4 = 1.',
+         where: (a, b, on) => on !== null ? `exactly on ${on}` : `between ${a} and ${b}`, top: 'top', bottom: 'bottom' },
+    p: { task: (f) => `Drag the flag to ${f}.`, check: 'Check', rate: ['Spot on!', 'Close!', 'Try again'], score: (k, n) => `${k} of ${n} spot on or close` },
+    s: { q: (a, b) => `Which snail goes farther: ${a} or ${b}?`, same: 'the same',
+         r: ['Thirds are bigger pieces than quarters, so 1/3 goes farther.', '3/4 is one quarter short of 1, 2/3 is one third short. A third is bigger, so 2/3 stops earlier.', '2/4 and 1/2 land on the same spot: they are the same number.', '5/4 is past 1, so it goes farther.'] },
+    secrets: { zoom: ['Endless zoom', 'What is between 1/2 and 3/4?'], clock: ['An hour on a line', 'Quarter past, half past…'] },
+    sec: { zoomIn: 'Zoom in ×2', zoomText: 'However close two fractions are, there is always another one between them.',
+           quarter: 'Cut the hour into 4', clockText: 'A quarter of an hour is 15 minutes, half is 30, three quarters is 45.' },
+    quiz: [
+      { q: 'Where is 3/4 on the number line?', opts: ['between 3 and 4', 'between 0 and 1', 'past 1'], ok: 1 },
+      { q: 'Which is bigger: 1/3 or 1/4?', opts: ['1/3', '1/4', 'the same'], ok: 0 },
+      { q: 'Where is 4/4?', opts: ['on 4', 'exactly on 1', 'on 0'], ok: 1 } ],
+    cards: {
+      ribbon: [['🎀', 'One whole ribbon', 'From 0 to 1 is one whole.', ''], ['🎀', 'Bottom: how many parts. Top: how many to walk.', 'The parts must be equal.', 'Count spaces, not tick marks.']],
+      place: [['📍', 'No marks this time', 'Imagine the pieces, then place the flag.', '']],
+      race: [['🐌', 'Snail race', 'Which fraction is bigger?', ''], ['🐌', 'Farther along = bigger', 'More parts means smaller parts.', '']],
+    },
+    fine: 'Number-line fractions follow the IES practice guide on fractions (2010).',
+  },
+  ru: {
+    name: 'Дроби на прямой', title: 'У каждой дроби своё место',
+    lines: [['Ленточка', 'длиной в единицу.'], ['Разрежь её', 'на равные кусочки.'], ['Отшагай кусочки', 'и поставь флажок.']],
+    views: { ribbon: '🎀 Ленточка', place: '📍 Поставь флажок', race: '🐌 Гонка улиток' },
+    next: 'Дальше ▶', right: 'Верно!', wrong: 'Не совсем. Смотри на ленточку.',
+    r: { q1: 'Где на числовой прямой живёт 3/4?', o1: ['между 3 и 4', 'между 0 и 1', 'на 3'],
+         r1: 'Разрежь отрезок от 0 до 1 на 4 равные части и отшагай 3 из них. 3/4 меньше целого.',
+         q2: 'А где живёт 5/4?', o2: ['между 0 и 1', 'чуть дальше 1', 'на 5'],
+         r2: '5 четвертей: 4 четверти — одно целое, и ещё одна четверть. 5/4 чуть дальше 1.',
+         q3: 'Где находится 4/4?', o3: ['ровно на 1', 'на 4', 'между 3 и 4'],
+         r3: 'Все 4 кусочка ленточки — одно целое. 4/4 = 1.',
+         where: (a, b, on) => on !== null ? `ровно на ${on}` : `между ${a} и ${b}`, top: 'верх', bottom: 'низ' },
+    p: { task: (f) => `Перетащи флажок на ${f}.`, check: 'Проверить', rate: ['Точно в цель!', 'Близко!', 'Попробуй ещё'], score: (k, n) => `${k} из ${n} — точно или близко` },
+    s: { q: (a, b) => `Какая улитка уползёт дальше: ${a} или ${b}?`, same: 'одинаково',
+         r: ['Трети — кусочки больше четвертей, поэтому 1/3 дальше.', 'До 1 у 3/4 не хватает четверти, а у 2/3 — трети. Треть больше, значит, 2/3 остановится раньше.', '2/4 и 1/2 приходят в одну точку: это одно и то же число.', '5/4 дальше 1, значит, она уползёт дальше.'] },
+    secrets: { zoom: ['Бесконечная лупа', 'Что между 1/2 и 3/4?'], clock: ['Час на прямой', 'Четверть, половина…'] },
+    sec: { zoomIn: 'Увеличить ×2', zoomText: 'Как бы близко ни стояли две дроби, между ними всегда найдётся ещё одна.',
+           quarter: 'Разрезать час на 4', clockText: 'Четверть часа — 15 минут, половина — 30, три четверти — 45.' },
+    quiz: [
+      { q: 'Где на числовой прямой 3/4?', opts: ['между 3 и 4', 'между 0 и 1', 'дальше 1'], ok: 1 },
+      { q: 'Что больше: 1/3 или 1/4?', opts: ['1/3', '1/4', 'одинаково'], ok: 0 },
+      { q: 'Где находится 4/4?', opts: ['на 4', 'ровно на 1', 'на 0'], ok: 1 } ],
+    cards: {
+      ribbon: [['🎀', 'Целая ленточка', 'От 0 до 1 — одно целое.', ''], ['🎀', 'Низ — сколько частей, верх — сколько шагать', 'Части должны быть равными.', 'Считай промежутки, а не чёрточки.']],
+      place: [['📍', 'На этот раз без чёрточек', 'Представь кусочки и поставь флажок.', '']],
+      race: [['🐌', 'Гонка улиток', 'Какая дробь больше?', ''], ['🐌', 'Дальше — значит больше', 'Больше частей — меньше каждая часть.', '']],
+    },
+    fine: 'Дроби на числовой прямой — по рекомендациям IES по обучению дробям (2010).',
+  },
+  hu: {
+    name: 'Törtek a számegyenesen', title: 'Minden törtnek megvan a helye',
+    lines: [['Egy szalag,', 'egy egység hosszú.'], ['Vágd fel', 'egyenlő darabokra.'], ['Lépkedj végig a darabokon,', 'és szúrj le egy zászlót.']],
+    views: { ribbon: '🎀 Szalag', place: '📍 Tedd a helyére', race: '🐌 Csigaverseny' },
+    next: 'Tovább ▶', right: 'Eltaláltad!', wrong: 'Nem egészen. Figyeld a szalagot.',
+    r: { q1: 'Hol lakik a 3/4 a számegyenesen?', o1: ['3 és 4 között', '0 és 1 között', 'a 3-nál'],
+         r1: 'Vágd a 0-tól 1-ig tartó szakaszt 4 egyenlő részre, és lépj 3-at. A 3/4 kevesebb egy egésznél.',
+         q2: 'És hol lakik az 5/4?', o2: ['0 és 1 között', 'kicsit az 1 után', 'az 5-nél'],
+         r2: '5 negyed: 4 negyed egy egész, plusz még egy negyed. Az 5/4 kicsit az 1 után van.',
+         q3: 'Hol van a 4/4?', o3: ['pontosan az 1-en', 'a 4-nél', '3 és 4 között'],
+         r3: 'A szalag mind a 4 darabja: egy egész. 4/4 = 1.',
+         where: (a, b, on) => on !== null ? `pontosan itt: ${on}` : `${a} és ${b} között`, top: 'fent', bottom: 'lent' },
+    p: { task: (f) => `Húzd a zászlót ide: ${f}.`, check: 'Ellenőrzés', rate: ['Telitalálat!', 'Közel!', 'Próbáld újra'], score: (k, n) => `${n}-ből ${k} telitalálat vagy közeli` },
+    s: { q: (a, b) => `Melyik csiga jut messzebbre: ${a} vagy ${b}?`, same: 'ugyanoda',
+         r: ['A harmadok nagyobb darabok, mint a negyedek, ezért az 1/3 jut messzebbre.', 'A 3/4-nek egy negyed hiányzik az 1-hez, a 2/3-nak egy harmad. A harmad nagyobb, ezért a 2/3 előbb megáll.', 'A 2/4 és az 1/2 ugyanoda ér: ugyanaz a szám.', 'Az 5/4 túl van az 1-en, ezért messzebbre jut.'] },
+    secrets: { zoom: ['Végtelen nagyító', 'Mi van az 1/2 és a 3/4 között?'], clock: ['Egy óra a vonalon', 'Negyed, fél…'] },
+    sec: { zoomIn: 'Nagyítás ×2', zoomText: 'Akármilyen közel van két tört, mindig van köztük még egy.',
+           quarter: 'Vágd az órát 4 részre', clockText: 'Negyed óra 15 perc, fél óra 30, háromnegyed óra 45.' },
+    quiz: [
+      { q: 'Hol van a 3/4 a számegyenesen?', opts: ['3 és 4 között', '0 és 1 között', 'az 1 után'], ok: 1 },
+      { q: 'Melyik nagyobb: 1/3 vagy 1/4?', opts: ['1/3', '1/4', 'egyenlők'], ok: 0 },
+      { q: 'Hol van a 4/4?', opts: ['a 4-nél', 'pontosan az 1-en', 'a 0-nál'], ok: 1 } ],
+    cards: {
+      ribbon: [['🎀', 'Egy egész szalag', '0-tól 1-ig egy egész.', ''], ['🎀', 'Lent: hány rész. Fent: hányat lépj.', 'A részeknek egyenlőnek kell lenniük.', 'A közöket számold, ne a vonásokat.']],
+      place: [['📍', 'Most nincsenek vonások', 'Képzeld el a darabokat, aztán tedd le a zászlót.', '']],
+      race: [['🐌', 'Csigaverseny', 'Melyik tört a nagyobb?', ''], ['🐌', 'Messzebb = nagyobb', 'Több rész, kisebb részek.', '']],
+    },
+    fine: 'A számegyenes-törtek az IES törtekről szóló útmutatóját követik (2010).',
+  },
+};
+const TOPICS = [
+  { id: 'mt_Kr3IyA6m-O', en: 'Fractions on a number line', ru: 'Дроби на числовой прямой', hu: 'Törtek a számegyenesen' },
+];
+
+// --- data ----------------------------------------------------------------------------------------------------
+// ribbon questions: the fraction n/d, how many ribbons it needs, and the right answer
+const RQ = [{ n: 3, d: 4, units: 1, ok: 1 }, { n: 5, d: 4, units: 2, ok: 1 }, { n: 4, d: 4, units: 1, ok: 0 }];
+// place it: [top, bottom, ruler length]
+const PL = [[1, 2, 1], [1, 3, 1], [2, 3, 1], [3, 4, 1], [3, 2, 2], [5, 4, 2]];
+// snail race: fraction of snail A, of snail B, index of the right answer (0 = A, 1 = B, 2 = the same)
+const RC = [{ a: [1, 3], b: [1, 4], ok: 0 }, { a: [2, 3], b: [3, 4], ok: 1 }, { a: [2, 4], b: [1, 2], ok: 2 }, { a: [5, 4], b: [1, 1], ok: 0 }];
+
+const GOLD = '#FFC94A', GOOD = '#5BD38A', BAD = '#FF6B6B', PINK = '#E8578C';
+const FONT = 'Nunito, sans-serif';
+const EMOJI = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+const TH = 22, FLOAT = 84, LANE_GAP = 62; // ribbon thickness, height of the floating ribbon, distance between two lanes
+const SC_ROT = Math.PI; // the scissors emoji is turned so that its blades point down at the ribbon
+const DPR = () => Math.min(window.devicePixelRatio || 1, 2);
+
+// --- small helpers ---------------------------------------------------------------------------------------------
+const ease = (p) => (p < .5 ? 2 * p * p : 1 - ((-2 * p + 2) ** 2) / 2);
+const easeOut = (p) => 1 - (1 - p) ** 3;
+const rgb = (c) => (c[0] === '#' ? [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16)] : c.match(/\d+/g).map(Number));
+const mix = (a, b, t) => { const A = rgb(a), B = rgb(b); return `rgb(${A.map((v, i) => Math.round(v + (B[i] - v) * t)).join(',')})`; };
+const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+// HTML stacked fraction (a whole number when the bottom is 1); fx() turns every "3/4" of a plain string into one
+const fr = (n, d) => (d === 1 ? `${n}` : `<span class="fr"><i>${n}</i><i>${d}</i></span>`);
+const fx = (s) => esc(s).replace(/(\d+)\/(\d+)/g, (_, n, d) => fr(n, d));
+const where = (t, n, d) => { const a = Math.floor(n / d); return t.r.where(a, a + 1, n % d === 0 ? n / d : null); };
+
+// --- state ---------------------------------------------------------------------------------------------------
+const S = {
+  sec: null, // null | 'zoom' | 'clock' (secret experiments live in the ribbon view)
+  r: { step: 0, picked: null, done: false, asked: false, d: 4, n: 3 }, // step 0..2 = questions, 3 = free play
+  p: { i: 0, x: 0, moved: false, checked: false, done: false, res: [], rate: 0 },
+  s: { i: 0, pick: null, done: false, asked: false, res: [] },
+  zm: { L: 0, t0: -9 },
+  clk: { done: false, busy: false },
+};
+let Z = null, seq = null, lastG = null; // Z = the picture on the stage, seq = the running animation
+
+const lab = shell({ key: 'fraction-line', T, topics: TOPICS, views: ['ribbon', 'place', 'race'], onLang: () => render(), onView: (v) => { S.sec = null; if (v === 'ribbon') startRibbon(); else if (v === 'place') startPlace(); else startRace(); render(); } });
+const secret = secretLab('fraction-line', () => ({
+  secrets: [{ emo: '🔍', title: T[lang].secrets.zoom[0], desc: T[lang].secrets.zoom[1] }, { emo: '⏰', title: T[lang].secrets.clock[0], desc: T[lang].secrets.clock[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+// --- the picture: scene, ribbons (lanes), snails ------------------------------------------------------------
+// a lane is one ribbon cut into d parts per unit; every unit {a: opacity, h: height above the ruler, cut: finished cuts, sq: squash}
+const newLane = (d, units, row = 0) => ({ d, row, U: Array.from({ length: units }, () => ({ a: 0, h: 0, cut: 0, sq: 0 })) });
+const newScene = (Rt, R = Rt) => ({ R, Rt, lanes: [], sc: null, fx: 0, fa: 0, hop: 0, wob: 0, glow: 0, nh: 0, eq: 0, counted: 0, showCount: false, lbl: null,
+  free: false, mode: '', snails: [], rf: 0, rl: 0, tg: 0, tgx: 0, br: 0, faces: 0 });
+const laneBase = (G, lane) => G.rt - 3 - TH - lane.row * LANE_GAP; // top of a landed ribbon
+
+// --- a tiny sequencer: steps run one after another, f(p) gets 0..1 -------------------------------------------
+function play(steps) { seq = { steps, i: 0, t: 0, started: false }; }
+function tickSeq(dt) {
+  const s = seq; if (!s) return;
+  const st = s.steps[s.i];
+  if (!st) { seq = null; return; }
+  if (!s.started) { s.started = true; st.init?.(); }
+  s.t += dt;
+  const p = st.d ? clamp(s.t / st.d, 0, 1) : 1;
+  st.f?.(p);
+  if (p >= 1) { s.i++; s.t = 0; s.started = false; st.done?.(); }
+}
+const units = (lanes) => lanes.flatMap((L) => L.U);
+const enterStep = (lanes) => ({ d: .7, f(p) { const e = easeOut(p); for (const U of units(lanes)) { U.a = e; U.h = FLOAT + 50 * (1 - e); } } });
+const landH = (p) => (p < .5 ? FLOAT * (1 - (p / .5) ** 2) : p < .75 ? 9 * Math.sin((p - .5) / .25 * Math.PI) : 3 * Math.sin((p - .75) / .25 * Math.PI));
+const landStep = (lanes) => ({ d: .85,
+  f(p) { const sq = Math.min(1, Math.max(0, 1 - Math.abs(p - .52) / .08) + .4 * Math.max(0, 1 - Math.abs(p - .77) / .06)); for (const U of units(lanes)) { U.h = landH(p); U.sq = sq; } },
+  done() { for (const U of units(lanes)) { U.h = 0; U.sq = 0; } sfx.click(); } });
+// scissors fly to every cut point of every unit of one lane and snip
+function cutSteps(idx) {
+  const L = Z.lanes[idx], st = [];
+  if (L.d < 2) return st;
+  L.U.forEach((U, u) => {
+    for (let k = 1; k < L.d; k++) {
+      const to = u + k / L.d; let from = to;
+      st.push({ d: .2, init() { if (!Z.sc || Z.sc.lane !== idx || Z.sc.u !== u) Z.sc = { lane: idx, u, x: to - .3 / L.d, a: 0, open: 0 }; from = Z.sc.x; },
+        f(p) { Z.sc.x = lerp(from, to, ease(p)); Z.sc.a = Math.max(Z.sc.a, easeOut(Math.min(1, p * 2.5))); Z.sc.open = 0; } });
+      st.push({ d: .14, init() { sfx.snap(); }, f(p) { U.cut = (k - 1) + ease(p); Z.sc.open = Math.sin(p * Math.PI); } });
+    }
+  });
+  st.push({ d: .25, f(p) { if (Z.sc) Z.sc.a = 1 - p; }, done() { Z.sc = null; } });
+  return st;
+}
+const flagInStep = () => ({ d: .35, f(p) { Z.fa = easeOut(p); Z.fx = 0; Z.hop = 22 * (1 - easeOut(p)); } });
+const walkSteps = (n, d) => Array.from({ length: n }, (_, k) => ({ d: .38, init() { sfx.tick(); },
+  f(p) { Z.fx = (k + ease(p)) / d; Z.hop = Math.sin(p * Math.PI) * 14; }, done() { Z.counted = k + 1; Z.hop = 0; } }));
+const plantStep = (n, d) => ({ d: .6, init() { sfx.snap(); Z.lbl = { n, d, k: n / d }; },
+  f(p) { Z.wob = Math.sin(p * Math.PI * 3) * .2 * (1 - p); Z.glow = ease(clamp(p * 1.5, 0, 1)); } });
+
+// --- scene starters --------------------------------------------------------------------------------------------
+function startRibbon() {
+  seq = null;
+  const R = S.r;
+  if (S.sec === 'zoom') {
+    Z = newScene(1); Z.mode = 'zoom'; const L = newLane(1, 1); L.U[0].a = 1; Z.lanes = [L]; S.zm = { L: 0, t0: -9 };
+  } else if (S.sec === 'clock') {
+    Z = newScene(1); Z.mode = 'clock'; Z.lanes = [newLane(4, 1)]; S.clk = { done: false, busy: false };
+  } else if (R.step < 3) {
+    R.picked = null; R.done = false; Z = newScene(4, Z?.R ?? 4); // bare ruler: nothing of the answer is drawn yet
+  } else {
+    Z = newScene(4, Z?.R ?? 4); Z.free = true;
+    const L = newLane(R.d, 8); L.U[0].a = 1; L.U[0].cut = R.d - 1; Z.lanes = [L];
+    Z.fa = 1; Z.fx = 0; Z.lbl = { n: R.n, d: R.d, k: R.n / R.d }; Z.glow = 1;
+  }
+}
+function startPlace() {
+  seq = null;
+  const P = S.p;
+  if (P.i >= PL.length) { Z = newScene(1, Z?.R ?? 1); return; }
+  P.x = 0; P.moved = false; P.checked = false; P.done = false;
+  const R = PL[P.i][2];
+  Z = newScene(R, Z?.R ?? R); Z.fa = 1; Z.fx = 0;
+}
+function startRace() {
+  seq = null;
+  const Q = S.s, r = RC[Q.i];
+  Q.pick = null; Q.done = false;
+  Z = newScene(2, Z?.R ?? 2);
+  Z.snails = [
+    { v: r.a[0] / r.a[1], x: 0, col: '#FFB547', row: 1, moving: false, f: r.a },
+    { v: r.b[0] / r.b[1], x: 0, col: '#7FB8FF', row: 0, moving: false, f: r.b },
+  ];
+}
+
+// --- reveals -----------------------------------------------------------------------------------------------------
+function revealRibbon() {
+  const q = RQ[S.r.step], L = newLane(q.d, q.units);
+  Z.lanes = [L]; Z.showCount = true; Z.counted = 0;
+  const st = [enterStep([L]), ...cutSteps(0), landStep([L]), flagInStep(), ...walkSteps(q.n, q.d), plantStep(q.n, q.d)];
+  if (S.r.step === 0) st.push({ d: .5, f(p) { Z.nh = ease(p); } }); // the empty box between 3 and 4
+  if (S.r.step === 2) st.push({ d: .5, f(p) { Z.eq = ease(p); } }); // 4/4 = 1
+  st.push({ d: 0, done() { S.r.done = true; (S.r.picked === q.ok ? sfx.good : sfx.bad)(); render(); } });
+  play(st);
+}
+function revealPlace() {
+  const [n, d] = PL[S.p.i], L = newLane(d, Math.ceil(n / d));
+  Z.lanes = [L]; Z.tgx = n / d;
+  play([enterStep([L]), ...cutSteps(0), landStep([L]), { d: .5, f(p) { Z.tg = ease(p); } }, { d: .5, f(p) { Z.br = ease(p); } },
+    { d: 0, done() { S.p.done = true; [sfx.good, sfx.click, sfx.bad][S.p.rate](); render(); } }]);
+}
+function revealRace() {
+  const r = RC[S.s.i], LA = newLane(r.a[1], Math.ceil(r.a[0] / r.a[1]), 1), LB = newLane(r.b[1], Math.ceil(r.b[0] / r.b[1]), 0);
+  Z.lanes = [LA, LB];
+  const dist = Z.snails.map((s) => s.v), SPEED = .4, dur = dist.map((v) => v / SPEED + .5), D = Math.max(...dur);
+  play([enterStep([LA, LB]), ...cutSteps(0), ...cutSteps(1), landStep([LA, LB]),
+    { d: D, init() { sfx.push(); }, f(p) { Z.snails.forEach((s, i) => { const q = clamp(p * D / dur[i], 0, 1); s.x = dist[i] * ease(q); s.moving = q < 1; }); }, done() { Z.snails.forEach((s) => { s.x = s.v; s.moving = false; }); } },
+    { d: .5, init() { sfx.snap(); }, f(p) { Z.rf = ease(p); Z.wob = Math.sin(p * Math.PI * 3) * .2 * (1 - p); } },
+    { d: .4, f(p) { Z.rl = p; } },
+    { d: 0, done() { S.s.done = true; (S.s.pick === r.ok ? sfx.good : sfx.bad)(); render(); } }]);
+}
+
+// --- drawing helpers ---------------------------------------------------------------------------------------------
+// numerator over a bar over the denominator, centred on (x, y); the colour is the caller's fillStyle
+function drawFrac(c, n, d, x, y, size) {
+  c.save();
+  c.font = `900 ${size}px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle';
+  if (d === 1) c.fillText(n, x, y + 1);
+  else {
+    const w = Math.max(c.measureText(n).width, c.measureText(d).width) + size * .3;
+    c.fillText(n, x, y - size * .5); c.fillText(d, x, y + size * .55);
+    c.fillRect(x - w / 2, y - size * .05, w, Math.max(1.5, size * .11));
+  }
+  c.restore();
+}
+const fracW = (c, n, d, size) => {
+  c.save(); c.font = `900 ${size}px ${FONT}`;
+  const w = d === 1 ? c.measureText(n).width : Math.max(c.measureText(n).width, c.measureText(d).width) + size * .3;
+  c.restore(); return w;
+};
+const pillPath = (c, cx, cy, w, h, r) => { c.beginPath(); c.roundRect(cx - w / 2, cy - h / 2, w, h, r ?? h / 2); };
+
+function drawBackdrop(c, w, h, time) {
+  const g = c.createRadialGradient(w * .5, h * .55, 10, w * .5, h * .55, Math.max(w, h) * .7);
+  g.addColorStop(0, 'rgba(120,140,230,.16)'); g.addColorStop(1, 'rgba(120,140,230,0)');
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+  c.fillStyle = '#fff';
+  for (let i = 0; i < 22; i++) {
+    const x = Math.abs((Math.sin(i * 12.9898) * 43758.5453) % 1) * w, y = Math.abs((Math.sin(i * 78.233) * 12345.678) % 1) * h * .5;
+    c.globalAlpha = .12 + .22 * (.5 + .5 * Math.sin(time * .9 + i * 2.3));
+    c.beginPath(); c.arc(x, y, .8 + (i % 3) * .5, 0, 7); c.fill();
+  }
+  c.globalAlpha = 1;
+}
+
+// the wooden ruler: gradient, darker bottom edge, grain, soft shadow
+function drawRuler(c, xa, xb, rt) {
+  const th = 18, g = c.createLinearGradient(0, rt, 0, rt + th);
+  g.addColorStop(0, '#F2D7A6'); g.addColorStop(1, '#D9B57A');
+  c.save();
+  c.shadowColor = 'rgba(0,0,0,.45)'; c.shadowBlur = 12 * DPR(); c.shadowOffsetY = 6 * DPR();
+  c.fillStyle = g; c.beginPath(); c.roundRect(xa, rt, xb - xa, th, 5); c.fill();
+  c.restore();
+  c.save();
+  c.beginPath(); c.roundRect(xa, rt, xb - xa, th, 5); c.clip();
+  c.fillStyle = '#B98E50'; c.fillRect(xa, rt + th - 3, xb - xa, 3);
+  c.fillStyle = 'rgba(255,255,255,.35)'; c.fillRect(xa, rt, xb - xa, 1.5);
+  c.strokeStyle = '#C9A066'; c.lineWidth = 1; c.globalAlpha = .75;
+  for (let i = 0; i < 4; i++) {
+    const y = rt + 4 + i * 3.4, k = i % 2 ? 1.6 : -1.6;
+    c.beginPath(); c.moveTo(xa, y); c.bezierCurveTo(xa + (xb - xa) * .3, y + k, xa + (xb - xa) * .65, y - k, xb, y + .6); c.stroke();
+  }
+  c.restore();
+  c.strokeStyle = '#A57F43'; c.lineWidth = 1; c.beginPath(); c.roundRect(xa + .5, rt + .5, xb - xa - 1, th - 1, 5); c.stroke();
+}
+// whole-number notches, labelled below on a dark pill
+function drawWholeMarks(c, G) {
+  const top = Math.floor(Z.Rt + .001);
+  for (let i = 0; i <= top; i++) {
+    const a = clamp(Z.R - i + .5, 0, 1); if (a < .02) continue;
+    const x = G.X(i);
+    c.globalAlpha = a; c.fillStyle = '#5A3D17'; c.beginPath(); c.roundRect(x - 1.5, G.rt, 3, 27, 1); c.fill();
+    const label = `${i}`; c.font = `800 14px ${FONT}`;
+    const pw = Math.max(26, c.measureText(label).width + 16);
+    pillPath(c, x, G.rt + 40, pw, 22); c.fillStyle = 'rgba(20,16,30,.82)'; c.fill();
+    c.fillStyle = '#FFF3D6'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(label, x, G.rt + 41);
+  }
+  c.globalAlpha = 1;
+}
+// thin notches of the fractions: they appear only once the ribbon is cut
+function drawNotches(c, G) {
+  const L = Z.lanes.find((l) => l.row === 0);
+  if (!L || L.d < 2) return;
+  L.U.forEach((U, u) => {
+    const al = U.a * (1 - clamp(U.h / 8, 0, 1));
+    for (let k = 1; k < L.d; k++) {
+      const a = al * clamp(U.cut - (k - 1), 0, 1); if (a < .02) continue;
+      c.globalAlpha = a; c.fillStyle = '#7A5726'; c.fillRect(G.X(u + k / L.d) - .8, G.rt + 1, 1.6, 11);
+    }
+  });
+  c.globalAlpha = 1;
+}
+function drawNotHere(c, G) {
+  if (Z.nh < .01) return;
+  const x1 = G.X(3) + 6, x2 = G.X(4) - 6, y1 = G.rt - 40, y2 = G.rt + 60;
+  c.save(); c.globalAlpha = Z.nh;
+  c.fillStyle = 'rgba(255,107,107,.07)'; c.strokeStyle = 'rgba(255,107,107,.75)'; c.lineWidth = 1.5; c.setLineDash([6, 5]);
+  c.beginPath(); c.roundRect(x1, y1, x2 - x1, y2 - y1, 10); c.fill(); c.stroke(); c.setLineDash([]);
+  const cx = (x1 + x2) / 2, cy = G.rt - 8;
+  c.strokeStyle = BAD; c.lineWidth = 3; c.lineCap = 'round';
+  c.beginPath(); c.moveTo(cx - 8, cy - 8); c.lineTo(cx + 8, cy + 8); c.moveTo(cx + 8, cy - 8); c.lineTo(cx - 8, cy + 8); c.stroke();
+  c.restore();
+}
+
+// one ribbon lane: satin pink, a gentle wave while it floats, pieces in alternating shades with a 2 px gap, folded ends
+function drawLane(c, G, lane, time) {
+  const d = lane.d, dpr = DPR();
+  lane.U.forEach((U, u) => {
+    if (U.a < .01) return;
+    const th = TH * (1 - .12 * U.sq), yy = laneBase(G, lane) - U.h + TH - th, amp = 5 * clamp(U.h / FLOAT, 0, 1), phase = u * 1.7;
+    const wave = (x) => Math.sin(x * .05 + time * 2.4 + phase) * amp;
+    const cutV = (k) => clamp(U.cut - (k - 1), 0, 1);
+    const strip = (xa, xb, y0, y1) => {
+      const n = Math.max(2, Math.ceil((xb - xa) / 4));
+      c.beginPath();
+      for (let i = 0; i <= n; i++) { const x = xa + (xb - xa) * i / n; i ? c.lineTo(x, y0 + wave(x)) : c.moveTo(x, y0 + wave(x)); }
+      for (let i = n; i >= 0; i--) { const x = xa + (xb - xa) * i / n; c.lineTo(x, y1 + wave(x)); }
+      c.closePath();
+    };
+    const hh = clamp(U.h / (FLOAT + 50), 0, 1);
+    c.save(); c.globalAlpha = U.a; c.lineJoin = 'round';
+    for (let j = 0; j < d; j++) {
+      const l = j > 0 ? cutV(j) : 0, r = j < d - 1 ? cutV(j + 1) : 0;
+      const xa = G.X(u + j / d) + l, xb = G.X(u + (j + 1) / d) - r;
+      if (xb - xa < 1.5) continue;
+      const t = Math.max(l, r), shade = j % 2 ? '#F06A9A' : '#FF8FB1';
+      const g = c.createLinearGradient(0, yy, 0, yy + th);
+      g.addColorStop(0, mix('#FFA8C5', mix(shade, '#ffffff', .18), t)); g.addColorStop(1, mix(PINK, mix(shade, '#000000', .12), t));
+      c.shadowColor = `rgba(0,0,0,${.38 - .18 * hh})`; c.shadowBlur = (4 + U.h * .18) * dpr; c.shadowOffsetY = (2 + U.h * 1.05) * dpr;
+      strip(xa, xb, yy, yy + th); c.fillStyle = g; c.fill();
+      c.shadowColor = 'transparent'; c.shadowBlur = 0; c.shadowOffsetY = 0;
+      c.lineWidth = 1; c.strokeStyle = 'rgba(120,20,60,.55)'; c.stroke();
+      if (xb - xa > 6) { strip(xa + 1.5, xb - 1.5, yy + 2, yy + 2 + th * .27); c.fillStyle = 'rgba(255,255,255,.28)'; c.fill(); }
+      if (j === 0) { // folded end, left
+        const y0 = yy + wave(xa);
+        c.beginPath(); c.moveTo(xa, y0); c.lineTo(xa + 8, y0 + wave(xa + 8)); c.lineTo(xa, y0 + 8); c.closePath();
+        c.fillStyle = 'rgba(120,20,60,.4)'; c.fill(); c.strokeStyle = 'rgba(255,255,255,.4)'; c.beginPath(); c.moveTo(xa + 8, y0 + wave(xa + 8)); c.lineTo(xa, y0 + 8); c.stroke();
+      }
+      if (j === d - 1) { // folded end, right
+        const y0 = yy + th + wave(xb);
+        c.beginPath(); c.moveTo(xb, y0); c.lineTo(xb - 8, y0 + wave(xb - 8)); c.lineTo(xb, y0 - 8); c.closePath();
+        c.fillStyle = 'rgba(120,20,60,.4)'; c.fill(); c.strokeStyle = 'rgba(255,255,255,.4)'; c.beginPath(); c.moveTo(xb - 8, y0 + wave(xb - 8)); c.lineTo(xb, y0 - 8); c.stroke();
+      }
+      const i = u * d + j + 1; // the number of the piece, shown while the flag walks
+      if (Z.showCount && lane === Z.lanes[0] && i <= Z.counted) {
+        c.fillStyle = '#7A1236'; c.font = `900 12px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle';
+        c.fillText(i, (xa + xb) / 2, yy + th / 2 + wave((xa + xb) / 2) + 1);
+      }
+    }
+    c.restore();
+  });
+}
+function drawScissors(c, G) {
+  const sc = Z.sc; if (!sc || sc.a < .05) return;
+  const lane = Z.lanes[sc.lane], U = lane.U[sc.u], x = G.X(sc.x), top = laneBase(G, lane) - U.h;
+  if (sc.open > .02) {
+    c.save(); c.strokeStyle = `rgba(255,255,255,${.9 * sc.open})`; c.lineWidth = 2; c.lineCap = 'round';
+    c.beginPath(); c.moveTo(x, top - 3); c.lineTo(x, top + TH + 3); c.stroke(); c.restore();
+  }
+  c.save(); c.globalAlpha = 1; c.fillStyle = '#fff';
+  c.translate(x, top - 16); c.rotate(SC_ROT + Math.sin(sc.open * Math.PI) * .22); c.scale(sc.a, sc.a);
+  c.font = `30px ${EMOJI}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('✂️', 0, 0);
+  c.restore();
+}
+
+// the yellow flag: pole, waving cloth, a little foot shadow
+function drawFlag(c, x, base, o = {}) {
+  const { wob = 0, time = 0, a = 1, col = GOLD, s = 1 } = o, H = 44 * s, w1 = 26 * s, h1 = 18 * s, t = time * 4;
+  const wv = (k) => Math.sin(t + k) * 2 * s;
+  c.save(); c.globalAlpha = a; c.translate(x, base); c.rotate(wob); c.lineCap = 'round'; c.lineJoin = 'round';
+  c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.ellipse(0, 1, 5 * s + 1, 2, 0, 0, 7); c.fill();
+  c.strokeStyle = '#8B6A3A'; c.lineWidth = 3.4; c.beginPath(); c.moveTo(0, 0); c.lineTo(0, -H); c.stroke();
+  c.strokeStyle = '#F6E7C4'; c.lineWidth = 2; c.stroke();
+  c.beginPath(); c.moveTo(1.5, -H);
+  c.bezierCurveTo(w1 * .35, -H + wv(0) - 2, w1 * .65, -H + wv(1.5) + 2, w1, -H + wv(3));
+  c.lineTo(w1 - 6 * s, -H + h1 / 2 + wv(3.5)); c.lineTo(w1, -H + h1 + wv(3.8));
+  c.bezierCurveTo(w1 * .65, -H + h1 + wv(1.8) + 2, w1 * .35, -H + h1 + wv(.3) - 2, 1.5, -H + h1); c.closePath();
+  const g = c.createLinearGradient(0, -H, 0, -H + h1); g.addColorStop(0, mix(col, '#ffffff', .35)); g.addColorStop(1, mix(col, '#000000', .15));
+  c.fillStyle = g; c.fill(); c.lineWidth = 1.2; c.strokeStyle = mix(col, '#000000', .45); c.stroke();
+  c.fillStyle = mix(col, '#000000', .1); c.beginPath(); c.arc(0, -H - 1.5, 3.2, 0, 7); c.fill();
+  c.restore();
+}
+// the glowing label above the flag: stacked fraction, and "= 1" for a whole
+function drawLabelPill(c, G, time) {
+  const { n, d, k } = Z.lbl, size = 18, fw = fracW(c, n, d, size), tw = fw + 40 * Z.eq, pw = tw + 28, ph = 46;
+  const x = G.X(Z.fx), pole = G.rt - 3 - TH - Z.hop - 44;
+  const cx = clamp(x, pw / 2 + 6, G.w - pw / 2 - 6), cy = pole - 12 - ph / 2;
+  c.save(); c.globalAlpha = Z.glow;
+  c.shadowColor = GOLD; c.shadowBlur = (14 + 6 * Math.sin(time * 4)) * Z.glow * DPR();
+  pillPath(c, cx, cy, pw, ph, 15); c.fillStyle = 'rgba(20,16,40,.9)'; c.fill();
+  c.shadowColor = 'transparent'; c.lineWidth = 2; c.strokeStyle = GOLD; c.stroke();
+  c.fillStyle = '#FFF3D6';
+  const left = cx - tw / 2;
+  drawFrac(c, n, d, left + fw / 2, cy, size);
+  if (Z.eq > .02) {
+    c.globalAlpha = Z.glow * Z.eq; c.font = `900 ${size}px ${FONT}`; c.textAlign = 'left'; c.textBaseline = 'middle';
+    c.fillText(`= ${k}`, left + fw + 7, cy + 1);
+  }
+  c.restore();
+}
+// flag in the ribbon and place views
+function drawFlags(c, G, time) {
+  if (Z.fa < .01) return;
+  const x = G.X(Z.fx), yL = G.rt - 3 - TH, base = yL - Z.hop;
+  c.save(); c.globalAlpha = .75 * Z.fa; c.setLineDash([4, 4]); c.strokeStyle = GOLD; c.lineWidth = 1.5;
+  c.beginPath(); c.moveTo(x, base); c.lineTo(x, G.rt); c.stroke(); c.restore();
+  // a golden spot on the ruler under the flag
+  c.save(); c.globalAlpha = Z.fa;
+  const gl = c.createRadialGradient(x, G.rt + 4, 1, x, G.rt + 4, 18); gl.addColorStop(0, 'rgba(255,201,74,.55)'); gl.addColorStop(1, 'rgba(255,201,74,0)');
+  c.fillStyle = gl; c.fillRect(x - 20, G.rt - 14, 40, 40);
+  c.fillStyle = GOLD; c.strokeStyle = '#8B6A3A'; c.lineWidth = 1;
+  c.beginPath(); c.moveTo(x, G.rt - 1); c.lineTo(x + 5, G.rt + 5); c.lineTo(x, G.rt + 11); c.lineTo(x - 5, G.rt + 5); c.closePath(); c.fill(); c.stroke();
+  c.restore();
+  if (lab.view === 'place' && !S.p.moved && !S.p.checked) { // "drag me": a pulsing ring
+    c.save(); const k = (time * 1.2) % 1;
+    c.globalAlpha = (1 - k) * .8; c.strokeStyle = GOLD; c.lineWidth = 2; c.beginPath(); c.arc(x, base - 8, 10 + 20 * k, 0, 7); c.stroke(); c.restore();
+  }
+  drawFlag(c, x, base, { wob: Z.wob, time, a: Z.fa });
+  if (Z.glow > .01 && Z.lbl) drawLabelPill(c, G, time);
+}
+// place view: the true spot glows green, a bracket shows how far the child's flag is from it
+function drawTarget(c, G, time) {
+  if (Z.tg < .01) return;
+  const [n, d] = PL[S.p.i], x = G.X(Z.tgx);
+  c.save(); c.globalAlpha = Z.tg;
+  const gl = c.createRadialGradient(x, G.rt + 9, 2, x, G.rt + 9, 36); gl.addColorStop(0, 'rgba(91,211,138,.8)'); gl.addColorStop(1, 'rgba(91,211,138,0)');
+  c.fillStyle = gl; c.fillRect(x - 38, G.rt - 28, 76, 76);
+  c.fillStyle = GOOD; c.strokeStyle = '#1F7A47'; c.lineWidth = 1;
+  c.beginPath(); c.moveTo(x, G.rt - 2); c.lineTo(x + 6, G.rt + 5); c.lineTo(x, G.rt + 12); c.lineTo(x - 6, G.rt + 5); c.closePath(); c.fill(); c.stroke();
+  const pw = Math.max(44, fracW(c, n, d, 17) + 26), ph = 42, cx = clamp(x, pw / 2 + 6, G.w - pw / 2 - 6), cy = G.rt + 92;
+  c.setLineDash([3, 4]); c.strokeStyle = GOOD; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x, G.rt + 28); c.lineTo(cx, cy - ph / 2); c.stroke(); c.setLineDash([]);
+  c.shadowColor = GOOD; c.shadowBlur = (12 + 5 * Math.sin(time * 4)) * DPR();
+  pillPath(c, cx, cy, pw, ph, 14); c.fillStyle = 'rgba(14,30,26,.92)'; c.fill();
+  c.shadowColor = 'transparent'; c.lineWidth = 2; c.strokeStyle = GOOD; c.stroke();
+  c.fillStyle = '#E6FFF0'; drawFrac(c, n, d, cx, cy, 17);
+  c.restore();
+}
+function drawBracket(c, G) {
+  if (Z.br < .01) return;
+  const xa = G.X(Z.fx), xb = G.X(Z.tgx), y = G.rt + 58, col = [GOOD, GOLD, BAD][S.p.rate];
+  c.save(); c.globalAlpha = Z.br; c.lineCap = 'round'; c.lineJoin = 'round';
+  if (Math.abs(xb - xa) < 6) { c.strokeStyle = GOOD; c.lineWidth = 2.5; c.beginPath(); c.arc((xa + xb) / 2, y - 2, 9, 0, 7); c.stroke(); }
+  else {
+    const m = (xa + xb) / 2, half = Math.abs(xb - xa) / 2 * Z.br;
+    c.setLineDash([3, 4]); c.lineWidth = 1.5;
+    c.strokeStyle = GOLD; c.beginPath(); c.moveTo(xa, G.rt + 28); c.lineTo(xa, y); c.stroke();
+    c.strokeStyle = GOOD; c.beginPath(); c.moveTo(xb, G.rt + 28); c.lineTo(xb, y); c.stroke();
+    c.setLineDash([]); c.strokeStyle = col; c.lineWidth = 3;
+    c.beginPath(); c.moveTo(m - half, y - 7); c.lineTo(m - half, y); c.lineTo(m + half, y); c.lineTo(m + half, y - 7); c.stroke();
+  }
+  c.restore();
+}
+
+// --- snails --------------------------------------------------------------------------------------------------------
+function drawSnail(c, x, y, col, moving, time) {
+  c.save(); c.translate(x, y + (moving ? Math.sin(time * 14) * .6 : 0)); c.lineJoin = 'round'; c.lineCap = 'round';
+  // body
+  const g = c.createLinearGradient(0, -26, 0, 0); g.addColorStop(0, '#F3E4C9'); g.addColorStop(1, '#D8C39C');
+  c.fillStyle = g; c.strokeStyle = 'rgba(110,80,40,.55)'; c.lineWidth = 1.2;
+  c.beginPath(); c.moveTo(-46, 0);
+  c.quadraticCurveTo(-36, -3, -28, -11); c.lineTo(-8, -11);
+  c.bezierCurveTo(-4, -11, -3, -16, -2, -21); c.bezierCurveTo(-1, -26, 7, -26, 8, -20);
+  c.bezierCurveTo(9, -16, 8, -13, 10, -9); c.bezierCurveTo(12, -5, 12, 0, 6, 0); c.closePath(); c.fill(); c.stroke();
+  // eye stalks
+  for (let i = 0; i < 2; i++) {
+    const sx = Math.sin(time * 3 + i * 1.7) * 1.5, bx = 1 + i * 5, ex = bx - 2 + i * 4 + sx, ey = -35;
+    c.strokeStyle = '#D8C39C'; c.lineWidth = 2.4; c.beginPath(); c.moveTo(bx, -23); c.lineTo(ex, ey); c.stroke();
+    c.fillStyle = '#fff'; c.strokeStyle = 'rgba(110,80,40,.6)'; c.lineWidth = 1; c.beginPath(); c.arc(ex, ey, 3.6, 0, 7); c.fill(); c.stroke();
+    c.fillStyle = '#2A2118'; c.beginPath(); c.arc(ex + 1, ey + .4, 1.7, 0, 7); c.fill();
+    c.fillStyle = '#fff'; c.beginPath(); c.arc(ex + .4, ey - .6, .7, 0, 7); c.fill();
+  }
+  // smile
+  c.strokeStyle = 'rgba(110,80,40,.7)'; c.lineWidth = 1.2; c.beginPath(); c.arc(6, -12, 2.6, .25, 2.6); c.stroke();
+  // shell: radial gradient, outline, spiral, highlight
+  const cx = -23, cy = -17, rg = c.createRadialGradient(cx - 5, cy - 6, 2, cx, cy, 17);
+  rg.addColorStop(0, mix(col, '#ffffff', .5)); rg.addColorStop(.55, col); rg.addColorStop(1, mix(col, '#000000', .3));
+  c.fillStyle = rg; c.strokeStyle = mix(col, '#000000', .5); c.lineWidth = 1.4;
+  c.beginPath(); c.arc(cx, cy, 14, 0, 7); c.fill(); c.stroke();
+  c.strokeStyle = mix(col, '#000000', .42); c.lineWidth = 1.6; c.beginPath();
+  for (let a = 0; a <= 4 * Math.PI; a += .25) { const r = 1.2 + a * .85; c[a ? 'lineTo' : 'moveTo'](cx + r * Math.cos(a), cy + r * Math.sin(a)); }
+  c.stroke();
+  c.strokeStyle = 'rgba(255,255,255,.45)'; c.lineWidth = 2; c.beginPath(); c.arc(cx, cy, 10.5, Math.PI * 1.1, Math.PI * 1.55); c.stroke();
+  c.restore();
+}
+const raceBase = (G, row) => G.rt - 3 - TH - row * LANE_GAP;
+function drawRaceTracks(c, G) { // faint lanes the snails stand on until the ribbons arrive
+  c.save(); c.fillStyle = 'rgba(255,255,255,.07)';
+  for (const row of [0, 1]) { c.beginPath(); c.roundRect(G.X(0) - 56, raceBase(G, row), G.X(Z.R) - G.X(0) + 56, TH, 8); c.fill(); }
+  c.restore();
+}
+function drawRaceTop(c, G, time) {
+  const labels = Z.snails.map((s) => G.X(s.v));
+  // the labels below the ruler: side by side when both snails end at the same place
+  const same = Math.abs(Z.snails[0].v - Z.snails[1].v) < 1e-9, half = 29;
+  let [xa, xb] = labels;
+  if (Math.abs(xa - xb) < 2 * half) { const m = (xa + xb) / 2; if (xa <= xb) { xa = m - half; xb = m + half; } else { xa = m + half; xb = m - half; } }
+  const lx = [clamp(xa, half + 4, G.w - half - 4), clamp(xb, half + 4, G.w - half - 4)];
+  Z.snails.forEach((s, i) => {
+    const by = raceBase(G, s.row), hx = G.X(s.x);
+    if (Z.rl > .01) { // dotted guide from the snail's flag down to its label
+      c.save(); c.globalAlpha = .7 * Z.rl; c.setLineDash([3, 4]); c.strokeStyle = s.col; c.lineWidth = 1.6;
+      c.beginPath(); c.moveTo(G.X(s.v), by + TH); c.lineTo(lx[i], G.rt + 60); c.stroke(); c.restore();
+    }
+    if (s.x > .003) { // glossy trail on the ribbon
+      c.save(); c.lineCap = 'round';
+      c.strokeStyle = 'rgba(255,255,255,.28)'; c.lineWidth = 6; c.beginPath(); c.moveTo(G.X(0), by + 8); c.lineTo(Math.max(G.X(0), hx - 16), by + 8); c.stroke();
+      c.strokeStyle = 'rgba(255,255,255,.75)'; c.lineWidth = 1.8; c.beginPath(); c.moveTo(G.X(0), by + 6.5); c.lineTo(Math.max(G.X(0), hx - 16), by + 6.5); c.stroke();
+      c.restore();
+    }
+  });
+  Z.snails.forEach((s) => {
+    const by = raceBase(G, s.row), hx = G.X(s.x);
+    drawSnail(c, hx, by + 1, s.col, s.moving, time);
+    if (Z.rf > .01) drawFlag(c, G.X(s.v) + 14, by + 3, { wob: Z.wob, time, a: Z.rf, s: .62 });
+  });
+  if (Z.rl > .01) {
+    Z.snails.forEach((s, i) => {
+      const [n, d] = s.f, cy = G.rt + 80, ph = 40, pw = Math.max(46, fracW(c, n, d, 17) + 26);
+      c.save(); c.globalAlpha = Z.rl;
+      c.shadowColor = s.col; c.shadowBlur = 12 * DPR();
+      pillPath(c, lx[i], cy, pw, ph, 14); c.fillStyle = 'rgba(20,16,40,.92)'; c.fill();
+      c.shadowColor = 'transparent'; c.lineWidth = 2; c.strokeStyle = s.col; c.stroke();
+      c.fillStyle = '#FFF3D6'; drawFrac(c, n, d, lx[i], cy, 17);
+      c.restore();
+    });
+    if (same) {
+      c.save(); c.globalAlpha = Z.rl; c.fillStyle = '#fff'; c.font = `900 20px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillText('=', (lx[0] + lx[1]) / 2, G.rt + 80); c.restore();
+    }
+  }
+}
+
+// --- secret scenes -----------------------------------------------------------------------------------------------
+function drawZoom(c, w, h, dt, time) {
+  const rt = Math.round(h * .58), xa = 14, xb = w - 14, lo = .455, hi = .795;
+  const X = (v) => xa + 24 + (v - lo) / (hi - lo) * (xb - xa - 48);
+  drawRuler(c, xa, xb, rt);
+  const L = S.zm.L, D = 4 * 2 ** L, born = clamp((time - S.zm.t0) / .55, 0, 1), lane = Z.lanes[0], U = lane.U[0];
+  U.cut = Math.min(lane.d - 1, U.cut + dt * Math.max(1, lane.d - 1) / .5);
+  const G = { rt, X: (u) => X(.5 + .25 * u), w, h };
+  drawLane(c, G, lane, time);
+  for (let N = 2 ** (L + 1); N <= 3 * 2 ** L; N++) {
+    const v = N / D, base = v === .5 || v === .75, isNew = !base && N % 2 === 1, x = X(v), k = isNew ? easeOut(born) : 1;
+    c.fillStyle = base ? '#5A3D17' : '#7A5726';
+    c.beginPath(); c.roundRect(x - (base ? 1.5 : .9), rt, base ? 3 : 1.8, (base ? 27 : 12) * k, 1); c.fill();
+    if (isNew && born < 1) { // a ring of light where a new fraction is born
+      c.save(); c.globalAlpha = (1 - born) * .8; c.strokeStyle = GOLD; c.lineWidth = 2; c.beginPath(); c.arc(x, rt + 9, 6 + 22 * born, 0, 7); c.stroke(); c.restore();
+    }
+    if (L <= 2 || base) {
+      const g = gcd(N, D), n = N / g, d = D / g, size = 15, pw = Math.max(34, fracW(c, n, d, size) + 16), cy = rt + 52 + (1 - k) * 8;
+      c.save(); c.globalAlpha = k;
+      pillPath(c, x, cy, pw, 40, 12); c.fillStyle = 'rgba(20,16,30,.85)'; c.fill();
+      c.lineWidth = 1.5; c.strokeStyle = isNew ? GOLD : 'rgba(255,243,214,.35)'; c.stroke();
+      c.fillStyle = '#FFF3D6'; drawFrac(c, n, d, x, cy, size);
+      c.restore();
+    }
+  }
+}
+function drawClockFace(c, x, y, r, minutes, k) {
+  c.save(); c.translate(x, y); c.scale(k, k); c.globalAlpha = 1;
+  c.shadowColor = 'rgba(0,0,0,.4)'; c.shadowBlur = 6 * DPR(); c.shadowOffsetY = 2 * DPR();
+  const g = c.createRadialGradient(-r * .3, -r * .3, 1, 0, 0, r); g.addColorStop(0, '#FFFBEE'); g.addColorStop(1, '#F2D7A6');
+  c.fillStyle = g; c.beginPath(); c.arc(0, 0, r, 0, 7); c.fill();
+  c.shadowColor = 'transparent'; c.lineWidth = 2; c.strokeStyle = '#5A3D17'; c.stroke();
+  c.strokeStyle = '#5A3D17'; c.lineWidth = 1.2;
+  for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6; c.beginPath(); c.moveTo(Math.sin(a) * (r - 3.5), -Math.cos(a) * (r - 3.5)); c.lineTo(Math.sin(a) * (r - 1.5), -Math.cos(a) * (r - 1.5)); c.stroke(); }
+  c.lineCap = 'round'; c.strokeStyle = '#3A2A14';
+  const am = minutes / 60 * Math.PI * 2, ah = minutes / 60 * Math.PI / 6;
+  c.lineWidth = 2.4; c.beginPath(); c.moveTo(0, 0); c.lineTo(Math.sin(ah) * r * .5, -Math.cos(ah) * r * .5); c.stroke();
+  c.lineWidth = 1.8; c.beginPath(); c.moveTo(0, 0); c.lineTo(Math.sin(am) * r * .78, -Math.cos(am) * r * .78); c.stroke();
+  c.fillStyle = '#3A2A14'; c.beginPath(); c.arc(0, 0, 1.8, 0, 7); c.fill();
+  c.restore();
+}
+function drawClock(c, w, h, time) {
+  const rt = Math.round(h * .6), X = (u) => 30 + u * (w - 60), G = { rt, X, w, h };
+  drawRuler(c, 4, w - 4, rt);
+  for (let m = 0; m <= 60; m += 5) { // minute marks every 5 minutes
+    const x = X(m / 60), big = m % 15 === 0, label = `${m}`;
+    c.fillStyle = '#5A3D17'; c.beginPath(); c.roundRect(x - (big ? 1.5 : .8), rt, big ? 3 : 1.6, big ? 27 : 12, 1); c.fill();
+    c.textAlign = 'center'; c.textBaseline = 'middle';
+    if (big) {
+      c.font = `800 14px ${FONT}`; const pw = Math.max(26, c.measureText(label).width + 16);
+      pillPath(c, x, rt + 40, pw, 22); c.fillStyle = 'rgba(20,16,30,.82)'; c.fill();
+      c.fillStyle = '#FFF3D6'; c.fillText(label, x, rt + 41);
+    } else { c.font = `700 12px ${FONT}`; c.fillStyle = 'rgba(255,243,214,.8)'; c.fillText(label, x, rt + 41); }
+  }
+  drawNotches(c, G);
+  drawLane(c, G, Z.lanes[0], time);
+  drawScissors(c, G);
+  for (let k = 1; k <= 3; k++) { // the tiny clock faces
+    const a = clamp(Z.faces - (k - 1), 0, 1); if (a < .02) continue;
+    const x = X(k / 4), e = easeOut(a), cy = rt - 58;
+    drawClockFace(c, x, rt - 92, 15, k * 15, e);
+    c.save(); c.globalAlpha = e;
+    pillPath(c, x, cy, 36, 38, 12); c.fillStyle = 'rgba(20,16,30,.88)'; c.fill(); c.lineWidth = 1.5; c.strokeStyle = GOLD; c.stroke();
+    c.fillStyle = '#FFF3D6'; drawFrac(c, k, 4, x, cy, 15); c.restore();
+  }
+}
+
+// --- the stage loop ----------------------------------------------------------------------------------------------
+function updateFree(dt) { // free play: everything glides to the numbers the child chose
+  const { d, n } = S.r, L = Z.lanes[0], need = Math.max(1, Math.ceil(n / d)), tgt = n / d;
+  if (L.d !== d) { L.d = d; L.U.forEach((U) => { U.cut = 0; }); sfx.snap(); }
+  L.U.forEach((U, i) => {
+    const want = i < need ? 1 : 0;
+    if (want && U.a < .02) U.h = 26;
+    U.a = clamp(U.a + clamp(want - U.a, -dt * 4, dt * 4), 0, 1);
+    U.h += (0 - U.h) * Math.min(1, dt * 9);
+    U.cut = Math.min(d - 1, U.cut + dt * (d - 1) / .45);
+  });
+  Z.Rt = Math.max(4, need);
+  const dx = tgt - Z.fx; Z.hop = Math.min(12, Math.abs(dx) * 14); Z.fx += dx * Math.min(1, dt * 8);
+  Z.lbl = { n, d, k: n / d }; Z.glow += (1 - Z.glow) * Math.min(1, dt * 8); Z.fa += (1 - Z.fa) * Math.min(1, dt * 8);
+  Z.eq += ((n % d === 0 ? 1 : 0) - Z.eq) * Math.min(1, dt * 8);
+}
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  tickSeq(dt);
+  if (!Z) return;
+  Z.R += (Z.Rt - Z.R) * Math.min(1, dt * 7);
+  if (Z.free) updateFree(dt);
+  drawBackdrop(c, w, h, time);
+  if (Z.mode === 'zoom') { drawZoom(c, w, h, dt, time); return; }
+  if (Z.mode === 'clock') { drawClock(c, w, h, time); return; }
+  const race = lab.view === 'race', mxL = race ? 64 : 30, mxR = 30, pxu = (w - mxL - mxR) / Z.R;
+  const G = lastG = { w, h, rt: Math.round(h * (race ? .62 : .6)), mxL, pxu, X: (u) => mxL + u * pxu };
+  const ext = clamp(pxu * .12, 8, 24);
+  drawRuler(c, G.X(0) - ext, G.X(Z.R) + ext, G.rt);
+  drawWholeMarks(c, G);
+  drawNotches(c, G);
+  if (race) drawRaceTracks(c, G);
+  drawNotHere(c, G);
+  drawTarget(c, G, time);
+  for (const L of Z.lanes) drawLane(c, G, L, time);
+  if (race) drawRaceTop(c, G, time);
+  else { drawFlags(c, G, time); drawBracket(c, G); }
+  drawScissors(c, G);
+});
+
+// --- dragging the flag (place view) -----------------------------------------------------------------------------
+const cv = $('cv');
+let dragging = false;
+const dragTo = (ev) => {
+  if (!lastG || !Z) return;
+  const r = cv.getBoundingClientRect(), u = clamp((ev.clientX - r.left - lastG.mxL) / lastG.pxu, 0, Z.Rt);
+  S.p.x = u; Z.fx = u;
+  if (!S.p.moved) { S.p.moved = true; render(); }
+};
+cv.addEventListener('pointerdown', (ev) => {
+  if (lab.view !== 'place' || S.p.i >= PL.length || S.p.checked) return;
+  dragging = true; try { cv.setPointerCapture(ev.pointerId); } catch { /* not capturable: still works */ }
+  dragTo(ev);
+});
+cv.addEventListener('pointermove', (ev) => { if (dragging) dragTo(ev); });
+const endDrag = () => { dragging = false; };
+cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
+
+// --- controls ----------------------------------------------------------------------------------------------------
+// on a phone the controls sit below the stage: bring the reveal into view
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const R = S.r, P = S.p, Q = S.s;
+  switch (b.dataset.act) {
+    case 'pick': // ribbon question
+      if (R.picked !== null) return;
+      R.picked = +b.dataset.i; R.asked = true; sfx.click(); revealRibbon(); showStage(); break;
+    case 'next': R.step++; startRibbon(); sfx.click(); break;
+    case 'restart': R.step = 0; startRibbon(); sfx.click(); break;
+    case 'fd': { // free play steppers
+      const k = b.dataset.k, s = +b.dataset.s;
+      if (k === 'd') R.d = clamp(R.d + s, 2, 8); else R.n = clamp(R.n + s, 0, 16);
+      sfx.tick(); break;
+    }
+    case 'sec': {
+      const k = b.dataset.k;
+      if (!secret.unlocked()) { secret.open(); return; }
+      S.sec = S.sec === k ? null : k; startRibbon(); sfx.click(); break;
+    }
+    case 'zoomIn': {
+      if (S.zm.L >= 5) return;
+      S.zm.L++; S.zm.t0 = performance.now() / 1000;
+      const L = Z.lanes[0]; L.d = 2 ** S.zm.L; L.U[0].cut = 0; sfx.snap(); break;
+    }
+    case 'quarter': {
+      if (S.clk.busy) return;
+      S.clk = { busy: true, done: false };
+      const L = newLane(4, 1); Z.lanes = [L]; Z.faces = 0;
+      play([enterStep([L]), ...cutSteps(0), landStep([L]), { d: 1.2, f(p) { Z.faces = 3 * p; }, init() { sfx.good(); } },
+        { d: 0, done() { S.clk = { busy: false, done: true }; render(); } }]);
+      break;
+    }
+    case 'pcheck': { // place view
+      if (!P.moved || P.checked) return;
+      const [n, d] = PL[P.i], dist = Math.abs(P.x - n / d);
+      P.checked = true; P.rate = dist < .04 ? 0 : dist < .1 ? 1 : 2; P.res[P.i] = P.rate;
+      revealPlace(); showStage(); break;
+    }
+    case 'pnext': P.i++; startPlace(); sfx.click(); break;
+    case 'pagain': P.i = 0; P.res = []; startPlace(); sfx.click(); break;
+    case 'rpick': // snail race
+      if (Q.pick !== null) return;
+      Q.pick = +b.dataset.i; Q.asked = true; sfx.click(); revealRace(); showStage(); break;
+    case 'rnext': Q.i = (Q.i + 1) % RC.length; if (Q.i === 0) Q.res = []; startRace(); sfx.click(); break;
+    default: return;
+  }
+  render();
+});
+
+// --- render: controls, readout and the state card ----------------------------------------------------------------
+const card = (t, a) => ({ emo: a[0], title: a[1], lead: a[2], body: a[3], extra: `<div class="fine">${esc(t.fine)}</div>` });
+function render() {
+  const t = T[lang], v = lab.view;
+  document.body.dataset.v = v;
+  if (v === 'ribbon') renderRibbon(t); else if (v === 'place') renderPlace(t); else renderRace(t);
+}
+function renderRibbon(t) {
+  const R = S.r, unlocked = secret.unlocked();
+  lab.setGlow('rgba(232, 87, 140, .22)');
+  const chips = ['zoom', 'clock'].map((k) => `<button class="chip secret ${unlocked ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${unlocked ? `${k === 'zoom' ? '🔍' : '⏰'} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`).join('');
+  const chipRow = `<div class="row2"><div class="chips">${chips}</div></div>`;
+  let body = '';
+  if (S.sec === 'zoom') {
+    const L = S.zm.L;
+    body = `<p class="ptxt">${esc(t.sec.zoomText)}</p><button class="btn" data-act="zoomIn"${L >= 5 ? ' disabled' : ''}>${esc(t.sec.zoomIn)}</button>`;
+    lab.setReadout(`${fr(1, 2)} &lt; ${L ? fr(5, 8) : '?'} &lt; ${fr(3, 4)}`, '', '', PINK);
+    lab.setState({ emo: '🔍', title: t.secrets.zoom[0], lead: t.secrets.zoom[1], body: '', extra: `<div class="fine">${esc(t.fine)}</div>` });
+  } else if (S.sec === 'clock') {
+    const C = S.clk;
+    body = `${C.done ? `<p class="ptxt">${esc(t.sec.clockText)}</p>` : ''}<button class="btn" data-act="quarter"${C.busy ? ' disabled' : ''}>${esc(t.sec.quarter)}</button>`;
+    lab.setReadout(C.done ? fr(1, 4) : '?', C.done ? '15 · 30 · 45' : '', '', PINK);
+    lab.setState({ emo: '⏰', title: t.secrets.clock[0], lead: t.secrets.clock[1], body: '', extra: `<div class="fine">${esc(t.fine)}</div>` });
+  } else if (R.step < 3) {
+    const q = RQ[R.step], k = R.step + 1, ok = R.picked === q.ok;
+    const opts = t.r['o' + k].map((o, i) => {
+      let cls = '';
+      if (R.done) cls = i === q.ok ? 'good' : i === R.picked ? 'bad' : '';
+      else if (i === R.picked) cls = 'pick';
+      return `<button class="ob ${cls}" data-act="pick" data-i="${i}"${R.picked !== null ? ' disabled' : ''}>${esc(o)}</button>`;
+    }).join('');
+    const res = R.done ? `<div class="verdict" style="color:${ok ? GOOD : BAD}">${esc(ok ? t.right : t.wrong)}</div><p class="ptxt">${fx(t.r['r' + k])}</p><button class="btn" data-act="next">${esc(t.next)}</button>` : '';
+    body = `<p class="q">${fx(t.r['q' + k])}</p><div class="obs">${opts}</div>${res}`;
+    lab.setReadout(R.done ? fr(q.n, q.d) : '?', R.done ? where(t, q.n, q.d) : '', '', PINK);
+    lab.setState(card(t, t.cards.ribbon[R.asked ? 1 : 0]));
+  } else {
+    const stp = (k, label, val, lo, hi) => `<div class="stp"><span class="lbl">${esc(label)}</span><div>
+      <button class="sb" data-act="fd" data-k="${k}" data-s="-1" aria-label="−"${val <= lo ? ' disabled' : ''}>−</button><b>${val}</b>
+      <button class="sb" data-act="fd" data-k="${k}" data-s="1" aria-label="+"${val >= hi ? ' disabled' : ''}>+</button></div></div>`;
+    body = `<div class="steps">${stp('n', t.r.top, R.n, 0, 16)}${stp('d', t.r.bottom, R.d, 2, 8)}</div><div class="row2"><button class="chip" data-act="restart" aria-label="↻">↻</button></div>`;
+    lab.setReadout(fr(R.n, R.d), where(t, R.n, R.d), '', PINK);
+    lab.setState(card(t, t.cards.ribbon[1]));
+  }
+  $('ctrlBody').innerHTML = body + chipRow;
+}
+function renderPlace(t) {
+  const P = S.p, col = [GOOD, GOLD, BAD];
+  lab.setGlow('rgba(255, 201, 74, .18)');
+  lab.setState(card(t, t.cards.place[0]));
+  const dots = PL.map((_, i) => (i < P.i ? '●' : i === P.i ? '◉' : '○')).join(' ');
+  if (P.i >= PL.length) {
+    const k = P.res.filter((r) => r < 2).length;
+    lab.setReadout(`${k}/${PL.length}`, dots, '', GOLD);
+    $('ctrlBody').innerHTML = `<div class="verdict" style="color:${GOOD}">${esc(t.p.score(k, PL.length))}</div><button class="btn" data-act="pagain" aria-label="↻">↻</button>`;
+    return;
+  }
+  const [n, d] = PL[P.i];
+  lab.setReadout(fr(n, d), dots, P.done ? t.p.rate[P.rate] : '', P.done ? col[P.rate] : GOLD);
+  const act = !P.checked ? `<button class="btn" data-act="pcheck"${P.moved ? '' : ' disabled'}>${esc(t.p.check)}</button>`
+    : P.done ? `<div class="verdict" style="color:${col[P.rate]}">${esc(t.p.rate[P.rate])}</div><button class="btn" data-act="pnext">${esc(t.next)}</button>` : '';
+  $('ctrlBody').innerHTML = `<p class="q">${t.p.task(fr(n, d))}</p>${act}`;
+}
+function renderRace(t) {
+  const Q = S.s, r = RC[Q.i], [an, ad] = r.a, [bn, bd] = r.b, ok = Q.pick === r.ok;
+  lab.setGlow('rgba(127, 184, 255, .2)');
+  lab.setState(card(t, t.cards.race[Q.asked ? 1 : 0]));
+  const dot = (c) => `<i class="dot" style="background:${c}"></i>`;
+  const labels = [`${dot('#FFB547')}${fr(an, ad)}`, `${dot('#7FB8FF')}${fr(bn, bd)}`, esc(t.s.same)];
+  const opts = labels.map((l, i) => {
+    let cls = '';
+    if (Q.done) cls = i === r.ok ? 'good' : i === Q.pick ? 'bad' : '';
+    else if (i === Q.pick) cls = 'pick';
+    return `<button class="ob ${cls}" data-act="rpick" data-i="${i}"${Q.pick !== null ? ' disabled' : ''}>${l}</button>`;
+  }).join('');
+  const res = Q.done ? `<div class="verdict" style="color:${ok ? GOOD : BAD}">${esc(ok ? t.right : t.wrong)}</div><p class="ptxt">${fx(t.s.r[Q.i])}</p><button class="btn" data-act="rnext">${esc(t.next)}</button>` : '';
+  $('ctrlBody').innerHTML = `<p class="q">${t.s.q(fr(an, ad), fr(bn, bd))}</p><div class="obs">${opts}</div>${res}`;
+  const cmp = an * bd - bn * ad, sign = cmp > 0 ? '&gt;' : cmp < 0 ? '&lt;' : '=';
+  lab.setReadout(`${fr(an, ad)}&nbsp;${Q.done ? sign : '?'}&nbsp;${fr(bn, bd)}`, `${Q.i + 1}/${RC.length}`, '', '#7FB8FF');
+}
+
+startRibbon();
+render();
+</script>
+</body>
+</html>
