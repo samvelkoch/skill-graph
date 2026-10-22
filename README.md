@@ -67,7 +67,7 @@ Help is welcome, especially:
 - **fixes** to topics, prerequisites, ages or translations;
 - **translations** of the interface and the labs.
 
-[CONTRIBUTING.md](CONTRIBUTING.md) has the path for each of these.
+[CONTRIBUTING.md](CONTRIBUTING.md) has the path for each of these. Building a lab with an AI coding agent? The project skill [`.claude/skills/new-lab/`](.claude/skills/new-lab/SKILL.md) holds the whole procedure; [AGENTS.md](AGENTS.md) points other agents to it.
 
 ## The data
 
