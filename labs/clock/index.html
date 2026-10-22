@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Clock Lab · Skill Graph</title>
+<meta name="description" content="Turn the minute hand and watch the hour hand creep along, read clocks to five minutes, and find out how long a film lasts. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  @media (min-width: 1101px) { .lab { grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); grid-template-areas: 'hero stage' 'state stage' 'state ctrl'; } }
+  .q { font: 500 21px/1.2 var(--serif); color: #fff; margin: 0 0 10px; text-wrap: balance; }
+  .qopts { display: flex; flex-wrap: wrap; gap: 8px; }
+  .qb { min-height: 40px; padding: 8px 16px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 800; cursor: pointer; text-align: left; }
+  .qb:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .qb:disabled { cursor: default; }
+  .qb.good { border-color: var(--ok); background: rgba(61, 220, 151, .18); }
+  .qb.bad { border-color: var(--red); background: rgba(255, 59, 48, .16); }
+  .qb.dim { opacity: .45; }
+  .vd { margin-top: 12px; }
+  .vt { font-weight: 900; }
+  .vt.ok { color: var(--ok); }
+  .vt.no { color: var(--wip); }
+  .vd p { margin: 4px 0 10px; color: var(--soft); font-size: 13px; }
+  .say { font: 500 21px/1.2 var(--serif); color: #fff; margin: 6px 0 12px; }
+  .hint { margin: 0; color: var(--mut); font-size: 13px; }
+  .fine { font-size: 11px; color: var(--faint); }
+  .btn:disabled { opacity: .35; cursor: default; }
+  @media (max-width: 760px) {
+    #stage { height: min(100vw, 440px); }
+    body[data-v=long] #stage { height: min(150vw, 600px); }
+    .q { font-size: 19px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, ruPlural, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Clock Lab', title: 'Two hands, one clock',
+    lines: [['The long hand', 'counts minutes.'], ['The short hand', 'creeps between the hours.'], ['Each number', 'is 5 minutes.']],
+    views: { gears: '⚙️ Gears', read: '🔢 Read it', long: '⏱️ How long?' },
+    next: 'Next ▶', right: 'Yes!', wrong: 'Look at both hands.', ring: 'Minute ring',
+    g: { drag: 'Drag the long hand round.', q1: 'At half past three, where will the hour hand point?', o1: ['exactly at 3', 'halfway between 3 and 4', 'exactly at 4'],
+         r1: 'The hour hand moves a little all the time. At half past it has gone half the way to the next number.',
+         q2: 'The minute hand goes all the way round once. How far does the hour hand go?', o2: ['from one number to the next', 'all the way round too', 'it doesn’t move'],
+         r2: 'One full turn of the minute hand is 60 minutes, one hour: the hour hand moves one number.' },
+    r: { q: 'What time is it?', numAsMin: 'The long hand on a number means that number of fives: on the 4 it is 20 minutes, not 4.',
+         wrongHour: 'Look where the short hand has got to: it hasn’t reached the next number yet.', wrong: 'Count round in fives.' },
+    l: { q: (a, b) => `It starts at ${a} and ends at ${b}. How long is it?`, min: (n) => `${n} ${n === 1 ? 'minute' : 'minutes'}`, h1: (n) => `1 hour ${n} minutes`,
+         steps: (a, b) => `${a} minutes to the hour, then ${b} more = ${a + b} minutes`, base: 'An hour has 60 minutes, not 100: count to the hour, then on.', start: 'start', end: 'end' },
+    secrets: { h24: ['24-hour clock', 'From midnight to midnight.'], minute: ['Feel a minute', 'Can you tell when 60 seconds have passed?'] },
+    sec: { h24Text: 'After 12 noon, the 24-hour clock keeps counting: 1 pm is 13:00, 3 pm is 15:00, midnight is 0:00.', start: 'Start', stop: 'Stop',
+           result: (s) => `That was ${s} seconds.`, minuteText: 'A minute is 60 seconds. Most people stop too early!' },
+    st: {
+      gears: ['⚙️', 'The hands move together', 'One turn of the long hand = 60 minutes = one hour.', 'In that time the short hand moves one number.'],
+      read: ['🔢', 'Reading the clock', 'Short hand: the hour it has passed. Long hand: count in fives.', 'After half past you can say “to” the next hour.'],
+      long: ['⏱️', 'How long?', 'Count on to the next whole hour first.', 'Then add the minutes after it. An hour is 60 minutes.'] },
+    fine: 'Telling the time to five minutes: UK National Curriculum Year 2; US Common Core 2.MD.C.7.',
+    quiz: [
+      { q: 'At half past three, the hour hand is…', opts: ['exactly on the 3', 'halfway between 3 and 4', 'on the 6'], ok: 1 },
+      { q: 'The long hand points at the 4. How many minutes past is it?', opts: ['4 minutes', '20 minutes', '40 minutes'], ok: 1 },
+      { q: 'A film starts at 9:50 and ends at 10:20. How long is it?', opts: ['70 minutes', '30 minutes', '1 hour 30 minutes'], ok: 1 } ],
+  },
+  ru: {
+    name: 'Часы', title: 'Две стрелки — одни часы',
+    lines: [['Длинная стрелка', 'считает минуты.'], ['Короткая стрелка', 'ползёт между часами.'], ['Каждое число —', 'это 5 минут.']],
+    views: { gears: '⚙️ Шестерёнки', read: '🔢 Прочитай', long: '⏱️ Сколько длится?' },
+    next: 'Дальше ▶', right: 'Да!', wrong: 'Посмотри на обе стрелки.', ring: 'Кольцо минут',
+    g: { drag: 'Крути длинную стрелку.', q1: 'Половина четвёртого. Куда будет показывать часовая стрелка?', o1: ['ровно на 3', 'посередине между 3 и 4', 'ровно на 4'],
+         r1: 'Часовая стрелка всё время понемногу движется. В половине она прошла полпути до следующего числа.',
+         q2: 'Минутная стрелка сделала один полный круг. Сколько прошла часовая?', o2: ['от одного числа до следующего', 'тоже целый круг', 'она стоит на месте'],
+         r2: 'Полный круг минутной стрелки — 60 минут, один час: часовая сдвигается на одно число.' },
+    r: { q: 'Который час?', numAsMin: 'Длинная стрелка на числе — это столько пятёрок: на 4 — 20 минут, а не 4.',
+         wrongHour: 'Посмотри, куда дошла короткая стрелка: до следующего числа она ещё не добралась.', wrong: 'Считай по кругу пятёрками.' },
+    l: { q: (a, b) => `Начало в ${a}, конец в ${b}. Сколько это длится?`, min: (n) => `${n} ${ruPlural(n, 'минута', 'минуты', 'минут')}`, h1: (n) => `1 час ${n} ${ruPlural(n, 'минута', 'минуты', 'минут')}`,
+         steps: (a, b) => `${a} мин до ровного часа, потом ещё ${b} = ${a + b} мин`, base: 'В часе 60 минут, а не 100: досчитай до ровного часа, потом дальше.', start: 'начало', end: 'конец' },
+    secrets: { h24: ['24 часа', 'От полуночи до полуночи.'], minute: ['Почувствуй минуту', 'Угадаешь, когда пройдут 60 секунд?'] },
+    sec: { h24Text: 'После полудня часы считают дальше: 1 час дня — это 13:00, 3 часа дня — 15:00, полночь — 0:00.', start: 'Старт', stop: 'Стоп',
+           result: (s) => `Прошло ${s} ${ruPlural(s, 'секунда', 'секунды', 'секунд')}.`, minuteText: 'Минута — это 60 секунд. Большинство людей останавливаются слишком рано!' },
+    st: {
+      gears: ['⚙️', 'Стрелки движутся вместе', 'Один круг длинной стрелки = 60 минут = один час.', 'За это время короткая сдвигается на одно число.'],
+      read: ['🔢', 'Как читать часы', 'Короткая стрелка: час, который она прошла. Длинная: считай пятёрками.', 'После половины можно говорить «без … » следующего часа.'],
+      long: ['⏱️', 'Сколько длится?', 'Сначала досчитай до ровного часа.', 'Потом прибавь минуты после него. В часе 60 минут.'] },
+    fine: 'Время с точностью до пяти минут — программа 2 класса.',
+    quiz: [
+      { q: 'В половине четвёртого часовая стрелка…', opts: ['ровно на 3', 'посередине между 3 и 4', 'на 6'], ok: 1 },
+      { q: 'Длинная стрелка показывает на 4. Сколько минут прошло?', opts: ['4 минуты', '20 минут', '40 минут'], ok: 1 },
+      { q: 'Мультфильм начался в 9:50 и закончился в 10:20. Сколько он длился?', opts: ['70 минут', '30 минут', '1 час 30 минут'], ok: 1 } ],
+  },
+  hu: {
+    name: 'Órák', title: 'Két mutató, egy óra',
+    lines: [['A nagymutató', 'a perceket számolja.'], ['A kismutató', 'az órák között kúszik.'], ['Minden szám', '5 perc.']],
+    views: { gears: '⚙️ Fogaskerekek', read: '🔢 Olvasd le', long: '⏱️ Meddig tart?' },
+    next: 'Tovább ▶', right: 'Igen!', wrong: 'Nézd meg mindkét mutatót.', ring: 'Perckör',
+    g: { drag: 'Forgasd körbe a nagymutatót.', q1: 'Fél négykor hová mutat a kismutató?', o1: ['pontosan a 3-ra', 'félúton a 3 és a 4 között', 'pontosan a 4-re'],
+         r1: 'A kismutató folyton mozog egy kicsit. Fél négykor már félúton jár a következő szám felé.',
+         q2: 'A nagymutató egyszer körbeér. Mennyit halad a kismutató?', o2: ['egyik számtól a következőig', 'ő is egy egész kört', 'meg sem mozdul'],
+         r2: 'A nagymutató egy teljes köre 60 perc, egy óra: a kismutató egy számot lép.' },
+    r: { q: 'Hány óra van?', numAsMin: 'A nagymutató egy számon annyi ötöst jelent: a 4-en 20 perc, nem 4.',
+         wrongHour: 'Nézd meg, hová jutott a kismutató: még nem érte el a következő számot.', wrong: 'Számolj körbe ötösével.' },
+    l: { q: (a, b) => `Kezdés: ${a}, vége: ${b}. Meddig tart?`, min: (n) => `${n} perc`, h1: (n) => `1 óra ${n} perc`,
+         steps: (a, b) => `${a} perc az egész óráig, aztán még ${b} = ${a + b} perc`, base: 'Egy órában 60 perc van, nem 100: számolj el az egész óráig, aztán tovább.', start: 'kezdet', end: 'vége' },
+    secrets: { h24: ['24 órás óra', 'Éjféltől éjfélig.'], minute: ['Érezd a percet', 'Ráérzel, mikor telik el 60 másodperc?'] },
+    sec: { h24Text: 'Dél után a 24 órás óra tovább számol: délután 1 óra 13:00, délután 3 óra 15:00, éjfél 0:00.', start: 'Indítás', stop: 'Állj',
+           result: (s) => `Ennyi másodperc telt el: ${s}.`, minuteText: 'Egy perc 60 másodperc. A legtöbben túl korán állnak meg!' },
+    st: {
+      gears: ['⚙️', 'A mutatók együtt mozognak', 'A nagymutató egy köre = 60 perc = egy óra.', 'Ezalatt a kismutató egy számot lép.'],
+      read: ['🔢', 'Az óra leolvasása', 'Kismutató: az az óra, amelyiket elhagyta. Nagymutató: számolj ötösével.', 'Magyarul a negyed, fél, háromnegyed a következő órához igazodik.'],
+      long: ['⏱️', 'Meddig tart?', 'Először számolj el a következő egész óráig.', 'Aztán add hozzá az utána következő perceket. Egy óra 60 perc.'] },
+    fine: 'Az idő leolvasása öt percre pontosan: 2. osztályos tananyag.',
+    quiz: [
+      { q: 'Fél négykor a kismutató…', opts: ['pontosan a 3-on áll', 'félúton van a 3 és a 4 között', 'a 6-on áll'], ok: 1 },
+      { q: 'A nagymutató a 4-re mutat. Hány perccel múlt az egész óra?', opts: ['4 perccel', '20 perccel', '40 perccel'], ok: 1 },
+      { q: 'Egy film 9:50-kor kezdődik, és 10:20-kor ér véget. Meddig tart?', opts: ['70 percig', '30 percig', '1 óra 30 percig'], ok: 1 } ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_HNOPGJYiRK', en: "Telling Time: Minutes", ru: "Время по часам: минуты", hu: "Az idő leolvasása: percek" },
+  { id: 'mt_0XxyaQLRhn', en: "Telling Time: Hours and Half Hours", ru: "Время по часам: часы и половины часа", hu: "Az idő leolvasása: egész és fél órák" },
+  { id: 'mt_4m8BimI4G5', en: "Telling time to the minute (age 7+)", ru: "Время по часам с точностью до минуты (7+ лет)", hu: "Az idő leolvasása percre pontosan (7+ éves kor)" },
+  { id: 'mt__N55B7u7HD', en: "Telling time to the minute", ru: "Время по часам с точностью до минуты", hu: "Az idő leolvasása percre pontosan" },
+];
+
+// --- spoken times: h = 1..12, m in steps of 5 --------------------------------------------------------------
+// SAY-BEGIN
+const nextH = (h) => h % 12 + 1;
+const EN_H = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
+const EN_M = { 5: 'five', 10: 'ten', 20: 'twenty', 25: 'twenty-five' };
+const RU_NOM = ['', 'час', 'два', 'три', 'четыре', 'пять', 'шесть', 'семь', 'восемь', 'девять', 'десять', 'одиннадцать', 'двенадцать'];
+const RU_GEN = ['', 'первого', 'второго', 'третьего', 'четвёртого', 'пятого', 'шестого', 'седьмого', 'восьмого', 'девятого', 'десятого', 'одиннадцатого', 'двенадцатого'];
+const RU_M = { 5: 'пять', 10: 'десять', 20: 'двадцать', 25: 'двадцать пять' };
+const RU_MG = { 5: 'пяти', 10: 'десяти', 15: 'четверти', 20: 'двадцати', 25: 'двадцати пяти' };
+const HU_H = ['', 'egy', 'kettő', 'három', 'négy', 'öt', 'hat', 'hét', 'nyolc', 'kilenc', 'tíz', 'tizenegy', 'tizenkettő'];
+// before the word “óra” the numbers 2 and 12 take their short forms
+const HU_HO = (h) => (h === 2 ? 'két' : h === 12 ? 'tizenkét' : HU_H[h]);
+const HU_M = { 5: 'öt', 10: 'tíz', 20: 'húsz', 25: 'huszonöt', 35: 'harmincöt', 40: 'negyven', 50: 'ötven', 55: 'ötvenöt' };
+const SAYS = {
+  en(h, m) {
+    const n = EN_H[nextH(h)];
+    if (m === 0) return `${EN_H[h]} o’clock`;
+    if (m === 15) return `quarter past ${EN_H[h]}`;
+    if (m === 30) return `half past ${EN_H[h]}`;
+    if (m === 45) return `quarter to ${n}`;
+    return m < 30 ? `${EN_M[m]} past ${EN_H[h]}` : `${EN_M[60 - m]} to ${n}`;
+  },
+  ru(h, m) {
+    const n = nextH(h);
+    if (m === 0) return `ровно ${RU_NOM[h]}`;
+    if (m === 15) return `четверть ${RU_GEN[n]}`;
+    if (m === 30) return `половина ${RU_GEN[n]}`;
+    if (m < 30) return `${RU_M[m]} минут ${RU_GEN[n]}`;
+    return `без ${RU_MG[60 - m]} ${RU_NOM[n]}`;
+  },
+  hu(h, m) {
+    const n = HU_H[nextH(h)];
+    if (m === 0) return `${HU_HO(h)} óra`;
+    if (m === 15) return `negyed ${n}`;
+    if (m === 30) return `fél ${n}`;
+    if (m === 45) return `háromnegyed ${n}`;
+    return `${HU_HO(h)} óra ${HU_M[m]} perc`;
+  },
+};
+const say = (h, m) => (m % 5 === 0 ? SAYS[lang](h, m) : '');
+// SAY-END
+
+// --- time helpers: t is the total number of minutes since midnight (0..1440), the clock keeps 12-hour hands ---
+const RAD = Math.PI / 180;
+const BLUE = '#4ea8ff', RED = '#ff5a50', GOLD = '#f5c84c';
+const now = () => performance.now() / 1000;
+const pad = (m) => String(m).padStart(2, '0');
+const fmt = (h, m) => `${h}:${pad(m)}`;
+const tm = ([h, m]) => (h % 12) * 60 + m; // minutes on a 12-hour face
+const hm = (t) => { const mins = Math.floor(t) % 1440, H = Math.floor(mins / 60); return [H % 12 || 12, mins % 60, H]; };
+const shuffle = (a) => { const b = a.slice(); for (let i = b.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [b[i], b[j]] = [b[j], b[i]]; } return b; };
+
+// rounds of the Read view and of the How-long view
+const RD = [[3, 20], [7, 45], [10, 35], [6, 5], [12, 50], [9, 15], [3, 30]];
+const LR = [
+  { a: [4, 40], b: [5, 15], o: [{ k: 'ok', n: 35 }, { k: 'base', n: 75 }, { k: 'x', n: 25 }] },
+  { a: [9, 50], b: [10, 20], o: [{ k: 'ok', n: 30 }, { k: 'base', n: 70 }, { k: 'x', h1: 30 }] },
+  { a: [2, 15], b: [3, 0], o: [{ k: 'ok', n: 45 }, { k: 'base', n: 85 }, { k: 'x', n: 15 }] },
+];
+const durOf = (r) => (tm(r.b) - tm(r.a) + 720) % 720;
+
+// --- state -------------------------------------------------------------------------------------------------
+const S = {
+  t: 180, acc: 180, ring: false, sec: null, drag: false, geo: null,
+  g: { stage: 'q1', pick: null, revealed: false, vShown: false, rev: null },
+  r: { i: 0, opts: [], pick: null, rev: null, vShown: false },
+  l: { i: 0, opts: [], pick: null, rev: null, vShown: false },
+  mn: { phase: 'idle', t0: 0, s: 0 },
+};
+const lab = shell({ key: 'clock', T, topics: TOPICS, views: ['gears', 'read', 'long'], onLang: render, onView: render });
+const secret = secretLab('clock', () => ({
+  secrets: [{ emo: '🌙', title: T[lang].secrets.h24[0], desc: T[lang].secrets.h24[1] }, { emo: '⏳', title: T[lang].secrets.minute[0], desc: T[lang].secrets.minute[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+const cv = $('cv');
+$('ctrlBody').innerHTML = '<div id="qb"></div><div class="row2" id="chipRow"></div>';
+
+function newRound(kind) {
+  if (kind === 'r') {
+    const [h, m] = RD[S.r.i];
+    Object.assign(S.r, { pick: null, rev: null, vShown: false,
+      opts: shuffle([{ k: 'ok', s: fmt(h, m) }, { k: 'num', s: fmt(h, m / 5) }, { k: 'hour', s: fmt(nextH(h), m) }]) });
+  } else {
+    Object.assign(S.l, { pick: null, rev: null, vShown: false, opts: shuffle(LR[S.l.i].o) });
+  }
+}
+newRound('r'); newRound('l');
+
+// --- drawing: one clock ------------------------------------------------------------------------------------
+const wedge = (c, cx, cy, r, d0, d1, fill) => {
+  c.beginPath(); c.moveTo(cx, cy); c.arc(cx, cy, r, (d0 - 90) * RAD, (d1 - 90) * RAD); c.closePath(); c.fillStyle = fill; c.fill();
+};
+// glowing sector between two hour numbers (degrees clockwise from 12)
+const sectorUnder = (R, d0, d1, a) => (c, P) => {
+  const [cx, cy] = P(0, 0);
+  wedge(c, cx, cy, R * 0.9, d0, d1, `rgba(245,200,76,${0.16 * a})`);
+  c.beginPath(); c.arc(cx, cy, R * 0.6, (d0 - 90) * RAD, (d1 - 90) * RAD);
+  c.lineWidth = Math.max(4, R * 0.045); c.strokeStyle = `rgba(245,200,76,${a})`; c.stroke();
+};
+// o: { min (minutes since midnight), ring (0..1), ringLit (labels 0..k lit), h24, handle, ghost (minute), under(c, P), over(c, P) }
+function drawClock(c, cx, cy, R, o) {
+  const P = (deg, r) => [cx + r * Math.sin(deg * RAD), cy - r * Math.cos(deg * RAD)];
+  c.save(); c.globalAlpha = 1; c.lineCap = 'round'; c.lineJoin = 'round'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  if (o.ring > 0.01) { // minute ring: 0, 5, 10 ... 55 just outside the face
+    const fs = Math.max(12, R * 0.105);
+    c.globalAlpha = o.ring; c.font = `800 ${fs}px Nunito, sans-serif`;
+    for (let k = 0; k < 12; k++) {
+      const [x, y] = P(k * 30, R * 1.15), lit = k <= (o.ringLit ?? -1);
+      c.beginPath(); c.arc(x, y, fs * 0.95, 0, 7);
+      c.fillStyle = lit ? BLUE : 'rgba(78,168,255,.14)'; c.fill();
+      c.lineWidth = 1.5; c.strokeStyle = lit ? '#cfe6ff' : 'rgba(78,168,255,.55)'; c.stroke();
+      c.fillStyle = lit ? '#0a0c14' : '#9cc9ff'; c.fillText(k * 5, x, y + 1);
+    }
+    c.globalAlpha = 1;
+  }
+  c.beginPath(); c.arc(cx, cy, R, 0, 7); c.fillStyle = '#12162a'; c.fill();
+  c.lineWidth = Math.max(2, R * 0.03); c.strokeStyle = 'rgba(160,175,225,.55)'; c.stroke();
+  o.under?.(c, P);
+  for (let i = 0; i < 60; i++) { // minute ticks, longer every 5
+    const major = i % 5 === 0, [x1, y1] = P(i * 6, R * (major ? 0.86 : 0.92)), [x2, y2] = P(i * 6, R * 0.97);
+    c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2);
+    c.lineWidth = major ? Math.max(2, R * 0.025) : 1; c.strokeStyle = major ? '#c6cde0' : 'rgba(160,175,225,.45)'; c.stroke();
+  }
+  const fs = Math.max(13, R * 0.17);
+  c.font = `900 ${fs}px Nunito, sans-serif`; c.fillStyle = '#EDEFF7';
+  for (let i = 1; i <= 12; i++) { const [x, y] = P(i * 30, R * (o.h24 ? 0.76 : 0.72)); c.fillText(i, x, y + 1); }
+  if (o.h24) { // inner ring 13..24
+    c.font = `800 ${Math.max(12, R * 0.105)}px Nunito, sans-serif`; c.fillStyle = GOLD;
+    for (let i = 1; i <= 12; i++) { const [x, y] = P(i * 30, R * 0.54); c.fillText(i + 12, x, y + 1); }
+  }
+  const hourDeg = (o.min % 720) / 2, minDeg = (o.min % 60) * 6, hourLen = R * (o.h24 ? 0.4 : 0.5);
+  if (o.ghost !== undefined) { // where the long hand started
+    const [x, y] = P(o.ghost * 6, R * 0.88);
+    c.setLineDash([5, 5]); c.beginPath(); c.moveTo(cx, cy); c.lineTo(x, y); c.lineWidth = 2; c.strokeStyle = 'rgba(255,255,255,.55)'; c.stroke(); c.setLineDash([]);
+  }
+  let [x, y] = P(hourDeg, hourLen);
+  c.beginPath(); c.moveTo(...P(hourDeg + 180, R * 0.1)); c.lineTo(x, y); c.lineWidth = R * 0.085; c.strokeStyle = RED; c.stroke();
+  [x, y] = P(minDeg, R * 0.88);
+  c.beginPath(); c.moveTo(...P(minDeg + 180, R * 0.14)); c.lineTo(x, y); c.lineWidth = R * 0.05; c.strokeStyle = BLUE; c.stroke();
+  if (o.handle) { // a grip at the tip: this hand can be dragged
+    const pulse = 1 + 0.12 * Math.sin(now() * 4);
+    c.beginPath(); c.arc(x, y, Math.max(11, R * 0.085) * pulse, 0, 7); c.fillStyle = BLUE; c.fill(); c.lineWidth = 2.5; c.strokeStyle = '#fff'; c.stroke();
+  }
+  c.beginPath(); c.arc(cx, cy, R * 0.07, 0, 7); c.fillStyle = '#fff'; c.fill();
+  o.over?.(c, P);
+  c.restore();
+}
+
+// sky for the 24-hour secret: night, dawn, day, sunset, night
+const SKY = [[0, [10, 16, 48]], [5, [27, 33, 80]], [6.5, [232, 138, 90]], [8, [105, 180, 238]], [12, [143, 208, 255]], [17, [120, 176, 232]], [19, [224, 112, 90]], [20.5, [42, 35, 88]], [24, [10, 16, 48]]];
+function skyAt(hr) {
+  let i = 0; while (i < SKY.length - 2 && hr >= SKY[i + 1][0]) i++;
+  const [h0, a] = SKY[i], [h1, b] = SKY[i + 1], f = clamp((hr - h0) / (h1 - h0), 0, 1);
+  return a.map((v, k) => Math.round(lerp(v, b[k], f)));
+}
+function drawSky(c, w, h, hr) {
+  const [r, g, b] = skyAt(hr);
+  c.save(); c.globalAlpha = 1;
+  const grad = c.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, `rgb(${r},${g},${b})`); grad.addColorStop(1, `rgb(${r * 0.35 | 0},${g * 0.35 | 0},${b * 0.35 | 0})`);
+  c.beginPath(); c.roundRect(0, 0, w, h, 20); c.fillStyle = grad; c.fill();
+  const day = hr >= 6 && hr < 18, f = day ? (hr - 6) / 12 : ((hr + 6) % 24) / 12;
+  c.font = '32px serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#fff';
+  c.fillText(day ? '☀️' : '🌙', w * (0.09 + 0.82 * f), lerp(h * 0.2, h * 0.07, Math.sin(f * Math.PI)));
+  c.restore();
+}
+
+// --- drawing: the three views --------------------------------------------------------------------------------
+function drawGears(c, w, h) {
+  const g = S.g, R = (Math.min(w, h) / 2 - 6) / 1.27, cx = w / 2, cy = h / 2;
+  S.geo = { cx, cy };
+  if (S.sec === 'minute') return drawSecs(c, w, h);
+  const free = g.stage === 'free';
+  if (S.sec === 'h24') drawSky(c, w, h, S.t / 60);
+  let under = null;
+  if (!free && g.revealed) {
+    const base = g.stage === 'q1' ? 3 : 5;
+    under = sectorUnder(R, base * 30, (base + 1) * 30, g.rev ? g.rev.p : 1);
+  }
+  drawClock(c, cx, cy, R, { min: S.t, ring: S.ring ? 1 : 0, h24: S.sec === 'h24', handle: free && !g.rev, under });
+}
+
+// "Feel a minute": a ring that fills with the seconds you really waited
+function drawSecs(c, w, h) {
+  const m = S.mn, R = Math.min(w, h) / 2 - 34, cx = w / 2, cy = h / 2;
+  c.save(); c.globalAlpha = 1; c.lineCap = 'round'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.beginPath(); c.arc(cx, cy, R, 0, 7); c.lineWidth = 16; c.strokeStyle = 'rgba(130,145,190,.2)'; c.stroke();
+  if (m.phase === 'done') {
+    const f = m.s / 60;
+    c.beginPath(); c.arc(cx, cy, R, -Math.PI / 2, -Math.PI / 2 + Math.min(f, 1) * 2 * Math.PI); c.lineWidth = 16; c.strokeStyle = BLUE; c.stroke();
+    if (f > 1) { c.beginPath(); c.arc(cx, cy, R, -Math.PI / 2, -Math.PI / 2 + Math.min(f - 1, 1) * 2 * Math.PI); c.lineWidth = 8; c.strokeStyle = GOLD; c.stroke(); }
+  }
+  c.beginPath(); c.moveTo(cx, cy - R - 14); c.lineTo(cx, cy - R + 14); c.lineWidth = 3; c.strokeStyle = '#fff'; c.stroke(); // the 60-second mark
+  c.fillStyle = '#EDEFF7'; c.font = '800 13px Nunito, sans-serif'; c.fillText('60', cx, cy - R - 24);
+  if (m.phase === 'done') { c.font = `900 ${Math.round(R * 0.6)}px Nunito, sans-serif`; c.fillText(m.s, cx, cy + 2); }
+  else { c.font = `${Math.round(R * 0.5)}px serif`; c.fillText(m.phase === 'run' ? '🙈' : '⏳', cx, cy + 2); }
+  c.restore();
+}
+
+function drawRead(c, w, h) {
+  const r = S.r, [hh, mm] = RD[r.i], R = (Math.min(w, h) / 2 - 6) / 1.27;
+  let ring = 0, lit = -1, under = null, over = null;
+  if (r.rev) {
+    const el = now() - r.rev.at, K = mm / 5, cnt = clamp((el - 0.4) / 0.35, 0, K), sa = clamp((el - 0.4 - K * 0.35) / 0.4, 0, 1);
+    ring = clamp(el / 0.4, 0, 1); lit = Math.floor(cnt + 1e-6);
+    under = (c2, P) => {
+      const [cx, cy] = P(0, 0);
+      sectorUnder(R, (hh % 12) * 30, (hh % 12 + 1) * 30, sa)(c2, P);
+      wedge(c2, cx, cy, R * 0.97, 0, cnt * 30, 'rgba(78,168,255,.2)');
+    };
+    over = (c2, P) => {
+      const [x, y] = P(cnt * 30, R * 0.97);
+      c2.beginPath(); c2.arc(x, y, Math.max(7, R * 0.06), 0, 7); c2.fillStyle = '#fff'; c2.fill(); c2.lineWidth = 3; c2.strokeStyle = BLUE; c2.stroke();
+    };
+  }
+  drawClock(c, w / 2, h / 2, R, { min: tm([hh, mm]), ring, ringLit: lit, under, over });
+}
+
+function drawLong(c, w, h) {
+  const t = T[lang], L = S.l, rd = LR[L.i], d = durOf(rd), t0 = tm(rd.a), t1 = tm(rd.b), aMin = 60 - rd.a[1];
+  const stacked = w < 560, strip = 44, ah = h - strip, cap = 34;
+  const cells = stacked ? [[0, 0, w, ah / 2], [0, ah / 2, w, ah / 2]] : [[0, 0, w / 2, ah], [w / 2, 0, w / 2, ah]];
+  const p = L.rev ? clamp((now() - L.rev.at) / L.rev.anim, 0, 1) : 0, swept = d * p;
+  [[rd.a, t.l.start], [rd.b, t.l.end]].forEach(([time, label], i) => {
+    const [x, y, cw, ch] = cells[i], ts = fmt(...time), lbl = label.toUpperCase();
+    c.save(); c.globalAlpha = 1; c.textBaseline = 'middle'; c.textAlign = 'left';
+    c.font = '700 12px Nunito, sans-serif'; const lw = c.measureText(lbl).width;
+    c.font = '900 20px Nunito, sans-serif'; const tw = c.measureText(ts).width, x0 = x + (cw - lw - 8 - tw) / 2;
+    c.fillStyle = '#98A0B8'; c.font = '700 12px Nunito, sans-serif'; c.fillText(lbl, x0, y + cap / 2);
+    c.fillStyle = '#fff'; c.font = '900 20px Nunito, sans-serif'; c.fillText(ts, x0 + lw + 8, y + cap / 2);
+    c.restore();
+    const R = (Math.min(cw, ch - cap) / 2 - 6) / 1.06, cx = x + cw / 2, cy = y + cap + (ch - cap) / 2;
+    if (i === 1) return drawClock(c, cx, cy, R, { min: t1 });
+    let under = null, over = null;
+    if (L.rev) { // the long hand of the start clock sweeps on to the end time; blue up to the hour, gold past it
+      const a0 = rd.a[1];
+      under = (c2, P) => {
+        const [x0c, y0c] = P(0, 0);
+        wedge(c2, x0c, y0c, R * 0.97, a0 * 6, (a0 + Math.min(swept, aMin)) * 6, 'rgba(78,168,255,.3)');
+        if (swept > aMin) wedge(c2, x0c, y0c, R * 0.97, 0, (swept - aMin) * 6, 'rgba(245,200,76,.3)');
+      };
+      over = (c2, P) => {
+        c2.lineWidth = 2.5; c2.strokeStyle = '#fff';
+        c2.beginPath(); c2.arc(...P(rd.b[1] * 6, R * 0.97), Math.max(5, R * 0.045), 0, 7); c2.stroke(); // where it is heading
+        if (swept > aMin) { c2.beginPath(); c2.arc(...P(0, R * 0.97), Math.max(5, R * 0.05), 0, 7); c2.fillStyle = GOLD; c2.fill(); }
+      };
+    }
+    drawClock(c, cx, cy, R, { min: L.rev ? t0 + swept : t0, under, over, ghost: L.rev ? rd.a[1] : undefined });
+  });
+  if (L.rev) { // counter strip: minutes counted so far
+    c.save(); c.globalAlpha = 1; c.textAlign = 'center'; c.textBaseline = 'middle'; c.font = '900 22px Nunito, sans-serif';
+    c.fillStyle = swept > aMin ? GOLD : BLUE; c.fillText(t.l.min(Math.floor(swept + 1e-6)), w / 2, ah + strip / 2); c.restore();
+  }
+}
+
+// --- animations and timed verdicts (checked every frame; one render when something changes) ----------------
+function tick() {
+  let dirty = false;
+  const g = S.g;
+  if (g.rev) {
+    const p = clamp((now() - g.rev.at) / g.rev.dur, 0, 1), e = p * p * (3 - 2 * p);
+    g.rev.p = p; S.t = S.acc = lerp(g.rev.from, g.rev.to, e);
+    if (p >= 1) { g.rev = null; g.vShown = true; dirty = true; }
+  }
+  for (const q of [S.r, S.l]) if (q.rev && !q.vShown && now() - q.rev.at >= q.rev.dur) { q.vShown = true; dirty = true; }
+  if (dirty) render();
+}
+canvasLoop(cv, (c, w, h) => {
+  tick();
+  const v = lab.view;
+  if (v === 'gears') drawGears(c, w, h); else if (v === 'read') drawRead(c, w, h); else drawLong(c, w, h);
+});
+
+// --- dragging the long hand (Gears, free play) ---------------------------------------------------------------
+const canDrag = () => lab.view === 'gears' && S.g.stage === 'free' && S.sec !== 'minute' && !S.g.rev;
+function dragTo(ev) {
+  const r = cv.getBoundingClientRect(), g = S.geo;
+  const deg = (Math.atan2(ev.clientX - r.left - g.cx, -(ev.clientY - r.top - g.cy)) / RAD + 360) % 360;
+  const d = ((deg / 6 - (S.acc % 60) + 90) % 60) - 30; // shortest way round, so the hour hand follows through 12
+  S.acc = ((S.acc + d) % 1440 + 1440) % 1440;
+  const nt = Math.round(S.acc) % 1440;
+  if (nt !== S.t) { S.t = nt; if (nt % 5 === 0) sfx.tick(); render(); }
+}
+cv.addEventListener('pointerdown', (ev) => { if (!canDrag() || !S.geo) return; S.drag = true; cv.setPointerCapture(ev.pointerId); dragTo(ev); });
+cv.addEventListener('pointermove', (ev) => { if (S.drag && canDrag()) dragTo(ev); });
+const endDrag = () => { if (S.drag) { S.drag = false; S.acc = S.t; } };
+cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
+
+// --- controls ------------------------------------------------------------------------------------------------
+// on a phone the controls sit below the canvas: bring the reveal into view
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b) return;
+  const act = b.dataset.act, i = +b.dataset.i, g = S.g;
+  if (act === 'gpick') {
+    if (g.pick !== null) return;
+    const q1 = g.stage === 'q1', from = q1 ? 180 : 300;
+    g.pick = i; g.revealed = true; g.vShown = false;
+    g.rev = { at: now(), dur: q1 ? 3 : 4, from, to: from + (q1 ? 30 : 60), p: 0 };
+    (i === (q1 ? 1 : 0) ? sfx.good : sfx.bad)(); showStage();
+  } else if (act === 'gnext') {
+    const was = g.stage;
+    Object.assign(g, { stage: was === 'q1' ? 'q2' : 'free', pick: null, revealed: false, vShown: false, rev: null });
+    if (was === 'q1') S.t = S.acc = 300;
+    sfx.click();
+  } else if (act === 'rpick' || act === 'lpick') {
+    const q = act === 'rpick' ? S.r : S.l;
+    if (q.pick !== null) return;
+    q.pick = i;
+    const ok = q.opts[i].k === 'ok';
+    if (act === 'rpick') { const K = RD[S.r.i][1] / 5; q.rev = { at: now(), dur: 0.4 + K * 0.35 + 0.4 + 0.5 }; }
+    else { const d = durOf(LR[S.l.i]); q.rev = { at: now(), anim: d * 0.09 + 1, dur: d * 0.09 + 1.6 }; }
+    (ok ? sfx.good : sfx.bad)(); showStage();
+  } else if (act === 'rnext') { S.r.i = (S.r.i + 1) % RD.length; newRound('r'); sfx.click(); }
+  else if (act === 'lnext') { S.l.i = (S.l.i + 1) % LR.length; newRound('l'); sfx.click(); }
+  else if (act === 'ring') { S.ring = !S.ring; sfx.click(); }
+  else if (act === 'sec') {
+    const k = b.dataset.k;
+    if (!secret.unlocked()) return secret.open();
+    if (S.sec === k) S.sec = null;
+    else {
+      S.sec = k; sfx.click();
+      if (k === 'h24') { Object.assign(g, { stage: 'free', pick: null, revealed: false, vShown: false, rev: null }); S.t = S.acc = 15 * 60; } // sets itself up: 3 pm
+      else S.mn = { phase: 'idle', t0: 0, s: 0 };
+    }
+  } else if (act === 'mn') {
+    if (S.mn.phase === 'run') S.mn = { phase: 'done', t0: S.mn.t0, s: Math.round(now() - S.mn.t0) };
+    else S.mn = { phase: 'run', t0: now(), s: 0 };
+    sfx.click();
+  }
+  render();
+});
+
+// --- one render per change: controls, readout and the state card ---------------------------------------------
+const optBtn = (act, i, label, pick, okIdx) => {
+  const cls = pick === null ? '' : i === okIdx ? 'good' : i === pick ? 'bad' : 'dim';
+  return `<button class="qb ${cls}" data-act="${act}" data-i="${i}"${pick === null ? '' : ' disabled'}>${esc(label)}</button>`;
+};
+const verdict = (ok, title, text, spoken, nextAct) => `<div class="vd"><div class="vt ${ok ? 'ok' : 'no'}">${esc(title)}</div>${text ? `<p>${esc(text)}</p>` : ''}` +
+  `${spoken ? `<div class="say">${esc(spoken)}</div>` : ''}<button class="btn" data-act="${nextAct}">${esc(T[lang].next)}</button></div>`;
+
+function render() {
+  const t = T[lang], v = lab.view;
+  document.body.dataset.v = v;
+  cv.style.touchAction = canDrag() ? 'none' : 'pan-y'; // only the draggable clock blocks page scroll
+  const st = t.st[v], fine = `<div class="fine">${esc(t.fine)}</div>`;
+  let card = { emo: st[0], title: st[1], lead: st[2], body: st[3], extra: fine };
+  if (v === 'gears') card = renderGears(t, card, fine);
+  else if (v === 'read') renderRead(t);
+  else renderLong(t);
+  lab.setState(card);
+  if (v !== 'gears') $('chipRow').innerHTML = '';
+}
+
+function renderGears(t, card, fine) {
+  const g = S.g, [h, m, H] = hm(S.t), free = g.stage === 'free', sec = S.sec;
+  lab.setGlow('rgba(78, 168, 255, .26)');
+  const digital = `${sec === 'h24' ? H : h}:${pad(m)}`;
+  if (sec === 'minute') lab.setReadout(S.mn.phase === 'done' ? S.mn.s : S.mn.phase === 'run' ? '…' : '?', '', '', BLUE);
+  else lab.setReadout(digital, say(h, m), '', BLUE);
+
+  let qb;
+  if (sec === 'minute') qb = `<button class="btn" data-act="mn">${esc(S.mn.phase === 'run' ? t.sec.stop : t.sec.start)}</button>`;
+  else if (free || sec) qb = `<p class="hint">${esc(t.g.drag)}</p>`;
+  else {
+    const q1 = g.stage === 'q1', ok = q1 ? 1 : 0;
+    qb = `<div class="q">${esc(q1 ? t.g.q1 : t.g.q2)}</div><div class="qopts">${(q1 ? t.g.o1 : t.g.o2).map((o, i) => optBtn('gpick', i, o, g.pick, ok)).join('')}</div>`;
+    if (g.vShown) qb += verdict(g.pick === ok, g.pick === ok ? t.right : t.wrong, q1 ? t.g.r1 : t.g.r2, '', 'gnext');
+  }
+  $('qb').innerHTML = qb;
+
+  const open = secret.unlocked();
+  const sc = (k, emo) => `<button class="chip secret ${open ? 'open' : ''} ${sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  $('chipRow').innerHTML = `${sc('h24', '🌙')}<button class="chip ${S.ring ? 'on' : ''}" data-act="ring">${esc(t.ring)}</button>${sc('minute', '⏳')}`;
+
+  if (sec === 'h24') return { emo: '🌙', title: t.secrets.h24[0], lead: t.sec.h24Text, body: '', extra: fine };
+  if (sec === 'minute') {
+    const d = S.mn.phase === 'done';
+    return { emo: '⏳', title: t.secrets.minute[0], lead: d ? t.sec.result(S.mn.s) : t.secrets.minute[1], body: d ? t.sec.minuteText : '', extra: fine };
+  }
+  // while a prediction is open, the card must not give the answer away
+  if (!free && !g.revealed) return { emo: '⚙️', title: t.title, lead: '', body: '', extra: fine };
+  return card;
+}
+
+function renderRead(t) {
+  const r = S.r, [h, m] = RD[r.i], ok = r.opts.findIndex((o) => o.k === 'ok'), picked = r.pick !== null ? r.opts[r.pick] : null;
+  lab.setGlow('rgba(224, 176, 80, .24)');
+  lab.setReadout(r.vShown ? fmt(h, m) : '?', r.vShown ? say(h, m) : '', `${r.i + 1}/${RD.length}`, '#e0b050');
+  let qb = `<div class="q">${esc(t.r.q)}</div><div class="qopts">${r.opts.map((o, i) => optBtn('rpick', i, o.s, r.pick, ok)).join('')}</div>`;
+  if (r.vShown) {
+    const title = picked.k === 'ok' ? t.right : picked.k === 'num' ? t.r.numAsMin : picked.k === 'hour' ? t.r.wrongHour : t.r.wrong;
+    qb += verdict(picked.k === 'ok', title, '', say(h, m), 'rnext');
+  }
+  $('qb').innerHTML = qb;
+}
+
+function renderLong(t) {
+  const L = S.l, rd = LR[L.i], d = durOf(rd), ok = L.opts.findIndex((o) => o.k === 'ok'), picked = L.pick !== null ? L.opts[L.pick] : null;
+  lab.setGlow('rgba(217, 130, 95, .24)');
+  lab.setReadout(L.vShown ? t.l.min(d) : '?', '', `${L.i + 1}/${LR.length}`, '#d9825f');
+  const label = (o) => (o.h1 ? t.l.h1(o.h1) : t.l.min(o.n));
+  let qb = `<div class="q">${esc(t.l.q(fmt(...rd.a), fmt(...rd.b)))}</div><div class="qopts">${L.opts.map((o, i) => optBtn('lpick', i, label(o), L.pick, ok)).join('')}</div>`;
+  if (L.vShown) {
+    const a = 60 - rd.a[1], b = rd.b[1];
+    const steps = b === 0 ? t.l.min(a) : t.l.steps(a, b); // an end on the hour has nothing to add after it
+    const title = picked.k === 'ok' ? t.right : picked.k === 'base' ? t.l.base : t.wrong;
+    qb += verdict(picked.k === 'ok', title, steps, '', 'lnext');
+  }
+  $('qb').innerHTML = qb;
+}
+render();
+</script>
+</body>
+</html>
