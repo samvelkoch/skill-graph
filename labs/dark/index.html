@@ -1,0 +1,925 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Into the Eye · Skill Graph</title>
+<meta name="description" content="Shine a torch in a dark room and follow the light as it bounces off a teddy into your eye, sort light sources from things that only reflect, and find out if a cat can see in total darkness. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  @media (min-width: 1101px) { .lab { grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); grid-template-areas: 'hero stage' 'state stage' 'state ctrl'; } }
+  #stage { background: #05081A; border-radius: 20px; overflow: hidden; border: 1px solid var(--stroke); }
+  .dk-ask { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); width: min(560px, calc(100% - 16px)); padding: 12px 14px; text-align: center;
+    background: rgba(10, 14, 32, .9); }
+  .dk-ask .dk-q { font: 500 21px/1.2 var(--serif); color: #fff; text-wrap: balance; }
+  .dk-ask .dk-opts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 10px; }
+  .dk-o { min-height: 40px; padding: 8px 18px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1); font-weight: 800; cursor: pointer; }
+  .dk-o:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .dk-o:disabled { cursor: default; }
+  .dk-o.dk-pick { border-color: #fff; }
+  .dk-o.good { border-color: var(--ok); background: rgba(61, 220, 151, .16); }
+  .dk-o.bad { border-color: var(--red); background: rgba(255, 59, 48, .14); }
+  .dk-res { margin-top: 8px; }
+  .dk-verdict { font-weight: 900; margin-bottom: 2px; }
+  .dk-res p { margin: 0 0 10px; color: var(--soft); font-size: 13px; line-height: 1.45; }
+  .dk-name { font: 900 15px/1.2 var(--sans); color: var(--wip); margin-bottom: 4px; }
+  .dk-vt { font-size: 22px; letter-spacing: 0; }
+  #dkMoon { --track: linear-gradient(90deg, #1a2040, #A9BCE8); }
+  #dkMoon:disabled { opacity: .35; cursor: default; }
+  @media (max-width: 760px) {
+    #stage { height: min(86vw, 460px); }
+    body[data-v=info] #stage { height: min(116vw, 520px); }
+    body[data-v=ask] #stage { height: min(152vw, 640px); }
+    .dk-ask .dk-q { font-size: 18px; } .dk-ask { padding: 10px 12px; }
+    .dk-o { padding: 8px 14px; font-size: 13px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Into the Eye', title: 'How do we see?',
+    lines: [['A dark room,', 'a teddy on the shelf.'], ['Switch on a torch.', ''], ['Where does', 'the light go?']],
+    views: { room: '🔦 Dark room', sources: '💡 Light makers', cat: '🐱 Cat in a cave' },
+    next: 'Next ▶', again: '↻ Again', right: 'Yes!', wrong: 'Not quite. Look!', yes: 'yes', no: 'no',
+    r: { q1: 'The room is completely dark. Can you see the teddy?', o1: ['yes', 'no'],
+         r1: 'In total darkness nothing reaches your eyes, so you see nothing. Switch on a torch: light hits the teddy, bounces off it into your eye — and now you see it.',
+         q2: 'Which way must the light travel so that you see the teddy?', o2: ['from your eye to the teddy', 'from the teddy into your eye'],
+         r2: 'Into your eye! Eyes don’t send out rays. They catch the light that bounces off things.',
+         nothing: 'no light — nothing to see', see: 'I see the teddy!', cant: 'The teddy stays dark', aim: 'Drag to aim the torch' },
+    s: { q: 'Does it make its own light?', o: ['makes light', 'only bounces light'],
+         names: ['the Sun', 'the Moon', 'a candle', 'a mirror', 'a torch', 'a bike reflector', 'a firefly', 'a cat’s shining eyes'],
+         why: ['The Sun is a giant ball of glowing gas.', 'The Moon has no light of its own: it bounces sunlight.', 'The flame makes light.', 'A mirror only bounces light that falls on it.', 'The bulb makes light (when it’s on).', 'A reflector only shines when light hits it.', 'Fireflies make their own cold light.', 'A cat’s eyes have a mirror-like layer: they bounce light back.'] },
+    c: { q: 'In a completely dark cave, can a cat see a mouse?', o: ['yes', 'no'],
+         r: 'No — with no light at all, no eye can see. But in very dim light a cat sees much better than we do: a mirror layer in its eyes uses the little light twice.',
+         none: 'no light at all', moon: 'moonlight' },
+    secrets: { moon: ['The Moon is a mirror', 'Where does moonlight come from?'], reflector: ['Be seen at night', 'Light bounces back.'] },
+    sec: { moonText: 'Moonlight is sunlight that bounced off the Moon. The Moon itself is a dark rock.',
+           reflText: 'A reflector sends the headlight back towards the car, so the driver sees the bike from far away.' },
+    quiz: [
+      { q: 'To see something, light must…', opts: ['go into your eyes', 'come out of your eyes'], ok: 0 },
+      { q: 'The Moon…', opts: ['makes its own light', 'bounces sunlight'], ok: 1 },
+      { q: 'In total darkness a cat…', opts: ['sees well', 'cannot see'], ok: 1 } ],
+  },
+  ru: {
+    name: 'Прямо в глаз', title: 'Как мы видим?',
+    lines: [['Тёмная комната,', 'на полке мишка.'], ['Включи фонарик.', ''], ['Куда идёт', 'свет?']],
+    views: { room: '🔦 Тёмная комната', sources: '💡 Кто светит', cat: '🐱 Кошка в пещере' },
+    next: 'Дальше ▶', again: '↻ Ещё раз', right: 'Да!', wrong: 'Не совсем. Смотри!', yes: 'да', no: 'нет',
+    r: { q1: 'В комнате совсем темно. Видишь ли ты мишку?', o1: ['да', 'нет'],
+         r1: 'В полной темноте в глаза ничего не попадает — и ты ничего не видишь. Включи фонарик: свет падает на мишку, отражается от него в глаз — и теперь ты его видишь.',
+         q2: 'Куда должен идти свет, чтобы ты увидел мишку?', o2: ['из глаза к мишке', 'от мишки в глаз'],
+         r2: 'В глаз! Глаза не выпускают лучей. Они ловят свет, который отражается от предметов.',
+         nothing: 'нет света — нечего видеть', see: 'Вижу мишку!', cant: 'Мишка остаётся в темноте', aim: 'Тяни, чтобы направить фонарик' },
+    s: { q: 'Он светится сам?', o: ['сам даёт свет', 'только отражает'],
+         names: ['Солнце', 'Луна', 'свеча', 'зеркало', 'фонарик', 'катафот велосипеда', 'светлячок', 'светящиеся глаза кошки'],
+         why: ['Солнце — огромный шар раскалённого газа.', 'У Луны нет своего света: она отражает солнечный.', 'Пламя даёт свет.', 'Зеркало только отражает свет, который на него падает.', 'Лампочка даёт свет (когда включена).', 'Катафот блестит, только когда на него падает свет.', 'Светлячки сами делают холодный свет.', 'В глазах кошки есть зеркальный слой: они отражают свет обратно.'] },
+    c: { q: 'В совсем тёмной пещере кошка видит мышь?', o: ['да', 'нет'],
+         r: 'Нет — без света не видит ни один глаз. Но в очень слабом свете кошка видит гораздо лучше нас: зеркальный слой в её глазах использует свет дважды.',
+         none: 'света нет совсем', moon: 'лунный свет' },
+    secrets: { moon: ['Луна — зеркало', 'Откуда лунный свет?'], reflector: ['Будь заметен ночью', 'Свет возвращается.'] },
+    sec: { moonText: 'Лунный свет — это солнечный свет, отразившийся от Луны. Сама Луна — тёмный камень.',
+           reflText: 'Катафот возвращает свет фар обратно к машине, и водитель издалека замечает велосипед.' },
+    quiz: [
+      { q: 'Чтобы что-то увидеть, свет должен…', opts: ['попасть в глаза', 'выйти из глаз'], ok: 0 },
+      { q: 'Луна…', opts: ['светится сама', 'отражает солнечный свет'], ok: 1 },
+      { q: 'В полной темноте кошка…', opts: ['видит хорошо', 'не видит'], ok: 1 } ],
+  },
+  hu: {
+    name: 'Egyenesen a szembe', title: 'Hogyan látunk?',
+    lines: [['Egy sötét szoba,', 'a polcon egy maci.'], ['Kapcsold fel a lámpát!', ''], ['Merre megy', 'a fény?']],
+    views: { room: '🔦 Sötét szoba', sources: '💡 Ki világít?', cat: '🐱 Macska a barlangban' },
+    next: 'Tovább ▶', again: '↻ Újra', right: 'Igen!', wrong: 'Nem egészen. Nézd!', yes: 'igen', no: 'nem',
+    r: { q1: 'A szoba teljesen sötét. Látod a macit?', o1: ['igen', 'nem'],
+         r1: 'Teljes sötétben semmi sem jut a szemedbe, ezért semmit sem látsz. Kapcsold fel a zseblámpát: a fény a macira esik, visszaverődik róla a szemedbe — és most már látod.',
+         q2: 'Merre kell mennie a fénynek, hogy lásd a macit?', o2: ['a szemedből a macihoz', 'a macitól a szemedbe'],
+         r2: 'A szemedbe! A szem nem bocsát ki sugarakat. Elkapja a tárgyakról visszaverődő fényt.',
+         nothing: 'nincs fény — nincs mit látni', see: 'Látom a macit!', cant: 'A maci sötétben marad', aim: 'Húzd, hogy irányítsd a lámpát' },
+    s: { q: 'Saját fénye van?', o: ['fényt ad', 'csak visszaveri a fényt'],
+         names: ['a Nap', 'a Hold', 'egy gyertya', 'egy tükör', 'egy zseblámpa', 'egy biciklis prizma', 'egy szentjánosbogár', 'a macska világító szeme'],
+         why: ['A Nap egy hatalmas, izzó gázgömb.', 'A Holdnak nincs saját fénye: a napfényt veri vissza.', 'A láng fényt ad.', 'A tükör csak a ráeső fényt veri vissza.', 'Az izzó fényt ad (ha be van kapcsolva).', 'A prizma csak akkor csillog, ha fény esik rá.', 'A szentjánosbogár maga készít hideg fényt.', 'A macska szemében tükörszerű réteg van: visszaveri a fényt.'] },
+    c: { q: 'Egy teljesen sötét barlangban látja a macska az egeret?', o: ['igen', 'nem'],
+         r: 'Nem — fény nélkül egyetlen szem sem lát. Nagyon gyenge fényben viszont a macska sokkal jobban lát nálunk: a szemében lévő tükörréteg kétszer használja fel a kevés fényt.',
+         none: 'egyáltalán nincs fény', moon: 'holdfény' },
+    secrets: { moon: ['A Hold egy tükör', 'Honnan jön a holdfény?'], reflector: ['Legyél látható éjjel!', 'A fény visszaverődik.'] },
+    sec: { moonText: 'A holdfény a Holdról visszaverődő napfény. Maga a Hold egy sötét kőzetgömb.',
+           reflText: 'A prizma visszaküldi a fényszóró fényét az autó felé, így a sofőr messziről észreveszi a biciklit.' },
+    quiz: [
+      { q: 'Ahhoz, hogy lássunk valamit, a fénynek…', opts: ['a szemünkbe kell jutnia', 'a szemünkből kell kijönnie'], ok: 0 },
+      { q: 'A Hold…', opts: ['saját fényt ad', 'a napfényt veri vissza'], ok: 1 },
+      { q: 'Teljes sötétben a macska…', opts: ['jól lát', 'nem lát'], ok: 1 } ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_4i-FKXDDXh', en: 'Light & Seeing in the Dark', ru: 'Свет и зрение в темноте', hu: 'Fény és látás sötétben' },
+];
+// state cards: [emoji, title, lead, body]; neutral until a view's last round is over, then full
+const ST = {
+  en: { room: { n: ['🔦', 'A dark room', 'What can you see?', ''], f: ['🔦', 'Light into the eye', 'Source → object → eye.', ''] },
+        sources: { n: ['💡', 'Shiny things', 'Some glow, some don’t.', ''], f: ['💡', 'Sources and reflectors', 'A source makes light; a reflector only bounces it.', ''] },
+        cat: { n: ['🐱', 'A cat in a cave', 'How dark is it?', ''], f: ['🐱', 'No light, no sight', 'Cats need a little light too.', ''] } },
+  ru: { room: { n: ['🔦', 'Тёмная комната', 'Что ты видишь?', ''], f: ['🔦', 'Свет — в глаз', 'Источник → предмет → глаз.', ''] },
+        sources: { n: ['💡', 'Блестящие вещи', 'Одни светятся, другие нет.', ''], f: ['💡', 'Источники и отражатели', 'Источник даёт свет, отражатель только отражает.', ''] },
+        cat: { n: ['🐱', 'Кошка в пещере', 'Насколько темно?', ''], f: ['🐱', 'Нет света — нет зрения', 'Кошке тоже нужно хоть немного света.', ''] } },
+  hu: { room: { n: ['🔦', 'Egy sötét szoba', 'Mit látsz?', ''], f: ['🔦', 'Fény a szembe', 'Fényforrás → tárgy → szem.', ''] },
+        sources: { n: ['💡', 'Csillogó dolgok', 'Van, ami világít, van, ami nem.', ''], f: ['💡', 'Fényforrások és visszaverők', 'A fényforrás fényt ad, a visszaverő csak visszaveri.', ''] },
+        cat: { n: ['🐱', 'Macska a barlangban', 'Mennyire sötét?', ''], f: ['🐱', 'Fény nélkül nincs látás', 'A macskának is kell egy kis fény.', ''] } },
+};
+
+// --- palette and small helpers ---------------------------------------------------------------------------------
+const C = { dark: '#05081A', light: '#FFE680', warm: '#F4D6A0', teddy: '#B07A45', iris: '#4C8DDB' };
+const VW = 400, VH = 300; // every scene is drawn in a 400 x 300 box and scaled to fit
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+const ease = (x) => { x = clamp01(x); return x * x * (3 - 2 * x); };
+const rgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+const hex2 = (a) => '#' + a.map((v) => Math.round(clamp(v, 0, 255)).toString(16).padStart(2, '0')).join('');
+const mix = (a, b, t) => { const A = rgb(a), B = rgb(b); return hex2(A.map((v, i) => v + (B[i] - v) * t)); };
+const rgba = (h, a) => { const [r, g, b] = rgb(h); return `rgba(${r},${g},${b},${a})`; };
+const lin = (c, x0, y0, x1, y1, stops) => { const g = c.createLinearGradient(x0, y0, x1, y1); for (const [o, col] of stops) g.addColorStop(o, col); return g; };
+const rad = (c, x, y, r, stops, hx = x, hy = y) => { const g = c.createRadialGradient(hx, hy, 0, x, y, Math.max(0.01, r)); for (const [o, col] of stops) g.addColorStop(o, col); return g; };
+const circ = (c, x, y, r) => { c.beginPath(); c.arc(x, y, Math.max(0, r), 0, 6.2832); };
+const ell = (c, x, y, rx, ry, rot = 0) => { c.beginPath(); c.ellipse(x, y, Math.max(0, rx), Math.max(0, ry), rot, 0, 6.2832); };
+const rrect = (c, x, y, w, h, r) => { c.beginPath(); c.roundRect(x, y, Math.max(0, w), Math.max(0, h), r); };
+const path = (c, pts) => { c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.closePath(); };
+const add = (c, fn) => { c.save(); c.globalCompositeOperation = 'lighter'; fn(); c.restore(); };
+const now = () => performance.now() / 1000;
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+const EMOJI = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+
+// a glowing arrow from (ax,ay) to (bx,by), drawn up to the fraction p, with dots that travel along it
+function ray(c, ax, ay, bx, by, p, time, o = {}) {
+  const { w = 3, col = C.light, a = 1, dots = true, dash = null, head = true } = o;
+  p = clamp01(p);
+  if (p < 0.01 || a <= 0) return;
+  const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy) || 1, ux = dx / len, uy = dy / len, tx = ax + dx * p, ty = ay + dy * p;
+  c.save(); c.globalAlpha = a; c.lineCap = 'round'; c.lineJoin = 'round';
+  c.strokeStyle = rgba(col, 0.25); c.lineWidth = w * 3.2; c.beginPath(); c.moveTo(ax, ay); c.lineTo(tx, ty); c.stroke();
+  c.shadowColor = col; c.shadowBlur = 10; c.strokeStyle = col; c.lineWidth = w;
+  if (dash) c.setLineDash(dash);
+  c.beginPath(); c.moveTo(ax, ay); c.lineTo(tx, ty); c.stroke(); c.setLineDash([]);
+  if (head) {
+    const hs = w * 3.4 + 5;
+    c.fillStyle = col; c.beginPath();
+    c.moveTo(tx + ux * hs * 0.3, ty + uy * hs * 0.3);
+    c.lineTo(tx - ux * hs * 0.75 + uy * hs * 0.55, ty - uy * hs * 0.75 - ux * hs * 0.55);
+    c.lineTo(tx - ux * hs * 0.75 - uy * hs * 0.55, ty - uy * hs * 0.75 + ux * hs * 0.55);
+    c.closePath(); c.fill();
+  }
+  if (dots) {
+    const n = Math.max(1, Math.round((len * p) / 38));
+    c.fillStyle = '#fffbe8';
+    for (let i = 0; i < n; i++) { const u = ((time * 0.5 + i / n) % 1) * len * p; circ(c, ax + ux * u, ay + uy * u, w * 0.85); c.fill(); }
+  }
+  c.restore();
+}
+
+// a pill with text, in canvas pixels (not scene units), kept inside the canvas
+function pill(c, text, cx, cy, w, h, o = {}) {
+  const { fg = '#fff', a = 1 } = o;
+  c.save(); c.globalAlpha = a; c.font = '800 13px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  const tw = c.measureText(text).width + 26, x = clamp(cx, tw / 2 + 6, w - tw / 2 - 6), y = clamp(cy, 20, h - 20);
+  rrect(c, x - tw / 2, y - 14, tw, 28, 14); c.fillStyle = 'rgba(8,10,24,.82)'; c.fill();
+  c.lineWidth = 1; c.strokeStyle = 'rgba(160,175,230,.35)'; c.stroke();
+  c.fillStyle = fg; c.fillText(text, x, y + 1);
+  c.restore();
+}
+
+// --- state ------------------------------------------------------------------------------------------------------
+const H0 = [128, 214], E0 = [88, 164], TD = [326, 112], TK = 0.9, TR = 34; // torch hand, child's eye, teddy centre / scale / hit radius
+const autoTheta = () => Math.atan2(TD[1] - H0[1], TD[0] - H0[0]);
+const CARDS = [
+  { emo: '☀️', src: true }, { emo: '🌙', src: false }, { emo: '🕯️', src: true }, { emo: '🪞', src: false },
+  { emo: '🔦', src: true }, { emo: '🚲', src: false }, { emo: '✨', src: true }, { emo: '🐱', src: false },
+];
+const ORDER = [0, 1, 3, 2, 5, 4, 7, 6]; // Sun, Moon, mirror, candle, reflector, torch, cat's eyes, firefly: no pattern to guess
+const freshRoom = () => ({ st: 'q1', pick: null, t0: 0, th: autoTheta(), aimed: false, drag: false, clicked: false, v: { p1: 1, lit: 1, p2: 1, eye: 1, dim: 0 } });
+const S = {
+  sec: null, y0: 0, pk: '',
+  r: freshRoom(),
+  s: { i: 0, pick: null, t0: 0, score: 0 },
+  c: { st: 'q', pick: null, t0: 0, L: 0 },
+};
+let G = { s: 1, ox: 0, oy: 0, w: 400, h: 300, d: 1 };
+
+const lab = shell({ key: 'dark', T, topics: TOPICS, views: ['room', 'sources', 'cat'], onLang: () => render(), onView: () => { S.sec = null; render(); } });
+const secret = secretLab('dark', () => ({
+  secrets: [{ emo: '🌙', title: T[lang].secrets.moon[0], desc: T[lang].secrets.moon[1] }, { emo: '🚲', title: T[lang].secrets.reflector[0], desc: T[lang].secrets.reflector[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="dkRoom"><div class="row2" style="margin-top:0"><div class="chips" id="dkChips"></div><button class="chip" id="dkAgain" data-act="again" hidden></button></div></div>
+  <div id="dkCat"><div class="ends"><span id="dkE0"></span><span id="dkE1"></span></div><input class="big" id="dkMoon" type="range" min="0" max="100" value="0"></div>`;
+const askEl = Object.assign(document.createElement('div'), { className: 'dk-ask card' });
+$('overlay').append(askEl);
+const cv = $('cv');
+
+// --- darkness: a near-black layer with holes where light falls ---------------------------------------------------
+const mk = document.createElement('canvas'), mc = mk.getContext('2d');
+function darkLayer(c, a, holes) {
+  const { d, w, h, s, ox, oy } = G, W = Math.round(w * d), H = Math.round(h * d);
+  if (mk.width !== W || mk.height !== H) { mk.width = W; mk.height = H; }
+  mc.setTransform(1, 0, 0, 1, 0, 0); mc.globalCompositeOperation = 'source-over'; mc.clearRect(0, 0, W, H);
+  mc.setTransform(d * s, 0, 0, d * s, d * ox, d * oy);
+  mc.fillStyle = `rgba(5,8,20,${a})`; mc.fillRect(-4, -4, VW + 8, VH + 8);
+  mc.globalCompositeOperation = 'destination-out';
+  if (holes) holes(mc);
+  mc.globalCompositeOperation = 'source-over';
+  c.save(); c.setTransform(1, 0, 0, 1, 0, 0); c.drawImage(mk, 0, 0); c.restore();
+}
+const hole = (m, x, y, r, a) => {
+  if (a <= 0.003) return;
+  m.fillStyle = rad(m, x, y, r, [[0, `rgba(0,0,0,${a})`], [0.55, `rgba(0,0,0,${a * 0.75})`], [1, 'rgba(0,0,0,0)']]);
+  m.fillRect(x - r, y - r, 2 * r, 2 * r);
+};
+
+// --- drawing parts ------------------------------------------------------------------------------------------------
+// an eye: white, blue iris, pupil (glows yellow when light reaches it), a white highlight
+function drawEye(c, x, y, rx, ry, glow = 0, look = [0.12, 0]) {
+  c.save();
+  ell(c, x, y, rx, ry); c.fillStyle = lin(c, x, y - ry, x, y + ry, [[0, '#ffffff'], [1, '#d9e1f3']]); c.fill();
+  c.save(); ell(c, x, y, rx, ry); c.clip();
+  const ix = x + look[0] * rx, iy = y + look[1] * ry, ir = ry * 0.84;
+  circ(c, ix, iy, ir); c.fillStyle = rad(c, ix, iy, ir, [[0, mix(C.iris, '#ffffff', 0.38)], [0.6, C.iris], [1, mix(C.iris, '#000000', 0.5)]], ix - ir * 0.2, iy - ir * 0.25); c.fill();
+  circ(c, ix, iy, ir * 0.47); c.fillStyle = mix('#0b1020', C.light, clamp01(glow)); c.fill();
+  circ(c, ix - ir * 0.3, iy - ir * 0.34, ir * 0.2); c.fillStyle = '#ffffff'; c.fill();
+  c.restore();
+  ell(c, x, y, rx, ry); c.lineWidth = Math.max(1, ry * 0.14); c.strokeStyle = '#2a1c1c'; c.stroke();
+  c.beginPath(); c.ellipse(x, y, rx, ry, 0, Math.PI * 1.06, Math.PI * 1.94); c.lineWidth = Math.max(1.4, ry * 0.26); c.stroke();
+  c.restore();
+}
+
+function drawTeddy(c, X, Y, k) {
+  c.save(); c.translate(X, Y); c.scale(k, k); c.lineJoin = 'round'; c.globalAlpha = 1;
+  const fur = C.teddy, dk = mix(fur, '#000000', 0.42), lt = mix(fur, C.warm, 0.5);
+  const part = (x, y, rx, ry, rot = 0, col = fur) => {
+    ell(c, x, y, rx, ry, rot);
+    c.fillStyle = rad(c, x, y, Math.max(rx, ry) * 1.15, [[0, mix(col, '#ffffff', 0.28)], [0.55, col], [1, mix(col, '#000000', 0.22)]], x - rx * 0.35, y - ry * 0.4);
+    c.fill(); c.lineWidth = 1.6; c.strokeStyle = dk; c.stroke();
+  };
+  ell(c, 0, 52, 40, 7); c.fillStyle = 'rgba(0,0,0,.3)'; c.fill();
+  part(-19, 46, 14, 9); part(19, 46, 14, 9);
+  part(0, 16, 27, 31);
+  part(0, 21, 16, 20, 0, lt);
+  part(-28, 11, 10, 17, 0.4); part(28, 11, 10, 17, -0.4);
+  ell(c, -19, 47, 7, 5); c.fillStyle = lt; c.fill(); ell(c, 19, 47, 7, 5); c.fill();
+  part(-19, -44, 10, 10); part(19, -44, 10, 10);
+  circ(c, -19, -44, 5.5); c.fillStyle = lt; c.fill(); circ(c, 19, -44, 5.5); c.fill();
+  part(0, -25, 26, 23);
+  part(0, -17, 12.5, 9.5, 0, lt);
+  ell(c, 0, -22, 5.2, 3.7); c.fillStyle = '#2a1812'; c.fill();
+  for (const sx of [-9.5, 9.5]) { circ(c, sx, -31, 3.3); c.fillStyle = '#1b1020'; c.fill(); circ(c, sx - 1, -32.2, 1.1); c.fillStyle = '#fff'; c.fill(); }
+  c.strokeStyle = '#2a1812'; c.lineWidth = 1.4; c.lineCap = 'round';
+  c.beginPath(); c.moveTo(0, -18.5); c.lineTo(0, -15); c.moveTo(-5, -12); c.quadraticCurveTo(0, -9, 5, -12); c.stroke();
+  // bow tie
+  const bow = mix(C.iris, '#000000', 0.12);
+  c.fillStyle = bow; c.strokeStyle = mix(bow, '#000000', 0.4); c.lineWidth = 1.2;
+  path(c, [[0, -2], [-12, -8], [-12, 5]]); c.fill(); c.stroke(); path(c, [[0, -2], [12, -8], [12, 5]]); c.fill(); c.stroke();
+  circ(c, 0, -2, 3.2); c.fillStyle = mix(bow, '#ffffff', 0.25); c.fill(); c.stroke();
+  c.restore();
+}
+
+function drawTorch(c, th, on) {
+  c.save(); c.translate(H0[0], H0[1]); c.rotate(th); c.globalAlpha = 1; c.lineJoin = 'round';
+  const body = mix(C.iris, '#000000', 0.55);
+  rrect(c, -14, -6.5, 40, 13, 4); c.fillStyle = lin(c, 0, -6.5, 0, 6.5, [[0, mix(body, '#ffffff', 0.3)], [0.5, body], [1, mix(body, '#000000', 0.4)]]); c.fill();
+  c.lineWidth = 1.4; c.strokeStyle = '#05081A'; c.stroke();
+  rrect(c, 24, -10, 11, 20, 3); c.fillStyle = lin(c, 0, -10, 0, 10, [[0, '#c8d2ea'], [0.5, '#8793b3'], [1, '#4b5575']]); c.fill(); c.stroke();
+  ell(c, 35.5, 0, 3.4, 8); c.fillStyle = on ? rad(c, 35.5, 0, 9, [[0, '#ffffff'], [0.5, C.light], [1, mix(C.light, '#ff9a30', 0.5)]]) : '#6b7aa0'; c.fill();
+  c.strokeStyle = '#05081A'; c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.35)'; rrect(c, -10, -4.5, 26, 2.2, 1); c.fill();
+  c.restore();
+}
+
+function drawChild(c, th, on) {
+  c.save(); c.globalAlpha = 1; c.lineJoin = 'round'; c.lineCap = 'round';
+  const skin = mix(C.warm, C.teddy, 0.3), shirt = mix(C.iris, '#000000', 0.22), hair = mix(C.teddy, '#000000', 0.62), line = mix(skin, '#000000', 0.45);
+  // torso and neck
+  rrect(c, -8, 212, 112, 130, 36); c.fillStyle = lin(c, 0, 212, 110, 300, [[0, mix(shirt, '#ffffff', 0.2)], [1, mix(shirt, '#000000', 0.25)]]); c.fill();
+  c.lineWidth = 1.6; c.strokeStyle = mix(shirt, '#000000', 0.55); c.stroke();
+  rrect(c, 50, 194, 28, 28, 8); c.fillStyle = mix(skin, '#000000', 0.12); c.fill();
+  // arm: sleeve, then forearm to the hand
+  c.strokeStyle = mix(shirt, '#000000', 0.5); c.lineWidth = 22; c.beginPath(); c.moveTo(50, 238); c.lineTo(88, 254); c.stroke();
+  c.strokeStyle = shirt; c.lineWidth = 19; c.beginPath(); c.moveTo(50, 238); c.lineTo(88, 254); c.stroke();
+  c.strokeStyle = line; c.lineWidth = 16; c.beginPath(); c.moveTo(88, 254); c.lineTo(H0[0] - 4, H0[1] + 4); c.stroke();
+  c.strokeStyle = skin; c.lineWidth = 13; c.beginPath(); c.moveTo(88, 254); c.lineTo(H0[0] - 4, H0[1] + 4); c.stroke();
+  // head: nose first (it sticks out), then the head, ear, hair
+  ell(c, 106, 178, 8, 7); c.fillStyle = skin; c.fill(); c.lineWidth = 1.4; c.strokeStyle = line; c.stroke();
+  circ(c, 64, 166, 40); c.fillStyle = rad(c, 64, 166, 46, [[0, mix(skin, '#ffffff', 0.3)], [0.7, skin], [1, mix(skin, '#000000', 0.2)]], 52, 150); c.fill();
+  c.lineWidth = 1.6; c.strokeStyle = line; c.stroke();
+  ell(c, 108, 177, 6.6, 5.8); c.fillStyle = skin; c.fill();
+  c.save(); circ(c, 64, 166, 40); c.clip();
+  c.fillStyle = lin(c, 20, 120, 100, 170, [[0, mix(hair, '#ffffff', 0.18)], [1, hair]]);
+  c.beginPath(); c.moveTo(14, 200); c.lineTo(14, 120); c.lineTo(110, 118); c.quadraticCurveTo(100, 144, 76, 142); c.quadraticCurveTo(58, 150, 52, 178); c.quadraticCurveTo(44, 190, 36, 204); c.closePath(); c.fill();
+  c.restore();
+  ell(c, 50, 172, 7, 10); c.fillStyle = mix(skin, '#000000', 0.1); c.fill(); c.lineWidth = 1.2; c.strokeStyle = line; c.stroke();
+  // eyebrow, cheek, mouth
+  c.strokeStyle = hair; c.lineWidth = 3; c.beginPath(); c.moveTo(75, 148); c.quadraticCurveTo(88, 142, 101, 148); c.stroke();
+  circ(c, 84, 186, 8); c.fillStyle = 'rgba(230,120,100,.22)'; c.fill();
+  c.strokeStyle = line; c.lineWidth = 1.8; c.beginPath(); c.moveTo(90, 192); c.quadraticCurveTo(97, 196, 103, 191); c.stroke();
+  drawEye(c, E0[0], E0[1], 13, 10, 0);
+  // torch and the hand over it
+  drawTorch(c, th, on);
+  circ(c, H0[0], H0[1], 9.5); c.fillStyle = rad(c, H0[0], H0[1], 11, [[0, mix(skin, '#ffffff', 0.2)], [1, skin]], H0[0] - 3, H0[1] - 3); c.fill();
+  c.lineWidth = 1.4; c.strokeStyle = line; c.stroke();
+  c.restore();
+}
+
+function drawRoomBase(c, th, on) {
+  c.save(); c.globalAlpha = 1; c.lineJoin = 'round';
+  // wall with faint stripes
+  c.fillStyle = lin(c, 0, 0, 0, 250, [[0, mix(C.warm, '#ffffff', 0.14)], [1, mix(C.warm, C.teddy, 0.3)]]); c.fillRect(0, 0, VW, 252);
+  c.fillStyle = rgba(C.teddy, 0.07); for (let x = 12; x < VW; x += 34) c.fillRect(x, 0, 14, 250);
+  // picture on the wall
+  rrect(c, 166, 36, 62, 48, 3); c.fillStyle = mix(C.teddy, '#000000', 0.35); c.fill();
+  rrect(c, 171, 41, 52, 38, 2); c.fillStyle = lin(c, 0, 41, 0, 79, [[0, mix(C.iris, '#ffffff', 0.45)], [1, mix(C.iris, C.warm, 0.5)]]); c.fill();
+  c.save(); rrect(c, 171, 41, 52, 38, 2); c.clip();
+  circ(c, 210, 53, 5); c.fillStyle = C.light; c.fill();
+  c.fillStyle = mix(C.iris, '#000000', 0.45); path(c, [[165, 82], [185, 60], [200, 82]]); c.fill();
+  c.fillStyle = mix(C.iris, '#000000', 0.6); path(c, [[190, 82], [208, 64], [228, 82]]); c.fill();
+  c.restore();
+  // shelf with books, brackets
+  c.fillStyle = mix(C.teddy, '#000000', 0.5); path(c, [[300, 169], [300, 190], [316, 169]]); c.fill(); path(c, [[372, 169], [372, 190], [388, 169]]); c.fill();
+  rrect(c, 282, 159, 118, 10, 2); c.fillStyle = lin(c, 0, 159, 0, 169, [[0, mix(C.teddy, '#ffffff', 0.25)], [1, mix(C.teddy, '#000000', 0.35)]]); c.fill();
+  c.lineWidth = 1.4; c.strokeStyle = mix(C.teddy, '#000000', 0.6); c.stroke();
+  [[366, 30, mix(C.iris, '#000000', 0.3)], [377, 25, mix(C.teddy, '#000000', 0.45)], [387, 21, mix(C.warm, C.teddy, 0.35)]].forEach(([x, h, col]) => {
+    rrect(c, x, 159 - h, 10, h, 1.5); c.fillStyle = lin(c, x, 0, x + 10, 0, [[0, mix(col, '#ffffff', 0.2)], [1, mix(col, '#000000', 0.3)]]); c.fill();
+    c.lineWidth = 1.2; c.strokeStyle = mix(col, '#000000', 0.55); c.stroke();
+    c.fillStyle = rgba(C.light, 0.55); c.fillRect(x + 1.5, 159 - h + 5, 7, 1.6);
+  });
+  drawTeddy(c, TD[0], TD[1], TK);
+  // baseboard and floor
+  c.fillStyle = lin(c, 0, 244, 0, 256, [[0, mix(C.warm, C.teddy, 0.5)], [1, mix(C.warm, C.teddy, 0.75)]]); c.fillRect(0, 244, VW, 11);
+  c.fillStyle = 'rgba(255,255,255,.22)'; c.fillRect(0, 244, VW, 1.5);
+  c.fillStyle = lin(c, 0, 255, 0, VH, [[0, mix(C.teddy, '#000000', 0.12)], [1, mix(C.teddy, '#000000', 0.5)]]); c.fillRect(0, 255, VW, VH - 255);
+  c.strokeStyle = rgba('#000000', 0.2); c.lineWidth = 1;
+  c.beginPath(); for (const y of [270, 285]) { c.moveTo(0, y); c.lineTo(VW, y); }
+  for (let x = 30; x < VW; x += 74) { c.moveTo(x, 255); c.lineTo(x - 6, 270); } for (let x = 0; x < VW; x += 74) { c.moveTo(x, 270); c.lineTo(x - 8, 285); } c.stroke();
+  // rug
+  ell(c, 215, 284, 132, 13); c.fillStyle = mix(C.iris, '#000000', 0.45); c.fill();
+  ell(c, 215, 284, 132, 13); c.lineWidth = 3; c.strokeStyle = rgba(C.warm, 0.5); c.setLineDash([10, 8]); c.stroke(); c.setLineDash([]);
+  // books on the floor and a ball
+  [[176, 270, 68, mix(C.teddy, '#000000', 0.4)], [182, 261, 58, mix(C.iris, '#000000', 0.25)], [188, 252, 46, mix(C.warm, C.teddy, 0.4)]].forEach(([x, y, w, col]) => {
+    rrect(c, x, y, w, 9, 2); c.fillStyle = lin(c, 0, y, 0, y + 9, [[0, mix(col, '#ffffff', 0.25)], [1, mix(col, '#000000', 0.3)]]); c.fill();
+    c.lineWidth = 1.2; c.strokeStyle = mix(col, '#000000', 0.55); c.stroke(); c.fillStyle = rgba('#ffffff', 0.5); c.fillRect(x + w - 6, y + 1.5, 3, 6);
+  });
+  ell(c, 296, 273, 14, 3.5); c.fillStyle = 'rgba(0,0,0,.28)'; c.fill();
+  circ(c, 296, 260, 13); c.fillStyle = rad(c, 296, 260, 14, [[0, mix(C.iris, '#ffffff', 0.4)], [0.6, C.iris], [1, mix(C.iris, '#000000', 0.45)]], 291, 254); c.fill();
+  c.lineWidth = 1.4; c.strokeStyle = mix(C.iris, '#000000', 0.6); c.stroke();
+  c.save(); circ(c, 296, 260, 13); c.clip(); c.strokeStyle = rgba(C.warm, 0.85); c.lineWidth = 3.2; c.beginPath(); c.moveTo(280, 262); c.quadraticCurveTo(296, 248, 312, 262); c.stroke(); c.restore();
+  circ(c, 291, 254, 3); c.fillStyle = 'rgba(255,255,255,.7)'; c.fill();
+  drawChild(c, th, on);
+  c.restore();
+}
+
+// where the torch beam goes: to the teddy if it is aimed at it, otherwise to the first wall or the floor
+function beamOf(th) {
+  const dx = Math.cos(th), dy = Math.sin(th), L0 = [H0[0] + dx * 38, H0[1] + dy * 38];
+  const tx = TD[0] - H0[0], ty = TD[1] - H0[1], along = tx * dx + ty * dy, d = Math.abs(tx * dy - ty * dx);
+  if (along > 60 && d < TR) {
+    const dist = along - Math.sqrt(Math.max(0, 30 * 30 - d * d));
+    return { hit: true, L0, end: [H0[0] + dx * dist, H0[1] + dy * dist], dx, dy };
+  }
+  const lim = (p0, v, lo, hi) => (v > 1e-6 ? (hi - p0) / v : v < -1e-6 ? (lo - p0) / v : 1e9);
+  const t = Math.min(lim(H0[0], dx, 4, 396), lim(H0[1], dy, 8, 272));
+  return { hit: false, L0, end: [H0[0] + dx * t, H0[1] + dy * t], dx, dy };
+}
+function eyeEdge(from) { // where a ray ends on the rim of the child's eye
+  const dx = from[0] - E0[0], dy = from[1] - E0[1], l = Math.hypot(dx, dy) || 1;
+  return [E0[0] + (dx / l) * 17, E0[1] + (dy / l) * 17];
+}
+
+function roomPhase(time) {
+  const r = S.r, e = time - r.t0;
+  if (r.st === 'q1rev') return e < 1.3 ? 'dark' : e < 3.6 ? 'run' : e < 4.4 ? 'see' : 'done';
+  if (r.st === 'q2rev') return e < 2.2 ? 'run' : 'done';
+  if (r.st === 'free') return `free:${beamOf(r.th).hit ? 1 : 0}:${r.aimed ? 1 : 0}`;
+  return r.st;
+}
+// what is lit and which rays are drawn right now
+function roomVis(time, dt) {
+  const r = S.r, e = time - r.t0, th = r.st === 'free' ? r.th : autoTheta();
+  const v = { th, torch: 0, p1: 0, lit: 0, p2: 0, eye: 0, dim: 0, arrows: false, wrong: 0 };
+  if (r.st === 'q1') return v;
+  if (r.st === 'q1rev') {
+    if (e >= 1.3 && !r.clicked) { r.clicked = true; sfx.click(); }
+    return Object.assign(v, { torch: ease((e - 1.3) / 0.4), p1: ease((e - 1.5) / 1.0), lit: ease((e - 2.5) / 0.5), p2: ease((e - 2.6) / 1.0), eye: ease((e - 3.6) / 0.5), arrows: true });
+  }
+  if (r.st === 'q2') return Object.assign(v, { torch: 1, p1: 1, lit: 1 });
+  if (r.st === 'q2rev') return Object.assign(v, { torch: 1, p1: ease(e / 0.7), lit: 1, p2: ease((e - 0.7) / 0.9), eye: ease((e - 1.5) / 0.4), arrows: true, wrong: ease((e - 0.2) / 0.4) });
+  // free play: everything follows the aim smoothly
+  const hit = beamOf(th).hit, a = r.v, step = (cur, tgt, rate) => cur + clamp(tgt - cur, -dt * rate, dt * rate);
+  a.lit = step(a.lit, hit ? 1 : 0, 6); a.p2 = step(a.p2, hit ? 1 : 0, 2.5); a.eye = step(a.eye, hit ? 1 : 0.15, 4); a.dim = step(a.dim, hit ? 0 : 1, 5);
+  return Object.assign(v, { torch: 1, p1: 1, lit: a.lit, p2: a.p2, eye: a.eye, dim: a.dim, arrows: true });
+}
+
+function drawRoomView(c, time, dt) {
+  const v = roomVis(time, dt), bm = beamOf(v.th), spot = clamp01((v.p1 - 0.85) / 0.15), len = Math.hypot(bm.end[0] - bm.L0[0], bm.end[1] - bm.L0[1]);
+  drawRoomBase(c, v.th, v.torch > 0.5);
+  const px = -bm.dy, py = bm.dx, spread = 0.2;
+  darkLayer(c, S.r.st === 'q1' ? 1 : S.r.st === 'q1rev' ? 1 - 0.04 * v.torch : 0.96, (m) => {
+    if (v.torch > 0) {
+      hole(m, bm.L0[0], bm.L0[1], 38, 0.9 * v.torch);
+      const e = [bm.L0[0] + (bm.end[0] - bm.L0[0]) * v.p1, bm.L0[1] + (bm.end[1] - bm.L0[1]) * v.p1], w = len * v.p1 * spread;
+      m.fillStyle = lin(m, bm.L0[0], bm.L0[1], e[0], e[1], [[0, `rgba(0,0,0,${0.7 * v.torch})`], [1, `rgba(0,0,0,${0.3 * v.torch})`]]);
+      path(m, [bm.L0, [e[0] + px * w, e[1] + py * w], [e[0] - px * w, e[1] - py * w]]); m.fill();
+      hole(m, bm.end[0], bm.end[1], 54, 0.97 * v.torch * spot);
+    }
+    hole(m, TD[0], TD[1] + 8, 64, 0.97 * v.lit);
+    hole(m, E0[0], E0[1], 46, 0.92 * v.eye);
+  });
+  // the visible beam, the rays and the glowing eye, above the darkness
+  if (v.torch > 0) {
+    add(c, () => {
+      const e = [bm.L0[0] + (bm.end[0] - bm.L0[0]) * v.p1, bm.L0[1] + (bm.end[1] - bm.L0[1]) * v.p1], w = len * v.p1 * spread;
+      c.fillStyle = lin(c, bm.L0[0], bm.L0[1], e[0], e[1], [[0, rgba(C.light, 0.34 * v.torch)], [1, rgba(C.light, 0.08 * v.torch)]]);
+      path(c, [bm.L0, [e[0] + px * w, e[1] + py * w], [e[0] - px * w, e[1] - py * w]]); c.fill();
+      c.fillStyle = rad(c, bm.L0[0], bm.L0[1], 30, [[0, rgba(C.light, 0.8 * v.torch)], [1, rgba(C.light, 0)]]); c.fillRect(bm.L0[0] - 30, bm.L0[1] - 30, 60, 60);
+    });
+  }
+  if (v.arrows) {
+    ray(c, bm.L0[0], bm.L0[1], bm.end[0], bm.end[1], v.p1, time, { w: 3 });
+    const ee = eyeEdge(bm.end);
+    if (bm.hit) ray(c, bm.end[0], bm.end[1], ee[0], ee[1], v.p2, time, { w: 3.4 });
+    if (v.dim > 0.01) ray(c, bm.end[0], bm.end[1], ee[0], ee[1], 1, time, { w: 1.6, a: 0.3 * v.dim, dots: false });
+    if (v.wrong > 0.01) { // the wrong way, crossed out: an arrow from the eye to the teddy, drawn a little above the right one
+      const ax = E0[0] + 16, ay = E0[1] - 18, bx = TD[0] - 38, by = TD[1] - 14;
+      ray(c, ax, ay, bx, by, 1, time, { w: 2.6, col: '#FF6B5E', a: 0.85 * v.wrong, dots: false, dash: [7, 6] });
+      const mx = (ax + bx) / 2, my = (ay + by) / 2;
+      c.save(); c.globalAlpha = v.wrong; circ(c, mx, my, 12); c.fillStyle = '#FF3B30'; c.fill(); c.lineWidth = 2; c.strokeStyle = '#fff'; c.stroke();
+      c.lineCap = 'round'; c.beginPath(); c.moveTo(mx - 5, my - 5); c.lineTo(mx + 5, my + 5); c.moveTo(mx + 5, my - 5); c.lineTo(mx - 5, my + 5); c.stroke(); c.restore();
+    }
+  }
+  if (v.eye > 0.01) {
+    add(c, () => {
+      c.fillStyle = rad(c, E0[0], E0[1], 34, [[0, rgba(C.light, 0.85 * v.eye)], [0.5, rgba(C.light, 0.28 * v.eye)], [1, rgba(C.light, 0)]]); c.fillRect(E0[0] - 34, E0[1] - 34, 68, 68);
+    });
+    c.save(); c.globalAlpha = clamp01(v.eye * 1.3); drawEye(c, E0[0], E0[1], 13, 10, v.eye); c.restore();
+  }
+  // a faint outline of the eye is all that shows in the dark
+  c.save(); c.strokeStyle = rgba('#8FB3EA', 0.2 * (1 - v.eye)); c.lineWidth = 1.6; ell(c, E0[0], E0[1], 13, 10); c.stroke(); circ(c, E0[0] + 1.5, E0[1], 7.5); c.stroke(); c.restore();
+  // aim handle in free play
+  if (S.r.st === 'free' && !S.r.aimed) {
+    c.save(); const k = 0.5 + 0.5 * Math.sin(time * 4); circ(c, bm.L0[0] + bm.dx * 6, bm.L0[1] + bm.dy * 6, 16 + 4 * k); c.lineWidth = 2; c.strokeStyle = rgba(C.light, 0.5 + 0.4 * k); c.setLineDash([5, 5]); c.stroke(); c.restore();
+  }
+}
+
+// --- view 2: a glossy card on a dark table -----------------------------------------------------------------------
+const CARD = [200, 148, 60]; // x, y, radius
+function sunIcon(c, x, y, r, a, time) {
+  c.save(); c.globalAlpha = a;
+  add(c, () => { c.fillStyle = rad(c, x, y, r * 3, [[0, rgba(C.light, 0.55)], [1, rgba(C.light, 0)]]); c.fillRect(x - r * 3, y - r * 3, r * 6, r * 6); });
+  c.strokeStyle = C.light; c.lineWidth = 2.4; c.lineCap = 'round'; c.beginPath();
+  for (let i = 0; i < 10; i++) { const an = i * 0.6283 + time * 0.3; c.moveTo(x + Math.cos(an) * r * 1.35, y + Math.sin(an) * r * 1.35); c.lineTo(x + Math.cos(an) * r * 1.85, y + Math.sin(an) * r * 1.85); }
+  c.stroke();
+  circ(c, x, y, r); c.fillStyle = rad(c, x, y, r, [[0, '#fffbe0'], [0.6, C.light], [1, mix(C.light, '#ff9a30', 0.55)]], x - r * 0.3, y - r * 0.3); c.fill();
+  c.restore();
+}
+function drawSources(c, time) {
+  const s = S.s, cd = CARDS[ORDER[s.i]], e = s.pick === null ? -1 : time - s.t0, [X, Y, R] = CARD;
+  c.fillStyle = lin(c, 0, 0, 0, 176, [[0, '#070a1e'], [1, '#0d1232']]); c.fillRect(0, 0, VW, 176);
+  c.fillStyle = lin(c, 0, 176, 0, VH, [[0, '#1a2145'], [1, '#080b1e']]); c.fillRect(0, 176, VW, VH - 176);
+  c.fillStyle = 'rgba(170,190,255,.16)'; c.fillRect(0, 176, VW, 1.5);
+  c.fillStyle = rad(c, 200, 190, 220, [[0, 'rgba(120,140,220,.12)'], [1, 'rgba(120,140,220,0)']]); c.fillRect(0, 176, VW, 124);
+  const g = e < 0 ? 0 : cd.src ? ease(e / 0.8) : 0;                         // glow of a source
+  const sun = e < 0 || cd.src ? 0 : ease(e / 0.4), sp = e < 0 || cd.src ? 0 : ease((e - 0.3) / 0.8);
+  const lit = e < 0 || cd.src ? 0 : ease((e - 1.0) / 0.4), bp = e < 0 || cd.src ? 0 : ease((e - 1.2) / 0.8), eg = e < 0 || cd.src ? 0 : ease((e - 2.0) / 0.4);
+  // halo of a source
+  if (g > 0) {
+    add(c, () => {
+      const pul = 1 + 0.05 * Math.sin(time * 3);
+      c.fillStyle = rad(c, X, Y, 175 * pul, [[0, rgba(C.light, 0.55 * g)], [0.45, rgba(C.light, 0.2 * g)], [1, rgba(C.light, 0)]]); c.fillRect(X - 180, Y - 180, 360, 360);
+      c.strokeStyle = rgba(C.light, 0.55 * g); c.lineWidth = 3; c.lineCap = 'round'; c.beginPath();
+      for (let i = 0; i < 16; i++) { const an = i * 0.3927 + time * 0.25, r0 = R + 12, r1 = R + 24 + 8 * Math.sin(time * 3 + i * 1.7); c.moveTo(X + Math.cos(an) * r0, Y + Math.sin(an) * r0); c.lineTo(X + Math.cos(an) * r1, Y + Math.sin(an) * r1); }
+      c.stroke();
+    });
+  }
+  // shadow, rim, face, gloss
+  ell(c, X, Y + R + 8, R * 1.05, 11); c.fillStyle = 'rgba(0,0,0,.5)'; c.fill();
+  circ(c, X, Y, R + 5); c.fillStyle = lin(c, X - R, Y - R, X + R, Y + R, [[0, '#3a4578'], [1, '#10163a']]); c.fill();
+  circ(c, X, Y, R);
+  c.fillStyle = rad(c, X, Y, R * 1.1, [[0, mix('#26305f', C.warm, g * 0.85)], [0.7, mix('#141a40', mix(C.light, '#ff9a30', 0.3), g * 0.8)], [1, mix('#0b0f2a', mix(C.warm, C.teddy, 0.4), g * 0.7)]], X - R * 0.3, Y - R * 0.35); c.fill();
+  c.save(); circ(c, X, Y, R); c.clip();
+  if (lit > 0) { // lit from the sun's side
+    const ux = X - 56, uy = Y - 52, ul = Math.hypot(ux, uy);
+    c.fillStyle = lin(c, X - (ux / ul) * R, Y - (uy / ul) * R, X + (ux / ul) * R * 0.6, Y + (uy / ul) * R * 0.6, [[0, rgba(C.light, 0.62 * lit)], [1, rgba(C.light, 0)]]); c.fillRect(X - R, Y - R, 2 * R, 2 * R);
+  }
+  ell(c, X - R * 0.28, Y - R * 0.55, R * 0.62, R * 0.3, -0.5); c.fillStyle = 'rgba(255,255,255,.13)'; c.fill();
+  c.restore();
+  circ(c, X, Y, R); c.lineWidth = 1.6; c.strokeStyle = 'rgba(255,255,255,.28)'; c.stroke();
+  c.save(); c.globalAlpha = 1; c.fillStyle = '#000'; c.font = `66px ${EMOJI}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(cd.emo, X, Y + 4); c.restore();
+  // a reflector: little sun at the side, the ray to the card, the bounce to an eye
+  if (sun > 0) {
+    const sx = 56, sy = 52, ex = 346, ey = 120;
+    sunIcon(c, sx, sy, 14, sun, time);
+    const ux = X - sx, uy = Y - sy, ul = Math.hypot(ux, uy);
+    ray(c, sx + (ux / ul) * 26, sy + (uy / ul) * 26, X - (ux / ul) * (R + 6), Y - (uy / ul) * (R + 6), sp, time, { w: 3 });
+    const bx = ex - X, by = ey - Y, bl = Math.hypot(bx, by);
+    c.save(); c.globalAlpha = sun; drawEye(c, ex, ey, 16, 12, eg); c.restore();
+    if (eg > 0) add(c, () => { c.fillStyle = rad(c, ex, ey, 34, [[0, rgba(C.light, 0.6 * eg)], [1, rgba(C.light, 0)]]); c.fillRect(ex - 34, ey - 34, 68, 68); });
+    ray(c, X + (bx / bl) * (R + 4), Y + (by / bl) * (R + 4), ex - (bx / bl) * 22, ey - (by / bl) * 22, bp, time, { w: 3 });
+  }
+}
+
+// --- view 3: the cat in the cave -----------------------------------------------------------------------------------
+const CAT = [96, 226], MOUSE = [222, 262], KID = [352, 268], MOON = [262, 38];
+const STARS = Array.from({ length: 22 }, (_, i) => [(i * 83 + 40) % 130 + 200, (i * 37 + 7) % 56 + 4, 0.7 + (i % 3) * 0.5]);
+function drawCave(c, L, time) {
+  c.save(); c.globalAlpha = 1; c.lineJoin = 'round';
+  c.fillStyle = lin(c, 0, 0, 0, VH, [[0, '#1b2242'], [1, '#0d1129']]); c.fillRect(0, 0, VW, VH);
+  c.fillStyle = 'rgba(255,255,255,.035)'; for (const [x, y, r] of [[60, 130, 26], [150, 160, 18], [330, 150, 22], [250, 200, 30], [110, 60, 20]]) { ell(c, x, y, r * 1.4, r); c.fill(); }
+  // sky in the cave mouth
+  const mouth = () => { c.beginPath(); c.moveTo(196, 0); c.bezierCurveTo(190, 50, 212, 92, 258, 94); c.bezierCurveTo(308, 94, 334, 54, 330, 0); c.closePath(); };
+  mouth(); c.fillStyle = lin(c, 0, 0, 0, 94, [[0, '#1c2c60'], [1, '#2c3f80']]); c.fill();
+  c.fillStyle = '#dfe8ff'; for (const [x, y, r] of STARS) { if (y > 70) continue; circ(c, x, y, r * 0.7); c.fill(); }
+  circ(c, MOON[0], MOON[1] + 6, 15); c.fillStyle = rad(c, MOON[0], MOON[1] + 6, 15, [[0, '#ffffff'], [1, '#c9d4f0']], MOON[0] - 4, MOON[1] + 2); c.fill();
+  // rock: a slab over the top with the mouth cut out, side walls, stalactites
+  c.beginPath(); c.rect(0, 0, VW, 96); c.moveTo(196, 0); c.bezierCurveTo(190, 50, 212, 92, 258, 94); c.bezierCurveTo(308, 94, 334, 54, 330, 0); c.closePath();
+  c.fillStyle = lin(c, 0, 0, 0, 100, [[0, '#2c3458'], [1, '#161b38']]); c.fill('evenodd');
+  c.fillStyle = lin(c, 0, 90, 0, 120, [[0, '#2c3458'], [1, 'rgba(22,27,56,0)']]); c.fillRect(0, 90, 196, 30); c.fillRect(330, 90, 70, 30);
+  c.fillStyle = '#242b4d';
+  for (const [x, w, h] of [[8, 34, 54], [60, 26, 40], [104, 40, 62], [150, 26, 44], [340, 30, 50], [372, 28, 64]]) { path(c, [[x, 90], [x + w, 90], [x + w * 0.55, 90 + h]]); c.fill(); }
+  c.fillStyle = '#1a2040'; path(c, [[0, 100], [26, 150], [14, 210], [32, 268], [0, 300]]); c.fill(); path(c, [[400, 100], [384, 160], [394, 220], [380, 268], [400, 300]]); c.fill();
+  mouth(); c.lineWidth = 2; c.strokeStyle = 'rgba(150,170,230,.35)'; c.stroke();
+  // floor
+  c.fillStyle = lin(c, 0, 262, 0, VH, [[0, '#262e54'], [1, '#0c1028']]);
+  c.beginPath(); c.moveTo(0, 270); c.bezierCurveTo(80, 258, 160, 276, 240, 264); c.bezierCurveTo(300, 256, 360, 272, 400, 262); c.lineTo(400, VH); c.lineTo(0, VH); c.closePath(); c.fill();
+  c.strokeStyle = 'rgba(150,170,230,.2)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(0, 270); c.bezierCurveTo(80, 258, 160, 276, 240, 264); c.bezierCurveTo(300, 256, 360, 272, 400, 262); c.stroke();
+  c.fillStyle = '#323b66'; for (const [x, y, r] of [[40, 286, 6], [150, 292, 5], [300, 288, 7], [372, 284, 5], [200, 296, 4]]) { ell(c, x, y, r * 1.5, r); c.fill(); }
+  // moonlight shaft on the floor
+  if (L > 0) add(c, () => {
+    c.fillStyle = lin(c, 258, 60, 200, 268, [[0, `rgba(190,210,255,${0.3 * L})`], [1, `rgba(190,210,255,${0.1 * L})`]]);
+    path(c, [[212, 76], [306, 76], [262, 270], [150, 270]]); c.fill();
+  });
+  c.restore();
+}
+function drawCatBody(c) {
+  const [x, y] = CAT, fur = mix(C.teddy, '#000000', 0.38), dk = mix(fur, '#000000', 0.5), lt = mix(fur, C.warm, 0.45);
+  c.save(); c.globalAlpha = 1; c.lineJoin = 'round'; c.lineCap = 'round';
+  ell(c, x + 2, y + 46, 46, 8); c.fillStyle = 'rgba(0,0,0,.35)'; c.fill();
+  c.strokeStyle = dk; c.lineWidth = 12; c.beginPath(); c.moveTo(x + 22, y + 38); c.bezierCurveTo(x + 62, y + 40, x + 66, y + 6, x + 48, y - 6); c.stroke();
+  c.strokeStyle = fur; c.lineWidth = 9; c.stroke();
+  const part = (px, py, rx, ry, col = fur) => {
+    ell(c, px, py, rx, ry); c.fillStyle = rad(c, px, py, Math.max(rx, ry) * 1.15, [[0, mix(col, '#ffffff', 0.22)], [0.6, col], [1, mix(col, '#000000', 0.25)]], px - rx * 0.35, py - ry * 0.4); c.fill();
+    c.lineWidth = 1.5; c.strokeStyle = dk; c.stroke();
+  };
+  part(x + 6, y + 26, 32, 28);
+  part(x - 10, y + 40, 8, 10); part(x + 14, y + 40, 8, 10); part(x + 2, y + 28, 14, 18, lt);
+  for (const sx of [-1, 1]) { // ears
+    path(c, [[x + sx * 8, y - 18], [x + sx * 25, y - 40], [x + sx * 28, y - 8]]); c.fillStyle = fur; c.fill(); c.lineWidth = 1.5; c.strokeStyle = dk; c.stroke();
+    path(c, [[x + sx * 13, y - 18], [x + sx * 23, y - 33], [x + sx * 24, y - 14]]); c.fillStyle = lt; c.fill();
+  }
+  part(x, y, 26, 23);
+  c.strokeStyle = dk; c.lineWidth = 2; c.beginPath(); for (const dx of [-5, 0, 5]) { c.moveTo(x + dx, y - 21); c.lineTo(x + dx * 0.8, y - 13); } c.stroke();
+  part(x, y + 10, 12, 8.5, lt);
+  path(c, [[x - 3.4, y + 5], [x + 3.4, y + 5], [x, y + 9]]); c.fillStyle = '#d98a86'; c.fill();
+  c.strokeStyle = dk; c.lineWidth = 1.3; c.beginPath(); c.moveTo(x, y + 9); c.lineTo(x, y + 12); c.moveTo(x - 6, y + 13); c.quadraticCurveTo(x, y + 17, x + 6, y + 13); c.stroke();
+  c.strokeStyle = 'rgba(255,255,255,.45)'; c.lineWidth = 1; c.beginPath();
+  for (const sx of [-1, 1]) for (const dy of [-1, 3, 7]) { c.moveTo(x + sx * 12, y + 9 + dy * 0.4); c.lineTo(x + sx * 34, y + 6 + dy); }
+  c.stroke();
+  // eyes (dull: no light, nothing to bounce)
+  for (const sx of [-11, 11]) { ell(c, x + sx, y - 3, 8, 9.5); c.fillStyle = '#2a2a24'; c.fill(); c.lineWidth = 1.2; c.strokeStyle = dk; c.stroke(); }
+  c.restore();
+}
+function drawCatEyes(c, cv) { // shining eyes sit above the darkness: they bounce the little light there is
+  if (cv <= 0.01) return;
+  const [x, y] = CAT;
+  add(c, () => { for (const sx of [-11, 11]) { c.fillStyle = rad(c, x + sx, y - 3, 30, [[0, rgba(C.light, 0.7 * cv)], [1, rgba(C.light, 0)]]); c.fillRect(x + sx - 30, y - 33, 60, 60); } });
+  c.save(); c.globalAlpha = 1;
+  for (const sx of [-11, 11]) {
+    ell(c, x + sx, y - 3, 8, 9.5); c.fillStyle = rad(c, x + sx, y - 3, 10, [[0, mix('#fffbe0', C.light, 0.2)], [0.55, C.light], [1, mix(C.light, '#6a5a10', 0.55)]]);
+    c.globalAlpha = Math.min(1, cv * 1.4); c.fill(); c.globalAlpha = 1;
+    ell(c, x + sx, y - 3, 5.2 - 3 * cv, 8.4); c.fillStyle = '#14120a'; c.fill();
+    circ(c, x + sx - 2, y - 7, 1.7); c.fillStyle = '#fff'; c.fill();
+  }
+  c.restore();
+}
+function drawMouse(c, x, y, k, a = 1) {
+  c.save(); c.globalAlpha = a; c.translate(x, y); c.scale(k, k); c.lineJoin = 'round'; c.lineCap = 'round';
+  const fur = mix(C.warm, '#000000', 0.45), dk = mix(fur, '#000000', 0.5);
+  ell(c, 2, 8, 17, 4); c.fillStyle = 'rgba(0,0,0,.3)'; c.fill();
+  c.strokeStyle = '#c99a8c'; c.lineWidth = 2.4; c.beginPath(); c.moveTo(-12, 2); c.bezierCurveTo(-26, 4, -24, -10, -34, -6); c.stroke();
+  ell(c, 0, 0, 14, 8.5); c.fillStyle = rad(c, 0, 0, 15, [[0, mix(fur, '#ffffff', 0.25)], [1, mix(fur, '#000000', 0.2)]], -4, -4); c.fill(); c.lineWidth = 1.3; c.strokeStyle = dk; c.stroke();
+  circ(c, 8, -7, 5.2); c.fillStyle = '#d9a4a0'; c.fill(); c.stroke();
+  circ(c, 15, 1, 2); c.fillStyle = '#d98a86'; c.fill();
+  circ(c, 11, -2.5, 1.6); c.fillStyle = '#10121c'; c.fill(); circ(c, 10.6, -3, 0.5); c.fillStyle = '#fff'; c.fill();
+  c.restore();
+}
+function drawKid(c, x, y, k, dir, glow = 0, a = 1) { // a child standing, seen from the side; (x, y) are at the feet
+  c.save(); c.globalAlpha = a; c.translate(x, y); c.scale(dir * k, k); c.lineJoin = 'round'; c.lineCap = 'round';
+  const skin = mix(C.warm, C.teddy, 0.3), shirt = mix(C.iris, '#000000', 0.2), pants = mix(C.iris, '#000000', 0.62), hair = mix(C.teddy, '#000000', 0.62), line = mix(skin, '#000000', 0.45);
+  rrect(c, -7, -26, 6, 24, 3); c.fillStyle = pants; c.fill(); rrect(c, 1, -26, 6, 24, 3); c.fill();
+  ell(c, -3, -1, 7, 3.4); c.fillStyle = '#10142a'; c.fill(); ell(c, 5, -1, 7, 3.4); c.fill();
+  rrect(c, -10, -52, 20, 30, 7); c.fillStyle = lin(c, -10, -52, 10, -22, [[0, mix(shirt, '#ffffff', 0.2)], [1, mix(shirt, '#000000', 0.25)]]); c.fill();
+  c.lineWidth = 1.2; c.strokeStyle = mix(shirt, '#000000', 0.55); c.stroke();
+  c.strokeStyle = shirt; c.lineWidth = 6; c.beginPath(); c.moveTo(0, -46); c.lineTo(9, -34); c.stroke();
+  circ(c, 10, -32, 3.4); c.fillStyle = skin; c.fill();
+  ell(c, 15, -58, 3.2, 3); c.fillStyle = skin; c.fill(); c.lineWidth = 1; c.strokeStyle = line; c.stroke();
+  circ(c, 1, -60, 14); c.fillStyle = rad(c, 1, -60, 16, [[0, mix(skin, '#ffffff', 0.3)], [1, mix(skin, '#000000', 0.2)]], -3, -65); c.fill(); c.lineWidth = 1.2; c.strokeStyle = line; c.stroke();
+  c.save(); circ(c, 1, -60, 14); c.clip(); c.fillStyle = hair; c.beginPath(); c.moveTo(-16, -52); c.lineTo(-16, -76); c.lineTo(18, -76); c.quadraticCurveTo(12, -64, 2, -66); c.quadraticCurveTo(-4, -64, -6, -50); c.closePath(); c.fill(); c.restore();
+  drawEye(c, 7, -59, 5.6, 4.6, glow);
+  c.restore();
+}
+function drawBubble(c, x, y, r, vis, emo, time) { // what one viewer sees of the mouse
+  c.save(); c.globalAlpha = 1;
+  circ(c, x, y, r); c.fillStyle = rad(c, x, y, r, [[0, '#0a0e22'], [1, '#05081A']]); c.fill();
+  c.save(); circ(c, x, y, r - 1); c.clip();
+  c.fillStyle = rgba('#3a4578', 0.5 * vis); c.fillRect(x - r, y + r * 0.35, 2 * r, r);
+  drawMouse(c, x, y + r * 0.2, 1.25, vis);
+  c.restore();
+  circ(c, x, y, r); c.lineWidth = 2.4; c.strokeStyle = 'rgba(200,214,255,.5)'; c.stroke();
+  c.font = `20px ${EMOJI}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#000'; c.fillText(emo, x - r * 0.72, y - r * 0.78);
+  c.restore();
+}
+function catL(time) {
+  const k = S.c;
+  if (k.st === 'q') return 0;
+  if (k.st === 'rev') { const e = time - k.t0; return e < 1.4 ? 0 : 0.55 * ease((e - 1.4) / 1.8); }
+  return k.L;
+}
+function drawCatView(c, time) {
+  const L = catL(time), shown = S.c.st !== 'q', cvis = clamp01(L * 2.2), kvis = clamp01(L * 0.5);
+  drawCave(c, L, time);
+  drawCatBody(c);
+  drawMouse(c, MOUSE[0], MOUSE[1], 1.3);
+  drawKid(c, KID[0], KID[1], 1.05, -1);
+  darkLayer(c, 0.955 - 0.5 * L, (m) => {
+    if (L > 0) { m.fillStyle = `rgba(0,0,0,${0.3 * L})`; path(m, [[212, 76], [306, 76], [262, 270], [150, 270]]); m.fill(); hole(m, MOUSE[0], MOUSE[1], 60, 0.35 * L); }
+  });
+  if (L > 0) { // the moon above the darkness
+    add(c, () => { c.fillStyle = rad(c, MOON[0], MOON[1] + 6, 46, [[0, rgba('#BFD0FF', 0.55 * L)], [1, rgba('#BFD0FF', 0)]]); c.fillRect(MOON[0] - 46, MOON[1] - 40, 92, 92); });
+    circ(c, MOON[0], MOON[1] + 6, 15); c.fillStyle = rgba('#ffffff', 0.25 + 0.75 * L); c.fill();
+  }
+  drawCatEyes(c, cvis);
+  if (shown) {
+    // light that bounces off the mouse into each pair of eyes: eyes never send anything out
+    const ce = [CAT[0] + 20, CAT[1] - 2], ke = [KID[0] - 7 * 1.05 + 8, KID[1] - 59 * 1.05 + 3];
+    if (cvis > 0.05) ray(c, MOUSE[0] - 20, MOUSE[1] - 6, ce[0], ce[1], 1, time, { w: 2.2, a: 0.85 * cvis });
+    if (kvis > 0.05) ray(c, MOUSE[0] + 20, MOUSE[1] - 8, ke[0], ke[1], 1, time, { w: 2.2, a: 0.8 * Math.min(1, kvis * 1.6) });
+    drawBubble(c, 52, 66, 30, cvis, '🐱', time); drawBubble(c, 352, 66, 30, kvis, '🧒', time);
+    for (const [bx, by, tx, ty] of [[52, 66, CAT[0] - 14, CAT[1] - 50], [352, 66, KID[0] + 2, KID[1] - 90]]) {
+      c.save(); c.fillStyle = 'rgba(200,214,255,.55)';
+      for (let i = 1; i <= 3; i++) { const t = 0.36 + i * 0.16; circ(c, bx + (tx - bx) * t, by + 30 + (ty - by - 30) * t, 5 - i); c.fill(); }
+      c.restore();
+    }
+  }
+}
+
+// --- secret scenes ------------------------------------------------------------------------------------------------
+const SKY = Array.from({ length: 50 }, (_, i) => [(i * 97 + 13) % 396 + 2, (i * 53 + 11) % 290 + 4, 0.6 + (i % 4) * 0.3, i * 0.7]);
+function drawMoonSecret(c, time) {
+  c.fillStyle = lin(c, 0, 0, 0, VH, [[0, '#04061a'], [1, '#0c1236']]); c.fillRect(0, 0, VW, VH);
+  c.fillStyle = '#e6ecff'; for (const [x, y, r, ph] of SKY) { c.globalAlpha = 0.45 + 0.4 * Math.sin(time * 1.4 + ph); circ(c, x, y, r); c.fill(); } c.globalAlpha = 1;
+  const SUN = [52, 118, 31], MN = [204, 66, 23], EA = [330, 352, 150];
+  // sun
+  add(c, () => { c.fillStyle = rad(c, SUN[0], SUN[1], 110, [[0, rgba(C.light, 0.6)], [0.4, rgba(C.light, 0.18)], [1, rgba(C.light, 0)]]); c.fillRect(SUN[0] - 110, SUN[1] - 110, 220, 220); });
+  circ(c, SUN[0], SUN[1], SUN[2]); c.fillStyle = rad(c, SUN[0], SUN[1], SUN[2], [[0, '#fffbe0'], [0.55, C.light], [1, mix(C.light, '#ff9a30', 0.6)]], SUN[0] - 8, SUN[1] - 8); c.fill();
+  // moon: a dark rock, lit on the side that faces the sun
+  const dx = SUN[0] - MN[0], dy = SUN[1] - MN[1], dl = Math.hypot(dx, dy), ux = dx / dl, uy = dy / dl;
+  circ(c, MN[0], MN[1], MN[2]); c.fillStyle = '#10142c'; c.fill();
+  c.save(); circ(c, MN[0], MN[1], MN[2]); c.clip();
+  c.fillStyle = rad(c, MN[0] + ux * 14, MN[1] + uy * 14, MN[2] * 1.7, [[0, '#fbf6e0'], [0.5, '#d3cdb8'], [0.8, '#6c6f88'], [1, 'rgba(16,20,44,0)']]); c.fillRect(MN[0] - 30, MN[1] - 30, 60, 60);
+  c.fillStyle = 'rgba(70,70,90,.28)'; for (const [x, y, r] of [[-6, -5, 4.6], [5, 6, 3.6], [-9, 8, 2.8], [8, -9, 2.6]]) { circ(c, MN[0] + x, MN[1] + y, r); c.fill(); }
+  c.restore();
+  circ(c, MN[0], MN[1], MN[2]); c.lineWidth = 1.2; c.strokeStyle = 'rgba(200,210,255,.35)'; c.stroke();
+  // earth with a child standing on top
+  add(c, () => { c.fillStyle = rad(c, EA[0], EA[1], EA[2] + 22, [[0.8, rgba(C.iris, 0.35)], [1, rgba(C.iris, 0)]]); c.fillRect(EA[0] - 175, EA[1] - 175, 350, 350); });
+  circ(c, EA[0], EA[1], EA[2]); c.fillStyle = rad(c, EA[0], EA[1], EA[2], [[0, mix(C.iris, '#ffffff', 0.25)], [0.7, mix(C.iris, '#000000', 0.2)], [1, mix(C.iris, '#000000', 0.62)]], EA[0] - 60, EA[1] - 90); c.fill();
+  c.save(); circ(c, EA[0], EA[1], EA[2]); c.clip(); c.fillStyle = mix(C.teddy, '#000000', 0.3);
+  ell(c, 252, 232, 36, 14, -0.4); c.fill(); ell(c, 372, 240, 30, 12, 0.3); c.fill(); ell(c, 310, 214, 16, 6, 0.1); c.fill();
+  c.restore();
+  const kx = 322, ky = EA[1] - Math.sqrt(EA[2] * EA[2] - (kx - EA[0]) ** 2) + 2, k = 0.82;
+  drawKid(c, kx, ky, k, -1, 0.9);
+  const eye = [kx - 7 * k, ky - 59 * k];
+  add(c, () => { c.fillStyle = rad(c, eye[0], eye[1], 22, [[0, rgba(C.light, 0.6)], [1, rgba(C.light, 0)]]); c.fillRect(eye[0] - 22, eye[1] - 22, 44, 44); });
+  // rays: sun -> moon, moon -> eye
+  ray(c, SUN[0] - ux * (SUN[2] + 6), SUN[1] - uy * (SUN[2] + 6), MN[0] + ux * (MN[2] + 6), MN[1] + uy * (MN[2] + 6), 1, time, { w: 3 });
+  const ex = eye[0] - MN[0], ey = eye[1] - MN[1], el = Math.hypot(ex, ey);
+  ray(c, MN[0] + (ex / el) * (MN[2] + 4), MN[1] + (ey / el) * (MN[2] + 4), eye[0] - (ex / el) * 12, eye[1] - (ey / el) * 12, 1, time, { w: 3 });
+}
+function drawReflSecret(c, time) {
+  c.fillStyle = lin(c, 0, 0, 0, 230, [[0, '#04061a'], [1, '#101840']]); c.fillRect(0, 0, VW, 230);
+  c.fillStyle = '#e6ecff'; for (const [x, y, r, ph] of SKY) { if (y > 150) continue; c.globalAlpha = 0.4 + 0.35 * Math.sin(time * 1.4 + ph); circ(c, x, y, r * 0.9); c.fill(); } c.globalAlpha = 1;
+  c.fillStyle = '#0b1030'; c.beginPath(); c.moveTo(0, 190); c.bezierCurveTo(70, 160, 130, 200, 200, 176); c.bezierCurveTo(280, 150, 340, 196, 400, 170); c.lineTo(400, 232); c.lineTo(0, 232); c.closePath(); c.fill();
+  c.fillStyle = lin(c, 0, 226, 0, VH, [[0, '#161c3a'], [1, '#0a0d22']]); c.fillRect(0, 226, VW, VH - 226);
+  c.fillStyle = 'rgba(170,190,255,.14)'; c.fillRect(0, 226, VW, 1.5);
+  c.strokeStyle = 'rgba(230,236,255,.25)'; c.lineWidth = 3; c.setLineDash([22, 18]); c.lineDashOffset = 0; c.beginPath(); c.moveTo(0, 276); c.lineTo(VW, 276); c.stroke(); c.setLineDash([]);
+  // headlight beam
+  add(c, () => {
+    c.fillStyle = lin(c, 120, 0, 350, 0, [[0, rgba(C.light, 0.34)], [1, rgba(C.light, 0.04)]]);
+    path(c, [[122, 216], [350, 168], [350, 266], [122, 224]]); c.fill();
+  });
+  // two cyclists: A has a reflector and is lit up, B wears dark clothes and has none
+  const bike = (x, y, a, reflector) => {
+    c.save(); c.globalAlpha = 1; c.lineCap = 'round'; c.lineJoin = 'round';
+    const col = rgba('#8FA3D8', a), body = mix('#0a0e22', '#2a3560', a * 1.4);
+    c.strokeStyle = col; c.lineWidth = 2.6; circ(c, x - 18, y, 14); c.stroke(); circ(c, x + 18, y, 14); c.stroke();
+    c.strokeStyle = body; c.lineWidth = 3; c.beginPath(); c.moveTo(x - 18, y); c.lineTo(x - 4, y - 20); c.lineTo(x + 12, y - 20); c.lineTo(x + 18, y); c.moveTo(x - 4, y - 20); c.lineTo(x + 2, y); c.lineTo(x - 18, y); c.moveTo(x + 12, y - 20); c.lineTo(x + 10, y - 28); c.stroke();
+    c.lineWidth = 7; c.beginPath(); c.moveTo(x - 4, y - 24); c.lineTo(x + 8, y - 44); c.stroke();            // rider's back
+    c.lineWidth = 5; c.beginPath(); c.moveTo(x + 8, y - 42); c.lineTo(x + 15, y - 32); c.moveTo(x - 2, y - 22); c.lineTo(x + 4, y - 4); c.stroke(); // arm, leg
+    circ(c, x + 11, y - 52, 6.5); c.fillStyle = body; c.fill();
+    c.restore();
+    if (reflector) { rrect(c, x - 27, y - 22, 6, 11, 1.5); c.fillStyle = '#FF3B30'; c.fill(); c.lineWidth = 1; c.strokeStyle = '#fff'; c.stroke(); }
+  };
+  bike(236, 252, 0.7, true);
+  bike(330, 252, 0.07, false);
+  // the car, facing right, with a driver
+  c.save(); c.globalAlpha = 1; c.lineJoin = 'round';
+  const body = mix(C.iris, '#000000', 0.38);
+  ell(c, 66, 258, 62, 6); c.fillStyle = 'rgba(0,0,0,.4)'; c.fill();
+  path(c, [[34, 214], [50, 188], [96, 188], [112, 214]]); c.fillStyle = lin(c, 0, 188, 0, 214, [[0, mix(body, '#ffffff', 0.2)], [1, body]]); c.fill(); c.lineWidth = 1.5; c.strokeStyle = '#05081A'; c.stroke();
+  path(c, [[44, 212], [56, 193], [92, 193], [102, 212]]); c.fillStyle = lin(c, 0, 193, 0, 212, [[0, '#9fb5e8'], [1, '#3a4a80']]); c.fill();
+  rrect(c, 12, 208, 108, 32, 11); c.fillStyle = lin(c, 0, 208, 0, 240, [[0, mix(body, '#ffffff', 0.18)], [1, mix(body, '#000000', 0.25)]]); c.fill(); c.stroke();
+  circ(c, 76, 199, 6.5); c.fillStyle = mix(C.warm, C.teddy, 0.3); c.fill();
+  drawEye(c, 80, 198, 4.6, 3.8, 1);
+  for (const wx of [36, 96]) { circ(c, wx, 242, 12.5); c.fillStyle = '#0a0d1c'; c.fill(); circ(c, wx, 242, 6); c.fillStyle = lin(c, wx - 6, 236, wx + 6, 248, [[0, '#c8d2ea'], [1, '#4b5575']]); c.fill(); }
+  ell(c, 118, 220, 4, 6); c.fillStyle = '#fffbe0'; c.fill();
+  c.restore();
+  add(c, () => { c.fillStyle = rad(c, 120, 220, 30, [[0, rgba(C.light, 0.8)], [1, rgba(C.light, 0)]]); c.fillRect(90, 190, 60, 60); });
+  // reflector glow, ray to it, ray bounced straight back to the driver
+  add(c, () => { c.fillStyle = rad(c, 212, 236, 26, [[0, 'rgba(255,90,70,.85)'], [1, 'rgba(255,90,70,0)']]); c.fillRect(184, 208, 56, 56); });
+  ray(c, 124, 220, 205, 234, 1, time, { w: 3 });
+  ray(c, 208, 230, 92, 200, 1, time, { w: 2.6, col: '#FFB0A0' });
+}
+
+// --- the frame ------------------------------------------------------------------------------------------------------
+function phaseKey(time) {
+  const v = lab.view;
+  if (v === 'room') return S.sec ? `sec:${S.sec}` : `room:${roomPhase(time)}`;
+  if (v === 'sources') { const s = S.s; return s.pick === null ? 'q' : time - s.t0 < (CARDS[ORDER[s.i]].src ? 1.3 : 2.4) ? 'run' : 'done'; }
+  const k = S.c;
+  if (k.st === 'rev') { const e = time - k.t0; if (e >= 3.4) { k.st = 'free'; k.L = 0.55; } else return e < 1.4 ? 'dark' : 'rise'; }
+  return k.st === 'free' ? `free:${k.L > 0 ? 1 : 0}` : 'q';
+}
+canvasLoop(cv, (c, w, h, dt, time) => {
+  const d = c.getTransform().a, v = lab.view;
+  const want = askEl.style.display === 'none' ? 0 : askEl.offsetHeight + 12;
+  S.y0 += (want - S.y0) * Math.min(1, dt * 10);
+  const rh = Math.max(60, h - S.y0), s = Math.min(w / VW, rh / VH) * 0.98, ox = (w - VW * s) / 2, oy = S.y0 + (rh - VH * s) / 2;
+  G = { s, ox, oy, w, h, d };
+  c.fillStyle = C.dark; c.fillRect(0, 0, w, h);
+  c.save(); c.translate(ox, oy); c.scale(s, s);
+  rrect(c, 0, 0, VW, VH, 16); c.clip();
+  try {
+  if (v === 'room' && S.sec === 'moon') drawMoonSecret(c, time);
+  else if (v === 'room' && S.sec === 'reflector') drawReflSecret(c, time);
+  else if (v === 'room') drawRoomView(c, time, dt);
+  else if (v === 'sources') drawSources(c, time);
+  else drawCatView(c, time);
+  } catch (err) { console.error(err); }
+  c.restore();
+  rrect(c, ox, oy, VW * s, VH * s, 16 * s); c.lineWidth = 1; c.strokeStyle = 'rgba(160,175,230,.14)'; c.stroke();
+  // pills (in canvas pixels)
+  const t = T[lang], px = (x) => ox + x * s, py = (y) => oy + y * s;
+  if (v === 'room' && !S.sec) {
+    const r = S.r, e = time - r.t0;
+    if (r.st === 'q1rev' && e > 0.1 && e < 1.5) pill(c, t.r.nothing, px(200), py(150), w, h, { a: ease(Math.min((e - 0.1) / 0.3, (1.5 - e) / 0.3)) });
+    else if ((r.st === 'q1rev' && e > 3.6) || (r.st === 'q2rev' && e > 1.9)) pill(c, t.r.see, px(200), py(282), w, h, { fg: C.light });
+    else if (r.st === 'free') pill(c, !r.aimed ? t.r.aim : beamOf(r.th).hit ? t.r.see : t.r.cant, px(200), py(282), w, h, { fg: r.aimed && beamOf(r.th).hit ? C.light : '#fff' });
+  } else if (v === 'cat' && S.c.st !== 'q' && catL(time) <= 0.001) pill(c, t.c.none, px(200), py(160), w, h);
+  if (v === 'cat' && S.c.st === 'rev') { const L = catL(time); $('dkMoon').value = Math.round(L * 100); }
+  const key = `${v}|${phaseKey(time)}`;
+  if (key !== S.pk) { S.pk = key; render(); }
+});
+
+// --- input ---------------------------------------------------------------------------------------------------------
+const freeRoom = () => lab.view === 'room' && !S.sec && S.r.st === 'free';
+const aimAt = (ev) => {
+  const r = cv.getBoundingClientRect(), x = (ev.clientX - r.left - G.ox) / G.s, y = (ev.clientY - r.top - G.oy) / G.s;
+  S.r.th = clamp(Math.atan2(y - H0[1], x - H0[0]), -1.25, 0.95); S.r.aimed = true;
+};
+cv.addEventListener('pointerdown', (ev) => { if (!freeRoom()) return; S.r.drag = true; try { cv.setPointerCapture(ev.pointerId); } catch { /* fine */ } aimAt(ev); });
+cv.addEventListener('pointermove', (ev) => { if (S.r.drag && freeRoom()) aimAt(ev); });
+const endDrag = () => { S.r.drag = false; };
+cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
+
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+askEl.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  const v = lab.view;
+  if (b.dataset.o !== undefined) { // an answer
+    const i = +b.dataset.o, t0 = now();
+    if (v === 'room') {
+      const r = S.r;
+      if (r.st === 'q1') { r.pick = i; r.st = 'q1rev'; r.t0 = t0; r.clicked = false; }
+      else if (r.st === 'q2') { r.pick = i; r.st = 'q2rev'; r.t0 = t0; }
+    } else if (v === 'sources') {
+      const s = S.s, ok = CARDS[ORDER[s.i]].src ? 0 : 1;
+      if (s.pick === null) { s.pick = i; s.t0 = t0; if (i === ok) s.score++; }
+    } else if (S.c.st === 'q') { S.c.pick = i; S.c.st = 'rev'; S.c.t0 = t0; }
+    sfx.click(); render(); showStage();
+  } else if (b.dataset.go !== undefined) { // next / again
+    if (v === 'room') {
+      const r = S.r;
+      if (r.st === 'q1rev') { S.r = Object.assign(freshRoom(), { st: 'q2' }); }
+      else if (r.st === 'q2rev') { r.st = 'free'; r.v = { p1: 1, lit: 1, p2: 1, eye: 1, dim: 0 }; r.th = autoTheta(); r.aimed = false; }
+    } else if (v === 'sources') {
+      const s = S.s;
+      if (s.i >= ORDER.length - 1) S.s = { i: 0, pick: null, t0: 0, score: 0 }; else { s.i++; s.pick = null; }
+    } else { S.c = { st: 'q', pick: null, t0: 0, L: 0 }; $('dkMoon').value = 0; }
+    sfx.click(); render();
+  }
+});
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  if (b.dataset.sec) {
+    if (!secret.unlocked()) return secret.open();
+    S.sec = S.sec === b.dataset.sec ? null : b.dataset.sec; sfx.click(); render();
+  } else if (b.dataset.act === 'again') { S.r = freshRoom(); sfx.click(); render(); }
+});
+$('dkMoon').addEventListener('input', (ev) => { if (S.c.st === 'free') { S.c.L = +ev.target.value / 100; render(); } });
+
+// --- one render per change: question card, controls, readout and the state card ---------------------------------------
+function setAsk(a) {
+  if (!a) { askEl.style.display = 'none'; return; }
+  askEl.style.display = '';
+  const done = !!a.res, pick = a.pick;
+  const opts = a.opts && !done ? `<div class="dk-opts">${a.opts.map((o, i) => `<button class="dk-o ${pick === i ? 'dk-pick' : ''} ${done && i === a.ok ? 'good' : ''}" data-o="${i}"${pick !== null ? ' disabled' : ''}>${esc(o)}</button>`).join('')}</div>` : '';
+  const res = a.res ? `<div class="dk-res">${a.res.v ? `<div class="dk-verdict" style="color:${a.res.good ? 'var(--ok)' : 'var(--wip)'}">${esc(a.res.v)}</div>` : ''}<p>${esc(a.res.text)}</p>${a.res.btn ? `<button class="btn" data-go>${esc(a.res.btn)}</button>` : ''}</div>` : '';
+  const html = `${a.sub ? `<div class="dk-name">${esc(a.sub)}</div>` : ''}<div class="dk-q">${esc(a.q)}</div>${opts}${res}`;
+  if (askEl._h !== html) { askEl._h = html; askEl.innerHTML = html; }
+}
+const vt = (txt) => `<span class="dk-vt">${esc(txt)}</span>`;
+
+function render() {
+  const t = T[lang], v = lab.view, time = now(), st = ST[lang];
+  $('dkRoom').style.display = v === 'room' ? '' : 'none';
+  $('dkCat').style.display = v === 'cat' ? '' : 'none';
+  cv.style.touchAction = freeRoom() ? 'none' : 'pan-y';
+  let ask = null, body = 'play';
+  if (v === 'room') {
+    const open = secret.unlocked(), sc = (k, emo) => `<button class="chip secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-sec="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+    $('dkChips').innerHTML = sc('moon', '🌙') + sc('reflector', '🚲');
+    $('dkAgain').hidden = S.r.st !== 'free'; $('dkAgain').textContent = t.again;
+    lab.setGlow('rgba(255, 230, 128, .16)');
+    if (S.sec) {
+      const k = S.sec;
+      ask = { q: t.secrets[k][0], res: { v: '', text: k === 'moon' ? t.sec.moonText : t.sec.reflText } }; body = 'info';
+      lab.setReadout(k === 'moon' ? '🌙' : '🚲', t.secrets[k][1], '', C.iris);
+    } else ask = renderRoom(t);
+    const full = S.r.st === 'free' || (S.r.st === 'q2rev' && roomPhase(time) === 'done');
+    lab.setState(full ? mk4(st.room.f) : mk4(st.room.n));
+  } else if (v === 'sources') {
+    ask = renderSources(t);
+    const s = S.s, full = s.i === ORDER.length - 1 && !!ask.res;
+    lab.setState(full ? mk4(st.sources.f) : mk4(st.sources.n));
+  } else {
+    ask = renderCat(t);
+    lab.setState(S.c.st === 'free' ? mk4(st.cat.f) : mk4(st.cat.n));
+  }
+  setAsk(ask);
+  document.body.dataset.v = ask ? (body === 'info' ? 'info' : 'ask') : 'play';
+}
+const mk4 = ([emo, title, lead, bodyTxt]) => ({ emo, title, lead, body: bodyTxt });
+const verdict = (t, ok) => ({ v: ok ? t.right : t.wrong, good: ok });
+
+function renderRoom(t) {
+  const r = S.r, ph = roomPhase(now()), T_ = t.r;
+  if (r.st === 'q1') { lab.setReadout('?', '', '', C.iris); return { q: T_.q1, opts: T_.o1, pick: null, ok: 1 }; }
+  if (r.st === 'q2') { lab.setReadout('?', '', '', C.iris); return { q: T_.q2, opts: T_.o2, pick: null, ok: 1 }; }
+  if (r.st === 'q1rev') {
+    lab.setReadout(ph === 'dark' ? '🌑' : '🔦', '', ph === 'dark' ? T_.nothing : ph === 'run' ? '' : T_.see, C.iris);
+    return { q: T_.q1, opts: T_.o1, pick: r.pick, ok: 1, res: ph === 'done' ? { ...verdict(t, r.pick === 1), text: T_.r1, btn: t.next } : null };
+  }
+  if (r.st === 'q2rev') {
+    lab.setReadout('🔦', '', ph === 'done' ? T_.see : '', C.iris);
+    return { q: T_.q2, opts: T_.o2, pick: r.pick, ok: 1, res: ph === 'done' ? { ...verdict(t, r.pick === 1), text: T_.r2, btn: t.next } : null };
+  }
+  const hit = beamOf(r.th).hit;
+  lab.setReadout(vt(r.aimed ? (hit ? T_.see : T_.cant) : T_.aim), '', '', C.iris);
+  return null;
+}
+function renderSources(t) {
+  const s = S.s, k = ORDER[s.i], card = CARDS[k], ok = card.src ? 0 : 1, ph = phaseKey(now());
+  lab.setGlow('rgba(255, 230, 128, .18)');
+  const dots = ORDER.map((_, i) => (i < s.i ? '●' : i === s.i ? '◉' : '○')).join(' ');
+  lab.setReadout(`${s.score}/${ORDER.length}`, dots, s.pick !== null && ph === 'done' ? t.s.o[ok] : '', C.iris);
+  return { sub: cap(t.s.names[k]), q: t.s.q, opts: t.s.o, pick: s.pick, ok, res: s.pick !== null && ph === 'done' ? { ...verdict(t, s.pick === ok), text: t.s.why[k], btn: s.i === ORDER.length - 1 ? t.again : t.next } : null };
+}
+function renderCat(t) {
+  const k = S.c, ph = phaseKey(now());
+  lab.setGlow('rgba(76, 141, 219, .22)');
+  $('dkE0').textContent = t.c.none; $('dkE1').textContent = t.c.moon;
+  $('dkMoon').setAttribute('aria-label', t.c.moon); $('dkMoon').disabled = k.st !== 'free';
+  if (k.st === 'free') $('dkMoon').value = Math.round(k.L * 100);
+  else if (k.st === 'q') $('dkMoon').value = 0;
+  const L = k.st === 'free' ? k.L : 0;
+  if (k.st === 'q') lab.setReadout('?', '', '', C.iris);
+  else lab.setReadout(vt(L > 0 || ph === 'rise' ? '🌙' : '🌑'), L > 0 || ph === 'rise' ? t.c.moon : t.c.none, '', C.iris);
+  return { q: t.c.q, opts: t.c.o, pick: k.pick, ok: 1, res: k.st === 'free' ? { ...verdict(t, k.pick === 1), text: t.c.r, btn: t.again } : null };
+}
+render();
+</script>
+</body>
+</html>
