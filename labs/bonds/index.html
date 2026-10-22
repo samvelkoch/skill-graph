@@ -1,0 +1,790 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Nine Beans · Skill Graph</title>
+<meta name="description" content="Shake nine beans into two sides of a box, collect every pair that makes 9, and find the beans hiding under a cup. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  .bn-ask { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); width: min(560px, calc(100% - 16px)); padding: 12px 16px; text-align: center;
+    background: rgba(14, 17, 28, .94); }
+  .bn-ask .bn-q { font: 500 21px/1.2 var(--serif); color: #fff; margin-bottom: 10px; text-wrap: balance; }
+  .bn-ask .bn-opts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .bn-ask button { min-height: 38px; padding: 8px 20px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-size: 15px; font-weight: 800; cursor: pointer; }
+  .bn-ask button:hover { background: rgba(130, 145, 190, .25); }
+  .bn-ask p { margin: 0 0 10px; color: var(--soft); font-size: 13px; }
+  .bn-ask .bn-verdict { font-weight: 900; margin-bottom: 4px; }
+  #shakeB { font-size: 16px; padding: 12px 26px; min-height: 44px; }
+  #shakeB:disabled { opacity: .5; cursor: default; }
+  @media (min-width: 761px) {
+    body[data-v$=card] #stage { min-height: 600px; }
+    body[data-v=all-card] #stage { min-height: 700px; }
+    body[data-v=shake-free] #stage { min-height: 520px; }
+  }
+  @media (max-width: 760px) {
+    #stage { height: min(120vw, 500px); }
+    body[data-v=shake-card] #stage { height: min(136vw, 560px); }
+    body[data-v=shake-free] #stage { height: min(104vw, 440px); }
+    body[data-v=all-card] #stage { height: min(164vw, 650px); }
+    body[data-v=hide-card] #stage { height: min(140vw, 560px); }
+    .bn-ask .bn-q { font-size: 18px; } .bn-ask { padding: 10px 12px; } .bn-ask button { padding: 7px 18px; font-size: 14px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, ruPlural, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Nine Beans', title: 'One number, many pairs',
+    lines: [['Nine beans', 'in a box.'], ['Shake it:', 'some go left, some go right.'], ['How many ways', 'can they split?']],
+    views: { shake: '🫘 Shake', all: '🧩 All pairs', hide: '🥤 Under the cup' },
+    next: 'Next ▶', again: '↻ Again', right: 'Yes!', wrong: 'Not quite. Look!', yes: 'yes', no: 'no',
+    s: { q: 'We shake 9 beans into the two sides. Can both sides ever have the same number?', o: ['yes', 'no'],
+         r: 'Never! 9 is odd: one side always has one more. 4 + 5, 5 + 4, 3 + 6… but never the same on both sides.',
+         shake: '🫨 Shake!', found: (k) => `Pairs found: ${k}` },
+    a: { q: 'How many different pairs make 9? (0 + 9 counts.)', o: ['5', '9', '10'],
+         r: 'Ten pairs: from 0 + 9 to 9 + 0. One side gets one more, the other one less — and the total stays 9.' },
+    h: { q: (n, s) => `There are ${n} beans. ${s} are on the table. How many are under the cup?`,
+         why: ['6 + 3 = 9.', '2 + 5 = 7.', 'All 9 are on the table, so nothing is under the cup: 9 + 0 = 9.', '4 + 4 = 8.', '1 + 4 = 5.'] },
+    secrets: { rainbow: ['The rainbow of ten', 'Pairs that make 10.'], turn: ['Turn it around', 'Same pair, flipped.'] },
+    sec: { rainbowText: '1 and 9, 2 and 8, 3 and 7, 4 and 6, 5 and 5: these pairs make 10. They help with bigger sums.',
+           turnText: '4 + 5 and 5 + 4 are both 9. Swapping the parts does not change the whole.' },
+    quiz: [
+      { q: '9 = 4 + ?', opts: ['4', '5', '6'], ok: 1 },
+      { q: 'Which pair makes 9?', opts: ['3 + 5', '4 + 5', '2 + 8'], ok: 1 },
+      { q: '9 = 0 + ?', opts: ['0', '9', '1'], ok: 1 } ],
+    // added by the builder
+    ok1: 'Right!', tap: 'Tap a card to see that split in the box.',
+  },
+  ru: {
+    name: 'Девять фасолин', title: 'Одно число — много пар',
+    lines: [['Девять фасолин', 'в коробке.'], ['Встряхни:', 'одни налево, другие направо.'], ['Сколькими способами', 'они разделятся?']],
+    views: { shake: '🫘 Встряхни', all: '🧩 Все пары', hide: '🥤 Под чашкой' },
+    next: 'Дальше ▶', again: '↻ Ещё раз', right: 'Да!', wrong: 'Не совсем. Смотри!', yes: 'да', no: 'нет',
+    s: { q: 'Встряхиваем 9 фасолин в две половинки. Может ли в обеих оказаться поровну?', o: ['да', 'нет'],
+         r: 'Никогда! 9 — нечётное: на одной стороне всегда на одну больше. 4 + 5, 5 + 4, 3 + 6… но никогда не поровну.',
+         shake: '🫨 Встряхнуть!', found: (k) => `Найдено пар: ${k}` },
+    a: { q: 'Сколько разных пар дают 9? (0 + 9 тоже считается.)', o: ['5', '9', '10'],
+         r: 'Десять пар: от 0 + 9 до 9 + 0. На одной стороне на одну больше, на другой на одну меньше — а всего по-прежнему 9.' },
+    h: { q: (n, s) => `Всего ${n} ${ruPlural(n, 'фасолина', 'фасолины', 'фасолин')}. ${s} на столе. Сколько под чашкой?`,
+         why: ['6 + 3 = 9.', '2 + 5 = 7.', 'Все 9 на столе, значит, под чашкой ничего: 9 + 0 = 9.', '4 + 4 = 8.', '1 + 4 = 5.'] },
+    secrets: { rainbow: ['Радуга десяти', 'Пары, которые дают 10.'], turn: ['Переверни', 'Та же пара, наоборот.'] },
+    sec: { rainbowText: '1 и 9, 2 и 8, 3 и 7, 4 и 6, 5 и 5: эти пары дают 10. Они помогают в больших примерах.',
+           turnText: '4 + 5 и 5 + 4 — это оба раза 9. От перестановки частей целое не меняется.' },
+    quiz: [
+      { q: '9 = 4 + ?', opts: ['4', '5', '6'], ok: 1 },
+      { q: 'Какая пара даёт 9?', opts: ['3 + 5', '4 + 5', '2 + 8'], ok: 1 },
+      { q: '9 = 0 + ?', opts: ['0', '9', '1'], ok: 1 } ],
+    ok1: 'Верно!', tap: 'Нажми на карточку — увидишь это разделение в коробке.',
+  },
+  hu: {
+    name: 'Kilenc bab', title: 'Egy szám, sok pár',
+    lines: [['Kilenc bab', 'egy dobozban.'], ['Rázd meg:', 'néhány balra, néhány jobbra.'], ['Hányféleképpen', 'oszolhatnak meg?']],
+    views: { shake: '🫘 Rázd!', all: '🧩 Minden pár', hide: '🥤 A pohár alatt' },
+    next: 'Tovább ▶', again: '↻ Újra', right: 'Igen!', wrong: 'Nem egészen. Nézd!', yes: 'igen', no: 'nem',
+    s: { q: 'Kilenc babot rázunk szét a két oldalra. Lehet valaha ugyanannyi mindkét oldalon?', o: ['igen', 'nem'],
+         r: 'Soha! A 9 páratlan: az egyik oldalon mindig eggyel több van. 4 + 5, 5 + 4, 3 + 6… de sosem egyforma.',
+         shake: '🫨 Rázd meg!', found: (k) => `Megtalált párok: ${k}` },
+    a: { q: 'Hány különböző pár adja ki a 9-et? (A 0 + 9 is számít.)', o: ['5', '9', '10'],
+         r: 'Tíz pár: a 0 + 9-től a 9 + 0-ig. Az egyik oldalon eggyel több, a másikon eggyel kevesebb — az összeg mindig 9.' },
+    h: { q: (n, s) => `Összesen ${n} bab van. ${s} az asztalon. Hány van a pohár alatt?`,
+         why: ['6 + 3 = 9.', '2 + 5 = 7.', 'Mind a 9 az asztalon van, a pohár alatt nincs semmi: 9 + 0 = 9.', '4 + 4 = 8.', '1 + 4 = 5.'] },
+    secrets: { rainbow: ['A tízes szivárvány', 'A 10-et adó párok.'], turn: ['Fordítsd meg!', 'Ugyanaz a pár, fordítva.'] },
+    sec: { rainbowText: '1 és 9, 2 és 8, 3 és 7, 4 és 6, 5 és 5: ezek a párok 10-et adnak. Segítenek a nagyobb összeadásokban.',
+           turnText: 'A 4 + 5 és az 5 + 4 is 9. Ha felcseréljük a részeket, az egész nem változik.' },
+    quiz: [
+      { q: '9 = 4 + ?', opts: ['4', '5', '6'], ok: 1 },
+      { q: 'Melyik pár adja ki a 9-et?', opts: ['3 + 5', '4 + 5', '2 + 8'], ok: 1 },
+      { q: '9 = 0 + ?', opts: ['0', '9', '1'], ok: 1 } ],
+    ok1: 'Így van!', tap: 'Koppints egy kártyára, és látod ezt a felbontást a dobozban!',
+  },
+};
+// state cards: [neutral, full], each [emoji, title, lead, body]
+const ST = {
+  en: { shake: [['🫘', 'A box of nine', 'Shake and look.', ''], ['🫘', 'Two parts, one whole', 'The parts always add up to 9.', '']],
+        all: [['🧩', 'Collect them all', 'Every way to split 9.', ''], ['🧩', 'Ten pairs make 9', '0 + 9 … 9 + 0.', '']],
+        hide: [['🥤', 'Something is hiding', 'Count what you see.', ''], ['🥤', 'One part tells the other', 'Whole − seen part = hidden part.', '']] },
+  ru: { shake: [['🫘', 'Коробка с девятью', 'Встряхни и посмотри.', ''], ['🫘', 'Две части — одно целое', 'Части всегда в сумме дают 9.', '']],
+        all: [['🧩', 'Собери все', 'Все способы разделить 9.', ''], ['🧩', 'Десять пар дают 9', '0 + 9 … 9 + 0.', '']],
+        hide: [['🥤', 'Кто-то спрятался', 'Посчитай то, что видно.', ''], ['🥤', 'Одна часть подскажет другую', 'Целое − видимая часть = спрятанная часть.', '']] },
+  hu: { shake: [['🫘', 'Egy doboz kilenc babbal', 'Rázd meg, és nézd meg!', ''], ['🫘', 'Két rész, egy egész', 'A részek összege mindig 9.', '']],
+        all: [['🧩', 'Gyűjtsd össze mind', 'A 9 összes felbontása.', ''], ['🧩', 'Tíz pár adja a 9-et', '0 + 9 … 9 + 0.', '']],
+        hide: [['🥤', 'Valami elbújt', 'Számold meg, amit látsz!', ''], ['🥤', 'Az egyik rész elárulja a másikat', 'Egész − látható rész = elrejtett rész.', '']] },
+};
+const TOPICS = [
+  { id: 'mt_e8CZ7E5qW7', en: 'Number bonds to 9', ru: 'Состав числа: пары до 9', hu: 'Számpárok 9-ig (kiegészítés 10-re)' },
+];
+// hide view: [beans in all, beans on the table, buttons, right answer]
+const ROUNDS = [[9, 6, [3, 2, 4], 3], [7, 2, [5, 4, 9], 5], [9, 9, [0, 1, 9], 0], [8, 4, [4, 3, 5], 4], [5, 1, [4, 5, 6], 4]];
+
+// --- helpers -----------------------------------------------------------------------------------------------
+const C = { bean: '#9C3D2E', blue: '#5B8DEF', orange: '#FF9F5A', cream: '#FFF8EA', ink: '#2B2140', bg: '#1F2A44' };
+const clock = () => performance.now() / 1000;
+const later = (s, fn) => setTimeout(fn, Math.max(0, s) * 1000);
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+const easeInOut = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+const easeOutBack = (t) => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+const bounce = (x) => {
+  const n1 = 7.5625, d1 = 2.75;
+  if (x < 1 / d1) return n1 * x * x;
+  if (x < 2 / d1) return n1 * (x -= 1.5 / d1) * x + 0.75;
+  if (x < 2.5 / d1) return n1 * (x -= 2.25 / d1) * x + 0.9375;
+  return n1 * (x -= 2.625 / d1) * x + 0.984375;
+};
+const rnd = (a, b) => a + Math.random() * (b - a);
+const shuffle = (a) => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const rngOf = (seed) => () => { seed |= 0; seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+const shuffleWith = (a, r) => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const hex2 = (h) => { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+const toHex = (r, g, b) => '#' + [r, g, b].map((v) => Math.round(clamp(v, 0, 255)).toString(16).padStart(2, '0')).join('');
+const adj = (h, k) => toHex(...hex2(h).map((v) => (k >= 0 ? v + (255 - v) * k : v * (1 + k)))); // k > 0 lighter, k < 0 darker; takes and returns hex
+const rgba = (h, a) => { const [r, g, b] = hex2(h); return `rgba(${r},${g},${b},${a})`; };
+const hslHex = (h, s, l) => {
+  h = ((h % 360) + 360) % 360; s /= 100; l /= 100;
+  const k = (n) => (n + h / 30) % 12, a = s * Math.min(l, 1 - l), f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1));
+  return toHex(f(0) * 255, f(8) * 255, f(4) * 255);
+};
+// the five arcs of the rainbow of ten: blue -> violet -> pink -> orange, the two accents of the lab and the hues between them
+const RB = [0, 1, 2, 3, 4].map((i) => hslHex(220 + (167 * i) / 4, 85, 64));
+const BLUE_L = '#8FB0F8', ORANGE_L = '#FFB27A'; // lighter parts for text on the dark page
+const rr = (c, x, y, w, h, r) => { c.beginPath(); c.roundRect(x, y, w, h, Math.max(0, Math.min(r, w / 2, h / 2))); };
+const numText = (c, s, x, y, size, fill, stroke) => {
+  c.font = `900 ${size}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineJoin = 'round';
+  if (stroke) { c.lineWidth = Math.max(2, size * 0.16); c.strokeStyle = stroke; c.strokeText(s, x, y + 1); }
+  c.fillStyle = fill; c.fillText(s, x, y + 1);
+};
+
+// --- the box: all positions are in units of the inner width (U = 1), v counted up from the floor -------------
+const IH = 0.36, WALL = 0.036, WALL_TOP = 0.2, BEAN_L = 0.082, ROW0 = 0.032, ROW1 = 0.082;
+const SLOT_X0 = [0.03, 0.538], SP = 0.432 / 5;
+const ORD_L = [2, 0, 4, 1, 3, 6, 5, 8, 7], ORD_R = [1, 3, 0, 4, 2, 7, 5, 8, 6];
+const mkJ = () => ({ dx: rnd(-0.011, 0.011), dy: rnd(-0.003, 0.003), r: rnd(-0.5, 0.5) });
+const J2 = [Array.from({ length: 9 }, mkJ), Array.from({ length: 9 }, mkJ)];
+function slotPose(side, idx, j) { // slot 0-4: bottom row, 5-8: the row on top of it
+  const top = idx >= 5, k = top ? idx - 5 : idx;
+  return { x: SLOT_X0[side] + SP * (top ? k + 1 : k + 0.5) + j.dx, y: (top ? ROW1 : ROW0) + j.dy, r: j.r };
+}
+// bean i is on the left when i < k: fixed, tidy piles, used by the "all pairs" view
+const poseFor = (i, k) => (i < k ? slotPose(0, ORD_L[i], J2[0][ORD_L[i]]) : slotPose(1, ORD_R[8 - i], J2[1][ORD_R[8 - i]]));
+const mkBeans = () => Array.from({ length: 9 }, (_, id) => ({ id, x: 0.2, y: ROW0, rot: 0, cnt: 0, path: null, landT: -9 }));
+function setSplit(B, k) {
+  B.forEach((b, i) => { const p = poseFor(i, k); b.x = p.x; b.y = p.y; b.rot = p.r; b.cnt = i < k ? 0 : 1; b.path = null; b.landT = -9; });
+}
+const B1 = mkBeans(), B2 = mkBeans(); // B1: the shake view, B2: the all-pairs view
+setSplit(B1, 9); setSplit(B2, 0);
+
+// a hop is a parabola over the floor; a hop across the wall peaks right above it
+const wm = (u, uc) => (u < 0.5 ? uc * Math.sin(u * Math.PI) : uc + (1 - uc) * (1 - Math.cos((u - 0.5) * Math.PI)));
+function mkHop(from, to, t0, A, cnt) {
+  const cross = (from.x - 0.5) * (to.x - 0.5) < 0;
+  let uc = 0.5;
+  if (cross) { uc = clamp((0.5 - from.x) / (to.x - from.x), 0.05, 0.95); A = Math.max(A, 0.45 - (from.y + to.y) / 2 + Math.random() * 0.05); }
+  A = Math.min(A, 0.565 - Math.max(from.y, to.y)); // stay under the lid
+  return { t0, t1: t0 + 0.16 + 0.55 * Math.sqrt(A), xa: from.x, ya: from.y, ra: from.r, xb: to.x, yb: to.y, rb: to.r, A, cross, uc, cnt };
+}
+function stepBean(b, tt) {
+  const p = b.path; if (!p) return;
+  while (p.i < p.hops.length) {
+    const h = p.hops[p.i];
+    if (tt < h.t0) return;
+    if (tt >= h.t1) { b.x = h.xb; b.y = h.yb; b.rot = h.rb; b.landT = h.t1; if (h.cnt) b.cnt = h.cnt.v; p.i++; continue; }
+    const u = (tt - h.t0) / (h.t1 - h.t0);
+    b.x = lerp(h.xa, h.xb, h.cross ? wm(u, h.uc) : u);
+    b.y = lerp(h.ya, h.yb, u) + 4 * h.A * u * (1 - u);
+    b.rot = lerp(h.ra, h.rb, u);
+    if (h.cnt && h.cnt.u < 1 && u >= h.cnt.u) b.cnt = h.cnt.v;
+    return;
+  }
+  b.path = null;
+}
+function moveBean(b, to, t0, v) { // one bean hops across the wall; it counts for the new side when it is above the wall
+  const spin = Math.random() < 0.5 ? 1 : -1, r = to.r + 2 * Math.PI * (Math.round((b.rot - to.r) / (2 * Math.PI)) + spin);
+  const h = mkHop({ x: b.x, y: b.y, r: b.rot }, { x: to.x, y: to.y, r }, t0, rnd(0.4, 0.46));
+  h.cnt = { u: 0.5, v };
+  b.path = { hops: [h], i: 0 };
+}
+
+// --- state -------------------------------------------------------------------------------------------------
+const S = {
+  top: null,
+  s: { phase: 'ask', ans: null, done: false, busy: false, k: null, found: new Array(10).fill(0) }, // shake: ask -> reveal -> play
+  a: { phase: 'ask', ans: null, k: 0, drop: [], slotsT: 0, sel: null },                           // all pairs: ask -> reveal -> done
+  h: { i: 0, pick: null, t0: clock(), liftA: 0 },                                                   // under the cup
+  sec: null, rb: { n: 3, t0: 0 }, tn: { from: 0, t0: -9, n: 0 },
+  pv: [null, null], pt: [-9, -9], lv: [0, 0], wob: { t0: 0, t1: 0 },
+};
+let geo = {};
+const lab = shell({ key: 'bonds', T, topics: TOPICS, views: ['shake', 'all', 'hide'], onLang: render,
+  onView: () => { S.sec = null; S.pv = [null, null]; if (lab.view === 'hide') { S.h.t0 = clock(); S.h.liftA = 0; } render(); } });
+const secret = secretLab('bonds', () => ({
+  secrets: [{ emo: '🌈', title: T[lang].secrets.rainbow[0], desc: T[lang].secrets.rainbow[1] }, { emo: '🔁', title: T[lang].secrets.turn[0], desc: T[lang].secrets.turn[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `<div class="row2" style="margin-top:0"><button class="btn" id="shakeB" data-act="shake"></button><div class="chips" id="secChips"></div></div>`;
+const askEl = Object.assign(document.createElement('div'), { className: 'bn-ask card' });
+$('overlay').append(askEl);
+
+// --- the shaking -------------------------------------------------------------------------------------------
+// the split is chosen first; every bean gets its side and its place up front, then tumbles over the wall on its way there
+function shakeBox(k, done) {
+  const now = clock(), sideOf = [];
+  shuffle(B1.map((b) => b.id)).forEach((id, j) => { sideOf[id] = j < k ? 0 : 1; });
+  const ord = [0, 1].map(() => shuffle([0, 1, 2, 3, 4]).concat(shuffle([5, 6, 7, 8]))), used = [0, 0];
+  let end = now;
+  for (const b of B1) {
+    const sd = sideOf[b.id], slot = ord[sd][used[sd]++];
+    const target = slotPose(sd, slot, mkJ());
+    let pose = { x: b.x, y: b.y, r: b.rot }, tt = now + rnd(0, 0.16);
+    const hops = [];
+    for (let n = 0; n < 3; n++) {
+      const last = n === 2;
+      let to;
+      if (last) to = { x: target.x, y: target.y, r: target.r + 2 * Math.PI * Math.round((pose.r + rnd(-3, 3) - target.r) / (2 * Math.PI)) };
+      else { const s = Math.random() < 0.5 ? 0 : 1; to = { x: s ? rnd(0.56, 0.95) : rnd(0.05, 0.44), y: ROW0 + rnd(0, 0.006), r: pose.r + rnd(-1, 1) * rnd(2, 5) }; }
+      const h = mkHop(pose, to, tt, last ? rnd(0.07, 0.16) : rnd(0.13, 0.3));
+      if (last) h.cnt = { u: 1, v: sd };
+      hops.push(h); pose = to; tt = h.t1 + rnd(0, 0.03);
+    }
+    b.cnt = -1; b.path = { hops, i: 0 };
+    end = Math.max(end, hops[2].t1);
+  }
+  S.wob = { t0: now, t1: now + (end - now) * 0.8 };
+  S.s.busy = true; S.s.k = null; sfx.push(); render();
+  later(end - now + 0.05, () => { S.s.busy = false; S.s.k = k; done(k); });
+}
+function autoShakes() { // the reveal of the question: three shakes by themselves
+  const ks = [3, 7, 4]; let i = 0;
+  const run = () => {
+    if (i >= 3) { S.s.done = true; render(); return; }
+    shakeBox(ks[i], () => { i++; render(); later(0.55, run); });
+  };
+  later(0.35, run);
+}
+function freeShake() {
+  if (S.s.busy || S.s.phase !== 'play') return;
+  shakeBox(Math.floor(Math.random() * 10), (k) => {
+    const first = !S.s.found[k];
+    if (first) S.s.found[k] = clock();
+    render();
+    if (first) { if (S.s.found.every(Boolean)) sfx.good(); else sfx.snap(); }
+  });
+}
+
+// --- all pairs: one bean at a time crosses the wall, a card drops into the rack ---------------------------------
+function staircase() {
+  S.a.phase = 'reveal'; S.a.k = 0; S.a.sel = null; S.a.drop = []; S.a.slotsT = clock();
+  setSplit(B2, 0);
+  S.a.drop[0] = clock() + 0.35; later(0.35, () => sfx.snap());
+  for (let i = 1; i <= 9; i++) {
+    const t0 = 0.9 + (i - 1) * 0.85;
+    later(t0, () => moveBean(B2[i - 1], poseFor(i - 1, i), clock(), 0));
+    later(t0 + 0.28, () => { S.a.k = i; render(); });
+    later(t0 + 0.55, () => { S.a.drop[i] = clock(); sfx.snap(); });
+  }
+  later(0.9 + 8 * 0.85 + 1.3, () => { S.a.phase = 'done'; S.a.sel = 9; render(); });
+  render();
+}
+function goSplit(k) {
+  const from = S.a.k, now = clock();
+  S.a.sel = k;
+  if (k === from) return;
+  let n = 0;
+  for (let i = Math.min(k, from); i < Math.max(k, from); i++) moveBean(B2[i], poseFor(i, k), now + (n++) * 0.07, i < k ? 0 : 1);
+  S.a.k = k; sfx.click(); render();
+}
+
+// --- secrets -----------------------------------------------------------------------------------------------
+// S.tn.n counts the turns whose result is already on screen (it changes half way through each turn)
+function startTurn() { const tok = S.tn = { from: 0, t0: clock() + 0.6, n: 0 }; later(1.05, () => { if (S.tn === tok) { tok.n++; render(); } }); }
+function doTurn() {
+  if (clock() - S.tn.t0 < 1.0) return;
+  const tok = S.tn; tok.from += Math.PI; tok.t0 = clock(); sfx.click();
+  later(0.45, () => { if (S.tn === tok) { tok.n++; render(); } });
+}
+
+// --- drawing: bean, diagram, rack, box -------------------------------------------------------------------------
+function drawBean(c, x, y, rot, L, sx = 1, sy = 1) {
+  const a = L / 2, b = L * 0.3;
+  c.save(); c.globalAlpha = 1;
+  c.translate(x, y); c.scale(sx, sy); c.rotate(rot);
+  c.beginPath();
+  c.moveTo(-a, 0.1 * b);
+  c.bezierCurveTo(-a, -0.75 * b, -0.65 * a, -1.0 * b, -0.3 * a, -0.85 * b);
+  c.bezierCurveTo(-0.1 * a, -0.75 * b, 0.1 * a, -0.75 * b, 0.3 * a, -0.85 * b);
+  c.bezierCurveTo(0.65 * a, -1.0 * b, a, -0.75 * b, a, 0.1 * b);
+  c.bezierCurveTo(a, 0.95 * b, 0.5 * a, 1.15 * b, 0, 1.15 * b);
+  c.bezierCurveTo(-0.5 * a, 1.15 * b, -a, 0.95 * b, -a, 0.1 * b);
+  c.closePath();
+  const g = c.createRadialGradient(-0.3 * a, -0.35 * b, L * 0.02, 0, 0.1 * b, L * 0.62);
+  g.addColorStop(0, '#C45A44'); g.addColorStop(0.45, C.bean); g.addColorStop(1, '#5E2218');
+  c.fillStyle = g; c.fill();
+  c.lineWidth = Math.max(1, L * 0.05); c.strokeStyle = '#4A1A12'; c.stroke();
+  c.fillStyle = 'rgba(255,235,220,.6)'; c.beginPath(); c.ellipse(-0.36 * a, -0.45 * b, 0.3 * a, 0.16 * b, -0.12, 0, 7); c.fill();
+  c.fillStyle = 'rgba(255,255,255,.85)'; c.beginPath(); c.ellipse(-0.45 * a, -0.5 * b, 0.09 * a, 0.07 * b, -0.12, 0, 7); c.fill();
+  c.fillStyle = 'rgba(240,210,180,.5)'; c.beginPath(); c.ellipse(0, -0.55 * b, 0.12 * a, 0.07 * b, 0, 0, 7); c.fill();
+  c.restore();
+}
+
+function panel(c, w, h) {
+  const g = c.createRadialGradient(w / 2, h * 0.32, 10, w / 2, h * 0.4, Math.max(w, h) * 0.85);
+  g.addColorStop(0, '#2C3B63'); g.addColorStop(0.55, C.bg); g.addColorStop(1, '#161F36');
+  c.beginPath(); c.roundRect(0.5, 0.5, w - 1, h - 1, 22); c.fillStyle = g; c.fill();
+  c.lineWidth = 1; c.strokeStyle = 'rgba(140,160,220,.25)'; c.stroke();
+}
+
+// the bond diagram: the whole on top, two parts below; each part fills up with its count. vals: [left, right], null = "?"
+function drawDiagram(c, cx, y0, X, n, vals, tt, dt) {
+  const R1 = 0.095 * X, R2 = 0.078 * X, dx = 0.23 * X, dy = 0.19 * X, wy = y0 + R1 + 1, py = wy + dy;
+  const P = [[cx - dx, py], [cx + dx, py]], cols = [C.blue, C.orange];
+  c.lineCap = 'round'; c.lineWidth = Math.max(2, X * 0.012);
+  P.forEach(([px, qy], i) => {
+    const ang = Math.atan2(qy - wy, px - cx);
+    const x1 = cx + Math.cos(ang) * R1 * 0.95, y1 = wy + Math.sin(ang) * R1 * 0.95, x2 = px - Math.cos(ang) * R2 * 0.95, y2 = qy - Math.sin(ang) * R2 * 0.95;
+    const g = c.createLinearGradient(x1, y1, x2, y2); g.addColorStop(0, rgba(C.cream, 0.9)); g.addColorStop(1, rgba(cols[i], 0.95));
+    c.strokeStyle = g; c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke();
+  });
+  // the whole
+  c.save(); c.shadowColor = 'rgba(0,0,0,.4)'; c.shadowBlur = R1 * 0.5; c.shadowOffsetY = R1 * 0.15;
+  const gw = c.createRadialGradient(cx - R1 * 0.35, wy - R1 * 0.4, R1 * 0.1, cx, wy, R1 * 1.05);
+  gw.addColorStop(0, '#FFFFFF'); gw.addColorStop(0.5, C.cream); gw.addColorStop(1, '#E8D6AE');
+  c.beginPath(); c.arc(cx, wy, R1, 0, 7); c.fillStyle = gw; c.fill(); c.restore();
+  c.lineWidth = 2; c.strokeStyle = '#BFA978'; c.beginPath(); c.arc(cx, wy, R1, 0, 7); c.stroke();
+  numText(c, String(n), cx, wy, R1 * 1.05, C.ink);
+  // the parts
+  vals.forEach((v, i) => {
+    const [px, qy] = P[i], col = cols[i];
+    if (S.pv[i] !== v) { if (S.pv[i] !== null || v !== null) S.pt[i] = tt; S.pv[i] = v; }
+    S.lv[i] += ((v === null ? 0 : v / n) - S.lv[i]) * Math.min(1, dt * 7);
+    const pop = 1 + 0.17 * Math.exp(-(tt - S.pt[i]) * 9);
+    c.save(); c.translate(px, qy); c.scale(pop, pop);
+    c.save(); c.shadowColor = 'rgba(0,0,0,.4)'; c.shadowBlur = R2 * 0.5; c.shadowOffsetY = R2 * 0.15;
+    c.beginPath(); c.arc(0, 0, R2, 0, 7); c.fillStyle = rgba(adj(col, -0.55), 0.92); c.fill(); c.restore();
+    c.save(); c.beginPath(); c.arc(0, 0, Math.max(0, R2 - 1), 0, 7); c.clip();
+    const ly = R2 - 2 * R2 * S.lv[i], g = c.createLinearGradient(0, -R2, 0, R2);
+    g.addColorStop(0, adj(col, 0.25)); g.addColorStop(1, adj(col, -0.1));
+    c.fillStyle = g; c.fillRect(-R2, ly, 2 * R2, R2 - ly + 1);
+    c.fillStyle = 'rgba(255,255,255,.35)'; c.fillRect(-R2, ly, 2 * R2, 2);
+    c.restore();
+    c.lineWidth = 1.5; c.strokeStyle = 'rgba(255,255,255,.28)'; c.beginPath(); c.arc(0, 0, Math.max(0, R2 * 0.82), Math.PI * 1.05, Math.PI * 1.45); c.stroke();
+    c.lineWidth = 2; c.strokeStyle = adj(col, -0.4); c.beginPath(); c.arc(0, 0, R2, 0, 7); c.stroke();
+    numText(c, v === null ? '?' : String(v), 0, 0, R2 * 1.05, '#fff', 'rgba(20,24,50,.7)');
+    c.restore();
+  });
+}
+
+// a pair card: a mini domino (left part · right part) and, in the full version, a column of nine blocks
+function drawCard(c, x, y, cw, hdr, uc, k, full, alpha = 1, sel = false, pop = 1) {
+  c.save(); c.globalAlpha = alpha;
+  if (pop !== 1) { c.translate(x + cw / 2, y + hdr / 2); c.scale(pop, pop); c.translate(-(x + cw / 2), -(y + hdr / 2)); }
+  const hw = cw / 2, r = Math.min(7, hdr * 0.28);
+  [0, 1].forEach((side) => {
+    const col = side ? C.orange : C.blue, g = c.createLinearGradient(0, y, 0, y + hdr);
+    g.addColorStop(0, adj(col, 0.22)); g.addColorStop(1, adj(col, -0.12));
+    c.beginPath(); c.roundRect(x + side * hw, y, hw, hdr, side ? [0, r, r, 0] : [r, 0, 0, r]); c.fillStyle = g; c.fill();
+  });
+  c.lineWidth = sel ? 2.6 : 1.3; c.strokeStyle = sel ? '#fff' : 'rgba(20,24,50,.75)';
+  rr(c, x, y, cw, hdr, r); c.stroke();
+  c.lineWidth = 1; c.strokeStyle = 'rgba(20,24,50,.5)'; c.beginPath(); c.moveTo(x + hw, y + 2); c.lineTo(x + hw, y + hdr - 2); c.stroke();
+  const fs = Math.max(12, Math.min(18, cw * 0.42));
+  numText(c, String(k), x + hw / 2, y + hdr / 2, fs, '#fff', 'rgba(20,24,50,.55)');
+  numText(c, String(9 - k), x + hw + hw / 2, y + hdr / 2, fs, C.ink);
+  if (full) {
+    const sw = cw * 0.8, sx = x + (cw - sw) / 2, sy0 = y + hdr + 5;
+    for (let j = 0; j < 9; j++) { // j counts from the top: the orange blocks sit on top of the blue ones
+      const col = j < 9 - k ? C.orange : C.blue, g = c.createLinearGradient(0, sy0 + j * uc, 0, sy0 + (j + 1) * uc);
+      g.addColorStop(0, adj(col, 0.18)); g.addColorStop(1, adj(col, -0.12));
+      c.beginPath(); c.roundRect(sx, sy0 + j * uc + 0.7, sw, Math.max(1, uc - 1.4), 3); c.fillStyle = g; c.fill();
+      c.lineWidth = 1; c.strokeStyle = 'rgba(20,24,50,.55)'; c.stroke();
+    }
+  }
+  c.restore();
+}
+
+function drawRack(c, x0, y0, rw, gap, cw, hdr, uc, full, tt) {
+  const rackH = full ? hdr + 5 + 9 * uc : hdr;
+  c.beginPath(); c.roundRect(x0 - 6, y0 - 6, rw + 12, rackH + 12, 12); c.fillStyle = 'rgba(8,12,30,.38)'; c.fill();
+  c.lineWidth = 1; c.strokeStyle = 'rgba(150,170,230,.2)'; c.stroke();
+  const slotsA = full ? clamp01((tt - S.a.slotsT) / 0.4) * (S.a.slotsT > 0 ? 1 : 0) : 1; // before the answer there are no slots to count
+  geo.cards = [];
+  for (let i = 0; i < 10; i++) {
+    const x = x0 + i * (cw + gap);
+    if (slotsA > 0) {
+      c.save(); c.globalAlpha = slotsA; c.setLineDash([4, 3]); c.lineWidth = 1.2; c.strokeStyle = 'rgba(200,215,255,.35)';
+      rr(c, x, y0, cw, rackH, 7); c.stroke(); c.restore();
+    }
+    geo.cards.push({ x, y: y0, w: cw, h: rackH, k: i });
+    if (full) {
+      const d = S.a.drop[i];
+      if (d !== undefined && tt >= d) {
+        const u = clamp01((tt - d) / 0.5);
+        drawCard(c, x, y0 - (1 - bounce(u)) * rackH * 0.9, cw, hdr, uc, i, true, clamp01(u * 5), S.a.sel === i);
+      }
+    } else if (S.s.found[i]) {
+      const age = tt - S.s.found[i];
+      drawCard(c, x, y0, cw, hdr, uc, i, false, 1, false, 1 + 0.28 * Math.exp(-age * 7));
+    }
+  }
+}
+
+function drawBox(c, X0, boxTop, U, tt, B, env) {
+  const th = 0.026 * U, lidH = 0.058 * U, inTop = boxTop + lidH, floorY = inTop + IH * U;
+  const px = (u) => X0 + u * U, py = (v) => floorY - v * U;
+  // the shadow on the ground stays still
+  c.save(); c.translate(X0 + U / 2, floorY + th + 0.012 * U); c.scale(1, 0.08);
+  const sg = c.createRadialGradient(0, 0, 0, 0, 0, U * 0.6); sg.addColorStop(0, 'rgba(0,0,0,.5)'); sg.addColorStop(1, 'rgba(0,0,0,0)');
+  c.fillStyle = sg; c.beginPath(); c.arc(0, 0, U * 0.6, 0, 7); c.fill(); c.restore();
+
+  c.save();
+  if (env > 0) {
+    const pvx = X0 + U / 2;
+    c.translate(Math.sin(tt * 47) * 0.012 * U * env, -Math.abs(Math.sin(tt * 23)) * 0.006 * U * env);
+    c.translate(pvx, floorY); c.rotate(Math.sin(tt * 31 + 0.7) * 0.04 * env); c.translate(-pvx, -floorY);
+  }
+  const bx = X0 - th, bw = U + 2 * th, bh = IH * U + th;
+  rr(c, bx, inTop, bw, bh, 0.035 * U); c.fillStyle = 'rgba(8,12,30,.55)'; c.fill();
+  // the two chambers, tinted like the parts of the bond diagram
+  [0, 1].forEach((i) => {
+    const u0 = i ? 0.518 : 0, u1 = i ? 1 : 0.482, col = i ? C.orange : C.blue;
+    const g = c.createLinearGradient(0, inTop, 0, floorY); g.addColorStop(0, rgba(col, 0)); g.addColorStop(1, rgba(col, 0.2));
+    c.fillStyle = g; c.fillRect(px(u0), inTop, (u1 - u0) * U, IH * U);
+    c.fillStyle = rgba(col, 0.5); c.fillRect(px(u0), floorY - 0.016 * U, (u1 - u0) * U, 0.016 * U);
+  });
+  rr(c, bx, inTop, bw, bh, 0.035 * U);
+  const gl = c.createLinearGradient(0, inTop, 0, floorY); gl.addColorStop(0, 'rgba(190,215,255,.16)'); gl.addColorStop(1, 'rgba(130,160,230,.07)');
+  c.fillStyle = gl; c.fill();
+  // the wall
+  const wx = px(0.5 - WALL / 2), wTop = py(WALL_TOP), wg = c.createLinearGradient(wx, 0, wx + WALL * U, 0);
+  wg.addColorStop(0, 'rgba(235,245,255,.55)'); wg.addColorStop(0.5, 'rgba(235,245,255,.22)'); wg.addColorStop(1, 'rgba(235,245,255,.5)');
+  c.beginPath(); c.roundRect(wx, wTop, WALL * U, floorY - wTop, [WALL * U / 2, WALL * U / 2, 0, 0]); c.fillStyle = wg; c.fill();
+  c.lineWidth = 1.2; c.strokeStyle = 'rgba(235,245,255,.7)'; c.stroke();
+  // beans: shadows on the floor first, then the beans, low ones first
+  const L = BEAN_L * U, order = B.slice().sort((p, q) => p.y - q.y);
+  for (const b of order) {
+    if (!b.path && b.y > 0.05) continue;
+    const s = 1 - Math.min(0.75, (b.path ? Math.max(0, b.y - 0.05) : 0) * 2.2);
+    c.fillStyle = `rgba(0,0,0,${0.3 * s})`; c.beginPath(); c.ellipse(px(b.x), py(0.006), Math.max(0, L * 0.5 * s), Math.max(0, L * 0.11 * s), 0, 0, 7); c.fill();
+  }
+  for (const b of order) {
+    const age = tt - b.landT, k = age >= 0 && age < 0.4 ? 0.2 * Math.exp(-age * 13) * Math.cos(age * 24) : 0;
+    drawBean(c, px(b.x), py(b.y), b.rot, L, 1 + k, 1 - k);
+  }
+  // reflections and the rim over the beans
+  c.save(); rr(c, bx, inTop, bw, bh, 0.035 * U); c.clip();
+  c.fillStyle = 'rgba(255,255,255,.09)'; c.beginPath(); [[0.05, IH], [0.15, IH], [0.45, 0], [0.35, 0]].forEach(([u, v], i) => (i ? c.lineTo(px(u), py(v)) : c.moveTo(px(u), py(v)))); c.fill();
+  c.fillStyle = 'rgba(255,255,255,.06)'; c.beginPath(); [[0.2, IH], [0.23, IH], [0.58, 0], [0.55, 0]].forEach(([u, v], i) => (i ? c.lineTo(px(u), py(v)) : c.moveTo(px(u), py(v)))); c.fill();
+  c.restore();
+  rr(c, bx, inTop, bw, bh, 0.035 * U); c.lineWidth = 2.2; c.strokeStyle = 'rgba(230,242,255,.65)'; c.stroke();
+  // the lid and its handle
+  const lg = c.createLinearGradient(0, boxTop, 0, boxTop + lidH); lg.addColorStop(0, '#E4EDFB'); lg.addColorStop(1, '#8FA6D6');
+  rr(c, bx - 0.02 * U, boxTop, bw + 0.04 * U, lidH + 0.006 * U, 0.02 * U); c.fillStyle = lg; c.fill();
+  c.lineWidth = 1.5; c.strokeStyle = 'rgba(30,40,80,.55)'; c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.55)'; rr(c, bx + 0.02 * U, boxTop + 0.008 * U, bw * 0.6, 0.012 * U, 0.006 * U); c.fill();
+  const hg = c.createLinearGradient(0, boxTop - 0.03 * U, 0, boxTop); hg.addColorStop(0, '#D4E0F5'); hg.addColorStop(1, '#8FA6D6');
+  rr(c, X0 + U / 2 - 0.08 * U, boxTop - 0.03 * U, 0.16 * U, 0.04 * U, 0.016 * U); c.fillStyle = hg; c.fill();
+  c.lineWidth = 1.5; c.strokeStyle = 'rgba(30,40,80,.55)'; c.stroke();
+  c.restore();
+  return { x: bx, y: boxTop - 0.03 * U, w: bw, h: floorY + th - boxTop + 0.03 * U };
+}
+
+function drawBoxScene(c, w, h, dt, tt, v) {
+  const full = v === 'all', B = full ? B2 : B1;
+  const rackOn = full || S.s.phase === 'play';
+  const rw = Math.min(w - 20, 560), gap = Math.max(2, rw * 0.009), cw = (rw - 9 * gap) / 10;
+  const hdr = clamp(cw * 0.8, 22, 30), uc = clamp(cw * 0.38, 8, 15);
+  const rackH = rackOn ? (full ? hdr + 5 + 9 * uc : hdr) : 0, g2 = rackOn ? 16 : 0;
+  const avail = h - S.top - 12;
+  const X = Math.max(120, Math.min(w - 28, 470, (avail - rackH - g2) / 0.88));
+  const total = 0.88 * X + g2 + rackH, y0 = S.top + Math.max(0, (avail - total) / 2), cx = w / 2;
+  const cnt = [0, 1].map((s) => B.filter((b) => b.cnt === s).length);
+  const hidden = v === 'shake' && S.s.phase === 'ask'; // nothing is counted before the first answer
+  drawDiagram(c, cx, y0, X, 9, hidden ? [null, null] : cnt, tt, dt);
+  const env = tt >= S.wob.t0 && tt < S.wob.t1 ? Math.pow((S.wob.t1 - tt) / (S.wob.t1 - S.wob.t0), 0.6) : 0;
+  const boxTop = y0 + 0.395 * X + 0.03 * X;
+  const box = drawBox(c, cx - X / 2, boxTop, X, tt, B, full ? 0 : env);
+  if (v === 'shake' && S.s.phase === 'play') geo.box = box;
+  if (rackOn) drawRack(c, (w - rw) / 2, boxTop + 0.455 * X + g2, rw, gap, cw, hdr, uc, full, tt);
+}
+
+// --- under the cup -----------------------------------------------------------------------------------------
+const HID = { 1: [[0, 0]], 2: [[-0.6, 0], [0.6, 0]], 3: [[-1, -0.3], [0, 0.4], [1, -0.3]], 4: [[-0.6, -0.45], [0.6, -0.45], [-0.6, 0.45], [0.6, 0.45]],
+  5: [[-1.05, -0.45], [0, -0.5], [1.05, -0.45], [-0.5, 0.5], [0.5, 0.5]] };
+function drawCup(c, cx, mouthY, Wm, Hc, lift, dropY, shadowK) {
+  const rb = Wm / 2, rt = rb * 0.7, eb = rb * 0.3, et = rt * 0.3;
+  c.save(); c.translate(cx + rb * 0.12, mouthY + eb * 0.2); c.scale(1, 0.3);
+  const sg = c.createRadialGradient(0, 0, 0, 0, 0, rb * 1.25); sg.addColorStop(0, `rgba(0,0,0,${0.45 * shadowK})`); sg.addColorStop(1, 'rgba(0,0,0,0)');
+  c.fillStyle = sg; c.beginPath(); c.arc(0, 0, rb * 1.25, 0, 7); c.fill(); c.restore();
+  c.save(); c.translate(cx + lift * rb * 0.55, mouthY - lift * Hc * 0.85 + dropY); c.rotate(lift * 0.2);
+  const body = () => {
+    c.beginPath(); c.moveTo(-rt, -Hc); c.lineTo(-rb, 0);
+    c.ellipse(0, 0, rb, eb, 0, Math.PI, 0, true);
+    c.lineTo(rt, -Hc); c.ellipse(0, -Hc, rt, et, 0, 0, Math.PI, true); c.closePath();
+  };
+  body();
+  const bg = c.createLinearGradient(0, -Hc, 0, 0); bg.addColorStop(0, '#FFFFFF'); bg.addColorStop(1, C.cream);
+  c.fillStyle = bg; c.fill();
+  c.save(); body(); c.clip();
+  const N = 8;
+  for (let i = 1; i < N; i += 2) { // stripes follow the taper
+    c.beginPath(); c.moveTo(-rt + (2 * rt * i) / N, -Hc); c.lineTo(-rt + (2 * rt * (i + 1)) / N, -Hc);
+    c.lineTo(-rb + (2 * rb * (i + 1)) / N, eb + 2); c.lineTo(-rb + (2 * rb * i) / N, eb + 2); c.closePath();
+    const sgd = c.createLinearGradient(0, -Hc, 0, 0); sgd.addColorStop(0, adj(C.orange, 0.12)); sgd.addColorStop(1, adj(C.orange, -0.08));
+    c.fillStyle = sgd; c.fill();
+  }
+  const sh = c.createLinearGradient(-rb, 0, rb, 0);
+  sh.addColorStop(0, 'rgba(255,255,255,0)'); sh.addColorStop(0.14, 'rgba(255,255,255,.4)'); sh.addColorStop(0.32, 'rgba(255,255,255,0)');
+  sh.addColorStop(0.7, 'rgba(30,20,60,0)'); sh.addColorStop(1, 'rgba(30,20,60,.36)');
+  c.fillStyle = sh; c.fillRect(-rb - 2, -Hc - et, 2 * rb + 4, Hc + et + eb + 4);
+  c.restore();
+  body(); c.lineWidth = 1.4; c.strokeStyle = 'rgba(80,55,35,.6)'; c.stroke();
+  c.beginPath(); c.ellipse(0, -Hc, rt, et, 0, 0, 7); c.fillStyle = '#FFFDF6'; c.fill(); c.strokeStyle = 'rgba(80,55,35,.55)'; c.stroke();
+  c.beginPath(); c.ellipse(0, -Hc, rt * 0.78, et * 0.78, 0, 0, 7); c.strokeStyle = 'rgba(80,55,35,.15)'; c.stroke();
+  c.beginPath(); c.ellipse(0, 0, rb, eb, 0, 0, Math.PI); c.lineWidth = 2.2; c.strokeStyle = 'rgba(255,255,255,.6)'; c.stroke();
+  c.restore();
+}
+function drawHide(c, w, h, dt, tt) {
+  const hd = S.h, [n, seen] = ROUNDS[hd.i], hid = n - seen;
+  const avail = h - S.top - 12, X = Math.max(150, Math.min(w - 28, 420, avail / 1.0));
+  const total = 1.005 * X, y0 = S.top + Math.max(0, (avail - total) / 2), cx = w / 2, X0 = cx - X / 2;
+  drawDiagram(c, cx, y0, X, n, [seen, hd.pick === null ? null : hid], tt, dt);
+  hd.liftA += clamp((hd.pick === null ? 0 : 1) - hd.liftA, -dt / 0.65, dt / 0.65);
+  const lift = easeInOut(hd.liftA);
+  const ty = y0 + 0.405 * X, Th = 0.6 * X, L = X * 0.074;
+  // the table with two zones, coloured like the two parts
+  const tg = c.createLinearGradient(0, ty, 0, ty + Th); tg.addColorStop(0, '#34457A'); tg.addColorStop(1, '#223056');
+  c.save(); c.shadowColor = 'rgba(0,0,0,.4)'; c.shadowBlur = 16; c.shadowOffsetY = 6; rr(c, X0, ty, X, Th, 0.06 * X); c.fillStyle = tg; c.fill(); c.restore();
+  c.lineWidth = 1.3; c.strokeStyle = 'rgba(190,205,255,.28)'; rr(c, X0, ty, X, Th, 0.06 * X); c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.07)'; rr(c, X0 + 6, ty + 4, X - 12, 3, 2); c.fill();
+  rr(c, X0 + 0.03 * X, ty + 0.06 * Th, 0.57 * X, 0.88 * Th, 0.05 * X); c.fillStyle = rgba(C.blue, 0.15); c.fill(); c.lineWidth = 1.5; c.strokeStyle = rgba(C.blue, 0.4); c.stroke();
+  rr(c, X0 + 0.63 * X, ty + 0.06 * Th, 0.34 * X, 0.88 * Th, 0.05 * X); c.fillStyle = rgba(C.orange, 0.15); c.fill(); c.strokeStyle = rgba(C.orange, 0.4); c.stroke();
+  // the beans on the table
+  const r = rngOf(hd.i * 97 + 13), cells = shuffleWith([0, 1, 2, 3, 4, 5, 6, 7, 8], r);
+  for (let j = 0; j < seen; j++) {
+    const col = cells[j] % 3, row = (cells[j] / 3) | 0;
+    const x = X0 + 0.07 * X + (col + 0.5) * (0.5 * X / 3) + (r() - 0.5) * 0.07 * X, y = ty + 0.12 * Th + (row + 0.5) * (0.76 * Th / 3) + (r() - 0.5) * 0.05 * X, rot = (r() - 0.5) * 2.4;
+    const u = clamp01((tt - hd.t0 - 0.06 * j) / 0.5);
+    if (u <= 0) continue;
+    c.fillStyle = `rgba(0,0,0,${0.3 * u})`; c.beginPath(); c.ellipse(x + 0.1 * L, y + 0.2 * L, L * 0.5, L * 0.2, 0, 0, 7); c.fill();
+    drawBean(c, x, y - (1 - bounce(u)) * 0.5 * Th, rot, L);
+  }
+  // under the cup: not drawn until the cup lifts
+  const cupX = X0 + 0.8 * X, mouthY = ty + Th * 0.72, Wm = 3.6 * L, Hc = 3 * L;
+  if (hd.liftA > 0.02) {
+    const sp = easeOutBack(clamp01((hd.liftA - 0.05) / 0.5)), set = HID[hid] ?? [];
+    set.forEach(([dx, dy], j) => {
+      const x = cupX + dx * L, y = mouthY + dy * L - 0.2 * L;
+      c.fillStyle = 'rgba(0,0,0,.3)'; c.beginPath(); c.ellipse(x + 0.1 * L, y + 0.2 * L, L * 0.5 * sp, L * 0.2 * sp, 0, 0, 7); c.fill();
+      drawBean(c, x, y, (r() - 0.5) * 2.4, L, Math.max(0.01, sp), Math.max(0.01, sp));
+    });
+    if (hid === 0) { // an empty table is an answer too
+      c.save(); c.globalAlpha = lift; c.setLineDash([5, 4]); c.lineWidth = 2; c.strokeStyle = rgba(C.orange, 0.8);
+      c.beginPath(); c.ellipse(cupX, mouthY - 0.2 * L, Wm * 0.5, Wm * 0.17, 0, 0, 7); c.stroke(); c.restore();
+      c.save(); c.globalAlpha = lift; numText(c, '0', cupX, mouthY - 0.2 * L, L * 1.1, C.orange, 'rgba(20,24,50,.6)'); c.restore();
+    }
+  }
+  const cu = clamp01((tt - hd.t0 - 0.06 * seen - 0.15) / 0.55);
+  if (cu > 0) { c.save(); c.globalAlpha = Math.min(1, cu * 6); drawCup(c, cupX, mouthY, Wm, Hc, lift, -(1 - bounce(cu)) * Hc * 2.6, (1 - lift * 0.7) * cu); c.restore(); }
+}
+
+// --- secrets: the rainbow of ten and the turned domino -----------------------------------------------------------
+function drawRainbow(c, w, h, tt) {
+  const sp = Math.min((w - 36) / 10, (h - 96) / 6.1, 66), x0 = (w - 10 * sp) / 2, tokR = Math.max(12, sp * 0.4), baseY = h - 28 - tokR, xm = x0 + 5 * sp;
+  const sel = Math.min(S.rb.n, 10 - S.rb.n), arcP = (i) => easeInOut(clamp01((tt - S.rb.t0 - 0.12 - i * 0.28) / 0.7));
+  c.lineCap = 'round';
+  for (let a = 0; a < 5; a++) {
+    const rx = (5 - a) * sp, ry = rx + 0.45 * sp, p = arcP(a), on = sel === a;
+    c.save(); c.globalAlpha = on ? 1 : 0.42; c.lineWidth = sp * (on ? 0.52 : 0.46); c.strokeStyle = RB[a];
+    if (on) { c.shadowColor = RB[a]; c.shadowBlur = 16; }
+    c.beginPath(); c.ellipse(xm, baseY - tokR, Math.max(0, rx), Math.max(0, ry), 0, Math.PI, Math.PI + Math.PI * p); c.stroke(); c.restore();
+  }
+  const lr = 0.38 * sp, p5 = arcP(5), on5 = sel === 5; // 5 + 5: a little loop on the five itself
+  c.save(); c.globalAlpha = on5 ? 1 : 0.5; c.lineWidth = sp * (on5 ? 0.38 : 0.32); c.strokeStyle = C.cream;
+  if (on5) { c.shadowColor = C.cream; c.shadowBlur = 14; }
+  c.beginPath(); c.arc(xm, baseY - tokR - lr, lr, Math.PI / 2, Math.PI / 2 + Math.PI * 2 * p5); c.stroke(); c.restore();
+  geo.tokens = [];
+  for (let n = 0; n <= 10; n++) {
+    const x = x0 + n * sp, pair = Math.min(n, 10 - n), col = pair === 5 ? C.cream : RB[pair], g = c.createRadialGradient(x - tokR * 0.3, baseY - tokR * 0.35, tokR * 0.1, x, baseY, tokR * 1.1);
+    g.addColorStop(0, adj(col, 0.3)); g.addColorStop(1, adj(col, -0.2));
+    c.save(); c.shadowColor = 'rgba(0,0,0,.4)'; c.shadowBlur = 6; c.shadowOffsetY = 2;
+    c.beginPath(); c.arc(x, baseY, tokR, 0, 7); c.fillStyle = g; c.fill(); c.restore();
+    c.lineWidth = pair === sel ? 3 : 1.5; c.strokeStyle = pair === sel ? '#fff' : 'rgba(20,24,50,.7)'; c.beginPath(); c.arc(x, baseY, tokR, 0, 7); c.stroke();
+    numText(c, String(n), x, baseY, Math.max(13, tokR * 1.05), pair === 5 ? C.ink : '#fff', pair === 5 ? null : 'rgba(20,24,50,.6)');
+    geo.tokens.push({ x, y: baseY, r: Math.max(tokR, 18), n });
+  }
+}
+function drawTurn(c, w, h, tt) {
+  const X = Math.min(w - 28, 440), cx = w / 2, u = clamp01((tt - S.tn.t0) / 0.95), th = S.tn.from + Math.PI * easeInOut(u), lift = Math.sin(Math.PI * u);
+  const R1 = Math.max(26, X * 0.085), wy = 14 + R1, dw = Math.min(w * 0.74, 380), dh = dw * 0.5, s = dh;
+  const cyD = Math.max(wy + R1 + dh / 2 + 40, h * 0.5) - lift * 10;
+  const half = (side) => [cx + Math.cos(th) * (side ? dw / 4 : -dw / 4), cyD + Math.sin(th) * (side ? dw / 4 : -dw / 4)]; // side 0: the blue 4, side 1: the orange 5
+  // bond lines follow the halves
+  c.lineCap = 'round'; c.lineWidth = Math.max(2, X * 0.012);
+  [0, 1].forEach((side) => {
+    const [hx, hy] = half(side), g = c.createLinearGradient(cx, wy, hx, hy); g.addColorStop(0, rgba(C.cream, 0.9)); g.addColorStop(1, rgba(side ? C.orange : C.blue, 0.95));
+    c.strokeStyle = g; c.beginPath(); c.moveTo(cx, wy + R1 * 0.9); c.lineTo(hx, hy); c.stroke();
+  });
+  c.save(); c.shadowColor = 'rgba(0,0,0,.4)'; c.shadowBlur = R1 * 0.5; c.shadowOffsetY = R1 * 0.15;
+  const gw = c.createRadialGradient(cx - R1 * 0.35, wy - R1 * 0.4, R1 * 0.1, cx, wy, R1 * 1.05);
+  gw.addColorStop(0, '#FFFFFF'); gw.addColorStop(0.5, C.cream); gw.addColorStop(1, '#E8D6AE');
+  c.beginPath(); c.arc(cx, wy, R1, 0, 7); c.fillStyle = gw; c.fill(); c.restore();
+  c.lineWidth = 2; c.strokeStyle = '#BFA978'; c.beginPath(); c.arc(cx, wy, R1, 0, 7); c.stroke();
+  numText(c, '9', cx, wy, R1 * 1.05, C.ink);
+  // the domino
+  c.save(); c.translate(cx, cyD); c.scale(1 + lift * 0.06, 1 + lift * 0.06); c.rotate(th);
+  const rad = dh * 0.16;
+  [0, 1].forEach((side) => {
+    const col = side ? C.orange : C.blue, g = c.createLinearGradient(0, -dh / 2, 0, dh / 2); g.addColorStop(0, adj(col, 0.22)); g.addColorStop(1, adj(col, -0.14));
+    c.save(); c.shadowColor = 'rgba(0,0,0,.45)'; c.shadowBlur = 16 + lift * 12; c.shadowOffsetY = 8 + lift * 8; // canvas shadows ignore the rotation: the light stays on top
+    c.beginPath(); c.roundRect(side ? 0 : -dw / 2, -dh / 2, dw / 2, dh, side ? [0, rad, rad, 0] : [rad, 0, 0, rad]); c.fillStyle = g; c.fill(); c.restore();
+  });
+  c.lineWidth = 2.5; c.strokeStyle = 'rgba(20,24,50,.75)'; rr(c, -dw / 2, -dh / 2, dw, dh, rad); c.stroke();
+  c.lineWidth = 2; c.strokeStyle = 'rgba(20,24,50,.5)'; c.beginPath(); c.moveTo(0, -dh * 0.4); c.lineTo(0, dh * 0.4); c.stroke();
+  const rots = [0.4, -0.7, 1.1, -0.3, 0.8], P4 = [[-1, -1], [1, -1], [-1, 1], [1, 1]], P5 = [...P4, [0, 0]];
+  [[-dw / 4, P4], [dw / 4, P5]].forEach(([mx, pts]) => pts.forEach(([ox, oy], i) => drawBean(c, mx + ox * 0.22 * s, oy * 0.22 * s, rots[i], s * 0.34)));
+  c.restore();
+  // the sum, in the colours of the two parts: the 4 and the 5 swap places
+  const flipped = Math.cos(th) < 0, parts = flipped ? [5, 4] : [4, 5], fs = clamp(X * 0.12, 30, 46), ey = cyD + dh / 2 + fs * 1.5;
+  c.font = `900 ${fs}px Nunito, sans-serif`; c.textAlign = 'left'; c.textBaseline = 'middle';
+  const segs = [[String(parts[0]), parts[0] === 4 ? BLUE_L : ORANGE_L], [' + ', '#D3D9E8'], [String(parts[1]), parts[1] === 4 ? BLUE_L : ORANGE_L], [' = 9', C.cream]];
+  let tx = cx - segs.reduce((a, [t]) => a + c.measureText(t).width, 0) / 2;
+  for (const [t, col] of segs) { c.fillStyle = col; c.fillText(t, tx, ey); tx += c.measureText(t).width; }
+  c.beginPath(); c.arc(cx, ey + fs * 1.4, 20, 0, 7); c.fillStyle = 'rgba(255,255,255,.08)'; c.fill(); c.lineWidth = 1.5; c.strokeStyle = 'rgba(255,255,255,.35)'; c.stroke();
+  c.fillStyle = '#EDEFF7'; c.font = '700 22px Nunito, sans-serif'; c.textAlign = 'center'; c.fillText('↻', cx, ey + fs * 1.4 + 1);
+}
+
+// --- the frame -------------------------------------------------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt) => {
+  const tt = clock(); geo = {};
+  B1.forEach((b) => stepBean(b, tt)); B2.forEach((b) => stepBean(b, tt));
+  const tgt = askEl.style.display !== 'none' ? askEl.offsetHeight + 20 : 10;
+  S.top = S.top === null ? tgt : S.top + (tgt - S.top) * Math.min(1, dt * 9);
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  panel(c, w, h);
+  const v = lab.view;
+  if (v === 'shake' && S.sec === 'rainbow') drawRainbow(c, w, h, tt);
+  else if (v === 'shake' && S.sec === 'turn') drawTurn(c, w, h, tt);
+  else if (v === 'hide') drawHide(c, w, h, dt, tt);
+  else drawBoxScene(c, w, h, dt, tt, v);
+});
+
+// --- input -------------------------------------------------------------------------------------------------
+$('cv').addEventListener('pointerdown', (ev) => {
+  const r = $('cv').getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top, v = lab.view;
+  if (v === 'shake' && S.sec === 'rainbow') {
+    const t = (geo.tokens ?? []).find((k) => Math.hypot(x - k.x, y - k.y) <= k.r);
+    if (t) { S.rb.n = t.n; sfx.tick(); render(); }
+  } else if (v === 'shake' && S.sec === 'turn') doTurn();
+  else if (v === 'shake' && S.s.phase === 'play' && geo.box && x >= geo.box.x && x <= geo.box.x + geo.box.w && y >= geo.box.y && y <= geo.box.y + geo.box.h) freeShake();
+  else if (v === 'all' && S.a.phase === 'done') {
+    const k = (geo.cards ?? []).find((q) => x >= q.x - 2 && x <= q.x + q.w + 2 && y >= q.y && y <= q.y + q.h);
+    if (k) goSplit(k.k);
+  }
+});
+// on a phone the controls sit below the canvas: bring the reveal into view
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b) return;
+  if (b.dataset.act === 'shake') { if (S.sec) { S.sec = null; render(); } freeShake(); }
+  else if (b.dataset.act === 'sec') {
+    const k = b.dataset.k;
+    if (!secret.unlocked()) return secret.open();
+    if (S.sec === k) S.sec = null;
+    else { S.sec = k; if (k === 'rainbow') S.rb = { n: 3, t0: clock() }; else startTurn(); }
+    sfx.click(); render(); showStage();
+  }
+});
+function answer(i) {
+  const v = lab.view;
+  if (v === 'shake') {
+    if (S.s.phase !== 'ask') return;
+    S.s.ans = i; S.s.phase = 'reveal'; (i === 1 ? sfx.good : sfx.bad)(); render(); showStage(); autoShakes();
+  } else if (v === 'all') {
+    if (S.a.phase !== 'ask') return;
+    S.a.ans = i; (i === 2 ? sfx.good : sfx.bad)(); showStage(); staircase();
+  } else {
+    if (S.h.pick !== null) return;
+    const [n, seen, opts] = ROUNDS[S.h.i];
+    S.h.pick = i; (opts[i] === n - seen ? sfx.good : sfx.bad)(); render(); showStage();
+  }
+}
+function go(k) {
+  const v = lab.view;
+  if (v === 'shake') { S.s.phase = 'play'; sfx.click(); }
+  else if (v === 'all') { staircase(); return; }
+  else { S.h.i = k === 'next' ? S.h.i + 1 : 0; S.h.pick = null; S.h.liftA = 0; S.h.t0 = clock(); sfx.click(); }
+  render();
+}
+askEl.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  if (b.dataset.o !== undefined) answer(+b.dataset.o); else if (b.dataset.go) go(b.dataset.go);
+});
+
+// --- one render per change: the question card, controls, readout and the state card ------------------------------
+const eq = (a, b, n) => `<span style="color:${BLUE_L}">${a}</span> + <span style="color:${ORANGE_L}">${b}</span> = ${n}`;
+function cardFor(t, v) {
+  const q = (text, opts) => `<div class="bn-q">${esc(text)}</div><div class="bn-opts">${opts.map((o, i) => `<button data-o="${i}">${esc(o)}</button>`).join('')}</div>`;
+  const a = (ok, label, text, btn) => `<div class="bn-verdict" style="color:var(${ok ? '--ok' : '--wip'})">${esc(ok ? label : t.wrong)}</div>${text ? `<p>${esc(text)}</p>` : ''}${btn ? `<div class="bn-opts"><button data-go="${btn[0]}">${esc(btn[1])}</button></div>` : ''}`;
+  if (v === 'shake') {
+    if (S.sec || S.s.phase === 'play') return '';
+    if (S.s.phase === 'ask') return q(t.s.q, t.s.o);
+    return a(S.s.ans === 1, t.ok1, S.s.done ? t.s.r : '', S.s.done ? ['next', t.next] : null);
+  }
+  if (v === 'all') {
+    if (S.a.phase === 'ask') return q(t.a.q, t.a.o);
+    const done = S.a.phase === 'done';
+    return a(S.a.ans === 2, t.right, done ? `${t.a.r} ${t.tap}` : '', done ? ['again', t.again] : null);
+  }
+  const [n, seen, opts] = ROUNDS[S.h.i];
+  if (S.h.pick === null) return q(t.h.q(n, seen), opts.map(String));
+  return a(opts[S.h.pick] === n - seen, t.right, t.h.why[S.h.i], S.h.i === 4 ? ['again', t.again] : ['next', t.next]);
+}
+function render() {
+  const t = T[lang], v = lab.view;
+  if (v !== 'shake') S.sec = null;
+  const card = cardFor(t, v);
+  askEl.innerHTML = card; askEl.style.display = card ? '' : 'none';
+  document.body.dataset.v = v + (card ? '-card' : '-free');
+  const play = v === 'shake' && S.s.phase === 'play';
+  $('ctrlBody').style.display = play ? '' : 'none';
+  $('shakeB').textContent = t.s.shake; $('shakeB').disabled = S.s.busy;
+  const open = secret.unlocked();
+  const sc = (k, emo) => `<button class="chip secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  $('secChips').innerHTML = sc('rainbow', '🌈') + sc('turn', '🔁');
+  let val = '?', sub = '', color = C.blue, glow = 'rgba(91, 141, 239, .3)', last = false;
+  if (v === 'shake') {
+    last = S.s.phase === 'play' || S.s.done;
+    if (S.sec === 'rainbow') { const a = S.rb.n, p = Math.min(a, 10 - a), col = p === 5 ? C.cream : RB[p]; val = `<span style="color:${col}">${a} + ${10 - a}</span> = 10`; color = RB[0]; }
+    else if (S.sec === 'turn') { const [p, q] = S.tn.n % 2 === 1 ? [5, 4] : [4, 5], col = (x) => (x === 4 ? BLUE_L : ORANGE_L); val = `<span style="color:${col(p)}">${p}</span> + <span style="color:${col(q)}">${q}</span> = 9`; }
+    else if (S.s.phase !== 'ask') val = S.s.k === null ? '? + ? = 9' : eq(S.s.k, 9 - S.s.k, 9);
+    if (play && !S.sec) sub = t.s.found(S.s.found.filter(Boolean).length);
+  } else if (v === 'all') {
+    last = S.a.phase === 'done'; color = C.orange; glow = 'rgba(255, 159, 90, .26)';
+    if (S.a.phase !== 'ask') val = eq(S.a.k, 9 - S.a.k, 9);
+  } else {
+    const [n, seen] = ROUNDS[S.h.i], hid = n - seen;
+    last = S.h.i === 4 && S.h.pick !== null; color = C.orange; glow = 'rgba(255, 159, 90, .26)';
+    if (S.h.pick !== null) val = eq(seen, hid, n);
+    sub = [0, 1, 2, 3, 4].map((i) => (i < S.h.i || (i === S.h.i && S.h.pick !== null) ? '●' : i === S.h.i ? '◉' : '○')).join(' ');
+  }
+  lab.setReadout(val, sub, '', color); lab.setGlow(glow);
+  let st;
+  if (v === 'shake' && S.sec) st = [S.sec === 'rainbow' ? '🌈' : '🔁', t.secrets[S.sec][0], t.sec[S.sec + 'Text'], ''];
+  else st = ST[lang][v][last ? 1 : 0];
+  lab.setState({ emo: st[0], title: st[1], lead: st[2], body: st[3], extra: '' });
+}
+render();
+</script>
+</body>
+</html>
