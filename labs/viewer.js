@@ -5,14 +5,19 @@
 (() => {
   const UI = {
     en: { done: 'Done ✓', labs: 'Labs', title: 'Interactive explainers', sub: 'Learn a topic by playing with it.', open: 'Open the explorer',
-          topics: (n) => `${n} ${n === 1 ? 'topic' : 'topics'}`, allN: (n) => `All ${n} labs →`, show: (n) => `Show the ${n} topics that have a lab`, subj: { Science: 'Science', Mathematics: 'Mathematics', Computing: 'Computing', Geography: 'Geography', History: 'History', Music: 'Music', English: 'Reading', Other: 'Other' }, more: 'More explainers are on the way.', has: 'Has an interactive explainer', find: 'Find a lab…', none: 'No labs found.', moreIn: (n) => `${n} more →` },
+          topics: (n) => `${n} ${n === 1 ? 'topic' : 'topics'}`, allN: (n) => `All ${n} labs →`, show: (n) => `Show the ${n} topics that have a lab`, subj: { Science: 'Science', Mathematics: 'Mathematics', Computing: 'Computing', Geography: 'Geography', History: 'History', Music: 'Music', English: 'Reading', Hungarian: 'Hungarian language', 'Life Skills': 'Life skills', Other: 'Other' },
+          localTitle: { hu: (n) => `🇭🇺 For Hungarian schools · ${n}` }, localNote: { hu: 'Labs about the Hungarian language for children in Hungarian schools. Explanations are in your language.' }, more: 'More explainers are on the way.', has: 'Has an interactive explainer', find: 'Find a lab…', none: 'No labs found.', moreIn: (n) => `${n} more →` },
     ru: { done: 'Пройдена ✓', labs: 'Лаборатории', title: 'Интерактивные объяснения', sub: 'Разберись в теме, играя с ней.', open: 'Открыть лабораторию',
           topics: (n) => `${n} ${n % 10 === 1 && n % 100 !== 11 ? 'тема' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'темы' : 'тем'}`,
-          allN: (n) => `Все лаборатории (${n}) →`, show: (n) => `Показать темы с лабораториями (${n})`, subj: { Science: 'Естествознание', Mathematics: 'Математика', Computing: 'Информатика', Geography: 'География', History: 'История', Music: 'Музыка', English: 'Чтение', Other: 'Другое' }, more: 'Скоро будут и другие.', has: 'Есть интерактивное объяснение', find: 'Найти лабораторию…', none: 'Ничего не нашлось.', moreIn: (n) => `ещё ${n} →` },
+          allN: (n) => `Все лаборатории (${n}) →`, show: (n) => `Показать темы с лабораториями (${n})`, subj: { Science: 'Естествознание', Mathematics: 'Математика', Computing: 'Информатика', Geography: 'География', History: 'История', Music: 'Музыка', English: 'Чтение', Hungarian: 'Венгерский язык', 'Life Skills': 'Жизненные навыки', Other: 'Другое' },
+          localTitle: { hu: (n) => `🇭🇺 Для венгерской школы · ${n}` }, localNote: { hu: 'Лаборатории о венгерском языке для детей, которые учатся в венгерской школе. Объяснения — на вашем языке.' }, more: 'Скоро будут и другие.', has: 'Есть интерактивное объяснение', find: 'Найти лабораторию…', none: 'Ничего не нашлось.', moreIn: (n) => `ещё ${n} →` },
     hu: { done: 'Kész ✓', labs: 'Laborok', title: 'Interaktív magyarázók', sub: 'Értsd meg a témát játék közben.', open: 'A labor megnyitása',
-          topics: (n) => `${n} téma`, allN: (n) => `Mind a ${n} labor →`, show: (n) => `Mind a ${n} laboros téma mutatása`, subj: { Science: 'Természettudomány', Mathematics: 'Matematika', Computing: 'Informatika', Geography: 'Földrajz', History: 'Történelem', Music: 'Ének-zene', English: 'Olvasás', Other: 'Egyéb' }, more: 'Hamarosan jönnek az újak.', has: 'Interaktív magyarázó tartozik hozzá', find: 'Labor keresése…', none: 'Nincs találat.', moreIn: (n) => `még ${n} →` },
+          topics: (n) => `${n} téma`, allN: (n) => `Mind a ${n} labor →`, show: (n) => `Mind a ${n} laboros téma mutatása`, subj: { Science: 'Természettudomány', Mathematics: 'Matematika', Computing: 'Informatika', Geography: 'Földrajz', History: 'Történelem', Music: 'Ének-zene', English: 'Olvasás', Hungarian: 'Magyar nyelv', 'Life Skills': 'Életvitel', Other: 'Egyéb' },
+          localTitle: {}, localNote: {}, more: 'Hamarosan jönnek az újak.', has: 'Interaktív magyarázó tartozik hozzá', find: 'Labor keresése…', none: 'Nincs találat.', moreIn: (n) => `még ${n} →` },
   };
-  const SUBJ_ORDER = ['Science', 'Mathematics', 'Computing', 'Geography', 'History', 'Music', 'English', 'Other'];
+  const SUBJ_ORDER = ['Science', 'Mathematics', 'Computing', 'Geography', 'History', 'Music', 'English', 'Hungarian', 'Life Skills', 'Other'];
+  // a lab made for speakers of one language (registry "lang") is "local" in every other UI language: own collapsed section, not the subject lists
+  const FLAG = { hu: '🇭🇺' };
   const ALL_UP_TO = 16, PER_SUBJ = 5, HITS = 12;
   const fold = (s) => String(s ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const $ = (id) => document.getElementById(id);
@@ -22,6 +27,8 @@
   const topic = () => { try { return focus; } catch { return null; } };
   const href = (l) => `${l.path}?lang=${cur()}`; // always explicit: a lab otherwise falls back to the browser language
   const tx = (o) => o?.[cur()] ?? o?.en ?? '';
+  const isLocal = (l) => !!l.lang && l.lang !== cur();
+  const localOpen = new Set(); // language codes of the local sections the reader opened
   let labs = [];
   const labDone = (l) => { try { return localStorage.getItem('sg-lab:unlocked:' + l.id) === 'true'; } catch { return false; } };
   const byTopic = new Map();
@@ -61,6 +68,10 @@
     .labcta .go { margin-left: auto; font-size: 18px; color: var(--red); }
     .labcta.done { border-color: rgba(61, 220, 151, .5); }
     .labcta .go.ok, .labcard .ok { color: var(--ok, #3ddc97); }
+    #labsMenu details.local > summary { list-style: none; cursor: pointer; user-select: none; }
+    #labsMenu details.local > summary::-webkit-details-marker { display: none; }
+    #labsMenu details.local > summary::before { content: '▸'; display: inline-block; margin-right: 6px; transition: transform .15s; }
+    #labsMenu details.local[open] > summary::before { transform: rotate(90deg); }
     .labmark { margin-left: 4px; font-size: 12px; }
     @media (max-width: 720px) { #labsBtn .t { display: none; } #labsMenu { top: 60px; right: 14px; } }`;
 
@@ -77,19 +88,26 @@
   // a few labs per subject (all of them while the collection is small) and a search over every lab;
   // the full, filterable collection is the gallery (labs/index.html)
   function renderLabs() {
-    const u = UI[cur()], s = fold($('labsQ').value.trim()), cap = labs.length <= ALL_UP_TO ? Infinity : PER_SUBJ;
-    const card = (l) => `<a class="labcard" href="${href(l)}"><span class="e">${l.emoji}</span><span><b>${esc(tx(l.title))}${labDone(l) ? ' <span class="ok">✓</span>' : ''}</b>
+    const u = UI[cur()], s = fold($('labsQ').value.trim()), normal = labs.filter((l) => !isLocal(l)), cap = normal.length <= ALL_UP_TO ? Infinity : PER_SUBJ;
+    const card = (l, flag) => `<a class="labcard" href="${href(l)}"><span class="e">${l.emoji}</span><span><b>${flag && isLocal(l) ? `${FLAG[l.lang] ?? '🌐'} ` : ''}${esc(tx(l.title))}${labDone(l) ? ' <span class="ok">✓</span>' : ''}</b>
         <small>${esc(tx(l.blurb))}</small></span></a>`;
     const subjOf = (l) => (SUBJ_ORDER.includes(l.subject) ? l.subject : 'Other');
     let html;
     if (s) {
       const hits = labs.filter((l) => fold([...Object.values(l.title), tx(l.blurb)].join(' ')).includes(s));
-      html = hits.length ? hits.slice(0, HITS).map(card).join('') : `<p class="s">${esc(u.none)}</p>`;
+      html = hits.length ? hits.slice(0, HITS).map((l) => card(l, true)).join('') : `<p class="s">${esc(u.none)}</p>`;
       if (hits.length > HITS) html += `<a class="moreln" href="labs/?lang=${cur()}&q=${encodeURIComponent($('labsQ').value.trim())}">${esc(u.moreIn(hits.length - HITS))}</a>`;
     } else {
-      html = SUBJ_ORDER.map((sj) => [sj, labs.filter((l) => subjOf(l) === sj)]).filter(([, ls]) => ls.length).map(([sj, ls]) =>
+      html = SUBJ_ORDER.map((sj) => [sj, normal.filter((l) => subjOf(l) === sj)]).filter(([, ls]) => ls.length).map(([sj, ls]) =>
         `<div class="grp">${esc(u.subj[sj] ?? sj)} · ${ls.length}</div>${ls.slice(0, cap).map(card).join('')}${
           ls.length > cap ? `<a class="moreln" href="labs/?lang=${cur()}&subject=${sj}">${esc(u.moreIn(ls.length - cap))}</a>` : ''}`).join('');
+      const loc = labs.filter(isLocal);
+      html += [...new Set(loc.map((l) => l.lang))].map((code) => {
+        const ls = loc.filter((l) => l.lang === code);
+        return `<details class="local" data-lang="${esc(code)}"${localOpen.has(code) ? ' open' : ''}><summary class="grp">${esc(u.localTitle[code]?.(ls.length) ?? `${FLAG[code] ?? '🌐'} ${code.toUpperCase()} · ${ls.length}`)}</summary>${
+          u.localNote[code] ? `<p class="s">${esc(u.localNote[code])}</p>` : ''}${ls.slice(0, HITS).map(card).join('')}${
+          ls.length > HITS ? `<a class="moreln" href="labs/?lang=${cur()}">${esc(u.moreIn(ls.length - HITS))}</a>` : ''}</details>`;
+      }).join('');
     }
     $('labsList').innerHTML = html + `<div class="foot"><span>${esc(u.more)}</span></div>`;
   }
@@ -122,6 +140,10 @@
     document.body.append(Object.assign(document.createElement('div'), { id: 'labsMenu', className: 'card',
       innerHTML: '<div id="labsHead"></div><input id="labsQ" type="search" autocomplete="off"><div id="labsList"></div>' }));
     $('labsQ').addEventListener('input', renderLabs);
+    $('labsList').addEventListener('toggle', (ev) => {
+      const c = ev.target.dataset?.lang;
+      if (c && ev.target.classList.contains('local')) { if (ev.target.open) localOpen.add(c); else localOpen.delete(c); }
+    }, true);
     btn.onclick = (ev) => { ev.stopPropagation(); $('labsMenu').classList.toggle('open'); };
     $('labsMenu').addEventListener('click', (ev) => {
       if (!ev.target.closest('#labsShow')) return;

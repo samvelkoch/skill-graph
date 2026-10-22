@@ -16,6 +16,7 @@ Run `node scripts/labs-candidates.mjs` (options: `--n`, `--age 6-10`, `--subject
 - The picture test decides. A high-ranking topic without an obvious picture is skipped.
 - Prefer topics next to existing labs (the `near labs` column) so the nearby-labs navigation stays connected.
 - Out of scope for labs: vocabulary topics (type LANGUAGE or "Vocabulary" in the name), meta-cognitive topics (type META, the whole "Learning to Learn" subject), English phonics / spelling / handwriting / grammar / vocabulary (native-English literacy, does not transfer to RU/HU children), and native-language grammar in "Language & Literature" (morphology, syntax, orthography). Reading comprehension, story structure, cause and effect, folklore and genres are fine; the script already applies these filters.
+- Exception: labs for one language's own school curriculum (first case: Hungarian, "Hungarian Language" domain) are allowed as a low priority. Mark them in the registry with "lang": "<code>" and subject "Hungarian" (or that language); their explanations stay in EN/RU/HU, the material is in that language. The gallery, the map panel and the lab switcher show them normally in that UI language and in a separate collapsed section in the others.
 - Age stages of one series ("... (age 8+)") are collapsed to one row; the `stages` column lists them. One lab can cover the series.
 
 ## Labs: how to build one
@@ -31,7 +32,7 @@ Shared skeleton, `labs/<id>/index.html`, importing `shell`, `secretLab`, `canvas
 - `shell({ key, T, topics, views, onLang, onView })` draws the chrome (header, language switch, views, footer topic links, nearby labs).
 - `secretLab(key, getContent, onUnlock)` runs the 3-question quiz that unlocks two "secret" experiments and marks the lab's topics as "learning" on the map.
 - All text in EN/RU/HU, chosen with `?lang=`.
-- Register it: one entry in `labs/registry.json` (`id`, `path`, `emoji`, `subject`, `title`, `blurb`, `topics`), then run `node scripts/labs-catalog.mjs`.
+- Register it: one entry in `labs/registry.json` (`id`, `path`, `emoji`, `subject`, `title`, `blurb`, `topics`, and optionally `lang` for a lab made for one language's speakers), then run `node scripts/labs-catalog.mjs`.
 
 Facts must be checked; give sources in the report. Keep the page phone-first.
 
