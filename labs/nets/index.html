@@ -1,0 +1,693 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fold It · Skill Graph</title>
+<meta name="description" content="Guess whether six squares fold into a cube, watch them fold, find which face ends up opposite, and unfold a tin, a cone and a pyramid. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  #stage canvas { touch-action: pan-y; }
+  .q { font: 500 21px/1.25 var(--serif); color: #fff; margin: 0 0 10px; text-wrap: balance; }
+  .opts { display: flex; gap: 8px; flex-wrap: wrap; }
+  .opts .btn, .opts .nm { min-height: 40px; }
+  .opts .btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .nm { padding: 9px 18px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1); font-weight: 800; cursor: pointer; color: var(--ink); text-align: center; }
+  .nm:hover { background: rgba(130, 145, 190, .25); }
+  .nm.good { border-color: var(--ok); background: rgba(61, 220, 151, .16); }
+  .nm.bad { border-color: var(--red); background: rgba(255, 59, 48, .14); animation: shake .3s; }
+  .verd { font-weight: 900; margin: 0 0 2px; }
+  .verd.good { color: var(--ok); } .verd.bad { color: var(--wip); }
+  .note { margin: 0 0 8px; color: var(--soft); font-size: 13.5px; }
+  .fine { font-size: 11px; color: var(--faint); }
+  .chip { min-height: 36px; }
+  .chip.pick.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .chip.num { min-width: 40px; justify-content: center; font-size: 15px; }
+  .chip.num.used { opacity: .5; }
+  .chip.num.used.on { opacity: 1; }
+  .btn:disabled, .chip:disabled { opacity: .35; cursor: default; }
+  .push { margin-left: auto; }
+  @media (max-width: 760px) {
+    #stage { height: min(94vw, 420px); }
+    .q { font-size: 18px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, store, $, esc, clamp, lerp, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Fold It', title: 'Will it fold into a cube?',
+    lines: [['Six squares', 'joined at the edges.'], ['Guess first,', 'then fold.'], ['Not every six', 'make a cube.']],
+    views: { fold: '📦 Fold', opposite: '🎯 Opposite', solids: '🧊 Solids' },
+    check: 'Check', next: 'Next ▶', unfold: 'Unfold', foldBtn: 'Fold', clear: '🗑️ Clear',
+    f: { q: 'Will these six squares fold into a cube?', yes: 'Yes, a cube', no: 'No, it won’t close', faces: 'faces',
+         right: 'You saw it!', wrong: 'Watch the fold again.', folds: 'Every face found its own place: a closed cube.',
+         overlap: 'Two faces land on the same side, and one side stays open.' },
+    o: { q: 'Tap the face that will be opposite the red one.', hint: 'Tip: in a straight row of three, the first and the third end up opposite.',
+         right: 'Yes, they face each other!', wrong: 'The green one is opposite. Fold it in your head again.' },
+    s: { q1: 'What is it called?', q2: 'Which flat shapes are on its faces?', counts: (f, e, v) => `faces ${f} · edges ${e} · corners ${v}`,
+         names: { cube: 'cube', cuboid: 'cuboid', cylinder: 'cylinder', cone: 'cone', pyramid: 'pyramid', prism: 'prism', sphere: 'sphere' },
+         flat: { square: 'square', rectangle: 'rectangle', circle: 'circle', triangle: 'triangle', none: 'none' },
+         flatTrap: 'A circle is flat. This one is solid: you can hold it.', right: 'Right!', wrong: 'Look at the unfolded faces.',
+         curved: 'The round side is curved, not flat. Unrolled, it becomes a rectangle.',
+         curvedCone: 'The round side is curved, not flat. Unrolled, it becomes a fan-shaped piece.',
+         sphere: 'A sphere has no flat faces and can’t be unfolded flat.',
+         opts: { cube: ['square', 'cube', 'box'], cuboid: ['rectangle', 'cuboid', 'cube'], cylinder: ['circle', 'cylinder', 'rectangle'], cone: ['triangle', 'cone', 'circle'],
+                 pyramid: ['triangle', 'pyramid', 'square'], prism: ['triangle', 'prism', 'rectangle'], sphere: ['circle', 'sphere', 'ball shape (oval)'] } },
+    secrets: { build: ['Make your own net', 'Find all 11 nets of a cube.'], dice: ['Make a die', 'Opposite faces of a die add up to 7.'] },
+    sec: { tap: 'Tap 6 squares that touch at their edges.', found: (n) => `You have found ${n} of the 11 cube nets.`, notSix: 'Exactly 6 squares, all joined.',
+           diceTap: 'Put 1 to 6 on the faces.', diceRight: 'A real die: every pair of opposite faces adds up to 7.', diceWrong: (p) => `These opposite faces don’t add up to 7: ${p}.` },
+    card: {
+      fold: ['📦', 'A net is a box laid flat', 'A cube has 6 square faces.', 'The way they are joined decides if it closes.'],
+      opposite: ['🎯', 'Which faces meet?', 'Neighbours in the net become neighbours on the cube.', 'Skip one square in a row and you find the opposite face.'],
+      solids: ['🧊', 'Solids have faces', 'A face is a flat shape on a solid.', 'A tin is a cylinder; its ends are circles.'] },
+    fine: 'A cube has exactly 11 different nets (up to turning and flipping). Opposite faces of a standard die add up to 7.',
+    quiz: [
+      { q: 'Six squares lie in a 2 × 3 rectangle. Will they fold into a cube?', opts: ['Yes, a cube has six faces', 'No, two faces would overlap', 'Only if you cut one off'], ok: 1 },
+      { q: 'Is the cross shape the only net of a cube?', opts: ['Yes, the only one', 'No, there are 11 different nets', 'There are 6, one for each face'], ok: 1 },
+      { q: 'A tin of beans has the shape of a…', opts: ['circle', 'cylinder', 'rectangle'], ok: 1 } ],
+  },
+  ru: {
+    name: 'Сложи коробку', title: 'Сложится ли куб?',
+    lines: [['Шесть квадратов,', 'соединённых сторонами.'], ['Сначала угадай,', 'потом складывай.'], ['Не любые шесть', 'дают куб.']],
+    views: { fold: '📦 Сложи', opposite: '🎯 Напротив', solids: '🧊 Тела' },
+    check: 'Проверить', next: 'Дальше ▶', unfold: 'Развернуть', foldBtn: 'Сложить', clear: '🗑️ Очистить',
+    f: { q: 'Сложатся ли эти шесть квадратов в куб?', yes: 'Да, будет куб', no: 'Нет, не закроется', faces: 'граней',
+         right: 'Ты это увидел!', wrong: 'Посмотри, как он складывается.', folds: 'Каждая грань нашла своё место — закрытый куб.',
+         overlap: 'Две грани попали на одну сторону, а одна сторона осталась открытой.' },
+    o: { q: 'Нажми на грань, которая окажется напротив красной.', hint: 'Подсказка: в ряду из трёх первый и третий квадраты окажутся друг напротив друга.',
+         right: 'Да, они смотрят друг на друга!', wrong: 'Напротив — зелёная. Сложи ещё раз в уме.' },
+    s: { q1: 'Как это называется?', q2: 'Какие плоские фигуры у него на гранях?', counts: (f, e, v) => `граней ${f} · рёбер ${e} · вершин ${v}`,
+         names: { cube: 'куб', cuboid: 'прямоугольный параллелепипед', cylinder: 'цилиндр', cone: 'конус', pyramid: 'пирамида', prism: 'призма', sphere: 'шар' },
+         flat: { square: 'квадрат', rectangle: 'прямоугольник', circle: 'круг', triangle: 'треугольник', none: 'нет' },
+         flatTrap: 'Круг плоский. А это объёмное тело: его можно взять в руки.', right: 'Верно!', wrong: 'Посмотри на развёрнутые грани.',
+         curved: 'Круглый бок кривой, а не плоский. Если его развернуть, получится прямоугольник.',
+         curvedCone: 'Круглый бок кривой, а не плоский. Если его развернуть, получится веер — кусок круга.',
+         sphere: 'У шара нет плоских граней, и его нельзя развернуть на плоскость.',
+         opts: { cube: ['квадрат', 'куб', 'коробка'], cuboid: ['прямоугольник', 'прямоугольный параллелепипед', 'куб'], cylinder: ['круг', 'цилиндр', 'прямоугольник'], cone: ['треугольник', 'конус', 'круг'],
+                 pyramid: ['треугольник', 'пирамида', 'квадрат'], prism: ['треугольник', 'призма', 'прямоугольник'], sphere: ['круг', 'шар', 'овал'] } },
+    secrets: { build: ['Своя развёртка', 'Найди все 11 развёрток куба.'], dice: ['Сделай кубик', 'На игральном кубике противоположные грани дают в сумме 7.'] },
+    sec: { tap: 'Нажми на 6 квадратов, соприкасающихся сторонами.', found: (n) => `Найдено развёрток куба: ${n} из 11.`, notSix: 'Ровно 6 квадратов, и все соединены.',
+           diceTap: 'Расставь 1–6 по граням.', diceRight: 'Настоящий кубик: каждая пара противоположных граней даёт 7.', diceWrong: (p) => `Эти противоположные грани не дают 7: ${p}.` },
+    card: {
+      fold: ['📦', 'Развёртка — это коробка, разложенная на столе', 'У куба 6 квадратных граней.', 'Закроется ли он, зависит от того, как они соединены.'],
+      opposite: ['🎯', 'Какие грани встретятся?', 'Соседи на развёртке — соседи на кубе.', 'Пропусти один квадрат в ряду — и найдёшь противоположную грань.'],
+      solids: ['🧊', 'У тел есть грани', 'Грань — плоская фигура на объёмном теле.', 'Банка — цилиндр, а её донышки — круги.'] },
+    fine: 'У куба ровно 11 разных развёрток (без учёта поворотов и отражений). У обычного игрального кубика противоположные грани дают в сумме 7.',
+    quiz: [
+      { q: 'Шесть квадратов лежат прямоугольником 2 × 3. Сложатся ли они в куб?', opts: ['Да, у куба шесть граней', 'Нет, две грани наложатся', 'Только если один отрезать'], ok: 1 },
+      { q: 'Крест — единственная развёртка куба?', opts: ['Да, единственная', 'Нет, есть 11 разных развёрток', 'Их 6, по одной на грань'], ok: 1 },
+      { q: 'Консервная банка по форме —', opts: ['круг', 'цилиндр', 'прямоугольник'], ok: 1 } ],
+  },
+  hu: {
+    name: 'Hajtogasd össze!', title: 'Kocka lesz belőle?',
+    lines: [['Hat négyzet', 'az oldaluknál összekötve.'], ['Előbb tippelj,', 'aztán hajtsd össze.'], ['Nem minden hatból', 'lesz kocka.']],
+    views: { fold: '📦 Hajtsd', opposite: '🎯 Szemben', solids: '🧊 Testek' },
+    check: 'Ellenőrzés', next: 'Tovább ▶', unfold: 'Szétnyitás', foldBtn: 'Összehajtás', clear: '🗑️ Törlés',
+    f: { q: 'Összehajtható ez a hat négyzet kockává?', yes: 'Igen, kocka lesz', no: 'Nem, nem zárul be', faces: 'lap',
+         right: 'Jól láttad!', wrong: 'Nézd meg újra a hajtogatást.', folds: 'Minden lap megtalálta a helyét: zárt kocka.',
+         overlap: 'Két lap ugyanarra az oldalra kerül, egy oldal pedig nyitva marad.' },
+    o: { q: 'Koppints arra a lapra, amelyik a pirossal szemben lesz.', hint: 'Tipp: egy hármas sorban az első és a harmadik kerül egymással szembe.',
+         right: 'Igen, egymással szemben vannak!', wrong: 'A zöld van szemben. Hajtsd össze újra fejben.' },
+    s: { q1: 'Hogy hívják?', q2: 'Milyen síkidomok vannak a lapjain?', counts: (f, e, v) => `lap ${f} · él ${e} · csúcs ${v}`,
+         names: { cube: 'kocka', cuboid: 'téglatest', cylinder: 'henger', cone: 'kúp', pyramid: 'gúla', prism: 'hasáb', sphere: 'gömb' },
+         flat: { square: 'négyzet', rectangle: 'téglalap', circle: 'kör', triangle: 'háromszög', none: 'nincs' },
+         flatTrap: 'A kör lapos. Ez viszont test: kézbe lehet venni.', right: 'Helyes!', wrong: 'Nézd meg a szétnyitott lapokat.',
+         curved: 'A kerek oldala görbe, nem sík. Kiterítve téglalap lesz belőle.',
+         curvedCone: 'A kerek oldala görbe, nem sík. Kiterítve legyező alakú, körcikk lesz belőle.',
+         sphere: 'A gömbnek nincs sík lapja, és nem lehet síkba kiteríteni.',
+         opts: { cube: ['négyzet', 'kocka', 'doboz'], cuboid: ['téglalap', 'téglatest', 'kocka'], cylinder: ['kör', 'henger', 'téglalap'], cone: ['háromszög', 'kúp', 'kör'],
+                 pyramid: ['háromszög', 'gúla', 'négyzet'], prism: ['háromszög', 'hasáb', 'téglalap'], sphere: ['kör', 'gömb', 'ovális'] } },
+    secrets: { build: ['Saját háló', 'Keresd meg a kocka mind a 11 hálóját.'], dice: ['Készíts dobókockát', 'A dobókocka szemközti lapjain a pöttyök összege 7.'] },
+    sec: { tap: 'Koppints 6 négyzetre, amelyek oldalukkal érintkeznek.', found: (n) => `A kocka 11 hálójából eddig ennyit találtál: ${n}.`, notSix: 'Pontosan 6 négyzet, mind összekötve.',
+           diceTap: 'Tedd az 1–6 számokat a lapokra.', diceRight: 'Igazi dobókocka: minden szemközti pár összege 7.', diceWrong: (p) => `Ezek a szemközti lapok nem adnak 7-et: ${p}.` },
+    card: {
+      fold: ['📦', 'A háló egy kiterített doboz', 'A kockának 6 négyzet alakú lapja van.', 'Az dönti el, hogy bezárul-e, hogyan kapcsolódnak.'],
+      opposite: ['🎯', 'Melyik lapok találkoznak?', 'A hálón szomszédos lapok a kockán is szomszédosak.', 'Egy sorban egyet átugorva megtalálod a szemközti lapot.'],
+      solids: ['🧊', 'A testeknek lapjaik vannak', 'A lap egy sík alakzat a test felszínén.', 'A konzervdoboz henger, a két vége kör.'] },
+    fine: 'A kockának pontosan 11 különböző hálója van (forgatástól és tükrözéstől eltekintve). A szabványos dobókocka szemközti lapjainak összege 7.',
+    quiz: [
+      { q: 'Hat négyzet egy 2 × 3-as téglalapban fekszik. Összehajtható kockává?', opts: ['Igen, a kockának hat lapja van', 'Nem, két lap egymásra kerülne', 'Csak ha egyet levágunk'], ok: 1 },
+      { q: 'A kereszt alak a kocka egyetlen hálója?', opts: ['Igen, az egyetlen', 'Nem, 11 különböző háló van', '6 van, laponként egy'], ok: 1 },
+      { q: 'Egy konzervdoboz alakja…', opts: ['kör', 'henger', 'téglalap'], ok: 1 } ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_vnJEztczji', en: 'Nets of 3-D Shapes', ru: 'Развёртки объёмных фигур', hu: 'Testek hálói' },
+  { id: 'mt_Qcp2d_kuta', en: '3-D shapes', ru: 'Объёмные фигуры', hu: 'Testek' },
+  { id: 'mt_UooUHC_V7U', en: '2-D faces on 3-D shapes', ru: 'Плоские грани объёмных фигур', hu: 'Síkidomok a testeken' },
+];
+
+// --- the fold engine ---------------------------------------------------------------------------------------
+// A net is a list of flat faces. Each face hangs on its parent along a shared edge (the hinge) and turns up by
+// `t * ang` around it, in its parent's frame. The faces of a folded net are found by applying the hinges from the
+// face itself up to the root. Nothing about "does it close" is stored: it is computed from where the faces land.
+// ENGINE START
+const sm = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+const EPS = 1e-6;
+const HALF = Math.PI / 2;
+
+function hingeOf(par, ch) {
+  const same = (a, b) => Math.abs(a[0] - b[0]) < EPS && Math.abs(a[1] - b[1]) < EPS;
+  const n = ch.poly.length, m = par.poly.length;
+  for (let i = 0; i < n; i++) {
+    const A = ch.poly[i], B = ch.poly[(i + 1) % n];
+    for (let j = 0; j < m; j++) {
+      const C = par.poly[j], D = par.poly[(j + 1) % m];
+      if ((same(A, C) && same(B, D)) || (same(A, D) && same(B, C))) {
+        // unit direction pointing from the hinge into the child; the axis u turns that direction up (+z)
+        const ex = B[0] - A[0], ey = B[1] - A[1], el = Math.hypot(ex, ey), dx = ex / el, dy = ey / el;
+        let nx = ch.cx - (A[0] + B[0]) / 2, ny = ch.cy - (A[1] + B[1]) / 2;
+        const k = nx * dx + ny * dy; nx -= k * dx; ny -= k * dy;
+        const nl = Math.hypot(nx, ny); nx /= nl; ny /= nl;
+        return { A, u: [ny, -nx], ang: ch.ang };
+      }
+    }
+  }
+  throw new Error('faces share no edge');
+}
+// turn point p about the hinge by th (Rodrigues; the axis lies in the floor plane)
+function rot(p, h, th) {
+  const x = p[0] - h.A[0], y = p[1] - h.A[1], z = p[2], [ux, uy] = h.u, c = Math.cos(th), s = Math.sin(th), d = ux * x + uy * y;
+  return [h.A[0] + x * c + uy * z * s + ux * d * (1 - c), h.A[1] + y * c - ux * z * s + uy * d * (1 - c), z * c + (ux * y - uy * x) * s];
+}
+function foldPoint(net, i, p, t) {
+  let q = p;
+  for (const h of net.faces[i].chain) q = rot(q, h, t * h.ang);
+  return q;
+}
+// faces: [{ poly: [[x, y], ...], kind, par, ang }]; par = -1 for the root
+function finishNet(faces, root) {
+  for (const f of faces) {
+    f.cx = f.poly.reduce((a, p) => a + p[0], 0) / f.poly.length;
+    f.cy = f.poly.reduce((a, p) => a + p[1], 0) / f.poly.length;
+    const [p0, p1, p2] = f.poly;
+    f.sgn = Math.sign((p1[0] - p0[0]) * (p2[1] - p0[1]) - (p1[1] - p0[1]) * (p2[0] - p0[0])) || 1;
+  }
+  faces.forEach((f) => { if (f.par >= 0) f.hinge = hingeOf(faces[f.par], f); });
+  faces.forEach((f, i) => { f.chain = []; for (let j = i; faces[j].par >= 0; j = faces[j].par) f.chain.push(faces[j].hinge); });
+  const net = { faces, root }, xs = faces.flatMap((f) => f.poly.map((p) => p[0])), ys = faces.flatMap((f) => f.poly.map((p) => p[1]));
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const F = faces.flatMap((f, i) => f.poly.map((p) => foldPoint(net, i, [p[0], p[1], 0], 1)));
+  const sp = (k) => Math.max(...F.map((p) => p[k])) - Math.min(...F.map((p) => p[k]));
+  net.L = { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, fw: x1 - x0, fh: y1 - y0, fd: Math.hypot(sp(0), sp(1), sp(2)) };
+  return net;
+}
+// a net made of unit squares on a grid: cells = [[col, row], ...]; the face list keeps the order of the cells
+function cellNet(cells, rootIdx = 0) {
+  const key = (c, r) => `${c},${r}`, at = new Map(cells.map(([c, r], i) => [key(c, r), i]));
+  const faces = cells.map(([c, r]) => ({ poly: [[c, r], [c + 1, r], [c + 1, r + 1], [c, r + 1]], kind: 'square', par: -1, ang: HALF }));
+  const seen = new Set([rootIdx]), queue = [rootIdx];
+  while (queue.length) {
+    const i = queue.shift(), [c, r] = cells[i];
+    for (const [dc, dr] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) {
+      const j = at.get(key(c + dc, r + dr));
+      if (j === undefined || seen.has(j)) continue;
+      seen.add(j); faces[j].par = i; queue.push(j);
+    }
+  }
+  return finishNet(faces, rootIdx);
+}
+// Where the faces of a net of squares land at t = 1. It closes into a cube iff the six centres are six different
+// points; faces that share a centre overlap, and the cube sides nobody covers are the holes.
+const centreKey = (p) => p.map((v) => Math.round(v * 2)).join(',');
+function analyze(net) {
+  const cen = net.faces.map((f, i) => foldPoint(net, i, [f.cx, f.cy, 0], 1)), keys = cen.map(centreKey), count = new Map();
+  keys.forEach((k) => count.set(k, (count.get(k) || 0) + 1));
+  const r = net.faces[net.root], C = [r.cx, r.cy, 0.5], missing = [], opp = [];
+  for (let a = 0; a < 3; a++) for (const sg of [-1, 1]) {
+    const p = [...C]; p[a] += sg * 0.5;
+    if (count.has(centreKey(p))) continue;
+    const [b, c] = [0, 1, 2].filter((k) => k !== a);
+    missing.push([[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([i, j]) => { const q = [...p]; q[b] += i * 0.5; q[c] += j * 0.5; return q; }));
+  }
+  cen.forEach((p, i) => { opp[i] = keys.indexOf(centreKey(p.map((v, k) => 2 * C[k] - v))); });
+  return { valid: count.size === net.faces.length, dup: new Set(keys.map((k, i) => (count.get(k) > 1 ? i : -1)).filter((i) => i >= 0)), missing, opp };
+}
+// ENGINE END
+const analysis = (net) => (net.an ??= analyze(net));
+
+// --- nets ----------------------------------------------------------------------------------------------------
+const ROUNDS = [
+  [[1, 0], [0, 1], [1, 1], [2, 1], [3, 1], [1, 2]], // cross
+  [[0, 0], [1, 0], [2, 0], [0, 1], [1, 1], [2, 1]], // block 2 x 3
+  [[0, 0], [1, 0], [1, 1], [2, 1], [2, 2], [3, 2]], // staircase 2-2-2
+  [[0, 0], [1, 0], [2, 0], [3, 0], [4, 0], [5, 0]], // line of six
+  [[0, 0], [0, 1], [1, 1], [2, 1], [3, 1], [3, 2]], // 1-4-1 offset
+  [[0, 0], [3, 0], [0, 1], [1, 1], [2, 1], [3, 1]], // flaps on the same side
+  [[0, 0], [1, 0], [2, 0], [2, 1], [3, 1], [4, 1]], // 3-3 staircase
+  [[0, 0], [1, 0], [1, 1], [2, 1], [3, 1], [3, 2]], // 2-3-1
+];
+const FNETS = ROUNDS.map((c) => cellNet(c));
+// view 2: valid nets with one red face (the cell)
+const OPP = [[0, [1, 1]], [2, [0, 0]], [4, [0, 1]], [6, [0, 0]], [7, [3, 1]]].map(([k, cell]) => ({
+  net: FNETS[k], red: ROUNDS[k].findIndex(([c, r]) => c === cell[0] && r === cell[1]) }));
+const CROSS = ROUNDS[0], DICE_NET = cellNet(CROSS, 2);
+
+// polyhedra for view 3; every face remembers its kind, which gives it a colour
+const rect = (x, y, w, h) => [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+const SOLID_NETS = {
+  cube: cellNet(CROSS, 2),
+  cuboid: (() => { // a square base, four tall rectangles round it and a square lid on one of them
+    const H = 1.8, F = (poly, kind, par) => ({ poly, kind, par, ang: HALF });
+    return finishNet([F(rect(0, 0, 1, 1), 'square', -1), F(rect(1, 0, H, 1), 'rectangle', 0), F(rect(-H, 0, H, 1), 'rectangle', 0),
+      F(rect(0, -H, 1, H), 'rectangle', 0), F(rect(0, 1, 1, H), 'rectangle', 0), F(rect(1 + H, 0, 1, 1), 'square', 1)], 0);
+  })(),
+  pyramid: (() => { // a square base and four triangles; they swing up by 180 degrees minus the lean of a side face
+    const l = Math.hypot(1.2, 0.5), ang = Math.PI - Math.acos(0.5 / l), F = (poly, kind, par) => ({ poly, kind, par, ang });
+    return finishNet([F(rect(0, 0, 1, 1), 'square', -1), F([[0, 1], [1, 1], [0.5, 1 + l]], 'triangle', 0), F([[0, 0], [1, 0], [0.5, -l]], 'triangle', 0),
+      F([[0, 0], [0, 1], [-l, 0.5]], 'triangle', 0), F([[1, 0], [1, 1], [1 + l, 0.5]], 'triangle', 0)], 0);
+  })(),
+  prism: (() => { // a rectangle on the floor, two rectangles leaning in (turn 120 degrees) and a triangle at each end
+    const L = 1.8, ht = Math.sqrt(3) / 2, F = (poly, kind, par, ang) => ({ poly, kind, par, ang });
+    return finishNet([F(rect(0, 0, 1, L), 'rectangle', -1, 0), F(rect(-1, 0, 1, L), 'rectangle', 0, 2 * Math.PI / 3), F(rect(1, 0, 1, L), 'rectangle', 0, 2 * Math.PI / 3),
+      F([[0, 0], [1, 0], [0.5, -ht]], 'triangle', 0, HALF), F([[0, L], [1, L], [0.5, L + ht]], 'triangle', 0, HALF)], 0);
+  })(),
+};
+const SOLIDS = [
+  { id: 'cube', f: 6, e: 12, v: 8, ok: [['square']] },
+  { id: 'cuboid', f: 6, e: 12, v: 8, ok: [['rectangle', 'square'], ['rectangle']] }, // a square is a rectangle too
+  { id: 'cylinder', f: 2, e: 2, v: 0, ok: [['circle'], ['circle', 'rectangle']] },     // the curved side unrolls to a rectangle
+  { id: 'cone', f: 1, e: 1, v: 1, ok: [['circle']] },
+  { id: 'pyramid', f: 5, e: 8, v: 5, ok: [['square', 'triangle']] },
+  { id: 'prism', f: 5, e: 9, v: 6, ok: [['triangle', 'rectangle']] },
+  { id: 'sphere', f: 0, e: 0, v: 0, ok: [['none']] },
+];
+const KIND = { square: '#5f8fd0', rectangle: '#5fa8a0', triangle: '#e0b050', circle: '#d9825f', curved: '#8f7fd0' };
+const FACE = '#7aa2e0', RED = '#e5484d', BLUE = '#4da3ff', GREEN = '#3ddc97', IVORY = '#ece8dc', INK = '#10142a';
+
+// --- state ---------------------------------------------------------------------------------------------------
+const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const foldOrder = () => [0, ...shuffle([1, 2, 3, 4, 5, 6, 7])]; // the cross first, then a mixed order
+const S = {
+  f: { order: foldOrder(), r: 0, ans: null, done: false },
+  o: { r: 0, sel: null, checked: false, done: false },
+  s: { order: shuffle([0, 1, 2, 3, 4, 5, 6]), r: 0, step: 1, perm: shuffle([0, 1, 2]), bad: -1, picks: new Set(), checked: false, done: false, ok: false, shakeAt: -9 },
+  sec: null,
+  b: { cells: new Set(), mode: 'edit', msg: '', net: null },
+  d: { nums: [0, 0, 0, 0, 0, 0], sel: 1, mode: 'edit', res: '', bad: false },
+  hits: [], grid: null,
+};
+const A = { p: 0, to: 0, cb: null }; // fold progress 0..1 (linear in time), where it is heading, what to do on arrival
+const cam = { yaw: 0, hold: -9 };
+const go = (to, cb = null) => { A.to = to; A.cb = cb; };
+const mode = () => S.sec || lab.view;
+const solid = () => SOLIDS[S.s.order[S.s.r]];
+const lab = shell({ key: 'nets', T, topics: TOPICS, views: ['fold', 'opposite', 'solids'], onLang: () => render(), onView: () => { S.sec = null; enter(); } });
+const secret = secretLab('nets', () => ({
+  secrets: [{ emo: '✏️', title: T[lang].secrets.build[0], desc: T[lang].secrets.build[1] }, { emo: '🎲', title: T[lang].secrets.dice[0], desc: T[lang].secrets.dice[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+$('cv').setAttribute('role', 'img');
+
+// start the current scene from its beginning
+function enter() {
+  A.cb = null;
+  const m = mode();
+  if (m === 'build') Object.assign(S.b, { mode: 'edit', msg: '', net: null }), A.p = A.to = 0;
+  else if (m === 'dice') Object.assign(S.d, { mode: 'edit', res: '' }), A.p = A.to = 0;
+  else if (m === 'fold') Object.assign(S.f, { ans: null, done: false }), A.p = A.to = 0;
+  else if (m === 'opposite') Object.assign(S.o, { sel: null, checked: false, done: false }), A.p = A.to = 0;
+  else Object.assign(S.s, { step: 1, perm: shuffle([0, 1, 2]), bad: -1, picks: new Set(), checked: false, done: false }), A.p = A.to = 1;
+  render();
+}
+const showStage = () => { // on a phone the controls sit below the stage: bring the reveal into view
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+
+// --- drawing helpers -----------------------------------------------------------------------------------------
+const rgb = (hex) => { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+const mix = (a, b, k) => a.map((v, i) => v + (b[i] - v) * k);
+const css = (c) => `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
+const path = (c, pts) => { c.beginPath(); pts.forEach(([X, Y], i) => (i ? c.lineTo(X, Y) : c.moveTo(X, Y))); c.closePath(); };
+const inside = (x, y, pts) => { // point in polygon
+  let on = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [xi, yi] = pts[i], [xj, yj] = pts[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) on = !on;
+  }
+  return on;
+};
+const PIPS = { 1: [[.5, .5]], 2: [[.27, .27], [.73, .73]], 3: [[.27, .27], [.5, .5], [.73, .73]], 4: [[.27, .27], [.73, .27], [.27, .73], [.73, .73]],
+  5: [[.27, .27], [.73, .27], [.5, .5], [.27, .73], [.73, .73]], 6: [[.3, .24], [.3, .5], [.3, .76], [.7, .24], [.7, .5], [.7, .76]] };
+
+// camera: from straight above while flat (a clear picture of the net), tilting to about 38 degrees once folded
+const LIGHT = [-0.35, 0.45, 0.82];
+function drawNet(c, w, h, net, t, time, o = {}) {
+  const L = net.L, e = lerp(HALF, 0.66, sm(t / 0.7)), se = Math.sin(e), ce = Math.cos(e), cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw);
+  const sFlat = Math.min(0.88 * w / L.fw, 0.84 * h / L.fh, 120), sFold = Math.min(0.62 * Math.min(w, h) / L.fd, 1.5 * sFlat, 130), s = lerp(sFlat, sFold, sm(t));
+  const P3 = net.faces.map((f, i) => f.poly.map((p) => foldPoint(net, i, [p[0], p[1], 0], t)));
+  const mean = [0, 1, 2].map((k) => P3.reduce((a, pts) => a + pts.reduce((b, p) => b + p[k], 0) / pts.length, 0) / P3.length);
+  const pv = [lerp(L.cx, mean[0], t), lerp(L.cy, mean[1], t), lerp(0, mean[2], t)];
+  const pr = (p) => {
+    const qx = p[0] - pv[0], qy = p[1] - pv[1], qz = p[2] - pv[2], x1 = qx * cy - qy * sy, y1 = qx * sy + qy * cy;
+    return [w / 2 + s * x1, h / 2 + s * (y1 * se - qz * ce), y1 * ce + qz * se];
+  };
+  const an = o.cell ? analysis(net) : null, closed = t > 0.999;
+  const items = net.faces.map((f, i) => {
+    const q = P3[i], P = q.map(pr), [a, b, d] = q, ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = d[0] - a[0], vy = d[1] - a[1], vz = d[2] - a[2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const nl = (Math.hypot(nx, ny, nz) || 1) * f.sgn; // the normal points to the inside of the folded solid
+    nx /= nl; ny /= nl; nz /= nl;
+    const mx = nx * cy - ny * sy, my = nx * sy + ny * cy, facing = my * ce + nz * se; // > 0: we look at the inside
+    const lam = Math.abs(mx * LIGHT[0] + my * LIGHT[1] + nz * LIGHT[2]);
+    return { i, P, d: P.reduce((m, p) => m + p[2], 0) / P.length, facing, k: (0.5 + 0.5 * lam) * (facing > 0 ? 0.92 : 1) };
+  });
+  if (o.cell && closed && !an.valid) an.missing.forEach((quad) => { const P = quad.map(pr); items.push({ hole: true, P, d: P.reduce((m, p) => m + p[2], 0) / P.length }); });
+  items.sort((p, q) => p.d - q.d);
+  c.lineJoin = 'round';
+  if (o.hits) S.hits = items.filter((it) => !it.hole).map((it) => ({ i: it.i, P: it.P }));
+  for (const it of items) {
+    if (it.hole) {
+      c.setLineDash([7, 5]); c.lineWidth = 2; c.strokeStyle = 'rgba(255,255,255,.85)'; c.fillStyle = 'rgba(255,255,255,.07)';
+      path(c, it.P); c.fill(); c.stroke(); c.setLineDash([]);
+      continue;
+    }
+    if (o.cull && it.facing > 0) continue;
+    let col = rgb(o.fill(it.i)).map((v) => v * it.k);
+    if (o.flash && an && !an.valid && an.dup.has(it.i)) col = mix(col, [255, 59, 48], 0.55 + 0.45 * Math.sin(time * 9));
+    path(c, it.P); c.fillStyle = css(col); c.fill();
+    const hl = o.outline?.(it.i);
+    c.lineWidth = hl ? hl.w : 1.5; c.strokeStyle = hl ? hl.c : INK; c.stroke();
+    const pips = o.pips?.(it.i);
+    if (pips) { // dots drawn in the face's own frame, so they turn and tilt with it
+      const [p0, p1, , p3] = it.P;
+      c.save(); c.transform(p1[0] - p0[0], p1[1] - p0[1], p3[0] - p0[0], p3[1] - p0[1], p0[0], p0[1]);
+      c.fillStyle = INK;
+      for (const [x, y] of PIPS[pips]) { c.beginPath(); c.arc(x, y, 0.085, 0, 7); c.fill(); }
+      c.restore();
+    }
+  }
+}
+
+// curved solids: pictures built from a few shapes, morphing into their nets (u = 0 solid, u = 1 flat)
+function sideGradient(c, x0, x1, hex, u) {
+  const base = rgb(hex), g = c.createLinearGradient(x0, 0, x1, 0);
+  g.addColorStop(0, css(mix(base.map((v) => v * 0.55), base, u))); g.addColorStop(0.35, css(mix(base.map((v) => Math.min(255, v * 1.2)), base, u)));
+  g.addColorStop(1, css(mix(base.map((v) => v * 0.6), base, u)));
+  return g;
+}
+function drawCylinder(c, w, h, u) {
+  const R = 1, H = 0.65, N = 28, e0 = 0.62, e = lerp(e0, HALF, u), b = R * Math.sin(e), hh = H * lerp(Math.cos(e0), 1, u), amp = R * Math.sin(e0) * (1 - u);
+  const s = lerp(Math.min(0.3 * w / R, 0.7 * h / 2), Math.min(0.9 * w / (2 * Math.PI * R), 0.84 * h / (4 * R + H)), u);
+  const topCy = -R * u, botCy = hh + R * u, y0 = h / 2 - s * (topCy - b + botCy + b) / 2, X = (x) => w / 2 + s * x, Y = (y) => y0 + s * y;
+  const edge = (y) => Array.from({ length: N + 1 }, (_, i) => { const th = Math.PI * i / N; return [X(lerp(-R * Math.cos(th), -Math.PI * R + 2 * Math.PI * R * i / N, u)), Y(y + amp * Math.sin(th))]; });
+  c.lineWidth = 1.5; c.strokeStyle = INK;
+  c.globalAlpha = clamp(u * 8, 0, 1); // the lower end hides behind the tube
+  c.beginPath(); c.ellipse(X(0), Y(botCy), s * R, s * b, 0, 0, 7); c.fillStyle = css(rgb(KIND.circle).map((v) => v * 0.8)); c.fill(); c.stroke();
+  c.globalAlpha = 1;
+  const xl = lerp(-R, -Math.PI * R, u), xr = lerp(R, Math.PI * R, u);
+  path(c, [...edge(0), ...edge(hh).reverse()]); c.fillStyle = sideGradient(c, X(xl), X(xr), KIND.curved, u); c.fill(); c.stroke();
+  c.beginPath(); c.ellipse(X(0), Y(topCy), s * R, s * b, 0, 0, 7); c.fillStyle = css(rgb(KIND.circle).map((v) => Math.min(255, v * 1.05))); c.fill(); c.stroke();
+}
+function drawCone(c, w, h, u) {
+  const R = 1, Hc = 1.6, l = Math.hypot(R, Hc), PHI = 2 * Math.PI * R / l, N = 28, e0 = 0.62, hp = Hc * Math.cos(e0), b3 = R * Math.sin(e0);
+  const arc = Array.from({ length: N + 1 }, (_, i) => {
+    const th = Math.PI * i / N, ph = -PHI / 2 + PHI * i / N;
+    return [lerp(-R * Math.cos(th), l * Math.sin(ph), u), lerp(hp + b3 * Math.sin(th), l * Math.cos(ph), u)];
+  });
+  const pts = [[0, 0], ...arc], capY = lerp(hp, l + R, u), capB = lerp(b3, R, u);
+  const s = lerp(Math.min(0.28 * w / R, 0.68 * h / (hp + b3)), Math.min(0.9 * w / (2 * l), 0.86 * h / (l + 2 * R + 0.2)), u);
+  const ys = pts.map((p) => p[1]).concat([capY - capB, capY + capB]), y0 = h / 2 - s * (Math.min(...ys) + Math.max(...ys)) / 2;
+  const X = (x) => w / 2 + s * x, Y = (y) => y0 + s * y;
+  c.lineWidth = 1.5; c.strokeStyle = INK;
+  c.globalAlpha = clamp(u * 8, 0, 1); // the base hides behind the cone
+  c.beginPath(); c.ellipse(X(0), Y(capY), s * R, s * capB, 0, 0, 7); c.fillStyle = css(rgb(KIND.circle).map((v) => v * 0.9)); c.fill(); c.stroke();
+  c.globalAlpha = 1;
+  const xs = pts.map((p) => p[0]);
+  path(c, pts.map(([x, y]) => [X(x), Y(y)])); c.fillStyle = sideGradient(c, X(Math.min(...xs)), X(Math.max(...xs)), KIND.curved, u); c.fill(); c.stroke();
+}
+function drawSphere(c, w, h, time) {
+  const r = Math.min(w, h) * 0.3, k = Math.max(0, 1 - (time - S.s.shakeAt) / 0.7), x = w / 2 + Math.sin(time * 45) * 7 * k, y = h / 2;
+  const g = c.createRadialGradient(x - r * 0.35, y - r * 0.4, r * 0.1, x, y, r), base = rgb(KIND.curved);
+  g.addColorStop(0, css(base.map((v) => Math.min(255, v * 1.35 + 20)))); g.addColorStop(1, css(base.map((v) => v * 0.45)));
+  c.beginPath(); c.arc(x, y, r, 0, 7); c.fillStyle = g; c.fill(); c.lineWidth = 1.5; c.strokeStyle = INK; c.stroke();
+}
+
+// the 5 x 5 grid of the "make your own net" secret
+function drawGrid(c, w, h) {
+  const cs = Math.min(w, h) * 0.17, x0 = (w - 5 * cs) / 2, y0 = (h - 5 * cs) / 2;
+  S.grid = { x0, y0, cs };
+  for (let r = 0; r < 5; r++) for (let q = 0; q < 5; q++) {
+    const on = S.b.cells.has(`${q},${r}`);
+    c.beginPath(); c.roundRect(x0 + q * cs + 2, y0 + r * cs + 2, cs - 4, cs - 4, 7);
+    c.fillStyle = on ? FACE : 'rgba(130,145,190,.07)'; c.fill();
+    c.lineWidth = 1.5; c.strokeStyle = on ? INK : 'rgba(130,145,190,.3)'; c.stroke();
+  }
+}
+
+// --- the loop ------------------------------------------------------------------------------------------------
+const wrapPi = (a) => a - 2 * Math.PI * Math.round(a / (2 * Math.PI));
+let ptr = null;
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  const d = A.to - A.p, step = dt / 1.6; // 1.6 s from flat to folded
+  A.p = Math.abs(d) <= step ? A.to : A.p + Math.sign(d) * step;
+  if (A.p === A.to && A.cb) { const f = A.cb; A.cb = null; f(); }
+  const t = sm(A.p), m = mode(), now = performance.now();
+  // the camera drifts round a folded solid; on the flat net it stays put
+  if (t > 0.02) { if (!ptr && now - cam.hold > 2500) cam.yaw += 0.35 * dt; }
+  else cam.yaw = wrapPi(cam.yaw) * Math.exp(-dt * 6);
+  c.lineCap = 'round'; c.lineJoin = 'round';
+
+  if (m === 'fold') {
+    const F = S.f, net = FNETS[F.order[F.r]];
+    drawNet(c, w, h, net, t, time, { cell: true, hits: true, fill: () => FACE, flash: A.p >= 1 && F.ans !== null });
+  } else if (m === 'opposite') {
+    const O = S.o, { net, red } = OPP[O.r], opp = O.checked ? analysis(net).opp[red] : -1;
+    drawNet(c, w, h, net, t, time, { cell: true, hits: true, fill: (i) => (i === red ? RED : FACE),
+      outline: (i) => (O.checked && i === opp ? { c: GREEN, w: 4 } : i === O.sel ? { c: BLUE, w: 4 } : null) });
+  } else if (m === 'build') {
+    if (S.b.mode === 'edit') drawGrid(c, w, h);
+    else drawNet(c, w, h, S.b.net, t, time, { cell: true, fill: () => FACE, flash: A.p >= 1 });
+  } else if (m === 'dice') {
+    drawNet(c, w, h, DICE_NET, t, time, { cell: true, hits: true, fill: () => IVORY, pips: (i) => S.d.nums[i] });
+  } else {
+    const sol = solid(), u = 1 - t;
+    if (sol.id === 'cylinder') drawCylinder(c, w, h, u);
+    else if (sol.id === 'cone') drawCone(c, w, h, u);
+    else if (sol.id === 'sphere') drawSphere(c, w, h, time);
+    else { const net = SOLID_NETS[sol.id]; drawNet(c, w, h, net, t, time, { cull: A.p >= 0.999, fill: (i) => KIND[net.faces[i].kind] }); }
+  }
+});
+
+// --- touch: tap a face or a cell; drag to turn a folded solid --------------------------------------------------
+const turnable = () => sm(A.p) > 0.02;
+$('cv').addEventListener('pointerdown', (ev) => { $('cv').setPointerCapture?.(ev.pointerId); ptr = { x: ev.clientX, y: ev.clientY, last: ev.clientX, moved: false }; });
+$('cv').addEventListener('pointermove', (ev) => {
+  if (!ptr) return;
+  if (Math.abs(ev.clientX - ptr.x) > 6) ptr.moved = true;
+  if (ptr.moved && turnable()) { cam.yaw += (ev.clientX - ptr.last) * 0.012; cam.hold = performance.now(); }
+  ptr.last = ev.clientX;
+});
+const endPtr = (ev) => {
+  const p = ptr; ptr = null;
+  if (!p || p.moved || ev.type === 'pointercancel') return;
+  const r = $('cv').getBoundingClientRect();
+  tap(ev.clientX - r.left, ev.clientY - r.top);
+};
+$('cv').addEventListener('pointerup', endPtr);
+$('cv').addEventListener('pointercancel', endPtr);
+function tap(x, y) {
+  const m = mode(), hit = A.p === 0 ? S.hits.find((q) => inside(x, y, q.P))?.i : undefined;
+  if (m === 'opposite' && !S.o.checked && hit !== undefined && hit !== OPP[S.o.r].red) { S.o.sel = hit; sfx.tick(); render(); }
+  else if (m === 'dice' && S.d.mode === 'edit' && hit !== undefined) {
+    const D = S.d, here = D.nums[hit];
+    if (D.sel) { D.nums = D.nums.map((n) => (n === D.sel ? 0 : n)); D.nums[hit] = D.sel; D.sel = [1, 2, 3, 4, 5, 6].find((n) => !D.nums.includes(n)) || 0; sfx.click(); }
+    else if (here) { D.sel = here; D.nums[hit] = 0; sfx.tick(); }
+    render();
+  } else if (m === 'build' && S.b.mode === 'edit' && S.grid && A.p === 0) {
+    const g = S.grid, q = Math.floor((x - g.x0) / g.cs), r = Math.floor((y - g.y0) / g.cs), k = `${q},${r}`;
+    if (q < 0 || q > 4 || r < 0 || r > 4) return;
+    S.b.msg = '';
+    if (S.b.cells.has(k)) { S.b.cells.delete(k); sfx.tick(); }
+    else if (S.b.cells.size < 6) { S.b.cells.add(k); sfx.click(); }
+    else { S.b.msg = T[lang].sec.notSix; sfx.bad(); }
+    render();
+  }
+}
+
+// --- controls ------------------------------------------------------------------------------------------------
+const connected = (cells) => { // are the cells one piece, touching at edges?
+  const set = new Set(cells.map(([c, r]) => `${c},${r}`)), seen = new Set([`${cells[0][0]},${cells[0][1]}`]), queue = [cells[0]];
+  while (queue.length) {
+    const [c, r] = queue.shift();
+    for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const k = `${c + dc},${r + dr}`;
+      if (set.has(k) && !seen.has(k)) { seen.add(k); queue.push([c + dc, r + dr]); }
+    }
+  }
+  return seen.size === cells.length;
+};
+// the same net turned or flipped is the same net: the smallest of the 8 spellings names the class
+const canon = (cells) => [(c, r) => [c, r], (c, r) => [-c, r], (c, r) => [c, -r], (c, r) => [-c, -r], (c, r) => [r, c], (c, r) => [-r, c], (c, r) => [r, -c], (c, r) => [-r, -c]]
+  .map((f) => { const p = cells.map(([c, r]) => f(c, r)), x0 = Math.min(...p.map((q) => q[0])), y0 = Math.min(...p.map((q) => q[1]));
+    return p.map(([c, r]) => [c - x0, r - y0]).sort((a, b) => a[1] - b[1] || a[0] - b[0]).join(';'); }).sort()[0];
+
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const act = b.dataset.act, k = b.dataset.k, t = T[lang];
+  if (act === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    S.sec = S.sec === k ? null : k; sfx.click(); enter(); return;
+  }
+  if (act === 'yes' || act === 'no') { // view 1: the answer, then the fold
+    const F = S.f, net = FNETS[F.order[F.r]];
+    if (F.ans !== null) return;
+    F.ans = act; F.done = false; sfx.click();
+    go(1, () => { F.done = true; ((act === 'yes') === analysis(net).valid ? sfx.good : sfx.bad)(); render(); });
+    showStage();
+  } else if (act === 'check' && lab.view === 'opposite' && !S.sec) {
+    const O = S.o; if (O.sel === null || O.checked) return;
+    O.checked = true; O.done = false; sfx.click();
+    go(1, () => { O.done = true; (O.sel === analysis(OPP[O.r].net).opp[OPP[O.r].red] ? sfx.good : sfx.bad)(); render(); });
+    showStage();
+  } else if (act === 'check') { // view 3, step 2
+    const Z = S.s, sol = solid(); if (!Z.picks.size || Z.checked) return;
+    const pick = [...Z.picks].sort().join(), ok = sol.ok.some((set) => [...set].sort().join() === pick);
+    Z.checked = true; Z.done = false; Z.ok = ok; sfx.click();
+    const finish = () => { Z.done = true; (ok ? sfx.good : sfx.bad)(); render(); };
+    if (sol.id === 'sphere') { Z.shakeAt = performance.now() / 1000; setTimeout(finish, 800); } else go(0, finish);
+    showStage();
+  } else if (act === 'next') {
+    if (lab.view === 'fold') { const F = S.f; F.r++; if (F.r >= 8) { F.r = 0; F.order = shuffle([0, 1, 2, 3, 4, 5, 6, 7]); } }
+    else if (lab.view === 'opposite') S.o.r = (S.o.r + 1) % OPP.length;
+    else { const Z = S.s; Z.r = (Z.r + 1) % 7; if (!Z.r) shuffle(Z.order); }
+    sfx.click(); enter(); return;
+  } else if (act === 'toggle') { go(A.to === 1 ? 0 : 1); sfx.click(); }
+  else if (act === 'name') { // view 3, step 1
+    if (+k === 1) { S.s.step = 2; S.s.bad = -1; sfx.good(); } else { S.s.bad = +k; sfx.bad(); }
+  } else if (act === 'flat') {
+    const P = S.s.picks;
+    if (S.s.checked) return;
+    if (k === 'none') { const had = P.has('none'); P.clear(); if (!had) P.add('none'); }
+    else { P.delete('none'); if (P.has(k)) P.delete(k); else P.add(k); }
+    sfx.tick();
+  } else if (act === 'bgo') { // secret: build your own net
+    const B = S.b;
+    if (B.mode === 'fold') { go(0, () => { B.mode = 'edit'; B.msg = ''; render(); }); sfx.click(); }
+    else {
+      const cells = [...B.cells].map((s) => s.split(',').map(Number)).sort((p, q) => p[1] - q[1] || p[0] - q[0]);
+      if (cells.length !== 6 || !connected(cells)) { B.msg = t.sec.notSix; sfx.bad(); }
+      else {
+        B.net = cellNet(cells); B.mode = 'fold'; B.msg = ''; sfx.click(); A.p = 0;
+        go(1, () => {
+          if (analysis(B.net).valid) {
+            const found = store.get('nets:found', []), key = canon(cells);
+            if (!found.includes(key)) { found.push(key); store.set('nets:found', found); }
+            B.msg = t.sec.found(found.length); sfx.good();
+          } else { B.msg = t.f.overlap; sfx.bad(); }
+          render();
+        });
+        showStage();
+      }
+    }
+  } else if (act === 'bclear') { S.b.cells.clear(); S.b.msg = ''; sfx.click(); }
+  else if (act === 'dnum') { // secret: a die
+    const D = S.d, n = +k;
+    if (D.mode !== 'edit') return;
+    const at = D.nums.indexOf(n); if (at >= 0) D.nums[at] = 0;
+    D.sel = n; sfx.tick();
+  } else if (act === 'dgo') {
+    const D = S.d;
+    if (D.mode === 'fold') { go(0, () => { D.mode = 'edit'; D.res = ''; render(); }); sfx.click(); }
+    else if (D.nums.every(Boolean)) {
+      D.mode = 'fold'; D.res = ''; sfx.click();
+      go(1, () => {
+        const opp = analysis(DICE_NET).opp, bad = [];
+        D.nums.forEach((n, i) => { if (i < opp[i] && n + D.nums[opp[i]] !== 7) bad.push(`${n}–${D.nums[opp[i]]}`); });
+        D.res = bad.length ? t.sec.diceWrong(bad.join(', ')) : t.sec.diceRight; D.bad = bad.length > 0;
+        (bad.length ? sfx.bad : sfx.good)(); render();
+      });
+      showStage();
+    }
+  }
+  render();
+});
+
+// --- render: controls, readout and the state card, once per change -----------------------------------------------
+const verdict = (ok, head, line) => `<p class="verd ${ok ? 'good' : 'bad'}">${esc(head)}</p><p class="note">${esc(line)}</p>`;
+const foldRow = (t, next = true) => `<div class="row2"><button class="chip" data-act="toggle">${esc(A.to === 1 ? t.unfold : t.foldBtn)}</button>${next ? `<button class="btn push" data-act="next">${esc(t.next)}</button>` : ''}</div>`;
+
+function render() {
+  const t = T[lang], m = mode(), v = lab.view;
+  lab.setGlow('rgba(95, 150, 220, .26)');
+  let html = '';
+  if (m === 'fold') html = ctrlFold(t);
+  else if (m === 'opposite') html = ctrlOpp(t);
+  else if (m === 'solids') html = ctrlSolids(t);
+  else if (m === 'build') html = ctrlBuild(t);
+  else html = ctrlDice(t);
+  if (v === 'fold') {
+    const open = secret.unlocked();
+    const chip = (k, emo) => `<button class="chip secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+    html += `<div class="row2"><div class="chips">${chip('build', '✏️')}${chip('dice', '🎲')}</div></div>`;
+  }
+  $('ctrlBody').innerHTML = html;
+  const card = m === 'build' ? ['✏️', t.secrets.build[0], t.secrets.build[1], ''] : m === 'dice' ? ['🎲', t.secrets.dice[0], t.secrets.dice[1], ''] : t.card[m];
+  lab.setState({ emo: card[0], title: card[1], lead: card[2], body: card[3], extra: `<div class="fine">${esc(t.fine)}</div>` });
+}
+
+function ctrlFold(t) {
+  const F = S.f, net = FNETS[F.order[F.r]], q = t.f;
+  lab.setReadout('6 □', q.faces, '', '#7aa2e0');
+  const btn = (k, label) => `<button class="btn ${F.ans === k ? 'on' : F.ans ? 'ghost' : ''}" data-act="${k}"${F.ans ? ' disabled' : ''}>${esc(label)}</button>`;
+  const ask = `<p class="q">${esc(q.q)}</p><div class="opts">${btn('yes', q.yes)}${btn('no', q.no)}</div>`;
+  if (!F.done) return ask;
+  const valid = analysis(net).valid, ok = (F.ans === 'yes') === valid;
+  return verdict(ok, ok ? q.right : q.wrong, valid ? q.folds : q.overlap) + foldRow(t);
+}
+function ctrlOpp(t) {
+  const O = S.o, o = t.o, { net, red } = OPP[O.r];
+  lab.setReadout('6 □', t.f.faces, '', '#7aa2e0');
+  const hint = `<p class="note" style="margin-top:10px">${esc(o.hint)}</p>`;
+  if (!O.checked) return `<p class="q">${esc(o.q)}</p><button class="btn" data-act="check"${O.sel === null ? ' disabled' : ''}>${esc(t.check)}</button>${hint}`;
+  if (!O.done) return `<p class="q">${esc(o.q)}</p>${hint}`;
+  const ok = O.sel === analysis(net).opp[red];
+  return verdict(ok, ok ? o.right : o.wrong, '') + foldRow(t) + hint;
+}
+function ctrlSolids(t) {
+  const Z = S.s, sol = solid(), q = t.s, name = q.names[sol.id], opts = q.opts[sol.id];
+  const flatNames = ['square', 'rectangle', 'circle', 'triangle'].map((k) => q.flat[k]);
+  if (Z.step === 1) {
+    lab.setReadout('?', '', '', '#7aa2e0');
+    const btns = Z.perm.map((k) => `<button class="nm ${Z.bad === k ? 'bad' : ''}" data-act="name" data-k="${k}">${esc(opts[k])}</button>`).join('');
+    const trap = Z.bad >= 0 && flatNames.includes(opts[Z.bad]) ? `<p class="note" style="margin-top:10px">${esc(q.flatTrap)}</p>` : '';
+    return `<p class="q">${esc(q.q1)}</p><div class="opts">${btns}</div>${trap}`;
+  }
+  const chips = ['square', 'rectangle', 'circle', 'triangle', 'none'].map((k) =>
+    `<button class="chip pick ${Z.picks.has(k) ? 'on' : ''}" data-act="flat" data-k="${k}"${Z.checked ? ' disabled' : ''}>${esc(q.flat[k])}</button>`).join('');
+  if (!Z.done) {
+    lab.setReadout(esc(name), '', '', '#7aa2e0');
+    return `<p class="q">${esc(q.q2)}</p><div class="chips">${chips}</div><div class="row2"><button class="btn" data-act="check"${Z.picks.size && !Z.checked ? '' : ' disabled'}>${esc(t.check)}</button></div>`;
+  }
+  lab.setReadout(esc(name), q.counts(sol.f, sol.e, sol.v), '', '#7aa2e0');
+  const more = sol.id === 'cylinder' ? q.curved : sol.id === 'cone' ? q.curvedCone : sol.id === 'sphere' ? q.sphere : '';
+  return verdict(Z.ok, Z.ok ? q.right : q.wrong, more) + (sol.id === 'sphere' ? `<div class="row2"><button class="btn push" data-act="next">${esc(t.next)}</button></div>` : foldRow(t)) +
+    `<div class="chips" style="margin-top:10px">${chips}</div>`;
+}
+function ctrlBuild(t) {
+  const B = S.b, n = B.cells.size, s = t.sec;
+  lab.setReadout(`${n} □`, t.f.faces, '', '#7aa2e0');
+  const msg = B.msg ? `<p class="verd ${B.mode === 'fold' && B.msg === t.f.overlap ? 'bad' : B.mode === 'fold' ? 'good' : 'bad'}">${esc(B.msg)}</p>` : `<p class="note">${esc(s.tap)}</p>`;
+  return `${msg}<div class="row2"><button class="btn" data-act="bgo">${esc(B.mode === 'fold' ? t.unfold : t.foldBtn)}</button>${B.mode === 'edit' ? `<button class="chip" data-act="bclear">${esc(t.clear)}</button>` : ''}</div>`;
+}
+function ctrlDice(t) {
+  const D = S.d, s = t.sec;
+  lab.setReadout('6 □', t.f.faces, '', '#7aa2e0');
+  const nums = [1, 2, 3, 4, 5, 6].map((n) => `<button class="chip num ${D.nums.includes(n) ? 'used' : ''} ${D.sel === n ? 'on' : ''}" data-act="dnum" data-k="${n}"${D.mode === 'edit' ? '' : ' disabled'}>${n}</button>`).join('');
+  const msg = D.res ? `<p class="verd ${D.bad ? 'bad' : 'good'}">${esc(D.res)}</p>` : `<p class="note">${esc(s.diceTap)}</p>`;
+  return `${msg}<div class="chips">${nums}</div><div class="row2"><button class="btn" data-act="dgo"${D.mode === 'edit' && !D.nums.every(Boolean) ? ' disabled' : ''}>${esc(D.mode === 'fold' ? t.unfold : t.foldBtn)}</button></div>`;
+}
+render();
+</script>
+</body>
+</html>
