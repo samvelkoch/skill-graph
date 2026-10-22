@@ -293,18 +293,34 @@ const wave = (x0, y, x1, amp, cyc, n = 80) => Array.from({ length: n + 1 }, (_, 
   const u = i / n;
   return [x0 + (x1 - x0) * u, y + amp * Math.sin(u * cyc * TAU) * Math.min(1, u * 8, (1 - u) * 8)];
 });
+// a capillary wave that follows a curved guide line (the lungs and the belly are not straight)
+function waveAlong(guide, amp, cyc, n = 150) {
+  const p = chaikin(guide, 3), loc = [0];
+  for (let i = 1; i < p.length; i++) loc.push(loc[i - 1] + Math.hypot(p[i][0] - p[i - 1][0], p[i][1] - p[i - 1][1]));
+  const L = loc[loc.length - 1], out = [];
+  let j = 1;
+  for (let i = 0; i <= n; i++) {
+    const u = i / n, dd = L * u;
+    while (j < p.length - 1 && loc[j] < dd) j++;
+    const a = p[j - 1], b = p[j], sg = (loc[j] - loc[j - 1]) || 1, e = (dd - loc[j - 1]) / sg;
+    const k = amp * Math.sin(u * cyc * TAU) * Math.min(1, u * 8, (1 - u) * 8);
+    out.push([lerp(a[0], b[0], e) - (b[1] - a[1]) / sg * k, lerp(a[1], b[1], e) + (b[0] - a[0]) / sg * k]);
+  }
+  return out;
+}
 function buildPath(defs) {
   const P = []; let d = 0; const secs = [];
   defs.forEach((df, si) => {
     const pts = df.smooth ? chaikin(df.pts, 3) : df.pts;
     const loc = [0]; let len = 0;
     for (let i = 1; i < pts.length; i++) { len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); loc.push(len); }
-    const d0 = d;
+    const d0 = d, ox = (i) => lerp(df.o[0], df.o[1], ss(len ? loc[i] / len : 0));
     pts.forEach((p, i) => {
       if (si > 0 && i === 0) return;                          // shared point with the previous section
-      P.push({ x: p[0], y: p[1], o: lerp(df.o[0], df.o[1], ss(len ? loc[i] / len : 0)), w: df.w, kind: df.kind, si, d: d0 + loc[i] });
+      P.push({ x: p[0], y: p[1], o: ox(i), w: df.w, kind: df.kind, si, d: d0 + loc[i] });
     });
-    d = d0 + len; secs.push({ k: df.k, kind: df.kind, d0, d1: d });
+    d = d0 + len;
+    secs.push({ k: df.k, kind: df.kind, d0, d1: d, w: df.w, pts: pts.map((p, i) => ({ x: p[0], y: p[1], o: ox(i) })) });
   });
   return { P, secs, total: d };
 }
@@ -330,28 +346,42 @@ function nearest(path, x, y) {
   return { d: best, si, kind };
 }
 
+// The heart sits in the child's chest, tipped toward the child's left (the right of the picture).
+// hp(u, v) turns a point in heart units (about -1..1) into a point of the 120 x 104 drawing box.
+const HEART = { x: 62, y: 50, s: 14, rot: -0.32 };
+const hp = (u, v) => {
+  const ca = Math.cos(HEART.rot), sa = Math.sin(HEART.rot);
+  return [HEART.x + HEART.s * (u * ca - v * sa), HEART.y + HEART.s * (u * sa + v * ca)];
+};
+
 // Virtual drawing box is 120 x 104 units for both diagrams.
+// D1: the loop drawn on the child's body. Lungs on both sides of the heart, the aorta running down to the belly.
 const D1 = [
-  { k: 'pa', kind: 'artery', pts: [[52, 38], [52, 30], [38, 24], [30, 14]], smooth: 1, o: [0, 0], w: 2.6 },
-  { k: 'lungcap', kind: 'cap', pts: wave(30, 14, 90, 2.6, 4), o: [0, 1], w: 1.1 },
-  { k: 'pv', kind: 'vein', pts: [[90, 14], [95, 24], [80, 32], [68, 38]], smooth: 1, o: [1, 1], w: 2.6 },
-  { k: 'hl', kind: 'heart', pts: [[68, 38], [68, 56]], o: [1, 1], w: 0 },
-  { k: 'aorta', kind: 'artery', pts: [[68, 56], [84, 62], [98, 72], [100, 84], [92, 92]], smooth: 1, o: [1, 1], w: 2.6 },
-  { k: 'bodycap', kind: 'cap', pts: wave(92, 92, 28, 2.8, 6), o: [1, 0], w: 1.1 },
-  { k: 'veins', kind: 'vein', pts: [[28, 92], [20, 84], [22, 72], [36, 64], [52, 56]], smooth: 1, o: [0, 0], w: 2.6 },
-  { k: 'hr', kind: 'heart', pts: [[52, 56], [52, 38]], o: [0, 0], w: 0 },
+  { k: 'pa', kind: 'artery', pts: [hp(-0.1, -0.55), [57.5, 37.5], [53, 34.5], [49, 38], [47.5, 45]], smooth: 1, o: [0, 0], w: 2.6 },
+  { k: 'lungcap', kind: 'cap', pts: waveAlong([[47.5, 45], [42, 45.5], [39.5, 40], [40.5, 34], [46, 30.5], [53, 29], [60, 28.5], [67, 29], [74, 30], [79.5, 33]], 1.5, 11), o: [0, 1], w: 1.5 },
+  { k: 'pv', kind: 'vein', pts: [[79.5, 33], [79, 37], [74.5, 39.5], hp(0.6, -0.5)], smooth: 1, o: [1, 1], w: 2.6 },
+  { k: 'hl', kind: 'heart', pts: [hp(0.6, -0.5), hp(0.5, 0), hp(0.3, 0.4), hp(0.12, 0.1), hp(0.18, -0.55)], smooth: 1, o: [1, 1], w: 0 },
+  { k: 'aorta', kind: 'artery', pts: [hp(0.18, -0.55), [62.3, 37], [65.5, 34], [71, 34.5], [75.5, 38.5], [78, 47], [78.5, 60], [76, 72], [73, 78]], smooth: 1, o: [1, 1], w: 2.6 },
+  { k: 'bodycap', kind: 'cap', pts: waveAlong([[73, 78], [77, 87], [72, 94], [60, 96], [48, 94], [43, 87], [47, 78]], 1.4, 14), o: [1, 0], w: 1.5 },
+  { k: 'veins', kind: 'vein', pts: [[47, 78], [46, 68], [47, 59], hp(-0.8, -0.1)], smooth: 1, o: [0, 0], w: 2.6 },
+  { k: 'hr', kind: 'heart', pts: [hp(-0.8, -0.1), hp(-0.45, 0.05), hp(-0.2, -0.2), hp(-0.1, -0.55)], smooth: 1, o: [0, 0], w: 0 },
 ];
+// The heart of the Inside view is drawn a little smaller than its first layout (HK) so the chamber names fit beside it, outside the outline.
+// hk() maps a point of the original heart layout to its place on the stage; the vessel columns run at the far left and right edges.
+const HK = 0.9, HC = [61, 58];
+const hk = (x, y) => [HC[0] + (x - HC[0]) * HK, HC[1] + (y - HC[1]) * HK];
+// D3: the diagram inside the heart. Lungs on top, the body below, the four chambers in between.
 const D3 = [
-  { k: 'body', kind: 'cap', pts: wave(108, 96, 14, 2.4, 7), o: [1, 0], w: 1.1 },
-  { k: 'veins', kind: 'vein', pts: [[14, 96], [14, 52], [22, 43], [36, 43]], smooth: 1, o: [0, 0], w: 3 },
-  { k: 'ra', kind: 'heart', pts: [[36, 43], [44, 43], [44, 56]], smooth: 1, o: [0, 0], w: 0 },
-  { k: 'rv', kind: 'heart', pts: [[44, 56], [44, 67], [52, 71], [58, 62], [60, 54]], smooth: 1, o: [0, 0], w: 0 },
-  { k: 'pa', kind: 'artery', pts: [[60, 54], [60, 30], [50, 20], [30, 14]], smooth: 1, o: [0, 0], w: 3 },
-  { k: 'lungs', kind: 'cap', pts: wave(30, 14, 96, 2.6, 5), o: [0, 1], w: 1.1 },
-  { k: 'pv', kind: 'vein', pts: [[96, 14], [96, 43], [84, 43]], smooth: 1, o: [1, 1], w: 3 },
-  { k: 'la', kind: 'heart', pts: [[84, 43], [75, 43], [75, 56]], smooth: 1, o: [1, 1], w: 0 },
-  { k: 'lv', kind: 'heart', pts: [[75, 56], [75, 68], [80, 75], [86, 69]], smooth: 1, o: [1, 1], w: 0 },
-  { k: 'aorta', kind: 'artery', pts: [[86, 69], [108, 69], [108, 96]], smooth: 1, o: [1, 1], w: 3 },
+  { k: 'body', kind: 'cap', pts: wave(128, 97, -6, 2.2, 9), o: [1, 0], w: 1.5 },
+  { k: 'veins', kind: 'vein', pts: [[-6, 97], [-6, 72], [-5.4, 58], [-1, 51], [10, 49], hk(29.5, 49)], smooth: 1, o: [0, 0], w: 3 },
+  { k: 'ra', kind: 'heart', pts: [hk(29.5, 49), hk(36, 48.5), hk(40, 52), hk(41, 57)], smooth: 1, o: [0, 0], w: 0 },
+  { k: 'rv', kind: 'heart', pts: [hk(41, 57), hk(39.5, 65), hk(43, 74), hk(50, 76), hk(54, 68), hk(54.8, 58)], smooth: 1, o: [0, 0], w: 0 },
+  { k: 'pa', kind: 'artery', pts: [hk(54.8, 58), hk(54.8, 42), hk(52, 32), [44, 24], [34, 14]], smooth: 1, o: [0, 0], w: 3 },
+  { k: 'lungs', kind: 'cap', pts: wave(34, 14, 92, 2.2, 6), o: [0, 1], w: 1.5 },
+  { k: 'pv', kind: 'vein', pts: [[92, 14], [91, 23], hk(86, 31), hk(79.5, 36)], smooth: 1, o: [1, 1], w: 3 },
+  { k: 'la', kind: 'heart', pts: [hk(79.5, 36), hk(79, 44), hk(78.5, 57)], smooth: 1, o: [1, 1], w: 0 },
+  { k: 'lv', kind: 'heart', pts: [hk(78.5, 57), hk(77, 66), hk(71, 73), hk(66, 68), hk(64, 58)], smooth: 1, o: [1, 1], w: 0 },
+  { k: 'aorta', kind: 'artery', pts: [hk(64, 58), hk(64, 42), hk(66, 32), [74, 26.5], [88, 28], [104, 33], [118, 42], [128, 54], [128, 97]], smooth: 1, o: [1, 1], w: 3 },
 ];
 const path1 = buildPath(D1), path3 = buildPath(D3);
 const sec1 = (k) => path1.secs.find((s) => s.k === k);
@@ -439,7 +469,8 @@ function renderState() {
     const p = S.sel ? t.parts[S.sel] : null, d = t.loopDefault;
     const emo = { heart: '❤️', lungs: '🫁', body: '💪', artery: '↗️', vein: '↙️', cap: '🕸️' };
     lab.setState({ emo: p ? emo[S.sel] : '🔁', title: p ? p.title : d.title, lead: p ? p.lead : d.lead, body: p ? p.body : d.body,
-      extra: `<div class="legend"><span><i style="background:${col(1)}"></i>${esc(t.rich)}</span><span><i style="background:${col(0)}"></i>${esc(t.poor)}</span><span><i style="background:#8fe3ff"></i>${esc(t.o2)}</span><span><i style="background:#c8c2b6"></i>${esc(t.co2)}</span></div>
+      extra: `<div class="legend"><span><i style="background:${col(1)}"></i>${esc(t.rich)}</span><span><i style="background:${col(0)}"></i>${esc(t.poor)}</span><span><i style="background:${O2C}"></i>${esc(t.o2)}</span><span><i style="background:${CO2C}"></i>${esc(t.co2)}</span></div>
+        <div class="legend"><span><i style="background:${ARTERY}"></i>${esc(t.parts.artery.chip)}</span><span><i style="background:${VEIN}"></i>${esc(t.parts.vein.chip)}</span></div>
         <div class="lap" id="lapLine"></div><div class="fine">${esc(t.neverBlue)}<br>${esc(t.fineLoop)}</div>` });
   } else if (v === 'move') {
     const a = ACT[S.act], ta = t.acts[S.act];
@@ -505,20 +536,16 @@ $('pulse').addEventListener('click', (ev) => {
 // ---------------------------------------------------------------------------------------------------------
 // 5. Drawing helpers
 // ---------------------------------------------------------------------------------------------------------
+const INK = '#2B2233', SEL = '#F2B632', ARTERY = '#E0313F', VEIN = '#5A62C8', O2C = '#35B6F0', CO2C = '#9C9488';
+let DPR = 1, DOTP = null;
+const SC = document.createElement('canvas').getContext('2d');          // scratch context: point-in-path tests on Path2D shapes
 const fitV = (w, h) => { const s = Math.min(w / 120, h / 104) * 0.98; return { s, ox: (w - 120 * s) / 2, oy: (h - 104 * s) / 2 }; };
+// Inside view: the box is 140 units wide (x -10..130) and leaves a strip at the bottom for the "Muscles & body" pill.
+const fitI = (w, h) => { const s = Math.min(w / 140, (h - 38) / 104); return { s, ox: (w - 140 * s) / 2 + 10 * s, oy: 4 + Math.max(0, (h - 38 - 104 * s) / 2) }; };
 function txt(c, s, x, y, size, o = {}) {
   c.font = `${o.w ?? 800} ${size}px ${FONT}`; c.textAlign = o.al ?? 'center'; c.textBaseline = o.bl ?? 'middle';
   if (o.halo !== false) { c.lineWidth = 3; c.lineJoin = 'round'; c.strokeStyle = 'rgba(10,12,20,.85)'; c.strokeText(s, x, y); }
   c.fillStyle = o.col ?? 'rgba(237,239,247,.92)'; c.fillText(s, x, y);
-}
-const fitSize = (c, s, maxW, size, w = 800) => { c.font = `${w} ${size}px ${FONT}`; const m = c.measureText(s).width; return m > maxW ? size * maxW / m : size; };
-function heartPath(c, cx, cy, s) {
-  c.beginPath(); c.moveTo(cx, cy - 0.45 * s);
-  c.bezierCurveTo(cx - 0.15 * s, cy - 1.0 * s, cx - 1.1 * s, cy - 0.95 * s, cx - 1.1 * s, cy - 0.2 * s);
-  c.bezierCurveTo(cx - 1.1 * s, cy + 0.35 * s, cx - 0.5 * s, cy + 0.65 * s, cx, cy + 1.0 * s);
-  c.bezierCurveTo(cx + 0.5 * s, cy + 0.65 * s, cx + 1.1 * s, cy + 0.35 * s, cx + 1.1 * s, cy - 0.2 * s);
-  c.bezierCurveTo(cx + 1.1 * s, cy - 0.95 * s, cx + 0.15 * s, cy - 1.0 * s, cx, cy - 0.45 * s);
-  c.closePath();
 }
 function rr(c, x, y, w, h, r) {
   const [tl, tr, br, bl] = Array.isArray(r) ? r : [r, r, r, r];
@@ -527,36 +554,335 @@ function rr(c, x, y, w, h, r) {
   c.lineTo(x, y + tl); c.arcTo(x, y, x + tl, y, tl); c.closePath();
 }
 const beatEnv = (p) => bump(p, 0, 0.14) + 0.55 * bump(p, 0.18, 0.36);          // "lub-dub"
-function lobe(c, cx, cy, rx, ry, k) { c.beginPath(); c.ellipse(cx, cy, rx * k, ry * k, 0, 0, TAU); }
+const hexRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+const shade = (h, k) => { const f = (v) => Math.round(k < 0 ? v * (1 + k) : v + (255 - v) * k); const [r, g, b] = hexRgb(h); return `rgb(${f(r)},${f(g)},${f(b)})`; };
+const plain = (s) => s.replace(/^[^\p{L}\p{N}]+/u, '');                          // no emoji in the picture: strip them from canvas labels
+const rnd = (() => { let a = 11; return () => (a = (a * 16807) % 2147483647) / 2147483647; })();
+const bez = (a, b, c2, d, t) => { const m = 1 - t; return [m * m * m * a[0] + 3 * m * m * t * b[0] + 3 * m * t * t * c2[0] + t * t * t * d[0], m * m * m * a[1] + 3 * m * m * t * b[1] + 3 * m * t * t * c2[1] + t * t * t * d[1]]; };
 
-function drawVessels(c, path, f, sel, time) {
-  const P = path.P, s = f.s; c.lineCap = 'round'; c.lineJoin = 'round';
-  const X = (x) => f.ox + x * s, Y = (y) => f.oy + y * s;
-  const pass = (fn) => { for (let i = 1; i < P.length; i++) { const a = P[i - 1], b = P[i]; if (b.w > 0) fn(a, b); } };
-  const seg = (a, b, wd, style) => { c.lineWidth = wd * s; c.strokeStyle = style; c.beginPath(); c.moveTo(X(a.x), Y(a.y)); c.lineTo(X(b.x), Y(b.y)); c.stroke(); };
-  pass((a, b) => seg(a, b, b.w + 0.9, 'rgba(210,190,200,.16)'));
-  pass((a, b) => seg(a, b, b.w, 'rgba(12,14,24,.9)'));
-  pass((a, b) => seg(a, b, b.w, col((a.o + b.o) / 2, 0.30)));
-  if (sel) { const al = 0.3 + 0.12 * Math.sin(time * 5); pass((a, b) => { if (b.kind === sel) seg(a, b, b.w + 2.2, `rgba(255,255,255,${al})`); }); }
+// The warm "book page" the picture sits on: gradient, soft vignette, faint dotted paper. Leaves the canvas clipped to the page.
+function panel(c, w, h) {
+  rr(c, 0, 0, w, h, 16); c.clip();
+  const g = c.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#F7F1E8'); g.addColorStop(1, '#EADFCF');
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+  const v = c.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.35, w / 2, h / 2, Math.max(w, h) * 0.78);
+  v.addColorStop(0, 'rgba(120,85,60,0)'); v.addColorStop(1, 'rgba(120,85,60,.14)');
+  c.fillStyle = v; c.fillRect(0, 0, w, h);
+  if (!DOTP) {
+    const d = document.createElement('canvas'); d.width = d.height = 14;
+    const x = d.getContext('2d'); x.fillStyle = 'rgba(110,80,60,.07)'; x.beginPath(); x.arc(7, 7, 1.1, 0, TAU); x.fill();
+    DOTP = c.createPattern(d, 'repeat');
+  }
+  c.fillStyle = DOTP; c.fillRect(0, 0, w, h);
 }
-function drawCells(c, sim, f, kp, lapRef) {
-  const s = f.s, X = (x) => f.ox + x * s, Y = (y) => f.oy + y * s;
+// A dark label pill. lines = [{ s, size, col, w }]. (x, y) is its centre, or its top-left / top-right corner (o.anchor). Returns its rect.
+function pill(c, lines, x, y, o = {}) {
+  const padX = o.padX ?? 9, padY = 5, gap = 1.5;
+  let tw = 0, th = padY * 2 - gap;
+  lines.forEach((l) => { c.font = `${l.w ?? 800} ${l.size}px ${FONT}`; tw = Math.max(tw, c.measureText(l.s).width); th += l.size * 1.2 + gap; });
+  const W = tw + padX * 2, H = th, m = 4;
+  let x0 = o.anchor === 'tl' ? x : o.anchor === 'tr' ? x - W : x - W / 2;
+  let y0 = o.anchor ? y : y - H / 2;
+  x0 = clamp(x0, m, Math.max(m, (o.cw ?? 1e9) - m - W)); y0 = clamp(y0, m, Math.max(m, (o.ch ?? 1e9) - m - H));
+  c.save(); rr(c, x0, y0, W, H, Math.min(11, H / 2));
+  c.shadowColor = 'rgba(30,20,40,.28)'; c.shadowBlur = 6 * DPR; c.shadowOffsetY = 2 * DPR;
+  c.fillStyle = 'rgba(30,26,43,.93)'; c.fill(); c.shadowColor = 'transparent';
+  c.lineWidth = 1; c.strokeStyle = o.border ?? 'rgba(242,201,76,.75)'; c.stroke();
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  let yy = y0 + padY;
+  lines.forEach((l) => { c.font = `${l.w ?? 800} ${l.size}px ${FONT}`; c.fillStyle = l.col ?? '#fff'; c.fillText(l.s, x0 + W / 2, yy + l.size * 0.6); yy += l.size * 1.2 + gap; });
+  c.restore();
+  return { x: x0, y: y0, w: W, h: H };
+}
+// a thin line from the edge of a pill to the thing it names
+function leader(c, r, tx, ty) {
+  const sx = clamp(tx, r.x, r.x + r.w), sy = clamp(ty, r.y, r.y + r.h);
+  if (sx === tx && sy === ty) return;
+  c.save(); c.lineCap = 'round'; c.strokeStyle = 'rgba(43,34,51,.65)'; c.lineWidth = 1.2;
+  c.beginPath(); c.moveTo(sx, sy); c.lineTo(tx, ty); c.stroke();
+  c.beginPath(); c.arc(tx, ty, 3, 0, TAU); c.fillStyle = '#fff'; c.fill(); c.lineWidth = 1.4; c.strokeStyle = INK; c.stroke();
+  c.restore();
+}
+// the same, but the line bends through some waypoints first (to keep clear of the lungs)
+function leaderVia(c, r, via, tx, ty) {
+  const sx = clamp(via[0][0], r.x, r.x + r.w), sy = clamp(via[0][1], r.y, r.y + r.h);
+  c.save(); c.lineCap = 'round'; c.lineJoin = 'round'; c.strokeStyle = 'rgba(43,34,51,.65)'; c.lineWidth = 1.2;
+  c.beginPath(); c.moveTo(sx, sy); via.forEach((p) => c.lineTo(p[0], p[1])); c.lineTo(tx, ty); c.stroke();
+  c.beginPath(); c.arc(tx, ty, 3, 0, TAU); c.fillStyle = '#fff'; c.fill(); c.lineWidth = 1.4; c.strokeStyle = INK; c.stroke();
+  c.restore();
+}
+function wrap(c, s, size, maxW, w = 700) {
+  c.font = `${w} ${size}px ${FONT}`;
+  const out = []; let line = '';
+  s.split(' ').forEach((wd) => { const t2 = line ? `${line} ${wd}` : wd; if (line && c.measureText(t2).width > maxW) { out.push(line); line = wd; } else line = t2; });
+  if (line) out.push(line);
+  return out;
+}
+
+// Offscreen layers for the parts that never change (body outline, skin): one drawImage per frame instead of a repaint.
+const LAY = new Map();
+function layer(c, key, w, h, paint, alpha = 1) {
+  let L = LAY.get(key);
+  if (!L) {
+    if (LAY.size > 10) LAY.clear();
+    L = document.createElement('canvas'); L.width = Math.max(1, Math.round(w * DPR)); L.height = Math.max(1, Math.round(h * DPR));
+    const x = L.getContext('2d'); x.setTransform(DPR, 0, 0, DPR, 0, 0); paint(x); LAY.set(key, L);
+  }
+  c.save(); c.globalAlpha = alpha; c.drawImage(L, 0, 0, w, h); c.restore();
+}
+
+// ---- the child --------------------------------------------------------------------------------------------
+// Drawing box 120 x 104. The torso runs on past the bottom (legs) and is clipped by the page.
+const TORSO = new Path2D('M56,24 C50,25 41,26 36,30 C33.5,32 34,38 35,46 C36,56 38,64 37,74 C36,82 33,88 33,96 L32.5,260 L58.5,260 L58.8,102 Q60,98 61.2,102 L61.5,260 L87.5,260 L87,96 C87,88 84,82 83,74 C82,64 84,56 85,46 C86,38 86.5,32 84,30 C79,26 70,25 64,24 Z');
+const ARM_L = new Path2D('M37,31 C30,40 27,52 24,66 C23,72 22.5,78 21.5,84'), ARM_R = new Path2D('M83,31 C90,40 93,52 96,66 C97,72 97.5,78 98.5,84'), ARM_W = 8.8;
+const ARM_CL = (() => {
+  const out = [];
+  [[[37, 31], [30, 40], [27, 52], [24, 66]], [[24, 66], [23, 72], [22.5, 78], [21.5, 84]]].forEach((sg, k) => { for (let i = k ? 1 : 0; i <= 10; i++) out.push(bez(...sg, i / 10)); });
+  return out;
+})();
+const mirrorPts = (pts) => pts.map(([x, y]) => [120 - x, y]);
+const ARM_CR = mirrorPts(ARM_CL);
+function paintEdge(x, f) {                                            // soft shadow + a clean 1.5 px outline round the whole body
+  x.translate(f.ox, f.oy); x.scale(f.s, f.s); x.lineCap = 'round'; x.lineJoin = 'round';
+  const all = () => { x.fillStyle = '#000'; x.strokeStyle = '#000'; x.lineWidth = ARM_W; x.fill(TORSO); x.stroke(ARM_L); x.stroke(ARM_R); };
+  x.save(); x.shadowColor = 'rgba(70,45,55,.34)'; x.shadowBlur = 14 * DPR; x.shadowOffsetX = 2 * DPR; x.shadowOffsetY = 4 * DPR; all(); x.restore();
+  x.globalCompositeOperation = 'destination-out'; all();
+  x.globalCompositeOperation = 'source-over';
+  const ring = 3 / f.s;
+  x.strokeStyle = '#9A6A50'; x.lineWidth = ring; x.stroke(TORSO); x.lineWidth = ARM_W + ring; x.stroke(ARM_L); x.stroke(ARM_R);
+  x.globalCompositeOperation = 'destination-out'; all();
+}
+function paintFill(x, f) {                                            // the skin, drawn solid here and laid over the page at ~40 %
+  x.translate(f.ox, f.oy); x.scale(f.s, f.s); x.lineCap = 'round';
+  const g = x.createLinearGradient(30, 18, 92, 120); g.addColorStop(0, '#F4CDAA'); g.addColorStop(1, '#E2A982');
+  x.fillStyle = g; x.strokeStyle = g; x.lineWidth = ARM_W; x.fill(TORSO); x.stroke(ARM_L); x.stroke(ARM_R);
+}
+
+// capillary beds: fine nets in the arms, the belly and the legs
+function netPolys(cl, hw, nl, rung) {
+  const nor = cl.map((p, i) => { const a = cl[Math.max(0, i - 1)], b = cl[Math.min(cl.length - 1, i + 1)], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1; return [-dy / l, dx / l]; });
+  const at = (i, k) => { const off = (k / (nl - 1) * 2 - 1) * hw + 0.45 * Math.sin(i * 0.9 + k * 2.1); return [cl[i][0] + nor[i][0] * off, cl[i][1] + nor[i][1] * off]; };
+  const out = [], last = cl.length - 1;
+  for (let k = 0; k < nl; k++) out.push(cl.map((_, i) => at(i, k)));
+  for (let i = 0, n = 0; i < last; i += rung, n++) for (let k = 0; k + 1 < nl; k++) {
+    const j = Math.min(last, i + rung);
+    out.push((k + n) % 2 ? [at(i, k), at(j, k + 1)] : [at(i, k + 1), at(j, k)]);
+  }
+  return out;
+}
+const densify = (a, b, n) => Array.from({ length: n + 1 }, (_, i) => [lerp(a[0], b[0], i / n), lerp(a[1], b[1], i / n)]);
+const NET = new Path2D();
+[netPolys(ARM_CL, 3.3, 4, 2), netPolys(ARM_CR, 3.3, 4, 2), netPolys(densify([45.5, 99], [45, 200], 50), 10, 6, 3),
+  netPolys(densify([74.5, 99], [75, 200], 50), 10, 6, 3), netPolys(densify([60, 69], [60, 99], 15), 21, 9, 2)].flat()
+  .forEach((pl) => { NET.moveTo(pl[0][0], pl[0][1]); pl.slice(1).forEach((p) => NET.lineTo(p[0], p[1])); });
+const offsetLine = (cl, off) => cl.map((p, i) => {
+  const a = cl[Math.max(0, i - 1)], b = cl[Math.min(cl.length - 1, i + 1)], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1;
+  return [p[0] - dy / l * off, p[1] + dx / l * off];
+});
+const LIMB = (() => {                                                // thin arteries (red) and veins (blue) running down the arms and legs
+  const armA = [[47, 31.5], [41, 30.5], ...offsetLine(ARM_CL, 1.3)], armV = [[47, 33], [41, 32], ...offsetLine(ARM_CL, -1.3)];
+  const legA = [[52, 90], [47, 97], [44.2, 106], [44.2, 260]], legV = [[54, 92], [49, 98], [46.8, 107], [46.8, 260]];
+  return { art: [armA, mirrorPts(armA), legA, mirrorPts(legA)], vein: [armV, mirrorPts(armV), legV, mirrorPts(legV)] };
+})();
+function polyline(c, pts) { c.beginPath(); pts.forEach((p, i) => (i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1]))); }
+
+// lungs: two spongy, lobed shapes with a bronchial tree and tiny air sacs
+const LUNG_L = new Path2D('M48,28 C54,27.5 58,31.5 58.2,39 L58.2,55 C58.2,62 55,66.5 49.5,67.2 C42,68 37,63.5 37.3,54 C37,42 40.5,31 48,28 Z');
+const LUNG_R = new Path2D('M72,28 C66,27.5 61.8,31.5 61.8,39 L61.8,55 C61.8,62 65,66.5 70.5,67.2 C78,68 83,63.5 82.7,54 C83,42 79.5,31 72,28 Z');
+function scatter(path, n, x0, y0, x1, y1) {
+  const out = []; let guard = 0;
+  while (out.length < n && guard++ < 5000) { const x = x0 + rnd() * (x1 - x0), y = y0 + rnd() * (y1 - y0); if (SC.isPointInPath(path, x, y)) out.push([x, y, 0.45 + rnd() * 0.5]); }
+  return out;
+}
+const ALV_L = scatter(LUNG_L, 46, 37, 28, 58, 68), ALV_R = scatter(LUNG_R, 46, 62, 28, 83, 68);
+const ALV_W = Array.from({ length: 36 }, () => { const a = rnd() * TAU, r = Math.sqrt(rnd()) * 0.86; return [Math.cos(a) * r, Math.sin(a) * r, 0.45 + rnd() * 0.5]; });
+const BRONCH = [[[60, 35], [54, 39], [49, 43.5]], [[54, 39], [50, 36], [46, 34]], [[49, 43.5], [44, 42], [41, 38.5]], [[49, 43.5], [45, 48], [42, 53]], [[52, 41], [51, 49], [49, 57]]];
+function drawLungs(c, sel, time) {
+  const br = (1 - Math.cos(breath * TAU)) / 2, k = 1 + 0.07 * br;
+  c.beginPath(); c.moveTo(60, 26); c.lineTo(60, 38); c.lineWidth = 2.9; c.strokeStyle = 'rgba(120,80,92,.8)'; c.stroke();   // windpipe
+  c.lineWidth = 2; c.strokeStyle = '#F1E6E1'; c.stroke();
+  [[LUNG_L, 47.5, ALV_L, 1], [LUNG_R, 72.5, ALV_R, 0]].forEach(([P, cx, alv, left]) => {
+    c.save(); c.translate(cx, 48); c.scale(k, k); c.translate(-cx, -48);
+    const g = c.createLinearGradient(cx - 12, 28, cx + 12, 68); g.addColorStop(0, '#F6B1BA'); g.addColorStop(1, '#E0798C');
+    c.save(); c.shadowColor = 'rgba(120,40,60,.3)'; c.shadowBlur = 7 * DPR; c.shadowOffsetY = 2 * DPR;
+    c.globalAlpha = 0.95; c.fillStyle = g; c.fill(P); c.restore();
+    c.save(); c.clip(P);
+    c.fillStyle = 'rgba(255,233,237,.7)'; alv.forEach(([x, y, r]) => { c.beginPath(); c.arc(x, y, 0.45 + 0.55 * r, 0, TAU); c.fill(); });
+    c.strokeStyle = 'rgba(170,62,88,.38)'; c.lineWidth = 0.7;               // the fissures between the lobes
+    [[[37, 47], [46, 44], [57, 50]], [[37, 58], [46, 55.5], [57, 60]]].slice(0, left ? 2 : 1).forEach((pts) => { polyline(c, (left ? pts : mirrorPts(pts))); c.stroke(); });
+    c.fillStyle = 'rgba(255,255,255,.26)'; c.beginPath(); c.ellipse(cx + (left ? -4 : 4), 36, 3.4, 7, left ? 0.2 : -0.2, 0, TAU); c.fill();
+    c.restore();
+    c.lineWidth = 0.55; c.strokeStyle = 'rgba(160,55,80,.95)'; c.stroke(P);
+    if (sel === 'lungs') { c.shadowColor = SEL; c.shadowBlur = 12 * DPR; c.lineWidth = 1.5; c.strokeStyle = `rgba(242,182,50,${(0.8 + 0.2 * Math.sin(time * 5)).toFixed(2)})`; c.stroke(P); }
+    c.restore();
+  });
+  c.strokeStyle = 'rgba(255,255,255,.6)'; c.lineWidth = 0.7;               // bronchial tree
+  BRONCH.forEach((pts) => { polyline(c, pts); c.stroke(); polyline(c, mirrorPts(pts)); c.stroke(); });
+}
+
+// ---- the heart ------------------------------------------------------------------------------------------
+function heartLocal(c) {                                              // a rounded cone, apex down-left, in heart units
+  c.beginPath(); c.moveTo(0, -0.62);
+  c.bezierCurveTo(0.15, -0.92, 0.72, -0.9, 0.78, -0.42);
+  c.bezierCurveTo(0.84, 0.02, 0.58, 0.48, 0.12, 0.96);
+  c.bezierCurveTo(-0.08, 1.0, -0.2, 0.9, -0.3, 0.74);
+  c.bezierCurveTo(-0.78, 0.36, -0.86, -0.1, -0.74, -0.42);
+  c.bezierCurveTo(-0.64, -0.78, -0.2, -0.92, 0, -0.62);
+  c.closePath();
+}
+function drawHeart(c, sel, time, px) {
+  const hb = 1 + 0.06 * beatEnv(beat), k = HEART.s * hb, lw = (n) => n * px / k;
+  c.save(); c.translate(HEART.x, HEART.y); c.rotate(HEART.rot); c.scale(k, k);
+  c.save(); c.shadowColor = 'rgba(90,10,30,.42)'; c.shadowBlur = 10 * DPR; c.shadowOffsetY = 3 * DPR;
+  heartLocal(c);
+  const g = c.createRadialGradient(-0.3, -0.45, 0.05, 0.1, 0.1, 1.25); g.addColorStop(0, '#EA5C6E'); g.addColorStop(0.45, '#D63A4C'); g.addColorStop(1, '#A0182E');
+  c.fillStyle = g; c.fill(); c.restore();
+  c.save(); heartLocal(c); c.clip();
+  const bl = c.createLinearGradient(-0.9, 0, 0.1, 0); bl.addColorStop(0, 'rgba(96,84,205,.85)'); bl.addColorStop(0.65, 'rgba(120,80,190,.4)'); bl.addColorStop(1, 'rgba(120,80,190,0)');
+  c.fillStyle = bl; c.fillRect(-1.2, -1.2, 1.4, 2.4);                // the right side of the heart holds the darker, oxygen-poor blood
+  const sh = c.createRadialGradient(0.5, 0.7, 0.05, 0.5, 0.7, 0.95); sh.addColorStop(0, 'rgba(70,0,20,.32)'); sh.addColorStop(1, 'rgba(70,0,20,0)');
+  c.fillStyle = sh; c.fillRect(-1.2, -1.2, 2.4, 2.4);
+  c.lineCap = 'round'; c.strokeStyle = 'rgba(100,10,30,.5)'; c.lineWidth = lw(1.4);
+  c.beginPath(); c.moveTo(-0.05, -0.55); c.bezierCurveTo(0.05, -0.1, 0, 0.4, 0.12, 0.92); c.stroke();
+  c.strokeStyle = 'rgba(255,205,190,.55)'; c.lineWidth = lw(1);        // coronary vessels on the surface
+  c.beginPath(); c.moveTo(0.25, -0.6); c.bezierCurveTo(0.5, -0.3, 0.55, 0.15, 0.3, 0.55); c.stroke();
+  c.beginPath(); c.moveTo(-0.45, -0.5); c.bezierCurveTo(-0.6, -0.2, -0.5, 0.2, -0.25, 0.5); c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.34)'; c.beginPath(); c.ellipse(-0.38, -0.42, 0.2, 0.09, -0.7, 0, TAU); c.fill();
+  c.fillStyle = 'rgba(255,255,255,.5)'; c.beginPath(); c.arc(-0.12, -0.68, 0.045, 0, TAU); c.fill();
+  c.restore();
+  if (sel === 'heart') { heartLocal(c); c.save(); c.shadowColor = SEL; c.shadowBlur = 12 * DPR; c.lineWidth = lw(4.5); c.strokeStyle = `rgba(242,182,50,${(0.85 + 0.15 * Math.sin(time * 5)).toFixed(2)})`; c.stroke(); c.restore(); }
+  heartLocal(c); c.lineWidth = lw(1.5); c.strokeStyle = '#7A1022'; c.lineJoin = 'round'; c.stroke();
+  c.restore();
+}
+
+// ---- blood: tubes and cells -----------------------------------------------------------------------------
+function drawTubes(c, path, sel, time) {
+  c.lineCap = 'round'; c.lineJoin = 'round';
+  const secs = path.secs.filter((s) => s.w > 0);
+  const trace = (pts, a, b) => { c.beginPath(); for (let i = a; i < b; i++) { if (i === a) c.moveTo(pts[i].x, pts[i].y); else c.lineTo(pts[i].x, pts[i].y); } };
+  if (sel) {
+    const al = (0.55 + 0.25 * Math.sin(time * 5)).toFixed(2);
+    secs.forEach((s) => { if (s.kind === sel) { trace(s.pts, 0, s.pts.length); c.lineWidth = s.w + 2.8; c.strokeStyle = `rgba(242,182,50,${al})`; c.stroke(); } });
+  }
+  secs.forEach((s) => { trace(s.pts, 0, s.pts.length); c.lineWidth = s.w + 0.95; c.strokeStyle = s.kind === 'cap' ? 'rgba(70,16,42,.8)' : 'rgba(54,16,40,.92)'; c.stroke(); });
+  secs.forEach((s) => {
+    if (s.kind !== 'cap') { trace(s.pts, 0, s.pts.length); c.lineWidth = s.w; c.strokeStyle = s.kind === 'artery' ? ARTERY : VEIN; c.stroke(); return; }
+    const n = s.pts.length, step = Math.ceil(n / 14);                 // capillaries change colour along the way: that is the swap
+    for (let i = 0; i < n - 1; i += step) {
+      const b = Math.min(n, i + step + 1); let o = 0;
+      for (let j = i; j < b; j++) o += s.pts[j].o;
+      trace(s.pts, i, b); c.lineWidth = s.w; c.strokeStyle = col(o / (b - i), 1); c.stroke();
+    }
+  });
+  secs.forEach((s) => { if (s.kind !== 'cap') { trace(s.pts, 0, s.pts.length); c.lineWidth = s.w * 0.26; c.strokeStyle = 'rgba(255,255,255,.34)'; c.stroke(); } });
+}
+function cell(c, x, y, r, o, tracked) {                               // a small biconcave disc: bright rim, darker dimple
+  const [R, G, B] = mixc(o), lt = `rgb(${Math.min(255, R + 75)},${Math.min(255, G + 75)},${Math.min(255, B + 75)})`, dk = `rgb(${Math.round(R * 0.6)},${Math.round(G * 0.6)},${Math.round(B * 0.6)})`;
+  if (tracked) { c.beginPath(); c.arc(x, y, r + 1.1, 0, TAU); c.lineWidth = 1.25; c.strokeStyle = INK; c.stroke(); c.lineWidth = 0.6; c.strokeStyle = '#fff'; c.stroke(); }
+  const g = c.createRadialGradient(x - r * 0.3, y - r * 0.35, r * 0.1, x, y, r);
+  g.addColorStop(0, lt); g.addColorStop(0.55, `rgb(${R},${G},${B})`); g.addColorStop(1, dk);
+  c.beginPath(); c.arc(x, y, Math.max(0, r), 0, TAU); c.fillStyle = g; c.fill(); c.lineWidth = 0.22; c.strokeStyle = 'rgba(50,8,24,.75)'; c.stroke();
+  c.beginPath(); c.ellipse(x, y, r * 0.5, r * 0.32, 0, 0, TAU); c.fillStyle = 'rgba(40,0,20,.26)'; c.fill();
+}
+function drawCells(c, sim, rBig, rCap) {
   for (let i = sim.d.length - 1; i >= 0; i--) {
     const p = sample(sim.path, sim.d[i]), tr = i === 0;
-    const r = Math.max(2.4, (p.kind === 'cap' ? 0.95 : 1.3) * s) * (tr ? 1.35 : 1);
-    const x = X(p.x), y = Y(p.y);
-    c.beginPath(); c.arc(x, y, r, 0, TAU); c.fillStyle = col(p.o, 1); c.fill();
-    c.lineWidth = 1; c.strokeStyle = 'rgba(255,255,255,.4)'; c.stroke();
-    c.beginPath(); c.ellipse(x, y, r * 0.5, r * 0.32, 0, 0, TAU); c.fillStyle = 'rgba(0,0,0,.22)'; c.fill();
-    if (tr) { c.beginPath(); c.arc(x, y, r + 3.5, 0, TAU); c.lineWidth = 2.2; c.strokeStyle = '#fff'; c.stroke(); }
+    cell(c, p.x, p.y, (p.kind === 'cap' ? rCap : rBig) * (tr ? 1.3 : 1), p.o, tr);
   }
 }
-function lungShape(c, f, cxs, cy, rx, ry, k, stroke) {
-  c.save();
-  cxs.forEach((cx) => {
-    lobe(c, f.ox + cx * f.s, f.oy + cy * f.s, rx * f.s, ry * f.s, k);
-    c.fillStyle = 'rgba(255,150,175,.13)'; c.fill(); c.lineWidth = 1.6; c.strokeStyle = stroke ?? 'rgba(255,170,190,.45)'; c.stroke();
+// oxygen and carbon dioxide moving between the blood and the air (lungs) or the tissue (body)
+function drawParticles(c) {
+  PT.forEach((p) => {
+    const sc = sec1(p.bed), q = sample(path1, sc.d0 + p.u * (sc.d1 - sc.d0)), e = p.t, lung = p.bed === 'lungcap', o2 = p.k === 'o2';
+    let dx, dy;
+    if (lung) { const ctr = q.x < 60 ? 47.5 : 72.5; dx = ctr - q.x; dy = 48 - q.y; } else { dx = q.x - 60; dy = q.y - 88; }
+    const l = Math.hypot(dx, dy) || 1, off = 6.5 * (lung ? (o2 ? 1 - e : e) : (o2 ? e : 1 - e));
+    c.globalAlpha = Math.sin(Math.PI * e) * 0.95;
+    c.beginPath(); c.arc(q.x + dx / l * off, q.y + dy / l * off, 0.95, 0, TAU); c.fillStyle = o2 ? O2C : CO2C; c.fill(); c.lineWidth = 0.28; c.strokeStyle = '#fff'; c.stroke();
+    c.globalAlpha = 1;
   });
+}
+
+// ---- the face -------------------------------------------------------------------------------------------
+function drawHead(c, inten, sleeping) {
+  const sk = c.createLinearGradient(50, 3, 70, 21); sk.addColorStop(0, '#F8D9BA'); sk.addColorStop(1, '#E6B088');
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  c.fillStyle = sk; c.strokeStyle = '#9A6A50'; c.lineWidth = 0.5;
+  rr(c, 55.6, 17, 8.8, 9.5, 2.2); c.fill(); c.stroke();                // neck
+  [-1, 1].forEach((sg) => { c.beginPath(); c.ellipse(60 + sg * 8.6, 12.8, 1.7, 2.3, 0, 0, TAU); c.fillStyle = sk; c.fill(); c.stroke(); });
+  c.beginPath(); c.ellipse(60, 11.5, 8.7, 9.4, 0, 0, TAU);
+  const fg = c.createRadialGradient(56, 8, 1, 60, 12, 11); fg.addColorStop(0, '#FBE2C6'); fg.addColorStop(1, '#EDBA92');
+  c.fillStyle = fg; c.fill(); c.stroke();
+  const hg = c.createLinearGradient(52, 2, 68, 10); hg.addColorStop(0, '#7A5038'); hg.addColorStop(1, '#4A2F22');   // hair
+  c.beginPath(); c.moveTo(51.2, 11); c.bezierCurveTo(50.2, 3.4, 55, 1.2, 60, 1.2); c.bezierCurveTo(65, 1.2, 69.8, 3.4, 68.8, 11);
+  c.bezierCurveTo(67.4, 8, 64.6, 6.6, 62, 6.8); c.bezierCurveTo(59, 5.6, 55.4, 6.8, 53.8, 8.4); c.bezierCurveTo(52.6, 9.2, 51.8, 10, 51.2, 11); c.closePath();
+  c.fillStyle = hg; c.fill(); c.lineWidth = 0.4; c.strokeStyle = '#3A2318'; c.stroke();
+  c.beginPath(); c.moveTo(54.5, 4.4); c.quadraticCurveTo(58, 2.4, 62, 2.8); c.lineWidth = 0.45; c.strokeStyle = 'rgba(255,255,255,.28)'; c.stroke();
+  [[53.8, 15.6], [66.2, 15.6]].forEach(([x, y]) => { c.beginPath(); c.arc(x, y, 2.1, 0, TAU); c.fillStyle = `rgba(255,100,118,${(0.2 + 0.5 * inten).toFixed(2)})`; c.fill(); });   // cheeks
+  c.strokeStyle = '#5A3A2A'; c.lineWidth = 0.4;                          // brows
+  [[54.5, 57.8], [65.5, 62.2]].forEach(([a, b]) => { c.beginPath(); c.moveTo(a, 9.9); c.quadraticCurveTo((a + b) / 2, 9, b, 9.7); c.stroke(); });
+  [56.2, 63.8].forEach((x) => {
+    if (sleeping) { c.beginPath(); c.moveTo(x - 1.5, 12.2); c.quadraticCurveTo(x, 13.7, x + 1.5, 12.2); c.lineWidth = 0.45; c.strokeStyle = INK; c.stroke(); return; }
+    c.beginPath(); c.ellipse(x, 12.2, 1.15, 1.5, 0, 0, TAU); c.fillStyle = INK; c.fill();
+    c.beginPath(); c.arc(x - 0.4, 11.6, 0.42, 0, TAU); c.fillStyle = '#fff'; c.fill();
+  });
+  c.beginPath(); c.moveTo(59.2, 14.7); c.quadraticCurveTo(60, 15.4, 60.8, 14.7); c.lineWidth = 0.28; c.strokeStyle = 'rgba(154,106,80,.8)'; c.stroke();
+  if (inten > 0.55 && !sleeping) {                                       // panting
+    const o = (1 - Math.cos(breath * TAU)) / 2;
+    c.beginPath(); c.ellipse(60, 17.7, 1.6, 1.0 + 0.9 * o, 0, 0, TAU); c.fillStyle = '#7A2A33'; c.fill(); c.lineWidth = 0.3; c.strokeStyle = '#5A1A25'; c.stroke();
+  } else { c.beginPath(); c.moveTo(57.4, 16.8); c.quadraticCurveTo(60, 19.2, 62.6, 16.8); c.lineWidth = 0.45; c.strokeStyle = '#9A4A4A'; c.stroke(); }
+}
+function drawSweat(c, inten, time) {
+  const n = inten > 0.75 ? 4 : inten > 0.45 ? 2 : 0;
+  [[54.5, 5.5], [66, 6.2], [50.6, 12], [69.6, 12.4]].slice(0, n).forEach(([x, y0], i) => {
+    const ph = (time * 0.8 + i * 0.37) % 1, y = y0 + ph * 6;
+    c.save(); c.translate(x, y); c.globalAlpha = Math.sin(Math.PI * ph) * 0.95;
+    c.beginPath(); c.moveTo(0, -1.5); c.quadraticCurveTo(1.25, 0.2, 0, 1.1); c.quadraticCurveTo(-1.25, 0.2, 0, -1.5);
+    c.fillStyle = '#9ED8F4'; c.fill(); c.lineWidth = 0.22; c.strokeStyle = '#3F8FB8'; c.stroke(); c.restore();
+  });
+}
+
+// the whole child, x-ray style: skin, bones, nets, lungs, tubes, heart, cells. o = { sel, time, inten, particles, ripples, sleep }
+function drawFigure(c, w, h, f, o) {
+  const { sel, time, inten } = o, s = f.s, px = 1 / s;
+  const key = `${w}|${h}|${DPR}|${s.toFixed(3)}|${f.ox.toFixed(1)}|${f.oy.toFixed(1)}`;
+  layer(c, `e|${key}`, w, h, (x) => paintEdge(x, f));
+  layer(c, `f|${key}`, w, h, (x) => paintFill(x, f), 0.42);
+  c.save(); c.translate(f.ox, f.oy); c.scale(s, s); c.lineCap = 'round'; c.lineJoin = 'round';
+  c.save(); c.clip(TORSO);                                              // soft inner glow: the torso is see-through
+  const gl = c.createRadialGradient(60, 46, 3, 60, 52, 44); gl.addColorStop(0, 'rgba(255,251,242,.9)'); gl.addColorStop(1, 'rgba(255,251,242,0)');
+  c.fillStyle = gl; c.fillRect(20, 20, 80, 190);
+  c.restore();
+  c.strokeStyle = 'rgba(168,146,112,.55)'; c.lineWidth = 0.9;           // faint bones: collarbones, ribs, spine
+  for (const m of [0, 1]) {
+    const X = (x) => (m ? 120 - x : x);
+    c.beginPath(); c.moveTo(X(58), 27.5); c.quadraticCurveTo(X(46), 24.5, X(37), 29.5); c.stroke();
+    for (let i = 0; i < 6; i++) { const y0 = 31 + i * 5.5; c.beginPath(); c.moveTo(X(58), y0); c.quadraticCurveTo(X(44), y0 - 4, X(36.8), y0 + 8); c.stroke(); }
+  }
+  c.fillStyle = 'rgba(168,146,112,.5)'; for (let y = 27; y < 98; y += 4.2) { c.beginPath(); c.ellipse(60, y, 2.2, 1.2, 0, 0, TAU); c.fill(); }
+  const hot = sel === 'cap' || sel === 'body';                          // capillary nets
+  if (hot) { c.strokeStyle = `rgba(242,182,50,${(0.45 + 0.2 * Math.sin(time * 5)).toFixed(2)})`; c.lineWidth = 1.6; c.stroke(NET); }
+  c.strokeStyle = hot ? 'rgba(200,48,90,.8)' : 'rgba(196,58,96,.5)'; c.lineWidth = 0.32; c.stroke(NET);
+  const limb = (list, color) => {
+    list.forEach((pts) => { polyline(c, pts); c.lineWidth = 1.7; c.strokeStyle = 'rgba(54,16,40,.85)'; c.stroke(); });
+    list.forEach((pts) => { polyline(c, pts); c.lineWidth = 1.15; c.strokeStyle = color; c.stroke(); });
+  };
+  if (sel === 'artery' || sel === 'vein') { c.lineWidth = 3.2; c.strokeStyle = 'rgba(242,182,50,.55)'; LIMB[sel === 'artery' ? 'art' : 'vein'].forEach((pts) => { polyline(c, pts); c.stroke(); }); }
+  limb(LIMB.vein, VEIN); limb(LIMB.art, ARTERY);
+  drawHead(c, inten, o.sleep);
+  drawLungs(c, sel, time);
+  drawTubes(c, path1, sel === 'artery' || sel === 'vein' || sel === 'cap' ? sel : null, time);
+  if (o.ripples) {
+    while (ripples.length && time - ripples[0] > 0.9) ripples.shift();
+    ripples.forEach((r0) => { const e = (time - r0) / 0.9; c.beginPath(); c.arc(HEART.x + 2, HEART.y + 2, 11 + e * 9, 0, TAU); c.strokeStyle = `rgba(214,58,76,${(0.5 * (1 - e)).toFixed(2)})`; c.lineWidth = 0.7; c.stroke(); });
+  }
+  const gb = beatEnv(beat), hg = c.createRadialGradient(HEART.x + 2, HEART.y + 3, 6, HEART.x + 2, HEART.y + 3, 24);   // a soft red halo that pulses with the beat
+  hg.addColorStop(0, `rgba(230,60,70,${(0.1 + 0.2 * gb).toFixed(2)})`); hg.addColorStop(1, 'rgba(230,60,70,0)');
+  c.fillStyle = hg; c.fillRect(HEART.x - 26, HEART.y - 26, 56, 56);
+  drawHeart(c, sel, time, px);
+  if (o.particles) drawParticles(c);
+  drawCells(c, sim1, 1.15, 0.8);
+  drawSweat(c, inten, time);
   c.restore();
 }
 
@@ -570,6 +896,7 @@ function step(dt, time) {
   if (Math.abs(HRS.tgt - HRS.cur) < 0.05) HRS.cur = HRS.tgt;
   beat += dt * HRS.cur / 60;
   if (beat >= 1) { beat -= Math.floor(beat); if (HRS.cur > 1) { sfx.push(); ripples.push(time); } }
+  while (ripples.length && time - ripples[0] > 1) ripples.shift();
   breath = (breath + dt * brOf(HRS.cur) / 60) % 1;
   const f = HRS.cur / 75;
   const adv = (sim, kp, lap, pulseGain) => {
@@ -596,52 +923,42 @@ function step(dt, time) {
   liveReadout(false);
 }
 
+
 // ---------------------------------------------------------------------------------------------------------
 // 7. Scene 1: the loop
 // ---------------------------------------------------------------------------------------------------------
+// label pills: [part, pill centre (drawing units), the spot the line points to]
+const LOOP_TAGS = [
+  ['lungs', 15, 27, 40.5, 40], ['vein', 15, 58, 46.4, 66], ['cap', 15, 88, 43.2, 88],
+  ['heart', 105, 27, 69.5, 44], ['artery', 105, 58, 78.4, 58], ['body', 105, 88, 77, 87],
+];
+const tapRects = [];                                                    // the pills are tappable too (filled every frame)
 function drawLoop(c, w, h, time) {
   const t = T[lang], f = fitV(w, h), s = f.s, X = (x) => f.ox + x * s, Y = (y) => f.oy + y * s;
-  const fs = clamp(s * 3.6, 10, 15), sel = S.sel;
-  const br = (1 - Math.cos(breath * TAU)) / 2, k = 1 + 0.09 * br;
-  // lungs + muscles backdrop
-  lungShape(c, f, [43, 77], 16, 16.5, 10.5, k, sel === 'lungs' ? '#fff' : null);
-  c.save(); rr(c, X(22), Y(83), 76 * s, 18.5 * s, 6 * s);
-  c.fillStyle = 'rgba(255,120,90,.07)'; c.fill(); c.lineWidth = sel === 'body' ? 3 : 1.4; c.strokeStyle = sel === 'body' ? '#fff' : 'rgba(255,150,120,.35)'; c.stroke();
-  c.clip(); c.strokeStyle = 'rgba(255,130,100,.1)'; c.lineWidth = 1;
-  for (let x = 14; x < 110; x += 4.5) { c.beginPath(); c.moveTo(X(x), Y(83)); c.lineTo(X(x + 12), Y(101.5)); c.stroke(); }
-  c.restore();
-  drawVessels(c, path1, f, sel === 'artery' || sel === 'vein' || sel === 'cap' ? sel : null, time);
-  // heart
-  const hp = 1 + 0.09 * beatEnv(beat), size = 16 * s;
-  c.save(); c.translate(X(60), Y(48)); c.scale(hp, hp);
-  heartPath(c, 0, 0, size); c.save(); c.clip();
-  c.fillStyle = 'rgba(140,30,88,.5)'; c.fillRect(-size * 1.3, -size * 1.2, size * 1.3, size * 2.4);
-  c.fillStyle = 'rgba(255,72,56,.5)'; c.fillRect(0, -size * 1.2, size * 1.3, size * 2.4);
-  c.restore();
-  heartPath(c, 0, 0, size); c.lineWidth = sel === 'heart' ? 3.5 : 2; c.strokeStyle = sel === 'heart' ? '#fff' : 'rgba(255,160,150,.85)'; c.stroke();
-  c.restore();
-  drawCells(c, sim1, f, KP1);
-  // O2 / CO2 swapping
-  PT.forEach((p) => {
-    const sc = sec1(p.bed), q = sample(path1, sc.d0 + p.u * (sc.d1 - sc.d0)), e = p.t;
-    const lung = p.bed === 'lungcap', o2 = p.k === 'o2';
-    const off = lung ? (o2 ? -8 * (1 - e) : -8 * e) : (o2 ? 8 * e : 8 * (1 - e));
-    c.globalAlpha = Math.sin(Math.PI * e) * 0.95;
-    c.beginPath(); c.arc(X(q.x), Y(q.y + off), Math.max(2, 0.8 * s), 0, TAU); c.fillStyle = o2 ? '#8fe3ff' : '#c8c2b6'; c.fill();
-    c.globalAlpha = 1;
+  const inten = clamp((HRS.cur - 60) / 130, 0, 1), fs = clamp(s * 4.3, 12, 15);
+  drawFigure(c, w, h, f, { sel: S.sel, time, inten, particles: true });
+  tapRects.length = 0;
+  const rects = LOOP_TAGS.map(([k, vx, vy, tx, ty]) => {
+    const r = pill(c, [{ s: plain(t.parts[k].tag), size: fs }], X(vx), Y(vy), { cw: w, ch: h, border: S.sel === k ? SEL : undefined });
+    const gy = Math.max(0, (36 - r.h) / 2);
+    tapRects.push({ k, x: r.x, y: r.y - gy, w: r.w, h: r.h + gy * 2 });
+    return [r, tx, ty];
   });
-  // tags
-  txt(c, t.parts.lungs.tag, X(60), Y(3.6), fs); txt(c, t.parts.heart.tag, X(60), Y(77), fs * 1.1);
-  txt(c, t.parts.vein.tag, X(36), Y(77), fs * 0.95); txt(c, t.parts.artery.tag, X(84), Y(77), fs * 0.95);
-  txt(c, t.parts.cap.tag, X(60), Y(86.2), fs * 0.85, { col: 'rgba(237,239,247,.7)' });
-  txt(c, t.parts.body.tag, X(60), Y(99.6), fs * 0.95, { w: 700 });
+  rects.forEach(([r, tx, ty]) => leader(c, r, X(tx), Y(ty)));
 }
-function hit1(x, y) {
-  if (((x - 60) / 17.5) ** 2 + ((y - 48) / 16.5) ** 2 < 1) return 'heart';
+const tapTag = (px, py) => tapRects.find((r) => px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h)?.k ?? null;
+const nearPoly = (pts, x, y) => {
+  let b = 1e9;
+  for (let i = 1; i < pts.length; i++) b = Math.min(b, segDist(x, y, { x: pts[i - 1][0], y: pts[i - 1][1] }, { x: pts[i][0], y: pts[i][1] }));
+  return b;
+};
+function hit1(x, y, s) {
+  const tol = Math.max(3.6, 17 / s);                                    // at least ~34 px across on a phone
+  if (((x - 63) / 12.5) ** 2 + ((y - 50) / 14) ** 2 < 1) return 'heart';
   const n = nearest(path1, x, y);
-  if (n.d < 3.6) return n.kind;
-  if (y < 28 && x > 24 && x < 96) return 'lungs';
-  if (y > 81 && x > 20 && x < 100) return 'body';
+  if (n.d < (n.kind === 'cap' ? Math.max(3, 9 / s) : tol)) return n.kind;
+  if (((x - 47.5) / 10.5) ** 2 + ((y - 48) / 20) ** 2 < 1 || ((x - 72.5) / 10.5) ** 2 + ((y - 48) / 20) ** 2 < 1) return 'lungs';
+  if ((y >= 67 && x > 34 && x < 86) || (y >= 98 && ((x > 32 && x < 58) || (x > 62 && x < 88))) || nearPoly(ARM_CL, x, y) < 7.2 || nearPoly(ARM_CR, x, y) < 7.2) return 'body';
   return null;
 }
 
@@ -654,47 +971,67 @@ const pulseWave = (p) => {
 };
 function drawMove(c, w, h, dt, time) {
   const t = T[lang], a = ACT[S.act];
-  const top = h * 0.6, u = Math.min(w * 0.15, top * 0.26), hx = w * 0.25, hy = top * 0.4, lx = w * 0.75;
   const inten = clamp((HRS.cur - 60) / 130, 0, 1);
-  // activity figure
-  const bounce = a.step ? -Math.abs(Math.sin(time * a.step * Math.PI)) * u * 0.14 : 0;
-  c.font = `${u * 1.0}px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle';
-  if (S.act === 'sprint') { c.strokeStyle = 'rgba(200,220,255,.5)'; c.lineWidth = 2; c.lineCap = 'round'; for (let i = 0; i < 3; i++) { const yy = hy + (i - 1) * u * 0.3, xx = w * 0.5 - u * (0.75 + 0.15 * ((time * 6 + i) % 1)); c.beginPath(); c.moveTo(xx, yy); c.lineTo(xx - u * 0.45, yy); c.stroke(); } }
-  c.fillStyle = '#fff'; c.fillText(a.e, w * 0.5, hy + bounce);
-  // heart
-  const pulse = 1 + 0.12 * beatEnv(beat);
-  while (ripples.length && time - ripples[0] > 0.8) ripples.shift();
-  ripples.forEach((r0) => { const e = (time - r0) / 0.8; c.beginPath(); c.arc(hx, hy, u * (1.0 + e * 0.7), 0, TAU); c.strokeStyle = `rgba(255,90,80,${0.45 * (1 - e)})`; c.lineWidth = 2; c.stroke(); });
-  c.save(); c.translate(hx, hy); c.scale(pulse, pulse);
-  heartPath(c, 0, 0, u * 0.95);
-  const g = c.createRadialGradient(-u * 0.3, -u * 0.4, u * 0.1, 0, 0, u * 1.3); g.addColorStop(0, '#ff8a7a'); g.addColorStop(0.5, '#e0243a'); g.addColorStop(1, '#8c0f26');
-  c.fillStyle = g; c.fill(); c.lineWidth = 2; c.strokeStyle = 'rgba(255,190,180,.7)'; c.stroke(); c.restore();
-  txt(c, String(Math.round(HRS.cur)), hx, hy + u * 1.35, u * 0.62, { w: 900 });
-  txt(c, t.beatsMin, hx, hy + u * 1.35 + u * 0.46, Math.min(u * 0.26, fitSize(c, t.beatsMin, w * 0.4, u * 0.26)), { w: 700, col: 'rgba(237,239,247,.7)' });
-  // lungs
-  const br = (1 - Math.cos(breath * TAU)) / 2, k = 1 + 0.16 * br, ly = hy;
-  c.save(); c.translate(lx, ly);
-  c.strokeStyle = 'rgba(255,190,205,.55)'; c.lineWidth = 3; c.lineCap = 'round';
-  c.beginPath(); c.moveTo(0, -u * 1.15); c.lineTo(0, -u * 0.35); c.moveTo(0, -u * 0.35); c.lineTo(-u * 0.55, 0); c.moveTo(0, -u * 0.35); c.lineTo(u * 0.55, 0); c.stroke();
-  [-0.8, 0.8].forEach((sx) => {
-    lobe(c, sx * u, 0.05 * u, u * 0.72, u * 0.98, k);
-    c.fillStyle = `rgba(255,150,175,${0.2 + 0.18 * br})`; c.fill(); c.lineWidth = 2; c.strokeStyle = 'rgba(255,175,195,.7)'; c.stroke();
-  });
+  // the child fills the stage; the card below overlaps only her belly and legs (the pulse trace is short, the two experiments get a bit more room)
+  const x0 = 10, x1 = w - 10, y1 = h - 9, y0 = y1 - Math.round(S.secret ? Math.max(100, h * 0.34) : Math.max(84, h * 0.26));
+  const s = Math.min(w / 122, (h - 8) / 104), f = { s, ox: (w - 120 * s) / 2, oy: 8 };
+  // the child (cropped by the card below it)
+  c.save(); c.beginPath(); c.rect(0, 0, w, y0 + 6); c.clip();
+  if (S.act === 'sprint') {
+    c.strokeStyle = 'rgba(43,34,51,.28)'; c.lineWidth = 2; c.lineCap = 'round';
+    for (let i = 0; i < 3; i++) { const yy = f.oy + (34 + i * 14) * s, xe = f.ox + 17 * s, len = (16 + 10 * ((time * 6 + i) % 1)) * s; c.beginPath(); c.moveTo(xe - len, yy); c.lineTo(xe - len * 0.25, yy); c.stroke(); }
+  }
+  c.save();
+  c.translate(0, a.step ? -Math.abs(Math.sin(time * a.step * Math.PI)) * 2.2 * s : 0);
+  drawFigure(c, w, h, f, { sel: null, time, inten, ripples: true, sleep: S.act === 'sleep' });
   c.restore();
-  txt(c, String(Math.round(brOf(HRS.cur))), lx, hy + u * 1.35, u * 0.62, { w: 900 });
-  txt(c, t.breathMin, lx, hy + u * 1.35 + u * 0.46, fitSize(c, t.breathMin, w * 0.4, u * 0.26, 700), { w: 700, col: 'rgba(237,239,247,.7)' });
-  // bottom area
-  const x0 = 12, x1 = w - 12, y0 = top + 6, y1 = h - 8;
-  c.save(); rr(c, x0, y0, x1 - x0, y1 - y0, 12); c.fillStyle = 'rgba(8,10,18,.45)'; c.fill(); c.lineWidth = 1; c.strokeStyle = 'rgba(130,145,190,.22)'; c.stroke(); c.clip();
-  const fz = clamp((y1 - y0) * 0.11, 10, 13);
+  if (S.act === 'sleep') {
+    for (let i = 0; i < 3; i++) {
+      const ph = (time * 0.45 + i / 3) % 1;
+      c.save(); c.globalAlpha = Math.sin(Math.PI * ph) * 0.9;
+      txt(c, 'Z', f.ox + (70.8 + ph * 3.4) * s, f.oy + (9 - ph * 11) * s, 12 + i * 3 + ph * 3, { halo: false, w: 900, col: '#5A4A8A' });
+      c.restore();
+    }
+  }
+  c.restore();
+  // the two numbers sit in the free corners beside the head, and point to their organ without crossing the lungs
+  const availW = f.ox + 49 * s - 16;
+  const stat = (num, col2, label, ax, ay, anchor) => {
+    const nsz = 20, lsz = 12, padX = 8, padY = 5, gap = 7;
+    c.font = `900 ${nsz}px ${FONT}`; const nw = c.measureText('188').width;
+    const lines = wrap(c, label, lsz, Math.max(46, availW - padX * 2 - gap - nw), 700);
+    c.font = `700 ${lsz}px ${FONT}`; const lw = Math.max(...lines.map((l) => c.measureText(l).width));
+    const W = padX * 2 + nw + gap + lw, H = Math.max(nsz * 1.25, lines.length * lsz * 1.2) + padY * 2;
+    const x = clamp(anchor === 'tr' ? ax - W : ax, 4, Math.max(4, w - 4 - W)), y = ay;
+    c.save(); rr(c, x, y, W, H, Math.min(11, H / 2));
+    c.shadowColor = 'rgba(30,20,40,.28)'; c.shadowBlur = 6 * DPR; c.shadowOffsetY = 2 * DPR;
+    c.fillStyle = 'rgba(30,26,43,.93)'; c.fill(); c.shadowColor = 'transparent';
+    c.lineWidth = 1; c.strokeStyle = 'rgba(242,201,76,.75)'; c.stroke();
+    c.textAlign = 'center'; c.textBaseline = 'middle'; c.font = `900 ${nsz}px ${FONT}`; c.fillStyle = col2; c.fillText(String(num), x + padX + nw / 2, y + H / 2 + 1);
+    c.textAlign = 'left'; c.font = `700 ${lsz}px ${FONT}`; c.fillStyle = '#E9E4F2';
+    const top = y + (H - lines.length * lsz * 1.2) / 2; lines.forEach((l, i) => c.fillText(l, x + padX + nw + gap, top + (i + 0.5) * lsz * 1.2));
+    c.restore();
+    return { x, y, w: W, h: H };
+  };
+  const rl = stat(Math.round(HRS.cur), '#FF7A68', t.beatsMin, 8, 8, 'tl'), rb = stat(Math.round(brOf(HRS.cur)), '#8FE3FF', t.breathMin, w - 8, 8, 'tr');
+  const gx = f.ox + 60.2 * s;                                                     // the gap between the lungs, down the neck and windpipe
+  leaderVia(c, rl, [[gx, f.oy + 25.5 * s]], gx, f.oy + 43 * s);
+  leader(c, rb, f.ox + 74 * s, f.oy + 38 * s);
+  // the card at the bottom: pulse line, or one of the two secret experiments
+  c.save(); rr(c, x0, y0, x1 - x0, y1 - y0, 14);
+  c.shadowColor = 'rgba(30,20,40,.3)'; c.shadowBlur = 10 * DPR; c.shadowOffsetY = 3 * DPR; c.fillStyle = 'rgba(30,26,43,.96)'; c.fill(); c.shadowColor = 'transparent';
+  c.lineWidth = 1; c.strokeStyle = 'rgba(242,201,76,.55)'; c.stroke(); c.clip();
+  const fz = clamp((y1 - y0) * 0.11, 12, 14);
   if (S.secret === 'day') {
     txt(c, t.day.canvas, x0 + 12, y0 + fz + 2, fz, { al: 'left', halo: false, w: 700, col: 'rgba(237,239,247,.75)' });
-    const rh = (y1 - y0 - fz * 2 - 8) / 5, maxN = ACT.sprint.hr * 1440, bx = x0 + 12 + rh * 1.2, bw = x1 - bx - 12 - fz * 5.5;
+    c.font = `800 ${fz}px ${FONT}`;
+    const lw = Math.max(...ACTS.map((k2) => c.measureText(t.acts[k2].chip).width)) + 8;
+    const rh = (y1 - y0 - fz * 2 - 8) / 5, maxN = ACT.sprint.hr * 1440, bx = x0 + 12 + lw, bw = x1 - bx - 12 - fz * 5.5;
     ACTS.forEach((k2, i) => {
       const n = ACT[k2].hr * 1440, y = y0 + fz * 2 + 6 + rh * (i + 0.5), cur = k2 === S.act;
-      c.font = `${rh * 0.7}px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#fff'; c.fillText(ACT[k2].e, x0 + 12 + rh * 0.5, y);
+      txt(c, t.acts[k2].chip, x0 + 12, y, fz, { al: 'left', halo: false, w: cur ? 900 : 700, col: cur ? '#fff' : 'rgba(237,239,247,.7)' });
       rr(c, bx, y - rh * 0.28, Math.max(4, bw * n / maxN), rh * 0.56, 4); c.fillStyle = cur ? '#ff5a4a' : 'rgba(255,90,74,.35)'; c.fill();
-      txt(c, fmt(n), bx + Math.max(4, bw * n / maxN) + 6, y, Math.min(fz, rh * 0.8), { al: 'left', halo: false, w: cur ? 900 : 700, col: cur ? '#fff' : 'rgba(237,239,247,.7)' });
+      txt(c, fmt(n), bx + Math.max(4, bw * n / maxN) + 6, y, fz, { al: 'left', halo: false, w: cur ? 900 : 700, col: cur ? '#fff' : 'rgba(237,239,247,.7)' });
     });
   } else if (S.secret === 'lap') {
     S.lapA = ((S.lapA ?? 0) + dt * TAU * (HRS.cur / REST_HR) / 10) % TAU; S.lapB = ((S.lapB ?? 0) + dt * TAU / 10) % TAU;
@@ -703,16 +1040,16 @@ function drawMove(c, w, h, dt, time) {
       c.beginPath(); c.arc(cx, cy, r, 0, TAU); c.strokeStyle = 'rgba(130,145,190,.3)'; c.lineWidth = 2; c.stroke();
       c.beginPath(); c.arc(cx + r * Math.sin(ang), cy - r * Math.cos(ang), Math.max(4, R * 0.1), 0, TAU); c.fillStyle = cc; c.fill();
     });
-    const tx = cx + R + 22, lap = Math.round(REST_LAP * REST_HR / a.hr), pm = new Intl.NumberFormat(lang, { maximumFractionDigits: 1 }).format(a.hr / REST_HR), ls = clamp((y1 - y0) * 0.13, 11, 15);
+    const tx = cx + R + 22, lap = Math.round(REST_LAP * REST_HR / a.hr), pm = new Intl.NumberFormat(lang, { maximumFractionDigits: 1 }).format(a.hr / REST_HR), ls = clamp((y1 - y0) * 0.13, 12, 15);
     txt(c, `${t.lap.now}: ${t.lap.time} ≈ ${fmt(lap)} s`, tx, cy - ls * 1.6, ls, { al: 'left', halo: false, col: '#ff8a7a', w: 900 });
     txt(c, `${t.lap.rest}: ${t.lap.time} ≈ ${fmt(REST_LAP)} s`, tx, cy - ls * 0.3, ls, { al: 'left', halo: false, col: '#8fe3ff', w: 800 });
     txt(c, `${pm} ${t.lap.perMin}`, tx, cy + ls * 1.0, ls, { al: 'left', halo: false, w: 700, col: 'rgba(237,239,247,.8)' });
-    txt(c, t.lap.scale, tx, cy + ls * 2.3, ls * 0.85, { al: 'left', halo: false, w: 600, col: 'rgba(237,239,247,.5)' });
+    txt(c, t.lap.scale, tx, cy + ls * 2.3, ls * 0.95, { al: 'left', halo: false, w: 600, col: 'rgba(237,239,247,.55)' });
   } else {
     // scrolling pulse trace over the last few seconds
     hist.push({ t: time, v: pulseWave(beat) }); while (hist.length && time - hist[0].t > 6.2) hist.shift();
     const WIN = 6, pps = (x1 - x0 - 24) / WIN, base = y1 - 12, amp = (y1 - y0 - fz * 2 - 20) * (0.62 + 0.3 * inten);
-    c.strokeStyle = 'rgba(130,145,190,.12)'; c.lineWidth = 1;
+    c.strokeStyle = 'rgba(130,145,190,.14)'; c.lineWidth = 1;
     for (let j = 0; j <= WIN; j++) { const gx = x1 - 12 - ((time % 1) + j) * pps; if (gx > x0 + 4) { c.beginPath(); c.moveTo(gx, y0 + fz * 2); c.lineTo(gx, y1 - 4); c.stroke(); } }
     txt(c, t.trace, x0 + 12, y0 + fz + 2, fz, { al: 'left', halo: false, w: 700, col: 'rgba(237,239,247,.6)' });
     c.beginPath();
@@ -726,47 +1063,129 @@ function drawMove(c, w, h, dt, time) {
 // ---------------------------------------------------------------------------------------------------------
 // 9. Scene 3: inside the heart
 // ---------------------------------------------------------------------------------------------------------
-const CH = { ra: [36, 34, 19, 19, 7], rv: [36, 56, 24, 26, [3, 3, 3, 13]], la: [65, 34, 19, 19, 7], lv: [60, 56, 26, 26, [3, 3, 13, 3]] };
+// Chambers as shapes in the 120 x 104 box: thick muscle wall (the left ventricle's is the thickest), blood-filled rooms inside it.
+const IN = {
+  muscle: new Path2D('M27,44 C27,34 34,30 42,30 C48,30 52,33 52,39 L53,54 L67,54 L68,39 C68,33 72,30 80,30 C88,30 95,34 95,45 C96,58 94,70 85,79 C79,84 70,87 61,86 C50,86 33,79 28.5,65 C26.5,58 26.5,51 27,44 Z'),
+  ra: new Path2D('M30.5,43.5 C30.5,38 34.5,35 40,35 C45.5,35 49.5,38 49.5,43.5 C49.5,49 45.5,52.5 40,52.5 C34.5,52.5 30.5,49 30.5,43.5 Z'),
+  la: new Path2D('M69.5,43.5 C69.5,38 73.5,35 79,35 C84.5,35 88.5,38 88.5,43.5 C88.5,49 84.5,52.5 79,52.5 C73.5,52.5 69.5,49 69.5,43.5 Z'),
+  rv: new Path2D('M32,57 C31,68 38,76 51,80 C55,79 56,70 56,57 Z'),
+  lv: new Path2D('M62,57 C62,66 61,75 63,79 C72,81 86,72 86,57 Z'),
+};
+const IN_C = { ra: [40, 43.5, 0], la: [79, 43.5, 1], rv: [44, 68, 0], lv: [74, 68, 1] };      // squeeze centre, oxygen-rich?
+const IN_HIT = {
+  ra: new Path2D('M27,30 H52.5 V56 H27 Z'), la: new Path2D('M67.5,30 H95 V56 H67.5 Z'),
+  rv: new Path2D('M28,56 H57 V82 L50,87 L36,81 L28,66 Z'), lv: new Path2D('M57.5,56 H95.5 V68 C94,76 88,82 80,85 L70,87 L60,87 L57.5,70 Z'),
+};
+// chamber names: top-left corner (anchor 'tr' = top-right corner) at x, y in drawing units; l / r = the free strip's far edge; tgt = the spot inside the room
+const IN_LBL = {
+  ra: { a: 'tr', x: 28, y: 25.7, l: -8, tgt: hk(33, 40) }, rv: { a: 'tr', x: 32, y: 70, l: -1.5, tgt: hk(40, 66) },
+  la: { a: 'tl', x: 95, y: 53, r: 126.5, tgt: hk(86, 47) }, lv: { a: 'tl', x: 92, y: 71, r: 126.5, tgt: hk(80, 66) },
+};
+const inRects = [];
+function lobed(c, cx, cy, rx, ry, n, ph, k) {
+  c.beginPath();
+  for (let i = 0; i <= 72; i++) {
+    const a = i / 72 * TAU, m = 1 + 0.07 * Math.sin(a * n + ph);
+    const x = cx + Math.cos(a) * rx * m * k, y = cy + Math.sin(a) * ry * m * k;
+    if (i) c.lineTo(x, y); else c.moveTo(x, y);
+  }
+  c.closePath();
+}
+function drawLungWide(c, cx, cy, rx, ry, k, ph) {
+  c.save(); c.shadowColor = 'rgba(120,40,60,.3)'; c.shadowBlur = 7 * DPR; c.shadowOffsetY = 2 * DPR;
+  const g = c.createLinearGradient(cx - rx, cy - ry, cx + rx * 0.4, cy + ry); g.addColorStop(0, '#F6B1BA'); g.addColorStop(1, '#E0798C');
+  lobed(c, cx, cy, rx, ry, 6, ph, k); c.fillStyle = g; c.fill(); c.restore();
+  c.save(); lobed(c, cx, cy, rx, ry, 6, ph, k); c.clip();
+  c.fillStyle = 'rgba(255,233,237,.7)'; ALV_W.forEach(([ux, uy, r]) => { c.beginPath(); c.arc(cx + ux * rx * k, cy + uy * ry * k, 0.5 + 0.6 * r, 0, TAU); c.fill(); });
+  c.fillStyle = 'rgba(255,255,255,.25)'; c.beginPath(); c.ellipse(cx - rx * 0.3, cy - ry * 0.45, rx * 0.4, ry * 0.2, 0, 0, TAU); c.fill();
+  c.restore();
+  lobed(c, cx, cy, rx, ry, 6, ph, k); c.lineWidth = 0.55; c.strokeStyle = 'rgba(160,55,80,.95)'; c.stroke();
+}
 function drawInside(c, w, h, time) {
-  const t = T[lang], f = fitV(w, h), s = f.s, X = (x) => f.ox + x * s, Y = (y) => f.oy + y * s;
-  const fs = clamp(s * 3.3, 9, 14);
+  const t = T[lang], f = fitI(w, h), s = f.s, X = (x) => f.ox + x * s, Y = (y) => f.oy + y * s;
+  const fs = clamp(s * 4.3, 12, 14);
   const atr = bump(beat, 0, 0.16), ven = bump(beat, 0.16, 0.5);
-  lungShape(c, f, [45, 81], 15, 17, 11, 1 + 0.06 * (1 - Math.cos(breath * TAU)) / 2);
-  c.save(); rr(c, X(10), Y(88.5), 104 * s, 14.5 * s, 6 * s); c.fillStyle = 'rgba(255,120,90,.07)'; c.fill(); c.lineWidth = 1.4; c.strokeStyle = 'rgba(255,150,120,.35)'; c.stroke(); c.restore();
-  // chambers
-  Object.entries(CH).forEach(([k, [x, y, cw, ch, r]]) => {
-    const rich = k === 'la' || k === 'lv', sq = k.endsWith('a') ? atr : ven, scl = 1 - 0.07 * sq;
-    const cx = X(x + cw / 2), cy = Y(y + ch / 2);
-    c.save(); c.translate(cx, cy); c.scale(scl, scl); c.translate(-cx, -cy);
-    const rad = Array.isArray(r) ? r.map((q) => q * s) : r * s;
-    rr(c, X(x), Y(y), cw * s, ch * s, rad);
-    c.fillStyle = col(rich ? 1 : 0, 0.22 + 0.2 * sq); c.fill();
-    c.lineWidth = (k === 'lv' ? 2.4 : 1.3) * s; c.strokeStyle = `rgba(255,170,150,${0.55 + 0.35 * sq})`; c.stroke();
+  const closed = ss((beat - 0.15) / 0.05) * (1 - ss((beat - 0.5) / 0.06)), open = 1 - closed;       // AV valves open while the chambers fill
+  const br = (1 - Math.cos(breath * TAU)) / 2;
+  const virt = () => { c.save(); c.translate(f.ox, f.oy); c.scale(s, s); c.lineCap = 'round'; c.lineJoin = 'round'; };
+  // lungs on top, the body (muscle) below
+  virt();
+  drawLungWide(c, 36, 13.5, 22, 10.5, 1 + 0.05 * br, 0.6); drawLungWide(c, 84, 13.5, 22, 10.5, 1 + 0.05 * br, 2.1);
+  const mg = c.createLinearGradient(0, 90, 0, 104); mg.addColorStop(0, '#C9434F'); mg.addColorStop(1, '#9E2B38');
+  rr(c, -9, 90.5, 138, 13, 5); c.save(); c.shadowColor = 'rgba(90,20,30,.3)'; c.shadowBlur = 6 * DPR; c.shadowOffsetY = 2 * DPR; c.fillStyle = mg; c.fill(); c.restore();
+  c.save(); rr(c, -9, 90.5, 138, 13, 5); c.clip();
+  c.strokeStyle = 'rgba(229,123,133,.5)'; c.lineWidth = 0.4;
+  for (let x = -20; x < 130; x += 3.4) { c.beginPath(); c.moveTo(x, 104); c.lineTo(x + 9, 90); c.stroke(); }
+  c.fillStyle = 'rgba(255,255,255,.14)'; c.fillRect(-9, 90.5, 138, 3.5);
+  c.restore();
+  rr(c, -9, 90.5, 138, 13, 5); c.lineWidth = 0.5; c.strokeStyle = '#7E1F2B'; c.stroke();
+  c.restore();
+  pill(c, [{ s: plain(t.parts.lungs.tag), size: fs }], X(22), Y(7.5), { cw: w, ch: h });
+  pill(c, [{ s: plain(t.parts.body.tag), size: fs }], w / 2, Math.min(Y(103.5) + 4 + 12.2, h - 6 - 12.2), { cw: w, ch: h });   // fully on the stage, centred under the band
+  // vessels, then the heart on top of their ends
+  virt();
+  drawTubes(c, path3, null, time);
+  const hs = (1 + 0.02 * ven) * HK; c.translate(HC[0], HC[1]); c.scale(hs, hs); c.translate(-HC[0], -HC[1]);
+  c.save(); c.shadowColor = 'rgba(90,10,30,.4)'; c.shadowBlur = 10 * DPR; c.shadowOffsetY = 3 * DPR;
+  const mu = c.createLinearGradient(27, 30, 95, 86); mu.addColorStop(0, '#D63A4C'); mu.addColorStop(1, '#A0182E');
+  c.fillStyle = mu; c.fill(IN.muscle); c.restore();
+  c.save(); c.clip(IN.muscle);
+  const sh = c.createRadialGradient(88, 80, 4, 88, 80, 40); sh.addColorStop(0, 'rgba(70,0,20,.38)'); sh.addColorStop(1, 'rgba(70,0,20,0)');
+  c.fillStyle = sh; c.fillRect(20, 20, 90, 80);
+  c.strokeStyle = 'rgba(255,205,195,.5)'; c.lineWidth = 1.1;
+  c.beginPath(); c.moveTo(28.5, 52); c.quadraticCurveTo(27.4, 38, 38, 31.4); c.stroke();
+  c.beginPath(); c.moveTo(68.8, 38); c.quadraticCurveTo(71, 31.6, 80, 31.4); c.stroke();
+  c.restore();
+  c.lineWidth = 0.5; c.strokeStyle = '#7A1022'; c.stroke(IN.muscle);
+  // the four rooms: oxygen-poor blood on the right of the heart, oxygen-rich on the left
+  Object.entries(IN_C).forEach(([k, [cx, cy, rich]]) => {
+    const sq = k.endsWith('a') ? atr : ven;
+    c.save(); c.translate(cx, cy); c.scale(1 - 0.1 * sq, 1 - 0.1 * sq); c.translate(-cx, -cy);
+    const hex = rich ? '#FF4838' : '#8C1E58', g = c.createLinearGradient(0, cy - 14, 0, cy + 14);
+    g.addColorStop(0, shade(hex, 0.16 + 0.1 * sq)); g.addColorStop(1, shade(hex, -0.14));
+    c.fillStyle = g; c.fill(IN[k]);
+    c.save(); c.clip(IN[k]); c.lineWidth = 2.4; c.strokeStyle = 'rgba(60,0,20,.4)'; c.stroke(IN[k]); c.restore();
     c.restore();
   });
-  c.lineWidth = 1.6 * s; c.strokeStyle = 'rgba(255,170,150,.6)'; c.beginPath(); c.moveTo(X(60), Y(56)); c.lineTo(X(60), Y(80)); c.stroke();
-  // valves (one-way doors, drawn half open)
-  c.strokeStyle = 'rgba(255,230,205,.9)'; c.lineWidth = 1.1 * s; c.lineCap = 'round';
-  [[38.5, 42.5, 49.5, 45.5], [69, 73.5, 81, 76.5]].forEach(([ax, bx, cxv, dx]) => {
-    c.beginPath(); c.moveTo(X(ax), Y(54.5)); c.lineTo(X(bx), Y(57.8)); c.moveTo(X(cxv), Y(54.5)); c.lineTo(X(dx), Y(57.8)); c.stroke();
+  // doors between the rooms (the valves)
+  const channel = (x, y, ww, hh, hex) => { const g = c.createLinearGradient(0, y, 0, y + hh); g.addColorStop(0, shade(hex, 0.1)); g.addColorStop(1, hex); c.fillStyle = g; c.fillRect(x, y, ww, hh); };
+  channel(35, 51, 11, 7, '#8C1E58'); channel(74, 51, 10, 7, '#FF4838');
+  const neck = (x, y, ww, hh, color) => { rr(c, x, y, ww, hh, 1.2); c.fillStyle = color; c.fill(); c.lineWidth = 0.4; c.strokeStyle = 'rgba(54,16,40,.9)'; c.stroke(); };
+  neck(53.1, 51.5, 3.4, 7, ARTERY); neck(62.3, 51.5, 3.4, 7, ARTERY); neck(26.6, 46.6, 5.2, 5, VEIN); neck(77.4, 32.2, 3.2, 5.4, VEIN);
+  const flap = (bx, by, tx, ty, bow) => {
+    c.beginPath(); c.moveTo(bx, by); c.quadraticCurveTo((bx + tx) / 2 + bow, (by + ty) / 2, tx, ty);
+    c.lineWidth = 1.5; c.strokeStyle = '#A99E86'; c.stroke(); c.lineWidth = 0.95; c.strokeStyle = '#FFFDF6'; c.stroke();
+  };
+  const L = (a, b) => lerp(a, b, open);
+  [[35.5, 45.5, 40, 41, 35, 46.2], [74.5, 83.5, 78.6, 79.4, 74, 84.2]].forEach(([bl, br2, tl, tr, ol, or]) => {   // tricuspid, mitral
+    flap(bl, 56.4, L(tl, ol), L(61.4, 64.6), L(0.8, -0.6)); flap(br2, 56.4, L(tr, or), L(61.4, 64.6), L(-0.8, 0.6));
   });
-  // chamber names
-  Object.keys(CH).forEach((k) => {
-    const [x, y, cw, ch] = CH[k], [l1, l2] = t.ch[k], mw = (cw - 3) * s;
-    const z = Math.min(fitSize(c, l1, mw, fs), fitSize(c, l2, mw, fs));
-    const cy = Y(y + ch / 2 - (k.endsWith('v') ? 5 : 0));
-    txt(c, l1, X(x + cw / 2), cy - z * 0.6, z, { w: 800, col: 'rgba(237,239,247,.82)', halo: false });
-    txt(c, l2, X(x + cw / 2), cy + z * 0.6, z, { w: 800, col: 'rgba(237,239,247,.82)', halo: false });
+  [[53.4, 56.2, 54.5, 55.1, 53.1, 56.5], [62.6, 65.4, 63.7, 64.3, 62.3, 65.7]].forEach(([bl, br2, tl, tr, ol, or]) => {   // pulmonary, aortic
+    const o2 = closed;
+    flap(bl, 56.2, lerp(tl, ol, o2), lerp(58.6, 53.8, o2), 0); flap(br2, 56.2, lerp(tr, or, o2), lerp(58.6, 53.8, o2), 0);
   });
-  drawVessels(c, path3, f, null, time);
-  drawCells(c, sim3, f, KP3);
-  txt(c, t.parts.lungs.tag, X(62), Y(3.8), fs * 1.1); txt(c, t.parts.body.tag, X(61), Y(101.4), fs);
+  c.restore();
+  // names of the rooms: compact pills in the free space beside the heart, each with a short line to its room
+  inRects.length = 0;
+  const here = D3[S.sec3]?.k;
+  const lines = Object.entries(IN_LBL).map(([k, L]) => {
+    const [l1, l2] = t.ch[k], zone = (L.a === 'tr' ? L.x - L.l : L.r - L.x) * s;
+    let size = clamp(s * 4.9, 12, 13);
+    for (; size > 10; size -= 0.25) { c.font = `700 ${size}px ${FONT}`; if (Math.max(c.measureText(l1).width, c.measureText(l2).width) + 12 <= zone) break; }
+    size = Math.max(10, size);
+    const r = pill(c, [{ s: l1, size, w: 700 }, { s: l2, size, w: 700 }], X(L.x), Y(L.y), { anchor: L.a, cw: w, ch: h, padX: 6, border: here === k ? SEL : undefined });
+    inRects.push({ k, x: r.x - 2, y: r.y - 2, w: r.w + 4, h: r.h + 4 });
+    return [r, X(L.tgt[0]), Y(L.tgt[1])];
+  });
+  lines.forEach(([r, tx, ty]) => leader(c, r, tx, ty));
+  virt(); drawCells(c, sim3, 1.35, 0.8); c.restore();
 }
-function hit3(x, y) {
-  for (const [k, [cx, cy, cw, ch]] of Object.entries(CH)) if (x >= cx && x <= cx + cw && y >= cy && y <= cy + ch) return k;
+function hit3(x, y, s) {
+  const xo = HC[0] + (x - HC[0]) / HK, yo = HC[1] + (y - HC[1]) / HK;      // the heart is drawn at HK size: test in its own units
+  for (const k of Object.keys(IN_HIT)) if (SC.isPointInPath(IN_HIT[k], xo, yo)) return k;
   const n = nearest(path3, x, y);
-  if (n.d < 4) return D3[n.si].k;
-  if (y < 27 && x > 24 && x < 102) return 'lungs';
+  if (n.d < Math.max(4, 17 / s)) return D3[n.si].k;
+  if (y < 27 && x > 10 && x < 110) return 'lungs';
   if (y > 88) return 'body';
   return null;
 }
@@ -775,17 +1194,21 @@ function hit3(x, y) {
 // 10. Go
 // ---------------------------------------------------------------------------------------------------------
 canvasLoop($('cv'), (c, w, h, dt, time) => {
+  DPR = c.getTransform().a || 1;
   step(dt, time);
+  c.save(); panel(c, w, h);
   if (lab.view === 'loop') drawLoop(c, w, h, time);
   else if (lab.view === 'move') drawMove(c, w, h, dt, time);
   else drawInside(c, w, h, time);
+  rr(c, 0.75, 0.75, w - 1.5, h - 1.5, 15.5); c.lineWidth = 1.5; c.strokeStyle = 'rgba(43,34,51,.25)'; c.stroke();
+  c.restore();
 });
 $('cv').addEventListener('pointerdown', (ev) => {
-  const r = $('cv').getBoundingClientRect(), f = fitV(r.width, r.height);
-  const x = (ev.clientX - r.left - f.ox) / f.s, y = (ev.clientY - r.top - f.oy) / f.s;
-  if (lab.view === 'loop') { const k = hit1(x, y); S.sel = !k || k === S.sel ? null : k; sfx.click(); renderChips(); renderState(); }
+  const r = $('cv').getBoundingClientRect(), f = (lab.view === 'inside' ? fitI : fitV)(r.width, r.height);
+  const px = ev.clientX - r.left, py = ev.clientY - r.top, x = (px - f.ox) / f.s, y = (py - f.oy) / f.s;
+  if (lab.view === 'loop') { const k = tapTag(px, py) ?? hit1(x, y, f.s); S.sel = !k || k === S.sel ? null : k; sfx.click(); renderChips(); renderState(); }
   else if (lab.view === 'inside') {
-    const k = hit3(x, y); if (!k) return;
+    const k = inRects.find((q) => px >= q.x && px <= q.x + q.w && py >= q.y && py <= q.y + q.h)?.k ?? hit3(x, y, f.s); if (!k) return;
     const i = D3.findIndex((d) => d.k === k), sc = path3.secs[i];
     sim3.d[0] = Math.floor(sim3.d[0] / path3.total) * path3.total + sc.d0 + 0.12 * (sc.d1 - sc.d0);
     S.sec3 = i; sfx.click(); renderState();
