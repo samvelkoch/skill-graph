@@ -4,7 +4,7 @@
  *
  * Most code lives inline in HTML (the viewer, the lab overview, every lab), so a plain `node --check *.js`
  * would miss it. This pulls every inline <script> out of those pages into a temp dir and syntax-checks it,
- * then checks the standalone files (tour.js, sw.js and the .js files in labs/ and its lab folders). No dependencies:
+ * then checks the standalone files (tour.js, sw.js, graph2d.js and the .js files in labs/ and its lab folders). No dependencies:
  *
  *   node scripts/check-scripts.mjs
  */
@@ -23,7 +23,7 @@ const files = (p, ext) => readdirSync(resolve(ROOT, p)).filter((f) => f.endsWith
 
 const pages = ['index.html', 'labs/index.html', ...dirs('labs').map((d) => `labs/${d}/index.html`).filter((p) => existsSync(resolve(ROOT, p)))];
 // Standalone files are parsed as ESM (package.json "type": "module"); they all pass that way, so one rule is enough.
-const standalone = ['tour.js', 'sw.js', ...files('labs', '.js'), ...dirs('labs').flatMap((d) => files(`labs/${d}`, '.js'))].filter((p) => existsSync(resolve(ROOT, p)));
+const standalone = ['tour.js', 'sw.js', 'graph2d.js', ...files('labs', '.js'), ...dirs('labs').flatMap((d) => files(`labs/${d}`, '.js'))].filter((p) => existsSync(resolve(ROOT, p)));
 
 const fails = [];
 const check = (file, label) => {

@@ -45,6 +45,7 @@ Facts must be checked; give sources in the report. Keep the page phone-first.
 
 ## Checks before a PR
 - `node scripts/validate.mjs` for any data change.
+- `node scripts/layout.mjs` after any change to topics or dependencies (regenerates `data/layout.json`, the map's positions).
 - `node scripts/labs-catalog.mjs` after adding a lab (regenerates `labs/catalog.json`).
 - The lab's topic links in its footer open the right cards on the map.
 - The quiz's unlock writes `learning` for the lab's topics.

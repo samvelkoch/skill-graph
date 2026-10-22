@@ -1,12 +1,12 @@
 // Service worker for the home-screen app and offline labs. The app shell and every lab page are precached; other
 // same-origin files (the data JSON the viewer fetches, per language) are cached as they are used, network-first, so
-// a fresh deploy always wins online and the last copy is served offline. Fonts and the 3D library are cache-first.
-// Paths are relative to the worker: the site lives under a subpath (…/skill-graph/). Nothing in data/ is precached.
-const CACHE = 'sg-v1'; // bump only when the precache list changes; correctness does not depend on it
-const SHELL = ['./', 'index.html', 'tour.js', 'manifest.webmanifest', 'favicon.svg', 'favicon-32.png', 'apple-touch-icon.png',
+// a fresh deploy always wins online and the last copy is served offline (data/layout.json, the map's positions, too).
+// Fonts are cache-first. Paths are relative to the worker: the site lives under a subpath (…/skill-graph/). Nothing in data/ is precached.
+const CACHE = 'sg-v2'; // bump only when the precache list changes; correctness does not depend on it
+const SHELL = ['./', 'index.html', 'graph2d.js', 'tour.js', 'manifest.webmanifest', 'favicon.svg', 'favicon-32.png', 'apple-touch-icon.png',
   'icon-192.png', 'icon-512.png', 'labs/', 'curricula/', 'labs/lab.js', 'labs/lab.css', 'labs/switcher.js', 'labs/viewer.js',
   'labs/registry.json', 'labs/catalog.json', 'labs/fraction-ops/check.js'];
-const CDN = ['fonts.googleapis.com', 'fonts.gstatic.com', 'cdn.jsdelivr.net']; // cache-first (the jsdelivr URL is version-pinned)
+const CDN = ['fonts.googleapis.com', 'fonts.gstatic.com']; // cache-first
 const rel = (p) => new URL(p, self.registration.scope).href;
 
 self.addEventListener('install', (ev) => {
