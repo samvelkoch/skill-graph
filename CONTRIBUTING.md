@@ -41,60 +41,15 @@ Not sure where something belongs? Open an issue and describe it in plain words; 
 
 ## Add or improve a lab
 
-A lab is one page that makes **one idea** obvious to a child of about 6–10 with **one picture** they can play with. The mechanic comes second.
+A lab is one page that makes **one main idea** obvious to a child with **one picture** they can play with. The mechanic comes second.
 
-### 1. Choose the topic
+The full procedure, with the shared skeleton and the lessons from reviewing 100+ labs, is the project skill **[`.claude/skills/new-lab/`](.claude/skills/new-lab/SKILL.md)**. If you use Claude Code, it loads the skill by itself when you ask it to build a lab; other agents are pointed to it by [AGENTS.md](AGENTS.md); people can read it as plain Markdown. In short:
 
-```bash
-node scripts/labs-candidates.mjs               # top candidates
-node scripts/labs-candidates.mjs --age 6-10 --n 40
-node scripts/labs-candidates.mjs --subject Science --json
-```
-
-Pick from the top ~20 by this rule: **the topic unlocks many others, has no lab yet, sits in ages 6–10, and its one idea can be made obvious with a picture.**
-
-- **The picture test decides.** A high-ranking topic without an obvious picture is skipped.
-- Prefer topics next to existing labs (the `near labs` column), so the “nearby labs” menu stays connected.
-- Out of scope: vocabulary topics, “Learning to Learn” and other meta-cognitive topics, English phonics/spelling/handwriting/grammar (they do not transfer to Russian or Hungarian children) and native-language grammar. Reading comprehension, story structure, cause and effect, folklore and genres are fine. The script already applies these filters.
-- Age stages of one series (“… (age 8+)”) are one row; one lab can cover the whole series.
-
-Then **open an issue** (template “New lab”) with the topic, the one idea in one sentence, and the picture that makes it obvious. Agreeing on the idea first saves everyone a rebuild.
-
-### 2. Build it
-
-Copy the structure, not the mechanic: do not clone another lab’s interaction for a different idea. Look at [`labs/magnets/index.html`](labs/magnets/index.html) for a typical lab.
-
-- One folder: `labs/<id>/index.html`, a single page with one `<script type="module">`.
-- Import the shared skeleton from `../lab.js`: `shell`, `secretLab`, `canvasLoop`, `sfx`, `$`, `esc`, `lang`.
-  - `shell({ key, T, topics, views, onLang, onView })` draws the chrome: header, language switch, views, the footer links to the lab’s topics and the nearby-labs menu.
-  - `secretLab(key, getContent, onUnlock)` runs the three-question quiz that unlocks two “secret” experiments and marks the lab’s topics as “Learning” on the map.
-- All text lives in one `T` object with `en`, `ru` and `hu`. Children are addressed informally (RU «ты», HU tegező).
-- **Phone first.** Design for a 390 px wide screen, then check a desktop.
-- **Facts must be checked.** List your sources in the pull request.
-
-### 3. Register it
-
-Add one entry to [`labs/registry.json`](labs/registry.json):
-
-```json
-{ "id": "magnets", "path": "labs/magnets/", "emoji": "🧲", "subject": "Science",
-  "title": { "en": "Magnet Lab", "ru": "…", "hu": "…" },
-  "blurb": { "en": "One sentence for the overview card.", "ru": "…", "hu": "…" },
-  "topics": ["mt_9NvuqZKNiV", "mt_jgNB2752b9"] }
-```
-
-Then regenerate the catalog and commit both files:
-
-```bash
-node scripts/labs-catalog.mjs
-```
-
-### 4. Check it
-
-- In EN, RU and HU, at phone width: the picture makes the idea obvious, nothing overlaps, text fits.
-- The topic links in the lab’s footer open the right topics on the map.
-- After the quiz, the lab’s topics show as “Learning” on the map.
-- `npm run check` passes.
+1. **Choose the topic** with `node scripts/labs-candidates.mjs`: it unlocks many others, has no lab yet, fits the target ages (6–10 to start with), and its main idea can be made obvious with a picture. The picture test decides.
+2. **Write the idea first** and open an issue (template “New lab”): the main idea in one sentence, the supporting ideas, the picture, and what the child predicts before the reveal. Agreeing on the idea first saves everyone a rebuild.
+3. **Build** `labs/<id>/index.html` on the shared skeleton in [`labs/lab.js`](labs/lab.js), with all text in EN/RU/HU and the phone as the main screen. Facts need sources.
+4. **Register** it in [`labs/registry.json`](labs/registry.json), run `node scripts/labs-catalog.mjs`, and commit both files.
+5. **Check** with `npm run check`, then in a browser at phone width in all three languages: the topic links in the footer open the right topics on the map, and after the quiz the lab’s topics show as “Learning”.
 
 Improving an existing lab follows the same rules: say which idea is unclear today and what the better picture is.
 
