@@ -20,7 +20,7 @@ Skill Graph started as a fork of the [Marble Skill Taxonomy](https://withmarble.
 
 **For children: the labs** ([`labs/`](labs/))
 
-- 70+ small interactive pages, each built around **one idea and one picture** that makes it obvious: magnets, seasons, fractions, the heart, food webs and more.
+- 100+ small interactive pages, each built around **one idea and one picture** that makes it obvious: magnets, seasons, fractions, the heart, food webs and more.
 - Each lab links back to its topics on the map. A three-question quiz unlocks two “secret” experiments and marks the lab’s topics as “Learning” on the map.
 - Phone first; no sign-up, no points, no ads.
 
