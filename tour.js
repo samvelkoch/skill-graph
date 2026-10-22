@@ -74,7 +74,7 @@
   const STEPS = [
     { id: 'welcome' },
     { id: 'map', when: graphView },
-    { id: 'legend', target: () => $('legend'), when: graphView },
+    { id: 'legend', target: () => { $('legend').classList.add('open'); return $('legend'); }, when: graphView },
     { id: 'panel', panel: true, target: () => $('panel') },
     { id: 'status', panel: true, target: () => [document.querySelector('#panelBody .status'), $('markAll')] },
     { id: 'lab', panel: true, target: () => document.querySelector('#panelBody .labcta') },
