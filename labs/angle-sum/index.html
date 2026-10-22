@@ -1,0 +1,748 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tear the Corners · Skill Graph</title>
+<meta name="description" content="Tear the corners off paper triangles and line them up, find missing angles on a line and round a point, and split polygons into triangles. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  @media (min-width: 1101px) {
+    .lab { grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); grid-template-areas: 'hero stage' 'state stage' 'state ctrl'; }
+  }
+  #stage { min-height: 460px; }
+  #stage canvas { touch-action: auto; }
+  .qtext { font: 500 21px/1.2 var(--serif); color: #fff; margin-bottom: 12px; text-wrap: balance; }
+  .qtext:empty { display: none; }
+  .choices { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .ans { flex: 1 1 auto; min-height: 40px; padding: 9px 16px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 800; cursor: pointer; }
+  .ans:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .ans:disabled { cursor: default; opacity: .5; }
+  .ans.chosen { opacity: 1; border-color: #fff; }
+  .ans.good { opacity: 1; border-color: var(--ok); background: rgba(61, 220, 151, .18); }
+  .ans.bad { opacity: 1; border-color: var(--red); background: rgba(255, 59, 48, .16); }
+  .cnt { display: flex; align-items: center; justify-content: center; gap: 6px; margin-bottom: 12px; }
+  .sb { min-width: 38px; height: 38px; border-radius: 19px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1); font-size: 14px; font-weight: 800;
+    line-height: 1; padding: 0 8px; cursor: pointer; }
+  .sb:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .sb:disabled { opacity: .3; cursor: default; }
+  .cnt input { width: 84px; height: 44px; border-radius: 14px; border: 1px solid var(--stroke2); background: rgba(10, 12, 20, .6); text-align: center;
+    font-size: 24px; font-weight: 900; -moz-appearance: textfield; }
+  .cnt input::-webkit-outer-spin-button, .cnt input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .verdict { margin-bottom: 12px; }
+  .verdict .v { font-weight: 900; font-size: 15px; margin-bottom: 2px; }
+  .verdict p { margin: 0 0 4px; color: var(--soft); font-size: 13px; }
+  .verdict p.rule { color: var(--wip); font-weight: 800; }
+  .btn:disabled { opacity: .35; cursor: default; }
+  .push { margin-left: auto; }
+  .fine { font-size: 11px; color: var(--faint); }
+  .sumline { font-size: 22px; letter-spacing: 0; }
+  @media (max-width: 760px) {
+    #stage { height: min(118vw, 520px); }
+    .qtext { font-size: 18px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Tear the Corners', title: 'Tear off the corners',
+    lines: [['Any triangle:', 'tear off the three corners.'], ['Put them side by side:', 'a straight line, 180°.'], ['A full turn', 'is 360°.']],
+    views: { tear: '✂️ Tear', line: '📏 Line and point', poly: '⬠ Polygons' },
+    check: 'Check', next: 'Next ▶', right: 'Yes!', wrong: 'Look at the pieces.', deg: '°', notq: 'Not quite.', again: 'Again',
+    t: { q1: 'Tear off the three corners and put them together. What will they make?', o1: ['a right angle (90°)', 'a straight line (180°)', 'a full turn (360°)'],
+         r1: 'The three corners always fill a straight line: the angles of a triangle add up to 180°.', q2: 'This triangle is long and thin. Will its corners make a straight line too?', yes: 'Yes', no: 'No',
+         r2: 'Yes! Any triangle, any shape: 180°.', q3: 'One corner is 90°. What do the other two add up to?', r3: '180° − 90° = 90°.',
+         sum: (a, b, c) => `${a}° + ${b}° + ${c}° = 180°`, free: 'Drag the corners', tear: 'Tear the corners' },
+    l: { q: 'What is the missing angle?', used360: 'Angles on a straight line make a half turn: 180°, not 360°.', used180: 'Angles round a point make a full turn: 360°, not 180°.',
+         half: 'The two angles don’t have to be equal: take the given angle away from 180°.', opp: 'Opposite angles where two lines cross are equal.',
+         why: ['180° − 130° = 50°', '180° − 40° − 75° = 65°', '360° − 90° − 120° = 150°', '360° − 70° − 110° − 70° = 110°', 'Opposite angles are equal: 40°.', 'Neighbours on a straight line: 180° − 40° = 140°.'],
+         qOpp: 'What is the angle opposite the 40° angle?', qNb: 'What is the angle next to the 40° angle?', sketch: 'Sketch, not to scale' },
+    p: { q1: 'Tear off the four corners. What will they make?', o1: ['a straight line (180°)', 'a full turn (360°)', 'it depends on the shape'],
+         q2: 'What do the pentagon’s five angles add up to?', q3: 'And the hexagon’s six angles?', rule: 'Sum of angles = (number of sides − 2) × 180°',
+         r1: 'Four corners fit round a point: 360°. A quadrilateral is two triangles.', r2: 'Three triangles: 3 × 180° = 540°.', r3: 'Four triangles: 4 × 180° = 720°.' },
+    secrets: { walk: ['Turtle walk', 'Walk round a shape and count the turns.'], globe: ['A fat triangle', 'A triangle on a globe with three right angles.'] },
+    sec: { shapes: { tri: 'triangle', sq: 'square', pent: 'pentagon' }, turned: (d) => `turned ${d}° so far`, walkText: 'Walking round any shape and back to the start, you turn exactly once: 360°.',
+           globeText: 'On a curved surface the rules change: this triangle has three right angles, 270° in total. On a flat page it is always 180°.' },
+    cards: { tear: ['✂️', '180° in every triangle', 'The three corners fit together into a straight line.', 'However the triangle looks.'],
+             line: ['📏', 'Half turn, full turn', 'On a straight line: 180°. Round a point: 360°.', 'Crossing lines: opposite angles are equal.'],
+             poly: ['⬠', 'Shapes are made of triangles', 'Split a polygon into triangles from one corner.', 'Each triangle adds 180°.'] },
+    fine: 'The torn-corners proof is a classic classroom demonstration (Euclid, Elements I.32). Triangles on a sphere have more than 180°.',
+    quiz: [
+      { q: 'The three angles of any triangle add up to…', opts: ['90°', '180°', '360°'], ok: 1 },
+      { q: 'Two angles sit on a straight line. One is 130°. The other is…', opts: ['230°', '50°', '90°'], ok: 1 },
+      { q: 'Two straight lines cross. One angle is 40°. The angle opposite it is…', opts: ['140°', '40°', '320°'], ok: 1 } ],
+  },
+  ru: {
+    name: 'Оторви уголки', title: 'Оторви уголки',
+    lines: [['Любой треугольник:', 'оторви три уголка.'], ['Сложи их рядом:', 'прямая линия, 180°.'], ['Полный оборот —', 'это 360°.']],
+    views: { tear: '✂️ Оторви', line: '📏 Прямая и точка', poly: '⬠ Многоугольники' },
+    check: 'Проверить', next: 'Дальше ▶', right: 'Да!', wrong: 'Посмотри на кусочки.', deg: '°', notq: 'Не совсем.', again: 'Ещё раз',
+    t: { q1: 'Оторви три уголка и сложи их вместе. Что получится?', o1: ['прямой угол (90°)', 'прямая линия (180°)', 'полный оборот (360°)'],
+         r1: 'Три уголка всегда заполняют прямую линию: сумма углов треугольника — 180°.', q2: 'Этот треугольник длинный и узкий. Его уголки тоже сложатся в прямую?', yes: 'Да', no: 'Нет',
+         r2: 'Да! Любой треугольник, любой формы: 180°.', q3: 'Один угол — 90°. Сколько вместе два других?', r3: '180° − 90° = 90°.',
+         sum: (a, b, c) => `${a}° + ${b}° + ${c}° = 180°`, free: 'Двигай вершины', tear: 'Оторвать уголки' },
+    l: { q: 'Чему равен недостающий угол?', used360: 'Углы на прямой — это половина оборота: 180°, а не 360°.', used180: 'Углы вокруг точки — это полный оборот: 360°, а не 180°.',
+         half: 'Углы не обязаны быть равными: вычти данный угол из 180°.', opp: 'Вертикальные углы (напротив друг друга при пересечении прямых) равны.',
+         why: ['180° − 130° = 50°', '180° − 40° − 75° = 65°', '360° − 90° − 120° = 150°', '360° − 70° − 110° − 70° = 110°', 'Вертикальные углы равны: 40°.', 'Смежные углы на прямой: 180° − 40° = 140°.'],
+         qOpp: 'Чему равен угол напротив угла 40°?', qNb: 'Чему равен угол, соседний с углом 40°?', sketch: 'Эскиз, не в масштабе' },
+    p: { q1: 'Оторви четыре уголка. Что получится?', o1: ['прямая линия (180°)', 'полный оборот (360°)', 'зависит от фигуры'],
+         q2: 'Чему равна сумма пяти углов пятиугольника?', q3: 'А шести углов шестиугольника?', rule: 'Сумма углов = (число сторон − 2) × 180°',
+         r1: 'Четыре уголка укладываются вокруг точки: 360°. Четырёхугольник — это два треугольника.', r2: 'Три треугольника: 3 × 180° = 540°.', r3: 'Четыре треугольника: 4 × 180° = 720°.' },
+    secrets: { walk: ['Прогулка черепахи', 'Обойди фигуру и посчитай повороты.'], globe: ['Толстый треугольник', 'Треугольник на глобусе с тремя прямыми углами.'] },
+    sec: { shapes: { tri: 'треугольник', sq: 'квадрат', pent: 'пятиугольник' }, turned: (d) => `уже повернулась на ${d}°`, walkText: 'Обойдя любую фигуру и вернувшись к началу, ты поворачиваешься ровно один раз: на 360°.',
+           globeText: 'На кривой поверхности правила другие: у этого треугольника три прямых угла, всего 270°. На плоском листе всегда 180°.' },
+    cards: { tear: ['✂️', '180° в каждом треугольнике', 'Три уголка складываются в прямую линию.', 'Как бы ни выглядел треугольник.'],
+             line: ['📏', 'Полоборота и полный оборот', 'На прямой: 180°. Вокруг точки: 360°.', 'При пересечении прямых вертикальные углы равны.'],
+             poly: ['⬠', 'Фигуры состоят из треугольников', 'Раздели многоугольник на треугольники из одной вершины.', 'Каждый треугольник добавляет 180°.'] },
+    fine: 'Доказательство с оторванными уголками — классический школьный опыт (Евклид, «Начала», I.32). У треугольников на сфере сумма углов больше 180°.',
+    quiz: [
+      { q: 'Сумма трёх углов любого треугольника равна…', opts: ['90°', '180°', '360°'], ok: 1 },
+      { q: 'Два угла лежат на прямой. Один — 130°. Другой…', opts: ['230°', '50°', '90°'], ok: 1 },
+      { q: 'Две прямые пересекаются. Один угол — 40°. Угол напротив него…', opts: ['140°', '40°', '320°'], ok: 1 } ],
+  },
+  hu: {
+    name: 'Tépd le a sarkokat', title: 'Tépd le a sarkokat',
+    lines: [['Bármilyen háromszög:', 'tépd le a három sarkát.'], ['Rakd őket egymás mellé:', 'egyenes vonal, 180°.'], ['Egy teljes fordulat', '360°.']],
+    views: { tear: '✂️ Tépés', line: '📏 Egyenes és pont', poly: '⬠ Sokszögek' },
+    check: 'Ellenőrzés', next: 'Tovább ▶', right: 'Igen!', wrong: 'Nézd meg a darabokat.', deg: '°', notq: 'Nem egészen.', again: 'Újra',
+    t: { q1: 'Tépd le a három sarkot, és rakd össze őket. Mi lesz belőlük?', o1: ['derékszög (90°)', 'egyenes vonal (180°)', 'teljes fordulat (360°)'],
+         r1: 'A három sarok mindig kitölt egy egyenest: a háromszög szögeinek összege 180°.', q2: 'Ez a háromszög hosszú és vékony. Ennek a sarkai is egyenest adnak?', yes: 'Igen', no: 'Nem',
+         r2: 'Igen! Bármilyen háromszög, bármilyen alak: 180°.', q3: 'Az egyik szög 90°. Mennyi a másik kettő együtt?', r3: '180° − 90° = 90°.',
+         sum: (a, b, c) => `${a}° + ${b}° + ${c}° = 180°`, free: 'Húzd a csúcsokat', tear: 'Tépd le a sarkokat' },
+    l: { q: 'Mekkora a hiányzó szög?', used360: 'Az egyenesen lévő szögek fél fordulatot adnak: 180°-ot, nem 360°-ot.', used180: 'Egy pont körüli szögek teljes fordulatot adnak: 360°-ot, nem 180°-ot.',
+         half: 'A két szögnek nem kell egyenlőnek lennie: vond ki a megadott szöget 180°-ból.', opp: 'Két egyenes metszésénél a csúcsszögek egyenlők.',
+         why: ['180° − 130° = 50°', '180° − 40° − 75° = 65°', '360° − 90° − 120° = 150°', '360° − 70° − 110° − 70° = 110°', 'A csúcsszögek egyenlők: 40°.', 'Mellékszögek az egyenesen: 180° − 40° = 140°.'],
+         qOpp: 'Mekkora a 40°-os szöggel szemközti szög?', qNb: 'Mekkora a 40°-os szöggel szomszédos szög?', sketch: 'Vázlat, nem méretarányos' },
+    p: { q1: 'Tépd le a négy sarkot. Mi lesz belőlük?', o1: ['egyenes vonal (180°)', 'teljes fordulat (360°)', 'az alakzattól függ'],
+         q2: 'Mennyi az ötszög öt szögének összege?', q3: 'És a hatszög hat szögéé?', rule: 'Szögösszeg = (oldalak száma − 2) × 180°',
+         r1: 'A négy sarok egy pont köré illeszkedik: 360°. A négyszög két háromszög.', r2: 'Három háromszög: 3 × 180° = 540°.', r3: 'Négy háromszög: 4 × 180° = 720°.' },
+    secrets: { walk: ['Teknősséta', 'Járd körbe az alakzatot, és számold a fordulatokat.'], globe: ['Kövér háromszög', 'Háromszög a földgömbön három derékszöggel.'] },
+    sec: { shapes: { tri: 'háromszög', sq: 'négyzet', pent: 'ötszög' }, turned: (d) => `eddig összesen: ${d}°`, walkText: 'Bármelyik alakzatot körbejárva, vissza a kiindulópontba, pontosan egyszer fordulsz meg: 360°.',
+           globeText: 'Görbe felületen mások a szabályok: ennek a háromszögnek három derékszöge van, összesen 270°. Sík lapon mindig 180°.' },
+    cards: { tear: ['✂️', 'Minden háromszögben 180°', 'A három sarok egy egyenes vonallá áll össze.', 'Akárhogy néz is ki a háromszög.'],
+             line: ['📏', 'Fél fordulat, teljes fordulat', 'Egyenesen: 180°. Pont körül: 360°.', 'Metsző egyeneseknél a csúcsszögek egyenlők.'],
+             poly: ['⬠', 'Az alakzatok háromszögekből állnak', 'Oszd fel a sokszöget háromszögekre egy csúcsból.', 'Minden háromszög 180°-ot ad hozzá.'] },
+    fine: 'A letépett sarkok bizonyítása klasszikus iskolai kísérlet (Eukleidész, Elemek I.32). A gömbi háromszögek szögösszege nagyobb 180°-nál.',
+    quiz: [
+      { q: 'Bármely háromszög három szögének összege…', opts: ['90°', '180°', '360°'], ok: 1 },
+      { q: 'Két szög egy egyenesen fekszik. Az egyik 130°. A másik…', opts: ['230°', '50°', '90°'], ok: 1 },
+      { q: 'Két egyenes metszi egymást. Az egyik szög 40°. A vele szemközti szög…', opts: ['140°', '40°', '320°'], ok: 1 } ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_oqziWKry-L', en: 'Angle Sum Rules', ru: 'Правила суммы углов', hu: 'Szögösszeg-szabályok' },
+  { id: 'mt_cdMlC7EpTJ', en: 'Angles in triangles (age 10+)', ru: 'Углы в треугольниках (10+ лет)', hu: 'Szögek a háromszögekben (10+ év)' },
+  { id: 'mt_J03RFlVdas', en: 'Angle sums in triangles and polygons', ru: 'Сумма углов треугольников и многоугольников', hu: 'Háromszögek és sokszögek szögösszege' },
+];
+
+// --- rounds ------------------------------------------------------------------------------------------------
+// Shapes live in a virtual 400 x 260 box and are fitted to the stage at draw time (same angles at any size).
+const TRI1 = [[70, 215], [335, 195], [215, 35]];
+const TRI_THIN = [[25, 190], [375, 190], [162.6, 116.9]]; // 28°, 19°, 133°
+const TRI_RIGHT = [[80, 200], [300, 200], [80, 60]];
+const QUAD = [[60, 205], [335, 195], [385, 60], [150, 25]];
+const PENT = [[60, 190], [230, 225], [365, 150], [330, 45], [140, 30]];
+const HEX = [[70, 180], [180, 230], [320, 215], [370, 120], [270, 35], [120, 45]];
+
+const ROUNDS = {
+  tear: [
+    { kind: 'choice', q: (t) => t.t.q1, opts: (t) => t.t.o1, ok: 1, res: 180, tri: TRI1 },
+    { kind: 'choice', q: (t) => t.t.q2, opts: (t) => [t.t.yes, t.t.no], ok: 0, res: 180, tri: TRI_THIN },
+    { kind: 'num', q: (t) => t.t.q3, ok: 90, res: 90, tri: TRI_RIGHT, right: 0 },
+  ],
+  line: [
+    { kind: 'num', q: (t) => t.l.q, type: 'line', parts: [130, 50], sk: [110, 70], miss: 1, ok: 50, res: 50 },
+    { kind: 'num', q: (t) => t.l.q, type: 'line', parts: [40, 65, 75], sk: [70, 45, 65], miss: 1, ok: 65, res: 65 },
+    { kind: 'num', q: (t) => t.l.q, type: 'point', parts: [90, 120, 150], sk: [110, 130, 120], miss: 2, ok: 150, res: 150 },
+    { kind: 'num', q: (t) => t.l.q, type: 'point', parts: [70, 110, 70, 110], sk: [100, 80, 100, 80], miss: 3, ok: 110, res: 110 },
+    { kind: 'num', q: (t) => t.l.qOpp, type: 'cross', parts: [40, 140, 40, 140], sk: [65, 115, 65, 115], miss: 2, given: 0, ok: 40, res: 40 },
+    { kind: 'num', q: (t) => t.l.qNb, type: 'cross', parts: [40, 140, 40, 140], sk: [65, 115, 65, 115], miss: 1, given: 0, ok: 140, res: 140 },
+  ],
+  poly: [
+    { kind: 'choice', q: (t) => t.p.q1, opts: (t) => t.p.o1, ok: 1, res: 360, pts: QUAD },
+    { kind: 'choice', q: (t) => t.p.q2, opts: () => ['540°', '360°', '900°'], ok: 0, res: 540, pts: PENT },
+    { kind: 'num', q: (t) => t.p.q3, ok: 720, res: 720, pts: HEX },
+  ],
+};
+const ACCENT = { tear: '#ff6b5e', line: '#4ea8ff', poly: '#3ddc97' };
+const GLOW = { tear: 'rgba(255, 110, 90, .22)', line: 'rgba(78, 168, 255, .26)', poly: 'rgba(61, 220, 151, .22)' };
+const COL = ['#ff5a4f', '#3ddc97', '#4ea8ff', '#f5c84c', '#b48cff', '#ff9f5a'];
+
+const mk = () => ({ i: 0, sel: null, num: null, rev: false, fin: false, t0: 0, snd: [], right: [] });
+const S = {
+  R: { tear: mk(), line: mk(), poly: mk() },
+  sec: null, // null | 'walk' | 'globe' (only in the tear view)
+  free: { pts: TRI1.map((p) => [...p]), tearing: false, t0: 0, snd: [] },
+  wk: { n: 3, t: 0, shown: -1 }, gl: { t: 0 }, map: null,
+};
+const R = S.R;
+const now = () => performance.now() / 1000;
+
+// --- shell -------------------------------------------------------------------------------------------------
+const lab = shell({ key: 'angle-sum', T, topics: TOPICS, views: ['tear', 'line', 'poly'], onLang: () => render(), onView: () => { S.sec = null; render(); } });
+const secret = secretLab('angle-sum', () => ({
+  secrets: [{ emo: '🐢', title: T[lang].secrets.walk[0], desc: T[lang].secrets.walk[1] }, { emo: '🌍', title: T[lang].secrets.globe[0], desc: T[lang].secrets.globe[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div class="qtext" id="qtext"></div>
+  <div class="choices" id="choices"></div>
+  <div class="cnt" id="numRow"><button class="sb" data-d="-10">−10</button><button class="sb" data-d="-1">−1</button>
+    <input id="ni" type="number" inputmode="numeric" min="0" max="999"><button class="sb" data-d="1">+1</button><button class="sb" data-d="10">+10</button></div>
+  <div class="verdict" id="verdict"></div>
+  <div class="row2" id="secPanel" style="margin-top:0"></div>
+  <div class="row2" style="margin-top:0"><button class="btn" id="mainB" data-act="main"></button><div class="chips push" id="chipsRow"></div></div>`;
+
+// --- small geometry helpers ----------------------------------------------------------------------------------
+const PI = Math.PI, TAU = PI * 2;
+const ease = (x) => { x = clamp(x, 0, 1); return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+const normA = (a) => { while (a > PI) a -= TAU; while (a <= -PI) a += TAU; return a; };
+const JIT = (() => { let s = 7; return Array.from({ length: 96 }, () => (s = (s * 16807) % 2147483647) / 2147483647); })();
+const FONT = 'Nunito, system-ui, sans-serif';
+
+function segDist(p, a, b) {
+  const dx = b[0] - a[0], dy = b[1] - a[1], u = clamp(((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy), 0, 1);
+  return Math.hypot(p[0] - (a[0] + u * dx), p[1] - (a[1] + u * dy));
+}
+// fit points into a region by their bounding box, same scale on both axes
+function fitPts(pts, reg, pad) {
+  const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const s = Math.min((reg.w - 2 * pad) / (x1 - x0), (reg.h - 2 * pad) / (y1 - y0));
+  const ox = reg.x + (reg.w - (x1 - x0) * s) / 2 - x0 * s, oy = reg.y + (reg.h - (y1 - y0) * s) / 2 - y0 * s;
+  return pts.map((p) => [ox + p[0] * s, oy + p[1] * s]);
+}
+// the fixed virtual box (free mode), so dragging keeps its meaning while the stage resizes
+function boxFit(reg) {
+  const s = Math.min(reg.w / 400, reg.h / 260);
+  return { s, ox: reg.x + (reg.w - 400 * s) / 2, oy: reg.y + (reg.h - 260 * s) / 2 };
+}
+function anglesOf(P) { // degrees at each vertex
+  return P.map((a, i) => {
+    const b = P[(i + 1) % P.length], c = P[(i + P.length - 1) % P.length];
+    const ux = b[0] - a[0], uy = b[1] - a[1], vx = c[0] - a[0], vy = c[1] - a[1];
+    return Math.atan2(Math.abs(ux * vy - uy * vx), ux * vx + uy * vy) * 180 / PI;
+  });
+}
+function showStage() { // on a phone the controls sit below the canvas: bring the reveal into view
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+// --- paper, corners, torn pieces -----------------------------------------------------------------------------
+const tex = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 96;
+  const g = c.getContext('2d'); g.fillStyle = '#f2e8d0'; g.fillRect(0, 0, 96, 96);
+  for (let i = 0; i < 320; i++) { g.fillStyle = `rgba(${110 + Math.random() * 40 | 0}, 85, 45, ${0.03 + Math.random() * 0.07})`; g.fillRect(Math.random() * 96, Math.random() * 96, 1 + Math.random() * 1.5, 1); }
+  return c;
+})();
+let patCtx = null, pat = null;
+const paperFill = (ctx) => { if (patCtx !== ctx) { patCtx = ctx; pat = ctx.createPattern(tex, 'repeat'); } return pat; };
+
+// one wedge at every corner: the apex, the first edge direction e1, the sweep delta towards the other edge, a jagged outer edge
+function corners(P, cols) {
+  const n = P.length;
+  let minSide = Infinity, minAlt = Infinity;
+  for (let i = 0; i < n; i++) {
+    minSide = Math.min(minSide, Math.hypot(P[(i + 1) % n][0] - P[i][0], P[(i + 1) % n][1] - P[i][1]));
+    for (let j = 0; j < n; j++) if (j !== i && j !== (i + n - 1) % n) minAlt = Math.min(minAlt, segDist(P[i], P[j], P[(j + 1) % n]));
+  }
+  const d = Math.min(0.4 * minSide, 0.76 * minAlt);
+  return P.map((a, i) => {
+    const nx = P[(i + 1) % n], pv = P[(i + n - 1) % n];
+    const e1 = Math.atan2(nx[1] - a[1], nx[0] - a[0]);
+    const delta = normA(Math.atan2(pv[1] - a[1], pv[0] - a[0]) - e1);
+    const N = 8, jag = [];
+    for (let k = 0; k <= N; k++) {
+      const edge = k === 0 || k === N, jr = JIT[(i * 11 + k * 3) % 96], ja = JIT[(i * 7 + k * 5 + 1) % 96];
+      const ang = e1 + delta * (k / N + (edge ? 0 : (ja - 0.5) * 0.4 / N)), rad = d * (edge ? 1 : 0.9 + 0.2 * jr);
+      jag.push([Math.cos(ang) * rad, Math.sin(ang) * rad]);
+    }
+    return { i, apex: a, e1, delta, alpha: Math.abs(delta), d, jag, col: cols[i] };
+  });
+}
+const wedgePath = (ctx, p) => { ctx.moveTo(0, 0); for (const [x, y] of p.jag) ctx.lineTo(x, y); ctx.closePath(); };
+
+function paper(ctx, pts, holes = []) {
+  ctx.save();
+  ctx.beginPath(); pts.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath();
+  for (const p of holes) { ctx.moveTo(p.apex[0], p.apex[1]); for (const [x, y] of p.jag) ctx.lineTo(p.apex[0] + x, p.apex[1] + y); ctx.closePath(); }
+  ctx.shadowColor = 'rgba(0, 0, 0, .5)'; ctx.shadowBlur = 16; ctx.shadowOffsetY = 6;
+  ctx.globalAlpha = 1; ctx.fillStyle = paperFill(ctx); ctx.fill('evenodd');
+  ctx.shadowColor = 'transparent'; ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(80, 60, 30, .35)'; ctx.stroke();
+  ctx.restore();
+}
+// tint, angle arc (or a square for a right angle) of one corner, drawn in the corner's own coordinates
+function cornerMark(ctx, p, right) {
+  ctx.beginPath(); wedgePath(ctx, p);
+  ctx.globalAlpha = 0.5; ctx.fillStyle = p.col; ctx.fill(); ctx.globalAlpha = 1;
+  ctx.strokeStyle = p.col; ctx.lineWidth = 3; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  if (right) {
+    const a = 0.32 * p.d, u = [Math.cos(p.e1), Math.sin(p.e1)], v = [Math.cos(p.e1 + p.delta), Math.sin(p.e1 + p.delta)];
+    ctx.moveTo(u[0] * a, u[1] * a); ctx.lineTo((u[0] + v[0]) * a, (u[1] + v[1]) * a); ctx.lineTo(v[0] * a, v[1] * a);
+  } else ctx.arc(0, 0, p.d * 0.45, p.e1, p.e1 + p.delta, p.delta < 0);
+  ctx.stroke();
+}
+function drawPiece(ctx, p, x, y, rot, sc, lift, right) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.scale(sc, sc);
+  ctx.globalAlpha = 1;
+  ctx.shadowColor = `rgba(0, 0, 0, ${0.3 + 0.2 * lift})`; ctx.shadowBlur = 6 + 10 * lift; ctx.shadowOffsetY = 2 + 4 * lift;
+  ctx.beginPath(); wedgePath(ctx, p); ctx.fillStyle = paperFill(ctx); ctx.fill();
+  ctx.shadowColor = 'transparent';
+  cornerMark(ctx, p, right);
+  ctx.beginPath(); p.jag.forEach(([jx, jy], k) => (k ? ctx.lineTo(jx, jy) : ctx.moveTo(jx, jy)));
+  ctx.strokeStyle = 'rgba(255, 255, 255, .65)'; ctx.lineWidth = 1.5 / sc; ctx.stroke();
+  ctx.restore();
+}
+const label = (ctx, txt, x, y, size, color, align = 'center') => {
+  ctx.save(); ctx.globalAlpha = 1; ctx.font = `800 ${size}px ${FONT}`; ctx.textAlign = align; ctx.textBaseline = 'middle';
+  ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(10, 12, 20, .65)'; ctx.lineJoin = 'round'; ctx.strokeText(txt, x, y);
+  ctx.fillStyle = color; ctx.fillText(txt, x, y); ctx.restore();
+};
+
+// The tear scene: corners tear off one by one and fly to a straight line (tgt 'line') or round a point (tgt 'circle').
+// at < 0: nothing has happened yet (nothing of the answer is drawn).
+const LIFT = 0.35, FLY = 1.1, STEP = 0.55;
+const tearDur = (n) => 0.2 + (n - 1) * STEP + LIFT + FLY + 0.9;
+function tearScene(ctx, w, h, pts, cols, at, o) {
+  const n = pts.length, pcs = corners(pts, cols), y0 = h * 0.5, tgt = o.tgt || 'line', sd = Math.sign(pcs[0].delta), d = pcs[0].d;
+  const bT = (i) => 0.2 + i * STEP, tLand = bT(n - 1) + LIFT + FLY;
+  let O, Rf, psi0;
+  if (tgt === 'line') {
+    const yl = h - 44; O = [w / 2, yl]; psi0 = sd > 0 ? -PI : 0;
+    Rf = Math.min(d * 2.2, Math.min(w * 0.42, yl - y0 - 58) / 1.2);
+  } else {
+    const rr = (h - y0 - 36) / 2; O = [w / 2, y0 + rr]; psi0 = -PI / 2;
+    Rf = Math.min(d * 2.2, Math.min(w * 0.34, rr - 12) / 1.2);
+  }
+  const s = Math.max(1, Rf / d); Rf = d * s;
+  let cum = 0;
+  const tgtRot = pcs.map((p) => { const psi = psi0 + sd * cum; cum += p.alpha; return normA(psi - p.e1); });
+  const torn = pcs.map((p) => at >= bT(p.i));
+  const ring = Rf * 1.14 + 4;
+
+  // the guide the pieces will land on (only once the reveal has started)
+  if (at >= 0) {
+    ctx.save(); ctx.globalAlpha = clamp(at / 0.8, 0, 1);
+    if (tgt === 'line') {
+      ctx.strokeStyle = 'rgba(237, 239, 247, .8)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(O[0] - ring - 26, O[1]); ctx.lineTo(O[0] + ring + 26, O[1]); ctx.stroke();
+    } else { ctx.fillStyle = 'rgba(237, 239, 247, .8)'; ctx.beginPath(); ctx.arc(O[0], O[1], 3, 0, TAU); ctx.fill(); }
+    ctx.restore();
+  }
+
+  paper(ctx, pts, pcs.filter((p) => torn[p.i]));
+  for (const p of pcs) {
+    ctx.save(); ctx.translate(p.apex[0], p.apex[1]);
+    if (!torn[p.i]) { cornerMark(ctx, p, o.right === p.i); ctx.setLineDash([3, 3]); ctx.strokeStyle = 'rgba(40, 30, 15, .35)'; ctx.lineWidth = 1;
+      ctx.beginPath(); p.jag.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke(); }
+    else { ctx.beginPath(); p.jag.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.strokeStyle = 'rgba(255, 255, 255, .7)'; ctx.lineWidth = 1.5; ctx.stroke(); }
+    ctx.restore();
+  }
+  // a right angle is announced in the question, so it may be labelled before the answer
+  if (o.right !== undefined && !torn[o.right]) {
+    const p = pcs[o.right], b = p.e1 + p.delta / 2;
+    label(ctx, '90°', p.apex[0] - Math.cos(b) * 26, p.apex[1] - Math.sin(b) * 26, 15, '#fff');
+  }
+
+  pcs.forEach((p) => {
+    if (!torn[p.i]) return;
+    const t = at - bT(p.i), bis = p.e1 + p.delta / 2, out = [-Math.cos(bis), -Math.sin(bis)];
+    let x = p.apex[0], y = p.apex[1], rot = 0, sc = 1, lift = 0;
+    if (t < LIFT) {
+      const u = ease(t / LIFT); x += out[0] * 10 * u; y += out[1] * 10 * u; rot = Math.sin(u * 14) * 0.06 * (1 - u); lift = u;
+    } else {
+      const u = ease((t - LIFT) / FLY), sx = p.apex[0] + out[0] * 10, sy = p.apex[1] + out[1] * 10;
+      x = lerp(sx, O[0], u); y = lerp(sy, O[1], u) - Math.sin(u * PI) * 36;
+      rot = tgtRot[p.i] * u; sc = lerp(1, s, u); lift = Math.sin(u * PI);
+      if (u >= 1 && !o.snd[p.i]) { o.snd[p.i] = true; sfx.snap(); }
+    }
+    drawPiece(ctx, p, x, y, rot, sc, lift, o.right === p.i);
+  });
+
+  if (at >= tLand) {
+    const pa = clamp((at - tLand) / 0.5, 0, 1), span = tgt === 'line' ? 180 : 360;
+    ctx.save(); ctx.globalAlpha = pa; ctx.strokeStyle = 'rgba(237, 239, 247, .85)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(O[0], O[1], ring, psi0, psi0 + sd * span * PI / 180, sd < 0); ctx.stroke();
+    ctx.beginPath();
+    for (let g = 0; g <= span; g += 10) {
+      const a = psi0 + sd * g * PI / 180, r2 = ring + (g % 30 === 0 ? 10 : 6);
+      ctx.moveTo(O[0] + Math.cos(a) * ring, O[1] + Math.sin(a) * ring); ctx.lineTo(O[0] + Math.cos(a) * r2, O[1] + Math.sin(a) * r2);
+    }
+    ctx.stroke();
+    if (o.bracket) { // the two corners that are not the right angle, together
+      const a0 = psi0 + sd * PI / 2, a1 = psi0 + sd * PI, br = ring + 22;
+      ctx.strokeStyle = ACCENT.tear; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(O[0], O[1], br, a0, a1, sd < 0); ctx.stroke();
+      const am = (a0 + a1) / 2; label(ctx, '90°', O[0] + Math.cos(am) * (br + 20), O[1] + Math.sin(am) * (br + 20), 16, '#fff');
+    }
+    ctx.restore();
+    label(ctx, `${span}°`, O[0], tgt === 'line' ? O[1] + 28 : O[1] + ring + 24, 22, `rgba(255, 255, 255, ${pa})`);
+  }
+}
+
+// --- view 1: tear (and free mode) ---------------------------------------------------------------------------
+function drawTear(ctx, w, h) {
+  const r = R.tear, free = r.i >= ROUNDS.tear.length, reg = { x: 0, y: 6, w, h: h * 0.5 - 6 };
+  if (free) {
+    const f = S.free, m = boxFit(reg); S.map = m;
+    const pts = f.pts.map((p) => [m.ox + p[0] * m.s, m.oy + p[1] * m.s]);
+    tearScene(ctx, w, h, pts, COL, f.tearing ? now() - f.t0 : -1, { snd: f.snd });
+    if (!f.tearing) {
+      const deg = degrees(f.pts);
+      corners(pts, COL).forEach((p, i) => {
+        const b = p.e1 + p.delta / 2;
+        label(ctx, `${deg[i]}°`, p.apex[0] - Math.cos(b) * 26, p.apex[1] - Math.sin(b) * 26, 15, p.col);
+      });
+      for (const p of pts) { ctx.save(); ctx.globalAlpha = 1; ctx.beginPath(); ctx.arc(p[0], p[1], 8, 0, TAU); ctx.fillStyle = 'rgba(255, 255, 255, .9)'; ctx.fill(); ctx.restore(); }
+    }
+    return;
+  }
+  const rd = ROUNDS.tear[r.i], at = r.rev ? now() - r.t0 : -1;
+  if (r.rev && !r.fin && at >= tearDur(3)) { r.fin = true; render(); }
+  tearScene(ctx, w, h, fitPts(rd.tri, reg, 26), COL, at, { snd: r.snd, right: rd.right, bracket: rd.right !== undefined });
+}
+// whole degrees that still add to 180: the last one is what is left over
+function degrees(P) { const a = anglesOf(P), ra = Math.round(a[0]), rb = Math.round(a[1]); return [ra, rb, 180 - ra - rb]; }
+
+// --- view 2: line and point ----------------------------------------------------------------------------------
+const LINE_DUR = 2.6;
+const WCOL = ['#4ea8ff', '#3ddc97', '#b48cff', '#ff9f5a'];
+function drawLine(ctx, w, h) {
+  const r = R.line, end = r.i >= ROUNDS.line.length, rd = ROUNDS.line[Math.min(r.i, ROUNDS.line.length - 1)], t = T[lang];
+  const at = end ? 99 : r.rev ? now() - r.t0 : -1;
+  if (r.rev && !r.fin && at >= LINE_DUR) { r.fin = true; render(); }
+  const half = rd.type === 'line', tot = half ? 180 : 360, base = half ? 0 : 18;
+  const O = half ? [w / 2, h * 0.8] : [w / 2, h * 0.5], Rd = half ? Math.min(w / 2 - 34, h * 0.7) : Math.min(w, h) / 2 - 34;
+  const e = ease(at / 0.8), cur = rd.parts.map((x, k) => lerp(rd.sk[k], x, e)), rad = (g) => -g * PI / 180;
+  const fillP = ease((at - 1.9) / 0.5);
+  let a = base;
+  const wedges = cur.map((x) => { const a0 = a; a += x; return [a0, a]; });
+  const kind = (k) => (k === rd.miss ? 'miss' : rd.type === 'cross' && k !== rd.given ? 'other' : 'given');
+
+  wedges.forEach(([a0, a1], k) => {
+    const kd = kind(k);
+    ctx.save(); ctx.globalAlpha = 1;
+    ctx.beginPath(); ctx.moveTo(O[0], O[1]); ctx.arc(O[0], O[1], Rd, rad(a0), rad(a1), true); ctx.closePath();
+    if (kd === 'miss') { ctx.fillStyle = `rgba(245, 200, 76, ${0.1 + 0.55 * fillP})`; ctx.fill(); ctx.setLineDash([6, 5]); ctx.strokeStyle = 'rgba(245, 200, 76, .9)'; ctx.lineWidth = 2; ctx.stroke(); }
+    else { ctx.fillStyle = kd === 'other' ? 'rgba(130, 145, 190, .12)' : WCOL[k % 4] + '47'; ctx.fill(); }
+    ctx.restore();
+    ctx.save(); ctx.strokeStyle = kd === 'miss' ? '#f5c84c' : kd === 'other' ? 'rgba(160, 170, 205, .6)' : WCOL[k % 4]; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(O[0], O[1], Rd * 0.2, rad(a0), rad(a1), true); ctx.stroke(); ctx.restore();
+    if (kd === 'other') return;
+    const mid = rad((a0 + a1) / 2), lr = Rd * 0.62;
+    label(ctx, kd === 'miss' && fillP === 0 ? '?°' : `${rd.parts[k]}°`, O[0] + Math.cos(mid) * lr, O[1] + Math.sin(mid) * lr, 16, kd === 'miss' ? '#f5c84c' : '#fff');
+  });
+  // rays (for a straight line the first and the last ray are the line itself)
+  ctx.save(); ctx.strokeStyle = 'rgba(237, 239, 247, .9)'; ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.beginPath();
+  const bounds = wedges.map((x) => x[0]); if (half) bounds.push(wedges[wedges.length - 1][1]);
+  for (const g of bounds) { ctx.moveTo(O[0], O[1]); ctx.lineTo(O[0] + Math.cos(rad(g)) * (Rd + 8), O[1] + Math.sin(rad(g)) * (Rd + 8)); }
+  ctx.stroke(); ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(O[0], O[1], 4, 0, TAU); ctx.fill(); ctx.restore();
+
+  if (at < 0) { label(ctx, t.l.sketch, 12, 18, 12, '#98A0B8', 'left'); return; }
+  // protractor ring and sweeping arm
+  const pa = clamp(at / 0.6, 0, 1), ringR = Rd + 12;
+  ctx.save(); ctx.globalAlpha = pa; ctx.strokeStyle = 'rgba(237, 239, 247, .85)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(O[0], O[1], ringR, rad(base), rad(base + tot), true); ctx.stroke();
+  ctx.beginPath();
+  for (let g = 0; g <= tot; g += 10) {
+    const c = Math.cos(rad(base + g)), s = Math.sin(rad(base + g)), r2 = ringR + (g % 30 === 0 ? 9 : 5);
+    ctx.moveTo(O[0] + c * ringR, O[1] + s * ringR); ctx.lineTo(O[0] + c * r2, O[1] + s * r2);
+  }
+  ctx.stroke(); ctx.restore();
+  if (at >= 0.8 && at < 2.0) {
+    const u = (at - 0.8) / 1.2, ang = base + u * tot;
+    ctx.save(); ctx.globalAlpha = 1; ctx.fillStyle = 'rgba(255, 255, 255, .08)';
+    ctx.beginPath(); ctx.moveTo(O[0], O[1]); ctx.arc(O[0], O[1], Rd, rad(base), rad(ang), true); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(O[0], O[1]);
+    ctx.lineTo(O[0] + Math.cos(rad(ang)) * (ringR + 10), O[1] + Math.sin(rad(ang)) * (ringR + 10)); ctx.stroke(); ctx.restore();
+  }
+}
+
+// --- view 3: polygons ----------------------------------------------------------------------------------------
+const POLY_STEP = 0.5;
+const polyDur = (i) => { const n = [4, 5, 6][i]; return 0.25 + (n - 3) * POLY_STEP + 0.2 + (n - 2) * 0.55 + 0.9; };
+function drawPoly(ctx, w, h) {
+  const r = R.poly, end = r.i >= ROUNDS.poly.length, i = Math.min(r.i, ROUNDS.poly.length - 1), rd = ROUNDS.poly[i];
+  const at = end ? 99 : r.rev ? now() - r.t0 : -1;
+  if (r.rev && !r.fin && at >= (i === 0 ? tearDur(4) : polyDur(i))) { r.fin = true; render(); }
+  if (i === 0) {
+    const pts = fitPts(rd.pts, { x: 0, y: 6, w, h: h * 0.5 - 6 }, 26);
+    return tearScene(ctx, w, h, pts, COL, end ? tearDur(4) + 1 : at, { tgt: 'circle', snd: r.snd });
+  }
+  const P = fitPts(rd.pts, { x: 0, y: 0, w, h: h - 54 }, 30), n = P.length;
+  paper(ctx, P);
+  corners(P, COL).forEach((p) => { // the angles in question, as plain arcs
+    ctx.save(); ctx.translate(p.apex[0], p.apex[1]); ctx.strokeStyle = p.col; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(0, 0, p.d * 0.4, p.e1, p.e1 + p.delta, p.delta < 0); ctx.stroke(); ctx.restore();
+  });
+  if (at < 0) return;
+  const tL = 0.25 + (n - 3) * POLY_STEP + 0.2;
+  let lit = 0;
+  for (let j = 0; j < n - 2; j++) { // triangles from corner 0
+    const t0 = tL + j * 0.55, f = ease((at - t0) / 0.5);
+    if (f <= 0) continue;
+    if (f >= 1) lit = j + 1;
+    const A = P[0], B = P[j + 1], C = P[j + 2];
+    ctx.save(); ctx.globalAlpha = 1; ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.lineTo(C[0], C[1]); ctx.closePath();
+    ctx.fillStyle = COL[j % 6] + Math.round(f * 150).toString(16).padStart(2, '0'); ctx.fill(); ctx.restore();
+    if (f > 0.4) label(ctx, '180°', (A[0] + B[0] + C[0]) / 3, (A[1] + B[1] + C[1]) / 3, 15, '#fff');
+  }
+  ctx.save(); ctx.strokeStyle = 'rgba(40, 30, 15, .85)'; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+  for (let m = 2; m <= n - 2; m++) { // diagonals grow out of corner 0
+    const g = ease((at - (0.25 + (m - 2) * POLY_STEP)) / 0.4);
+    if (g <= 0) continue;
+    ctx.beginPath(); ctx.moveTo(P[0][0], P[0][1]); ctx.lineTo(lerp(P[0][0], P[m][0], g), lerp(P[0][1], P[m][1], g)); ctx.stroke();
+  }
+  ctx.restore();
+  if (lit > 0) label(ctx, `${lit} × 180° = ${lit * 180}°`, w / 2, h - 24, 20, '#fff');
+}
+
+// --- secret 1: the turtle walk -------------------------------------------------------------------------------
+function drawWalk(ctx, w, h, dt) {
+  const k = S.wk, n = k.n, t = T[lang], step = TAU / n, LT = 1.2, TT = 0.7, per = LT + TT;
+  k.t += dt;
+  const Rr = Math.min(w * 0.36, h * 0.34), c = [w / 2, h * 0.5], a0 = -PI / 2 - PI / n;
+  const V = Array.from({ length: n }, (_, j) => [c[0] + Rr * Math.cos(a0 + j * step), c[1] + Rr * Math.sin(a0 + j * step)]);
+  const done = k.t >= n * per, j = done ? n : Math.floor(k.t / per), lt = k.t - j * per;
+  let pos, turned, walked; // walked: how many edges are complete (and a fraction)
+  if (done) { pos = V[0]; turned = TAU; walked = n; }
+  else if (lt < LT) { const u = lt / LT, A = V[j], B = V[(j + 1) % n]; pos = [lerp(A[0], B[0], u), lerp(A[1], B[1], u)]; turned = j * step; walked = j + u; }
+  else { pos = V[(j + 1) % n]; turned = j * step + step * ease((lt - LT) / TT); walked = j + 1; }
+  const deg = Math.round(turned * 180 / PI);
+  if (deg !== k.shown) { k.shown = deg; if (S.sec === 'walk' && lab.view === 'tear') lab.setReadout('↻', t.sec.turned(deg), '', '#3ddc97'); }
+
+  ctx.save(); ctx.globalAlpha = 1; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.strokeStyle = 'rgba(237, 239, 247, .22)'; ctx.lineWidth = 3; ctx.beginPath(); V.forEach((p, q) => (q ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]))); ctx.closePath(); ctx.stroke();
+  ctx.strokeStyle = '#3ddc97'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(V[0][0], V[0][1]);
+  for (let q = 0; q < Math.min(n, Math.ceil(walked)); q++) {
+    const A = V[q], B = V[(q + 1) % n], u = Math.min(1, walked - q);
+    ctx.lineTo(lerp(A[0], B[0], u), lerp(A[1], B[1], u));
+  }
+  ctx.stroke(); ctx.restore();
+
+  // every turn: the extended edge, the arc, its size, and a slice of the dial in the middle
+  const Rd = Rr * 0.27;
+  ctx.save(); ctx.globalAlpha = 1; ctx.strokeStyle = 'rgba(237, 239, 247, .3)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(c[0], c[1], Rd, 0, TAU); ctx.stroke(); ctx.restore();
+  for (let m = 0; m < n && m * step < turned - 1e-6; m++) {
+    const amt = Math.min(step, turned - m * step), V1 = V[(m + 1) % n], col = COL[m % 6], hd = m * step;
+    ctx.save(); ctx.globalAlpha = 1; ctx.lineWidth = 3; ctx.strokeStyle = col; ctx.fillStyle = col;
+    ctx.setLineDash([4, 5]); ctx.beginPath(); ctx.moveTo(V1[0], V1[1]); ctx.lineTo(V1[0] + Math.cos(hd) * Rr * 0.26, V1[1] + Math.sin(hd) * Rr * 0.26); ctx.stroke(); ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(V1[0], V1[1], Rr * 0.17, hd, hd + amt, false); ctx.stroke();
+    ctx.globalAlpha = 0.85; ctx.beginPath(); ctx.moveTo(c[0], c[1]); ctx.arc(c[0], c[1], Rd, -PI / 2 + m * step, -PI / 2 + m * step + amt, false); ctx.closePath(); ctx.fill();
+    ctx.restore();
+    if (amt > step * 0.6) label(ctx, `${Math.round(step * 180 / PI)}°`, V1[0] + Math.cos(hd + amt / 2) * Rr * 0.34, V1[1] + Math.sin(hd + amt / 2) * Rr * 0.34, 13, col);
+  }
+  if (done) label(ctx, '360°', c[0], c[1], 17, '#fff');
+  // the turtle (the emoji looks left: mirror it when it walks right)
+  ctx.save(); ctx.globalAlpha = 1; ctx.translate(pos[0], pos[1]);
+  if (Math.cos(turned) >= 0) { ctx.rotate(turned); ctx.scale(-1, 1); } else ctx.rotate(turned + PI);
+  ctx.font = '30px "Apple Color Emoji", "Segoe UI Emoji", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#fff'; ctx.fillText('🐢', 0, 0);
+  ctx.restore();
+}
+
+// --- secret 2: a triangle on a globe -------------------------------------------------------------------------
+function drawGlobe(ctx, w, h, dt) {
+  const g = S.gl; g.t += dt;
+  const D = PI / 180, R0 = Math.min(w * 0.38, h * 0.34), cx = w / 2, cy = h * 0.46, sT = Math.sin(28 * D), cT = Math.cos(28 * D);
+  const P = (lat, lon) => {
+    const f = lat * D, dl = (lon - 45) * D, x = Math.cos(f) * Math.sin(dl), y = Math.sin(f), z = Math.cos(f) * Math.cos(dl);
+    return [cx + R0 * x, cy - R0 * (y * cT - z * sT), y * sT + z * cT];
+  };
+  const trace = (pts) => { let pen = false; for (const [x, y, z] of pts) { if (z < 0) { pen = false; continue; } if (!pen) { ctx.moveTo(x, y); pen = true; } else ctx.lineTo(x, y); } };
+  ctx.save(); ctx.globalAlpha = 1;
+  const gr = ctx.createRadialGradient(cx - R0 * 0.35, cy - R0 * 0.4, R0 * 0.1, cx, cy, R0);
+  gr.addColorStop(0, '#3a73c4'); gr.addColorStop(1, '#0d2147');
+  ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(cx, cy, R0, 0, TAU); ctx.fill();
+  ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(200, 220, 255, .22)'; ctx.beginPath();
+  for (let lon = 0; lon < 360; lon += 30) trace(Array.from({ length: 37 }, (_, q) => P(-90 + q * 5, lon)));
+  for (const lat of [-60, -30, 30, 60]) trace(Array.from({ length: 73 }, (_, q) => P(lat, q * 5)));
+  ctx.stroke();
+  ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(220, 235, 255, .5)'; ctx.beginPath(); trace(Array.from({ length: 73 }, (_, q) => P(0, q * 5))); ctx.stroke();
+  ctx.strokeStyle = 'rgba(200, 220, 255, .6)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(cx, cy, R0, 0, TAU); ctx.stroke();
+
+  // North Pole -> equator at longitude 0 -> a quarter of the way along the equator -> back up to the pole
+  const tri = [];
+  for (let q = 0; q <= 30; q++) tri.push(P(90 - q * 3, 0));
+  for (let q = 1; q <= 30; q++) tri.push(P(0, q * 3));
+  for (let q = 1; q <= 30; q++) tri.push(P(q * 3, 90));
+  const p = ease(g.t / 3), cnt = Math.floor(p * tri.length);
+  if (p >= 1) { ctx.fillStyle = `rgba(245, 200, 76, ${clamp((g.t - 3) / 0.6, 0, 1) * 0.4})`; ctx.beginPath(); trace(tri); ctx.fill(); }
+  ctx.strokeStyle = '#ffd166'; ctx.lineWidth = 3.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.beginPath(); trace(tri.slice(0, cnt)); ctx.stroke();
+  const vs = [P(90, 0), P(0, 0), P(0, 90)], mx = (vs[0][0] + vs[1][0] + vs[2][0]) / 3, my = (vs[0][1] + vs[1][1] + vs[2][1]) / 3;
+  vs.forEach((v) => { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(v[0], v[1], 5, 0, TAU); ctx.fill(); });
+  ctx.restore();
+  const la = clamp((g.t - 3.2) / 0.6, 0, 1);
+  if (la > 0) vs.forEach((v) => label(ctx, '90°', lerp(v[0], mx, 0.4), lerp(v[1], my, 0.4), 16, `rgba(255, 255, 255, ${la})`));
+  const sa = clamp((g.t - 3.8) / 0.6, 0, 1);
+  if (sa > 0) label(ctx, '90° + 90° + 90° = 270°', w / 2, h - 26, 18, `rgba(255, 255, 255, ${sa})`);
+}
+
+// --- the canvas loop -----------------------------------------------------------------------------------------
+const loop = canvasLoop($('cv'), (ctx, w, h, dt) => {
+  if (lab.view === 'tear') {
+    if (S.sec === 'walk') return drawWalk(ctx, w, h, dt);
+    if (S.sec === 'globe') return drawGlobe(ctx, w, h, dt);
+    return drawTear(ctx, w, h);
+  }
+  if (lab.view === 'line') return drawLine(ctx, w, h);
+  return drawPoly(ctx, w, h);
+});
+
+// --- dragging the corners in free mode -----------------------------------------------------------------------
+const cv = $('cv');
+let drag = -1;
+const freeActive = () => lab.view === 'tear' && !S.sec && R.tear.i >= ROUNDS.tear.length && !S.free.tearing;
+const local = (ev) => { const b = cv.getBoundingClientRect(); return [ev.clientX - b.left, ev.clientY - b.top]; };
+cv.addEventListener('pointerdown', (ev) => {
+  if (!freeActive() || !S.map) return;
+  const [x, y] = local(ev), m = S.map;
+  let best = -1, bd = 40 * 40;
+  S.free.pts.forEach((p, i) => { const d = (m.ox + p[0] * m.s - x) ** 2 + (m.oy + p[1] * m.s - y) ** 2; if (d < bd) { bd = d; best = i; } });
+  if (best < 0) return;
+  drag = best; cv.setPointerCapture(ev.pointerId); ev.preventDefault();
+});
+cv.addEventListener('pointermove', (ev) => {
+  if (drag < 0 || !S.map) return;
+  const [x, y] = local(ev), m = S.map, pts = S.free.pts.map((p) => [...p]);
+  pts[drag] = [clamp((x - m.ox) / m.s, 14, 386), clamp((y - m.oy) / m.s, 14, 246)];
+  const a = anglesOf(pts);
+  if (Math.min(...a) < 8 || pts.some((p, i) => Math.hypot(p[0] - pts[(i + 1) % 3][0], p[1] - pts[(i + 1) % 3][1]) < 40)) return; // keep it a real triangle
+  S.free.pts = pts; freeReadout(); sfx.tick();
+});
+const endDrag = () => { drag = -1; };
+cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
+
+// --- controls ------------------------------------------------------------------------------------------------
+function answer(val) {
+  const v = lab.view, r = R[v], rd = ROUNDS[v][r.i];
+  if (r.rev) return;
+  if (rd.kind === 'choice') r.sel = val; else r.num = val;
+  const ok = val === rd.ok;
+  Object.assign(r, { rev: true, fin: false, t0: now(), snd: [] }); r.right[r.i] = ok;
+  (ok ? sfx.good : sfx.bad)(); showStage(); render();
+}
+function mainBtn() {
+  const v = lab.view, r = R[v], rd = ROUNDS[v][r.i];
+  if (!rd) { R[v] = mk(); sfx.click(); return render(); }
+  if (!r.rev) { if (rd.kind === 'num' && r.num !== null) answer(r.num); return; }
+  Object.assign(r, { i: r.i + 1, sel: null, num: null, rev: false, fin: false, snd: [] }); sfx.click(); render();
+}
+$('ctrlBody').addEventListener('click', (ev) => {
+  const v = lab.view, r = R[v], b = ev.target.closest('button'); if (!b) return;
+  if (b.classList.contains('ans')) return answer(+b.dataset.j);
+  if (b.dataset.d) { if (r.rev) return; r.num = clamp((r.num ?? 0) + +b.dataset.d, 0, 999); sfx.tick(); return render(); }
+  const act = b.dataset.act;
+  if (act === 'main') return mainBtn();
+  if (act === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    const k = b.dataset.k;
+    if (S.sec === k) S.sec = null; else { S.sec = k; if (k === 'walk') Object.assign(S.wk, { n: 3, t: 0, shown: -1 }); else S.gl.t = 0; }
+    sfx.click();
+  } else if (act === 'shape') { Object.assign(S.wk, { n: +b.dataset.n, t: 0, shown: -1 }); sfx.click(); }
+  else if (act === 'ftear') {
+    S.free.tearing = !S.free.tearing; S.free.t0 = now(); S.free.snd = []; sfx.click();
+    if (S.free.tearing) showStage();
+  }
+  render();
+});
+$('ctrlBody').addEventListener('input', (ev) => {
+  if (ev.target.id !== 'ni') return;
+  R[lab.view].num = ev.target.value === '' ? null : clamp(Math.round(+ev.target.value), 0, 999); render();
+});
+$('ctrlBody').addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && ev.target.id === 'ni') { ev.preventDefault(); mainBtn(); } });
+
+// --- one render per change: controls, readout and the state card ---------------------------------------------
+function verdictOf(v, r, t) {
+  const ok = r.right[r.i], i = r.i;
+  if (v === 'tear') {
+    if (i === 0) return [ok ? t.right : t.wrong, [t.t.r1], ok];
+    if (i === 1) return ok ? [t.t.r2, [], true] : [t.wrong, [t.t.r2], false];
+    return [ok ? t.right : t.notq, [t.t.r3], ok];
+  }
+  if (v === 'poly') return [ok ? t.right : i === 0 ? t.wrong : t.notq, [[t.p.r1, t.p.r2, t.p.r3][i], t.p.rule], ok];
+  const rd = ROUNDS.line[i], a = r.num, why = t.l.why[i];
+  if (ok) return [t.right, [why], true];
+  let msg = null;
+  if (rd.type === 'line' && a === 360) msg = t.l.used360;
+  else if (rd.type === 'point' && a === 180) msg = t.l.used180;
+  else if (rd.type === 'line' && a === 90) msg = t.l.half;
+  else if (i === 4 && a === 180 - rd.parts[rd.given]) msg = t.l.opp;
+  return [t.notq, msg ? [msg, why] : [why], false];
+}
+function freeReadout() { lab.setReadout(`<span class="sumline">${esc(T[lang].t.sum(...degrees(S.free.pts)))}</span>`, '', '', ACCENT.tear); }
+
+function render() {
+  const t = T[lang], v = lab.view, r = R[v], rounds = ROUNDS[v], N = rounds.length, end = r.i >= N, rd = rounds[r.i];
+  const sec = v === 'tear' ? S.sec : null, free = v === 'tear' && end && !sec, asking = !sec && !end;
+  const show = (id, on) => { $(id).style.display = on ? '' : 'none'; };
+  document.body.dataset.v = v;
+  lab.setGlow(GLOW[v]);
+  cv.style.touchAction = freeActive() ? 'none' : 'auto'; cv.style.cursor = freeActive() ? 'grab' : '';
+
+  show('qtext', asking || free); $('qtext').textContent = free ? t.t.free : asking ? rd.q(t) : '';
+  show('choices', asking && rd.kind === 'choice');
+  if (asking && rd.kind === 'choice') {
+    $('choices').innerHTML = rd.opts(t).map((o, j) => `<button class="ans ${r.fin ? (j === rd.ok ? 'good' : j === r.sel ? 'bad' : '') : r.rev && j === r.sel ? 'chosen' : ''}" data-j="${j}"${r.rev ? ' disabled' : ''}>${esc(o)}</button>`).join('');
+  }
+  show('numRow', asking && rd.kind === 'num');
+  if (asking && rd.kind === 'num') {
+    const ni = $('ni'), nv = r.num === null ? '' : String(r.num);
+    if (ni.value !== nv) ni.value = nv;
+    ni.disabled = r.rev; ni.setAttribute('aria-label', rd.q(t));
+    document.querySelectorAll('#numRow .sb').forEach((b) => { b.disabled = r.rev; });
+  }
+  show('verdict', asking && r.fin);
+  if (asking && r.fin) {
+    const [title, paras, ok] = verdictOf(v, r, t);
+    $('verdict').innerHTML = `<div class="v" style="color:${ok ? 'var(--ok)' : 'var(--wip)'}">${esc(title)}</div>${paras.map((p, k) => `<p class="${v === 'poly' && k === paras.length - 1 ? 'rule' : ''}">${esc(p)}</p>`).join('')}`;
+  }
+  // the one main button of the lab: Check, Next or Again
+  const needMain = (asking && (rd.kind === 'num' || r.rev)) || (end && v !== 'tear');
+  show('mainB', needMain);
+  if (needMain) {
+    $('mainB').textContent = end ? t.again : r.rev ? t.next : t.check;
+    $('mainB').disabled = asking && !r.rev && r.num === null;
+  }
+  show('secPanel', sec === 'walk');
+  if (sec === 'walk') $('secPanel').innerHTML = [['3', 'tri'], ['4', 'sq'], ['5', 'pent']].map(([n, k]) => `<button class="chip ${S.wk.n === +n ? 'on' : ''}" data-act="shape" data-n="${n}">${esc(t.sec.shapes[k])}</button>`).join('');
+  show('chipsRow', v === 'tear');
+  if (v === 'tear') {
+    const open = secret.unlocked();
+    const sc = (k, emo) => `<button class="chip secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+    const ft = free ? `<button class="chip ${S.free.tearing ? 'on' : ''}" data-act="ftear">${S.free.tearing ? `↺ ${esc(t.again)}` : `✂️ ${esc(t.t.tear)}`}</button>` : '';
+    $('chipsRow').innerHTML = ft + sc('walk', '🐢') + sc('globe', '🌍');
+  }
+
+  // readout
+  const dots = rounds.map((_, i) => (i < r.i ? '●' : i === r.i ? '◉' : '○')).join(' ');
+  if (sec === 'walk') lab.setReadout('↻', t.sec.turned(Math.max(0, S.wk.shown)), '', '#3ddc97');
+  else if (sec === 'globe') lab.setReadout('270°', '90° + 90° + 90°', '', '#ffd166');
+  else if (free) freeReadout();
+  else if (end) lab.setReadout(`${r.right.filter(Boolean).length}/${N}`, dots, '', ACCENT[v]);
+  else lab.setReadout(r.fin ? `${rd.res}°` : '?', dots, '', ACCENT[v]);
+
+  // state card: it must not give away an answer the child is still working on
+  let card;
+  if (sec) card = [sec === 'walk' ? '🐢' : '🌍', t.secrets[sec][0], t.sec[`${sec}Text`], ''];
+  else {
+    const c = t.cards[v], full = v === 'tear' ? r.i >= 1 || r.fin : end;
+    card = full ? c : [c[0], c[1], '', ''];
+  }
+  lab.setState({ emo: card[0], title: card[1], lead: card[2], body: card[3], extra: `<div class="fine">${esc(t.fine)}</div>` });
+}
+render();
+</script>
+</body>
+</html>
