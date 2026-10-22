@@ -1,0 +1,857 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Teeth Tell · Skill Graph</title>
+<meta name="description" content="Guess what an animal eats from its skull, find which of your teeth cut, tear and grind, and fill a balanced plate. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  .qline { font: 500 20px/1.2 var(--serif); color: #fff; margin: 0 0 10px; text-wrap: balance; }
+  .ansrow { display: flex; gap: 8px; flex-wrap: wrap; }
+  .ansrow.list { flex-direction: column; }
+  .ans { display: flex; align-items: center; gap: 8px; min-height: 42px; padding: 8px 16px; border-radius: 999px; border: 1px solid var(--stroke2);
+    background: rgba(130, 145, 190, .1); font-weight: 800; font-size: 13.5px; line-height: 1.25; cursor: pointer; text-align: left; }
+  .ansrow.list .ans { border-radius: 14px; }
+  .ans:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .ans:disabled { cursor: default; }
+  .ans.ok { border-color: var(--ok); background: rgba(61, 220, 151, .18); }
+  .ans.no { border-color: var(--red); background: rgba(255, 59, 48, .16); }
+  .ans.dim { opacity: .5; }
+  .ans .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+  .ans .pc { margin-left: auto; padding-left: 8px; color: var(--soft); font-weight: 900; white-space: nowrap; }
+  .verdict { font-weight: 900; margin: 12px 0 0; }
+  .verdict.ok { color: var(--ok); }
+  .verdict.no { color: var(--wip); }
+  .tapinfo { margin-top: 10px; min-height: 40px; font-size: 13px; color: var(--soft); }
+  .secrow { display: flex; justify-content: space-between; gap: 8px; }
+  .chip { min-height: 36px; }
+  .fine { font-size: 11px; color: var(--faint); }
+  .btn:disabled { opacity: .35; cursor: default; }
+  @media (max-width: 760px) {
+    #stage { height: min(88vw, 420px); }
+    body[data-v=mine] #stage { height: min(104vw, 480px); }
+    body[data-v=plate] #stage { height: min(86vw, 400px); }
+    .qline { font-size: 18px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Teeth Tell', title: 'Teeth tell what you eat',
+    lines: [['Sharp teeth', 'grip and slice meat.'], ['Flat teeth', 'grind plants.'], ['Both kinds?', 'It eats both — like you.']],
+    views: { skulls: '💀 Skulls', mine: '😁 Your teeth', plate: '🍽️ Plate' },
+    next: 'Next ▶', again: '↻ Again', right: 'You guessed right!', wrong: 'Look at the teeth.',
+    s: { q: 'Look at the teeth. What does this animal eat?', meat: '🥩 Meat', plants: '🌿 Plants', both: '🍎🥩 Both',
+         names: { lion: 'lion', cow: 'cow', gorilla: 'gorilla', human: 'human', bear: 'brown bear', rabbit: 'rabbit' },
+         canine: 'grip and slice', molar: 'grind',
+         why: { lion: 'Long canines grip, blade-like back teeth slice meat. A lion is a carnivore.', cow: 'Wide, ridged molars grind grass all day. A cow is a herbivore.',
+                gorilla: 'Big canines, but flat molars: a gorilla eats leaves, stems and fruit. The big canines are for showing off and fighting, not for meat.',
+                human: 'Cutting teeth, small canines and flat molars: we eat both plants and meat. Humans are omnivores.',
+                bear: 'Big canines and flat molars: a brown bear eats berries, roots, fish and meat. An omnivore.', rabbit: 'Long front teeth snip plants, flat back teeth grind them. A herbivore.' },
+         gorilla: 'Fierce-looking teeth don’t always mean meat!' },
+    m: { q: (f) => ({ apple: 'Which teeth bite into an apple?', crust: 'Which teeth tear a tough bread crust?', nut: 'Which teeth grind a nut into paste?' })[f],
+         opts: ['incisors (front)', 'canines (pointed)', 'molars (back)'],
+         types: { incisor: 'Incisor: a flat chisel at the front. It cuts.', canine: 'Canine: pointed. It grips and tears.', premolar: 'Premolar: crushes and grinds.', molar: 'Molar: wide and flat at the back. It grinds.' },
+         why: { apple: 'Incisors are flat chisels: they cut.', crust: 'Canines are pointed: they grip and tear.', nut: 'Molars are wide and flat: they grind.' },
+         tap: 'Tap any tooth to see what it does.' },
+    p: { q1: 'Which should fill the most of your plate?', groups: ['fruit and vegetables', 'starchy foods (bread, rice, potatoes)', 'protein (beans, fish, eggs, meat)', 'dairy (milk, cheese)', 'oils and spreads'],
+         r1: 'Fruit and vegetables plus starchy foods fill about three quarters of the plate. Protein and dairy fill less, oils only a little.',
+         q2: 'Where does most of your energy come from?', o2: ['vitamins', 'carbohydrates and fats', 'water'],
+         r2: 'Bread, rice, potatoes and a little fat give energy. Vitamins don’t give energy: they keep your body working well.',
+         q3: 'Can a cow make its own food from sunlight, like grass does?', o3: ['Yes, by standing in the sun', 'No: animals must eat food', 'Only in summer'],
+         r3: 'Only plants make food from light. Animals, including you, get their food by eating plants or other animals.', energy: 'energy', shield: 'keeps you well', sometimes: 'now and then',
+         look: 'Look at the picture.' },
+    secrets: { shark: ['Shark teeth', 'A conveyor belt of teeth.'], elephant: ['Elephant teeth', 'Tusks and giant molars.'] },
+    sec: { bite: 'Bite!', sharkText: 'A shark grows new teeth all its life: when one falls out, the next row moves forward. It can use thousands of teeth.',
+           elephantText: 'An elephant’s tusks are giant incisors. Its molars are as big as a brick, and it gets six sets of them in its life.',
+           next: 'Next set ▶', tusk: 'tusk: a giant incisor', molar: 'molar' },
+    cards: {
+      skulls: ['💀', 'Read the teeth', 'Carnivores: long canines and slicing teeth. Herbivores: wide grinding molars.', 'Omnivores have some of both. Size and fierceness don’t decide it.'],
+      mine: ['😁', 'Your teeth', 'Incisors cut, canines tear, premolars and molars grind.', 'Children have 20 milk teeth, adults usually 32.'],
+      plate: ['🍽️', 'A balanced plate', 'Lots of fruit, vegetables and starchy food, some protein and dairy, a little oil.', 'No food is “bad”: it’s about how much.'] },
+    fine: 'Plate proportions from the UK Eatwell Guide (Public Health England, 2016). Gorilla diet: mostly leaves, stems and fruit (WWF).',
+    quiz: [
+      { q: 'A gorilla has huge, sharp canines. What does it mostly eat?', opts: ['meat', 'plants', 'only insects'], ok: 1 },
+      { q: 'Which teeth grind food into mush?', opts: ['incisors at the front', 'molars at the back', 'canines'], ok: 1 },
+      { q: 'Can animals make their own food like plants do?', opts: ['Yes, from sunlight', 'No, animals must eat food', 'Only big animals'], ok: 1 } ],
+  },
+  ru: {
+    name: 'Зубы расскажут', title: 'Зубы расскажут, кто что ест',
+    lines: [['Острые зубы', 'держат и режут мясо.'], ['Плоские зубы', 'перетирают растения.'], ['И те, и другие?', 'Ест всё — как ты.']],
+    views: { skulls: '💀 Черепа', mine: '😁 Твои зубы', plate: '🍽️ Тарелка' },
+    next: 'Дальше ▶', again: '↻ Ещё раз', right: 'Угадал!', wrong: 'Посмотри на зубы.',
+    s: { q: 'Посмотри на зубы. Чем питается это животное?', meat: '🥩 Мясом', plants: '🌿 Растениями', both: '🍎🥩 И тем, и другим',
+         names: { lion: 'лев', cow: 'корова', gorilla: 'горилла', human: 'человек', bear: 'бурый медведь', rabbit: 'кролик' },
+         canine: 'держат и режут', molar: 'перетирают',
+         why: { lion: 'Длинные клыки держат, а зубы-лезвия сзади режут мясо. Лев — хищник.', cow: 'Широкие ребристые коренные зубы целый день перетирают траву. Корова — травоядная.',
+                gorilla: 'Клыки большие, но коренные зубы плоские: горилла ест листья, стебли и плоды. Большие клыки — чтобы пугать и драться, а не для мяса.',
+                human: 'Режущие зубы, небольшие клыки и плоские коренные: мы едим и растения, и мясо. Люди всеядны.',
+                bear: 'Большие клыки и плоские коренные: бурый медведь ест ягоды, коренья, рыбу и мясо. Всеядный.', rabbit: 'Длинные передние зубы срезают растения, плоские задние перетирают. Травоядный.' },
+         gorilla: 'Страшные зубы — ещё не значит мясо!' },
+    m: { q: (f) => ({ apple: 'Какими зубами ты откусываешь яблоко?', crust: 'Какими зубами рвёшь жёсткую корку хлеба?', nut: 'Какими зубами перетираешь орех в кашицу?' })[f],
+         opts: ['резцами (спереди)', 'клыками (острыми)', 'коренными (сзади)'],
+         types: { incisor: 'Резец: плоский, как стамеска, спереди. Режет.', canine: 'Клык: острый. Держит и рвёт.', premolar: 'Малый коренной: давит и перетирает.', molar: 'Большой коренной: широкий и плоский, сзади. Перетирает.' },
+         why: { apple: 'Резцы плоские, как стамеска: они режут.', crust: 'Клыки острые: они держат и рвут.', nut: 'Коренные зубы широкие и плоские: они перетирают.' },
+         tap: 'Нажми на любой зуб, чтобы узнать, что он делает.' },
+    p: { q1: 'Чего должно быть больше всего на тарелке?', groups: ['фрукты и овощи', 'крахмалистая еда (хлеб, рис, картофель)', 'белок (фасоль, рыба, яйца, мясо)', 'молочное (молоко, сыр)', 'масла и жиры'],
+         r1: 'Фрукты с овощами и крахмалистая еда занимают около трёх четвертей тарелки. Белка и молочного меньше, масла — совсем чуть-чуть.',
+         q2: 'Откуда ты получаешь больше всего энергии?', o2: ['из витаминов', 'из углеводов и жиров', 'из воды'],
+         r2: 'Хлеб, рис, картошка и немного жира дают энергию. Витамины энергии не дают: они помогают телу работать исправно.',
+         q3: 'Может ли корова сама сделать себе еду из солнечного света, как трава?', o3: ['Да, если постоит на солнце', 'Нет: животные должны есть', 'Только летом'],
+         r3: 'Делать пищу из света умеют только растения. Животные, и ты тоже, получают пищу, когда едят растения или других животных.', energy: 'энергия', shield: 'бережёт здоровье', sometimes: 'иногда',
+         look: 'Посмотри на картинку.' },
+    secrets: { shark: ['Зубы акулы', 'Конвейер из зубов.'], elephant: ['Зубы слона', 'Бивни и огромные коренные.'] },
+    sec: { bite: 'Кусь!', sharkText: 'У акулы всю жизнь растут новые зубы: выпал один — вперёд выдвигается следующий ряд. За жизнь акула меняет тысячи зубов.',
+           elephantText: 'Бивни слона — это огромные резцы. Его коренные зубы размером с кирпич, и за жизнь у него сменяется шесть наборов.',
+           next: 'Следующий набор ▶', tusk: 'бивень — огромный резец', molar: 'коренной зуб' },
+    cards: {
+      skulls: ['💀', 'Читай по зубам', 'Хищники: длинные клыки и режущие зубы. Травоядные: широкие перетирающие коренные.', 'У всеядных есть и те, и другие. Размер и грозный вид ничего не решают.'],
+      mine: ['😁', 'Твои зубы', 'Резцы режут, клыки рвут, малые и большие коренные перетирают.', 'У детей 20 молочных зубов, у взрослых обычно 32.'],
+      plate: ['🍽️', 'Сбалансированная тарелка', 'Много фруктов, овощей и крахмалистой еды, немного белка и молочного, капля масла.', 'Нет «плохой» еды: важно, сколько её.'] },
+    fine: 'Пропорции тарелки — по британскому руководству Eatwell Guide (2016). Рацион гориллы — в основном листья, стебли и плоды (WWF).',
+    quiz: [
+      { q: 'У гориллы огромные острые клыки. Чем она в основном питается?', opts: ['мясом', 'растениями', 'только насекомыми'], ok: 1 },
+      { q: 'Какие зубы перетирают еду в кашицу?', opts: ['резцы спереди', 'коренные сзади', 'клыки'], ok: 1 },
+      { q: 'Могут ли животные сами делать себе еду, как растения?', opts: ['Да, из солнечного света', 'Нет, животные должны есть', 'Только крупные'], ok: 1 } ],
+  },
+  hu: {
+    name: 'A fogak elárulják', title: 'A fogak elárulják, mit eszel',
+    lines: [['Az éles fogak', 'megfogják és vágják a húst.'], ['A lapos fogak', 'megőrlik a növényt.'], ['Mindkettő?', 'Mindent eszik – mint te.']],
+    views: { skulls: '💀 Koponyák', mine: '😁 A fogaid', plate: '🍽️ Tányér' },
+    next: 'Tovább ▶', again: '↻ Újra', right: 'Eltaláltad!', wrong: 'Nézd meg a fogakat.',
+    s: { q: 'Nézd meg a fogakat. Mit eszik ez az állat?', meat: '🥩 Húst', plants: '🌿 Növényt', both: '🍎🥩 Mindkettőt',
+         names: { lion: 'oroszlán', cow: 'tehén', gorilla: 'gorilla', human: 'ember', bear: 'barnamedve', rabbit: 'nyúl' },
+         canine: 'megfog és vág', molar: 'őröl',
+         why: { lion: 'A hosszú szemfogak megfogják, a penge alakú hátsó fogak vágják a húst. Az oroszlán ragadozó.', cow: 'A széles, bordázott őrlőfogak egész nap őrlik a füvet. A tehén növényevő.',
+                gorilla: 'Nagy szemfogak, de lapos őrlőfogak: a gorilla leveleket, szárakat és gyümölcsöt eszik. A nagy szemfog fenyegetésre és harcra kell, nem húsra.',
+                human: 'Vágófogak, kis szemfogak és lapos őrlőfogak: növényt és húst is eszünk. Az ember mindenevő.',
+                bear: 'Nagy szemfogak és lapos őrlőfogak: a barnamedve bogyót, gyökeret, halat és húst eszik. Mindenevő.', rabbit: 'A hosszú elülső fogak lecsípik, a lapos hátsók megőrlik a növényt. Növényevő.' },
+         gorilla: 'A félelmetes fog nem mindig jelent húst!' },
+    m: { q: (f) => ({ apple: 'Melyik fogaddal harapsz bele az almába?', crust: 'Melyik fogaddal tépsz le egy kemény kenyérhéjat?', nut: 'Melyik fogaddal őrölsz pépesre egy diót?' })[f],
+         opts: ['metszőfoggal (elöl)', 'szemfoggal (hegyes)', 'őrlőfoggal (hátul)'],
+         types: { incisor: 'Metszőfog: elöl, lapos, mint egy véső. Vág.', canine: 'Szemfog: hegyes. Megfog és tép.', premolar: 'Kisőrlő: zúz és őröl.', molar: 'Nagyőrlő: hátul, széles és lapos. Őröl.' },
+         why: { apple: 'A metszőfogak laposak, mint a véső: vágnak.', crust: 'A szemfogak hegyesek: megfognak és tépnek.', nut: 'Az őrlőfogak szélesek és laposak: őrölnek.' },
+         tap: 'Koppints bármelyik fogra, és megtudod, mit csinál.' },
+    p: { q1: 'Miből legyen a legtöbb a tányérodon?', groups: ['gyümölcs és zöldség', 'keményítős étel (kenyér, rizs, krumpli)', 'fehérje (bab, hal, tojás, hús)', 'tejtermék (tej, sajt)', 'olaj és zsiradék'],
+         r1: 'A gyümölcs és zöldség meg a keményítős étel a tányér kb. háromnegyedét tölti ki. Fehérjéből és tejtermékből kevesebb kell, olajból csak egy kicsi.',
+         q2: 'Honnan kapod az energiád nagy részét?', o2: ['a vitaminokból', 'a szénhidrátokból és zsírokból', 'a vízből'],
+         r2: 'A kenyér, a rizs, a krumpli és egy kevés zsír ad energiát. A vitaminok nem adnak energiát: segítenek, hogy a tested jól működjön.',
+         q3: 'Tud a tehén napfényből saját táplálékot készíteni, mint a fű?', o3: ['Igen, ha kiáll a napra', 'Nem: az állatoknak enniük kell', 'Csak nyáron'],
+         r3: 'Fényből csak a növények tudnak táplálékot készíteni. Az állatok, így te is, növények vagy más állatok evésével jutnak táplálékhoz.', energy: 'energia', shield: 'egészségben tart', sometimes: 'csak néha',
+         look: 'Nézd meg a képet.' },
+    secrets: { shark: ['Cápafogak', 'Fogakból álló futószalag.'], elephant: ['Elefántfogak', 'Agyarak és óriási őrlőfogak.'] },
+    sec: { bite: 'Harapj!', sharkText: 'A cápának egész életében új fogai nőnek: ha egy kiesik, a következő sor előre lép. Élete során több ezer fogat használ el.',
+           elephantText: 'Az elefánt agyarai óriási metszőfogak. Az őrlőfogai akkorák, mint egy tégla, és életében hat sorozat nő belőlük.',
+           next: 'Következő sor ▶', tusk: 'agyar: óriási metszőfog', molar: 'őrlőfog' },
+    cards: {
+      skulls: ['💀', 'Olvass a fogakból', 'Ragadozók: hosszú szemfogak és vágó fogak. Növényevők: széles őrlőfogak.', 'A mindenevőknek mindkettőből van. A méret és a félelmetes külső nem dönt.'],
+      mine: ['😁', 'A fogaid', 'A metszőfogak vágnak, a szemfogak tépnek, a kis- és nagyőrlők őrölnek.', 'A gyerekeknek 20 tejfoguk van, a felnőtteknek általában 32 foguk.'],
+      plate: ['🍽️', 'Kiegyensúlyozott tányér', 'Sok gyümölcs, zöldség és keményítős étel, valamennyi fehérje és tejtermék, egy kevés olaj.', 'Nincs „rossz” étel: a mennyiség számít.'] },
+    fine: 'A tányér arányai az angol Eatwell Guide (2016) szerint. A gorilla étrendje főleg levél, szár és gyümölcs (WWF).',
+    quiz: [
+      { q: 'A gorillának hatalmas, éles szemfogai vannak. Mit eszik főleg?', opts: ['húst', 'növényt', 'csak rovarokat'], ok: 1 },
+      { q: 'Melyik fogak őrlik pépesre az ételt?', opts: ['az elöl lévő metszőfogak', 'a hátul lévő őrlőfogak', 'a szemfogak'], ok: 1 },
+      { q: 'Tudnak az állatok maguknak táplálékot készíteni, mint a növények?', opts: ['Igen, napfényből', 'Nem, az állatoknak enniük kell', 'Csak a nagyok'], ok: 1 } ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_E1wR8IfCV6', en: 'Animal Nutrition', ru: 'Питание животных', hu: 'Az állatok táplálkozása' },
+  { id: 'mt_13CtLTcWUB', en: 'Herbivores, Carnivores & Omnivores', ru: 'Травоядные, хищники и всеядные', hu: 'Növényevők, húsevők és mindenevők' },
+  { id: 'mt_I047mKeeaq', en: 'Types of Teeth', ru: 'Виды зубов', hu: 'A fogak fajtái' },
+  { id: 'mt_DbXWivdJFB', en: 'Types of Teeth', ru: 'Виды зубов', hu: 'A fogak típusai' },
+  { id: 'mt_QhLAeAlHI0', en: 'Balanced Diet & Food Groups', ru: 'Сбалансированное питание и группы продуктов', hu: 'Kiegyensúlyozott étrend és élelmiszercsoportok' },
+];
+
+// --- data ----------------------------------------------------------------------------------------------------
+const ROUNDS = ['lion', 'cow', 'gorilla', 'human', 'bear', 'rabbit'];
+const DIET = { lion: 'meat', cow: 'plants', gorilla: 'plants', human: 'both', bear: 'both', rabbit: 'plants' };
+const ANSWERS = ['meat', 'plants', 'both'];
+const EMO = { lion: '🦁', cow: '🐄', gorilla: '🦍', human: '🧒', bear: '🐻', rabbit: '🐇' };
+const FOOD = { meat: ['🥩'], plants: ['🌿'], both: ['🍎', '🥩'] };
+const DCOL = { meat: '#ff5a52', plants: '#3ddc97', both: '#f5c84c' };
+const FOODS = ['apple', 'crust', 'nut'];
+const MRIGHT = { apple: 0, crust: 1, nut: 2 };
+const MEMO = { apple: '🍎', crust: '🥖', nut: '🌰' };
+const MPERM = { apple: [2, 0, 1], crust: [0, 2, 1], nut: [1, 0, 2] }; // the order the three buttons appear in
+const MTYPES = [['incisor'], ['canine'], ['premolar', 'molar']];
+const PEMO = ['🍽️', '⚡', '🌱'];
+const PCOL = ['#6fb36f', '#e0b050', '#d9825f', '#5f8fd0', '#c9a0dc'];
+const PPCT = [40, 38, 12, 8, 1];
+
+// --- skulls: side view facing right; every skull is built from a few numbers ------------------------------------
+// units: x from the back of the skull, y from the top; M = base of the upper teeth, G = how wide the mouth is open
+const M = 86, G = 26, L = M + G;
+const BONE = '#efe3c8', BONE2 = '#dccca6', INK = '#3a3022', TOOTH = '#fffbee';
+// teeth: [jaw 'u'|'l', kind, distance back from the nose, width, height, role 'r' (red: grip and slice) | 'g' (green: grind)]
+const SK = {
+  lion: { cw: 108, ch: 62, sl: 72, sh0: 46, sh1: 34, jd: 40, jt: 24, eye: [82, 34, 8], nose: [-12, 24], ear: [22, 26], fur: '#d9a24a', teeth: [
+    ['u', 'inc', 10, 6, 8], ['u', 'inc', 18, 6, 8], ['u', 'inc', 26, 6, 8], ['u', 'can', 40, 12, 30, 'r'],
+    ['u', 'blade', 62, 13, 14, 'r'], ['u', 'blade', 78, 15, 16, 'r'], ['u', 'blade', 98, 22, 20, 'r'],
+    ['l', 'inc', 8, 6, 7], ['l', 'inc', 16, 6, 7], ['l', 'inc', 24, 6, 7], ['l', 'can', 33, 11, 22, 'r'],
+    ['l', 'blade', 64, 13, 12, 'r'], ['l', 'blade', 82, 15, 14, 'r'], ['l', 'blade', 102, 22, 16, 'r']] },
+  cow: { cw: 95, ch: 54, sl: 110, sh0: 34, sh1: 28, jd: 36, jt: 22, eye: [72, 36, 7], nose: [-14, 16], ear: [18, 22], fur: '#c9c2b8', teeth: [
+    ['u', 'pad', 20, 32, 6],
+    ['u', 'molar', 81, 13, 10, 'g'], ['u', 'molar', 95, 13, 10, 'g'], ['u', 'molar', 109, 13, 10, 'g'], ['u', 'molar', 123, 13, 10, 'g'], ['u', 'molar', 137, 13, 10, 'g'],
+    ['l', 'inc', 6, 5, 10], ['l', 'inc', 12, 5, 10], ['l', 'inc', 18, 5, 10], ['l', 'inc', 24, 5, 10], ['l', 'inc', 30, 5, 10], ['l', 'inc', 36, 5, 10],
+    ['l', 'molar', 84, 13, 10, 'g'], ['l', 'molar', 98, 13, 10, 'g'], ['l', 'molar', 112, 13, 10, 'g'], ['l', 'molar', 126, 13, 10, 'g'], ['l', 'molar', 140, 13, 10, 'g']] },
+  gorilla: { cw: 104, ch: 60, sl: 60, sh0: 44, sh1: 36, jd: 44, jt: 30, crest: 1.18, eye: [84, 36, 8], nose: [-14, 26], ear: [24, 26], fur: '#4a4a52', teeth: [
+    ['u', 'inc', 8, 8, 11], ['u', 'inc', 17, 8, 11], ['u', 'can', 34, 13, 32, 'r'],
+    ['u', 'molar', 56, 12, 9, 'g'], ['u', 'molar', 70, 12, 9, 'g'], ['u', 'molar', 86, 14, 9, 'g'], ['u', 'molar', 102, 14, 9, 'g'],
+    ['l', 'inc', 8, 8, 10], ['l', 'inc', 17, 8, 10], ['l', 'can', 27, 12, 22, 'r'],
+    ['l', 'molar', 50, 12, 8, 'g'], ['l', 'molar', 64, 12, 8, 'g'], ['l', 'molar', 80, 14, 8, 'g'], ['l', 'molar', 96, 14, 8, 'g']] },
+  human: { cw: 118, ch: 86, sl: 36, sh0: 62, sh1: 24, jd: 40, jt: 30, eye: [96, 52, 11], nose: [-12, 36], ear: [34, 30], fur: '#e8b890', teeth: [
+    ['u', 'inc', 7, 7, 12], ['u', 'inc', 14, 7, 12], ['u', 'can', 25, 9, 15, 'r'],
+    ['u', 'molar', 37, 10, 9, 'g'], ['u', 'molar', 48, 10, 9, 'g'], ['u', 'molar', 64, 13, 9, 'g'], ['u', 'molar', 77, 13, 9, 'g'], ['u', 'molar', 90, 13, 9, 'g'],
+    ['l', 'inc', 6, 6, 11], ['l', 'inc', 12, 6, 11], ['l', 'can', 21, 9, 14, 'r'],
+    ['l', 'molar', 33, 10, 8, 'g'], ['l', 'molar', 44, 10, 8, 'g'], ['l', 'molar', 58, 13, 8, 'g'], ['l', 'molar', 71, 13, 8, 'g'], ['l', 'molar', 84, 13, 8, 'g']] },
+  bear: { cw: 98, ch: 56, sl: 88, sh0: 38, sh1: 28, jd: 40, jt: 26, eye: [76, 34, 6], nose: [-14, 18], ear: [20, 28], fur: '#8a5a3a', teeth: [
+    ['u', 'inc', 8, 6, 8], ['u', 'inc', 16, 6, 8], ['u', 'inc', 24, 6, 8], ['u', 'can', 38, 13, 30, 'r'],
+    ['u', 'cone', 56, 8, 8], ['u', 'cone', 66, 8, 8],
+    ['u', 'molar', 86, 16, 9, 'g'], ['u', 'molar', 104, 16, 9, 'g'], ['u', 'molar', 122, 16, 9, 'g'],
+    ['l', 'inc', 6, 5, 7], ['l', 'inc', 12, 5, 7], ['l', 'inc', 18, 5, 7], ['l', 'can', 30, 12, 22, 'r'],
+    ['l', 'cone', 50, 8, 7], ['l', 'cone', 60, 8, 7],
+    ['l', 'molar', 80, 16, 9, 'g'], ['l', 'molar', 98, 16, 9, 'g'], ['l', 'molar', 116, 16, 9, 'g']] },
+  rabbit: { cw: 82, ch: 54, sl: 64, sh0: 36, sh1: 28, jd: 42, jt: 20, eye: [60, 36, 8], nose: [-8, 18], ear: [16, 24], fur: '#cfc6bb', teeth: [
+    ['u', 'rod', 6, 8, 32], ['u', 'inc', 16, 5, 8],
+    ['u', 'molar', 58, 10, 10, 'g'], ['u', 'molar', 69, 10, 10, 'g'], ['u', 'molar', 80, 10, 10, 'g'], ['u', 'molar', 91, 10, 10, 'g'], ['u', 'molar', 102, 10, 10, 'g'],
+    ['l', 'rod', 18, 7, 26],
+    ['l', 'molar', 56, 10, 9, 'g'], ['l', 'molar', 67, 10, 9, 'g'], ['l', 'molar', 78, 10, 9, 'g'], ['l', 'molar', 89, 10, 9, 'g'], ['l', 'molar', 100, 10, 9, 'g']] },
+};
+for (const a of Object.values(SK)) {
+  const { cw, ch, sl, sh0, sh1, jd, jt } = a, N = cw + sl, cr = a.crest ?? 1;
+  a.N = N; a.H = L + jd;
+  a.up = [[8, M], [0, M - ch * .45], [cw * .28, M - ch * .93], [cw * .55, M - ch * cr], [cw * .86, M - ch * .8], [cw + sl * .25, M - sh0], [N - 8, M - sh1], [N, M - sh1 * .5],
+    [N, M - 3], [N * .7, M], [N * .4, M]];
+  a.lo = [[cw * .24, M + 10], [cw * .30, M + 1], [cw * .42, M + 1], [cw * .5, M + G * .55], [cw * .57, L], [cw * .75, L], [N - 6, L], [N, L + jt * .45], [N - 6, L + jt],
+    [cw * .7, L + jd * .8], [cw * .4, L + jd * .98], [cw * .26, L + jd * .8]];
+}
+
+// --- small helpers -------------------------------------------------------------------------------------------
+const now = () => performance.now() / 1000;
+const ease = (t) => t * t * (3 - 2 * t);
+const EMO_FONT = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+function emoji(c, ch, x, y, size, alpha = 1) {
+  c.save(); c.globalAlpha = alpha; c.fillStyle = '#fff'; c.font = `${size}px ${EMO_FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText(ch, x, y); c.restore();
+}
+function label(c, text, x, y, color, size = 13, align = 'center') {
+  c.save(); c.font = `800 ${size}px Nunito, sans-serif`; c.textAlign = align; c.textBaseline = 'middle';
+  c.lineWidth = 4; c.lineJoin = 'round'; c.strokeStyle = 'rgba(10,12,20,.85)'; c.strokeText(text, x, y);
+  c.fillStyle = color; c.fillText(text, x, y); c.restore();
+}
+// a label centred on x but kept inside the canvas
+function labelFit(c, text, x, y, color, w, size = 13) {
+  c.save(); c.font = `800 ${size}px Nunito, sans-serif`; const tw = c.measureText(text).width; c.restore();
+  label(c, text, clamp(x, tw / 2 + 6, w - tw / 2 - 6), y, color, size);
+}
+function smooth(c, pts) { // closed curve through the midpoints of the polygon sides
+  const n = pts.length, mid = (p, q) => [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2], m0 = mid(pts[n - 1], pts[0]);
+  c.moveTo(m0[0], m0[1]);
+  for (let i = 0; i < n; i++) { const p = pts[i], m = mid(p, pts[(i + 1) % n]); c.quadraticCurveTo(p[0], p[1], m[0], m[1]); }
+  c.closePath();
+}
+function arrow(c, x1, y1, x2, y2, color, p = 1, dash = false) {
+  if (p <= 0) return;
+  const X = lerp(x1, x2, p), Y = lerp(y1, y2, p), a = Math.atan2(y2 - y1, x2 - x1);
+  c.save(); c.globalAlpha = 1; c.strokeStyle = color; c.fillStyle = color; c.lineWidth = 3; c.lineCap = 'round';
+  if (dash) c.setLineDash([7, 6]);
+  c.beginPath(); c.moveTo(x1, y1); c.lineTo(X, Y); c.stroke(); c.setLineDash([]);
+  if (p > .9) {
+    c.beginPath(); c.moveTo(x2, y2);
+    c.lineTo(x2 - 12 * Math.cos(a - .45), y2 - 12 * Math.sin(a - .45)); c.lineTo(x2 - 12 * Math.cos(a + .45), y2 - 12 * Math.sin(a + .45));
+    c.closePath(); c.fill();
+  }
+  c.restore();
+}
+function tick(c, x, y, r, color) {
+  c.save(); c.globalAlpha = 1; c.strokeStyle = color; c.lineWidth = 4; c.lineCap = 'round'; c.lineJoin = 'round';
+  c.beginPath(); c.moveTo(x - r, y); c.lineTo(x - r * .3, y + r * .7); c.lineTo(x + r, y - r * .7); c.stroke(); c.restore();
+}
+function cross(c, x, y, r, color) {
+  c.save(); c.globalAlpha = 1; c.strokeStyle = color; c.lineWidth = 4; c.lineCap = 'round';
+  c.beginPath(); c.moveTo(x - r, y - r); c.lineTo(x + r, y + r); c.moveTo(x + r, y - r); c.lineTo(x - r, y + r); c.stroke(); c.restore();
+}
+
+// --- state -------------------------------------------------------------------------------------------------
+const S = {
+  r: 0, pick: null, rev: false, rt: 0, res: [], turnAt: -9,         // skulls
+  mi: 0, mpick: null, mrev: false, mrt: 0, mres: [], msel: null,   // your teeth
+  pi: 0, ppick: null, prev: false, prt: 0, pres: [],               // plate
+  sec: null, shark: null, eleph: null,
+};
+const lab = shell({ key: 'teeth', T, topics: TOPICS, views: ['skulls', 'mine', 'plate'], onLang: render, onView: () => { S.sec = null; render(); } });
+const secret = secretLab('teeth', () => ({
+  secrets: [{ emo: '🦈', title: T[lang].secrets.shark[0], desc: T[lang].secrets.shark[1] }, { emo: '🐘', title: T[lang].secrets.elephant[0], desc: T[lang].secrets.elephant[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+// ====================================================================================================================
+// View 1: skulls
+// ====================================================================================================================
+function toothPath(c, kind, x, y0, dir, w, h) {
+  const y1 = y0 + dir * h;
+  c.beginPath();
+  if (kind === 'can') {
+    c.moveTo(x - w / 2, y0); c.quadraticCurveTo(x - w * .2, y0 + dir * h * .65, x - w * .15, y1);
+    c.quadraticCurveTo(x + w * .5, y0 + dir * h * .45, x + w / 2, y0);
+  } else if (kind === 'blade') {
+    c.moveTo(x - w / 2, y0); c.lineTo(x - w * .25, y0 + dir * h * .55); c.lineTo(x - w * .05, y1);
+    c.lineTo(x + w * .15, y0 + dir * h * .5); c.lineTo(x + w * .3, y0 + dir * h * .75); c.lineTo(x + w / 2, y0);
+  } else if (kind === 'cone') {
+    c.moveTo(x - w / 2, y0); c.lineTo(x - w * .12, y1); c.lineTo(x + w * .12, y1); c.lineTo(x + w / 2, y0);
+  } else if (kind === 'inc') {
+    c.moveTo(x - w * .42, y0); c.lineTo(x - w / 2, y1); c.lineTo(x + w / 2, y1); c.lineTo(x + w * .42, y0);
+  } else if (kind === 'rod') { // a long front tooth that curves back
+    c.moveTo(x - w / 2, y0); c.quadraticCurveTo(x - w / 2 - 1, y0 + dir * h * .6, x - w / 2 - 7, y1);
+    c.lineTo(x + w / 2 - 7, y1); c.quadraticCurveTo(x + w / 2 + 1, y0 + dir * h * .6, x + w / 2, y0);
+  } else if (kind === 'pad') {
+    c.roundRect(x - w / 2, y0, w, h, 3);
+  } else {
+    c.roundRect(x - w / 2, Math.min(y0, y1), w, h, 2.5);
+  }
+  c.closePath();
+}
+function skullRow(c, a, jaw, p, time) {
+  const ga = c.globalAlpha;
+  for (const [j, kind, d, w, h, role] of a.teeth) {
+    if (j !== jaw) continue;
+    const x = a.N - d, y0 = jaw === 'u' ? M : L, dir = jaw === 'u' ? 1 : -1;
+    c.save();
+    if (kind === 'pad') c.fillStyle = '#d6bfa0';
+    else if (role && p > 0) {
+      const col = role === 'r' ? '#ff6b62' : '#3ddc97';
+      c.fillStyle = col; c.shadowColor = col; c.shadowBlur = (10 + 5 * Math.sin(time * 5)) * p;
+    } else c.fillStyle = TOOTH;
+    toothPath(c, kind, x, y0, dir, w, h); c.fill(); c.shadowBlur = 0; c.stroke();
+    if (kind === 'molar') { // grinding ridges on the flat top
+      const yt = y0 + dir * h;
+      c.globalAlpha = ga * .45; c.lineWidth = 1; c.beginPath();
+      c.moveTo(x - w / 6, yt); c.lineTo(x - w / 6, yt - dir * h * .4); c.moveTo(x + w / 6, yt); c.lineTo(x + w / 6, yt - dir * h * .4); c.stroke();
+    }
+    c.restore();
+  }
+}
+function drawSkull(c, key, s, x0, y0, p, time) {
+  const a = SK[key], ga = c.globalAlpha;
+  c.save(); c.translate(x0, y0); c.scale(s, s);
+  c.lineJoin = 'round'; c.lineCap = 'round'; c.lineWidth = 1.4; c.strokeStyle = INK;
+  const wash = () => { if (p > 0) { c.save(); c.globalAlpha = ga * .4 * p; c.fillStyle = a.fur; c.fill(); c.restore(); } }; // skin and fur over the bone
+  c.beginPath(); smooth(c, a.lo); c.fillStyle = BONE2; c.fill(); wash(); c.stroke();
+  skullRow(c, a, 'l', p, time);
+  c.beginPath(); smooth(c, a.up); c.fillStyle = BONE; c.fill(); wash(); c.stroke();
+  if (p > 0) emoji(c, EMO[key], a.cw * .42, M - a.ch * .5, a.ch * 1.25, .75 * p * ga);
+  c.fillStyle = '#2a2218'; // eye socket, nostril, ear hole, cheek bone
+  c.beginPath(); c.arc(a.eye[0], M - a.eye[1], a.eye[2], 0, Math.PI * 2); c.fill();
+  c.beginPath(); c.ellipse(a.N + a.nose[0], M - a.nose[1], 3.2, 2.4, 0, 0, Math.PI * 2); c.fill();
+  c.beginPath(); c.ellipse(a.ear[0], M - a.ear[1], 4, 3, 0, 0, Math.PI * 2); c.fillStyle = '#6b5a40'; c.fill();
+  c.globalAlpha = ga * .5; c.lineWidth = 1; c.beginPath();
+  c.moveTo(a.eye[0] - 6, M - a.eye[1] + a.eye[2] + 4); c.quadraticCurveTo(a.cw * .5, M - a.ch * .18, a.ear[0] + 6, M - a.ear[1] + 6); c.stroke();
+  c.globalAlpha = ga; c.lineWidth = 1.4;
+  skullRow(c, a, 'u', p, time);
+  c.restore();
+}
+function skullScene(c, w, h, time) {
+  const key = ROUNDS[S.r], a = SK[key], top = 28, bot = 56, availW = w * .76;
+  const s = Math.min(availW / a.N, (h - top - bot) / a.H);
+  const x0 = w * .04 + (availW - a.N * s) / 2, y0 = top + (h - top - bot - a.H * s) / 2;
+  const p = S.rev ? ease(clamp((now() - S.rt) / .9, 0, 1)) : 0;
+  c.globalAlpha = .25 + .75 * clamp((now() - S.turnAt) / .25, 0, 1);
+  drawSkull(c, key, s, x0, y0, p, time);
+  c.globalAlpha = 1;
+  if (!S.rev) return;
+  const t = T[lang], sx = (d) => x0 + (a.N - d) * s;
+  c.save(); c.globalAlpha = p;
+  // red: the canine that grips and slices
+  const red = a.teeth.find((q) => q[0] === 'u' && q[5] === 'r' && q[1] === 'can');
+  if (red) {
+    const X = sx(red[2]);
+    c.strokeStyle = 'rgba(255,107,98,.9)'; c.lineWidth = 2; c.beginPath(); c.moveTo(X, y0 + M * s); c.lineTo(X, 24); c.stroke();
+    labelFit(c, t.s.canine, X, 13, '#ff8a82', w);
+  }
+  // green: the flat molars that grind
+  const gr = a.teeth.filter((q) => q[0] === 'u' && q[5] === 'g');
+  if (gr.length) {
+    const gx0 = Math.min(...gr.map((q) => sx(q[2]) - q[3] * s / 2)), gx1 = Math.max(...gr.map((q) => sx(q[2]) + q[3] * s / 2)), by = y0 + a.H * s + 8;
+    c.strokeStyle = '#3ddc97'; c.lineWidth = 2; c.lineJoin = 'round';
+    c.beginPath(); c.moveTo(gx0, by - 5); c.lineTo(gx0, by); c.lineTo(gx1, by); c.lineTo(gx1, by - 5); c.stroke();
+    labelFit(c, t.s.molar, (gx0 + gx1) / 2, by + 16, '#5ee8ac', w);
+  }
+  c.restore();
+  // its food slides in front of the mouth
+  const fx0 = Math.min(w - 30, x0 + a.N * s + 40), fy = y0 + (M + G / 2) * s + Math.sin(time * 3) * 2, fx = lerp(w + 30, fx0, p), fs = clamp(s * 22, 28, 42);
+  const fd = FOOD[DIET[key]];
+  fd.forEach((e, i) => emoji(c, e, fx, fy + (fd.length > 1 ? (i - .5) * fs * 1.05 : 0), fs, p));
+}
+
+// ====================================================================================================================
+// View 2: your teeth (two arches seen from above)
+// ====================================================================================================================
+const ORDER = [['incisor', 13, 7], ['incisor', 13, 7], ['canine', 15, 12], ['premolar', 17, 15], ['premolar', 17, 15], ['molar', 24, 22], ['molar', 24, 22], ['molar', 24, 22]];
+const GAPU = 2.2;
+let TEETH = [];
+function layoutMine(w, h) {
+  const G0 = clamp(h * .2, 46, 84), a = w * .42, b = Math.min((h - G0 - 28) / 2, a * 1.05);
+  const cx = w / 2, top = (h - (2 * b + G0)) / 2, cyU = top + b, cyL = cyU + G0;
+  const n = 90, len = [0], th = [Math.PI / 2]; // arc length along a quarter ellipse, from the front (theta = pi/2) to the back (0)
+  for (let i = 1; i <= n; i++) {
+    const t = Math.PI / 2 * (1 - i / n), t0 = Math.PI / 2 * (1 - (i - 1) / n);
+    len.push(len[i - 1] + Math.hypot(a * (Math.cos(t) - Math.cos(t0)), b * (Math.sin(t) - Math.sin(t0)))); th.push(t);
+  }
+  const sum = ORDER.reduce((q, o) => q + o[1], 0) + (ORDER.length - .5) * GAPU, k = Math.min(1.8, len[n] * .97 / sum);
+  const thetaAt = (s) => { let i = 1; while (i < n && len[i] < s) i++; return lerp(th[i - 1], th[i], clamp((s - len[i - 1]) / ((len[i] - len[i - 1]) || 1), 0, 1)); };
+  TEETH = [];
+  for (const arch of ['u', 'l']) for (const side of [-1, 1]) {
+    let sp = GAPU * k / 2;
+    ORDER.forEach(([type, tw, td], idx) => {
+      const sw = tw * k, t = thetaAt(sp + sw / 2), cs = Math.cos(t), sn = Math.sin(t), sy = arch === 'u' ? -1 : 1;
+      sp += sw + GAPU * k;
+      const nx = side * cs / a, ny = sy * sn / b;
+      TEETH.push({ arch, side, idx, type, x: cx + side * a * cs, y: (arch === 'u' ? cyU : cyL) + sy * b * sn, ang: Math.atan2(ny, nx) - Math.PI / 2, w: sw, d: td * k });
+    });
+  }
+  return { a, b, cx, cyU, cyL, k };
+}
+function crown(c, type, w, d) { // the chewing surface seen from above; local +y points to the lips
+  c.beginPath();
+  if (type === 'incisor') c.roundRect(-w / 2, -d / 2, w, d, 2);
+  else if (type === 'canine') { c.moveTo(-w / 2, -d / 2); c.lineTo(w / 2, -d / 2); c.lineTo(0, d / 2 + 1); c.closePath(); }
+  else if (type === 'premolar') c.ellipse(0, 0, w / 2, d / 2, 0, 0, Math.PI * 2);
+  else c.roundRect(-w / 2, -d / 2, w, d, w * .28);
+}
+function apple(c, x, y, r, f) {
+  c.save(); c.globalAlpha = 1; c.lineJoin = 'round';
+  c.fillStyle = '#e0453a'; c.beginPath(); c.arc(x - r * .28, y + r * .05, r * .72, 0, Math.PI * 2); c.moveTo(x + r, y + r * .05); c.arc(x + r * .28, y + r * .05, r * .72, 0, Math.PI * 2); c.fill();
+  c.fillStyle = 'rgba(255,255,255,.35)'; c.beginPath(); c.ellipse(x - r * .5, y - r * .2, r * .13, r * .22, .4, 0, Math.PI * 2); c.fill();
+  c.strokeStyle = '#6b4a2a'; c.lineWidth = 3; c.lineCap = 'round'; c.beginPath(); c.moveTo(x, y - r * .55); c.quadraticCurveTo(x + r * .05, y - r * .85, x + r * .18, y - r * 1.0); c.stroke();
+  c.fillStyle = '#4caf50'; c.beginPath(); c.ellipse(x + r * .38, y - r * .85, r * .3, r * .14, -.5, 0, Math.PI * 2); c.fill();
+  c.globalCompositeOperation = 'destination-out'; // bites
+  [[1.0, -.4, .38], [1.0, .1, .34], [.92, .55, .3]].forEach(([bx, by, br], i) => {
+    const k = clamp(f * 3 - i, 0, 1); if (k <= 0) return;
+    c.beginPath(); c.arc(x + bx * r, y + by * r, br * r * k, 0, Math.PI * 2); c.fill();
+  });
+  c.restore();
+}
+function crust(c, x, y, r, f) {
+  const loaf = () => {
+    c.beginPath(); c.roundRect(x - 1.3 * r, y - .5 * r, 2.6 * r, r, r * .45); c.fillStyle = '#b8682c'; c.fill();
+    c.beginPath(); c.roundRect(x - 1.15 * r, y - .34 * r, 2.3 * r, .68 * r, r * .32); c.fillStyle = '#f1dcae'; c.fill();
+  };
+  const zig = [[0, -1], [.14, -.65], [-.14, -.3], [.14, .05], [-.14, .4], [.14, .7], [0, 1]].map(([zx, zy]) => [x + zx * r, y + zy * r]);
+  c.save(); c.globalAlpha = 1;
+  if (f <= 0) loaf();
+  else for (const side of [-1, 1]) {
+    c.save();
+    c.translate(x + side * f * r * .4, y + f * r * .08); c.rotate(side * f * .14); c.translate(-x, -y);
+    c.beginPath(); c.moveTo(x + side * 3 * r, y - 1.5 * r); c.lineTo(x, y - 1.5 * r); zig.forEach(([zx, zy]) => c.lineTo(zx, zy)); c.lineTo(x, y + 1.5 * r); c.lineTo(x + side * 3 * r, y + 1.5 * r); c.closePath(); c.clip();
+    loaf(); c.restore();
+  }
+  c.restore();
+}
+function nut(c, x, y, r, f) {
+  c.save(); c.globalAlpha = 1;
+  const nr = r * (1 - .85 * f);
+  if (nr > 2) {
+    c.fillStyle = '#b5824a'; c.beginPath(); c.arc(x, y, nr, 0, Math.PI * 2); c.fill();
+    c.strokeStyle = '#7a5428'; c.lineWidth = 2; c.beginPath(); c.arc(x, y, nr, 0, Math.PI * 2); c.moveTo(x, y - nr); c.quadraticCurveTo(x + nr * .3, y, x, y + nr); c.stroke();
+    c.fillStyle = 'rgba(255,255,255,.25)'; c.beginPath(); c.ellipse(x - nr * .4, y - nr * .35, nr * .14, nr * .22, .5, 0, Math.PI * 2); c.fill();
+  }
+  const cnt = Math.floor(30 * f);
+  for (let i = 0; i < cnt; i++) {
+    const ang = i * 2.399963, rad = r * (.15 + 1.2 * ((i * .618) % 1)) * (.4 + .6 * f);
+    c.fillStyle = i % 2 ? '#9c6b3c' : '#cfa56e';
+    c.beginPath(); c.arc(x + Math.cos(ang) * rad * 1.4, y + r * .25 + Math.sin(ang) * rad * .5, r * (.06 + .06 * ((i * .37) % 1)), 0, Math.PI * 2); c.fill();
+  }
+  c.restore();
+}
+function mineScene(c, w, h, time) {
+  const food = FOODS[S.mi], { a, b, cx, cyU, cyL, k } = layoutMine(w, h);
+  const pr = S.mrev ? clamp((time - S.mrt) / 2.2, 0, 1) : 0, f = ease(clamp((pr - .1) / .85, 0, 1));
+  // gums
+  c.save(); c.lineCap = 'round'; c.lineWidth = 24 * k; c.strokeStyle = 'rgba(214,120,135,.30)';
+  c.beginPath(); c.ellipse(cx, cyU, a, b, 0, Math.PI, 2 * Math.PI); c.stroke();
+  c.beginPath(); c.ellipse(cx, cyL, a, b, 0, 0, Math.PI); c.stroke(); c.restore();
+  // which teeth light up after the answer
+  const rightT = MTYPES[MRIGHT[food]], pickT = S.mpick === null ? [] : MTYPES[S.mpick], wrongPick = S.mpick !== null && S.mpick !== MRIGHT[food];
+  const beat = pr > 0 && pr < 1 ? 1 + .28 * Math.sin(Math.PI * ((pr * 3) % 1)) : 1;
+  TEETH.forEach((q, i) => {
+    const hl = !S.mrev ? null : rightT.includes(q.type) ? 'ok' : wrongPick && pickT.includes(q.type) ? 'bad' : null;
+    c.save(); c.translate(q.x, q.y); c.rotate(q.ang);
+    if (hl) c.scale(beat, beat);
+    c.fillStyle = hl === 'ok' ? '#3ddc97' : hl === 'bad' ? '#ff5a52' : '#fff6e2';
+    if (hl) { c.shadowColor = c.fillStyle; c.shadowBlur = 12; }
+    crown(c, q.type, q.w, q.d); c.fill(); c.shadowBlur = 0;
+    c.lineWidth = 1.4; c.strokeStyle = '#85745a'; c.stroke();
+    c.globalAlpha = .5; c.lineWidth = 1; c.beginPath();
+    if (q.type === 'premolar') { c.moveTo(0, -q.d * .3); c.lineTo(0, q.d * .3); }
+    else if (q.type === 'molar') { c.moveTo(0, -q.d * .32); c.lineTo(0, q.d * .32); c.moveTo(-q.w * .3, 0); c.lineTo(q.w * .3, 0); }
+    c.stroke(); c.restore();
+    if (S.msel === i) { c.save(); c.strokeStyle = '#fff'; c.lineWidth = 2.5; c.beginPath(); c.arc(q.x, q.y, Math.max(q.w, q.d) * .72 + 4, 0, Math.PI * 2); c.stroke(); c.restore(); }
+  });
+  // the food in the middle of the mouth
+  const fy = (cyU + cyL) / 2, r = clamp((cyL - cyU) * .36, 15, 30);
+  if (food === 'apple') apple(c, cx, fy, r, f); else if (food === 'crust') crust(c, cx, fy, r * .8, f); else nut(c, cx, fy, r * .9, f);
+}
+function pickTooth(ev) {
+  const r = $('cv').getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+  let best = -1, bd = 28 * 28;
+  TEETH.forEach((q, i) => { const d = (q.x - x) ** 2 + (q.y - y) ** 2; if (d < bd) { bd = d; best = i; } });
+  return best;
+}
+$('cv').addEventListener('pointerdown', (ev) => {
+  if (lab.view !== 'mine') return;
+  const i = pickTooth(ev); if (i < 0) return;
+  S.msel = S.msel === i ? null : i; sfx.tick(); render();
+});
+
+// ====================================================================================================================
+// View 3: plate
+// ====================================================================================================================
+const SEGE = [['🥦', '🍎', '🥕', '🍅', '🍊', '🥬', '🍇'], ['🍞', '🍚', '🥔', '🍝', '🍞', '🥔'], ['🥚', '🐟', '🫘'], ['🥛', '🧀'], ['🫒']];
+function plateScene(c, w, h, time) {
+  const t = T[lang], pr = S.prev ? ease(clamp((time - S.prt) / 1.4, 0, 1)) : 0;
+  const R = Math.min(h * .4, w * .3), cx = w * .4, cy = h / 2 + 6, tot = PPCT.reduce((q, v) => q + v, 0);
+  // the plate
+  c.save(); c.globalAlpha = 1;
+  c.fillStyle = '#f2efe6'; c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2); c.fill();
+  c.strokeStyle = 'rgba(0,0,0,.18)'; c.lineWidth = 2; c.stroke();
+  c.strokeStyle = 'rgba(0,0,0,.08)'; c.beginPath(); c.arc(cx, cy, R * .94, 0, Math.PI * 2); c.stroke();
+  const sweep = pr * Math.PI * 2; let a0 = -Math.PI / 2;
+  PPCT.forEach((pc, i) => {
+    const span = pc / tot * Math.PI * 2, a1 = a0 + span, end = Math.min(a1, -Math.PI / 2 + sweep);
+    if (end > a0) {
+      c.fillStyle = PCOL[i]; c.beginPath(); c.moveTo(cx, cy); c.arc(cx, cy, R * .92, a0, end); c.closePath(); c.fill();
+      c.strokeStyle = '#f2efe6'; c.lineWidth = 2; c.stroke();
+    }
+    // food sprinkled into its segment
+    const em = SEGE[i], es = clamp(R * .2, 16, 26);
+    if (span > .35) em.forEach((e, j) => {
+      const ang = a0 + span * ((j + .5) / em.length), rr = R * (em.length > 2 && j % 2 ? .72 : .5) * (span > 1.5 ? 1 : .95), al = clamp((sweep - (ang - -Math.PI / 2)) / .5, 0, 1);
+      if (al > 0) emoji(c, e, cx + Math.cos(ang) * rr, cy + Math.sin(ang) * rr, es, al);
+    });
+    else if (end >= a1 - .001 && pr > 0) { // the thin oils wedge: its food sits just outside the rim
+      const ang = a0 + span / 2;
+      c.strokeStyle = PCOL[i]; c.lineWidth = 2; c.beginPath(); c.moveTo(cx + Math.cos(ang) * R * .92, cy + Math.sin(ang) * R * .92); c.lineTo(cx + Math.cos(ang) * (R + 8), cy + Math.sin(ang) * (R + 8)); c.stroke();
+      emoji(c, em[0], cx + Math.cos(ang) * (R + 19), cy + Math.sin(ang) * (R + 19), es * .8);
+    }
+    a0 = a1;
+  });
+  c.restore();
+  if (!S.prev) return;
+  // the right answers get a green ring, a wrong pick a red one
+  const ring = (i, col) => {
+    let s0 = -Math.PI / 2; for (let j = 0; j < i; j++) s0 += PPCT[j] / tot * Math.PI * 2;
+    c.save(); c.strokeStyle = col; c.lineWidth = 5; c.lineCap = 'round'; c.globalAlpha = pr;
+    c.beginPath(); c.arc(cx, cy, R + 5, s0 + .02, s0 + PPCT[i] / tot * Math.PI * 2 - .02); c.stroke(); c.restore();
+  };
+  if (S.pi === 0 && pr >= .99) { ring(0, '#3ddc97'); ring(1, '#3ddc97'); if (S.ppick > 1) ring(S.ppick, '#ff5a52'); }
+  // sugary snacks stay outside the plate
+  const bx = cx + R + 22, bw = w - bx - 8;
+  if (bw > 70) {
+    c.save(); c.globalAlpha = pr; c.setLineDash([5, 5]); c.strokeStyle = 'rgba(190,205,255,.4)'; c.lineWidth = 1.5;
+    c.beginPath(); c.roundRect(bx, cy - 46, bw, 96, 14); c.stroke(); c.setLineDash([]); c.restore();
+    emoji(c, '🍬', bx + bw / 2 - 16, cy - 14, 26, pr); emoji(c, '🍩', bx + bw / 2 + 16, cy - 6, 26, pr);
+    c.save(); c.globalAlpha = pr; labelFit(c, t.p.sometimes, bx + bw / 2, cy + 32, '#c6cde0', w); c.restore();
+  }
+}
+const FOOD2 = [['🍞', 'A'], ['🍚', 'A'], ['🥔', 'A'], ['🧈', 'A'], ['🍎', 'B'], ['🥕', 'B'], ['🍊', 'B']];
+const MIXED = [0, 4, 1, 5, 2, 6, 3];
+function energyScene(c, w, h, time) {
+  const t = T[lang], pr = S.prev ? ease(clamp((time - S.prt) / 1.2, 0, 1)) : 0, es = clamp(w * .075, 24, 38);
+  const ia = FOOD2.map((q, i) => i).filter((i) => FOOD2[i][1] === 'A'), ib = FOOD2.map((q, i) => i).filter((i) => FOOD2[i][1] === 'B');
+  FOOD2.forEach(([e, g], i) => {
+    const j = MIXED.indexOf(i), px = w * (.5 + (j - 3) * .105), py = h * .5;
+    const gi = (g === 'A' ? ia : ib).indexOf(i), qx = w * (.1 + gi * .085) + es / 2, qy = g === 'A' ? h * .26 : h * .74;
+    emoji(c, e, lerp(px, qx, pr), lerp(py, qy, pr), es);
+  });
+  if (!S.prev) return;
+  const ex = w * .76, ey = h * .26, sy = h * .74, bwid = w * .2, bh = clamp(h * .16, 36, 54), arrowTo = ex - bwid / 2 - 10;
+  const ap = clamp((pr - .5) / .5, 0, 1);
+  arrow(c, w * .1 + 3 * w * .085 + es + 6, ey, arrowTo, ey, '#f5c84c', ap);
+  arrow(c, w * .1 + 2 * w * .085 + es + 6, sy, w * .76 - 38, sy, '#5ee8ac', ap);
+  // battery
+  c.save(); c.globalAlpha = ap;
+  c.lineWidth = 3; c.strokeStyle = '#EDEFF7'; c.fillStyle = 'rgba(10,12,20,.6)';
+  c.beginPath(); c.roundRect(ex - bwid / 2, ey - bh / 2, bwid, bh, 8); c.fill(); c.stroke();
+  c.fillStyle = '#EDEFF7'; c.fillRect(ex + bwid / 2, ey - bh * .2, 5, bh * .4);
+  c.fillStyle = '#f5c84c'; c.beginPath(); c.roundRect(ex - bwid / 2 + 4, ey - bh / 2 + 4, (bwid - 8) * ap, bh - 8, 5); c.fill();
+  c.restore();
+  emoji(c, '⚡', ex, ey, bh * .6, ap);
+  emoji(c, '🛡️', ex, sy, es * 1.4, ap);
+  c.save(); c.globalAlpha = ap;
+  label(c, t.p.energy, ex, ey + bh / 2 + 16, '#f5c84c', 13);
+  labelFit(c, t.p.shield, ex, sy + es * .7 + 16, '#5ee8ac', w);
+  c.restore();
+}
+function cowScene(c, w, h, time) {
+  const pr = S.prev ? ease(clamp((time - S.prt) / 1.2, 0, 1)) : 0, big = clamp(w * .12, 40, 60);
+  const sun = [w * .5, h * .2], grass = [w * .2, h * .72], cow = [w * .8, h * .72];
+  c.save(); c.fillStyle = 'rgba(100,120,90,.25)'; c.fillRect(0, h * .72 + big * .55, w, 3); c.restore();
+  emoji(c, '☀️', sun[0], sun[1], big); emoji(c, '🌱', grass[0], grass[1], big * .9); emoji(c, '🐄', cow[0], cow[1], big);
+  if (!S.prev) return;
+  const ap = clamp((pr - .3) / .7, 0, 1);
+  const a1 = [sun[0] - 14, sun[1] + big * .5, grass[0] + 10, grass[1] - big * .55], a2 = [sun[0] + 14, sun[1] + big * .5, cow[0] - 10, cow[1] - big * .55], a3 = [grass[0] + big * .6, grass[1], cow[0] - big * .7, cow[1]];
+  arrow(c, ...a1, '#5ee8ac', ap); arrow(c, ...a2, '#ff5a52', ap); arrow(c, ...a3, '#f5c84c', ap, true);
+  if (ap > .9) {
+    tick(c, (a1[0] + a1[2]) / 2 - 16, (a1[1] + a1[3]) / 2, 9, '#3ddc97');
+    cross(c, (a2[0] + a2[2]) / 2 + 16, (a2[1] + a2[3]) / 2, 9, '#ff5a52');
+    emoji(c, '😋', (a3[0] + a3[2]) / 2, a3[1] - 22, 24);
+  }
+}
+
+// ====================================================================================================================
+// secrets: shark conveyor and elephant molars
+// ====================================================================================================================
+const mkShark = () => ({ teeth: [0, 1, 2, 3, 4].map((i) => ({ slot: i, tgt: i, a: 1 })), lost: 0, fall: [], shake: 0 });
+const mkEleph = () => ({ k: 0, kt: 0 });
+function bite() {
+  const sh = S.shark; if (!sh) return;
+  const first = sh.teeth.shift();
+  if (first) sh.fall.push({ t: 0, rot: 0, slot: first.slot });
+  sh.teeth.forEach((q) => { q.tgt -= 1; });
+  sh.teeth.push({ slot: 5, tgt: 4, a: 0 });
+  sh.lost++; sh.shake = 1; sfx.snap(); render();
+}
+function sharkScene(c, w, h, dt) {
+  const sh = S.shark; if (!sh) return;
+  const dx = Math.min(w * .13, 66), th = dx * 1.2, xf = w * .5 + 1.8 * dx, base = h * .5, gl = xf - 5.4 * dx, gw = 6.5 * dx;
+  sh.shake = Math.max(0, sh.shake - dt * 4);
+  const off = -6 * sh.shake;
+  const pos = (s) => [xf - s * dx * .9, base + off + s * s * th * .02];
+  c.save(); c.translate(0, 0); c.lineJoin = 'round';
+  // gum with the belt inside
+  c.fillStyle = '#c96f7a'; c.strokeStyle = '#7a3a45'; c.lineWidth = 2;
+  c.beginPath(); c.roundRect(gl, base + off, gw, th * .95, th * .3); c.fill(); c.stroke();
+  c.fillStyle = '#a9515e'; c.beginPath(); c.roundRect(gl + 10, base + off + th * .3, gw - 20, th * .38, th * .19); c.fill();
+  c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 2; c.lineCap = 'round';
+  const span = gw - 40, sp = 34;
+  for (let i = 0; i < span / sp + 1; i++) {
+    const x = gl + 20 + (((i * sp + now() * 36) % span) + span) % span, y = base + off + th * .49;
+    c.beginPath(); c.moveTo(x - 4, y - 5); c.lineTo(x + 2, y); c.lineTo(x - 4, y + 5); c.stroke();
+  }
+  // teeth: upright at the front, folded back and smaller behind
+  for (const q of sh.teeth) {
+    q.slot += (q.tgt - q.slot) * Math.min(1, dt * 8); q.a += (1 - q.a) * Math.min(1, dt * 6);
+    const [x, y] = pos(q.slot), sc = 1 - .1 * clamp(q.slot, 0, 5), ang = clamp(q.slot, 0, 5) * .33, bw = dx * .62 * sc;
+    c.save(); c.globalAlpha = q.a; c.translate(x, y); c.rotate(-ang);
+    c.fillStyle = '#fffdf2'; c.strokeStyle = '#6a5f4a'; c.lineWidth = 2;
+    c.beginPath(); c.moveTo(-bw / 2, 1); c.quadraticCurveTo(-bw * .25, -th * sc * .6, 0, -th * sc); c.quadraticCurveTo(bw * .25, -th * sc * .6, bw / 2, 1); c.closePath(); c.fill(); c.stroke();
+    c.restore();
+  }
+  // lost teeth tumble away
+  sh.fall = sh.fall.filter((q) => q.t < 1);
+  for (const q of sh.fall) {
+    q.t += dt; q.rot += dt * 5;
+    const [x, y] = pos(0);
+    c.save(); c.globalAlpha = clamp(1 - q.t, 0, 1); c.translate(x + q.t * 40, y + 500 * q.t * q.t * .5 - 30 * q.t); c.rotate(q.rot);
+    c.fillStyle = '#fffdf2'; c.strokeStyle = '#6a5f4a'; c.lineWidth = 2;
+    c.beginPath(); c.moveTo(-dx * .31, 0); c.quadraticCurveTo(-dx * .15, -th * .6, 0, -th); c.quadraticCurveTo(dx * .15, -th * .6, dx * .31, 0); c.closePath(); c.fill(); c.stroke();
+    c.restore();
+  }
+  c.restore();
+}
+function elephantScene(c, w, h, dt, time) {
+  const e = S.eleph; if (!e) return;
+  e.k += clamp(e.kt - e.k, -dt * 2.2, dt * 2.2);
+  const u = Math.min(w / 9.6, h / 7), cx = w * .5, cy = h * .5 + .3 * u;
+  c.save(); c.lineJoin = 'round'; c.lineCap = 'round'; c.lineWidth = 2; c.strokeStyle = INK;
+  const rr = (x, y, ww, hh, r, fill) => { c.beginPath(); c.roundRect(cx + x * u, cy + y * u, ww * u, hh * u, r * u); c.fillStyle = fill; c.fill(); c.stroke(); };
+  // skull: dome, face, lower jaw
+  c.beginPath(); c.ellipse(cx - 1.3 * u, cy - .9 * u, 2.7 * u, 1.9 * u, 0, 0, Math.PI * 2); c.fillStyle = BONE; c.fill(); c.stroke();
+  rr(.4, -1.45, 2.1, 1.95, .5, BONE);
+  c.beginPath(); c.arc(cx + .35 * u, cy - 1.0 * u, .24 * u, 0, Math.PI * 2); c.fillStyle = '#2a2218'; c.fill();
+  c.beginPath(); c.ellipse(cx + 2.0 * u, cy - .7 * u, .3 * u, .55 * u, 0, 0, Math.PI * 2); c.fillStyle = '#2a2218'; c.fill();
+  rr(-2.2, -.2, 1.0, 2.55, .3, BONE2);
+  rr(-2.2, 1.35, 4.2, 1.0, .35, BONE2);
+  // molars: the set in use sits where the jaws meet; the next ones wait behind and the worn one moves forward and drops out
+  const xc = .45 * u, upY = cy + .5 * u, loY = cy + 1.35 * u, mh = .45 * u;
+  const molar = (x, y, dir, sc, al) => {
+    const mw = .9 * u * sc, hh = mh * sc;
+    c.save(); c.globalAlpha = al; c.beginPath(); c.roundRect(x - mw / 2, dir > 0 ? y : y - hh, mw, hh, .1 * u); c.fillStyle = '#f1e6c8'; c.fill(); c.lineWidth = 1.6; c.stroke();
+    c.globalAlpha = al * .55; c.lineWidth = 1.2; c.beginPath();
+    for (let i = 1; i < 5; i++) { const lx = x - mw / 2 + mw * i / 5; c.moveTo(lx, dir > 0 ? y + hh : y - hh); c.lineTo(lx, dir > 0 ? y + hh * .4 : y - hh * .4); }
+    c.stroke(); c.restore();
+  };
+  for (let i = Math.max(0, Math.floor(e.k) - 2); i <= Math.min(5, Math.floor(e.k) + 4); i++) {
+    const rel = i - e.k;
+    let al = 1, sc = 1, fall = 0;
+    if (rel < 0) { al = clamp(1 + rel * .6, 0, 1); sc = 1 + rel * .18; fall = -rel * .3 * u; }
+    else if (rel > 0) { al = rel < 1 ? lerp(1, .7, rel) : clamp(.7 - (rel - 1) * .35, 0, .7); sc = 1 - .1 * rel; }
+    if (al <= 0) continue;
+    const x = cx + xc - rel * .95 * u;
+    molar(x, upY + fall, 1, sc, al); molar(x, loY - fall * .5, -1, sc, al);
+  }
+  // tusks: giant incisors
+  const tuskPath = () => { c.beginPath(); c.moveTo(cx + 2.1 * u, cy - .15 * u); c.bezierCurveTo(cx + 3.2 * u, cy + .5 * u, cx + 3.9 * u, cy + 1.3 * u, cx + 4.3 * u, cy + .1 * u); };
+  c.strokeStyle = INK; c.lineWidth = .46 * u + 3; tuskPath(); c.stroke();
+  c.save(); c.shadowColor = '#f5c84c'; c.shadowBlur = 12 + 5 * Math.sin(time * 4); c.strokeStyle = '#fff4d6'; c.lineWidth = .46 * u; tuskPath(); c.stroke(); c.restore();
+  c.restore();
+  const t = T[lang];
+  labelFit(c, t.sec.tusk, cx + 3.2 * u, cy + 1.95 * u, '#f5c84c', w);
+  labelFit(c, t.sec.molar, cx + xc, cy + 2.7 * u, '#C6CDE0', w);
+}
+
+// ====================================================================================================================
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  const v = lab.view;
+  if (v === 'skulls') { if (S.sec === 'shark') sharkScene(c, w, h, dt); else if (S.sec === 'elephant') elephantScene(c, w, h, dt, time); else skullScene(c, w, h, time); }
+  else if (v === 'mine') mineScene(c, w, h, time);
+  else if (S.pi === 0) plateScene(c, w, h, time); else if (S.pi === 1) energyScene(c, w, h, time); else cowScene(c, w, h, time);
+});
+
+// --- controls ------------------------------------------------------------------------------------------------
+// on a phone the buttons sit below the scene: bring the reveal into view
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+const plateRight = (q, i) => (q === 0 ? i <= 1 : i === 1);
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const act = b.dataset.act, v = lab.view, i = +b.dataset.i;
+  if (act === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    const k = b.dataset.k;
+    if (S.sec === k) S.sec = null;
+    else { S.sec = k; if (k === 'shark') S.shark = mkShark(); else S.eleph = mkEleph(); } // a secret sets itself up when pressed
+    sfx.click(); render(); return;
+  }
+  if (act === 'bite') return bite();
+  if (act === 'eleph') {
+    const e = S.eleph; if (e.kt >= 5) { e.kt = 0; e.k = -1; } else e.kt++;
+    sfx.push(); render(); return;
+  }
+  if (act === 'ans') {
+    if (v === 'skulls') {
+      if (S.rev) return;
+      S.pick = i; S.rev = true; S.rt = now();
+      const ok = ANSWERS[i] === DIET[ROUNDS[S.r]]; S.res[S.r] = ok; (ok ? sfx.good : sfx.bad)();
+    } else if (v === 'mine') {
+      if (S.mrev) return;
+      S.mpick = i; S.mrev = true; S.mrt = now();
+      const ok = i === MRIGHT[FOODS[S.mi]]; S.mres[S.mi] = ok; (ok ? sfx.good : sfx.bad)();
+    } else {
+      if (S.prev) return;
+      S.ppick = i; S.prev = true; S.prt = now();
+      const ok = plateRight(S.pi, i); S.pres[S.pi] = ok; (ok ? sfx.good : sfx.bad)();
+    }
+    showStage(); render(); return;
+  }
+  if (act === 'next') {
+    sfx.click();
+    if (v === 'skulls') {
+      if (S.r >= ROUNDS.length - 1) { S.r = 0; S.res = []; } else S.r++;
+      S.pick = null; S.rev = false; S.turnAt = now();
+    } else if (v === 'mine') {
+      if (S.mi >= FOODS.length - 1) { S.mi = 0; S.mres = []; } else S.mi++;
+      S.mpick = null; S.mrev = false; S.msel = null;
+    } else {
+      if (S.pi >= 2) { S.pi = 0; S.pres = []; } else S.pi++;
+      S.ppick = null; S.prev = false;
+    }
+    render();
+  }
+});
+
+// --- one render per change: controls, readout and the state card -----------------------------------------------
+const dots = (res, cur, n) => Array.from({ length: n }, (_, i) => (res[i] !== undefined ? (res[i] ? '✔' : '✘') : i === cur ? '◉' : '○')).join(' ');
+const verdictHtml = (ok, t) => `<div class="verdict ${ok ? 'ok' : 'no'}">${ok ? '✅' : '🤔'} ${esc(ok ? t.right : t.wrong)}</div>`;
+const nextBtn = (last, t) => `<div class="row2"><button class="btn" data-act="next">${esc(last ? t.again : t.next)}</button></div>`;
+const fineHtml = (t) => `<div class="fine">${esc(t.fine)}</div>`;
+const cardOf = (t, k) => { const [emo, title, lead, body] = t.cards[k]; return { emo, title, lead, body }; };
+function render() {
+  const t = T[lang], v = lab.view;
+  document.body.dataset.v = v;
+  if (v === 'skulls') renderSkulls(t); else if (v === 'mine') renderMine(t); else renderPlate(t);
+}
+
+function renderSkulls(t) {
+  const open = secret.unlocked();
+  const chip = (k, emo) => `<button class="chip secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  const chips = `<div class="row2 secrow">${chip('shark', '🦈')}${chip('elephant', '🐘')}</div>`;
+  if (S.sec === 'shark') {
+    lab.setGlow('rgba(95, 168, 200, .26)');
+    lab.setReadout(`🦷 ${S.shark.lost}`, '', '', '#5fa8c8');
+    $('ctrlBody').innerHTML = `<div class="row2" style="margin-top:0"><button class="btn" data-act="bite">${esc(t.sec.bite)}</button></div>${chips}`;
+    lab.setState({ emo: '🦈', title: t.secrets.shark[0], lead: t.sec.sharkText, body: '', extra: '' });
+    return;
+  }
+  if (S.sec === 'elephant') {
+    lab.setGlow('rgba(200, 170, 110, .26)');
+    lab.setReadout(`${S.eleph.kt + 1} / 6`, '', '', '#c8aa6e');
+    $('ctrlBody').innerHTML = `<div class="row2" style="margin-top:0"><button class="btn" data-act="eleph">${esc(S.eleph.kt >= 5 ? t.again : t.sec.next)}</button></div>${chips}`;
+    lab.setState({ emo: '🐘', title: t.secrets.elephant[0], lead: t.sec.elephantText, body: '', extra: '' });
+    return;
+  }
+  const key = ROUNDS[S.r], right = DIET[key], n = ROUNDS.length, rev = S.rev;
+  const btns = ANSWERS.map((k, i) => {
+    const cls = !rev ? '' : k === right ? 'ok' : i === S.pick ? 'no' : 'dim';
+    return `<button class="ans ${cls}" data-act="ans" data-i="${i}"${rev ? ' disabled' : ''}>${esc(t.s[k])}</button>`;
+  }).join('');
+  $('ctrlBody').innerHTML = `<div class="qline">${esc(t.s.q)}</div><div class="ansrow">${btns}</div>${rev ? verdictHtml(S.res[S.r], t) + nextBtn(S.r === n - 1, t) : ''}${chips}`;
+  const sub = dots(S.res, S.r, n);
+  if (!rev) {
+    lab.setGlow('rgba(217, 190, 130, .22)');
+    lab.setReadout('?', sub, '', '#4ea8ff');
+    lab.setState({ ...cardOf(t, 'skulls'), extra: fineHtml(t) });
+  } else {
+    lab.setGlow('rgba(217, 190, 130, .22)');
+    lab.setReadout(esc(t.s.names[key]), sub, t.s[right], DCOL[right]);
+    lab.setState({ emo: S.res[S.r] ? '✅' : '🤔', title: S.res[S.r] ? t.right : t.wrong, lead: t.s.why[key], body: key === 'gorilla' ? t.s.gorilla : '', extra: fineHtml(t) });
+  }
+}
+
+function renderMine(t) {
+  const food = FOODS[S.mi], right = MRIGHT[food], n = FOODS.length, rev = S.mrev;
+  lab.setGlow('rgba(224, 150, 160, .22)');
+  const btns = MPERM[food].map((i) => {
+    const cls = !rev ? '' : i === right ? 'ok' : i === S.mpick ? 'no' : 'dim';
+    return `<button class="ans ${cls}" data-act="ans" data-i="${i}"${rev ? ' disabled' : ''}>${esc(t.m.opts[i])}</button>`;
+  }).join('');
+  const info = S.msel !== null && TEETH[S.msel] ? t.m.types[TEETH[S.msel].type] : t.m.tap;
+  $('ctrlBody').innerHTML = `<div class="qline">${esc(t.m.q(food))}</div><div class="ansrow">${btns}</div>
+    <div class="tapinfo">${esc(info)}</div>${rev ? verdictHtml(S.mres[S.mi], t) + nextBtn(S.mi === n - 1, t) : ''}`;
+  const sub = dots(S.mres, S.mi, n);
+  if (!rev) {
+    lab.setReadout('?', sub, '', '#e0b050');
+    lab.setState(cardOf(t, 'mine'));
+  } else {
+    lab.setReadout(MEMO[food], sub, t.m.opts[right], '#e0b050');
+    lab.setState({ emo: S.mres[S.mi] ? '✅' : '🤔', title: S.mres[S.mi] ? t.right : t.wrong, lead: t.m.why[food], body: '', extra: '' });
+  }
+}
+
+function renderPlate(t) {
+  const q = S.pi, n = 3, rev = S.prev;
+  const qs = [t.p.q1, t.p.q2, t.p.q3], opts = [t.p.groups, t.p.o2, t.p.o3][q], rs = [t.p.r1, t.p.r2, t.p.r3][q];
+  lab.setGlow('rgba(111, 179, 111, .22)');
+  const btns = opts.map((o, i) => {
+    const ok = plateRight(q, i), cls = !rev ? '' : ok ? 'ok' : i === S.ppick ? 'no' : 'dim';
+    const dot = q === 0 ? `<span class="dot" style="background:${PCOL[i]}"></span>` : '';
+    const pc = q === 0 && rev ? `<span class="pc">≈ ${PPCT[i]}%</span>` : '';
+    return `<button class="ans ${cls}" data-act="ans" data-i="${i}"${rev ? ' disabled' : ''}>${dot}<span>${esc(o)}</span>${pc}</button>`;
+  }).join('');
+  const verdict = rev ? `<div class="verdict ${S.pres[q] ? 'ok' : 'no'}">${S.pres[q] ? '✅' : '🤔'} ${esc(S.pres[q] ? t.right : t.p.look)}</div>` : '';
+  $('ctrlBody').innerHTML = `<div class="qline">${esc(qs[q])}</div><div class="ansrow list">${btns}</div>${verdict}${rev ? nextBtn(q === n - 1, t) : ''}`;
+  const sub = dots(S.pres, q, n);
+  if (!rev) {
+    lab.setReadout('?', sub, '', '#6fb36f');
+    lab.setState({ ...cardOf(t, 'plate'), extra: fineHtml(t) });
+  } else {
+    lab.setReadout(PEMO[q], sub, '', '#6fb36f');
+    lab.setState({ emo: S.pres[q] ? '✅' : '🤔', title: S.pres[q] ? t.right : t.p.look, lead: rs, body: '', extra: q === 0 ? fineHtml(t) : '' });
+  }
+}
+render();
+</script>
+</body>
+</html>
