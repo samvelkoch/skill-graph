@@ -10,7 +10,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -99,6 +99,16 @@ check(
   orphans.length === expectedOrphans.length && orphans.every((id) => expectedOrphans.includes(id)),
   `teaching research: topicIds not in topics.json [${orphans}] != manifest orphanTopicIds [${expectedOrphans}]`,
 );
+
+// --- map layout (data/layout.json, generated): a warning only, the viewer places missing topics itself ---
+const warnings = [];
+if (existsSync(resolve(DATA, 'layout.json'))) {
+  const placed = load('layout.json').nodes ?? {};
+  const extra = existsSync(resolve(DATA, 'extra/topics.json')) ? load('extra/topics.json').topics : [];
+  const missing = [...topics.topics, ...extra].map((t) => t.id).filter((id) => !(id in placed));
+  if (missing.length) warnings.push(`layout.json: ${missing.length} topic(s) not placed (${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ', …' : ''}); run node scripts/layout.mjs`);
+}
+for (const w of warnings) console.warn(`! ${w}`);
 
 // --- report -----------------------------------------------------------------
 if (errors.length) {
