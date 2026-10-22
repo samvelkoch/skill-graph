@@ -1,0 +1,1134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Whose Leaf? · Skill Graph</title>
+<meta name="description" content="Catch falling leaves and find the tree each one came from, look closely at shapes, edges and veins, and wait for winter to see which trees are still green. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  #stage canvas { touch-action: pan-y; }
+  .lf-q { font: 500 21px/1.2 var(--serif); color: #fff; margin-bottom: 10px; text-wrap: balance; }
+  .lf-opts { display: flex; gap: 8px; flex-wrap: wrap; }
+  .lf-o { padding: 9px 16px; min-height: 40px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 800; cursor: pointer; text-align: left; line-height: 1.2; }
+  .lf-o:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .lf-o:disabled { cursor: default; }
+  .lf-o.right { border-color: var(--ok); background: rgba(61, 220, 151, .18); }
+  .lf-o.wrong { border-color: var(--wip); background: rgba(245, 200, 76, .16); }
+  .lf-o.dim { opacity: .45; }
+  .lf-v { font-weight: 900; font-size: 15px; }
+  .lf-v.ok { color: var(--ok); }
+  .lf-v.no { color: var(--wip); }
+  .lf-push { margin-left: auto; }
+  .lf-range { width: 100%; max-width: 420px; accent-color: #F2C94C; height: 36px; }
+  .lf-lab { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-weight: 700; }
+  .lf-hit { position: absolute; left: 0; top: 0; border-radius: 50%; touch-action: none; cursor: grab; }
+  .lf-hit:active { cursor: grabbing; }
+  .btn:disabled { opacity: .35; cursor: default; }
+  @media (max-width: 760px) {
+    #stage { height: min(112vw, 520px); }
+    body[data-v=look] #stage { height: min(92vw, 430px); }
+    .lf-q { font-size: 19px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Whose Leaf?', title: 'Telling trees by their leaves',
+    lines: [['A leaf', 'falls on the path.'], ['Which tree', 'did it come from?'], ['And who stays', 'green in winter?']],
+    views: { match: '🍃 Whose leaf?', look: '🔍 Look closely', winter: '❄️ Winter' },
+    next: 'Next ▶', again: '↻ Again', right: 'Right!', wrong: 'Not quite. Look!',
+    trees: { oak: 'oak', birch: 'birch', maple: 'maple', lime: 'lime', pine: 'pine', chestnut: 'horse chestnut', lilac: 'lilac', larch: 'larch' },
+    m: { q: 'Which tree did this leaf fall from?',
+         o: [['oak', 'birch', 'maple'], ['oak', 'lime', 'pine'], ['maple', 'birch', 'oak'], ['lime', 'pine', 'maple']],
+         why: ['Five pointed lobes, like a hand: a maple leaf. Its seeds have wings and spin as they fall.',
+               'Round lobes along both sides and a tiny stalk: an oak leaf. Acorns grow on oaks.',
+               'Small, three-cornered, with a saw-tooth edge: a birch leaf. Look for the white bark.',
+               'Two long needles joined at the bottom: a pine. Its seeds grow in cones.'],
+         shake: '🍃 Shake the trees', sorted: (n, t) => `${n} of ${t}` },
+    l: { q: ['Which leaf has a toothed edge, like a little saw?', 'Which leaf is made of several leaflets, like fingers on a hand?', 'A blade of grass or a tulip leaf: how do its veins run?'],
+         o: [['lilac', 'oak', 'birch'], ['horse chestnut', 'lime', 'birch'], ['branching like a net', 'side by side, from bottom to top', 'round in circles']],
+         why: ['The birch leaf’s edge has tiny teeth. Lilac and oak have smooth edges.',
+               'A horse chestnut leaf is 5 to 7 leaflets on one stalk, spread like fingers.',
+               'In grass and tulips the veins run side by side. In most tree leaves they branch like a net.'] },
+    w: { q1: 'Winter is coming. Which tree will still be green?', o1: ['birch', 'pine', 'maple'],
+         r1: 'The birch, maple and oak drop their leaves in autumn. The pine keeps its needles and stays green all winter.',
+         q2: 'Why can the pine keep its needles all winter?', o2: ['they are thin and waxy, so they lose very little water', 'the snow keeps them warm', 'they are frozen solid'],
+         r2: 'In winter the ground is frozen and water is hard to get. Thin needles with a waxy skin lose very little, so the pine can keep them.',
+         q3: 'Do pine needles ever fall?', o3: ['never', 'all at once every autumn', 'yes: old needles fall a few at a time, and new ones grow'],
+         r3: 'Each needle lives a few years. Old ones fall a few at a time and new ones grow, so the pine is never bare.',
+         seasons: ['summer', 'autumn', 'winter', 'spring'], year: (n) => `year ${n}` },
+    secrets: { larch: ['The conifer that goes bare', 'Needles that fall?'], yellow: ['The hidden yellow', 'Where does it come from?'] },
+    sec: { larchText: 'The larch is a conifer with needles and cones, but it drops all its needles in autumn, after they turn golden. In spring it grows new ones.',
+           yellowText: 'The yellow was in the leaf all summer, hidden under the green. In autumn the tree stops making green and the yellow shows. Reds, like a maple’s, are made new in autumn.',
+           slide: 'autumn', hid: 'yellow: already there', newr: 'red: made new' },
+    cards: {
+      match: { n: ['🍃', 'A leaf on the tray', 'Look at its shape.', ''], f: ['🍃', 'Every tree has its leaf', 'Lobes, a hand, a triangle, needles.', ''] },
+      look: { n: ['🔍', 'Shape, edge, veins', 'Three clues in every leaf.', ''], f: ['🔍', 'A leaf detective', 'Smooth or toothed, one leaf or many leaflets, net or side by side.', ''] },
+      winter: { n: ['❄️', 'Four trees in summer', 'Then the year turns.', ''], f: ['❄️', 'Green in the snow', 'Pines keep their needles; most broad leaves fall.', ''] },
+    },
+    quiz: [
+      { q: 'Round lobes, and acorns under the tree. Which tree?', opts: ['oak', 'birch', 'pine'], ok: 0 },
+      { q: 'Which tree stays green in winter?', opts: ['maple', 'birch', 'pine'], ok: 2 },
+      { q: 'The veins of a grass leaf…', opts: ['branch like a net', 'run side by side'], ok: 1 } ],
+  },
+  ru: {
+    name: 'Чей это лист?', title: 'Как узнать дерево по листу',
+    lines: [['Лист', 'упал на дорожку.'], ['С какого', 'он дерева?'], ['И кто зимой', 'останется зелёным?']],
+    views: { match: '🍃 Чей лист?', look: '🔍 Присмотрись', winter: '❄️ Зима' },
+    next: 'Дальше ▶', again: '↻ Ещё раз', right: 'Верно!', wrong: 'Не совсем. Смотри!',
+    trees: { oak: 'дуб', birch: 'берёза', maple: 'клён', lime: 'липа', pine: 'сосна', chestnut: 'конский каштан', lilac: 'сирень', larch: 'лиственница' },
+    m: { q: 'С какого дерева упал этот лист?',
+         o: [['дуб', 'берёза', 'клён'], ['дуб', 'липа', 'сосна'], ['клён', 'берёза', 'дуб'], ['липа', 'сосна', 'клён']],
+         why: ['Пять острых лопастей, как ладонь: это лист клёна. Его семена с крылышками кружатся, когда падают.',
+               'Округлые лопасти с двух сторон и крошечный черешок: это лист дуба. На дубе растут жёлуди.',
+               'Маленький, треугольный, с зубчиками, как у пилы: это лист берёзы. Ищи белую кору.',
+               'Две длинные хвоинки, соединённые внизу: это сосна. Её семена созревают в шишках.'],
+         shake: '🍃 Потрясти деревья', sorted: (n, t) => `${n} из ${t}` },
+    l: { q: ['У какого листа край с зубчиками, как маленькая пила?', 'Какой лист состоит из нескольких листочков, как пальцы на ладони?', 'Травинка или лист тюльпана: как идут их жилки?'],
+         o: [['сирень', 'дуб', 'берёза'], ['конский каштан', 'липа', 'берёза'], ['ветвятся, как сеточка', 'рядом друг с другом, снизу вверх', 'по кругу']],
+         why: ['У листа берёзы край с мелкими зубчиками. У сирени и дуба края гладкие.',
+               'Лист конского каштана — это 5–7 листочков на одном черешке, раскинутых, как пальцы.',
+               'У травы и тюльпана жилки идут рядом друг с другом. У большинства деревьев они ветвятся сеточкой.'] },
+    w: { q1: 'Скоро зима. Какое дерево останется зелёным?', o1: ['берёза', 'сосна', 'клён'],
+         r1: 'Берёза, клён и дуб осенью сбрасывают листья. А сосна сохраняет хвою и всю зиму остаётся зелёной.',
+         q2: 'Почему сосна может сохранять хвою всю зиму?', o2: ['хвоинки тонкие и покрыты воском, поэтому теряют очень мало воды', 'их греет снег', 'они промерзают насквозь'],
+         r2: 'Зимой земля замёрзшая, и воду достать трудно. Тонкие хвоинки с восковой кожицей теряют её очень мало, поэтому сосна может их сохранить.',
+         q3: 'Опадает ли когда-нибудь сосновая хвоя?', o3: ['никогда', 'вся сразу каждую осень', 'да: старые хвоинки опадают понемногу, а новые вырастают'],
+         r3: 'Каждая хвоинка живёт несколько лет. Старые опадают понемногу, вырастают новые, поэтому сосна никогда не стоит голой.',
+         seasons: ['лето', 'осень', 'зима', 'весна'], year: (n) => `год ${n}` },
+    secrets: { larch: ['Хвойное, которое раздевается', 'Хвоя, которая опадает?'], yellow: ['Спрятанный жёлтый', 'Откуда он берётся?'] },
+    sec: { larchText: 'Лиственница — хвойное дерево с хвоей и шишками, но осенью её хвоя желтеет и вся опадает. Весной вырастает новая.',
+           yellowText: 'Жёлтый цвет был в листе всё лето, только его прятал зелёный. Осенью дерево перестаёт делать зелёный, и жёлтый становится виден. А красный, как у клёна, появляется осенью заново.',
+           slide: 'осень', hid: 'жёлтый: уже был', newr: 'красный: появился заново' },
+    cards: {
+      match: { n: ['🍃', 'Лист на подносе', 'Посмотри на его форму.', ''], f: ['🍃', 'У каждого дерева свой лист', 'Лопасти, ладонь, треугольник, хвоя.', ''] },
+      look: { n: ['🔍', 'Форма, край, жилки', 'Три подсказки в каждом листе.', ''], f: ['🔍', 'Детектив по листьям', 'Гладкий или зубчатый, один лист или много листочков, сеточка или рядом.', ''] },
+      winter: { n: ['❄️', 'Четыре дерева летом', 'А потом год поворачивает.', ''], f: ['❄️', 'Зелёный среди снега', 'Сосна сохраняет хвою, а большинство широких листьев опадает.', ''] },
+    },
+    quiz: [
+      { q: 'Округлые лопасти, а под деревом жёлуди. Что это за дерево?', opts: ['дуб', 'берёза', 'сосна'], ok: 0 },
+      { q: 'Какое дерево зимой остаётся зелёным?', opts: ['клён', 'берёза', 'сосна'], ok: 2 },
+      { q: 'Жилки у травинки…', opts: ['ветвятся сеточкой', 'идут рядом друг с другом'], ok: 1 } ],
+  },
+  hu: {
+    name: 'Kié ez a levél?', title: 'Fák felismerése a levelükről',
+    lines: [['Egy levél', 'hullik az ösvényre.'], ['Melyik fáról', 'esett le?'], ['És ki marad', 'zöld télen?']],
+    views: { match: '🍃 Kié a levél?', look: '🔍 Nézd meg közelről', winter: '❄️ Tél' },
+    next: 'Tovább ▶', again: '↻ Újra', right: 'Így van!', wrong: 'Nem egészen. Nézd!',
+    trees: { oak: 'tölgy', birch: 'nyírfa', maple: 'juhar', lime: 'hárs', pine: 'erdeifenyő', chestnut: 'vadgesztenye', lilac: 'orgona', larch: 'vörösfenyő' },
+    m: { q: 'Melyik fáról esett le ez a levél?',
+         o: [['tölgy', 'nyírfa', 'juhar'], ['tölgy', 'hárs', 'erdeifenyő'], ['juhar', 'nyírfa', 'tölgy'], ['hárs', 'erdeifenyő', 'juhar']],
+         why: ['Öt hegyes karéj, mint egy tenyér: juharlevél. A termése szárnyas, és pörögve hullik le.',
+               'Kerek karéjok mindkét oldalon és egy egészen rövid nyél: tölgylevél. A tölgyön makk terem.',
+               'Kicsi, háromszög alakú, fűrészfogas szélű: nyírfalevél. Keresd a fehér kérget!',
+               'Két hosszú tűlevél, alul összenőve: erdeifenyő. A magjai tobozban érnek.'],
+         shake: '🍃 Rázd meg a fákat!', sorted: (n, t) => `${n} / ${t}` },
+    l: { q: ['Melyik levél széle fogazott, mint egy kis fűrész?', 'Melyik levél áll több levélkéből, mint ujjak a tenyéren?', 'Egy fűszál vagy egy tulipánlevél: hogyan futnak az erei?'],
+         o: [['orgona', 'tölgy', 'nyírfa'], ['vadgesztenye', 'hárs', 'nyírfa'], ['hálózatosan elágazva', 'egymás mellett, alulról felfelé', 'körbe-körbe']],
+         why: ['A nyírfalevél szélén apró fogak vannak. Az orgona és a tölgy levelének széle sima.',
+               'A vadgesztenye levele 5–7 levélkéből áll egy nyélen, szétterpesztve, mint az ujjak.',
+               'A fűnél és a tulipánnál az erek egymás mellett futnak. A legtöbb fa levelében hálózatosan ágaznak el.'] },
+    w: { q1: 'Jön a tél. Melyik fa marad zöld?', o1: ['nyírfa', 'erdeifenyő', 'juhar'],
+         r1: 'A nyírfa, a juhar és a tölgy ősszel lehullatja a leveleit. Az erdeifenyő megtartja a tűleveleit, és egész télen zöld marad.',
+         q2: 'Miért tarthatja meg az erdeifenyő egész télen a tűleveleit?', o2: ['vékonyak és viaszosak, ezért nagyon kevés vizet veszítenek', 'a hó melegen tartja őket', 'csontkeményre fagynak'],
+         r2: 'Télen fagyos a föld, nehéz vízhez jutni. A vékony, viaszos bőrű tűlevelek nagyon kevés vizet veszítenek, ezért a fenyő megtarthatja őket.',
+         q3: 'Lehullanak valaha a fenyő tűlevelei?', o3: ['soha', 'mind egyszerre, minden ősszel', 'igen: a régiek apránként hullanak le, és újak nőnek helyettük'],
+         r3: 'Minden tűlevél néhány évig él. A régiek apránként hullanak le, újak nőnek, így a fenyő sosem kopasz.',
+         seasons: ['nyár', 'ősz', 'tél', 'tavasz'], year: (n) => `${n}. év` },
+    secrets: { larch: ['A tűlevelű, amelyik lekopaszodik', 'Lehulló tűlevelek?'], yellow: ['A rejtett sárga', 'Honnan jön?'] },
+    sec: { larchText: 'A vörösfenyő tűlevelű és tobozos fa, mégis ősszel a tűlevelei aranysárgára színeződnek, és mind lehullanak. Tavasszal újak nőnek.',
+           yellowText: 'A sárga egész nyáron ott volt a levélben, csak a zöld eltakarta. Ősszel a fa abbahagyja a zöld festék készítését, és előtűnik a sárga. A piros, mint a juharé, ősszel újonnan készül.',
+           slide: 'ősz', hid: 'sárga: már ott volt', newr: 'piros: újonnan készül' },
+    cards: {
+      match: { n: ['🍃', 'Egy levél a tálcán', 'Nézd meg az alakját!', ''], f: ['🍃', 'Minden fának saját levele van', 'Karéjok, tenyér, háromszög, tűlevél.', ''] },
+      look: { n: ['🔍', 'Alak, szél, erek', 'Három nyom minden levélben.', ''], f: ['🔍', 'Levéldetektív', 'Sima vagy fogazott, egy levél vagy sok levélke, hálózatos vagy párhuzamos.', ''] },
+      winter: { n: ['❄️', 'Négy fa nyáron', 'Aztán fordul az év.', ''], f: ['❄️', 'Zöld a hóban', 'A fenyő megtartja tűleveleit, a legtöbb széles levél lehullik.', ''] },
+    },
+    quiz: [
+      { q: 'Kerek karéjok, a fa alatt pedig makk. Melyik fa ez?', opts: ['tölgy', 'nyírfa', 'erdeifenyő'], ok: 0 },
+      { q: 'Melyik fa marad télen zöld?', opts: ['juhar', 'nyírfa', 'erdeifenyő'], ok: 2 },
+      { q: 'A fűszál erei…', opts: ['hálózatosan elágaznak', 'egymás mellett futnak'], ok: 1 } ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_j7cer_Nmor', en: 'Common Plants & Trees', ru: 'Распространённые растения и деревья', hu: 'Gyakori növények és fák' },
+];
+
+// --- round data (language-free keys; labels come from T) ----------------------------------------------------------
+const ROUNDS = [
+  { leaf: 'maple', trees: ['oak', 'birch', 'maple'], right: 2 },
+  { leaf: 'oak', trees: ['oak', 'lime', 'pine'], right: 0 },
+  { leaf: 'birch', trees: ['maple', 'birch', 'oak'], right: 1 },
+  { leaf: 'pine', trees: ['lime', 'pine', 'maple'], right: 1 },
+];
+const LROUNDS = [
+  { opts: ['lilac', 'oak', 'birch'], right: 2, emph: 'edge', k: 2.3 },
+  { opts: ['chestnut', 'lime', 'birch'], right: 0, emph: 'leaflets', k: 1.45 },
+  { opts: null, right: 1, emph: 'veins', k: 2.4 },
+];
+const FREE = ['oak', 'birch', 'maple', 'lime', 'pine'];
+const WTREES = ['oak', 'birch', 'maple', 'pine'];
+const W_RIGHT = [1, 0, 2];
+
+// --- helpers -----------------------------------------------------------------------------------------------
+const TAU = Math.PI * 2;
+const c01 = (x) => Math.min(1, Math.max(0, x));
+const ease = (t) => { t = c01(t); return t * t * (3 - 2 * t); };
+const backOut = (t) => { t = c01(t); const s = 1.70158; return 1 + (s + 1) * Math.pow(t - 1, 3) + s * Math.pow(t - 1, 2); };
+const now = () => performance.now() / 1000;
+const hex = (h) => { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+const toHex = (a) => '#' + a.map((v) => Math.round(clamp(v, 0, 255)).toString(16).padStart(2, '0')).join('');
+const mix = (a, b, t) => { const x = hex(a), y = hex(b); return toHex(x.map((v, i) => v + (y[i] - v) * t)); };
+const shade = (h, k) => (k >= 0 ? mix(h, '#000000', k) : mix(h, '#ffffff', -k)); // k > 0 darker, k < 0 lighter
+const rgba = (h, a) => { const [r, g, b] = hex(h); return `rgba(${r},${g},${b},${a})`; };
+const rng = (seed) => () => { seed |= 0; seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+
+// palette from the spec
+const SKY1 = '#BFE3F5', SKY2 = '#F3F8E8', LAWN = '#7DB35A', GREEN = '#5E9E3E', DARK = '#2F5D46', BARK = '#EDE9E0', YEL = '#F2C94C',
+  ORG = '#E8743B', GOLD = '#B9893A', WOOD = '#B9824F', WSKY = '#DCE6F0', BGD = '#1B2A22';
+const TCOL = { oak: mix(GREEN, DARK, .15), birch: mix(GREEN, YEL, .25), maple: GREEN, lime: mix(GREEN, YEL, .12), pine: DARK, larch: mix(GREEN, YEL, .3) };
+const AUT = { oak: GOLD, birch: YEL, maple: ORG, larch: mix(YEL, GOLD, .3) };
+
+// text on a dark pill, clamped inside the canvas
+let CW = 400;
+function pill(c, text, x, y, o = {}) {
+  c.save();
+  const fs = o.fs || 13;
+  c.font = `800 ${fs}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+  const tw = c.measureText(text).width + 20, ph = fs + 12, px = clamp(x - tw / 2, 4, Math.max(4, CW - tw - 4));
+  c.globalAlpha = 1; c.fillStyle = o.bg || 'rgba(20,30,24,.82)'; c.beginPath(); c.roundRect(px, y - ph / 2, tw, ph, ph / 2); c.fill();
+  c.fillStyle = o.fg || '#fff'; c.fillText(text, px + tw / 2, y + 1);
+  c.restore();
+}
+
+// --- leaf geometry: a unit frame, the tip at y = -1, widths are half-widths --------------------------------
+function resample(P, ds) {
+  const out = [P[0]]; let carry = 0;
+  for (let i = 1; i < P.length; i++) {
+    const [x0, y0] = P[i - 1], [x1, y1] = P[i], d = Math.hypot(x1 - x0, y1 - y0);
+    if (d === 0) continue;
+    let s = ds - carry;
+    while (s <= d) { const f = s / d; out.push([x0 + (x1 - x0) * f, y0 + (y1 - y0) * f]); s += ds; }
+    carry = d - (s - ds);
+  }
+  out.push(P[P.length - 1]);
+  return out;
+}
+// teeth: a saw-tooth pushed out along the edge's normal; the tips lean toward the leaf tip. teeth = [[amp, period, from, to]]
+function serrate(P, teeth) {
+  const R = resample(P, 0.004), n = R.length, out = [];
+  let s = 0;
+  for (let i = 0; i < n; i++) {
+    if (i) s += Math.hypot(R[i][0] - R[i - 1][0], R[i][1] - R[i - 1][1]);
+    const a = R[Math.max(0, i - 1)], b = R[Math.min(n - 1, i + 1)], dx = b[0] - a[0], dy = b[1] - a[1], m = Math.hypot(dx, dy) || 1, f = i / (n - 1);
+    let d = 0;
+    for (const [amp, per, from, to] of teeth) if (f >= from && f <= to) d += amp * Math.min(1, (f - from) / 0.05, (to - f) / 0.05) * ((s / per) % 1);
+    out.push([R[i][0] - (dy / m) * d, R[i][1] + (dx / m) * d]);
+  }
+  return out;
+}
+const mirror = (R, lop = 1) => [...R, ...R.slice().reverse().map(([x, y]) => [-x * lop, y])];
+const quad = (x0, y0, cx, cy, x1, y1, n = 8) => Array.from({ length: n + 1 }, (_, i) => { const t = i / n, u = 1 - t; return [u * u * x0 + 2 * u * t * cx + t * t * x1, u * u * y0 + 2 * u * t * cy + t * t * y1]; });
+const sideVeins = (wf, n, from, to, ang) => {
+  const out = [];
+  for (let k = 0; k < n; k++) {
+    const t0 = from + (to - from) * k / Math.max(1, n - 1), t1 = Math.min(.97, t0 + ang), wx = wf(t1) * .84;
+    for (const sg of [1, -1]) out.push(quad(0, -t0, sg * wx * .35, -(t0 + ang * .35), sg * wx, -t1, 7));
+  }
+  return out;
+};
+function mkBlade(pts, veins, extra = {}) {
+  const path = new Path2D();
+  pts.forEach(([x, y], i) => (i ? path.lineTo(x, y) : path.moveTo(x, y)));
+  path.closePath();
+  return { path, veins, x: 0, y: 0, rot: 0, len: 1, ...extra };
+}
+// a thin curved strand (grass blade, pine needle) around a quadratic centre line; returns the outline and the centre/normals
+function strand(p0, p1, p2, wf, N = 40) {
+  const Lf = [], Rt = [], cen = [], nor = [];
+  for (let i = 0; i <= N; i++) {
+    const t = i / N, u = 1 - t;
+    const x = u * u * p0[0] + 2 * u * t * p1[0] + t * t * p2[0], y = u * u * p0[1] + 2 * u * t * p1[1] + t * t * p2[1];
+    const dx = 2 * u * (p1[0] - p0[0]) + 2 * t * (p2[0] - p1[0]), dy = 2 * u * (p1[1] - p0[1]) + 2 * t * (p2[1] - p1[1]), m = Math.hypot(dx, dy) || 1;
+    const nx = -dy / m, ny = dx / m, w = wf(t);
+    Lf.push([x + nx * w, y + ny * w]); Rt.push([x - nx * w, y - ny * w]); cen.push([x, y]); nor.push([nx, ny, w]);
+  }
+  return { pts: [...Lf, ...Rt.reverse()], cen, nor };
+}
+const edgeFn = (R) => (t) => { let b = 0; for (let i = Math.floor(R.length * .3); i < R.length; i++) if (Math.abs(R[i][1] + t) < .02) b = Math.max(b, R[i][0]); return b; };
+function heart(xs, depth, sharp) {
+  const R = [];
+  for (let i = 0; i <= 140; i++) {
+    const t = Math.PI * i / 140, x = 16 * Math.pow(Math.sin(t), 3);
+    let y = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
+    if (y > 5) y = 5 + (y - 5) * depth;
+    let X = x * xs / 22; const Y = (y - 5) / 22;
+    if (Y < -.55) X *= 1 - sharp * ((-Y - .55) / .45);
+    R.push([X, Y]);
+  }
+  return R;
+}
+const MAPLE_L = [[0, .64, .40], [.95, .55, .36], [-.95, .55, .36], [1.95, .30, .28], [-1.95, .30, .28]];
+function mapleR(th) {
+  let r = .17;
+  for (const [a, L, hw] of MAPLE_L) {
+    const d = Math.abs(th - a) / hw;
+    if (d < 1) r = Math.max(r, .17 + (L - .17) * Math.pow(1 - d, 1.2) + .05 * (L / .64) * ((d * 2.4) % 1) * Math.min(1, d / .2) * (1 - d));
+  }
+  return r * (1 - .35 * Math.exp(-Math.pow((Math.abs(th) - Math.PI) / .25, 2)));
+}
+
+const LEAF = (() => {
+  const L = {};
+  // oak: round lobes, two small ears, a very short stalk
+  const ow = (t) => {
+    const u = clamp((t - .1) / .88, 0, 1), m = .38 + .62 * Math.pow(Math.max(0, .5 + .5 * Math.cos(TAU * (5 * u - .5))), .7);
+    return .31 * Math.sin(Math.PI * Math.pow(t, 1.45)) * m + .075 * Math.exp(-Math.pow((t - .07) / .03, 2));
+  };
+  const oakV = [[[0, .02], [0, -.94]]];
+  for (let k = 0; k < 5; k++) { const t = .1 + .88 * (k + .5) / 5; for (const sg of [1, -1]) oakV.push(quad(0, -(t - .075), sg * ow(t) * .45, -(t - .02), sg * ow(t) * .9, -t, 7)); }
+  L.oak = { blades: [mkBlade(mirror(Array.from({ length: 321 }, (_, i) => [ow(i / 320), -i / 320])), oakV)], stalk: [0, 0, 0, .07, .03], ctr: -.47, fit: 1, col: TCOL.oak };
+
+  // birch: small, three-cornered, double teeth
+  const bw = (t) => (t < .3 ? .05 + .29 * Math.sin(t / .3 * Math.PI / 2) : .34 * Math.pow(1 - (t - .3) / .7, .85));
+  const bHalf = serrate(Array.from({ length: 81 }, (_, i) => [bw(i / 80), -i / 80]), [[.045, .085, .08, .97], [.02, .03, .08, .97]]);
+  L.birch = { blades: [mkBlade(mirror(bHalf), [[[0, .02], [0, -.93]], ...sideVeins(bw, 6, .1, .75, .14)])], stalk: [0, 0, 0, .14, .022], ctr: -.45, fit: 1, col: TCOL.birch };
+
+  // lime: heart-shaped, a little lopsided, fine teeth
+  const limeR = heart(.68, .55, .3), limeHalf = serrate(limeR, [[.017, .036, .1, .985]]);
+  L.lime = { blades: [mkBlade(mirror(limeHalf, .93), [[[0, .03], [0, -.9]], ...sideVeins(edgeFn(limeR), 5, .08, .62, .2),
+    quad(0, 0, .15, .05, .34, .12, 6), quad(0, 0, -.15, .05, -.32, .12, 6)])], stalk: [0, 0, 0, .18, .022], ctr: -.42, fit: .98, col: TCOL.lime };
+
+  // lilac: heart-shaped, smooth edge
+  const lilR = heart(.6, .4, .45);
+  L.lilac = { blades: [mkBlade(mirror(lilR), [[[0, .03], [0, -.9]], ...sideVeins(edgeFn(lilR), 5, .08, .62, .2)])], stalk: [0, 0, 0, .12, .02], ctr: -.43, fit: .98, col: mix(GREEN, DARK, .45) };
+
+  // horse chestnut: 7 toothed leaflets from the top of one stalk
+  const cw = (t) => .21 * Math.sin(Math.PI * Math.pow(t, 1.6));
+  const cHalf = serrate(Array.from({ length: 61 }, (_, i) => [cw(i / 60), -i / 60]), [[.022, .05, .1, .96]]);
+  const cV = [[[0, 0], [0, -.95]], ...sideVeins(cw, 6, .12, .78, .12)];
+  const ca = [-80, 80, -52, 52, -26, 26, 0], cl = [.46, .46, .6, .6, .7, .7, .74], cn = { '-80': 1, '-52': 2, '-26': 3, 0: 4, 26: 5, 52: 6, 80: 7 };
+  L.chestnut = { blades: ca.map((a, i) => mkBlade(mirror(cHalf), cV, { rot: a * Math.PI / 180, len: cl[i], num: cn[a] })), stalk: [0, 0, 0, .5, .03], ctr: -.12, fit: .8, col: mix(GREEN, DARK, .3) };
+
+  // maple: a hand with 5 pointed lobes, a long stalk
+  const mp = [];
+  for (let i = 0; i <= 720; i++) { const th = -Math.PI + i * Math.PI / 360, r = mapleR(th); mp.push([r * Math.sin(th), -.36 - r * Math.cos(th)]); }
+  const mV = [];
+  for (const [a, Lh] of MAPLE_L) {
+    const dx = Math.sin(a), dy = -Math.cos(a);
+    mV.push([[0, -.28], [Lh * .85 * dx, -.36 + Lh * .85 * dy]]);
+  }
+  for (const [a, Lh] of MAPLE_L) {
+    const px = Lh * .5 * Math.sin(a), py = -.36 - Lh * .5 * Math.cos(a);
+    for (const sg of [1, -1]) mV.push([[px, py], [px + .12 * Math.sin(a + sg * .6), py - .12 * Math.cos(a + sg * .6)]]);
+  }
+  L.maple = { blades: [mkBlade(mp, mV)], stalk: [0, -.19, 0, .3, .03], ctr: -.35, fit: .82, col: GREEN };
+
+  // pine: two long needles joined in a little brown sheath
+  const nw = (t) => .022 * Math.pow(1 - Math.pow(t, 1.5), .7) + .002;
+  const nA = strand([-.012, 0], [-.06, -.5], [-.12, -1], nw), nB = strand([.012, 0], [.06, -.5], [.12, -1], nw);
+  L.pine = { blades: [mkBlade(nA.pts, [nA.cen]), mkBlade(nB.pts, [nB.cen])], ctr: -.5, fit: 1, col: DARK,
+    deco: (c, col, s) => { c.fillStyle = shade(GOLD, .35); c.strokeStyle = shade(GOLD, .6); c.lineWidth = 1.2 / s; c.beginPath(); c.roundRect(-.03, -.07, .06, .12, .025); c.fill(); c.stroke(); } };
+
+  // grass blade / tulip leaf: long and narrow, parallel veins
+  const gw = (t) => .07 * Math.pow(1 - Math.pow(t, 1.8), .8) * Math.min(1, .5 + t * 10) + .003;
+  const gb = strand([0, 0], [0, -.55], [.16, -1], gw, 50);
+  const gV = [gb.cen, ...[-.75, -.4, .4, .75].map((f) => gb.cen.map(([x, y], i) => [x + gb.nor[i][0] * gb.nor[i][2] * f, y + gb.nor[i][1] * gb.nor[i][2] * f]))];
+  L.grass = { blades: [mkBlade(gb.pts, gV)], ctr: -.5, fit: 1, col: mix(GREEN, YEL, .15) };
+  return L;
+})();
+const leafPt = (Lf, ux, uy) => { const K = LEAF[Lf.kind], s = Lf.size * K.fit, x = ux * s, y = (uy - K.ctr) * s, co = Math.cos(Lf.rot || 0), si = Math.sin(Lf.rot || 0); return [Lf.x + x * co - y * si, Lf.y + x * si + y * co]; };
+
+function strokePart(c, pl, p) {
+  if (p <= 0) return;
+  const n = pl.length - 1, e = Math.min(n, p * n), k = Math.floor(e);
+  c.beginPath(); c.moveTo(pl[0][0], pl[0][1]);
+  for (let i = 1; i <= k; i++) c.lineTo(pl[i][0], pl[i][1]);
+  if (k < n && e > k) { const a = pl[k], b = pl[k + 1], f = e - k; c.lineTo(a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f); }
+  c.stroke();
+}
+// o: col, alpha, shadow (false), simple (no veins), veins (0 = hide), vp (vein progress), emph ('edge' | 'leaflets' | 'veins'), glow (0..1)
+function drawBlade(c, B, col, o, ps, rot) {
+  const g = c.createLinearGradient(-.3, -.9, .3, .1);
+  g.addColorStop(0, shade(col, -.3)); g.addColorStop(.5, col); g.addColorStop(1, shade(col, .2));
+  if (o.sh) { c.shadowColor = 'rgba(15,28,10,.38)'; c.shadowBlur = o.sh[0]; c.shadowOffsetY = o.sh[1]; c.shadowOffsetX = o.sh[2]; }
+  c.fillStyle = g; c.fill(B.path);
+  c.shadowColor = 'transparent'; c.shadowBlur = 0; c.shadowOffsetX = 0; c.shadowOffsetY = 0;
+  c.lineWidth = 1.6 / ps; c.strokeStyle = shade(col, .4); c.stroke(B.path);
+  if (o.simple) return;
+  const vp = o.vp ?? 1, glow = o.glow || 0;
+  if (B.veins && vp > 0 && o.veins !== 0) {
+    const hi = o.emph === 'veins' && glow > 0, n = B.veins.length;
+    c.lineCap = 'round';
+    B.veins.forEach((pl, i) => {
+      const p = c01((vp - (i / Math.max(1, n)) * .55) / .45);
+      if (p <= 0) return;
+      if (hi) {
+        c.save(); c.shadowColor = 'rgba(242,201,76,.9)'; c.shadowBlur = 10 * glow; c.strokeStyle = mix(shade(col, -.4), '#F8EFB0', glow); c.lineWidth = (i ? 2.2 : 3.4) / ps;
+        strokePart(c, pl, p); c.restore();
+      } else { c.strokeStyle = rgba(shade(col, -.42), .75); c.lineWidth = (i ? 1.15 : 2.2) / ps; strokePart(c, pl, p); }
+    });
+  }
+  if ((o.emph === 'edge' || o.emph === 'leaflets') && glow > 0) {
+    c.save(); c.shadowColor = 'rgba(242,201,76,.95)'; c.shadowBlur = 14 * glow; c.strokeStyle = rgba(YEL, .5 + .5 * glow); c.lineWidth = 3.4 / ps; c.stroke(B.path); c.restore();
+  }
+  if (o.emph === 'leaflets' && glow > 0 && B.num) {
+    c.save(); c.translate(0, -.5); c.rotate(-rot); c.scale(1 / ps, 1 / ps); c.globalAlpha *= glow;
+    c.fillStyle = YEL; c.strokeStyle = BGD; c.lineWidth = 1.5; c.beginPath(); c.arc(0, 0, 10, 0, TAU); c.fill(); c.stroke();
+    c.fillStyle = BGD; c.font = '900 12px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(B.num, 0, 1);
+    c.restore();
+  }
+}
+// Lf: { kind, x, y, size, rot }; the point (x, y) is the visual centre of the leaf
+function drawLeaf(c, Lf, o = {}) {
+  const K = LEAF[Lf.kind], s = Lf.size * K.fit, a = o.alpha ?? 1;
+  if (a <= 0 || s <= 0.5) return;
+  const col = o.col || K.col, oo = o.shadow === false ? o : { ...o, sh: [Math.max(3, Lf.size * .045), Lf.size * .025 + 1.5, Lf.size * .01] };
+  c.save(); c.globalAlpha = a; c.translate(Lf.x, Lf.y); c.rotate(Lf.rot || 0); c.scale(s, s); c.translate(0, -K.ctr);
+  c.lineCap = 'round'; c.lineJoin = 'round';
+  if (K.stalk) {
+    const [x0, y0, x1, y1, w] = K.stalk;
+    c.strokeStyle = shade(col, .15); c.lineWidth = Math.max(w, 2.2 / s); c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke();
+    c.strokeStyle = shade(col, -.25); c.lineWidth = Math.max(w * .35, .8 / s); c.stroke();
+  }
+  for (const B of K.blades) {
+    c.save(); c.translate(B.x, B.y); c.rotate(B.rot); c.scale(B.len, B.len);
+    drawBlade(c, B, col, oo, s * B.len, (Lf.rot || 0) + B.rot);
+    c.restore();
+  }
+  K.deco?.(c, col, s);
+  c.restore();
+}
+
+// --- magnifier: clip a circle, let `inner` redraw the scene bigger, then the brass rim ---------------------------
+function drawLens(c, lx, ly, R, inner, glow = 1, bg = '#F3F8E8') {
+  R = Math.max(10, R);
+  c.save();
+  // handle
+  c.translate(lx, ly); c.rotate(Math.PI * .27);
+  const hg = c.createLinearGradient(0, R, 0, R * 1.9); hg.addColorStop(0, '#7B4F2A'); hg.addColorStop(1, WOOD);
+  c.fillStyle = hg; c.strokeStyle = '#4A2E18'; c.lineWidth = 1.5; c.beginPath(); c.roundRect(-R * .09, R * .92, R * .18, R * .95, R * .09); c.fill(); c.stroke();
+  c.restore();
+  c.save(); c.beginPath(); c.arc(lx, ly, R, 0, TAU); c.clip();
+  c.fillStyle = bg; c.fillRect(lx - R, ly - R, R * 2, R * 2);
+  inner(c);
+  const gl = c.createRadialGradient(lx - R * .35, ly - R * .4, R * .05, lx, ly, R);
+  gl.addColorStop(0, 'rgba(255,255,255,.22)'); gl.addColorStop(.5, 'rgba(255,255,255,0)'); gl.addColorStop(1, 'rgba(40,60,90,.12)');
+  c.fillStyle = gl; c.fillRect(lx - R, ly - R, R * 2, R * 2);
+  c.restore();
+  c.save();
+  c.shadowColor = `rgba(242,201,76,${.85 * glow})`; c.shadowBlur = 16 * glow;
+  const rg = c.createLinearGradient(lx - R, ly - R, lx + R, ly + R); rg.addColorStop(0, '#F3DC96'); rg.addColorStop(.5, '#C49A3C'); rg.addColorStop(1, '#7A5418');
+  c.strokeStyle = rg; c.lineWidth = Math.max(4, R * .11); c.beginPath(); c.arc(lx, ly, R, 0, TAU); c.stroke();
+  c.shadowColor = 'transparent'; c.shadowBlur = 0;
+  c.strokeStyle = 'rgba(60,35,10,.55)'; c.lineWidth = 1.2; c.beginPath(); c.arc(lx, ly, R + R * .055, 0, TAU); c.stroke();
+  c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = Math.max(2, R * .05); c.beginPath(); c.arc(lx, ly, R * .82, Math.PI * 1.08, Math.PI * 1.42); c.stroke();
+  c.restore();
+}
+
+// --- clues that grow near a tree ----------------------------------------------------------------------------------
+function acorn(c, x, y, s, rot) {
+  c.save(); c.translate(x, y); c.rotate(rot);
+  const g = c.createLinearGradient(-s * .3, 0, s * .3, 0); g.addColorStop(0, mix(GOLD, '#ffffff', .25)); g.addColorStop(1, shade(GOLD, .35));
+  c.fillStyle = g; c.strokeStyle = shade(GOLD, .6); c.lineWidth = 1.3; c.lineJoin = 'round';
+  c.beginPath(); c.moveTo(-s * .3, -s * .05); c.bezierCurveTo(-s * .32, s * .35, -s * .08, s * .58, 0, s * .62); c.bezierCurveTo(s * .08, s * .58, s * .32, s * .35, s * .3, -s * .05); c.closePath(); c.fill(); c.stroke();
+  c.fillStyle = shade(GOLD, .5); c.beginPath(); c.moveTo(-s * .36, -s * .04); c.bezierCurveTo(-s * .4, -s * .42, s * .4, -s * .42, s * .36, -s * .04); c.closePath(); c.fill(); c.stroke();
+  c.lineWidth = 2; c.beginPath(); c.moveTo(0, -s * .26); c.lineTo(s * .04, -s * .42); c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.2)';
+  for (let i = 0; i < 5; i++) { c.beginPath(); c.arc(-s * .2 + i * s * .1, -s * .14 - (i % 2) * s * .06, s * .025, 0, TAU); c.fill(); }
+  c.restore();
+}
+function samara(c, x, y, s, rot) {
+  c.save(); c.translate(x, y); c.rotate(rot); c.lineJoin = 'round';
+  for (const sg of [-1, 1]) {
+    c.save(); c.scale(sg, 1); c.rotate(.42);
+    const g = c.createLinearGradient(0, 0, 0, -s); g.addColorStop(0, mix(GOLD, '#ffffff', .1)); g.addColorStop(1, mix(BARK, GOLD, .15));
+    c.fillStyle = g; c.strokeStyle = shade(GOLD, .4); c.lineWidth = 1.1;
+    c.beginPath(); c.moveTo(0, 0); c.bezierCurveTo(s * .18, -s * .08, s * .38, -s * .45, s * .24, -s); c.bezierCurveTo(s * .06, -s * .8, -s * .02, -s * .35, 0, 0); c.closePath(); c.fill(); c.stroke();
+    c.restore();
+  }
+  c.fillStyle = shade(GOLD, .1); c.strokeStyle = shade(GOLD, .5); c.lineWidth = 1.1; c.beginPath(); c.arc(0, s * .04, s * .11, 0, TAU); c.fill(); c.stroke();
+  c.restore();
+}
+function catkins(c, s) {
+  c.lineCap = 'round'; c.strokeStyle = shade(GOLD, .5); c.lineWidth = 2.2; c.beginPath(); c.moveTo(-s * .8, -s * .6); c.lineTo(s * .8, -s * .45); c.stroke();
+  [[-.5, .62], [0, .8], [.5, .55]].forEach(([fx, len]) => {
+    const x = s * fx, y = -s * .52 + (fx + .8) * s * .09, g = c.createLinearGradient(x - s * .1, 0, x + s * .1, 0);
+    g.addColorStop(0, mix(YEL, GOLD, .1)); g.addColorStop(1, mix(YEL, GOLD, .55));
+    c.fillStyle = g; c.strokeStyle = shade(GOLD, .45); c.lineWidth = 1.1;
+    c.beginPath(); c.moveTo(x, y); c.lineTo(x, y + s * .1); c.stroke();
+    c.beginPath(); c.roundRect(x - s * .1, y + s * .08, s * .2, s * len, s * .1); c.fill(); c.stroke();
+    c.strokeStyle = 'rgba(90,60,20,.35)'; c.lineWidth = 1;
+    for (let k = 1; k < 6; k++) { c.beginPath(); c.moveTo(x - s * .09, y + s * .08 + s * len * k / 6); c.lineTo(x + s * .09, y + s * .08 + s * len * k / 6); c.stroke(); }
+  });
+}
+function pineCone(c, x, y, s, rot) {
+  c.save(); c.translate(x, y); c.rotate(rot); c.lineJoin = 'round';
+  const g = c.createLinearGradient(-s * .3, -s * .3, s * .3, s * .3); g.addColorStop(0, mix(GOLD, '#ffffff', .1)); g.addColorStop(1, shade(GOLD, .55));
+  c.fillStyle = g; c.strokeStyle = shade(GOLD, .62); c.lineWidth = 1.3;
+  c.beginPath(); c.moveTo(0, -s * .62); c.bezierCurveTo(s * .34, -s * .5, s * .4, s * .1, s * .05, s * .62); c.lineTo(-s * .05, s * .62); c.bezierCurveTo(-s * .4, s * .1, -s * .34, -s * .5, 0, -s * .62); c.closePath(); c.fill(); c.stroke();
+  c.clip(); c.strokeStyle = 'rgba(0,0,0,.3)'; c.lineWidth = 1.1;
+  for (let r = 0; r < 6; r++) { const yy = -s * .5 + r * s * .2, n = r % 2 ? 3 : 4; for (let k = 0; k < n; k++) { c.beginPath(); c.arc((k - (n - 1) / 2) * s * .22, yy, s * .12, .15 * Math.PI, .85 * Math.PI); c.stroke(); } }
+  c.restore();
+}
+function limeFruit(c, s) {
+  c.lineCap = 'round'; c.lineJoin = 'round';
+  c.strokeStyle = shade(GREEN, .2); c.lineWidth = 2; c.beginPath(); c.moveTo(0, -s * .8); c.lineTo(0, -s * .1); c.stroke();
+  const g = c.createLinearGradient(0, -s * .7, 0, s * .5); g.addColorStop(0, mix(GREEN, '#F3F8E8', .5)); g.addColorStop(1, mix(GREEN, '#F3F8E8', .2));
+  c.fillStyle = g; c.strokeStyle = shade(GREEN, .35); c.lineWidth = 1.2;
+  c.beginPath(); c.moveTo(0, -s * .6); c.bezierCurveTo(s * .36, -s * .45, s * .3, s * .1, s * .04, s * .6); c.bezierCurveTo(-s * .2, s * .2, -s * .12, -s * .4, 0, -s * .6); c.fill(); c.stroke();
+  c.fillStyle = mix(GOLD, '#ffffff', .12); c.strokeStyle = shade(GOLD, .5);
+  [[-.04, -.12], [.1, -.2], [.0, -.3]].forEach(([fx, fy]) => { c.beginPath(); c.arc(s * fx, s * fy, s * .1, 0, TAU); c.fill(); c.stroke(); });
+}
+// u: 0..1 pop-in progress; s: size in px
+function drawClue(c, kind, x, y, s, u) {
+  if (u <= 0) return;
+  c.save(); c.translate(x, y); const k = backOut(u); c.scale(k, k); c.globalAlpha = 1;
+  c.fillStyle = 'rgba(20,40,10,.25)'; c.beginPath(); c.ellipse(0, s * .5, Math.max(0, s * .75), Math.max(0, s * .16), 0, 0, TAU); c.fill();
+  if (kind === 'oak') { acorn(c, -s * .34, 0, s, .3); acorn(c, s * .3, s * .08, s * .9, -.5); }
+  else if (kind === 'maple') { samara(c, -s * .3, s * .3, s * .85, -.5); samara(c, s * .32, s * .35, s * .75, .6); }
+  else if (kind === 'birch') catkins(c, s);
+  else if (kind === 'pine') { pineCone(c, -s * .25, 0, s * .9, .5); pineCone(c, s * .3, s * .1, s * .7, -.6); }
+  else if (kind === 'lime') { c.save(); c.translate(-s * .3, 0); c.rotate(-.12); limeFruit(c, s); c.restore(); c.save(); c.translate(s * .35, s * .05); c.rotate(.2); limeFruit(c, s * .8); c.restore(); }
+  c.restore();
+}
+
+// --- trees: a trunk, branches (they show when the crown is bare) and a crown of shaded blobs ---------------------
+const TREES = {};
+function buildTree(kind) {
+  let seed = 7; for (const ch of kind) seed = seed * 31 + ch.charCodeAt(0);
+  const R = rng(seed), Tr = { kind, blobs: [], br: [], strands: [], marks: [], col: TCOL[kind], snowCrown: kind === 'pine', sh: .2, cy: -.68 };
+  const blob = (x, y, r, sy = 1) => Tr.blobs.push({ x, y, r, sy, th: .03 + R() * .77, v: R() });
+  const ell = (cx, cy, rx, ry, rim, fill, r0, r1) => {
+    for (let i = 0; i < rim; i++) { const a = (i + R() * .6) / rim * TAU; blob(cx + Math.cos(a) * rx, cy + Math.sin(a) * ry, r0 + R() * (r1 - r0)); }
+    for (let i = 0; i < fill; i++) { const a = R() * TAU, d = Math.sqrt(R()) * .85; blob(cx + Math.cos(a) * rx * d, cy + Math.sin(a) * ry * d, r0 + R() * (r1 - r0)); }
+  };
+  const cloud = (cx, cy, rx, n, r) => { for (let i = 0; i < n; i++) blob(cx - rx + 2 * rx * i / (n - 1) + (R() - .5) * .03, cy + (R() - .5) * .025, r + R() * .02, .55); };
+  const limbs = (x, y, angles, len, w, shrink, spread, depth) => {
+    const go = (px, py, a, l, ww, d) => {
+      const x2 = px + Math.sin(a) * l, y2 = py - Math.cos(a) * l;
+      Tr.br.push([px, py, x2, y2, ww]);
+      if (d > 0) for (const sg of [-1, 1]) go(x2, y2, a + sg * spread * (.7 + R() * .6), l * shrink, ww * .62, d - 1);
+    };
+    angles.forEach((a) => go(x, y, a, len * (.85 + R() * .3), w, depth));
+  };
+  if (kind === 'oak') {
+    Tr.trunk = { top: .42, w0: .17, w1: .1, col: '#5B4630' }; ell(0, -.64, .36, .22, 11, 9, .12, .17); blob(-.14, -.84, .14); blob(.14, -.86, .14); blob(0, -.89, .13);
+    limbs(0, -.4, [-1.2, -.75, -.25, .25, .75, 1.2], .24, .05, .78, .5, 3); Tr.sh = .22; Tr.cy = -.64;
+  } else if (kind === 'birch') {
+    Tr.trunk = { top: .6, w0: .06, w1: .035, col: BARK }; ell(0, -.7, .19, .24, 10, 16, .065, .095);
+    limbs(0, -.5, [-.55, -.25, .1, .4, .65], .2, .016, .8, .42, 3);
+    for (let i = 0; i < 14; i++) { const b = Tr.blobs[Math.floor(R() * Tr.blobs.length)]; Tr.strands.push({ x: b.x, y: b.y + b.r * .4, len: .1 + R() * .14, sw: (R() - .5) * .08, th: .05 + R() * .7 }); }
+    for (let i = 0; i < 15; i++) { const y = .04 + R() * (.6 - .08), x = (R() - .5) * .5, l = Math.min(.35 + R() * .45, (.5 - Math.abs(x)) * 2); Tr.marks.push({ y, x, l }); }
+    Tr.sh = .12; Tr.cy = -.7;
+  } else if (kind === 'maple') {
+    Tr.trunk = { top: .38, w0: .11, w1: .07, col: '#6B5340' }; ell(0, -.64, .28, .24, 14, 10, .1, .14);
+    limbs(0, -.36, [-1, -.5, -.1, .3, .7, 1.1], .2, .035, .78, .5, 3); Tr.sh = .2; Tr.cy = -.64;
+  } else if (kind === 'lime') {
+    Tr.trunk = { top: .34, w0: .09, w1: .055, col: '#5E4E3E' }; ell(-.12, -.76, .13, .12, 6, 3, .09, .12); ell(.12, -.76, .13, .12, 6, 3, .09, .12); ell(0, -.62, .2, .22, 9, 8, .09, .13);
+    limbs(0, -.34, [-.8, -.4, 0, .4, .8], .24, .03, .8, .45, 3); Tr.sh = .17; Tr.cy = -.68;
+  } else if (kind === 'pine') {
+    Tr.trunk = { top: .8, w0: .075, w1: .04, col: '#7A5A44', col2: mix(ORG, GOLD, .4), lean: .02 };
+    cloud(-.15, -.84, .2, 5, .075); cloud(.14, -.92, .22, 5, .08); cloud(0, -.76, .25, 6, .07); cloud(-.03, -.97, .13, 3, .06);
+    limbs(.01, -.58, [-1.2, 1.2], .08, .012, .7, .4, 1); limbs(.015, -.68, [-1.1, 1.1], .09, .012, .7, .4, 1); Tr.sh = .13; Tr.cy = -.88;
+  } else { // larch: a slim cone of drooping tiers
+    Tr.trunk = { top: .8, w0: .07, w1: .025, col: '#6F5240' };
+    for (let i = 0; i < 10; i++) { const y = -(.22 + i * .075), hw = .2 * (1 - i / 11) + .03; for (const f of [-1, -.35, .35, 1]) blob(f * hw + (R() - .5) * .02, y, .045 + R() * .02, .8); }
+    for (let i = 0; i < 9; i++) for (const sg of [-1, 1]) limbs(0, -(.2 + i * .07), [sg * 1.15], .2 * (1 - i * .085), .012, .7, .5, 1);
+    Tr.sh = .14; Tr.cy = -.6;
+  }
+  Tr.blobs.sort((p, q) => p.y - q.y);
+  return Tr;
+}
+// o: leaf (0..1 crown amount), col, snow (0..1), pulse, t (time, for the birch's drooping strands)
+function drawTree(c, kind, x, by, H, o = {}) {
+  const Tr = TREES[kind] ??= buildTree(kind), leaf = o.leaf ?? 1, snow = o.snow ?? 0, col = o.col || Tr.col, tr = Tr.trunk, t = o.t || 0;
+  c.save(); c.translate(x, by); c.scale(H, H); c.lineCap = 'round'; c.lineJoin = 'round';
+  c.fillStyle = 'rgba(25,45,20,.24)'; c.beginPath(); c.ellipse(.03, .01, Tr.sh, .03, 0, 0, TAU); c.fill();
+  // trunk
+  const xt = tr.lean || 0, tp = new Path2D();
+  tp.moveTo(-tr.w0 * .8, .004); tp.quadraticCurveTo(-tr.w0 * .5, -.02, xt - tr.w1 / 2, -tr.top); tp.lineTo(xt + tr.w1 / 2, -tr.top); tp.quadraticCurveTo(tr.w0 * .5, -.02, tr.w0 * .8, .004); tp.closePath();
+  if (tr.col2) { const g = c.createLinearGradient(0, 0, 0, -tr.top); g.addColorStop(0, tr.col); g.addColorStop(.3, tr.col); g.addColorStop(.5, tr.col2); g.addColorStop(1, shade(tr.col2, .1)); c.fillStyle = g; } else c.fillStyle = tr.col;
+  c.fill(tp);
+  const sg = c.createLinearGradient(-tr.w0 * .8, 0, tr.w0 * .8, 0); sg.addColorStop(0, 'rgba(255,255,255,.2)'); sg.addColorStop(.45, 'rgba(255,255,255,0)'); sg.addColorStop(1, 'rgba(0,0,0,.34)');
+  c.fillStyle = sg; c.fill(tp);
+  c.strokeStyle = shade(tr.col, .5); c.lineWidth = .008; c.stroke(tp);
+  for (const m of Tr.marks) { const wy = lerp(tr.w0, tr.w1, m.y / tr.top); c.fillStyle = '#1B2A22'; c.beginPath(); c.roundRect(m.x * wy - m.l * wy / 2, -m.y, m.l * wy, .009, .004); c.fill(); }
+  // branches
+  const bc = kind === 'birch' ? shade(BARK, .35) : kind === 'larch' ? shade(tr.col, -.1) : shade(tr.col, -.05);
+  for (const [x1, y1, x2, y2, w] of Tr.br) { c.strokeStyle = bc; c.lineWidth = w; c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); }
+  if (snow > .01 && leaf < .7) {
+    c.strokeStyle = `rgba(255,255,255,${snow * (1 - leaf) * .95})`;
+    for (const [x1, y1, x2, y2, w] of Tr.br) { c.lineWidth = Math.max(.006, w * .7); c.beginPath(); c.moveTo(x1, y1 - w * .35); c.lineTo(x2, y2 - w * .35); c.stroke(); }
+  }
+  // crown
+  c.save();
+  if (o.pulse) { const k = 1 + o.pulse * .05; c.translate(0, Tr.cy); c.scale(k, k); c.translate(0, -Tr.cy); }
+  for (const s of Tr.strands) {
+    const a = c01((leaf - s.th) / .2); if (a <= 0) continue;
+    const sw = s.sw + Math.sin(t * 1.3 + s.x * 9) * .012;
+    c.globalAlpha = a; c.strokeStyle = shade(col, -.05); c.lineWidth = .007; c.beginPath(); c.moveTo(s.x, s.y); c.quadraticCurveTo(s.x + sw * .4, s.y + s.len * .5, s.x + sw, s.y + s.len); c.stroke();
+    c.fillStyle = col; c.beginPath(); c.arc(s.x + sw, s.y + s.len, .014, 0, TAU); c.fill();
+  }
+  for (const b of Tr.blobs) {
+    const a = c01((leaf - b.th) / .2); if (a <= 0) continue;
+    const r = b.r * (.55 + .45 * a), bc2 = shade(col, (b.v - .5) * .22);
+    c.save(); c.globalAlpha = a; c.translate(b.x, b.y); c.scale(1, b.sy);
+    const g = c.createRadialGradient(-.3 * r, -.35 * r, r * .1, 0, 0, r);
+    g.addColorStop(0, shade(bc2, -.3)); g.addColorStop(.65, bc2); g.addColorStop(1, shade(bc2, .28));
+    c.fillStyle = g; c.beginPath(); c.arc(0, 0, r, 0, TAU); c.fill();
+    c.restore();
+    if (Tr.snowCrown && snow > .01) { c.fillStyle = `rgba(255,255,255,${snow * .95})`; c.beginPath(); c.ellipse(b.x, b.y - b.r * b.sy * .42, Math.max(0, b.r * .78), Math.max(0, b.r * b.sy * .4), 0, 0, TAU); c.fill(); }
+  }
+  c.restore();
+  if (snow > .01) { c.fillStyle = `rgba(255,255,255,${snow * .9})`; c.beginPath(); c.ellipse(0, .008, tr.w0 * 1.2, .016, 0, 0, TAU); c.fill(); }
+  c.restore();
+}
+function seasonOf(kind, p) {
+  if (kind === 'pine') return { leaf: 1, col: DARK };
+  const g = TCOL[kind], au = AUT[kind];
+  if (p <= 1) return { leaf: 1, col: mix(g, au, ease(p)) };
+  if (p <= 1.9) return { leaf: 1 - ease((p - .95) / .95), col: au };
+  if (p <= 2.6) return { leaf: 0, col: au };
+  return { leaf: ease((p - 2.6) / .4), col: mix(g, YEL, .28) };
+}
+const snowOf = (p) => (p < 2.75 ? ease((p - 1.55) / .45) : 1 - ease((p - 2.75) / .25));
+const winterOf = (p) => ease((p - 1.25) / .6) * (1 - ease((p - 2.7) / .3));
+
+// --- the park: sky, hills, lawn, a path --------------------------------------------------------------------------
+const TUFTS = (() => { const R = rng(11); return Array.from({ length: 40 }, () => [R(), R()]); })();
+const MOUNDS = (() => { const R = rng(23); return Array.from({ length: 9 }, () => [R(), R(), .05 + R() * .08]); })();
+// o: ww (winter 0..1), sn (snow 0..1), t (time, clouds drift)
+function drawPark(c, w, h, o = {}) {
+  const ww = o.ww || 0, sn = o.sn || 0, hz = h * .52, t = o.t || 0;
+  const sg = c.createLinearGradient(0, 0, 0, hz + 6); sg.addColorStop(0, mix(SKY1, WSKY, ww)); sg.addColorStop(1, mix(SKY2, mix(WSKY, '#ffffff', .5), ww));
+  c.fillStyle = sg; c.fillRect(0, 0, w, hz + 6);
+  c.fillStyle = `rgba(255,255,255,${.6 - ww * .25})`;
+  [[.2, .13, 1], [.62, .2, .8], [.88, .09, .9]].forEach(([u, v, k], i) => {
+    const cx = ((u * w + t * (4 + i * 2)) % (w + 200)) - 60, cy = v * h, r = h * .035 * k;
+    for (const [dx, dy, rr] of [[-1.4, .3, .8], [0, 0, 1.15], [1.4, .25, .85], [.5, .6, .7]]) { c.beginPath(); c.arc(cx + dx * r, cy + dy * r, Math.max(0, r * rr), 0, TAU); c.fill(); }
+  });
+  const hill = mix(mix(LAWN, SKY1, .5), '#ffffff', sn * .8);
+  c.fillStyle = hill; c.beginPath(); c.moveTo(0, hz); c.bezierCurveTo(w * .22, hz - h * .08, w * .42, hz - h * .015, w * .6, hz - h * .05); c.bezierCurveTo(w * .78, hz - h * .08, w * .9, hz - h * .02, w, hz - h * .045); c.lineTo(w, hz + 2); c.lineTo(0, hz + 2); c.closePath(); c.fill();
+  const lc = mix(LAWN, '#ffffff', sn * .85), lg = c.createLinearGradient(0, hz, 0, h); lg.addColorStop(0, shade(lc, -.06)); lg.addColorStop(1, shade(lc, .16));
+  c.fillStyle = lg; c.fillRect(0, hz, w, h - hz);
+  // the path
+  const pc = mix(mix(BARK, GOLD, .28), '#ffffff', sn * .85), pg = c.createLinearGradient(0, hz, 0, h); pg.addColorStop(0, shade(pc, .08)); pg.addColorStop(1, shade(pc, -.08));
+  c.fillStyle = pg; c.beginPath(); c.moveTo(w * .47, hz); c.bezierCurveTo(w * .46, hz + h * .2, w * .3, hz + h * .3, w * .16, h); c.lineTo(w * .84, h); c.bezierCurveTo(w * .7, hz + h * .3, w * .54, hz + h * .2, w * .53, hz); c.closePath(); c.fill();
+  c.strokeStyle = 'rgba(80,60,30,.12)'; c.lineWidth = 1.5; c.stroke();
+  // grass tufts and snow mounds
+  if (sn < .95) {
+    c.strokeStyle = rgba(shade(LAWN, .25), .5 * (1 - sn)); c.lineWidth = 1.4; c.lineCap = 'round';
+    for (const [u, v] of TUFTS) { const x = u * w, y = hz + 6 + v * (h - hz - 8); if (Math.abs(x - w * .5) < (w * .03 + v * w * .3)) continue; c.beginPath(); c.moveTo(x - 3, y); c.lineTo(x - 4, y - 5); c.moveTo(x, y); c.lineTo(x, y - 7); c.moveTo(x + 3, y); c.lineTo(x + 4, y - 5); c.stroke(); }
+  }
+  if (sn > .01) { c.fillStyle = `rgba(255,255,255,${sn * .8})`; for (const [u, v, r] of MOUNDS) { c.beginPath(); c.ellipse(u * w, hz + 10 + v * (h - hz - 20), Math.max(0, r * w), Math.max(0, r * w * .22), 0, 0, TAU); c.fill(); } }
+}
+function parkGeo(w, h, n, tray) {
+  const sp = w / n, H = Math.min((tray ? .38 : .44) * h, sp * 1.12), by = h * (tray ? .58 : .66);
+  return { sp, H, by, tx: (j) => sp * (j + .5) };
+}
+function drawTray(c, x, y, w, h) {
+  c.save();
+  c.shadowColor = 'rgba(0,0,0,.35)'; c.shadowBlur = 16; c.shadowOffsetY = 7;
+  const g = c.createLinearGradient(0, y, 0, y + h); g.addColorStop(0, shade(WOOD, -.1)); g.addColorStop(1, shade(WOOD, .22));
+  c.fillStyle = g; c.beginPath(); c.roundRect(x, y, w, h, 16); c.fill();
+  c.shadowColor = 'transparent'; c.shadowBlur = 0; c.shadowOffsetY = 0;
+  const ig = c.createLinearGradient(0, y, 0, y + h); ig.addColorStop(0, shade(WOOD, .2)); ig.addColorStop(1, shade(WOOD, .02));
+  c.fillStyle = ig; c.beginPath(); c.roundRect(x + 9, y + 9, w - 18, h - 20, 11); c.fill();
+  c.strokeStyle = 'rgba(70,40,15,.2)'; c.lineWidth = 1.2;
+  for (let i = 1; i < 6; i++) { const yy = y + 9 + (h - 20) * i / 6; c.beginPath(); c.moveTo(x + 12, yy); c.bezierCurveTo(x + w * .3, yy - 3, x + w * .6, yy + 3, x + w - 12, yy - 1); c.stroke(); }
+  c.strokeStyle = 'rgba(255,235,200,.4)'; c.lineWidth = 2; c.beginPath(); c.roundRect(x + 1, y + 1, w - 2, h - 2, 15); c.stroke();
+  c.restore();
+}
+
+// --- state -------------------------------------------------------------------------------------------------
+const newM = () => ({ i: 0, picked: null, t0: now(), rt0: 0, from: null, free: false, F: [], matched: 0 });
+const newL = () => ({ i: 0, picked: null, rt0: 0, hit: [] });
+const newW = () => ({ i: 0, picked: null, rt0: 0, p: 0, anim: null, scene: 'park', sceneT0: 0, free: false });
+const S = { dim: { w: 400, h: 400 }, m: newM(), l: newL(), w: newW(), sec: null, sp: 0, sa: 0, leafP: [], snowP: [], snowAcc: 0, acc: [0, 0, 0, 0, 0], hits: {}, drops: [], dropAcc: [0, 0], SC: { w: 0, l: 0 } };
+
+const lab = shell({ key: 'leaves', T, topics: TOPICS, views: ['match', 'look', 'winter'], onLang: render, onView: onView });
+const secret = secretLab('leaves', () => ({
+  secrets: [{ emo: '🌲', title: T[lang].secrets.larch[0], desc: T[lang].secrets.larch[1] }, { emo: '🍂', title: T[lang].secrets.yellow[0], desc: T[lang].secrets.yellow[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+const clearParts = () => { S.leafP = []; S.snowP = []; S.drops = []; S.snowAcc = 0; S.acc = [0, 0, 0, 0, 0]; S.SC.w = S.w.p; S.SC.l = S.sp; };
+const flyPose = (a, b, p, lift = 0) => {
+  const e = ease(p);
+  return { x: lerp(a.x, b.x, e), y: lerp(a.y, b.y, e) - Math.sin(Math.PI * c01(p)) * lift, rot: lerp(a.rot, b.rot, e), size: lerp(a.size, b.size, e) };
+};
+
+// --- seasons: the park with its trees, falling leaves and snow ---------------------------------------------------------
+function seasonScene(c, w, h, dt, time, kinds, p, key) {
+  const g = parkGeo(w, h, kinds.length, false), sn = snowOf(p), ww = winterOf(p), t = T[lang];
+  const dp = clamp(p - S.SC[key], -.05, .05); S.SC[key] = p;
+  drawPark(c, w, h, { ww, sn, t: time });
+  kinds.forEach((k, j) => { const se = seasonOf(k, p); drawTree(c, k, g.tx(j), g.by, g.H, { leaf: se.leaf, col: se.col, snow: sn, t: time }); });
+  kinds.forEach((k, j) => pill(c, t.trees[k], g.tx(j), g.by + 22, { fs: kinds.length > 3 ? 12 : 13 }));
+  if (p < .85) S.leafP.length = 0;
+  if (p < 1.5 || p > 2.7) S.snowP.length = 0;
+  if (dp > 0 && p > .95 && p < 1.9) {
+    kinds.forEach((k, j) => {
+      if (k === 'pine') return;
+      const Tr = TREES[k];
+      S.acc[j] += dp * (k === 'birch' ? 70 : 90);
+      while (S.acc[j] >= 1) {
+        S.acc[j]--;
+        const b = Tr.blobs[(Math.random() * Tr.blobs.length) | 0];
+        if (S.leafP.length < 180) S.leafP.push({ k, x: g.tx(j) + b.x * g.H, y: g.by + b.y * g.H, vy: (28 + Math.random() * 30) * h / 400, vx: (Math.random() - .5) * 18, rot: Math.random() * TAU,
+          vr: (Math.random() - .5) * 3, ph: Math.random() * TAU, col: seasonOf(k, p).col, size: g.H * .13, gy: g.by + (.02 + Math.random() * .3) * (h - g.by) });
+      }
+    });
+  }
+  if (dp > 0 && p > 1.5 && p < 2.6) {
+    S.snowAcc += dp * 420;
+    while (S.snowAcc >= 1) { S.snowAcc--; if (S.snowP.length < 260) S.snowP.push({ x: Math.random() * w, y: -6, vy: (50 + Math.random() * 50) * h / 400, vx: (Math.random() - .5) * 20, r: 1.5 + Math.random() * 1.8, ph: Math.random() * TAU, gy: g.by + Math.random() * (h - g.by) * .95 }); }
+  }
+  const fade = 1 - ease((p - 1.7) / .3);
+  if (p > 2.05 && S.leafP.some((q) => q.landed)) S.leafP = S.leafP.filter((q) => !q.landed);
+  for (const q of S.leafP) {
+    if (!q.landed) { q.y += q.vy * dt; q.x += (q.vx + Math.sin(time * 2.4 + q.ph) * 26) * dt; q.rot += q.vr * dt; if (q.y >= q.gy) { q.y = q.gy; q.landed = true; } }
+    if (q.k === 'larch') {
+      c.save(); c.globalAlpha = q.landed ? fade : 1; c.strokeStyle = q.col; c.lineWidth = 1.8; c.lineCap = 'round'; c.beginPath();
+      c.moveTo(q.x, q.y); c.lineTo(q.x + Math.cos(q.rot) * q.size * .55, q.y + Math.sin(q.rot) * q.size * .55); c.stroke(); c.restore();
+    } else drawLeaf(c, { kind: q.k, x: q.x, y: q.y, size: q.size, rot: q.rot }, { col: q.col, simple: true, shadow: false, alpha: q.landed ? fade : 1 });
+  }
+  c.save(); c.fillStyle = '#ffffff'; c.globalAlpha = .95;
+  for (const q of S.snowP) {
+    if (q.y < q.gy) { q.y += q.vy * dt; q.x += (q.vx + Math.sin(time * 1.7 + q.ph) * 10) * dt; }
+    c.beginPath(); c.arc(q.x, q.y, q.r, 0, TAU); c.fill();
+  }
+  c.restore();
+  if (S.snowP.length > 0 && p > 2.55) S.snowP = S.snowP.filter((q) => q.y < q.gy);
+}
+
+// --- view 1: whose leaf? --------------------------------------------------------------------------------------------
+const REST = [.5, -.45, .35, .7];
+function matchPose(w, h, g, time) {
+  const M = S.m, R = ROUNDS[M.i], size = Math.min(.34 * h, w * .6), rest = { x: w * .5, y: h * .845, rot: REST[M.i], size };
+  if (M.picked === null) {
+    const p = c01((time - M.t0) / 1.9), q = 1 - Math.pow(1 - p, 1.5);
+    if (p >= 1) return rest;
+    return { x: rest.x + Math.sin(p * 10) * w * .15 * (1 - q), y: lerp(-size * .6, rest.y, q), rot: rest.rot + (1 - q) * (Math.sin(p * 10 + 1.2) * .9 + 3.4), size };
+  }
+  const rt = time - M.rt0, A = M.from, tg = (j) => ({ x: g.tx(j), y: g.by - g.H * .62, rot: -.25, size: .17 * h });
+  if (M.picked === R.right) return rt < 1.3 ? flyPose(A, tg(R.right), rt / 1.3, .1 * h) : tg(R.right);
+  const P = tg(M.picked);
+  if (rt < 1.2) return flyPose(A, P, rt / 1.2, .1 * h);
+  if (rt < 2.7) { const q = rt - 1.2, d = Math.max(0, 1 - q / 1.5); return { ...P, rot: P.rot + Math.sin(q * 13) * .3 * d, x: P.x + Math.sin(q * 13) * 5 * d }; }
+  if (rt < 4.0) return flyPose(P, tg(R.right), (rt - 2.7) / 1.3, .1 * h);
+  return tg(R.right);
+}
+function drawMatch(c, w, h, dt, time) {
+  const M = S.m, t = T[lang];
+  if (S.sec) return drawSecret(c, w, h, dt, time);
+  if (M.free) return drawFree(c, w, h, dt, time);
+  const R = ROUNDS[M.i], g = parkGeo(w, h, 3, true), pj = M.picked, rt = pj === null ? -1 : time - M.rt0;
+  const arrive = pj === null ? -1 : pj === R.right ? rt - 1.3 : rt - 4.0;
+  drawPark(c, w, h, { t: time });
+  R.trees.forEach((k, j) => drawTree(c, k, g.tx(j), g.by, g.H, { t: time, pulse: j === R.right && arrive > 0 ? Math.max(0, 1 - arrive / .6) * Math.sin(arrive * 14) : 0 }));
+  R.trees.forEach((k, j) => {
+    let o = {};
+    if (pj === j && pj !== R.right) o = { bg: '#f5c84c', fg: '#1B2A22' };
+    else if (j === R.right && pj !== null && (pj === j || arrive > 0)) o = { bg: '#3ddc97', fg: '#1B2A22' };
+    pill(c, t.trees[k], g.tx(j), g.by + 22, o);
+  });
+  drawTray(c, w * .14, h * .725, w * .72, h * .245);
+  if (arrive > 0) drawClue(c, R.trees[R.right], g.tx(R.right) - g.sp * .27, g.by - .03 * h, .075 * h, arrive / .5);
+  if (pj !== null && pj !== R.right && rt > 1.0 && arrive < 0.001) {
+    const j = pj, side = g.tx(j) < w / 2 ? 1 : -1, u = backOut((rt - 1.0) / .4);
+    drawLeaf(c, { kind: R.trees[j], x: g.tx(j) + side * g.sp * .36, y: g.by - g.H * .5, size: .18 * h * u, rot: side * .25 });
+  }
+  drawLeaf(c, { kind: R.leaf, ...matchPose(w, h, g, time) });
+}
+
+// free play: shake five trees, drag each leaf to its tree
+function shake() {
+  const { w, h } = S.dim, g = parkGeo(w, h, 5, false), slots = [.12, .31, .5, .69, .88].map((u, i) => ({ x: u * w, y: h * (i % 2 ? .9 : .8) }));
+  for (let i = slots.length - 1; i > 0; i--) { const k = (Math.random() * (i + 1)) | 0; [slots[i], slots[k]] = [slots[k], slots[i]]; }
+  clearHits();
+  S.m.F = FREE.map((k, j) => ({ k, j, st: 'fall', x: g.tx(j), y: g.by - g.H * .65, rot: 0, size: .12 * h, t0: now() + j * .18, sx: g.tx(j) + (Math.random() - .5) * 10, sy: g.by - g.H * .65,
+    rest: { ...slots[j], rot: (Math.random() - .5) * 1.6 }, td: 0 }));
+  S.m.matched = 0; sfx.push(); render();
+}
+function clearHits() { for (const k of Object.keys(S.hits)) S.hits[k].remove(); S.hits = {}; }
+function makeHit(k) {
+  const el = document.createElement('div'); el.className = 'lf-hit';
+  const pos = (ev) => { const r = $('cv').getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; };
+  el.addEventListener('pointerdown', (ev) => {
+    const f = S.m.F[k]; if (!f || f.st !== 'rest') return;
+    el.setPointerCapture(ev.pointerId); const [x, y] = pos(ev); f.st = 'drag'; f.dx = f.x - x; f.dy = f.y - y; sfx.tick(); ev.preventDefault();
+  });
+  el.addEventListener('pointermove', (ev) => {
+    const f = S.m.F[k]; if (!f || f.st !== 'drag') return;
+    const [x, y] = pos(ev); f.x = clamp(x + f.dx, 10, S.dim.w - 10); f.y = clamp(y + f.dy, 10, S.dim.h - 10);
+  });
+  const drop = () => {
+    const f = S.m.F[k]; if (!f || f.st !== 'drag') return;
+    const { w, h } = S.dim, g = parkGeo(w, h, 5, false), jt = f.y < g.by + .02 * h ? Math.floor(f.x / g.sp) : -1;
+    f.from = { x: f.x, y: f.y, rot: f.rot, size: f.size }; f.t0 = now();
+    if (jt < 0 || jt > 4) { f.rest = { x: f.x, y: f.y, rot: f.rot }; f.st = 'rest'; return; }
+    if (jt === f.j) { f.st = 'snap'; sfx.good(); } else { f.st = 'back'; sfx.bad(); }
+  };
+  el.addEventListener('pointerup', drop); el.addEventListener('pointercancel', drop);
+  return el;
+}
+function drawFree(c, w, h, dt, time) {
+  const M = S.m, g = parkGeo(w, h, 5, false), t = T[lang], tg = (j) => ({ x: g.tx(j), y: g.by - g.H * .6, rot: -.25, size: .14 * h });
+  drawPark(c, w, h, { t: time });
+  M.F.forEach((f) => {
+    const q = time - f.t0;
+    if (f.st === 'fall' && q >= 0) {
+      const p = c01(q / 2.0), e = 1 - Math.pow(1 - p, 1.5);
+      f.x = lerp(f.sx, f.rest.x, e) + Math.sin(p * 9 + f.j) * w * .04 * (1 - e); f.y = lerp(f.sy, f.rest.y, e); f.rot = f.rest.rot + (1 - e) * (Math.sin(p * 9 + f.j + 1) * .8 + 3); f.size = lerp(.12 * h, .19 * h, e);
+      if (p >= 1) { f.st = 'rest'; f.x = f.rest.x; f.y = f.rest.y; f.rot = f.rest.rot; f.size = .19 * h; }
+    } else if (f.st === 'snap') {
+      const P = flyPose(f.from, tg(f.j), q / .55, .05 * h); f.x = P.x; f.y = P.y; f.rot = P.rot; f.size = P.size;
+      if (q >= .55) { f.st = 'done'; f.td = time; M.matched++; readout(); }
+    } else if (f.st === 'back') {
+      const P = flyPose(f.from, f.rest, q / .6, .05 * h); f.x = P.x; f.y = P.y; f.rot = P.rot; f.size = P.size;
+      if (q >= .6) f.st = 'rest';
+    }
+  });
+  FREE.forEach((k, j) => {
+    const f = M.F.find((x) => x.j === j), d = f && f.st === 'done' ? time - f.td : -1;
+    drawTree(c, k, g.tx(j), g.by, g.H, { t: time, pulse: d > 0 ? Math.max(0, 1 - d / .6) * Math.sin(d * 14) : 0 });
+  });
+  FREE.forEach((k, j) => pill(c, t.trees[k], g.tx(j), g.by + 22, { fs: 12, ...(M.F.find((x) => x.j === j)?.st === 'done' ? { bg: '#3ddc97', fg: '#1B2A22' } : {}) }));
+  M.F.forEach((f) => { if (f.st === 'done') drawClue(c, f.k, g.tx(f.j) - g.sp * .27, g.by - .03 * h, .06 * h, (time - f.td - .25) / .5); });
+  const vis = M.F.filter((f) => f.st !== 'fall' || time >= f.t0);
+  vis.filter((f) => f.st !== 'drag').forEach((f) => drawLeaf(c, { kind: f.k, x: f.x, y: f.y, size: f.size, rot: f.rot }));
+  vis.filter((f) => f.st === 'drag').forEach((f) => drawLeaf(c, { kind: f.k, x: f.x, y: f.y, size: f.size * 1.08, rot: f.rot }));
+  // one draggable hit area per loose leaf
+  const want = new Set(); M.F.forEach((f, k) => { if (f.st === 'rest' || f.st === 'drag' || f.st === 'back') want.add(k); });
+  for (const k of Object.keys(S.hits)) if (!want.has(+k)) { S.hits[k].remove(); delete S.hits[k]; }
+  want.forEach((k) => {
+    const f = M.F[k]; let el = S.hits[k];
+    if (!el) { el = S.hits[k] = makeHit(k); $('overlay').append(el); }
+    const d = Math.max(44, f.size * .9); el.style.width = el.style.height = `${d}px`; el.style.transform = `translate(${f.x - d / 2}px,${f.y - d / 2}px)`;
+  });
+}
+
+// --- secrets -------------------------------------------------------------------------------------------------------
+function drawSecret(c, w, h, dt, time) {
+  if (S.sec === 'larch') return seasonScene(c, w, h, dt, time, ['larch', 'pine'], S.sp, 'l');
+  const t = T[lang], a = S.sa, size = Math.min(h * .5, w * .4), ly = h * .5, cw = w * .44, ch = Math.min(h * .9, size * 1.5 + 50), cy = (h - ch) / 2;
+  drawMeadow(c, w, h);
+  const B = { kind: 'birch', x: w * .27, y: cy + (ch - 34) / 2, size, rot: -.15 }, M = { kind: 'maple', x: w * .73, y: cy + (ch - 34) / 2, size, rot: .12 };
+  drawCard(c, w * .27 - cw / 2, cy, cw, ch, ''); drawCard(c, w * .73 - cw / 2, cy, cw, ch, '');
+  drawLeaf(c, B, { col: YEL });
+  drawLeaf(c, B, { col: TCOL.birch, alpha: 1 - ease(a), shadow: false });
+  const olive = mix(GREEN, YEL, .5);
+  drawLeaf(c, M, { col: a < .45 ? mix(GREEN, olive, a / .45) : mix(olive, ORG, (a - .45) / .55) });
+  pill(c, t.trees.birch, B.x, cy + ch - 18); pill(c, t.trees.maple, M.x, cy + ch - 18);
+  if (a > .7) {
+    const u = ease((a - .7) / .2);
+    c.save(); c.globalAlpha = u; pill(c, t.sec.hid, B.x, cy + 18, { bg: 'rgba(242,201,76,.92)', fg: BGD, fs: 12 }); pill(c, t.sec.newr, M.x, cy + 18, { bg: 'rgba(232,116,59,.95)', fg: '#ffffff', fs: 12 }); c.restore();
+  }
+}
+function drawMeadow(c, w, h) {
+  const g = c.createLinearGradient(0, 0, 0, h); g.addColorStop(0, shade(LAWN, -.08)); g.addColorStop(1, shade(LAWN, .18)); c.fillStyle = g; c.fillRect(0, 0, w, h);
+  c.fillStyle = 'rgba(243,248,232,.1)';
+  for (const [u, v, r] of MOUNDS) { c.beginPath(); c.ellipse(u * w, v * h, Math.max(0, r * w * .8), Math.max(0, r * w * .5), 0, 0, TAU); c.fill(); }
+  c.strokeStyle = rgba(shade(LAWN, .25), .4); c.lineWidth = 1.4; c.lineCap = 'round';
+  for (const [u, v] of TUFTS) { const x = u * w, y = v * h; c.beginPath(); c.moveTo(x - 3, y); c.lineTo(x - 4, y - 5); c.moveTo(x, y); c.lineTo(x, y - 7); c.moveTo(x + 3, y); c.lineTo(x + 4, y - 5); c.stroke(); }
+}
+function drawCard(c, x, y, w, h, ring) {
+  c.save();
+  c.shadowColor = 'rgba(0,0,0,.28)'; c.shadowBlur = 14; c.shadowOffsetY = 5;
+  const g = c.createLinearGradient(0, y, 0, y + h); g.addColorStop(0, '#FBFDF4'); g.addColorStop(1, '#E6EFD3');
+  c.fillStyle = g; c.beginPath(); c.roundRect(x, y, w, h, 16); c.fill();
+  c.shadowColor = 'transparent'; c.shadowBlur = 0; c.shadowOffsetY = 0;
+  if (ring) { c.strokeStyle = ring === 'ok' ? '#3ddc97' : '#f5c84c'; c.lineWidth = 4; c.beginPath(); c.roundRect(x, y, w, h, 16); c.stroke(); }
+  c.restore();
+}
+
+// --- view 2: look closely ------------------------------------------------------------------------------------------
+const FOCUS = [[.24, -.5], [0, -.3], [.07, -.5]];
+function lookLayout(w, h, i, e) {
+  if (i < 2) {
+    const cw = w / 3, size = Math.min(cw * .94, h * .5), ch = size * 1.3 + 40, cy = (h - ch) / 2, rots = [-.25, .2, -.12];
+    return LROUNDS[i].opts.map((kind, j) => ({ j, kind, card: { x: cw * j + 5, y: cy, w: cw - 10, h: ch }, x: cw * j + cw / 2, y: cy + (ch - 34) / 2, size, rot: rots[j] }));
+  }
+  const ch = Math.min(h * .9, h * .8), cy = (h - ch) / 2, size = Math.min(ch * .75, w * .5);
+  const a = { x: lerp(w * .2, w * .03, e), w: lerp(w * .6, w * .46, e) }, b = { x: w * .51, w: w * .46 };
+  return [
+    { j: 0, kind: 'grass', card: { x: a.x, y: cy, w: a.w, h: ch }, x: a.x + a.w / 2, y: cy + ch / 2, size, rot: .12 },
+    { j: 1, kind: 'maple', card: { x: b.x, y: cy, w: b.w, h: ch }, x: b.x + b.w / 2, y: cy + ch / 2, size: Math.min(size * .8, w * .4), rot: -.1 },
+  ];
+}
+function drawLook(c, w, h, dt, time) {
+  const Lk = S.l, i = Lk.i, r = LROUNDS[i], t = T[lang], pj = Lk.picked, rt = pj === null ? -1 : time - Lk.rt0;
+  const e = pj === null || i < 2 ? 0 : ease(rt / .6), items = lookLayout(w, h, i, e);
+  drawMeadow(c, w, h);
+  const glow = pj === null ? 0 : ease((rt - .9) / .6), vp = i === 2 ? (pj === null ? 0 : c01((rt - 1.0) / 1.6)) : 1;
+  const rightItem = i < 2 ? items[r.right] : items[0];
+  Lk.hit = [];
+  items.forEach((it) => {
+    if (i === 2 && it.j === 1 && e <= 0) return;
+    const ring = pj === null ? '' : (i < 2 ? (it.j === r.right ? 'ok' : it.j === pj ? 'no' : '') : (it.j === 0 ? (pj === r.right ? 'ok' : 'no') : ''));
+    c.save(); if (i === 2 && it.j === 1) c.globalAlpha = e; drawCard(c, it.card.x, it.card.y, it.card.w, it.card.h, ring); c.restore();
+    if (i < 2) {
+      pill(c, t.trees[it.kind], it.x, it.card.y + it.card.h - 18, it.j === r.right && pj !== null ? { bg: '#3ddc97', fg: BGD } : it.j === pj ? { bg: '#f5c84c', fg: BGD } : {});
+      if (pj === null) Lk.hit.push({ j: it.j, x: it.card.x, y: it.card.y, w: it.card.w, h: it.card.h });
+    }
+  });
+  items.forEach((it) => {
+    if (i === 2 && it.j === 1 && e <= 0) return;
+    const main = it === rightItem, o = {};
+    if (i === 2) { o.veins = pj === null ? 0 : 1; o.vp = vp; o.emph = 'veins'; o.glow = glow; }
+    else if (main) { o.emph = r.emph; o.glow = glow; }
+    if (i === 2 && it.j === 1) { drawLeaf(c, { ...it, size: it.size * (.6 + .4 * e) }, o); } else drawLeaf(c, it, o);
+  });
+  if (i === 2 && e > .5) pill(c, t.trees.maple, items[1].x, items[1].card.y + items[1].card.h - 18);
+  if (pj !== null) {
+    const R = clamp(Math.min(w, h) * .27, 58, 120), lp = ease(rt / 1.0), [fx0, fy0] = FOCUS[i], L0 = rightItem;
+    const [fx, fy] = leafPt(L0, fx0, fy0), lx = lerp(w + R * .6, fx, lp), ly = lerp(h * .95, fy, lp);
+    drawLens(c, lx, ly, R, (cc) => {
+      cc.save(); cc.translate(lx, ly); cc.scale(r.k, r.k); cc.translate(-fx, -fy);
+      const o = { emph: r.emph, glow };
+      if (i === 2) { o.veins = 1; o.vp = vp; }
+      drawLeaf(cc, L0, o); cc.restore();
+    }, .5 + .5 * lp);
+  }
+}
+
+// --- view 3: winter ----------------------------------------------------------------------------------------------------
+const TIPS = (() => { const R = rng(5); return [1, 2, 3, 4].map(() => Array.from({ length: 16 }, () => ({ bi: R(), a: -Math.PI * (.05 + R() * .9) }))); })();
+const NEEDLES = (() => { const R = rng(9); return [1, 2, 3, 4].map(() => Array.from({ length: 6 }, () => ({ bi: R(), ex: (R() - .5) * .7, ey: .01 + R() * .06, d: R() * .6, rot: (R() - .5) * 2 }))); })();
+function drawWinter(c, w, h, dt, time) {
+  const W = S.w;
+  if (W.anim) {
+    const a = W.anim, u = c01((time - a.t0) / a.dur);
+    W.p = lerp(a.from, a.to, a.ease ? ease(u) : u);
+    if (u >= 1) W.anim = null;
+  }
+  seasonScene(c, w, h, dt, time, WTREES, W.p, 'w');
+  if (W.scene === 'park') return;
+  const a = (time - W.sceneT0) / .6, rt = time - W.sceneT0 - .6;
+  if (a < .45) { c.fillStyle = `rgba(27,42,34,${a / .45})`; c.fillRect(0, 0, w, h); return; }
+  if (W.scene === 'needle') drawNeedle(c, w, h, dt, time, rt); else drawYears(c, w, h, dt, time, rt);
+  if (a < 1) { c.fillStyle = `rgba(27,42,34,${1 - (a - .45) / .55})`; c.fillRect(0, 0, w, h); }
+}
+const dropAt = (c, q) => {
+  const k = q.life / q.max;
+  c.save(); c.globalAlpha = Math.max(0, 1 - k * k); c.fillStyle = '#6EC1F2'; c.strokeStyle = 'rgba(255,255,255,.7)'; c.lineWidth = 1;
+  c.beginPath(); c.moveTo(q.x, q.y - q.r * 1.7); c.quadraticCurveTo(q.x + q.r * 1.1, q.y - q.r * .2, q.x, q.y + q.r); c.quadraticCurveTo(q.x - q.r * 1.1, q.y - q.r * .2, q.x, q.y - q.r * 1.7); c.fill(); c.stroke();
+  c.restore();
+};
+function drawNeedle(c, w, h, dt, time, rt) {
+  const t = T[lang], bg = c.createRadialGradient(w * .5, h * .45, 10, w * .5, h * .5, Math.max(w, h) * .7);
+  bg.addColorStop(0, mix(DARK, BGD, .3)); bg.addColorStop(1, BGD); c.fillStyle = bg; c.fillRect(0, 0, w, h);
+  const Lf = { kind: 'maple', x: w * .27, y: h * .47, size: Math.min(h * .5, w * .42), rot: -.12 }, Pn = { kind: 'pine', x: w * .75, y: h * .5, size: Math.min(h * .62, w * .5), rot: .08 };
+  drawLeaf(c, Lf, {}); drawLeaf(c, Pn, {});
+  // a glint slides along both needles
+  for (const sg of [-1, 1]) {
+    const u = (time * .35 + (sg > 0 ? .4 : 0)) % 1, x = sg * ((1 - u) * (1 - u) * .012 + 2 * (1 - u) * u * .06 + u * u * .12), [gx, gy] = leafPt(Pn, x, -u), gr = Pn.size * .035;
+    const g = c.createRadialGradient(gx, gy, 0, gx, gy, gr); g.addColorStop(0, 'rgba(255,255,255,.9)'); g.addColorStop(1, 'rgba(255,255,255,0)'); c.fillStyle = g; c.beginPath(); c.arc(gx, gy, gr, 0, TAU); c.fill();
+  }
+  // water drops: many leave the broad leaf, very few leave the needle
+  S.dropAcc[0] += dt * 22; S.dropAcc[1] += dt * .9;
+  while (S.dropAcc[0] >= 1) { S.dropAcc[0]--; const [x, y] = leafPt(Lf, (Math.random() - .5) * .7, -(.2 + Math.random() * .7)); S.drops.push({ x, y, vx: 10 + Math.random() * 25, vy: -(25 + Math.random() * 45), life: 0, max: 1.4 + Math.random() * .6, r: 3.2 + Math.random() * 1.4 }); }
+  while (S.dropAcc[1] >= 1) { S.dropAcc[1]--; const sg = Math.random() < .5 ? -1 : 1, u = .2 + Math.random() * .7, [x, y] = leafPt(Pn, sg * ((1 - u) * (1 - u) * .012 + 2 * (1 - u) * u * .06 + u * u * .12), -u); S.drops.push({ x, y, vx: 8 + Math.random() * 12, vy: -(20 + Math.random() * 20), life: 0, max: 1.6, r: 3.4 }); }
+  S.drops = S.drops.filter((q) => q.life < q.max);
+  for (const q of S.drops) { q.life += dt; q.x += q.vx * dt; q.y += q.vy * dt; dropAt(c, q); }
+  pill(c, t.trees.maple, Lf.x, h * .92); pill(c, t.trees.pine, Pn.x, h * .92);
+  // the lens over a needle: a tiny cut-through shows the thick waxy skin
+  if (rt > .4) {
+    const R = clamp(Math.min(w, h) * .22, 50, 100), lp = ease((rt - .4) / 1.0), [fx, fy] = leafPt(Pn, 0, -.5), lx = lerp(w + R, fx, lp), ly = lerp(h * .95, fy, lp);
+    drawLens(c, lx, ly, R, (cc) => {
+      const sk = cc.createRadialGradient(lx - R * .2, ly - R * .2, R * .1, lx, ly, R * .62); sk.addColorStop(0, '#F3F8E8'); sk.addColorStop(1, '#9CC4DC');
+      cc.fillStyle = sk; cc.beginPath(); cc.arc(lx, ly, R * .62, 0, TAU); cc.fill();
+      cc.strokeStyle = 'rgba(40,70,100,.5)'; cc.lineWidth = 1.5; cc.stroke();
+      const gr = cc.createRadialGradient(lx - R * .15, ly - R * .15, R * .05, lx, ly, R * .5); gr.addColorStop(0, mix(GREEN, YEL, .2)); gr.addColorStop(1, shade(DARK, .1));
+      cc.fillStyle = gr; cc.beginPath(); cc.arc(lx, ly, R * .5, 0, TAU); cc.fill();
+      cc.fillStyle = '#F3F8E8'; cc.strokeStyle = shade(DARK, .3); cc.beginPath(); cc.arc(lx, ly, R * .1, 0, TAU); cc.fill(); cc.stroke();
+      cc.strokeStyle = 'rgba(255,255,255,.75)'; cc.lineWidth = Math.max(2, R * .045); cc.lineCap = 'round'; cc.beginPath(); cc.arc(lx, ly, R * .56, Math.PI * 1.1, Math.PI * 1.45); cc.stroke();
+    }, .5 + .5 * lp, mix(BGD, DARK, .5));
+  }
+}
+function drawYears(c, w, h, dt, time, rt) {
+  const t = T[lang], H = h * .7, x = w * .5, by = h * .82, yr = rt < 0 ? 1 : Math.min(4, 1 + Math.floor(rt / 2.2)), u = rt < 0 ? 0 : rt >= 8.8 ? 1 : (rt % 2.2) / 2.2;
+  drawPark(c, w, h, { t: time });
+  drawTree(c, 'pine', x, by, H, { t: time });
+  const bl = TREES.pine.blobs, P = (ux, uy) => [x + ux * H, by + uy * H];
+  c.save(); c.lineCap = 'round';
+  for (let y = 1; y <= yr; y++) {
+    const grow = y < yr ? 1 : ease((u - .15) / .4);
+    c.strokeStyle = y < yr ? shade(DARK, -.08) : mix(GREEN, YEL, .4); c.lineWidth = Math.max(1.8, H * .012);
+    for (const tp of TIPS[y - 1]) {
+      const b = bl[Math.floor(tp.bi * bl.length)], ux = b.x + Math.cos(tp.a) * b.r, uy = b.y + Math.sin(tp.a) * b.r * b.sy, [px, py] = P(ux, uy), len = H * .05 * grow;
+      for (const da of [-.5, 0, .5]) { c.beginPath(); c.moveTo(px, py); c.lineTo(px + Math.cos(tp.a + da) * len, py + Math.sin(tp.a + da) * len); c.stroke(); }
+    }
+  }
+  // old needles turn brown and fall, a few at a time; they pile up under the tree
+  c.strokeStyle = mix(GOLD, '#ffffff', .1); c.lineWidth = Math.max(1.6, H * .008);
+  for (let y = 1; y <= yr; y++) {
+    NEEDLES[y - 1].forEach((n) => {
+      const b = bl[Math.floor(n.bi * bl.length)], [sx, sy] = P(b.x, b.y), [ex, ey] = P(n.ex, n.ey);
+      let px = ex, py = ey, vis = true;
+      if (y === yr) { const p = (u - .45 - n.d * .3) / .35; if (p <= 0) vis = false; else { const q = Math.min(1, p), e2 = q * q; px = lerp(sx, ex, q) + Math.sin(q * 8 + n.d * 9) * H * .03 * (1 - q); py = lerp(sy, ey, e2); } }
+      if (!vis) return;
+      const L = H * .05, a = n.rot;
+      c.beginPath(); c.moveTo(px - Math.cos(a) * L / 2, py - Math.sin(a) * L / 2); c.lineTo(px + Math.cos(a) * L / 2, py + Math.sin(a) * L / 2); c.moveTo(px - Math.cos(a + .15) * L / 2, py - Math.sin(a + .15) * L / 2 + 2); c.lineTo(px + Math.cos(a + .15) * L / 2, py + Math.sin(a + .15) * L / 2 + 2); c.stroke();
+    });
+  }
+  c.restore();
+  pill(c, t.w.year(yr), w / 2, 26, { fs: 15 });
+}
+
+// --- main loop ------------------------------------------------------------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  CW = w; S.dim.w = w; S.dim.h = h;
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  const v = lab.view;
+  if (v === 'match') drawMatch(c, w, h, dt, time); else if (v === 'look') drawLook(c, w, h, dt, time); else drawWinter(c, w, h, dt, time);
+});
+
+// --- controls ---------------------------------------------------------------------------------------------------------------
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+function pickM(j) {
+  const M = S.m; if (M.picked !== null) return;
+  const { w, h } = S.dim; M.from = matchPose(w, h, parkGeo(w, h, 3, true), now());
+  M.picked = j; M.rt0 = now(); (j === ROUNDS[M.i].right ? sfx.good : sfx.bad)(); render(); showStage();
+}
+function pickL(j) {
+  const Lk = S.l; if (Lk.picked !== null) return;
+  Lk.picked = j; Lk.rt0 = now(); (j === LROUNDS[Lk.i].right ? sfx.good : sfx.bad)(); render(); showStage();
+}
+function pickW(j) {
+  const W = S.w; if (W.picked !== null) return;
+  W.picked = j; W.rt0 = now(); (j === W_RIGHT[W.i] ? sfx.good : sfx.bad)();
+  if (W.i === 0) W.anim = { from: 0, to: 2, dur: 8.5, t0: now() };
+  else { W.scene = W.i === 1 ? 'needle' : 'years'; W.sceneT0 = now(); S.drops = []; }
+  render(); showStage();
+}
+function next() {
+  const v = lab.view;
+  if (v === 'match') {
+    const M = S.m;
+    if (M.i < 3) { M.i++; M.picked = null; M.t0 = now(); M.from = null; } else { M.free = true; M.F = []; M.matched = 0; clearHits(); }
+  } else if (v === 'look') { const Lk = S.l; Lk.i++; Lk.picked = null; }
+  else {
+    const W = S.w; W.scene = 'park'; S.drops = [];
+    if (W.i < 2) { W.i++; W.picked = null; if (W.p > .01) W.anim = { from: W.p, to: 0, dur: 1.6, t0: now(), ease: true }; } else { W.free = true; W.picked = null; if (W.p > .01) W.anim = { from: W.p, to: 0, dur: 1.6, t0: now(), ease: true }; }
+  }
+  sfx.click(); render();
+}
+function again() {
+  const v = lab.view;
+  if (v === 'match') { S.m = newM(); S.sec = null; clearHits(); } else if (v === 'look') S.l = newL(); else S.w = newW();
+  clearParts(); sfx.click(); render();
+}
+function onView() { clearParts(); clearHits(); if (lab.view === 'match' && S.m.picked === null && !S.m.free) S.m.t0 = now(); render(); }
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b) return;
+  const act = b.dataset.act, v = lab.view;
+  if (act === 'pick') { const j = +b.dataset.j; if (v === 'match') pickM(j); else if (v === 'look') pickL(j); else pickW(j); }
+  else if (act === 'next') next();
+  else if (act === 'again') again();
+  else if (act === 'shake') shake();
+  else if (act === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    const k = b.dataset.k; S.sec = S.sec === k ? null : k; S.sp = 0; S.sa = 0; clearParts(); clearHits(); sfx.click(); render();
+  }
+});
+$('ctrlBody').addEventListener('input', (ev) => {
+  if (ev.target.id !== 'lfRange') return;
+  const val = +ev.target.value;
+  if (lab.view === 'winter') { S.w.p = val / 100; S.w.anim = null; } else if (S.sec === 'larch') S.sp = val / 100; else S.sa = val / 100;
+  sliderReadout();
+});
+$('cv').addEventListener('click', (ev) => {
+  if (lab.view !== 'look' || S.l.picked !== null) return;
+  const r = $('cv').getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top, hit = S.l.hit.find((q) => x >= q.x && x <= q.x + q.w && y >= q.y && y <= q.y + q.h);
+  if (hit) pickL(hit.j);
+});
+
+// --- one render per change: controls, readout and the state card ----------------------------------------------------
+const seasonIdx = (p) => clamp(Math.round(p), 0, 3);
+function sliderReadout() {
+  const t = T[lang], v = lab.view, label = v === 'winter' ? t.w.seasons[seasonIdx(S.w.p)] : S.sec === 'larch' ? t.w.seasons[seasonIdx(S.sp)] : t.sec.slide;
+  lab.setReadout(esc(label), '', '', '#F2C94C');
+  const el = $('lfSl'); if (el) el.textContent = label;
+}
+function readout() {
+  const t = T[lang], M = S.m;
+  if (lab.view === 'match' && M.free && !S.sec) lab.setReadout(esc(t.m.sorted(M.matched, 5)), '', '', GREEN);
+}
+const setCard = (key, which, extra = {}) => { const a = T[lang].cards[key][which]; lab.setState({ emo: a[0], title: a[1], lead: a[2], body: a[3], ...extra }); };
+const qBlock = (t, q, opts, picked, right, nextLabel, nextAct) => {
+  const done = picked !== null;
+  return `<div class="lf-q">${esc(q)}</div><div class="lf-opts">${opts.map((o, j) => `<button class="lf-o${!done ? '' : j === right ? ' right' : j === picked ? ' wrong' : ' dim'}" data-act="pick" data-j="${j}"${done ? ' disabled' : ''}>${esc(o)}</button>`).join('')}</div>`
+    + (done ? `<div class="row2"><b class="lf-v ${picked === right ? 'ok' : 'no'}">${esc(picked === right ? t.right : t.wrong)}</b><button class="btn lf-push" data-act="${nextAct}">${esc(nextLabel)}</button></div>` : '');
+};
+const chipsHtml = (t) => {
+  const open = secret.unlocked();
+  return `<div class="row2"><div class="chips">${[['larch', '🌲'], ['yellow', '🍂']].map(([k, e]) => `<button class="chip secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${e} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`).join('')}</div></div>`;
+};
+const sliderHtml = (label, val, max) => `<div class="row2"><span class="lf-lab" id="lfSl">${esc(label)}</span></div><div class="row2" style="margin-top:6px"><input class="lf-range" id="lfRange" type="range" min="0" max="${max}" value="${val}" aria-label="${esc(label)}"></div>`;
+const verdictCard = (t, ok, why, last, key) => (last ? setCard(key, 'f', { body: why }) : lab.setState({ emo: ok ? '✅' : '🤔', title: ok ? t.right : t.wrong, lead: why, body: '' }));
+
+function renderMatch(t) {
+  const M = S.m, body = $('ctrlBody');
+  lab.setGlow('rgba(94,158,62,.26)');
+  if (S.sec) {
+    const k = S.sec;
+    body.innerHTML = sliderHtml(k === 'larch' ? t.w.seasons[seasonIdx(S.sp)] : t.sec.slide, Math.round((k === 'larch' ? S.sp : S.sa) * 100), k === 'larch' ? 300 : 100) + chipsHtml(t);
+    sliderReadout();
+    lab.setState({ emo: k === 'larch' ? '🌲' : '🍂', title: t.secrets[k][0], lead: t.sec[k + 'Text'], body: '' });
+  } else if (M.free) {
+    body.innerHTML = `<div class="row2" style="margin-top:0"><button class="btn" data-act="shake">${esc(t.m.shake)}</button><button class="chip" data-act="again">${esc(t.again)}</button></div>${chipsHtml(t)}`;
+    readout(); setCard('match', 'f');
+  } else {
+    const r = ROUNDS[M.i], ok = M.picked === r.right;
+    body.innerHTML = qBlock(t, t.m.q, t.m.o[M.i], M.picked, r.right, t.next, 'next');
+    lab.setReadout(`${M.i + 1}/4`, '', '', GREEN);
+    if (M.picked === null) setCard('match', 'n'); else verdictCard(t, ok, t.m.why[M.i], M.i === 3, 'match');
+  }
+}
+function renderLook(t) {
+  const Lk = S.l, i = Lk.i, r = LROUNDS[i], ok = Lk.picked === r.right, last = i === 2;
+  lab.setGlow('rgba(242,201,76,.22)');
+  $('ctrlBody').innerHTML = qBlock(t, t.l.q[i], t.l.o[i], Lk.picked, r.right, last ? t.again : t.next, last ? 'again' : 'next');
+  lab.setReadout(`${i + 1}/3`, '', '', YEL);
+  if (Lk.picked === null) setCard('look', 'n'); else verdictCard(t, ok, t.l.why[i], last, 'look');
+}
+function renderWinter(t) {
+  const W = S.w, i = W.i, body = $('ctrlBody');
+  lab.setGlow('rgba(150,190,230,.24)');
+  if (W.free) {
+    body.innerHTML = sliderHtml(t.w.seasons[seasonIdx(W.p)], Math.round(W.p * 100), 300) + `<div class="row2"><button class="chip" data-act="again">${esc(t.again)}</button></div>`;
+    sliderReadout(); setCard('winter', 'f');
+    return;
+  }
+  const q = [t.w.q1, t.w.q2, t.w.q3][i], o = [t.w.o1, t.w.o2, t.w.o3][i], why = [t.w.r1, t.w.r2, t.w.r3][i], ok = W.picked === W_RIGHT[i];
+  body.innerHTML = qBlock(t, q, o, W.picked, W_RIGHT[i], t.next, 'next');
+  lab.setReadout(`${i + 1}/3`, '', '', '#9CC4DC');
+  if (W.picked === null) setCard('winter', 'n'); else verdictCard(t, ok, why, i === 2, 'winter');
+}
+function render() {
+  const t = T[lang], v = lab.view;
+  document.body.dataset.v = v;
+  if (v !== 'match' || S.m.free === false || S.sec) clearHits();
+  if (v === 'match') renderMatch(t); else if (v === 'look') renderLook(t); else renderWinter(t);
+}
+render();
+</script>
+</body>
+</html>
