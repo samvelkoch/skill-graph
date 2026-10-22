@@ -567,7 +567,7 @@ function drawContour(c, w, h, dt, top) {
 // View 2: raise the water
 // =============================================================================================================
 const GW = 160;
-const BASIN = { x: .2, y: .58, r: .075 };
+const BASIN = { x: .22, y: .64, r: .075 };
 const g2 = (x, y, cx, cy, sx, sy) => Math.exp(-(((x - cx) / sx) ** 2 + ((y - cy) / sy) ** 2) / 2);
 const sstep = (a, b, x) => sm(clamp((x - a) / (b - a), 0, 1));
 // the relief: a mountain with a shoulder, a ridge running east, a small separate hill, a bay cut in from the south and an inland basin
@@ -577,7 +577,9 @@ function heightAt(x, y) {
   const ridge = A * Math.exp(-(((y - .4) / .045) ** 2) / 2) * tip * sstep(.3, .42, x);
   let h = Math.max(mount + shoulder, ridge, 4 * g2(x, y, .83, .66, .065, .065));
   h -= 5.5 * sstep(.56, .76, y) * Math.exp(-(((x - .41) / .045) ** 2) / 2);
-  h = Math.min(h, 1 + 2 * (Math.hypot(x - BASIN.x, y - BASIN.y) / BASIN.r) ** 2); // the basin: bottom 1, rim 3
+  // the basin: bottom 1, rim 3 at its edge, walls that melt into the slope
+  const d = Math.hypot(x - BASIN.x, y - BASIN.y), wgt = 1 - sstep(BASIN.r, BASIN.r * 2.1, d);
+  h = lerp(h, Math.min(h, 1 + 2 * (d / BASIN.r) ** 2), wgt);
   return Math.max(0, h);
 }
 const HF = new Float32Array(GW * GW), SHD = new Float32Array(GW * GW), LK = new Uint8Array(GW * GW);
@@ -588,9 +590,9 @@ for (let j = 0; j < GW; j++) for (let i = 0; i < GW; i++) {
 }
 for (let j = 0; j < GW; j++) for (let i = 0; i < GW; i++) {
   const at = (a, b) => HF[clamp(b, 0, GW - 1) * GW + clamp(a, 0, GW - 1)];
-  SHD[j * GW + i] = clamp(1 + .55 * (at(i + 1, j) - at(i - 1, j) + at(i, j + 1) - at(i, j - 1)), .72, 1.25);
+  SHD[j * GW + i] = clamp(1 + .7 * (at(i + 1, j) - at(i - 1, j) + at(i, j + 1) - at(i, j - 1)), .62, 1.3);
 }
-const RAMP = [[0, '#7dbb6a'], [2, '#a9c96f'], [4, '#d2c27a'], [6, '#b98f58'], [8, '#8c6a44'], [9, '#805e3e'], [9.7, '#f4f2ec']].map(([h, c]) => [h, rgb(c)]);
+const RAMP = [[0, '#7dbb6a'], [2, '#a9c96f'], [4, '#d2c27a'], [6, '#b98f58'], [7.6, '#8c6a44'], [8.8, '#cfc6b8'], [9.5, '#f6f4ee']].map(([h, c]) => [h, rgb(c)]);
 const LUT = Array.from({ length: 101 }, (_, n) => {
   const h = n / 10; let i = 0; while (i < RAMP.length - 2 && h > RAMP[i + 1][0]) i++;
   const [h0, c0] = RAMP[i], [h1, c1] = RAMP[i + 1]; return mv(c0, c1, clamp((h - h0) / (h1 - h0), 0, 1));
@@ -673,8 +675,9 @@ let wRect = null;
 function drawWater(c, w, h, dt, top) {
   const W = S.w;
   if (W.goal !== null) {
-    const d = W.goal - W.level, step = dt * 2.2;
-    if (Math.abs(d) <= step) { W.level = W.goal; W.goal = null; render(); } else W.level += Math.sign(d) * step;
+    const p = clamp((performance.now() - W.t0) / W.dur, 0, 1);
+    W.level = lerp(W.from, W.goal, p);
+    if (p >= 1) finishWater(W.id);
     $('lvl').value = W.level; lab.setReadout(fmtLevel(W.level), T[lang].w.level, '', '#4ea8ff');
   }
   recolor();
@@ -701,18 +704,30 @@ function drawWater(c, w, h, dt, top) {
   }
   c.restore();
 }
+// the sea moves at 2.2 levels a second by the clock, not by frames; a timer lands it exactly on the goal even if frames are throttled
+let waterId = 0;
+function animWater(goal) {
+  const W = S.w;
+  if (goal === W.level) { W.goal = null; return; }
+  const id = ++waterId; W.id = id; W.from = W.level; W.goal = goal; W.t0 = performance.now(); W.dur = Math.abs(goal - W.level) / 2.2 * 1000;
+  setTimeout(() => finishWater(id), W.dur + 60);
+}
+function finishWater(id) {
+  const W = S.w; if (W.id !== id || W.goal === null) return;
+  W.level = W.goal; W.goal = null; wKey = ''; render();
+}
 const fmtLevel = (L) => fmt(String(Math.round(L * 10) / 10));
 function startWater(r) {
   const W = S.w; W.r = r; W.phase = 'ask'; W.tap = null; W.ok = null; W.hl = null; W.pick = null;
-  W.goal = r === 0 ? 0 : 3; if (W.goal === W.level) W.goal = null;
+  animWater(r === 0 ? 0 : 3);
 }
 function revealWater(pick) { // pick: a tap {x, y} (rounds 1-4) or the option index (round 5)
   const W = S.w, r = WR[W.r];
-  if (r.q3) { W.ok = pick === 0; W.tap = null; W.goal = 6; }
+  if (r.q3) { W.ok = pick === 0; W.tap = null; animWater(6); }
   else {
     const reg = REG[r.kind], i = Math.floor(clamp(pick.y, 0, .999) * GW) * GW + Math.floor(clamp(pick.x, 0, .999) * GW);
     W.tap = pick; W.ok = !!reg.near[i]; W.hl = { kind: r.kind, info: reg };
-    if (W.level !== 3) W.goal = 3;
+    animWater(3);
   }
   W.phase = 'done'; wKey = ''; (W.ok ? sfx.good : sfx.bad)(); render(); showStage();
 }
@@ -734,7 +749,7 @@ $('cv').addEventListener('pointermove', (ev) => {
 const endDrag = () => { S.a.drag = false; };
 $('cv').addEventListener('pointerup', endDrag); $('cv').addEventListener('pointercancel', endDrag);
 $('lvl').addEventListener('input', (ev) => {
-  const W = S.w; W.goal = null; W.level = +ev.target.value; lab.setReadout(fmtLevel(W.level), T[lang].w.level, '', '#4ea8ff');
+  const W = S.w; W.goal = null; waterId++; W.level = +ev.target.value; lab.setReadout(fmtLevel(W.level), T[lang].w.level, '', '#4ea8ff');
 });
 function renderWater(t) {
   const W = S.w, r = WR[W.r], ask = W.phase === 'ask', unlockedContours = W.r > 0 || !ask;
@@ -802,15 +817,16 @@ function drawCompass(c, w, h, dt, top) {
     c.font = `${(cs * .4) | 0}px ${EMOJI}`; c.fillStyle = '#fff'; c.fillText(emo, x + cs / 2, y + cs * .38);
     c.font = FONT; c.fillStyle = '#10131f'; c.fillText(t.c.places[name], x + cs / 2, y + cs - 12);
   }
-  // compass rose in the empty north-east square
-  const rx = gx + 5.5 * cs, ry = gy + .5 * cs, rr = cs * .2, letter = (d, x, y, on) => {
-    c.font = FONT; c.fillStyle = on ? '#0a7a4a' : d === 'N' ? '#c0392b' : '#243044'; c.fillText(t.c.letters[d], x, y);
-  };
-  const sunOn = C.phase === 'done' && C.r === 4;
-  c.fillStyle = '#c0392b'; poly(c, [[rx, ry - rr * 1.5], [rx - rr * .5, ry], [rx + rr * .5, ry]]); c.fill();
-  c.fillStyle = '#7a8497'; poly(c, [[rx, ry + rr * 1.5], [rx - rr * .5, ry], [rx + rr * .5, ry]]); c.fill();
-  if (sunOn) { c.strokeStyle = '#3ddc97'; c.lineWidth = 2.5; c.beginPath(); c.arc(rx, ry + cs * .34, 11, 0, Math.PI * 2); c.stroke(); }
-  letter('N', rx, ry - cs * .34); letter('S', rx, ry + cs * .34, sunOn); letter('E', rx + cs * .36, ry); letter('W', rx - cs * .36, ry);
+  // compass rose in the empty north-east square: a dial with N at the top, E right, S bottom, W left
+  const rx = gx + 5.5 * cs, ry = gy + .5 * cs, rd = cs * .31, sunOn = C.phase === 'done' && C.r === 4;
+  c.fillStyle = 'rgba(16,19,31,.86)'; c.beginPath(); c.arc(rx, ry, cs * .46, 0, Math.PI * 2); c.fill();
+  c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1.5; c.stroke();
+  c.beginPath(); c.moveTo(rx, ry - rd * .55); c.lineTo(rx, ry + rd * .55); c.moveTo(rx - rd * .55, ry); c.lineTo(rx + rd * .55, ry); c.stroke();
+  c.textAlign = 'center'; c.textBaseline = 'middle'; c.font = FONT;
+  for (const [d, dx, dy] of [['N', 0, -1], ['E', 1, 0], ['S', 0, 1], ['W', -1, 0]]) {
+    c.fillStyle = d === 'S' && sunOn ? '#3ddc97' : d === 'N' ? '#ff7a6e' : '#fff';
+    c.fillText(t.c.letters[d], rx + dx * rd, ry + dy * rd + 1);
+  }
   // highlights after the answer
   const pulse = .55 + .45 * Math.sin(performance.now() / 220), ring = (i, j, color) => {
     c.strokeStyle = color; c.lineWidth = 3.5; c.globalAlpha = pulse; c.beginPath(); c.roundRect(gx + i * cs + 1, gy + j * cs + 1, cs - 2, cs - 2, 10); c.stroke(); c.globalAlpha = 1;
