@@ -1,0 +1,567 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Treasure Grid · Skill Graph</title>
+<meta name="description" content="Tell a parrot where to dig with two numbers, read where the treasure is, and find the missing corner of a square. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  #overlay > .q { position: absolute; left: 12px; right: 12px; top: 10px; text-align: center; font: 800 16px/1.3 var(--sans); color: #fff;
+    text-wrap: balance; text-shadow: 0 1px 6px rgba(0, 0, 0, .7); pointer-events: none; }
+  .fine { font-size: 11px; color: var(--faint); }
+  .fine a { color: var(--soft); }
+  .rounds { display: flex; gap: 7px; margin-bottom: 12px; }
+  .rounds i { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--faint); }
+  .rounds i.done { background: var(--faint); }
+  .rounds i.cur { border-color: #e0b050; background: #e0b050; }
+  .ans-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 4px; }
+  .ans { min-height: 46px; padding: 6px 4px; border-radius: 14px; border: 1.5px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font: 900 18px var(--sans); cursor: pointer; white-space: nowrap; }
+  .ans:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .ans:disabled { cursor: default; opacity: .6; }
+  .ans.good { border-color: var(--ok); background: rgba(61, 220, 151, .16); opacity: 1; }
+  .ans.bad { border-color: var(--red); background: rgba(255, 59, 48, .14); opacity: 1; }
+  .btn:disabled { opacity: .35; cursor: default; }
+  .btn { min-height: 40px; }
+  .chip { min-height: 36px; }
+  .pts { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 4px; }
+  .pts span { padding: 5px 9px; border-radius: 10px; border: 1px solid var(--stroke); color: var(--faint); font-weight: 800; font-size: 13px; }
+  .pts span.gap { margin-left: 10px; }
+  .pts span.done { color: var(--ok); border-color: rgba(61, 220, 151, .45); }
+  .pts span.next { color: #fff; border-color: #fff; }
+  @media (max-width: 760px) {
+    #stage { height: min(124vw, 560px); }
+    #overlay > .q { font-size: 15px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Treasure Grid', title: 'Across first, then up',
+    lines: [['Two numbers,', 'one place.'], ['The first goes across,', 'the second goes up.'], ['Count the lines', 'from 0.']],
+    views: { dig: '🦜 Dig', read: '🔍 Read', square: '🟦 Finish it' },
+    check: 'Check', next: 'Next ▶', right: 'Treasure!', wrong: 'Look where the parrot went.',
+    d: { clue: (x, y) => `The treasure is at (${x}, ${y}). Put the flag there.`, go: 'Dig!', read: (x, y) => `${x} across, ${y} up`,
+         right: 'Treasure! Across first, then up.', swap: 'You went up first. (y, x) is a different place: the first number always goes across.',
+         offByOne: 'One line off. Start counting at 0, the corner, and count lines, not squares.', wrong: (x, y) => `Go ${x} across, then ${y} up.` },
+    r: { q: 'Where is the treasure?', why: { right: 'Yes! Across first, then up.', swap: 'Those numbers are swapped: across comes first.', off: 'That counts squares from 1. Count the lines from 0.' } },
+    s: { q: 'Three corners are drawn. Tap where the fourth corner must be.', right: 'It closes!', wrong: 'Not quite. Here is the missing corner.',
+         d: (x, y) => `D is at (${x}, ${y}).`, tilted: 'A square can stand on its corner: all four sides are still equal.', order: 'Join in the wrong order',
+         orderText: 'Join the corners in order round the shape. Jump across and you get a bow tie instead.' },
+    secrets: { dots: ['Dot to dot', 'Draw a picture from coordinates.'], minus: ['Below zero', 'Send the parrot left and down past 0.'] },
+    sec: { nextDot: 'Next dot ▶', dotsText: 'Every picture on a computer screen is made of points with coordinates.',
+           minusText: 'Past 0 the numbers go negative: minus across means left, minus up means down. That is how the four quarters of a grid work.' },
+    cards: {
+      dig: ['🦜', 'Coordinates', 'The first number: across. The second: up.', 'Both start at 0, where the two axes meet.'],
+      read: ['🔍', 'Reading a point', 'Drop down to the bottom axis: that’s the first number.', 'Slide across to the side axis: that’s the second.'],
+      square: ['🟦', 'Shapes from points', 'Coordinates can describe a whole shape.', 'Use what you know about the shape to find the missing corner.'] },
+    fine: 'René Descartes made coordinates famous in 1637, which is why they are called Cartesian.',
+    dirs: ['left', 'right', 'down', 'up'], also: 'See also:', negLab: 'Numbers Below Zero',
+    quiz: [
+      { q: 'In (3, 5), which way do you go first?', opts: ['5 up first', '3 across first, then 5 up', 'It doesn’t matter'], ok: 1 },
+      { q: 'Are (2, 4) and (4, 2) the same point?', opts: ['Yes', 'No, they are different places', 'Only on a square grid'], ok: 1 },
+      { q: 'Where do you start counting?', opts: ['At 1', 'At 0, the corner where the axes meet', 'At the top'], ok: 1 } ],
+  },
+  ru: {
+    name: 'Клад на сетке', title: 'Сначала вправо, потом вверх',
+    lines: [['Два числа —', 'одно место.'], ['Первое — вправо,', 'второе — вверх.'], ['Считай линии', 'от нуля.']],
+    views: { dig: '🦜 Копай', read: '🔍 Читай', square: '🟦 Дострой' },
+    check: 'Проверить', next: 'Дальше ▶', right: 'Клад!', wrong: 'Посмотри, куда пошёл попугай.',
+    d: { clue: (x, y) => `Клад в точке (${x}; ${y}). Поставь туда флажок.`, go: 'Копать!', read: (x, y) => `${x} вправо, ${y} вверх`,
+         right: 'Клад! Сначала вправо, потом вверх.', swap: 'Ты пошёл сначала вверх. (y; x) — это другое место: первое число всегда вправо.',
+         offByOne: 'На одну линию мимо. Начинай с нуля в углу и считай линии, а не клетки.', wrong: (x, y) => `Иди на ${x} вправо, потом на ${y} вверх.` },
+    r: { q: 'Где клад?', why: { right: 'Да! Сначала вправо, потом вверх.', swap: 'Числа перепутаны местами: первым идёт «вправо».', off: 'Так считают клетки с единицы. Считай линии от нуля.' } },
+    s: { q: 'Нарисованы три вершины. Нажми, где должна быть четвёртая.', right: 'Замкнулось!', wrong: 'Не совсем. Вот недостающая вершина.',
+         d: (x, y) => `D в точке (${x}; ${y}).`, tilted: 'Квадрат может стоять на уголке: все четыре стороны всё равно равны.', order: 'Соединить не по порядку',
+         orderText: 'Соединяй вершины по порядку вокруг фигуры. Если перескочить, получится бантик.' },
+    secrets: { dots: ['По точкам', 'Нарисуй картинку по координатам.'], minus: ['Ниже нуля', 'Отправь попугая влево и вниз за ноль.'] },
+    sec: { nextDot: 'Следующая точка ▶', dotsText: 'Любая картинка на экране компьютера состоит из точек с координатами.',
+           minusText: 'За нулём числа становятся отрицательными: минус по первой оси — влево, минус по второй — вниз. Так устроены четыре четверти.' },
+    cards: {
+      dig: ['🦜', 'Координаты', 'Первое число — вправо. Второе — вверх.', 'Оба начинаются с нуля, там, где встречаются оси.'],
+      read: ['🔍', 'Как прочитать точку', 'Опустись к нижней оси — это первое число.', 'Проведи к боковой оси — это второе.'],
+      square: ['🟦', 'Фигуры из точек', 'Координаты могут описать целую фигуру.', 'Используй свойства фигуры, чтобы найти недостающую вершину.'] },
+    fine: 'Координаты прославил Рене Декарт в 1637 году — поэтому их называют декартовыми.',
+    dirs: ['влево', 'вправо', 'вниз', 'вверх'], also: 'Смотри также:', negLab: 'Числа ниже нуля',
+    quiz: [
+      { q: 'В точке (3; 5) куда идёшь сначала?', opts: ['На 5 вверх', 'На 3 вправо, потом на 5 вверх', 'Неважно'], ok: 1 },
+      { q: '(2; 4) и (4; 2) — одна и та же точка?', opts: ['Да', 'Нет, это разные места', 'Только на квадратной сетке'], ok: 1 },
+      { q: 'Откуда начинать счёт?', opts: ['С единицы', 'С нуля — с угла, где сходятся оси', 'Сверху'], ok: 1 } ],
+  },
+  hu: {
+    name: 'Kincs a rácson', title: 'Előbb jobbra, aztán fel',
+    lines: [['Két szám,', 'egy hely.'], ['Az első jobbra visz,', 'a második felfelé.'], ['A vonalakat számold,', 'nullától.']],
+    views: { dig: '🦜 Ásás', read: '🔍 Leolvasás', square: '🟦 Fejezd be' },
+    check: 'Ellenőrzés', next: 'Tovább ▶', right: 'Kincs!', wrong: 'Nézd, merre ment a papagáj.',
+    d: { clue: (x, y) => `A kincs itt van: (${x}; ${y}). Tűzd oda a zászlót.`, go: 'Áss!', read: (x, y) => `${x} jobbra, ${y} fel`,
+         right: 'Kincs! Előbb jobbra, aztán fel.', swap: 'Előbb felfelé mentél. Az (y; x) egy másik hely: az első szám mindig jobbra visz.',
+         offByOne: 'Egy vonallal mellé. A sarokban, 0-nál kezdj, és a vonalakat számold, ne a négyzeteket.', wrong: (x, y) => `Jobbra ${x}, aztán fel ${y}.` },
+    r: { q: 'Hol van a kincs?', why: { right: 'Igen! Előbb jobbra, aztán fel.', swap: 'Felcserélted a számokat: a jobbra az első.', off: 'Így a négyzeteket számolod 1-től. A vonalakat számold 0-tól.' } },
+    s: { q: 'Három csúcs már megvan. Koppints oda, ahol a negyediknek lennie kell.', right: 'Bezárult!', wrong: 'Nem egészen. Itt a hiányzó csúcs.',
+         d: (x, y) => `D itt van: (${x}; ${y}).`, tilted: 'A négyzet a csúcsára is állhat: a négy oldala akkor is egyenlő.', order: 'Rossz sorrendben összekötni',
+         orderText: 'A csúcsokat körben, sorban kösd össze. Ha átugrasz, csokornyakkendő lesz belőle.' },
+    secrets: { dots: ['Pontról pontra', 'Rajzolj képet koordinátákból.'], minus: ['Nulla alatt', 'Küldd a papagájt balra és le a nullán túl.'] },
+    sec: { nextDot: 'Következő pont ▶', dotsText: 'A számítógép képernyőjén minden kép koordinátás pontokból áll.',
+           minusText: 'A nullán túl a számok negatívak: mínusz az első tengelyen balra, a másodikon lefelé visz. Így működik a rács négy negyede.' },
+    cards: {
+      dig: ['🦜', 'Koordináták', 'Az első szám: jobbra. A második: fel.', 'Mindkettő 0-nál kezdődik, ahol a két tengely találkozik.'],
+      read: ['🔍', 'Egy pont leolvasása', 'Menj le az alsó tengelyre: ez az első szám.', 'Menj át az oldalsó tengelyre: ez a második.'],
+      square: ['🟦', 'Alakzatok pontokból', 'Koordinátákkal egy egész alakzatot leírhatsz.', 'A hiányzó csúcsot az alakzat tulajdonságaiból találod meg.'] },
+    fine: 'A koordinátákat René Descartes tette híressé 1637-ben, ezért hívják őket derékszögű (Descartes-féle) koordinátáknak.',
+    dirs: ['balra', 'jobbra', 'le', 'fel'], also: 'Lásd még:', negLab: 'Számok a nulla alatt',
+    quiz: [
+      { q: 'A (3; 5) pontnál merre mész előbb?', opts: ['5-öt fel', '3-at jobbra, aztán 5-öt fel', 'Mindegy'], ok: 1 },
+      { q: 'A (2; 4) és a (4; 2) ugyanaz a pont?', opts: ['Igen', 'Nem, két különböző hely', 'Csak négyzetrácson'], ok: 1 },
+      { q: 'Honnan kezded a számolást?', opts: ['1-től', '0-tól, a sarokból, ahol a tengelyek találkoznak', 'Felülről'], ok: 1 } ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_jBQS-CicNn', en: 'First Quadrant Coordinates', ru: 'Координаты в первой четверти', hu: 'Koordináták az első síknegyedben' },
+  { id: 'mt_i5_HnoFOYw', en: 'Coordinates (age 8+)', ru: 'Координаты (8+ лет)', hu: 'Koordináták (8 éves kortól)' },
+];
+
+// --- data --------------------------------------------------------------------------------------------------
+const DIG = [[4, 1], [2, 5], [5, 2], [0, 3], [6, 0], [3, 3], [7, 4]];
+const READ = [[6, 2], [1, 4], [5, 5], [3, 0], [8, 7], [0, 6]];
+const ORDER = [[1, 0, 2], [2, 1, 0], [0, 2, 1], [1, 2, 0], [2, 0, 1], [0, 1, 2]]; // option order per read round: 0 right, 1 swapped, 2 off by one
+const SQ = [
+  { A: [1, 1], B: [4, 1], C: [4, 4], D: [1, 4] },
+  { A: [2, 1], B: [7, 1], C: [7, 3], D: [2, 3] },
+  { A: [3, 1], B: [5, 3], C: [3, 5], D: [1, 3], tilted: true },
+  { A: [1, 2], B: [1, 6], C: [3, 6], D: [3, 2] },
+];
+const DOTS = [[1, 2], [7, 2], [6, 1], [2, 1], [1, 2], [4, 2], [4, 7], [4, 7], [6, 3], [4, 3]].map((p, i) => ({ p, s: i < 5 ? 0 : i < 7 ? 1 : 2 }));
+const MINUS = [[-3, 2], [2, -4], [-4, -1]];
+const U = 0.5; // seconds per counted line
+
+// --- helpers -----------------------------------------------------------------------------------------------
+const now = () => performance.now() / 1000;
+const num = (n) => (n < 0 ? '−' + (-n) : String(n));
+const fmt = (x, y) => (lang === 'en' ? `(${num(x)}, ${num(y)})` : `(${num(x)}; ${num(y)})`);
+const same = (p, q) => p[0] === q[0] && p[1] === q[1];
+const mnRead = (x, y) => { // "3 left, 2 up"
+  const d = T[lang].dirs, parts = [];
+  if (x) parts.push(`${Math.abs(x)} ${x < 0 ? d[0] : d[1]}`);
+  if (y) parts.push(`${Math.abs(y)} ${y < 0 ? d[2] : d[3]}`);
+  return parts.join(', ');
+};
+const EMOJI = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+
+// --- state -------------------------------------------------------------------------------------------------
+const S = {
+  i: { dig: 0, read: 0, sq: 0 },
+  dig: { flag: null, phase: 'pick', t0: 0, kind: null, total: 0 },
+  read: { opts: [], pick: null, t0: 0, done: false },
+  sq: { d: null, phase: 'pick', t0: 0, kind: null, total: 0, demo: false, demoT0: 0 },
+  sec: null, // 'dots' | 'minus'
+  dots: { n: 0, t0: 0 },
+  minus: { tx: 0, ty: 0, t0: -99, total: 0, idle: true },
+};
+const lab = shell({ key: 'coordinates', T, topics: TOPICS, views: ['dig', 'read', 'square'], onLang: render, onView: render });
+const secret = secretLab('coordinates', () => ({
+  secrets: [{ emo: '⭐', title: T[lang].secrets.dots[0], desc: T[lang].secrets.dots[1] }, { emo: '➖', title: T[lang].secrets.minus[0], desc: T[lang].secrets.minus[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+const qEl = Object.assign(document.createElement('div'), { className: 'q' });
+$('overlay').append(qEl);
+
+function setRead(i) {
+  const [x, y] = READ[i], kinds = [[x, y], x === y ? [x + 1, y] : [y, x], [x + 1, y + 1]];
+  S.read = { opts: ORDER[i % ORDER.length].map((k) => ({ k, p: kinds[k] })), pick: null, t0: 0, done: false };
+}
+setRead(0);
+
+// --- geometry ----------------------------------------------------------------------------------------------
+const isMinus = () => lab.view === 'dig' && S.sec === 'minus';
+let G = null;
+function layout(w, h) {
+  const minus = isMinus(), lo = minus ? -5 : 0, hi = minus ? 5 : 8, n = hi - lo;
+  const top = qEl.style.display === 'none' ? 12 : qEl.offsetHeight + 18;
+  const L = minus ? 14 : 36, R = minus ? 14 : 18, B = minus ? 14 : 36;
+  const cell = clamp(Math.min((w - L - R) / n, (h - top - B - 6) / n), 14, 56), gw = cell * n;
+  const gx = L + (w - L - R - gw) / 2, gy = top + Math.max(0, (h - top - B - gw) / 2);
+  return { minus, lo, hi, n, cell, gw, gx, gy, pad: cell * 0.38, X: (x) => gx + (x - lo) * cell, Y: (y) => gy + (hi - y) * cell };
+}
+function crossingAt(ev) {
+  if (!G) return null;
+  const r = $('cv').getBoundingClientRect(), fx = (ev.clientX - r.left - G.gx) / G.cell + G.lo, fy = G.hi - (ev.clientY - r.top - G.gy) / G.cell;
+  if (fx < G.lo - 0.7 || fx > G.hi + 0.7 || fy < G.lo - 0.7 || fy > G.hi + 0.7) return null;
+  return [clamp(Math.round(fx), G.lo, G.hi), clamp(Math.round(fy), G.lo, G.hi)];
+}
+
+// --- drawing helpers ---------------------------------------------------------------------------------------
+function emoji(c, ch, x, y, size, alpha = 1) {
+  c.save(); c.globalAlpha = alpha; c.fillStyle = '#fff'; c.font = `${size}px ${EMOJI}`; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText(ch, x, y); c.restore();
+}
+function text(c, s, x, y, color, size = 13, outline = null, align = 'center') {
+  c.save(); c.globalAlpha = 1; c.font = `800 ${size}px Nunito, sans-serif`; c.textAlign = align; c.textBaseline = 'middle'; c.lineJoin = 'round';
+  if (outline) { c.lineWidth = 3.5; c.strokeStyle = outline; c.strokeText(s, x, y); }
+  c.fillStyle = color; c.fillText(s, x, y); c.restore();
+}
+function dot(c, x, y, r, fill) {
+  c.save(); c.globalAlpha = 1; c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fillStyle = fill; c.fill();
+  c.lineWidth = 2; c.strokeStyle = '#fff'; c.stroke(); c.restore();
+}
+function axisNum(c, s, x, y, color, hot) {
+  if (hot) { c.save(); c.beginPath(); c.arc(x, y, 12, 0, Math.PI * 2); c.fillStyle = '#ffd54a'; c.fill(); c.restore(); }
+  text(c, s, x, y, hot ? '#2b1d05' : color, 13);
+}
+function badge(c, X, Y, s, age) {
+  const k = 1 + 0.45 * Math.max(0, 1 - age / 0.25);
+  c.save(); c.globalAlpha = 1; c.translate(X, Y); c.scale(k, k); c.beginPath(); c.arc(0, 0, 11, 0, Math.PI * 2);
+  c.fillStyle = '#ffd54a'; c.fill(); c.lineWidth = 1.5; c.strokeStyle = '#5a3d0a'; c.stroke(); c.restore();
+  text(c, s, X, Y + 1, '#2b1d05', 12);
+}
+// walk along axis-aligned points; d = distance in grid units; returns the position and the trail so far
+function along(pts, d) {
+  let rem = d; const trail = [pts[0]];
+  for (let i = 1; i < pts.length; i++) {
+    const [ax, ay] = pts[i - 1], [bx, by] = pts[i], len = Math.abs(bx - ax) + Math.abs(by - ay);
+    if (rem >= len) { trail.push(pts[i]); rem -= len; continue; }
+    const f = len ? rem / len : 1, p = [ax + (bx - ax) * f, ay + (by - ay) * f];
+    trail.push(p); return { p, trail };
+  }
+  return { p: pts[pts.length - 1], trail };
+}
+function drawTrail(c, trail, color, dashed) {
+  c.save(); c.globalAlpha = 1; c.lineWidth = 3.5; c.lineJoin = c.lineCap = 'round'; c.strokeStyle = color; c.setLineDash(dashed ? [7, 6] : []);
+  c.beginPath(); trail.forEach(([x, y], i) => (i ? c.lineTo(G.X(x), G.Y(y)) : c.moveTo(G.X(x), G.Y(y)))); c.stroke(); c.restore();
+}
+// the little numbers that pop up while the parrot counts the lines out loud
+function drawCount(c, tx, ty, d) {
+  const sx = Math.sign(tx), sy = Math.sign(ty), ax = Math.abs(tx), sz = parrotSize();
+  const W = $('cv').getBoundingClientRect().width, side = G.X(tx) + sz * 0.5 + 14 > W - 12 ? -1 : 1; // the parrot covers its own column: badges sit above its head / beside it
+  for (let i = 1; i <= ax; i++) if (d >= i) badge(c, G.X(sx * i), G.Y(0) - sz - 8, num(sx * i), (d - i) * U);
+  for (let j = 1; j <= Math.abs(ty); j++) if (d >= ax + j) badge(c, G.X(tx) + side * (sz * 0.5 + 14), G.Y(sy * j), num(sy * j), (d - ax - j) * U);
+}
+const parrotSize = () => clamp(G.cell * 0.9, 30, 50);
+function drawParrot(c, p, alpha = 1, bob = 0) {
+  const sz = parrotSize(); emoji(c, '🦜', G.X(p[0]), G.Y(p[1]) - sz * 0.42 + bob, sz, alpha);
+}
+function drawChest(c, p, k = 1) {
+  const sz = parrotSize(), X = G.X(p[0]), Y = G.Y(p[1]);
+  c.save(); c.beginPath(); c.arc(X, Y, 8, 0, Math.PI * 2); c.lineWidth = 2.5; c.strokeStyle = '#ffd54a'; c.stroke(); c.restore();
+  emoji(c, '🧰', X, Y - sz * 0.45, sz * k);
+}
+function drawFlag(c, p, lift = 0) {
+  const sz = parrotSize(), X = G.X(p[0]), Y = G.Y(p[1]);
+  dot(c, X, Y, 5, '#d93a30'); emoji(c, '🚩', X + sz * 0.28, Y - sz * 0.5 - lift, sz * 0.95);
+}
+// a label next to a point, pushed away from `cen` and kept inside the canvas
+function ptLabel(c, s, p, cen, color) {
+  const X = G.X(p[0]), Y = G.Y(p[1]), dx = X - G.X(cen[0]), dy = Y - G.Y(cen[1]), len = Math.hypot(dx, dy) || 1;
+  c.save(); c.font = '800 13px Nunito, sans-serif'; const tw = c.measureText(s).width; c.restore();
+  const W = $('cv').getBoundingClientRect().width;
+  const tx = clamp(X + (dx / len) * (tw / 2 + 10), tw / 2 + 4, W - tw / 2 - 4), ty = Y + (dy / len) * 18;
+  text(c, s, tx, ty, color, 13, 'rgba(255,245,220,.9)');
+}
+
+// --- the island map: sea, sand, a few palms, the grid and its numbers ---------------------------------------
+function drawMap(c, w, h, hl) {
+  const { lo, hi, cell, gx, gy, gw, pad, X, Y, minus } = G;
+  const sea = c.createLinearGradient(0, 0, 0, h); sea.addColorStop(0, '#15566f'); sea.addColorStop(1, '#0e3b57');
+  c.fillStyle = sea; c.beginPath(); c.roundRect(0, 0, w, h, 18); c.fill();
+  c.strokeStyle = 'rgba(255,255,255,.07)'; c.lineWidth = 2;
+  for (let k = 0; k < 4; k++) { const wx = w * (0.15 + k * 0.25), wy = h * (0.93 - (k % 2) * 0.04); c.beginPath(); c.arc(wx, wy, 9, Math.PI * 1.1, Math.PI * 1.9); c.stroke(); }
+  c.beginPath(); c.roundRect(gx - pad, gy - pad, gw + 2 * pad, gw + 2 * pad, cell * 1.1);
+  c.lineWidth = 8; c.strokeStyle = 'rgba(255,255,255,.16)'; c.stroke();
+  c.fillStyle = '#e9d6a0'; c.fill();
+  // palms sit in the middle of squares, never on a crossing
+  const showPalms = lab.view === 'read' || (lab.view === 'dig' && S.sec !== 'dots');
+  if (showPalms) for (const [px, py] of minus ? [[-4.5, 4.5], [4.5, -4.5]] : [[0.5, 7.5], [4.5, 7.5], [7.5, 2.5]]) emoji(c, '🌴', X(px), Y(py), clamp(cell * 0.8, 24, 40));
+  c.strokeStyle = 'rgba(90,62,24,.32)'; c.lineWidth = 1; c.beginPath();
+  for (let i = lo; i <= hi; i++) { c.moveTo(X(i), Y(hi)); c.lineTo(X(i), Y(lo)); c.moveTo(X(lo), Y(i)); c.lineTo(X(hi), Y(i)); }
+  c.stroke();
+  const ax = minus ? 0 : lo;
+  c.strokeStyle = 'rgba(60,38,10,.85)'; c.lineWidth = 2.4; c.beginPath();
+  c.moveTo(X(ax), Y(hi)); c.lineTo(X(ax), Y(lo)); c.moveTo(X(lo), Y(ax)); c.lineTo(X(hi), Y(ax)); c.stroke();
+  // numbers: on the sea for the corner grid, on the sand next to the axes for the four-quarter grid
+  const col = minus ? '#4a3216' : '#d6ecf7';
+  for (let i = lo; i <= hi; i++) {
+    if (i === 0) continue;
+    if (minus) { axisNum(c, num(i), X(i), Y(0) + 13, col, false); axisNum(c, num(i), X(0) - 13, Y(i), col, false); }
+    else { axisNum(c, String(i), X(i), Y(0) + pad + 13, col, hl.x === i); axisNum(c, String(i), X(0) - pad - 13, Y(i), col, hl.y === i); }
+  }
+  if (minus) axisNum(c, '0', X(0) - 10, Y(0) + 13, col, false);
+  else axisNum(c, '0', X(0) - pad - 13, Y(0) + pad + 13, col, hl.x === 0 || hl.y === 0);
+}
+
+// --- scenes ------------------------------------------------------------------------------------------------
+function sceneDig(c) {
+  const [x, y] = DIG[S.i.dig], D = S.dig, e = D.phase === 'pick' ? 0 : Math.max(0, now() - D.t0);
+  const walkEnd = (x + y) * U, digEnd = walkEnd + 0.9, sz = parrotSize();
+  const chestK = D.phase !== 'pick' && e >= digEnd ? ease((e - digEnd) / 0.3) : 0;
+  if (D.phase === 'anim' && e > D.total) { D.phase = 'done'; render(); }
+  const w = along([[0, 0], [x, 0], [x, y]], Math.min(e / U, x + y));
+  if (D.phase !== 'pick') { drawTrail(c, w.trail, '#e0b050', false); drawCount(c, x, y, Math.min(e / U, x + y)); }
+  if (D.flag) drawFlag(c, D.flag, D.kind === 'right' ? sz * 0.55 * chestK : 0);
+  if (chestK) drawChest(c, [x, y], chestK);
+  const digging = D.phase !== 'pick' && e >= walkEnd && e < digEnd;
+  drawParrot(c, w.p, 1, digging ? Math.sin(e * 28) * 2 : Math.sin(now() * 3) * 1.5);
+  if (digging) { // the pickaxe swings
+    c.save(); c.translate(G.X(x) + sz * 0.7, G.Y(y) - sz * 0.35); c.rotate(Math.sin(e * 14) * 0.7); emoji(c, '⛏️', 0, 0, sz * 0.75); c.restore();
+  }
+  if (D.kind === 'swap' && e > digEnd + 0.4) { // the ghost parrot goes up first, across second
+    const f = D.flag, g = along([[0, 0], [0, f[1]], f], (e - digEnd - 0.4) / 0.3);
+    drawTrail(c, g.trail, '#e0553a', true); drawParrot(c, g.p, 0.55);
+  }
+}
+function sceneRead(c) {
+  const [x, y] = READ[S.i.read], R = S.read, e = R.pick === null ? 0 : Math.max(0, now() - R.t0);
+  if (R.pick !== null && !R.done && e > 1.2) { R.done = true; render(); }
+  if (R.pick !== null) {
+    const p1 = clamp(e / 0.5, 0, 1), p2 = clamp((e - 0.5) / 0.5, 0, 1);
+    c.save(); c.setLineDash([6, 6]); c.lineWidth = 2.5; c.strokeStyle = '#c0392b'; c.beginPath();
+    c.moveTo(G.X(x), G.Y(y)); c.lineTo(G.X(x), G.Y(y) + (G.Y(0) - G.Y(y)) * p1);
+    c.moveTo(G.X(x), G.Y(y)); c.lineTo(G.X(x) + (G.X(0) - G.X(x)) * p2, G.Y(y));
+    c.stroke(); c.restore();
+  }
+  drawChest(c, [x, y]);
+}
+function ease(t) { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); }
+
+// sides of a shape, one after another: pts is a closed list (first point repeated at the end)
+function sides(c, pts, e, start, color, dashed) {
+  c.save(); c.globalAlpha = 1; c.lineWidth = dashed ? 2.5 : 3.5; c.lineJoin = c.lineCap = 'round'; c.strokeStyle = color; c.setLineDash(dashed ? [6, 6] : []);
+  for (let k = 0; k < pts.length - 1; k++) {
+    const p = clamp((e - start - k * 0.5) / 0.5, 0, 1); if (p <= 0) break;
+    const [ax, ay] = pts[k], [bx, by] = pts[k + 1];
+    c.beginPath(); c.moveTo(G.X(ax), G.Y(ay)); c.lineTo(G.X(ax + (bx - ax) * p), G.Y(ay + (by - ay) * p)); c.stroke();
+  }
+  c.restore();
+}
+function rightAngles(c, quad, alpha) {
+  c.save(); c.globalAlpha = alpha; c.lineWidth = 2; c.strokeStyle = '#146c43'; c.lineJoin = 'miter';
+  quad.forEach((P, i) => {
+    const Q = quad[(i + 3) % 4], R = quad[(i + 1) % 4], [px, py] = [G.X(P[0]), G.Y(P[1])];
+    const u = [G.X(Q[0]) - px, G.Y(Q[1]) - py], v = [G.X(R[0]) - px, G.Y(R[1]) - py], lu = Math.hypot(...u), lv = Math.hypot(...v), k = G.cell * 0.32;
+    c.beginPath(); c.moveTo(px + (u[0] / lu) * k, py + (u[1] / lu) * k);
+    c.lineTo(px + (u[0] / lu + v[0] / lv) * k, py + (u[1] / lu + v[1] / lv) * k); c.lineTo(px + (v[0] / lv) * k, py + (v[1] / lv) * k); c.stroke();
+  });
+  c.restore();
+}
+function sceneSq(c) {
+  const r = SQ[S.i.sq], Q = S.sq, cen = [(r.A[0] + r.B[0] + r.C[0]) / 3, (r.A[1] + r.B[1] + r.C[1]) / 3];
+  const e = Q.phase === 'pick' ? 0 : Math.max(0, now() - (Q.demo ? Q.demoT0 : Q.t0));
+  const lbl = (n, p, col) => ptLabel(c, `${n} ${fmt(p[0], p[1])}`, p, cen, col);
+  const pt = (p, fill) => dot(c, G.X(p[0]), G.Y(p[1]), 7, fill);
+  if (Q.demo) { // joined in the wrong order: A, C, B, D
+    sides(c, [r.A, r.C, r.B, r.D, r.A], e, 0, '#ff9a3c', false);
+    [['A', r.A], ['B', r.B], ['C', r.C], ['D', r.D]].forEach(([n, p]) => { pt(p, '#2a5db0'); lbl(n, p, '#3a2a10'); });
+    return;
+  }
+  const poly = [r.A, r.B, r.C, r.D];
+  if (Q.phase === 'pick') {
+    [['A', r.A], ['B', r.B], ['C', r.C]].forEach(([n, p]) => { pt(p, '#2a5db0'); lbl(n, p, '#3a2a10'); });
+    if (Q.d) { pt(Q.d, '#e8742a'); text(c, 'D', G.X(Q.d[0]) + 14, G.Y(Q.d[1]) - 14, '#8a3b08', 15, 'rgba(255,245,220,.9)'); }
+    return;
+  }
+  if (Q.phase === 'anim' && e > Q.total) { Q.phase = 'done'; render(); }
+  const wrong = Q.kind !== 'right', t0 = wrong ? 0.7 : 0;
+  if (wrong) { // the child's shape, faint
+    sides(c, [r.A, r.B, r.C, Q.d, r.A], 99, 0, 'rgba(192,57,43,.55)', true);
+    pt(Q.d, 'rgba(192,57,43,.8)'); text(c, 'D', G.X(Q.d[0]) + 14, G.Y(Q.d[1]) - 14, '#9a2a1c', 15, 'rgba(255,245,220,.9)');
+  }
+  const fillA = ease((e - t0 - 2) / 0.4);
+  if (fillA > 0) {
+    c.save(); c.globalAlpha = 0.28 * fillA; c.fillStyle = '#2bb673'; c.beginPath();
+    poly.forEach((p, i) => (i ? c.lineTo(G.X(p[0]), G.Y(p[1])) : c.moveTo(G.X(p[0]), G.Y(p[1])))); c.closePath(); c.fill(); c.restore();
+  }
+  sides(c, [r.A, r.B, r.C, r.D, r.A], e, t0, '#1f9d62', false);
+  if (fillA > 0) rightAngles(c, poly, fillA);
+  [['A', r.A], ['B', r.B], ['C', r.C]].forEach(([n, p]) => { pt(p, '#2a5db0'); lbl(n, p, '#3a2a10'); });
+  if (e >= (wrong ? 0.6 : 0)) { pt(r.D, '#2bb673'); lbl('D', r.D, '#0f6b3f'); }
+}
+function sceneDots(c) {
+  const n = S.dots.n, P = (i) => [G.X(DOTS[i].p[0]), G.Y(DOTS[i].p[1])];
+  if (n === DOTS.length) { // finished: colour the boat in
+    const fill = (idx, col) => { c.save(); c.globalAlpha = 0.9; c.fillStyle = col; c.beginPath(); idx.forEach((i, k) => (k ? c.lineTo(...P(i)) : c.moveTo(...P(i)))); c.closePath(); c.fill(); c.restore(); };
+    fill([0, 1, 2, 3], '#8b5a2b'); fill([7, 8, 9], '#fffaf0');
+  }
+  c.save(); c.globalAlpha = 1; c.lineWidth = 3; c.lineJoin = c.lineCap = 'round'; c.strokeStyle = '#3a2410'; c.beginPath();
+  for (let i = 1; i < n; i++) if (DOTS[i].s === DOTS[i - 1].s) { c.moveTo(...P(i - 1)); c.lineTo(...P(i)); }
+  c.stroke(); c.restore();
+  for (let i = 0; i < n; i++) dot(c, ...P(i), 5.5, '#2a5db0');
+  if (n) {
+    const last = DOTS[n - 1].p, [lx, ly] = P(n - 1), pulse = (now() - S.dots.t0) % 1;
+    c.save(); c.globalAlpha = 1 - pulse; c.beginPath(); c.arc(lx, ly, 8 + pulse * 14, 0, Math.PI * 2); c.lineWidth = 2.5; c.strokeStyle = '#e8742a'; c.stroke(); c.restore();
+    const s = fmt(last[0], last[1]), W = $('cv').getBoundingClientRect().width;
+    c.save(); c.font = '800 14px Nunito, sans-serif'; const tw = c.measureText(s).width; c.restore();
+    text(c, s, clamp(lx + 12 + tw / 2, tw / 2 + 4, W - tw / 2 - 4), ly - 18, '#8a3b08', 14, 'rgba(255,245,220,.95)');
+  }
+}
+function sceneMinus(c) {
+  const M = S.minus, e = Math.max(0, now() - M.t0), d = Math.min(e / U, Math.abs(M.tx) + Math.abs(M.ty));
+  const w = along([[0, 0], [M.tx, 0], [M.tx, M.ty]], d);
+  if (!M.idle) {
+    drawTrail(c, w.trail, '#e0b050', false); drawCount(c, M.tx, M.ty, d);
+    c.save(); c.beginPath(); c.arc(G.X(M.tx), G.Y(M.ty), 8, 0, Math.PI * 2); c.lineWidth = 2.5; c.strokeStyle = '#d93a30'; c.stroke(); c.restore();
+  }
+  drawParrot(c, w.p);
+}
+
+canvasLoop($('cv'), (c, w, h) => {
+  const v = lab.view;
+  G = layout(w, h);
+  let hl = { x: null, y: null };
+  if (v === 'read' && S.read.pick !== null) {
+    const e = now() - S.read.t0, [x, y] = READ[S.i.read];
+    hl = { x: e >= 0.5 ? x : null, y: e >= 1 ? y : null };
+  }
+  drawMap(c, w, h, hl);
+  if (v === 'dig') (S.sec === 'dots' ? sceneDots : S.sec === 'minus' ? sceneMinus : sceneDig)(c);
+  else if (v === 'read') sceneRead(c);
+  else sceneSq(c);
+});
+
+// --- input -------------------------------------------------------------------------------------------------
+const cv = $('cv');
+function pickAt(ev, first) {
+  const p = crossingAt(ev); if (!p) return;
+  const v = lab.view;
+  if (v === 'dig' && !S.sec && S.dig.phase === 'pick') {
+    if (S.dig.flag && same(S.dig.flag, p)) return;
+    S.dig.flag = p; first ? sfx.snap() : sfx.tick(); render();
+  } else if (v === 'dig' && S.sec === 'minus' && first) sendMinus(p);
+  else if (v === 'square' && S.sq.phase === 'pick' && !S.sq.demo) {
+    if (S.sq.d && same(S.sq.d, p)) return;
+    S.sq.d = p; first ? sfx.snap() : sfx.tick(); render();
+  }
+}
+cv.addEventListener('pointerdown', (ev) => { pickAt(ev, true); });
+cv.addEventListener('pointermove', (ev) => { if (ev.buttons) pickAt(ev, false); });
+
+// on a phone the controls sit below the canvas: bring the reveal into view
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+function sendMinus(p) {
+  S.minus = { tx: p[0], ty: p[1], t0: now(), total: (Math.abs(p[0]) + Math.abs(p[1])) * U, idle: false };
+  sfx.click(); render();
+}
+const digKind = (x, y, f) => same(f, [x, y]) ? 'right' : same(f, [y, x]) ? 'swap' : Math.max(Math.abs(f[0] - x), Math.abs(f[1] - y)) === 1 ? 'offByOne' : 'wrong';
+
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const act = b.dataset.act, v = lab.view;
+  if (act === 'main') {
+    if (v === 'dig') {
+      const D = S.dig, [x, y] = DIG[S.i.dig];
+      if (D.phase === 'pick') {
+        if (!D.flag) return;
+        D.kind = digKind(x, y, D.flag); D.phase = 'anim'; D.t0 = now();
+        D.total = (x + y) * U + 0.9 + (D.kind === 'swap' ? 0.4 + (D.flag[0] + D.flag[1]) * 0.3 + 0.4 : 0.5);
+        sfx.click(); showStage();
+      } else if (D.phase === 'done') { S.i.dig = (S.i.dig + 1) % DIG.length; S.dig = { flag: null, phase: 'pick', t0: 0, kind: null, total: 0 }; sfx.click(); }
+    } else if (v === 'read') {
+      if (S.read.done) { S.i.read = (S.i.read + 1) % READ.length; setRead(S.i.read); sfx.click(); }
+    } else {
+      const Q = S.sq, r = SQ[S.i.sq];
+      if (Q.phase === 'pick') {
+        if (!Q.d) return;
+        Q.kind = same(Q.d, r.D) ? 'right' : 'wrong'; Q.phase = 'anim'; Q.t0 = now();
+        Q.total = (Q.kind === 'right' ? 0 : 0.7) + 2.0 + 0.5; sfx.click(); showStage();
+      } else if (Q.phase === 'done') { S.i.sq = (S.i.sq + 1) % SQ.length; S.sq = { d: null, phase: 'pick', t0: 0, kind: null, total: 0, demo: false, demoT0: 0 }; sfx.click(); }
+    }
+  } else if (act === 'opt') {
+    if (S.read.pick !== null) return;
+    S.read.pick = +b.dataset.i; S.read.t0 = now(); (S.read.opts[S.read.pick].k === 0 ? sfx.good : sfx.bad)(); showStage();
+  } else if (act === 'order') { S.sq.demo = true; S.sq.demoT0 = now(); sfx.click(); showStage(); }
+  else if (act === 'sec') {
+    const k = b.dataset.k;
+    if (!secret.unlocked()) return secret.open();
+    S.sec = S.sec === k ? null : k; sfx.click();
+    if (S.sec === 'dots') S.dots = { n: 0, t0: now() };
+    if (S.sec === 'minus') return sendMinus(MINUS[0]); // sets itself up: the parrot starts walking
+  } else if (act === 'dot') {
+    S.dots = { n: S.dots.n >= DOTS.length ? 0 : S.dots.n + 1, t0: now() }; sfx.click();
+  } else if (act === 'mt') sendMinus(MINUS[+b.dataset.i]);
+  render();
+});
+
+// --- one render per change: controls, readout and the state card ------------------------------------------
+const rounds = (i, n) => `<div class="rounds">${Array.from({ length: n }, (_, k) => `<i class="${k < i ? 'done' : k === i ? 'cur' : ''}"></i>`).join('')}</div>`;
+const secChips = (t) => {
+  const open = secret.unlocked();
+  return `<div class="row2"><div class="chips">${[['dots', '⭐'], ['minus', '➖']].map(([k, emo]) =>
+    `<button class="chip secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`).join('')}</div></div>`;
+};
+const card = (t, k) => { const [emo, title, lead, body] = t.cards[k]; return { emo, title, lead, body }; };
+const finish = (t, st, extra = '') => lab.setState({ ...st, extra: `<div class="fine">${esc(t.fine)}</div>${extra}` });
+
+function render() {
+  const t = T[lang], v = lab.view;
+  document.body.dataset.v = v;
+  let q = '';
+  if (v === 'dig' && !S.sec) q = t.d.clue(...DIG[S.i.dig]);
+  else if (v === 'read') q = t.r.q;
+  else if (v === 'square') q = t.s.q;
+  qEl.textContent = q; qEl.style.display = q ? '' : 'none';
+  if (v === 'dig') renderDig(t); else if (v === 'read') renderRead(t); else renderSq(t);
+}
+
+function renderDig(t) {
+  lab.setGlow('rgba(224, 176, 80, .24)');
+  if (S.sec) return renderSecret(t);
+  const [x, y] = DIG[S.i.dig], D = S.dig, done = D.phase === 'done';
+  lab.setReadout(fmt(x, y), t.d.read(x, y), '', '#e0b050');
+  $('ctrlBody').innerHTML = `${rounds(S.i.dig, DIG.length)}<div class="row2" style="margin-top:0"><button class="btn" data-act="main"${done ? '' : D.phase === 'anim' || !D.flag ? ' disabled' : ''}>${esc(done ? t.next : t.d.go)}</button></div>${secChips(t)}`;
+  if (!done) return finish(t, card(t, 'dig'));
+  finish(t, { emo: D.kind === 'right' ? '✅' : '🤔', title: D.kind === 'right' ? t.right : t.wrong, lead: D.kind === 'wrong' ? t.d.wrong(x, y) : t.d[D.kind], body: '' });
+}
+
+function renderRead(t) {
+  lab.setGlow('rgba(224, 176, 80, .24)');
+  const [x, y] = READ[S.i.read], R = S.read, picked = R.pick !== null;
+  lab.setReadout(R.done ? fmt(x, y) : '?', R.done ? t.d.read(x, y) : '', '', '#e0b050');
+  $('ctrlBody').innerHTML = `${rounds(S.i.read, READ.length)}<div class="ans-row">${R.opts.map((o, i) => {
+    const cls = R.done ? (o.k === 0 ? ' good' : i === R.pick ? ' bad' : '') : '';
+    return `<button class="ans${cls}" data-act="opt" data-i="${i}"${picked ? ' disabled' : ''}>${esc(fmt(o.p[0], o.p[1]))}</button>`;
+  }).join('')}</div>${R.done ? `<div class="row2"><button class="btn" data-act="main">${esc(t.next)}</button></div>` : ''}`;
+  if (!R.done) return finish(t, card(t, 'read'));
+  const kind = ['right', 'swap', 'off'][R.opts[R.pick].k];
+  finish(t, { emo: kind === 'right' ? '✅' : '🤔', title: fmt(x, y), lead: t.r.why[kind], body: t.d.read(x, y) });
+}
+
+function renderSq(t) {
+  lab.setGlow('rgba(95, 143, 208, .26)');
+  const Q = S.sq, r = SQ[S.i.sq], done = Q.phase === 'done', last = S.i.sq === SQ.length - 1;
+  lab.setReadout(done && !Q.demo ? fmt(...r.D) : '?', '', '', '#5f8fd0');
+  $('ctrlBody').innerHTML = `${rounds(S.i.sq, SQ.length)}<div class="row2" style="margin-top:0"><button class="btn" data-act="main"${done ? '' : Q.phase === 'anim' || !Q.d ? ' disabled' : ''}>${esc(done ? t.next : t.check)}</button>` +
+    `${done && last ? `<button class="chip" data-act="order">${esc(t.s.order)}</button>` : ''}</div>`;
+  if (!done) return finish(t, card(t, 'square'));
+  if (Q.demo) return finish(t, { emo: '🎀', title: t.s.order, lead: t.s.orderText, body: '' });
+  finish(t, { emo: Q.kind === 'right' ? '✅' : '🤔', title: Q.kind === 'right' ? t.s.right : t.s.wrong, lead: t.s.d(...r.D), body: r.tilted ? t.s.tilted : '' });
+}
+
+function renderSecret(t) {
+  if (S.sec === 'dots') {
+    const n = S.dots.n, fin = n >= DOTS.length;
+    lab.setReadout(n ? fmt(...DOTS[n - 1].p) : '?', `${n} / ${DOTS.length}`, '', '#e8742a');
+    $('ctrlBody').innerHTML = `<div class="pts">${DOTS.map((d, i) => `<span class="${i < n ? 'done' : i === n ? 'next' : ''}${i && d.s !== DOTS[i - 1].s ? ' gap' : ''}">${esc(fmt(...d.p))}</span>`).join('')}</div>` +
+      `<div class="row2"><button class="btn" data-act="dot">${esc(t.sec.nextDot)}</button></div>${secChips(t)}`;
+    return finish(t, { emo: '⭐', title: t.secrets.dots[0], lead: fin ? t.sec.dotsText : t.secrets.dots[1], body: '' });
+  }
+  const M = S.minus;
+  lab.setReadout(M.idle ? '?' : fmt(M.tx, M.ty), M.idle ? '' : mnRead(M.tx, M.ty), '', '#e0b050');
+  $('ctrlBody').innerHTML = `<div class="row2" style="margin-top:0"><div class="chips">${MINUS.map(([x, y], i) =>
+    `<button class="chip${!M.idle && M.tx === x && M.ty === y ? ' on' : ''}" data-act="mt" data-i="${i}">${esc(fmt(x, y))}</button>`).join('')}</div></div>${secChips(t)}`;
+  const link = `<div class="fine" style="margin-top:6px">${esc(t.also)} <a href="../negative/${lang === 'en' ? '' : `?lang=${lang}`}">${esc(t.negLab)}</a></div>`;
+  finish(t, { emo: '➖', title: t.secrets.minus[0], lead: M.idle ? t.secrets.minus[1] : mnRead(M.tx, M.ty), body: t.sec.minusText }, link);
+}
+render();
+</script>
+</body>
+</html>
