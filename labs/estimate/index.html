@@ -1,0 +1,889 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Guess First · Skill Graph</title>
+<meta name="description" content="Roll numbers into the nearest valley, catch a calculator’s mistakes with a quick estimate, and see if your money is enough. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  .q { font: 500 21px/1.25 var(--serif); color: #fff; margin: 0 0 10px; text-wrap: balance; }
+  .ans { display: flex; gap: 8px; flex-wrap: wrap; }
+  .ab { min-height: 40px; padding: 8px 18px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    color: var(--ink); font: 800 15px var(--sans); cursor: pointer; }
+  .ab:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .ab:disabled { cursor: default; }
+  .ab.sel { border-color: #fff; }
+  .ab.good { border-color: #5BD38A; background: rgba(91, 211, 138, .2); }
+  .ab.bad { border-color: #FF6B6B; background: rgba(255, 107, 107, .18); animation: shake .35s; }
+  .vd { margin-top: 12px; font-size: 14px; line-height: 1.5; color: var(--soft); }
+  .vd b { font-weight: 900; }
+  .vd .note { margin-top: 6px; color: #5BD38A; font-weight: 800; font-size: 13px; }
+  .fine { font-size: 11px; color: var(--faint); }
+  .push { margin-left: auto; }
+  #val i { font-style: normal; margin-right: .12em; }
+  #val i.hl { color: #FFC94A; }
+  #val .ar { margin: 0 .3em; color: var(--mut); }
+  #rFree { margin-top: 4px; }
+  #rFree .row2 { margin-top: 6px; }
+  @media (max-width: 760px) {
+    #stage { height: min(104vw, 440px); }
+    .q { font-size: 19px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Guess First', title: 'Round it, then guess',
+    lines: [['Every number', 'rolls to a round one.'], ['A quick guess', 'catches big mistakes.'], ['Too close?', 'Then count exactly.']],
+    views: { round: '⛰️ Round', check: '🤖 Catch the mistake', shop: '🛒 Enough money?' },
+    next: 'Next ▶', right: 'You got it!', wrong: 'Not quite. Watch the ball.', no: 'Not quite.',
+    un: { 10: 'ten', 100: 'hundred', 1000: 'thousand' },
+    r: { q: (n, u) => `Round ${n} to the nearest ${u}. Which valley does the ball roll into?`, unit: (u) => `to the nearest ${u}`, rule: 'halfway: round up',
+         why: ['47 is 3 away from 50 and 7 away from 40: it rolls to 50.', '43 is nearer 40: it rolls back down to 40.', '45 sits exactly on top. The rule says: halfway rounds up, to 50.', 'To the nearest hundred, look at the tens: 362 is past 350, so it rolls to 400. 360 is rounding to the nearest ten.', '4970 is nearer 5000 than 4900. The hundreds roll over and the thousands go up: 5000.'],
+         free: 'Move the ball yourself.' },
+    c: { q: 'Is the robot’s answer about right?', ok: '👍 looks right', off: '👎 way off', real: (n) => `Exact answer: ${n}`,
+         why: ['400 + 200 is about 600. 1603 is far too big: the robot added an extra digit.', '50 × 20 is about 1000. 1029 is close: it looks right.', '800 − 400 is about 400. 415 is close: it looks right.', '60 × 40 is about 2400. 239 is about ten times too small.', '700 − 200 is about 500. 504 is close: it looks right.'] },
+    s: { budget: 'You have', q: 'Can you buy all three?', o: ['yes', 'no', 'too close — count exactly'],
+         r: ['40 + 40 + 20 = 100, exactly your money. Too close to be sure, so count exactly: 98. Enough, just!', '50 + 40 + 30 = 120, more than 100. Not enough (exactly 111).', '10 + 20 + 30 = 60, far below 100. Yes (exactly 66).'], just: 'enough, just!' },
+    secrets: { beans: ['Beans in a jar', 'Count a part, not the whole.'], heart: ['Heartbeats', 'How many in a day?'] },
+    sec: { strip: 'Count one strip', hour: 'per hour', beansText: 'Count one strip and multiply by the number of strips. Scientists count birds, stars and trees this way.',
+           heartText: 'A child’s heart beats about 80 times a minute. A round guess gives about 100 000 beats a day; exactly it is 115 200 at that pace.' },
+    fine: 'Resting heart rate of children aged 6–12: roughly 70–110 beats per minute.',
+    st: { round: [['⛰️', 'Number hills', 'Each round number sits in a valley.', ''], ['⛰️', 'Look one place to the right', 'To the nearest 10, look at the ones; to the nearest 100, look at the tens.', 'Halfway rounds up.']],
+          check: [['🤖', 'Robot’s homework', 'Robots can make typing mistakes too.', ''], ['🤖', 'Round, then compare', 'If the answer is far from the estimate, something is wrong.', '']],
+          shop: [['🛒', 'Shopping', 'Round the prices in your head.', ''], ['🛒', 'Estimate first', 'Far below or far above: you know. Close: count exactly.', '']] },
+    quiz: [
+      { q: 'What is 47 rounded to the nearest ten?', opts: ['40', '50', '47'], ok: 1 },
+      { q: 'A calculator says 398 + 205 = 1603. What do you think?', opts: ['It must be right', 'Way off: it should be about 600', 'About right'], ok: 1 },
+      { q: 'What is 4970 rounded to the nearest hundred?', opts: ['4900', '5000', '4000'], ok: 1 } ],
+  },
+  ru: {
+    name: 'Сначала прикинь', title: 'Округли и прикинь',
+    lines: [['Каждое число', 'скатывается к круглому.'], ['Быстрая прикидка', 'ловит большие ошибки.'], ['Слишком близко?', 'Тогда считай точно.']],
+    views: { round: '⛰️ Округление', check: '🤖 Поймай ошибку', shop: '🛒 Хватит денег?' },
+    next: 'Дальше ▶', right: 'Верно!', wrong: 'Не совсем. Смотри на мяч.', no: 'Не совсем.',
+    un: { 10: 'десятков', 100: 'сотен', 1000: 'тысяч' },
+    r: { q: (n, u) => `Округли ${n} до ${u}. В какую ложбинку скатится мяч?`, unit: (u) => `до ${u}`, rule: 'ровно посередине — вверх',
+         why: ['От 47 до 50 — 3, а до 40 — 7: мяч катится к 50.', '43 ближе к 40: мяч скатывается обратно к 40.', '45 стоит ровно на вершине. По правилу середину округляют вверх, до 50.', 'До сотен смотрим на десятки: 362 больше 350, поэтому мяч катится к 400. 360 — это округление до десятков.', '4970 ближе к 5000, чем к 4900. Сотни переходят через край, и тысячи растут: 5000.'],
+         free: 'Двигай мяч сам.' },
+    c: { q: 'Ответ робота похож на правду?', ok: '👍 похоже на правду', off: '👎 совсем мимо', real: (n) => `Точный ответ: ${n}`,
+         why: ['400 + 200 — около 600. 1603 слишком много: робот приписал лишнюю цифру.', '50 × 20 — около 1000. 1029 рядом: похоже на правду.', '800 − 400 — около 400. 415 рядом: похоже на правду.', '60 × 40 — около 2400. 239 примерно в десять раз меньше.', '700 − 200 — около 500. 504 рядом: похоже на правду.'] },
+    s: { budget: 'У тебя есть', q: 'Хватит на все три покупки?', o: ['да', 'нет', 'слишком близко — посчитай точно'],
+         r: ['40 + 40 + 20 = 100, ровно твои деньги. Слишком близко, чтобы знать наверняка, поэтому считаем точно: 98. Хватает, впритык!', '50 + 40 + 30 = 120, больше 100. Не хватит (точно 111).', '10 + 20 + 30 = 60, гораздо меньше 100. Хватит (точно 66).'], just: 'хватает, впритык!' },
+    secrets: { beans: ['Фасоль в банке', 'Сосчитай часть, а не всё.'], heart: ['Удары сердца', 'Сколько за сутки?'] },
+    sec: { strip: 'Посчитать одну полоску', hour: 'в час', beansText: 'Сосчитай одну полоску и умножь на число полосок. Так учёные считают птиц, звёзды и деревья.',
+           heartText: 'Сердце ребёнка бьётся примерно 80 раз в минуту. Круглая прикидка даёт около 100 000 ударов в сутки; точно при таком темпе — 115 200.' },
+    fine: 'Пульс в покое у детей 6–12 лет — примерно 70–110 ударов в минуту.',
+    st: { round: [['⛰️', 'Числовые холмы', 'Каждое круглое число лежит в ложбинке.', ''], ['⛰️', 'Смотри на соседний разряд справа', 'До десятков — смотри на единицы, до сотен — на десятки.', 'Середину округляют вверх.']],
+          check: [['🤖', 'Домашка робота', 'Роботы тоже ошибаются, когда печатают.', ''], ['🤖', 'Округли и сравни', 'Если ответ далеко от прикидки — где-то ошибка.', '']],
+          shop: [['🛒', 'Покупки', 'Округли цены в уме.', ''], ['🛒', 'Сначала прикидка', 'Сильно меньше или больше — ясно сразу. Близко — считай точно.', '']] },
+    quiz: [
+      { q: 'Сколько будет 47, если округлить до десятков?', opts: ['40', '50', '47'], ok: 1 },
+      { q: 'Калькулятор пишет: 398 + 205 = 1603. Что скажешь?', opts: ['Раз калькулятор — значит верно', 'Совсем мимо: должно быть около 600', 'Примерно верно'], ok: 1 },
+      { q: 'Сколько будет 4970, если округлить до сотен?', opts: ['4900', '5000', '4000'], ok: 1 } ],
+  },
+  hu: {
+    name: 'Előbb becsülj!', title: 'Kerekíts, aztán becsülj',
+    lines: [['Minden szám', 'egy kerek számhoz gurul.'], ['Egy gyors becslés', 'elkapja a nagy hibákat.'], ['Túl szoros?', 'Akkor számold ki pontosan.']],
+    views: { round: '⛰️ Kerekítés', check: '🤖 Kapd el a hibát', shop: '🛒 Elég a pénz?' },
+    next: 'Tovább ▶', right: 'Eltaláltad!', wrong: 'Nem egészen. Figyeld a labdát.', no: 'Nem egészen.',
+    un: { 10: 'tízesekre', 100: 'százasokra', 1000: 'ezresekre' },
+    r: { q: (n, u) => `Kerekítsd ezt a számot ${u}: ${n}. Melyik völgybe gurul a labda?`, unit: (u) => u, rule: 'pont középen: felfelé',
+         why: ['A 47 a 50-től 3-ra, a 40-től 7-re van: az 50-hez gurul.', 'A 43 közelebb van a 40-hez: visszagurul a 40-hez.', 'A 45 pont a csúcson áll. A szabály: a felezőpontot felfelé kerekítjük, 50-re.', 'Százasokra kerekítéskor a tízeseket nézzük: a 362 nagyobb 350-nél, ezért a 400-hoz gurul. A 360 tízesekre kerekítés.', 'A 4970 közelebb van az 5000-hez, mint a 4900-hoz. A százasok átfordulnak, az ezresek nőnek: 5000.'],
+         free: 'Mozgasd te a labdát.' },
+    c: { q: 'Nagyjából jó a robot válasza?', ok: '👍 jónak tűnik', off: '👎 nagyon mellé', real: (n) => `Pontos válasz: ${n}`,
+         why: ['400 + 200 körülbelül 600. Az 1603 túl nagy: a robot egy plusz számjegyet írt.', '50 × 20 körülbelül 1000. Az 1029 közel van: jónak tűnik.', '800 − 400 körülbelül 400. A 415 közel van: jónak tűnik.', '60 × 40 körülbelül 2400. A 239 nagyjából tízszer kisebb.', '700 − 200 körülbelül 500. Az 504 közel van: jónak tűnik.'] },
+    s: { budget: 'Ennyi pénzed van:', q: 'Meg tudod venni mind a hármat?', o: ['igen', 'nem', 'túl szoros — számold ki pontosan'],
+         r: ['40 + 40 + 20 = 100, pont a pénzed. Túl szoros, hogy biztos legyél, ezért számolj pontosan: 98. Épphogy elég!', '50 + 40 + 30 = 120, több mint 100. Nem elég (pontosan 111).', '10 + 20 + 30 = 60, jóval kevesebb 100-nál. Igen (pontosan 66).'], just: 'épphogy elég!' },
+    secrets: { beans: ['Bab az üvegben', 'Egy részt számolj meg, ne az egészet.'], heart: ['Szívdobbanások', 'Hány egy nap alatt?'] },
+    sec: { strip: 'Számolj meg egy csíkot', hour: 'óránként', beansText: 'Számolj meg egy csíkot, és szorozd meg a csíkok számával. A tudósok így számolják a madarakat, a csillagokat és a fákat.',
+           heartText: 'Egy gyerek szíve percenként körülbelül 80-at ver. Kerek becsléssel ez napi kb. 100 000 dobbanás; pontosan ennél a tempónál 115 200.' },
+    fine: 'A 6–12 éves gyerekek nyugalmi pulzusa nagyjából 70–110 percenként.',
+    st: { round: [['⛰️', 'Számdombok', 'Minden kerek szám egy völgyben van.', ''], ['⛰️', 'Nézd a jobb oldali szomszédot', 'Tízesekre az egyeseket nézd, százasokra a tízeseket.', 'A felezőpontot felfelé kerekítjük.']],
+          check: [['🤖', 'A robot házi feladata', 'A robotok is elgépelhetnek.', ''], ['🤖', 'Kerekíts, aztán hasonlíts', 'Ha a válasz messze van a becsléstől, valami hibás.', '']],
+          shop: [['🛒', 'Vásárlás', 'Kerekítsd fejben az árakat.', ''], ['🛒', 'Előbb becslés', 'Jóval alatta vagy fölötte: tudod. Közel: számolj pontosan.', '']] },
+    quiz: [
+      { q: 'Mennyi a 47 tízesekre kerekítve?', opts: ['40', '50', '47'], ok: 1 },
+      { q: 'A számológép szerint 398 + 205 = 1603. Mit gondolsz?', opts: ['Biztosan jó', 'Nagyon mellé: kb. 600-nak kellene lennie', 'Nagyjából jó'], ok: 1 },
+      { q: 'Mennyi a 4970 százasokra kerekítve?', opts: ['4900', '5000', '4000'], ok: 1 } ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_QaYfeVL-0C', en: 'Estimating by rounding', ru: 'Прикидка с помощью округления', hu: 'Becslés kerekítéssel' },
+  { id: 'mt_G3sVFQNCme', en: 'Checking Answers by Rounding', ru: 'Проверка ответов округлением', hu: 'Válaszok ellenőrzése kerekítéssel' },
+  { id: 'mt_NLSfvB9vUl', en: 'Rounding to 10, 100, 1000', ru: 'Округление до 10, 100, 1000', hu: 'Kerekítés tízesekre, százasokra, ezresekre' },
+  { id: 'mt_5NwqN6pf_A', en: 'Rounding Large Numbers', ru: 'Округление больших чисел', hu: 'Nagy számok kerekítése' },
+];
+
+// --- data --------------------------------------------------------------------------------------------------
+const ROUNDS = [
+  { n: 47, u: 10, lo: 30, hi: 70, opts: [40, 50], ok: 50 },
+  { n: 43, u: 10, lo: 30, hi: 70, opts: [40, 50], ok: 40 },
+  { n: 45, u: 10, lo: 30, hi: 70, opts: [40, 50], ok: 50 },
+  { n: 362, u: 100, lo: 200, hi: 600, opts: [300, 400, 360], ok: 400 },
+  { n: 4970, u: 100, lo: 4700, hi: 5200, opts: [4900, 5000, 4980], ok: 5000 },
+];
+const CHK = [
+  { a: 398, b: 205, op: '+', shown: 1603, est: [400, 200], er: 600, max: 2000, real: 603 },
+  { a: 49, b: 21, op: '×', shown: 1029, est: [50, 20], er: 1000, max: 2000, real: 1029 },
+  { a: 812, b: 397, op: '−', shown: 415, est: [800, 400], er: 400, max: 1000, real: 415 },
+  { a: 61, b: 39, op: '×', shown: 239, est: [60, 40], er: 2400, max: 3000, real: 2379 },
+  { a: 702, b: 198, op: '−', shown: 504, est: [700, 200], er: 500, max: 1000, real: 504 },
+];
+const SHOP = [
+  { items: ['🧃', '🍪', '🧸'], p: [38, 41, 19], ans: 2 },
+  { items: ['📘', '🖍️', '🎒'], p: [47, 36, 28], ans: 1 },
+  { items: ['🍎', '🧀', '🥖'], p: [12, 23, 31], ans: 0 },
+];
+const BUDGET = 100;
+const GRASS = '#7BC47F', ROBOT = '#7C8BF0', EST = '#FFC94A', GOOD = '#5BD38A', BAD = '#FF6B6B';
+const STRIPS = [4, 1, 6, 2, 8, 0, 5, 3, 9, 7];
+
+// --- helpers -----------------------------------------------------------------------------------------------
+const TAU = Math.PI * 2;
+const sat = (x) => clamp(x, 0, 1);
+const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+const easeOut = (t) => 1 - Math.pow(1 - t, 3);
+const bounce = (t) => { const n = 7.5625, d = 2.75; if (t < 1 / d) return n * t * t; if (t < 2 / d) { t -= 1.5 / d; return n * t * t + 0.75; } if (t < 2.5 / d) { t -= 2.25 / d; return n * t * t + 0.9375; } t -= 2.625 / d; return n * t * t + 0.984375; };
+const nowS = () => performance.now() / 1000;
+const fmt = (n) => { const s = String(Math.round(n)); return Math.abs(n) < 10000 ? s : s.replace(/\B(?=(\d{3})+(?!\d))/g, lang === 'en' ? ',' : ' '); };
+const roundHalfUp = (n, u) => Math.floor(n / u + 0.5) * u;
+const mulberry = (a) => () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+
+// a dark rounded label that stays inside the canvas
+function pill(c, text, x, y, w, o = {}) {
+  const { font = '800 13px Nunito, sans-serif', bg = 'rgba(10, 12, 20, .8)', fg = '#fff', px = 9, h = 22, border = null, alpha = 1, scale = 1 } = o;
+  c.save(); c.globalAlpha = alpha; c.font = font;
+  const bw = c.measureText(text).width + px * 2, L = clamp(x - bw / 2, 4, Math.max(4, w - 4 - bw)), mx = L + bw / 2;
+  if (scale !== 1) { c.translate(mx, y); c.scale(scale, scale); c.translate(-mx, -y); }
+  c.fillStyle = bg; c.beginPath(); c.roundRect(L, y - h / 2, bw, h, h / 2); c.fill();
+  if (border) { c.strokeStyle = border; c.lineWidth = 1.5; c.stroke(); }
+  c.fillStyle = fg; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(text, mx, y + 1);
+  c.restore();
+  return { x: L, w: bw };
+}
+function emoji(c, ch, x, y, size, alpha = 1) {
+  c.save(); c.globalAlpha = alpha; c.fillStyle = '#000'; c.shadowBlur = 0;
+  c.font = `${size}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+  c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(ch, x, y); c.restore();
+}
+const STARS = [[.1, .08, 1.6], [.27, .2, 1.2], [.46, .06, 1.8], [.63, .17, 1.3], [.82, .09, 1.7], [.93, .22, 1.2], [.18, .34, 1.3], [.74, .31, 1.4]];
+function sky(c, w, h, time, stars) {
+  const g = c.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#1E2A5A'); g.addColorStop(1, '#3B4F8F');
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+  if (!stars) return;
+  STARS.forEach(([fx, fy, r], i) => {
+    c.fillStyle = `rgba(255, 255, 255, ${0.32 + 0.25 * Math.sin(time * 1.3 + i * 1.7)})`;
+    c.beginPath(); c.arc(fx * w, fy * h, r, 0, TAU); c.fill();
+  });
+}
+
+// --- state -------------------------------------------------------------------------------------------------
+const S = {
+  sec: null,
+  // round
+  ri: 0, rg: null, rrun: false, rd: false, rAns: false, lastInt: 0, fn: 37, fu: 10, flo: 20, floT: 20,
+  // check
+  ci: 0, cg: null, cdone: false, cAns: false, cT: nowS(), cT0: 0, cl: 1,
+  // shop
+  si: 0, sg: null, sdone: false, sAns: false, sT0: 0,
+  // secrets
+  bi: 0, bn: null, bph: -1, hT0: 0, hph: -1,
+};
+const B = { x: 47, v: 0, u: 10, st: 'hover', yo: 74, vy: 0, ang: 0, t: 0, sq: 0, wob: 0 };
+const isPeak = () => Math.abs(B.x / B.u - Math.floor(B.x / B.u) - 0.5) < 1e-9;
+
+const lab = shell({ key: 'estimate', T, topics: TOPICS, views: ['round', 'check', 'shop'], onLang: render, onView: () => { S.sec = null; render(); } });
+const secret = secretLab('estimate', () => ({
+  secrets: [{ emo: '🫘', title: T[lang].secrets.beans[0], desc: T[lang].secrets.beans[1] }, { emo: '💓', title: T[lang].secrets.heart[0], desc: T[lang].secrets.heart[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+const qa = (id) => `<div class="q" id="${id}Q"></div><div class="ans" id="${id}O"></div><div class="vd" id="${id}V"></div>
+  <div class="row2"><button class="btn" data-act="next" id="${id}N"></button></div>`;
+$('ctrlBody').innerHTML = `
+  <div id="vRound">
+    <div id="secRound">
+      <div class="q" id="rQ"></div><div class="ans" id="rO"></div><div class="vd" id="rV"></div>
+      <div id="rFree">
+        <input class="big" id="rSlider" type="range" min="0" max="100" step="1" style="--track: linear-gradient(90deg, #3E8E5A, #7BC47F)">
+        <div class="row2"><div class="chips" id="rUnits"></div></div>
+      </div>
+      <div class="row2"><button class="btn" data-act="next" id="rN"></button></div>
+    </div>
+    <div id="secBeans"><button class="btn" data-act="strip" id="bStrip"></button></div>
+    <div class="row2"><div class="chips" id="secChips"></div></div>
+  </div>
+  <div id="vCheck">${qa('c')}</div>
+  <div id="vShop">${qa('s')}</div>`;
+
+// the question stays on screen while the child answers
+function setQA(id, q, opts, verdict, nextLabel) {
+  $(id + 'Q').textContent = q;
+  $(id + 'O').innerHTML = opts.map((o) => `<button class="ab ${o.cls || ''}" data-act="pick" data-k="${o.k}"${o.dis ? ' disabled' : ''}>${esc(o.label)}</button>`).join('');
+  $(id + 'V').innerHTML = verdict || '';
+  $(id + 'N').style.display = nextLabel ? '' : 'none';
+  if (nextLabel) $(id + 'N').textContent = nextLabel;
+}
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+
+// --- view 1: hills and the ball -----------------------------------------------------------------------------
+function hillView() {
+  if (S.ri >= 5) return { lo: S.flo, hi: S.flo + 4 * S.fu, u: S.fu };
+  const R = ROUNDS[S.ri];
+  return { lo: R.lo, hi: R.hi, u: R.u };
+}
+function hillGeo(w, h, vw) {
+  const pad = Math.max(32, w * 0.085), U = (w - 2 * pad) / ((vw.hi - vw.lo) / vw.u);
+  return { pad, U, k: U / vw.u, V: h * 0.78, amp: clamp(U * 0.5, 22, h * 0.2) };
+}
+const BR = 14;
+function ballXY(G, vw, x) {
+  const m = -G.amp * Math.PI * Math.sin(TAU * x / vw.u) / G.U, n = Math.hypot(1, m);
+  return { px: G.pad + (x - vw.lo) * G.k, py: G.V - G.amp * (1 - Math.cos(TAU * x / vw.u)) / 2, m, cx: G.pad + (x - vw.lo) * G.k + BR * m / n, cy: G.V - G.amp * (1 - Math.cos(TAU * x / vw.u)) / 2 - BR / n };
+}
+function placeBall(x, u, drop) {
+  Object.assign(B, { x, u, v: 0, vy: 0, ang: 0, t: 0, sq: 0, wob: 0, yo: drop ? 74 : 0, st: drop ? 'hover' : (isPeakAt(x, u) ? 'balance' : 'roll') });
+}
+const isPeakAt = (x, u) => Math.abs(x / u - Math.floor(x / u) - 0.5) < 1e-9;
+function dropBall() { B.st = 'drop'; B.vy = 0; }
+
+// a ball on a cosine hill: gravity along the slope plus a little friction, so it overshoots and settles
+function stepBall(dt, G) {
+  if (B.st === 'hover' || B.st === 'rest') return;
+  if (B.st === 'drop') {
+    B.vy += 2600 * dt; B.yo -= B.vy * dt;
+    if (B.yo <= 0) { B.yo = 0; B.vy = 0; B.sq = 0.2; sfx.tick(); B.t = 0; B.st = isPeak() ? 'balance' : 'roll'; }
+    return;
+  }
+  B.sq = Math.max(0, B.sq - dt * 1.6);
+  if (B.st === 'balance') {
+    B.t += dt;
+    if (B.t > 1.9) { B.st = 'roll'; B.t = 0; B.v = 22 / (G.U / B.u); sfx.push(); }
+    return;
+  }
+  const k = G.U / B.u, om = 11, g = om * om * G.U * G.U / (G.amp * 2 * Math.PI * Math.PI), c = 2 * 0.22 * om, n = 6, hh = dt / n;
+  let vp = B.v * k;
+  for (let i = 0; i < n; i++) {
+    const m = -G.amp * Math.PI * Math.sin(TAU * B.x / B.u) / G.U;
+    vp += (g * m / (1 + m * m) - c * vp) * hh;
+    B.x += vp * hh / k; B.ang += vp * hh / BR;
+  }
+  B.v = vp / k; B.t += dt;
+  const xv = Math.round(B.x / B.u) * B.u;
+  if ((Math.abs(B.x - xv) * k < 0.8 && Math.abs(vp) < 12) || B.t > 7) { B.x = xv; B.v = 0; B.st = 'rest'; landed(); }
+}
+function landed() {
+  if (S.ri < 5 && S.rrun && !S.rd) {
+    S.rd = true; (S.rg === ROUNDS[S.ri].ok ? sfx.good : sfx.bad)(); render(); showStage();
+  }
+}
+
+function drawSign(c, X, Y, text, glow, time, idx) {
+  c.save(); c.globalAlpha = 1;
+  c.fillStyle = 'rgba(0, 0, 0, .25)'; c.beginPath(); c.ellipse(X, Y + 3, 9, 3, 0, 0, TAU); c.fill();
+  const pg = c.createLinearGradient(X - 3, 0, X + 3, 0); pg.addColorStop(0, '#A06A35'); pg.addColorStop(0.5, '#8A5A2B'); pg.addColorStop(1, '#6B4320');
+  c.fillStyle = pg; c.beginPath(); c.roundRect(X - 3, Y - 70, 6, 74, 2); c.fill();
+  c.strokeStyle = 'rgba(60, 35, 12, .7)'; c.lineWidth = 1; c.stroke();
+  c.font = `800 ${text.length > 3 ? 14 : 15}px Nunito, sans-serif`;
+  const bw = c.measureText(text).width + 18, bh = 26;
+  c.translate(X, Y - 78); c.rotate(((idx * 7) % 5 - 2) * 0.014);
+  if (glow) { c.shadowColor = glow; c.shadowBlur = 14 + 6 * Math.sin(time * 5); }
+  const bg = c.createLinearGradient(0, -bh / 2, 0, bh / 2); bg.addColorStop(0, '#F3D4A0'); bg.addColorStop(1, '#E7B675');
+  c.fillStyle = bg; c.beginPath(); c.roundRect(-bw / 2, -bh / 2, bw, bh, 6); c.fill();
+  c.shadowBlur = 0; c.strokeStyle = glow || '#8A5A2B'; c.lineWidth = glow ? 2.5 : 1.5; c.stroke();
+  c.fillStyle = '#4A2E12'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(text, 0, 1);
+  c.restore();
+}
+
+function drawHills(c, w, h, dt, time) {
+  if (S.ri >= 5) S.flo += (S.floT - S.flo) * Math.min(1, dt * 8);
+  const vw = hillView(), G = hillGeo(w, h, vw), { pad, k, V, amp } = G, { lo, u } = vw;
+  const X = (x) => pad + (x - lo) * k, Yc = (x) => V - amp * (1 - Math.cos(TAU * x / u)) / 2, xAt = (px) => lo + (px - pad) / k;
+  stepBall(dt, G);
+  sky(c, w, h, time, true);
+
+  // far hills for depth
+  c.beginPath(); c.moveTo(0, h);
+  for (let px = 0; px <= w + 8; px += 8) c.lineTo(px, V - amp - 26 + 16 * Math.sin(px / 58 + 1.1) + 9 * Math.sin(px / 23 + 0.4));
+  c.lineTo(w, h); c.closePath();
+  const fg = c.createLinearGradient(0, V - amp - 50, 0, h); fg.addColorStop(0, 'rgba(123, 196, 127, .24)'); fg.addColorStop(1, 'rgba(62, 142, 90, .24)');
+  c.fillStyle = fg; c.fill();
+
+  // the near hill: grass gradient, outline, a sheen along the top
+  const curve = (dy) => { c.beginPath(); for (let px = -4; px <= w + 4; px += 3) { const y = Yc(xAt(px)) + dy; if (px === -4) c.moveTo(px, y); else c.lineTo(px, y); } };
+  curve(0); c.lineTo(w + 4, h); c.lineTo(-4, h); c.closePath();
+  const gg = c.createLinearGradient(0, V - amp, 0, h); gg.addColorStop(0, GRASS); gg.addColorStop(1, '#3E8E5A');
+  c.fillStyle = gg; c.fill();
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  curve(3.5); c.strokeStyle = 'rgba(255, 255, 255, .22)'; c.lineWidth = 1.5; c.stroke();
+  curve(0); c.strokeStyle = '#2F6E46'; c.lineWidth = 2.5; c.stroke();
+
+  // tufts of grass
+  const ts = u * 0.27;
+  c.strokeStyle = '#2F6E46'; c.lineWidth = 1.6;
+  for (let j = Math.floor(xAt(-10) / ts); j <= Math.ceil(xAt(w + 10) / ts); j++) {
+    const x = j * ts + ((j * 37) % 11 + 11) % 11 / 11 * u * 0.08, f = x / u - Math.round(x / u);
+    if (Math.abs(f) < 0.09) continue;
+    const px = X(x), py = Yc(x);
+    c.beginPath(); c.moveTo(px - 3, py + 1); c.lineTo(px - 4.5, py - 6); c.moveTo(px, py + 1); c.lineTo(px, py - 8); c.moveTo(px + 3, py + 1); c.lineTo(px + 4.5, py - 6); c.stroke();
+  }
+
+  // tick marks on the curve, labels in the grass below
+  const steps = [1, 5, 10, 50, 100, 500, 1000], tick = steps.find((s) => s * k >= 6) || 1000;
+  const digits = String(Math.round(vw.hi)).length, need = digits * 8 + 16;
+  const lbl = [1, 5, 10, 20, 50, 100, 200, 500, 1000].find((s) => s % tick === 0 && s * k >= need) || 1000;
+  c.font = '800 12px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  for (let x = Math.ceil(xAt(pad - 2) / tick) * tick; X(x) <= w - pad + 2; x += tick) {
+    const px = X(x), py = Yc(x), major = x % (tick * 5) === 0;
+    c.strokeStyle = 'rgba(31, 77, 51, .8)'; c.lineWidth = 1.2;
+    c.beginPath(); c.moveTo(px, py - 3); c.lineTo(px, py + (major ? 8 : 5)); c.stroke();
+    if (x % lbl === 0 && x % u !== 0) { c.fillStyle = '#1B4A2F'; c.fillText(String(Math.round(x)), px, py + 20); }
+  }
+
+  // wooden signposts in the valleys
+  const okV = S.ri < 5 && S.rd ? ROUNDS[S.ri].ok : null;
+  for (let m = Math.ceil(xAt(-30) / u); m <= Math.floor(xAt(w + 30) / u); m++) {
+    const x = m * u, px = X(x);
+    drawSign(c, px, Yc(x), fmt(x), okV === x ? GOOD : null, time, m);
+  }
+
+  // the ball
+  const xd = B.x + (B.st === 'balance' ? Math.sin(B.t * 7.5) * 3.5 * Math.min(B.t / 0.6, 1) / k : 0);
+  const P = ballXY(G, vw, xd);
+  let yo = B.yo;
+  if (B.st === 'hover') yo = 74 + 4 * Math.sin(time * 2.4);
+  const ang = B.st === 'balance' ? Math.sin(B.t * 10) * 0.5 * (0.4 + Math.min(B.t, 1)) : B.ang;
+  const cx = P.cx, cy = P.cy - yo;
+  // shadow on the grass
+  c.save(); c.fillStyle = `rgba(0, 20, 10, ${0.38 / (1 + yo / 70)})`; c.translate(P.px, P.py + 1.5); c.rotate(Math.atan(P.m));
+  c.beginPath(); c.ellipse(0, 0, BR * 0.95 / (1 + yo / 120), 3.6, 0, 0, TAU); c.fill(); c.restore();
+  if (B.st === 'hover') { // a dotted guide down to the hill
+    c.save(); c.strokeStyle = 'rgba(255, 255, 255, .35)'; c.lineWidth = 1.2; c.setLineDash([2, 5]);
+    c.beginPath(); c.moveTo(cx, cy + BR + 2); c.lineTo(P.px, P.py - 2); c.stroke(); c.restore();
+  }
+  c.save(); c.globalAlpha = 1;
+  c.translate(cx, cy + BR); c.scale(1 + B.sq * 0.5, 1 - B.sq); c.translate(0, -BR);
+  c.shadowColor = 'rgba(0, 0, 0, .35)'; c.shadowBlur = 6; c.shadowOffsetY = 2;
+  c.beginPath(); c.arc(0, 0, BR, 0, TAU);
+  const bg = c.createRadialGradient(-BR * 0.35, -BR * 0.4, 1, 0, 0, BR * 1.05); bg.addColorStop(0, '#FF8A8A'); bg.addColorStop(1, '#E03B3B');
+  c.fillStyle = bg; c.fill();
+  c.shadowBlur = 0; c.shadowOffsetY = 0; c.strokeStyle = '#A32727'; c.lineWidth = 1.5; c.stroke();
+  c.save(); c.beginPath(); c.arc(0, 0, BR - 0.5, 0, TAU); c.clip(); c.rotate(ang); // the stripe turns with the ball
+  c.fillStyle = 'rgba(255, 255, 255, .88)'; c.fillRect(-BR, -2.6, BR * 2, 5.2);
+  c.fillStyle = 'rgba(255, 255, 255, .5)'; c.beginPath(); c.arc(0, -BR * 0.9, 3, 0, TAU); c.fill();
+  c.restore();
+  c.fillStyle = 'rgba(255, 255, 255, .92)'; c.beginPath(); c.ellipse(-BR * 0.4, -BR * 0.45, BR * 0.3, BR * 0.2, -0.6, 0, TAU); c.fill();
+  c.restore();
+  pill(c, fmt(Math.round(xd)), cx, cy - BR - 16, w, { h: 22 });
+
+  // peak case: a small arrow nudges the ball to the right
+  if (B.st === 'balance' && B.t > 0.6) {
+    const a = sat((B.t - 0.6) / 0.3), push = ease(sat((B.t - 1.5) / 0.4)) * 8, ax = cx - BR - 52 + push, ay = cy;
+    c.save(); c.globalAlpha = a; c.lineCap = 'round'; c.lineJoin = 'round';
+    c.strokeStyle = '#4A2E12'; c.lineWidth = 8; c.beginPath(); c.moveTo(ax, ay); c.lineTo(ax + 38, ay); c.moveTo(ax + 28, ay - 9); c.lineTo(ax + 40, ay); c.lineTo(ax + 28, ay + 9); c.stroke();
+    c.strokeStyle = EST; c.lineWidth = 4.5; c.stroke();
+    c.restore();
+    pill(c, T[lang].r.rule, ax + 20, ay + 24, w, { alpha: a, fg: EST, font: '800 12px Nunito, sans-serif' });
+  }
+
+  // live readout while it rolls
+  if (S.ri < 5 && S.rrun && !S.rd) {
+    const ii = Math.round(B.x);
+    if (ii !== S.lastInt) { S.lastInt = ii; roundReadout(); }
+  }
+}
+
+function launchFree(n) {
+  S.fn = n;
+  S.floT = clamp(Math.floor(n / S.fu) * S.fu - 2 * S.fu, 0, 6 * S.fu);
+  placeBall(n, S.fu, false);
+  roundReadout();
+}
+function startRound(i) {
+  S.ri = i; S.rg = null; S.rrun = false; S.rd = false;
+  if (i < 5) placeBall(ROUNDS[i].n, ROUNDS[i].u, true);
+  else { S.flo = S.floT = clamp(Math.floor(S.fn / S.fu) * S.fu - 2 * S.fu, 0, 6 * S.fu); launchFree(S.fn); }
+}
+
+// --- view 2: the robot ----------------------------------------------------------------------------------------
+function drawCheck(c, w, h, dt, time) {
+  const t = T[lang], R = CHK[S.ci], sc = clamp(Math.min(w / 375, h / 390), 0.7, 1.3), cx = w / 2;
+  sky(c, w, h, time, false);
+  c.strokeStyle = 'rgba(190, 205, 255, .06)'; c.lineWidth = 1; c.beginPath();
+  for (let x = 14; x < w; x += 28) { c.moveTo(x, 0); c.lineTo(x, h); }
+  for (let y = 14; y < h; y += 28) { c.moveTo(0, y); c.lineTo(w, y); }
+  c.stroke();
+
+  const rev = S.cg !== null, rt = rev ? time - S.cT0 : -1;
+  const off = R.shown < R.er * 0.75 || R.shown > R.er * 1.25;
+  S.cl += clamp((rev ? 0 : 1) - S.cl, -dt * 2.4, dt * 2.4);
+  const lift = ease(S.cl) * h * 0.12;
+  const mood = rt >= 2.4 ? (off ? 'sad' : 'happy') : 'idle';
+  const shake = mood === 'sad' ? Math.sin((rt - 2.4) * 42) * 6 * Math.exp(-(rt - 2.4) * 3.5) : 0;
+
+  // sizes
+  const bodyW = Math.min(w - 32, 250 * sc), bodyH = 88 * sc, headW = bodyW * 0.62, headH = 58 * sc;
+  const Y0 = 14 * sc + lift, headY = Y0 + 16 * sc, bodyY = headY + headH + 6 * sc, bodyBot = bodyY + bodyH;
+
+  // ground shadow
+  c.fillStyle = 'rgba(8, 10, 24, .35)'; c.beginPath(); c.ellipse(cx, bodyBot + 7 * sc, bodyW * 0.42, 7 * sc, 0, 0, TAU); c.fill();
+
+  c.save(); c.translate(shake, 0); c.lineJoin = 'round'; c.lineCap = 'round';
+  const metal = (x, y, ww, hh, r) => {
+    const g = c.createLinearGradient(x, y, x + ww * 0.4, y + hh); g.addColorStop(0, '#8E9CF5'); g.addColorStop(0.4, ROBOT); g.addColorStop(1, '#5563C9');
+    c.fillStyle = g; c.beginPath(); c.roundRect(x, y, ww, hh, r); c.fill();
+    c.strokeStyle = '#3A47A8'; c.lineWidth = 2; c.stroke();
+    const gl = c.createLinearGradient(0, y, 0, y + hh * 0.55); gl.addColorStop(0, 'rgba(255, 255, 255, .3)'); gl.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    c.fillStyle = gl; c.beginPath(); c.roundRect(x + 3, y + 3, ww - 6, hh * 0.5, r * 0.8); c.fill();
+  };
+  // antenna with a blinking light
+  c.strokeStyle = '#3A47A8'; c.lineWidth = 3.5 * sc; c.beginPath(); c.moveTo(cx, headY + 2); c.lineTo(cx, Y0 + 6 * sc); c.stroke();
+  const bl = 0.55 + 0.45 * Math.sin(time * 4.2), ar = 6.5 * sc;
+  const ag = c.createRadialGradient(cx - 2, Y0 + 4 * sc, 1, cx, Y0 + 6 * sc, ar * 2.4); ag.addColorStop(0, `rgba(255, 201, 74, ${0.55 * bl})`); ag.addColorStop(1, 'rgba(255, 201, 74, 0)');
+  c.fillStyle = ag; c.beginPath(); c.arc(cx, Y0 + 6 * sc, ar * 2.4, 0, TAU); c.fill();
+  const ab = c.createRadialGradient(cx - 2, Y0 + 3 * sc, 1, cx, Y0 + 6 * sc, ar); ab.addColorStop(0, '#FFF1B8'); ab.addColorStop(1, EST);
+  c.fillStyle = ab; c.beginPath(); c.arc(cx, Y0 + 6 * sc, ar, 0, TAU); c.fill(); c.strokeStyle = '#B88A1C'; c.lineWidth = 1.5; c.stroke();
+  // ears
+  for (const sd of [-1, 1]) { c.fillStyle = '#5563C9'; c.strokeStyle = '#3A47A8'; c.lineWidth = 2; c.beginPath(); c.roundRect(cx + sd * headW / 2 - (sd < 0 ? 7 * sc : 0), headY + headH * 0.3, 7 * sc, headH * 0.4, 3); c.fill(); c.stroke(); }
+  // head, face panel, eyes, mouth
+  metal(cx - headW / 2, headY, headW, headH, 20 * sc);
+  const fx = cx - headW / 2 + 9 * sc, fy = headY + 8 * sc, fw = headW - 18 * sc, fh = headH - 16 * sc;
+  c.fillStyle = '#1E2A5A'; c.beginPath(); c.roundRect(fx, fy, fw, fh, 12 * sc); c.fill(); c.strokeStyle = 'rgba(0, 0, 0, .35)'; c.lineWidth = 1.5; c.stroke();
+  const ey = fy + fh * 0.42, ex = fw * 0.25, er = 8.5 * sc, blink = time % 3.7 > 3.58 ? 0.12 : 1;
+  for (const sd of [-1, 1]) {
+    const x = cx + sd * ex;
+    if (mood === 'sad') { c.strokeStyle = BAD; c.lineWidth = 3.4 * sc; c.beginPath(); c.moveTo(x - 6 * sc, ey - 6 * sc); c.lineTo(x + 6 * sc, ey + 6 * sc); c.moveTo(x + 6 * sc, ey - 6 * sc); c.lineTo(x - 6 * sc, ey + 6 * sc); c.stroke(); }
+    else if (mood === 'happy') { c.strokeStyle = GOOD; c.lineWidth = 3.4 * sc; c.beginPath(); c.arc(x, ey + 3 * sc, 7.5 * sc, Math.PI * 1.12, Math.PI * 1.88); c.stroke(); }
+    else {
+      c.save(); c.translate(x, ey); c.scale(1, blink);
+      const eg = c.createRadialGradient(-2, -2, 1, 0, 0, er); eg.addColorStop(0, '#FFFFFF'); eg.addColorStop(1, '#C9D2FF');
+      c.fillStyle = eg; c.beginPath(); c.arc(0, 0, er, 0, TAU); c.fill();
+      c.fillStyle = '#1E2A5A'; c.beginPath(); c.arc(0, 2.4 * sc, er * 0.5, 0, TAU); c.fill();
+      c.fillStyle = '#fff'; c.beginPath(); c.arc(-1.5 * sc, 0.6 * sc, er * 0.17, 0, TAU); c.fill();
+      c.restore();
+    }
+  }
+  const my = fy + fh * 0.84;
+  c.lineWidth = 3 * sc;
+  if (mood === 'happy') { c.strokeStyle = GOOD; c.beginPath(); c.arc(cx, my - 5 * sc, 8 * sc, Math.PI * 0.15, Math.PI * 0.85); c.stroke(); }
+  else if (mood === 'sad') { c.strokeStyle = BAD; c.beginPath(); c.arc(cx, my + 3 * sc, 7 * sc, Math.PI * 1.15, Math.PI * 1.85); c.stroke(); }
+  else { c.strokeStyle = ROBOT; c.beginPath(); c.moveTo(cx - 6 * sc, my); c.lineTo(cx + 6 * sc, my); c.stroke(); }
+  // neck, body
+  c.fillStyle = '#3A47A8'; c.fillRect(cx - 12 * sc, headY + headH - 1, 24 * sc, 8 * sc);
+  metal(cx - bodyW / 2, bodyY, bodyW, bodyH, 22 * sc);
+  // the screen
+  const sx = cx - bodyW / 2 + 14 * sc, sy = bodyY + 11 * sc, sw = bodyW - 28 * sc, sh = 50 * sc;
+  c.fillStyle = '#B9E3C8'; c.beginPath(); c.roundRect(sx - 3, sy - 3, sw + 6, sh + 6, 12 * sc); c.fill();
+  const scg = c.createLinearGradient(0, sy, 0, sy + sh); scg.addColorStop(0, '#E9FBEF'); scg.addColorStop(1, '#CDEFD9');
+  c.fillStyle = scg; c.beginPath(); c.roundRect(sx, sy, sw, sh, 10 * sc); c.fill();
+  c.strokeStyle = 'rgba(31, 81, 53, .45)'; c.lineWidth = 1.5; c.stroke();
+  const full = `${R.a} ${R.op} ${R.b} = ${R.shown}`, typed = rev ? full.length : Math.min(full.length, Math.floor(Math.max(0, time - S.cT) / 0.09));
+  let fs = 28 * sc; c.font = `800 ${fs}px Nunito, sans-serif`;
+  const fw0 = c.measureText(full).width, lim = sw - 22 * sc;
+  if (fw0 > lim) { fs *= lim / fw0; c.font = `800 ${fs}px Nunito, sans-serif`; }
+  const tw = c.measureText(full).width;
+  c.fillStyle = '#1F5135'; c.textAlign = 'left'; c.textBaseline = 'middle';
+  const cursor = typed < full.length && Math.floor(time * 5) % 2 === 0 ? '▌' : '';
+  c.fillText(full.slice(0, typed) + cursor, cx - tw / 2, sy + sh / 2 + 1);
+  // three little lamps
+  [[EST, 0], [GOOD, 1], [BAD, 2]].forEach(([col, i]) => { c.fillStyle = col; c.globalAlpha = 0.9; c.beginPath(); c.arc(cx + (i - 1) * 18 * sc, bodyBot - 11 * sc, 4.2 * sc, 0, TAU); c.fill(); c.globalAlpha = 1; c.strokeStyle = 'rgba(0, 0, 0, .3)'; c.lineWidth = 1; c.stroke(); });
+  c.restore();
+
+  if (!rev) { lab_pinger('c', false); return; }
+
+  // 1) the rounding, written in yellow under the sum
+  const est = `${R.est[0]} ${R.op} ${R.est[1]} ≈ ${R.er}`, ne = Math.min(est.length, Math.floor(rt / 0.05));
+  if (ne > 0) pill(c, est.slice(0, ne), cx, bodyBot + 26 * sc, w, { fg: EST, font: `800 ${Math.round(20 * sc)}px Nunito, sans-serif`, h: 32 * sc, px: 14, border: 'rgba(255, 201, 74, .45)' });
+
+  // 2) the number line: estimate flag, "about here" band, the robot's pin
+  const la = easeOut(sat((rt - 0.9) / 0.5));
+  if (la > 0) {
+    const x0 = 34 * sc, x1 = w - 34 * sc, trackY = h - 84 * sc + (1 - la) * 14, VX = (v) => x0 + clamp(v / R.max, 0, 1) * (x1 - x0), trh = 12 * sc;
+    c.save(); c.globalAlpha = la;
+    const tg = c.createLinearGradient(0, trackY - trh / 2, 0, trackY + trh / 2); tg.addColorStop(0, '#2A3568'); tg.addColorStop(1, '#1E2A5A');
+    c.fillStyle = tg; c.beginPath(); c.roundRect(x0 - 6, trackY - trh / 2, x1 - x0 + 12, trh, trh / 2); c.fill();
+    c.strokeStyle = 'rgba(124, 139, 240, .55)'; c.lineWidth = 1.5; c.stroke();
+    c.strokeStyle = 'rgba(190, 205, 255, .4)'; c.lineWidth = 1; c.beginPath();
+    for (let i = 0; i <= 4; i++) { const x = x0 + (x1 - x0) * i / 4; c.moveTo(x, trackY - trh / 2 - 4); c.lineTo(x, trackY + trh / 2 + 4); }
+    c.stroke();
+    c.font = '700 12px Nunito, sans-serif'; c.fillStyle = '#B8C0DA'; c.textBaseline = 'middle';
+    c.textAlign = 'left'; c.fillText('0', x0 - 6, trackY + 24 * sc); c.textAlign = 'right'; c.fillText(fmt(R.max), x1 + 6, trackY + 24 * sc);
+    // band
+    const bd = ease(sat((rt - 1.4) / 0.6)), ec = VX(R.er), b0 = VX(R.er * 0.75), b1 = VX(R.er * 1.25);
+    const pinOut = rt > 2.33 && off, flash = pinOut ? (rt < 3.4 ? 0.5 + 0.5 * Math.sin((rt - 2.33) * 16) : 1) : 0;
+    if (bd > 0) {
+      const bx = ec + (b0 - ec) * bd, bw = (b1 - b0) * bd;
+      c.fillStyle = 'rgba(255, 201, 74, .26)'; c.beginPath(); c.roundRect(bx, trackY - 20 * sc, bw, 40 * sc, 8); c.fill();
+      if (flash > 0) { c.fillStyle = `rgba(255, 107, 107, ${0.5 * flash})`; c.beginPath(); c.roundRect(bx, trackY - 20 * sc, bw, 40 * sc, 8); c.fill(); }
+      c.strokeStyle = flash > 0.2 ? BAD : EST; c.lineWidth = 1.5; c.setLineDash([5, 4]); c.beginPath(); c.roundRect(bx, trackY - 20 * sc, bw, 40 * sc, 8); c.stroke(); c.setLineDash([]);
+    }
+    // estimate flag, hanging below the line
+    const fl = clamp(1 + 2.70158 * Math.pow(sat((rt - 1.3) / 0.5) - 1, 3) + 1.70158 * Math.pow(sat((rt - 1.3) / 0.5) - 1, 2), 0, 1.2);
+    if (rt > 1.3) {
+      const pl = 34 * sc * fl;
+      c.strokeStyle = '#B88A1C'; c.lineWidth = 2.5; c.beginPath(); c.moveTo(ec, trackY + 2); c.lineTo(ec, trackY + 2 + pl); c.stroke();
+      c.fillStyle = EST; c.strokeStyle = '#B88A1C'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(ec, trackY + 2 + pl); c.lineTo(ec + 22 * sc, trackY + 2 + pl - 8 * sc); c.lineTo(ec, trackY + 2 + pl - 16 * sc); c.closePath(); c.fill(); c.stroke();
+      if (fl > 0.95) pill(c, `≈ ${fmt(R.er)}`, ec, trackY + 56 * sc, w, { fg: EST, h: 22 });
+    }
+    // the robot's answer drops in and bounces
+    if (rt > 2.0) {
+      const tt = sat((rt - 2.0) / 0.9), yo = -(1 - bounce(tt)) * 110 * sc, px = VX(R.shown), tipY = trackY - 1 + yo, hy = tipY - 21 * sc, pr = 11 * sc;
+      c.globalAlpha = la * sat(tt * 8);
+      c.fillStyle = 'rgba(0, 0, 0, .3)'; c.beginPath(); c.ellipse(px, trackY + 2, 8 * sc * (1 - (1 - bounce(tt)) * 0.5), 2.5 * sc, 0, 0, TAU); c.fill();
+      const pg = c.createRadialGradient(px - 3, hy - 3, 1, px, hy, pr * 1.2); pg.addColorStop(0, '#A9B4FF'); pg.addColorStop(1, '#5563C9');
+      c.fillStyle = pg; c.strokeStyle = '#3A47A8'; c.lineWidth = 1.8;
+      c.beginPath(); c.arc(px, hy, pr, Math.PI * 0.82, Math.PI * 2.18); c.lineTo(px, tipY); c.closePath(); c.fill(); c.stroke();
+      c.fillStyle = '#DFF7E8'; c.beginPath(); c.arc(px, hy, pr * 0.38, 0, TAU); c.fill();
+      c.fillStyle = 'rgba(255, 255, 255, .75)'; c.beginPath(); c.ellipse(px - pr * 0.45, hy - pr * 0.5, pr * 0.22, pr * 0.14, -0.6, 0, TAU); c.fill();
+      pill(c, fmt(R.shown), px, hy - pr - 14, w, { h: 22, alpha: la * sat(tt * 8) });
+    }
+    c.restore();
+  }
+  lab_pinger('c', rt >= 3.0);
+}
+// phase flags found while drawing call render() once, never every frame
+function lab_pinger(kind, done) {
+  if (kind === 'c' && done && !S.cdone) { S.cdone = true; (S.cg === (cOff() ? 'off' : 'ok') ? sfx.good : sfx.bad)(); render(); }
+  if (kind === 's' && done && !S.sdone) { S.sdone = true; render(); }
+}
+const cOff = () => { const R = CHK[S.ci]; return R.shown < R.er * 0.75 || R.shown > R.er * 1.25; };
+
+// --- view 3: the shop ----------------------------------------------------------------------------------------
+function drawShop(c, w, h, dt, time) {
+  const t = T[lang], Sh = SHOP[S.si], sc = clamp(Math.min(w / 375, h / 390), 0.7, 1.3);
+  sky(c, w, h, time, false);
+  c.fillStyle = 'rgba(190, 205, 255, .05)'; for (let x = 0; x < w; x += 36) c.fillRect(x, 0, 18, h);
+  const rt = S.sg !== null ? time - S.sT0 : -1, est = Sh.p.map((p) => roundHalfUp(p, 10)), sumEst = est.reduce((a, b) => a + b, 0), sumReal = Sh.p.reduce((a, b) => a + b, 0);
+
+  // counter at the bottom
+  const cy0 = h - 26 * sc, cg = c.createLinearGradient(0, cy0, 0, h); cg.addColorStop(0, '#E7B675'); cg.addColorStop(0.25, '#C08A4A'); cg.addColorStop(1, '#8A5A2B');
+  c.fillStyle = cg; c.fillRect(0, cy0, w, 26 * sc); c.fillStyle = 'rgba(255, 255, 255, .3)'; c.fillRect(0, cy0, w, 2);
+
+  // the purse and the budget
+  const py = 24 * sc, pr = pill(c, `${t.s.budget} 🪙 ${BUDGET}`, w / 2 + 16 * sc, py, w, { h: 28 * sc, font: `800 ${Math.round(15 * sc)}px Nunito, sans-serif`, px: 12 });
+  emoji(c, '👛', Math.max(18, pr.x - 18 * sc), py, 30 * sc);
+
+  // rod with three hanging price tags
+  const rodY = 68 * sc, rg = c.createLinearGradient(0, rodY - 4, 0, rodY + 4); rg.addColorStop(0, '#B07A3E'); rg.addColorStop(1, '#6B4320');
+  c.fillStyle = rg; c.beginPath(); c.roundRect(14, rodY - 4, w - 28, 8, 4); c.fill();
+  c.fillStyle = '#8A5A2B'; for (const x of [14, w - 14]) { c.beginPath(); c.arc(x, rodY, 7, 0, TAU); c.fill(); }
+  const tw = Math.min(112 * sc, (w - 36) / 3 - 6), th = tw * 1.12, gap = Math.min(14 * sc, (w - 3 * tw) / 4), x0 = (w - (3 * tw + 2 * gap)) / 2, top = 14 * sc;
+  for (let i = 0; i < 3; i++) {
+    c.save(); c.translate(x0 + i * (tw + gap) + tw / 2, rodY + 3); c.rotate(Math.sin(time * 1.2 + i * 1.9) * 0.025);
+    const hole = top + 13 * sc, cc = 16 * sc, r = 10 * sc;
+    c.strokeStyle = '#6B4320'; c.lineWidth = 2; c.beginPath(); c.moveTo(0, 0); c.lineTo(0, hole); c.stroke();
+    c.beginPath(); c.moveTo(-tw / 2 + cc, top); c.lineTo(tw / 2 - cc, top); c.lineTo(tw / 2, top + cc); c.lineTo(tw / 2, top + th - r);
+    c.quadraticCurveTo(tw / 2, top + th, tw / 2 - r, top + th); c.lineTo(-tw / 2 + r, top + th); c.quadraticCurveTo(-tw / 2, top + th, -tw / 2, top + th - r); c.lineTo(-tw / 2, top + cc); c.closePath();
+    const tg = c.createLinearGradient(-tw / 2, top, tw / 2, top + th); tg.addColorStop(0, '#F6E0B8'); tg.addColorStop(1, '#E7B675');
+    c.shadowColor = 'rgba(0, 0, 0, .4)'; c.shadowBlur = 10; c.shadowOffsetY = 4; c.fillStyle = tg; c.fill();
+    c.shadowBlur = 0; c.shadowOffsetY = 0; c.strokeStyle = '#8A5A2B'; c.lineWidth = 1.8; c.lineJoin = 'round'; c.stroke();
+    c.fillStyle = '#1E2A5A'; c.beginPath(); c.arc(0, hole, 5 * sc, 0, TAU); c.fill(); c.strokeStyle = '#8A5A2B'; c.lineWidth = 1.5; c.stroke();
+    c.strokeStyle = '#6B4320'; c.lineWidth = 2; c.beginPath(); c.arc(0, hole - 3 * sc, 4.5 * sc, Math.PI * 0.1, Math.PI * 0.9, true); c.stroke();
+    emoji(c, Sh.items[i], 0, top + th * 0.46, 34 * sc);
+    c.fillStyle = '#4A2E12'; c.font = `800 ${Math.round(26 * sc)}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(String(Sh.p[i]), 0, top + th * 0.82);
+    // the yellow sticker with the rounded price slaps on
+    const st = (rt - (0.3 + 0.45 * i)) / 0.35;
+    if (rt >= 0 && st > 0) {
+      c.save(); c.globalAlpha = sat(st * 6); c.translate(tw / 2 - 14 * sc, top + th * 0.25); c.rotate(-0.13); const s = lerp(1.15, 1, ease(sat(st))); c.scale(s, s);
+      const sg = c.createLinearGradient(0, -13 * sc, 0, 13 * sc); sg.addColorStop(0, '#FFE08A'); sg.addColorStop(1, EST);
+      c.shadowColor = 'rgba(0, 0, 0, .35)'; c.shadowBlur = 5; c.shadowOffsetY = 2; c.fillStyle = sg; c.beginPath(); c.roundRect(-19 * sc, -13 * sc, 38 * sc, 26 * sc, 7 * sc); c.fill();
+      c.shadowBlur = 0; c.shadowOffsetY = 0; c.strokeStyle = '#B88A1C'; c.lineWidth = 1.5; c.stroke();
+      c.fillStyle = '#4A2E12'; c.font = `800 ${Math.round(17 * sc)}px Nunito, sans-serif`; c.fillText(String(est[i]), 0, 1);
+      c.restore();
+    }
+    c.restore();
+  }
+  if (rt < 0) return;
+
+  // the stacked bar: estimated total against the budget line
+  const bx0 = 28 * sc, bx1 = w - 28 * sc, MAXV = 140, VX = (v) => bx0 + v / MAXV * (bx1 - bx0), barH = 26 * sc, barY = h - 150 * sc;
+  const grow = ease(sat((rt - 2.0) / 1.5)), filled = sumEst * grow;
+  c.save();
+  c.fillStyle = 'rgba(10, 12, 24, .55)'; c.beginPath(); c.roundRect(bx0 - 2, barY - 2, bx1 - bx0 + 4, barH + 4, barH / 2 + 2); c.fill();
+  c.beginPath(); c.roundRect(bx0, barY, bx1 - bx0, barH, barH / 2); c.clip();
+  const cols = ['#FFC94A', '#F2B234', '#FFD97A']; let acc = 0;
+  est.forEach((e, i) => {
+    const a = acc, b = Math.min(acc + e, filled); acc += e;
+    if (b <= a) return;
+    const g = c.createLinearGradient(0, barY, 0, barY + barH); g.addColorStop(0, 'rgba(255, 255, 255, .45)'); g.addColorStop(0.5, cols[i]); g.addColorStop(1, cols[i]);
+    c.fillStyle = cols[i]; c.fillRect(VX(a), barY, VX(b) - VX(a), barH); c.fillStyle = g; c.fillRect(VX(a), barY, VX(b) - VX(a), barH);
+    c.strokeStyle = 'rgba(74, 46, 18, .45)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(VX(a), barY); c.lineTo(VX(a), barY + barH); c.stroke();
+    if (VX(b) - VX(a) > 26 * sc && b - a >= e - 0.01) emoji(c, Sh.items[i], (VX(a) + VX(b)) / 2, barY + barH / 2 + 1, 16 * sc);
+  });
+  if (filled > BUDGET) { // the part past the budget line turns red
+    c.fillStyle = 'rgba(255, 107, 107, .62)'; c.fillRect(VX(BUDGET), barY, VX(filled) - VX(BUDGET), barH);
+    c.strokeStyle = 'rgba(255, 255, 255, .35)'; c.lineWidth = 2; c.beginPath();
+    for (let x = VX(BUDGET) - barH; x < VX(filled); x += 9) { c.moveTo(x, barY + barH); c.lineTo(x + barH, barY); }
+    c.save(); c.beginPath(); c.rect(VX(BUDGET), barY, VX(filled) - VX(BUDGET), barH); c.clip(); c.stroke(); c.restore();
+  }
+  c.restore();
+  // the budget line
+  c.strokeStyle = '#fff'; c.lineWidth = 2.5; c.beginPath(); c.moveTo(VX(BUDGET), barY - 9); c.lineTo(VX(BUDGET), barY + barH + 9); c.stroke();
+  pill(c, `🪙 ${BUDGET}`, VX(BUDGET), barY - 22 * sc, w, { h: 22 });
+  if (grow > 0.99) pill(c, `≈ ${sumEst}`, VX(sumEst), barY + barH + 20 * sc, w, { fg: EST, h: 22 });
+
+  // the exact sum: counts up, then a tick or a cross
+  const ex = clamp((rt - 3.7) / 0.9, 0, 1);
+  if (rt > 3.7) {
+    const ey = h - 66 * sc, total = Math.round(sumReal * easeOut(ex)), done = rt > 4.7, enough = sumReal <= BUDGET;
+    pill(c, `${Sh.p.join(' + ')} = ${total}`, w / 2, ey, w, { h: 30 * sc, px: 14, font: `800 ${Math.round(18 * sc)}px Nunito, sans-serif` });
+    if (done) {
+      const k = easeOut(sat((rt - 4.7) / 0.3)), col = enough ? GOOD : BAD, txt = enough ? (S.si === 0 ? `✓ ${t.s.just}` : '✓') : '✕';
+      pill(c, txt, w / 2, ey + 30 * sc, w, { fg: '#10231A', bg: col, h: 26 * sc, px: 14, scale: lerp(1.15, 1, k), alpha: sat(k * 4), font: `900 ${Math.round(15 * sc)}px Nunito, sans-serif` });
+    }
+  }
+  lab_pinger('s', rt >= 5.0);
+}
+
+// --- secrets: beans in a jar, heartbeats -----------------------------------------------------------------------
+const BEANS = (() => {
+  const r = mulberry(11), out = [], md = 0.046; let guard = 0;
+  while (out.length < 240 && guard++ < 80000) {
+    const x = 0.04 + r() * 0.92, y = 0.035 + r() * 0.93;
+    if (y > 0.86 && (x < 0.14 || x > 0.86) && Math.hypot(x - (x < 0.5 ? 0.14 : 0.86), y - 0.86) > 0.1) continue; // rounded bottom corners
+    if (out.some((b) => Math.hypot(b.x - x, b.y - y) < md)) continue;
+    out.push({ x, y, a: r() * Math.PI, s: 0.85 + r() * 0.3, c: Math.floor(r() * 3) });
+  }
+  return out;
+})();
+const BEAN_COL = [['#A06A35', '#7C4F25'], ['#8A5A2B', '#6B4320'], ['#B07A3E', '#8A5A2B']];
+const beanStrip = (s) => BEANS.map((b, i) => [b, i]).filter(([b]) => Math.floor(b.y * 10) === s).sort((p, q) => p[0].x - q[0].x).map(([, i]) => i);
+
+function drawBeans(c, w, h, dt, time) {
+  const sc = clamp(Math.min(w / 375, h / 390), 0.7, 1.3);
+  sky(c, w, h, time, true);
+  const jw = Math.min(w * 0.6, 250 * sc), jh = Math.min(jw * 1.02, h * 0.58), cx = w * 0.46, jx = cx - jw / 2, jy = h * 0.14 + 34 * sc;
+  // table
+  const tg = c.createLinearGradient(0, h - 36 * sc, 0, h); tg.addColorStop(0, '#C08A4A'); tg.addColorStop(1, '#8A5A2B');
+  c.fillStyle = tg; c.fillRect(0, jy + jh + 6, w, h); c.fillStyle = 'rgba(255, 255, 255, .25)'; c.fillRect(0, jy + jh + 6, w, 2);
+  c.fillStyle = 'rgba(0, 0, 0, .3)'; c.beginPath(); c.ellipse(cx, jy + jh + 8, jw * 0.55, 7 * sc, 0, 0, TAU); c.fill();
+  // glass body
+  c.lineJoin = 'round';
+  c.fillStyle = 'rgba(200, 225, 255, .12)'; c.beginPath(); c.roundRect(jx, jy, jw, jh, [8, 8, 32 * sc, 32 * sc]); c.fill();
+  // beans
+  const rt = S.bn ? time - S.bn.t0 : -1, list = S.bn ? S.bn.list : [], per = 0.055, cnt = S.bn ? Math.min(list.length, Math.floor(rt / per)) : 0, counted = new Set(list.slice(0, cnt));
+  const bw = jw * 0.03, bh = jw * 0.02;
+  BEANS.forEach((b, i) => {
+    const X = jx + b.x * jw, Y = jy + b.y * jh, on = counted.has(i), col = BEAN_COL[b.c];
+    c.save(); c.translate(X, Y); c.rotate(b.a); c.scale(b.s, b.s);
+    c.fillStyle = on ? '#E7B675' : col[0]; c.strokeStyle = on ? EST : col[1]; c.lineWidth = on ? 2 : 1;
+    c.beginPath(); c.ellipse(0, 0, bw, bh, 0, 0, TAU); c.fill(); c.stroke();
+    c.strokeStyle = 'rgba(255, 255, 255, .28)'; c.lineWidth = 1; c.beginPath(); c.moveTo(-bw * 0.6, -bh * 0.1); c.lineTo(bw * 0.5, -bh * 0.1); c.stroke();
+    c.restore();
+  });
+  // the highlighted strip
+  if (S.bn) {
+    const sy = jy + S.bn.strip * jh / 10, a = Math.min(1, rt / 0.3);
+    c.fillStyle = `rgba(255, 201, 74, ${0.16 * a})`; c.fillRect(jx, sy, jw, jh / 10);
+    c.strokeStyle = `rgba(255, 201, 74, ${0.9 * a})`; c.lineWidth = 2; c.setLineDash([6, 4]); c.beginPath(); c.moveTo(jx, sy); c.lineTo(jx + jw, sy); c.moveTo(jx, sy + jh / 10); c.lineTo(jx + jw, sy + jh / 10); c.stroke(); c.setLineDash([]);
+  }
+  // glass outline, shine, neck and lid
+  c.strokeStyle = 'rgba(225, 238, 255, .6)'; c.lineWidth = 2.5; c.beginPath(); c.roundRect(jx, jy, jw, jh, [8, 8, 32 * sc, 32 * sc]); c.stroke();
+  const sg = c.createLinearGradient(jx, 0, jx + jw * 0.3, 0); sg.addColorStop(0, 'rgba(255, 255, 255, .28)'); sg.addColorStop(1, 'rgba(255, 255, 255, 0)');
+  c.fillStyle = sg; c.beginPath(); c.roundRect(jx + 6, jy + 10, jw * 0.2, jh - 40 * sc, 8); c.fill();
+  c.fillStyle = 'rgba(200, 225, 255, .22)'; c.strokeStyle = 'rgba(225, 238, 255, .6)'; c.lineWidth = 2; c.beginPath(); c.roundRect(cx - jw * 0.36, jy - 16 * sc, jw * 0.72, 18 * sc, 4); c.fill(); c.stroke();
+  const lg = c.createLinearGradient(0, jy - 34 * sc, 0, jy - 14 * sc); lg.addColorStop(0, '#F3D4A0'); lg.addColorStop(1, '#8A5A2B');
+  c.fillStyle = lg; c.strokeStyle = '#5E3B18'; c.lineWidth = 1.5; c.beginPath(); c.roundRect(cx - jw * 0.4, jy - 34 * sc, jw * 0.8, 20 * sc, 6); c.fill(); c.stroke();
+  // count, estimate, exact
+  if (S.bn) {
+    const n = list.length, tcount = n * per, ph = rt < tcount + 0.4 ? 0 : rt < tcount + 1.5 ? 1 : 2, sy = jy + S.bn.strip * jh / 10 + jh / 20;
+    pill(c, String(cnt), Math.min(jx + jw + 34 * sc, w - 26), sy, w, { h: 28 * sc, font: `900 ${Math.round(17 * sc)}px Nunito, sans-serif`, fg: EST, px: 12, border: 'rgba(255, 201, 74, .5)' });
+    if (ph >= 1) pill(c, `${n} × 10 ≈ ${n * 10}`, cx, jy + jh + 34 * sc, w, { h: 30 * sc, font: `800 ${Math.round(18 * sc)}px Nunito, sans-serif`, fg: EST, px: 14, scale: lerp(1.12, 1, easeOut(sat((rt - tcount - 0.4) / 0.25))) });
+    if (ph >= 2) pill(c, T[lang].c.real(BEANS.length), cx, jy + jh + 34 * sc + 36 * sc, w, { h: 28 * sc, font: `800 ${Math.round(15 * sc)}px Nunito, sans-serif`, fg: '#10231A', bg: GOOD, px: 14, scale: lerp(1.12, 1, easeOut(sat((rt - tcount - 1.5) / 0.25))) });
+    if (ph !== S.bph) { S.bph = ph; render(); }
+    else if (ph === 0) lab.setReadout(String(cnt), '× 10', '', EST);
+  }
+}
+
+function heartPath(c, x, y, s) {
+  c.beginPath(); c.moveTo(x, y + s * 0.95);
+  c.bezierCurveTo(x + s * 1.35, y + s * 0.1, x + s * 0.95, y - s * 0.95, x, y - s * 0.38);
+  c.bezierCurveTo(x - s * 0.95, y - s * 0.95, x - s * 1.35, y + s * 0.1, x, y + s * 0.95); c.closePath();
+}
+function drawHeart(c, w, h, dt, time) {
+  const t = T[lang], sc = clamp(Math.min(w / 375, h / 390), 0.7, 1.3);
+  sky(c, w, h, time, true);
+  const ph = (time * 1.33) % 1, beat = ph < 0.14 ? Math.sin(ph / 0.14 * Math.PI) : ph < 0.3 ? 0.55 * Math.sin((ph - 0.14) / 0.16 * Math.PI) : 0;
+  const hx = w / 2, hy = h * 0.2 + 10 * sc, s = 46 * sc * (1 + 0.14 * beat);
+  // soft pulse rings
+  c.save(); c.strokeStyle = `rgba(255, 138, 138, ${0.35 * (1 - ph)})`; c.lineWidth = 2; c.beginPath(); c.arc(hx, hy, s * (1.15 + ph * 0.8), 0, TAU); c.stroke(); c.restore();
+  c.save(); c.globalAlpha = 1;
+  c.shadowColor = 'rgba(224, 59, 59, .55)'; c.shadowBlur = 20 + 14 * beat;
+  heartPath(c, hx, hy, s);
+  const hg = c.createRadialGradient(hx - s * 0.4, hy - s * 0.45, 2, hx, hy, s * 1.3); hg.addColorStop(0, '#FF8A8A'); hg.addColorStop(1, '#E03B3B');
+  c.fillStyle = hg; c.fill(); c.shadowBlur = 0; c.strokeStyle = '#A32727'; c.lineWidth = 2; c.lineJoin = 'round'; c.stroke();
+  c.fillStyle = 'rgba(255, 255, 255, .85)'; c.beginPath(); c.ellipse(hx - s * 0.5, hy - s * 0.38, s * 0.2, s * 0.12, -0.7, 0, TAU); c.fill();
+  c.restore();
+  // the chain of steps, each pops in
+  const rt = time - S.hT0, steps = [
+    { at: 0.6, text: `80 × 60 ≈ 5000 ${t.sec.hour}`, fg: EST, y: 0.5 },
+    { at: 1.8, text: `5000 × 24 ≈ ${fmt(100000)}`, fg: EST, y: 0.64 },
+    { at: 3.2, text: `80 × 60 × 24 = ${fmt(115200)}`, fg: '#10231A', bg: GOOD, y: 0.8 },
+  ];
+  let phase = 0;
+  steps.forEach((st, i) => {
+    if (rt < st.at) return; phase = i + 1;
+    const k = easeOut(sat((rt - st.at) / 0.3));
+    pill(c, st.text, w / 2, h * st.y, w, { h: 34 * sc, px: 16, font: `800 ${Math.round(19 * sc)}px Nunito, sans-serif`, fg: st.fg, bg: st.bg || 'rgba(10, 12, 20, .8)', border: st.bg ? null : 'rgba(255, 201, 74, .4)', scale: lerp(0.6, 1, k) + 0.08 * Math.sin(k * Math.PI), alpha: sat(k * 3) });
+    if (i < 2 && rt > steps[i + 1].at - 0.4) { c.save(); c.fillStyle = 'rgba(255, 255, 255, .55)'; c.font = `800 ${Math.round(16 * sc)}px Nunito, sans-serif`; c.textAlign = 'center'; c.fillText('▼', w / 2, h * st.y + 28 * sc); c.restore(); }
+  });
+  if (phase !== S.hph) { S.hph = phase; render(); }
+}
+
+// --- the one drawing loop ------------------------------------------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  const v = lab.view;
+  if (v === 'round') { if (S.sec === 'beans') drawBeans(c, w, h, dt, time); else if (S.sec === 'heart') drawHeart(c, w, h, dt, time); else drawHills(c, w, h, dt, time); }
+  else if (v === 'check') drawCheck(c, w, h, dt, time);
+  else drawShop(c, w, h, dt, time);
+});
+
+// --- controls --------------------------------------------------------------------------------------------------
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b) return;
+  const act = b.dataset.act, v = lab.view;
+  if (act === 'pick') {
+    const k = b.dataset.k;
+    if (v === 'round') {
+      if (S.rrun || S.ri >= 5) return;
+      S.rg = +k; S.rrun = true; S.rAns = true; dropBall(); sfx.click(); showStage();
+    } else if (v === 'check') {
+      if (S.cg !== null) return;
+      S.cg = k; S.cT0 = nowS(); S.cAns = true; sfx.click(); showStage();
+    } else {
+      if (S.sg !== null) return;
+      S.sg = +k; S.sT0 = nowS(); S.sAns = true; sfx.click(); showStage();
+    }
+  } else if (act === 'next') {
+    sfx.click();
+    if (v === 'round') startRound(S.ri + 1);
+    else if (v === 'check') { S.ci = (S.ci + 1) % CHK.length; S.cg = null; S.cdone = false; S.cT = nowS(); }
+    else { S.si = (S.si + 1) % SHOP.length; S.sg = null; S.sdone = false; }
+  } else if (act === 'unit') {
+    const u = +b.dataset.u; if (u === S.fu) return;
+    S.fn = u === 100 ? S.fn * 10 : Math.round(S.fn / 10); S.fu = u; sfx.click(); startRound(5);
+  } else if (act === 'sec') {
+    const k = b.dataset.k;
+    if (!secret.unlocked()) return secret.open();
+    if (S.sec === k) S.sec = null;
+    else {
+      S.sec = k; sfx.click();
+      if (k === 'beans') { S.bn = null; S.bph = -1; }
+      else { S.hT0 = nowS(); S.hph = -1; }
+    }
+  } else if (act === 'strip') {
+    const strip = STRIPS[S.bi++ % STRIPS.length];
+    S.bn = { strip, list: beanStrip(strip), t0: nowS() }; S.bph = -1; sfx.click();
+  }
+  render();
+});
+$('rSlider').addEventListener('input', (ev) => {
+  const n = +ev.target.value, was = roundHalfUp(S.fn, S.fu);
+  launchFree(n);
+  if (roundHalfUp(n, S.fu) !== was) sfx.tick();
+});
+
+// --- render: controls, readout and the state card --------------------------------------------------------------
+function render() {
+  const t = T[lang], v = lab.view;
+  document.body.dataset.v = v;
+  $('vRound').style.display = v === 'round' ? '' : 'none';
+  $('vCheck').style.display = v === 'check' ? '' : 'none';
+  $('vShop').style.display = v === 'shop' ? '' : 'none';
+  for (const id of ['r', 'c', 's']) if (id !== { round: 'r', check: 'c', shop: 's' }[v]) { $(id + 'O').innerHTML = ''; $(id + 'N').textContent = ''; } // no hidden twin buttons
+  if (v === 'round') renderRound(t); else if (v === 'check') renderCheck(t); else renderShop(t);
+}
+const setCard = (c) => lab.setState({ emo: c[0], title: c[1], lead: c[2], body: c[3], extra: '' });
+
+function digitsHTML(s, hl) { return [...String(s)].map((d, i) => `<i class="${i === 0 && hl ? 'hl' : ''}">${d}</i>`).join(''); }
+function roundReadout() {
+  if (lab.view !== 'round' || S.sec) return;
+  const t = T[lang];
+  lab.setGlow('rgba(123, 196, 127, .26)');
+  if (S.ri >= 5) { lab.setReadout(`${fmt(S.fn)} → ${fmt(roundHalfUp(S.fn, S.fu))}`, t.r.unit(t.un[S.fu]), '', GRASS); return; }
+  const R = ROUNDS[S.ri], sub = t.r.unit(t.un[R.u]);
+  if (S.rd) lab.setReadout(S.ri === 4 ? `${digitsHTML(R.n, true)}<span class="ar">→</span>${digitsHTML(R.ok, true)}` : `${fmt(R.n)} → ${fmt(R.ok)}`, sub, '', GRASS);
+  else lab.setReadout(fmt(S.rrun ? Math.round(B.x) : R.n), sub, '', GRASS);
+}
+function renderRound(t) {
+  const open = secret.unlocked();
+  const sc = (k, emo) => `<button class="chip secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  $('secChips').innerHTML = sc('beans', '🫘') + sc('heart', '💓');
+  $('secRound').style.display = S.sec ? 'none' : '';
+  $('secBeans').style.display = S.sec === 'beans' ? '' : 'none';
+  if (S.sec) { renderSecret(t); return; }
+  const free = S.ri >= 5, R = free ? null : ROUNDS[S.ri];
+  $('rFree').style.display = free ? '' : 'none';
+  if (free) {
+    const max = S.fu * 10, sl = $('rSlider');
+    sl.max = max; if (+sl.value !== S.fn) sl.value = S.fn; sl.setAttribute('aria-label', t.r.free);
+    $('rUnits').innerHTML = [10, 100].map((u) => `<button class="chip ${u === S.fu ? 'on' : ''}" data-act="unit" data-u="${u}">${u}</button>`).join('');
+    setQA('r', t.r.free, [], '', null);
+  } else {
+    const opts = R.opts.map((o) => ({ k: o, label: fmt(o), dis: S.rrun, cls: S.rd ? (o === R.ok ? 'good' : o === S.rg ? 'bad' : '') : o === S.rg ? 'sel' : '' }));
+    const vd = S.rd ? `<b style="color:${S.rg === R.ok ? GOOD : BAD}">${esc(S.rg === R.ok ? t.right : t.wrong)}</b> ${esc(t.r.why[S.ri])}` : '';
+    setQA('r', t.r.q(fmt(R.n), t.un[R.u]), opts, vd, S.rd ? t.next : null);
+  }
+  roundReadout();
+  setCard(t.st.round[S.rAns || free ? 1 : 0]);
+}
+function renderSecret(t) {
+  if (S.sec === 'beans') {
+    lab.setGlow('rgba(176, 122, 62, .28)');
+    $('bStrip').textContent = t.sec.strip;
+    const n = S.bn ? S.bn.list.length : 0;
+    if (!S.bn) lab.setReadout('?', '', '', EST);
+    else if (S.bph === 0) lab.setReadout(String(n), '× 10', '', EST);
+    else if (S.bph === 1) lab.setReadout(`≈ ${n * 10}`, '', '', EST);
+    else lab.setReadout(String(BEANS.length), '', '', GOOD);
+    lab.setState({ emo: '🫘', title: t.secrets.beans[0], lead: t.secrets.beans[1], body: t.sec.beansText, extra: '' });
+  } else {
+    lab.setGlow('rgba(224, 59, 59, .26)');
+    const p = S.hph;
+    if (p <= 0) lab.setReadout('?', '', '', '#E03B3B');
+    else if (p === 1) lab.setReadout('≈ 5000', t.sec.hour, '', '#E03B3B');
+    else if (p === 2) lab.setReadout(`≈ ${fmt(100000)}`, '', '', '#E03B3B');
+    else lab.setReadout(fmt(115200), '', '', GOOD);
+    lab.setState({ emo: '💓', title: t.secrets.heart[0], lead: t.secrets.heart[1], body: t.sec.heartText, extra: `<div class="fine">${esc(t.fine)}</div>` });
+  }
+}
+function renderCheck(t) {
+  const R = CHK[S.ci], off = cOff(), truth = off ? 'off' : 'ok';
+  lab.setGlow('rgba(124, 139, 240, .28)');
+  const opts = [['ok', t.c.ok], ['off', t.c.off]].map(([k, label]) => ({ k, label, dis: S.cg !== null, cls: S.cdone ? (k === truth ? 'good' : k === S.cg ? 'bad' : '') : k === S.cg ? 'sel' : '' }));
+  const vd = S.cdone ? `<b style="color:${S.cg === truth ? GOOD : BAD}">${esc(S.cg === truth ? t.right : t.no)}</b> ${esc(t.c.why[S.ci])}<div class="note">${esc(t.c.real(fmt(R.real)))}</div>` : '';
+  setQA('c', t.c.q, opts, vd, S.cdone ? t.next : null);
+  if (S.cg === null) lab.setReadout(`${R.a} ${R.op} ${R.b}`, '', '', ROBOT);
+  else lab.setReadout(`≈ ${fmt(R.er)}`, `${R.est[0]} ${R.op} ${R.est[1]}`, '', ROBOT);
+  setCard(t.st.check[S.cAns ? 1 : 0]);
+}
+function renderShop(t) {
+  const Sh = SHOP[S.si];
+  lab.setGlow('rgba(255, 201, 74, .26)');
+  const opts = t.s.o.map((label, k) => ({ k, label, dis: S.sg !== null, cls: S.sdone ? (k === Sh.ans ? 'good' : k === S.sg ? 'bad' : '') : k === S.sg ? 'sel' : '' }));
+  const vd = S.sdone ? `<b style="color:${S.sg === Sh.ans ? GOOD : BAD}">${esc(S.sg === Sh.ans ? t.right : t.no)}</b> ${esc(t.s.r[S.si])}` : '';
+  setQA('s', t.s.q, opts, vd, S.sdone ? t.next : null);
+  if (S.sg === null) lab.setReadout(`🪙 ${BUDGET}`, t.s.budget, '', EST);
+  else lab.setReadout(`≈ ${Sh.p.reduce((a, p) => a + roundHalfUp(p, 10), 0)}`, `🪙 ${BUDGET}`, '', EST);
+  setCard(t.st.shop[S.sAns ? 1 : 0]);
+}
+
+startRound(0);
+render();
+</script>
+</body>
+</html>
