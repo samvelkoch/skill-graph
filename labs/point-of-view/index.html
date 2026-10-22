@@ -1,0 +1,977 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>From Where I Stand · Skill Graph</title>
+<meta name="description" content="Walk around a scene to see what someone else sees, guess how story characters feel, and hear one event told by two people. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  #stage canvas { touch-action: pan-y; }
+  body[data-mt] #stage canvas { touch-action: none; }
+  #overlay > .story, #overlay > .sbubs { pointer-events: none; }
+  .story { position: absolute; left: 22px; right: 22px; top: 22px; text-align: center; color: #2E2A4A; font: 800 15px/1.35 var(--sans); text-wrap: balance; }
+  .story small { display: block; font-weight: 700; font-size: 12.5px; opacity: .65; margin-bottom: 2px; }
+  .sbubs { position: absolute; left: 10px; top: 10px; width: calc(100% - 134px); max-width: 360px; display: grid; gap: 6px; }
+  .sbub { position: relative; padding: 8px 12px; border-radius: 16px; background: rgba(255, 255, 255, .94); color: #2E2A4A; font: 700 13.5px/1.3 var(--sans);
+    border: 2px solid var(--c); box-shadow: 0 4px 14px rgba(30, 40, 80, .18); }
+  .sbub b { color: var(--c); margin-right: 4px; }
+  .sbub.sam { --c: #5B8DEF; } .sbub.lena { --c: #FF8A5B; }
+  .sbub i { position: absolute; right: -8px; top: -8px; width: 22px; height: 22px; border-radius: 50%; background: #3ddc97; color: #fff; font: 900 13px/22px var(--sans); text-align: center; font-style: normal; }
+  .qq { font: 800 15px/1.35 var(--sans); color: #fff; margin: 0 0 10px; text-wrap: balance; }
+  .abs { display: flex; flex-wrap: wrap; gap: 8px; }
+  .abs.col { flex-direction: column; align-items: stretch; }
+  .ab { padding: 9px 18px; min-height: 40px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1); font-weight: 800; cursor: pointer; text-align: center; }
+  .ab:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .ab:disabled { cursor: default; }
+  .ab.pick { border-color: #fff; }
+  .ab.good { border-color: var(--ok); background: rgba(61, 220, 151, .18); }
+  .ab.bad { border-color: var(--red); background: rgba(255, 59, 48, .14); }
+  .ab.bub { border-radius: 18px 18px 18px 4px; text-align: left; }
+  .vd { margin-top: 12px; font-size: 13px; color: var(--soft); }
+  .vd b { display: block; font-size: 15px; margin-bottom: 2px; }
+  .vd.ok b { color: var(--ok); } .vd.no b { color: var(--wip); }
+  .push { margin-left: auto; }
+  .fine { font-size: 11px; color: var(--faint); }
+  .row2.first { margin-top: 0; }
+  @media (max-width: 760px) {
+    #stage { height: min(112vw, 500px); }
+    .story { font-size: 14px; left: 18px; right: 18px; top: 18px; }
+    .sbub { font-size: 12.5px; padding: 6px 10px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'From Where I Stand', title: 'Same world, different eyes',
+    lines: [['You stand here.', 'Someone else stands there.'], ['Do you see', 'the same thing?'], ['Let’s walk around', 'and find out.']],
+    views: { see: '👀 What they see', feel: '💛 How they feel', sides: '🔁 Two sides' },
+    next: 'Next ▶', right: 'Yes!', wrong: 'Not quite — look from there!', again: 'Again ↻',
+    names: { mia: 'Mia', leo: 'Leo', tom: 'Tom', kira: 'Kira', ana: 'Ana', ben: 'Ben', sam: 'Sam', lena: 'Lena' }, you: 'you',
+    s: { q1: 'Mia stands on the other side. What number does Mia see?', o1: ['6', '9'],
+         r1: 'From Mia’s side it is a 9. You both read it right — from where you stand.',
+         q2: 'What colour does Leo see?', o2: ['red', 'blue'],
+         r2: 'Leo sees the blue side. You can’t see his side from here — but you can imagine it.',
+         q3: 'Can Tom see the teddy?', o3: ['yes', 'no'],
+         r3: 'The box is in the way. You know the teddy is there; Tom doesn’t.',
+         walk: 'walk around' },
+    f: { q: (n) => `How does ${n} feel?`, friend: 'your friend',
+         stories: ['His little sister knocks down the tall tower Tom built.', 'It is Kira’s first day in a new school. She doesn’t know anyone.',
+                   'It starts to rain. Ana had planned a picnic.', 'Same rain. Ben planted seeds in his garden yesterday.', 'You win a race. Your friend comes last.'],
+         opts: [['😊 happy', '😠 upset', '😨 scared'], ['😬 nervous', '🥱 bored', '😎 proud'], ['😊 glad', '😞 disappointed'], ['😊 glad', '😞 disappointed'], ['🤩 proud', '😢 sad', '😴 sleepy']],
+         why: ['Something he made with care was broken. Anyone would be upset.', 'New places and new faces can make your tummy flutter.',
+               'Same rain, two feelings! The rain spoils Ana’s picnic but waters Ben’s seeds.', '', 'Coming last feels bad, even when it’s only a game.'],
+         say: 'What could you say?', sayOpts: ['“Ha! I won!”', '“You ran really hard. Want to race again tomorrow?”', '(walk away)'] },
+    t: { samEyes: '👦 Sam’s eyes', lenaEyes: '👧 Lena’s eyes',
+         sam: 'I was just playing. I didn’t even see the castle!', lena: 'My castle! I worked on it all morning!',
+         q: 'Who is telling the truth?', o: ['Sam', 'Lena', 'both'],
+         r: 'Both! Sam really didn’t see it, and Lena really lost her castle. Two true stories about one ball.',
+         q2: 'What could fix it?', o2: ['Sam says sorry and helps rebuild', 'They stop talking', 'Lena kicks the ball away'],
+         r2: 'Saying sorry and helping works even when it was an accident.' },
+    secrets: { duck: ['Duck or rabbit?', 'One picture, two animals.'], mountains: ['Three mountains', 'Walk a doll around a table.'] },
+    sec: { duckBtn: '🔁 Look again', duckText: 'The lines never change — only how you look at them. People can look at the same thing and both be right.',
+           mtText: 'A famous scientist, Jean Piaget, asked children what a doll sees from another side of the table. Try it!' },
+    st: { see: [['👀', 'Two places, two views', 'Where does each one stand?'], ['👀', 'Where you stand changes what you see', 'To know what they see, imagine standing there.']],
+          feel: [['💛', 'Little stories', 'Look at what happened to them.'], ['💛', 'Feelings come from their story', 'Same event, different wishes, different feelings.']],
+          sides: [['🔁', 'One ball, two children', 'Listen to both.'], ['🔁', 'Two true stories', 'Listening to both sides helps fix things.']] },
+    fine: 'Jastrow’s duck–rabbit (1899) and Piaget’s three-mountains task (1956).',
+    quiz: [
+      { q: 'A 6 painted on the ground. Your friend stands across from you. What do they see?', opts: ['6', '9', '0'], ok: 1 },
+      { q: 'It rains. One child is sad, another is glad. Why?', opts: ['one of them is wrong', 'they wanted different things', 'rain is sad'], ok: 1 },
+      { q: 'To understand how someone feels, you…', opts: ['imagine being in their place', 'ask how you feel', 'look away'], ok: 0 } ],
+  },
+  ru: {
+    name: 'С другой стороны', title: 'Один мир — разные глаза',
+    lines: [['Ты стоишь здесь.', 'А кто-то — там.'], ['Вы видите', 'одно и то же?'], ['Давай обойдём', 'и проверим.']],
+    views: { see: '👀 Что видят', feel: '💛 Что чувствуют', sides: '🔁 Две стороны' },
+    next: 'Дальше ▶', right: 'Да!', wrong: 'Не совсем — посмотри оттуда!', again: 'Ещё раз ↻',
+    names: { mia: 'Мия', leo: 'Лео', tom: 'Том', kira: 'Кира', ana: 'Аня', ben: 'Бен', sam: 'Сэм', lena: 'Лена' }, you: 'ты',
+    s: { q1: 'Мия стоит с другой стороны. Какую цифру видит Мия?', o1: ['6', '9'],
+         r1: 'Со стороны Мии это 9. Вы оба прочитали верно — каждый со своего места.',
+         q2: 'Какой цвет видит Лео?', o2: ['красный', 'синий'],
+         r2: 'Лео видит синюю сторону. Отсюда тебе её не видно — но её можно представить.',
+         q3: 'Видит ли Том мишку?', o3: ['да', 'нет'],
+         r3: 'Коробка мешает. Ты знаешь, что мишка там, а Том — нет.',
+         walk: 'обойти вокруг' },
+    f: { q: (n) => `Что чувствует ${n}?`, friend: 'твой друг',
+         stories: ['Младшая сестрёнка сломала высокую башню, которую построил Том.', 'У Киры первый день в новой школе. Она никого не знает.',
+                   'Пошёл дождь. Аня собиралась на пикник.', 'Тот же дождь. Бен вчера посадил в саду семена.', 'Ты выиграл забег. Твой друг пришёл последним.'],
+         opts: [['😊 радость', '😠 обида', '😨 страх'], ['😬 волнение', '🥱 скука', '😎 гордость'], ['😊 радость', '😞 огорчение'], ['😊 радость', '😞 огорчение'], ['🤩 гордость', '😢 грусть', '😴 сонливость']],
+         why: ['Сломали то, что он старательно строил. Любой бы расстроился.', 'Новое место и новые лица — от этого сердце колотится.',
+               'Один дождь — два чувства! Дождь испортил Ане пикник, а семена Бена полил.', '', 'Прийти последним обидно, даже если это просто игра.'],
+         say: 'Что можно сказать?', sayOpts: ['«Ха! Я выиграл!»', '«Ты здорово бежал. Давай завтра ещё раз?»', '(уйти молча)'] },
+    t: { samEyes: '👦 Глазами Сэма', lenaEyes: '👧 Глазами Лены',
+         sam: 'Я просто играл. Я даже не видел замок!', lena: 'Мой замок! Я строила его всё утро!',
+         q: 'Кто говорит правду?', o: ['Сэм', 'Лена', 'оба'],
+         r: 'Оба! Сэм правда не видел замок, а Лена правда осталась без замка. Две правдивые истории об одном мяче.',
+         q2: 'Как это исправить?', o2: ['Сэм извиняется и помогает строить', 'Они перестают разговаривать', 'Лена пинает мяч подальше'],
+         r2: 'Извиниться и помочь — правильно, даже если это вышло случайно.' },
+    secrets: { duck: ['Утка или кролик?', 'Одна картинка — два зверя.'], mountains: ['Три горы', 'Обведи куклу вокруг стола.'] },
+    sec: { duckBtn: '🔁 Посмотреть иначе', duckText: 'Линии не меняются — меняется только то, как ты смотришь. Люди могут смотреть на одно и то же, и оба быть правы.',
+           mtText: 'Знаменитый учёный Жан Пиаже спрашивал детей, что видит кукла с другой стороны стола. Попробуй!' },
+    st: { see: [['👀', 'Два места — два вида', 'Где стоит каждый?'], ['👀', 'Место меняет то, что ты видишь', 'Чтобы понять, что видит другой, встань мысленно на его место.']],
+          feel: [['💛', 'Маленькие истории', 'Посмотри, что с ними случилось.'], ['💛', 'Чувства рождаются из их истории', 'Одно событие, разные желания — разные чувства.']],
+          sides: [['🔁', 'Один мяч, двое детей', 'Послушай обоих.'], ['🔁', 'Две правдивые истории', 'Выслушать обе стороны — значит помочь всё исправить.']] },
+    fine: 'Утка-кролик Джастроу (1899) и задача Пиаже «Три горы» (1956).',
+    quiz: [
+      { q: 'На земле нарисована цифра 6. Друг стоит напротив тебя. Что он видит?', opts: ['6', '9', '0'], ok: 1 },
+      { q: 'Идёт дождь. Один ребёнок грустит, другой радуется. Почему?', opts: ['один из них неправ', 'они хотели разного', 'дождь — это грустно'], ok: 1 },
+      { q: 'Чтобы понять, что чувствует другой, нужно…', opts: ['представить себя на его месте', 'спросить, что чувствуешь ты', 'отвернуться'], ok: 0 } ],
+  },
+  hu: {
+    name: 'Ahonnan én nézem', title: 'Ugyanaz a világ, más szemek',
+    lines: [['Te itt állsz.', 'Valaki más ott.'], ['Ugyanazt', 'látjátok?'], ['Kerüljük meg,', 'és nézzük meg!']],
+    views: { see: '👀 Mit látnak', feel: '💛 Mit éreznek', sides: '🔁 Két oldal' },
+    next: 'Tovább ▶', right: 'Igen!', wrong: 'Nem egészen — nézd onnan!', again: 'Újra ↻',
+    names: { mia: 'Mia', leo: 'Leó', tom: 'Tom', kira: 'Kira', ana: 'Anna', ben: 'Ben', sam: 'Sam', lena: 'Léna' }, you: 'te',
+    s: { q1: 'Mia a másik oldalon áll. Milyen számot lát Mia?', o1: ['6', '9'],
+         r1: 'Mia oldaláról ez 9. Mindketten jól olvastátok — ki-ki a saját helyéről.',
+         q2: 'Milyen színt lát Leó?', o2: ['pirosat', 'kéket'],
+         r2: 'Leó a kék oldalt látja. Innen nem látod az ő oldalát — de el tudod képzelni.',
+         q3: 'Látja Tom a macit?', o3: ['igen', 'nem'],
+         r3: 'A doboz útban van. Te tudod, hogy ott a maci; Tom nem.',
+         walk: 'körbejárás' },
+    f: { q: (n) => `Mit érez ${n}?`, friend: 'a barátod',
+         stories: ['Tom kishúga ledönti a magas tornyot, amit Tom épített.', 'Kirának ez az első napja az új iskolában. Senkit sem ismer.',
+                   'Elkezd esni. Anna pikniket tervezett.', 'Ugyanaz az eső. Ben tegnap magokat ültetett a kertben.', 'Megnyersz egy versenyt. A barátod utolsó lesz.'],
+         opts: [['😊 öröm', '😠 bosszúság', '😨 félelem'], ['😬 izgulás', '🥱 unalom', '😎 büszkeség'], ['😊 öröm', '😞 csalódás'], ['😊 öröm', '😞 csalódás'], ['🤩 büszkeség', '😢 szomorúság', '😴 álmosság']],
+         why: ['Elrontották, amit gondosan épített. Bárki bosszús lenne.', 'Új hely, új arcok — ettől kalapál a szív.',
+               'Ugyanaz az eső, két érzés! Annának elrontja a pikniket, Ben magjait megöntözi.', '', 'Utolsónak lenni rossz érzés, még ha csak játék is.'],
+         say: 'Mit mondhatnál?', sayOpts: ['„Haha! Nyertem!”', '„Nagyon gyorsan futottál. Holnap újra versenyzünk?”', '(szó nélkül elmenni)'] },
+    t: { samEyes: '👦 Sam szemével', lenaEyes: '👧 Léna szemével',
+         sam: 'Csak játszottam. Nem is láttam a várat!', lena: 'A váram! Egész délelőtt építettem!',
+         q: 'Ki mond igazat?', o: ['Sam', 'Léna', 'mindketten'],
+         r: 'Mindketten! Sam tényleg nem látta, Léna tényleg elvesztette a várát. Két igaz történet egyetlen labdáról.',
+         q2: 'Mi hozhatja helyre?', o2: ['Sam bocsánatot kér és segít újraépíteni', 'Nem beszélnek többé', 'Léna elrúgja a labdát'],
+         r2: 'Bocsánatot kérni és segíteni akkor is jó, ha véletlen volt.' },
+    secrets: { duck: ['Kacsa vagy nyúl?', 'Egy kép, két állat.'], mountains: ['Három hegy', 'Vidd körbe a babát az asztal körül.'] },
+    sec: { duckBtn: '🔁 Nézd másképp', duckText: 'A vonalak nem változnak — csak az, ahogy nézed. Ugyanazt nézve mindketten igazatok lehet.',
+           mtText: 'Egy híres tudós, Jean Piaget megkérdezte a gyerekeket, mit lát a baba az asztal másik oldaláról. Próbáld ki!' },
+    st: { see: [['👀', 'Két hely, két nézet', 'Ki hol áll?'], ['👀', 'Ahol állsz, az változtatja meg, amit látsz', 'Hogy tudd, mit lát, képzeld magad oda.']],
+          feel: [['💛', 'Kis történetek', 'Nézd meg, mi történt velük.'], ['💛', 'Az érzés a történetükből fakad', 'Ugyanaz az esemény, más vágyak, más érzések.']],
+          sides: [['🔁', 'Egy labda, két gyerek', 'Hallgasd meg mindkettőt.'], ['🔁', 'Két igaz történet', 'Ha mindkét oldalt meghallgatod, könnyebb helyrehozni.']] },
+    fine: 'Jastrow kacsa–nyúl rajza (1899) és Piaget háromhegy-kísérlete (1956).',
+    quiz: [
+      { q: 'A földre egy 6-ost festettek. A barátod veled szemben áll. Mit lát?', opts: ['6', '9', '0'], ok: 1 },
+      { q: 'Esik. Az egyik gyerek szomorú, a másik örül. Miért?', opts: ['egyikük téved', 'mást szerettek volna', 'az eső szomorú'], ok: 1 },
+      { q: 'Hogy megértsd, mit érez a másik…', opts: ['képzeld magad a helyébe', 'kérdezd meg, te mit érzel', 'nézz el máshová'], ok: 0 } ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_9NQEiYLQA3', en: "Seeing Someone Else's Point of View", ru: 'Взгляд на ситуацию глазами другого', hu: 'Valaki más szemszögének megértése' },
+];
+
+// --- small helpers -------------------------------------------------------------------------------------------
+const TAU = Math.PI * 2, INK = '#2E2A4A', GRASS = '#BFE3C0', PAVE = '#F3E3C3', WARM = '#FF8A5B', COOL = '#5B8DEF';
+const clamp01 = (x) => clamp(x, 0, 1);
+const ease = (t) => { t = clamp01(t); return t < .5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2; };
+const backOut = (t) => { t = clamp01(t); const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2; };
+const rgbOf = (h) => { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+const mixc = (a, b, t) => { const p = rgbOf(a), q = rgbOf(b); return '#' + p.map((v, i) => Math.round(v + (q[i] - v) * t).toString(16).padStart(2, '0')).join(''); };
+const shade = (h, k) => mixc(h, '#000000', k);
+const tint = (h, k) => mixc(h, '#ffffff', k);
+const rgba = (h, a) => { const [r, g, b] = rgbOf(h); return `rgba(${r},${g},${b},${a})`; };
+const hash = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+const now = () => performance.now() / 1000;
+const ordOf = (key, n) => [...Array(n).keys()]; // options keep the order given in the spec
+let CW = 0, CH = 0;
+
+// a dark, rounded label that is always readable and kept inside the canvas
+function pill(c, text, x, y, size = 12, color = '#fff') {
+  c.save(); c.globalAlpha = 1; c.font = `800 ${size}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+  const tw = c.measureText(text).width + 16, th = size + 10;
+  x = clamp(x, tw / 2 + 4, Math.max(tw / 2 + 4, CW - tw / 2 - 4)); y = clamp(y, th / 2 + 4, Math.max(th / 2 + 4, CH - th / 2 - 4));
+  c.fillStyle = 'rgba(30,27,52,.8)'; c.beginPath(); c.roundRect(x - tw / 2, y - th / 2, tw, th, th / 2); c.fill();
+  c.fillStyle = color; c.fillText(text, x, y + 1); c.restore();
+}
+const poly = (c, pts) => { c.beginPath(); pts.forEach(([X, Y], i) => (i ? c.lineTo(X, Y) : c.moveTo(X, Y))); c.closePath(); };
+
+function cloud(c, x, y, s) {
+  c.beginPath(); c.ellipse(x, y, s * 1.2, s * .5, 0, 0, TAU); c.ellipse(x - s * .7, y + s * .12, s * .7, s * .38, 0, 0, TAU);
+  c.ellipse(x + s * .75, y + s * .14, s * .8, s * .4, 0, 0, TAU); c.ellipse(x, y - s * .25, s * .7, s * .5, 0, 0, TAU); c.fill();
+}
+const CLOUDS = [[.1, .1, 26, 4], [.55, .06, 20, 3], [.85, .2, 24, 5]];
+function drawSky(c, w, h, time, to = 1) {
+  const g = c.createLinearGradient(0, 0, 0, h * to); g.addColorStop(0, '#9AD0FF'); g.addColorStop(1, '#DDF1FF');
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+  c.save(); c.globalAlpha = .75; c.fillStyle = '#fff';
+  for (const [fx, fy, sz, sp] of CLOUDS) cloud(c, ((fx * w + time * sp) % (w + 160)) - 80, fy * h * to, sz);
+  c.restore();
+}
+
+// --- the children --------------------------------------------------------------------------------------------
+const KIDS = {
+  mia: { shirt: WARM, hair: 'pony', hc: '#6B4226', skin: '#F6C9A0' }, leo: { shirt: COOL, hair: 'short', hc: INK, skin: '#E9B189' },
+  tom: { shirt: '#FF7A7A', hair: 'spiky', hc: '#C9873B', skin: '#F6C9A0' }, kira: { shirt: '#C9A7FF', hair: 'bob', hc: INK, skin: '#D39A73' },
+  ana: { shirt: '#FFD166', hair: 'pony', hc: '#3A2A22', skin: '#E9B189' }, ben: { shirt: '#5BD38A', hair: 'curly', hc: '#6B4226', skin: '#B97A55' },
+  sam: { shirt: COOL, hair: 'short', hc: '#C9873B', skin: '#F6C9A0' }, lena: { shirt: WARM, hair: 'bob', hc: '#6B4226', skin: '#F6C9A0' },
+  friend: { shirt: '#7FB2FF', hair: 'short', hc: '#3A2A22', skin: '#D39A73' }, you: { shirt: '#FFD166', hair: 'short', hc: INK, skin: '#E9B189' },
+  doll: { shirt: '#FFD166', hair: 'pony', hc: '#C9873B', skin: '#F6C9A0' },
+};
+// face parameters: m = mouth curve, o = mouth open, bt = brow tilt (+ angry, - sad), bh = brow height, es = eye size
+const MOODS = {
+  neutral: { m: .1, o: 0, bt: 0, bh: 0, es: 1, sweat: 0, blush: 0, squint: 0, wavy: 0 },
+  smile: { m: .55, o: 0, bt: -.2, bh: .05, es: 1, sweat: 0, blush: .25, squint: 0, wavy: 0 },
+  happy: { m: 1, o: .4, bt: -.1, bh: .1, es: 1, sweat: 0, blush: .7, squint: 0, wavy: 0 },
+  sad: { m: -.85, o: 0, bt: -.85, bh: -.05, es: .95, sweat: 0, blush: 0, squint: 0, wavy: 0 },
+  upset: { m: -.55, o: .12, bt: .9, bh: -.1, es: .95, sweat: 0, blush: .15, squint: 0, wavy: 0 },
+  nervous: { m: -.15, o: 0, bt: -.55, bh: .25, es: 1.05, sweat: 1, blush: 0, squint: 0, wavy: 1 },
+  surprised: { m: 0, o: 1, bt: 0, bh: .6, es: 1.2, sweat: 0, blush: 0, squint: 0, wavy: 0 },
+  proud: { m: .75, o: 0, bt: .1, bh: .15, es: 1, sweat: 0, blush: .5, squint: 1, wavy: 0 },
+};
+const approachFace = (cur, tgt, k) => { for (const key in tgt) cur[key] += (tgt[key] - cur[key]) * k; };
+
+// foot of the child at (x, y), u = height in px; o: {back, look -1..1, face, arms 0..1 (or armsL/armsR), bob, blink, time}
+function drawKid(c, x, y, u, id, o = {}) {
+  if (u < 4) return;
+  const k = KIDS[id], f = o.face ?? MOODS.neutral, back = !!o.back, look = o.look ?? 0, px = 1 / u;
+  const skin = k.skin, skinD = shade(skin, .3), shirt = k.shirt, hair = k.hc, hairD = shade(hair, .4), hy = -.76, hr = .215;
+  c.save(); c.globalAlpha = 1; c.lineJoin = 'round'; c.lineCap = 'round';
+  c.save(); c.translate(x, y); c.scale(1, .26); // soft shadow
+  const sg = c.createRadialGradient(0, 0, 0, 0, 0, u * .42); sg.addColorStop(0, 'rgba(30,40,50,.36)'); sg.addColorStop(1, 'rgba(30,40,50,0)');
+  c.fillStyle = sg; c.beginPath(); c.arc(0, 0, u * .42, 0, TAU); c.fill(); c.restore();
+  c.translate(x, y - (o.bob ?? 0)); c.scale(u, u); c.lineWidth = 1.4 * px;
+  // legs and shoes
+  for (const s of [-1, 1]) {
+    c.fillStyle = '#4A4768'; c.strokeStyle = INK; c.beginPath(); c.roundRect(s * .075 - .045, -.2, .09, .19, .03); c.fill(); c.stroke();
+    c.fillStyle = INK; c.beginPath(); c.ellipse(s * .075 + look * .012, -.014, .066, .03, 0, 0, TAU); c.fill();
+  }
+  // body: a rounded trapezoid in the shirt colour, lit from the top left
+  const bg = c.createLinearGradient(-.2, -.56, .2, -.17); bg.addColorStop(0, tint(shirt, .3)); bg.addColorStop(1, shade(shirt, .22));
+  c.fillStyle = bg; c.strokeStyle = shade(shirt, .5);
+  c.beginPath(); c.moveTo(0, -.56); c.arcTo(.15, -.56, .2, -.17, .06); c.arcTo(.2, -.17, -.2, -.17, .05); c.arcTo(-.2, -.17, -.15, -.56, .05); c.arcTo(-.15, -.56, 0, -.56, .06); c.closePath(); c.fill(); c.stroke();
+  // arms
+  for (const s of [-1, 1]) {
+    const up = clamp01((s < 0 ? o.armsL : o.armsR) ?? o.arms ?? 0), hx = s * (.235 + .05 * up), hyy = lerp(-.29, -.86, up), sx = s * .14, sy = -.52;
+    c.strokeStyle = shade(shirt, .5); c.lineWidth = .085 + 2.6 * px; c.beginPath(); c.moveTo(sx, sy); c.lineTo(hx, hyy); c.stroke();
+    c.strokeStyle = shirt; c.lineWidth = .085; c.beginPath(); c.moveTo(sx, sy); c.lineTo(hx, hyy); c.stroke();
+    c.lineWidth = 1.4 * px; c.fillStyle = skin; c.strokeStyle = skinD; c.beginPath(); c.arc(hx, hyy, .05, 0, TAU); c.fill(); c.stroke();
+  }
+  c.fillStyle = skin; c.strokeStyle = skinD; c.beginPath(); c.ellipse(0, -.58, .056, .045, 0, 0, TAU); c.fill(); c.stroke(); // neck
+  // hair behind the head
+  c.fillStyle = hair; c.strokeStyle = hairD;
+  if (k.hair === 'bob') { c.beginPath(); c.ellipse(0, hy + .04, hr + .04, hr + .02, 0, 0, TAU); c.fill(); c.stroke(); }
+  if (k.hair === 'pony') { c.beginPath(); c.ellipse(hr + .035, hy + .08, .05, .11, .25, 0, TAU); c.fill(); c.stroke(); }
+  // ears and head
+  c.fillStyle = skin; c.strokeStyle = skinD;
+  for (const s of [-1, 1]) { c.beginPath(); c.arc(s * hr, hy + .02, .036, 0, TAU); c.fill(); c.stroke(); }
+  const hg = c.createRadialGradient(-.07, hy - .08, .02, 0, hy, hr * 1.1); hg.addColorStop(0, tint(skin, .35)); hg.addColorStop(.6, skin); hg.addColorStop(1, shade(skin, .14));
+  c.fillStyle = hg; c.beginPath(); c.arc(0, hy, hr, 0, TAU); c.fill(); c.stroke();
+  // face
+  if (!back) {
+    c.save(); c.translate(look * .06, 0);
+    const blink = o.blink ?? 1;
+    if (f.blush > .02) { c.fillStyle = `rgba(255,110,120,${.34 * f.blush})`; for (const s of [-1, 1]) { c.beginPath(); c.ellipse(s * .125, hy + .075, .04, .028, 0, 0, TAU); c.fill(); } }
+    c.lineCap = 'round';
+    for (const s of [-1, 1]) {
+      const ex = s * .076;
+      if (f.squint > .5) { c.strokeStyle = INK; c.lineWidth = .02; c.beginPath(); c.arc(ex, hy + .012, .03, Math.PI * 1.1, Math.PI * 1.9); c.stroke(); }
+      else {
+        c.fillStyle = INK; c.beginPath(); c.ellipse(ex, hy, Math.max(0, .03 * f.es), Math.max(0, .04 * f.es * blink), 0, 0, TAU); c.fill();
+        c.fillStyle = '#fff'; c.beginPath(); c.arc(ex + .011, hy - .014 * blink, .0125, 0, TAU); c.fill();
+      }
+      const by = hy - .078 - f.bh * .04, inner = by + f.bt * .036, outer = by - f.bt * .012;
+      c.strokeStyle = shade(hair, .1); c.lineWidth = .022; c.beginPath(); c.moveTo(s * .118, outer); c.lineTo(s * .036, inner); c.stroke();
+    }
+    const my = hy + .108, mw = .055 - f.o * .02;
+    c.strokeStyle = INK; c.lineWidth = .02;
+    if (f.wavy > .5) { c.beginPath(); for (let i = 0; i <= 8; i++) { const xx = -mw + (i / 8) * 2 * mw, yy = my + Math.sin(i * 1.9 + (o.time ?? 0) * 9) * .01; if (i) c.lineTo(xx, yy); else c.moveTo(xx, yy); } c.stroke(); }
+    else {
+      c.beginPath(); c.moveTo(-mw, my); c.quadraticCurveTo(0, my + f.m * .06, mw, my);
+      if (f.o > .05) { c.quadraticCurveTo(0, my + f.m * .06 + f.o * .11, -mw, my); c.closePath(); c.fillStyle = '#8C3B52'; c.fill(); }
+      c.stroke();
+    }
+    if (f.sweat > .3) {
+      const sx = .17, sy = hy - .1 + ((o.time ?? 0) % 1.4) / 1.4 * .05;
+      c.fillStyle = `rgba(156,211,255,${f.sweat})`; c.strokeStyle = 'rgba(70,120,190,.6)'; c.lineWidth = .008;
+      c.beginPath(); c.moveTo(sx, sy - .035); c.quadraticCurveTo(sx + .03, sy + .005, sx, sy + .024); c.quadraticCurveTo(sx - .03, sy + .005, sx, sy - .035); c.fill(); c.stroke();
+    }
+    c.restore();
+  }
+  // hair in front
+  c.fillStyle = hair; c.strokeStyle = hairD; c.lineWidth = 1.4 * px;
+  if (back) {
+    if (k.hair === 'curly') for (let a = 0; a < 12; a++) { c.beginPath(); c.arc(Math.cos(a / 12 * TAU) * (hr - .005), hy + Math.sin(a / 12 * TAU) * (hr - .005), .07, 0, TAU); c.fill(); }
+    c.beginPath(); c.arc(0, hy, hr + .012, 0, TAU); c.fill(); c.stroke();
+  } else {
+    if (k.hair === 'curly') for (let a = 1; a <= 9; a++) { const an = Math.PI * (1 + a * .115); c.beginPath(); c.arc(Math.cos(an) * (hr - .005), hy + Math.sin(an) * (hr - .005), .068, 0, TAU); c.fill(); c.stroke(); }
+    if (k.hair === 'spiky') for (let a = 0; a < 5; a++) {
+      const an = Math.PI * (1.2 + a * .15), p1 = [Math.cos(an - .09 * Math.PI) * (hr + .005), hy + Math.sin(an - .09 * Math.PI) * (hr + .005)],
+        p2 = [Math.cos(an + .09 * Math.PI) * (hr + .005), hy + Math.sin(an + .09 * Math.PI) * (hr + .005)], tip = [Math.cos(an) * (hr + .085), hy + Math.sin(an) * (hr + .085)];
+      poly(c, [p1, tip, p2]); c.fill(); c.stroke();
+    }
+    c.beginPath(); c.arc(0, hy, hr + .01, Math.PI * 1.04, Math.PI * 1.96);
+    if (k.hair === 'bob') { c.quadraticCurveTo(.12, hy - .1, 0, hy - .105); c.quadraticCurveTo(-.12, hy - .1, -.224, hy - .028); }
+    else { c.quadraticCurveTo(.12, hy - .13, -.02, hy - .115); c.quadraticCurveTo(-.15, hy - .1, -.224, hy - .028); }
+    c.closePath(); c.fill(); c.stroke();
+  }
+  c.restore();
+}
+
+// --- state ---------------------------------------------------------------------------------------------------
+const SEE = [
+  { q: 'q1', o: 'o1', r: 'r1', ok: 1, scene: 'num', other: 'mia' },
+  { q: 'q2', o: 'o2', r: 'r2', ok: 1, scene: 'col', other: 'leo' },
+  { q: 'q3', o: 'o3', r: 'r3', ok: 1, scene: 'teddy', other: 'tom' },
+];
+const FEEL = [
+  { scene: 'tower', kids: ['tom'], why: 0, qs: [{ kid: 'tom', st: 0, ok: 1, mood: 'upset', hue: '#FF7A7A' }] },
+  { scene: 'school', kids: ['kira'], why: 1, qs: [{ kid: 'kira', st: 1, ok: 0, mood: 'nervous', hue: '#C9A7FF' }] },
+  { scene: 'rain', kids: ['ana', 'ben'], why: 2, qs: [{ kid: 'ana', st: 2, ok: 1, mood: 'sad', hue: '#7FB2FF' }, { kid: 'ben', st: 3, ok: 0, mood: 'happy', hue: '#FFD166' }] },
+  { scene: 'race', kids: ['friend'], why: 4, say: true, qs: [{ kid: 'friend', st: 4, ok: 1, mood: 'sad', hue: '#7FB2FF' }] },
+];
+const S = {
+  asked: { see: false, feel: false, sides: false }, tok: 0,
+  // view 1
+  round: 0, pick: null, shown: false, th: 0, tw: null, eyeAt: -1, sec: null, deg: 0, dh: 0, dpond: 0, dgrass: 0, phi: -Math.PI / 2,
+  // view 2
+  f: { i: 0, q: 0, st: 'ask', pick: null, say: 0, sst: 'ask', spick: null, end: false, mood: {}, tint: {}, faces: {}, cardAt: 0 },
+  // view 3
+  d: { eyes: 'sam', step: 0, pick: null, shown: false, fixAt: 0, t0: 0, both: false },
+};
+const lab = shell({ key: 'point-of-view', T, topics: TOPICS, views: ['see', 'feel', 'sides'], onLang: () => render(), onView: () => { document.body.removeAttribute('data-mt'); render(); } });
+const secret = secretLab('point-of-view', () => ({
+  secrets: [{ emo: '🦆', title: T[lang].secrets.duck[0], desc: T[lang].secrets.duck[1] }, { emo: '⛰️', title: T[lang].secrets.mountains[0], desc: T[lang].secrets.mountains[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+const storyEl = Object.assign(document.createElement('div'), { className: 'story' });
+const bubsEl = Object.assign(document.createElement('div'), { className: 'sbubs' });
+$('overlay').append(storyEl, bubsEl);
+$('ctrlBody').innerHTML = '<div id="ctrlIn"></div>';
+
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+// run fn after ms, unless something else happened meanwhile
+const later = (ms, fn) => { const k = ++S.tok; setTimeout(() => { if (k === S.tok) fn(); }, ms); };
+
+// ================================================================================================================
+// VIEW 1: what do they see? A round park seen from above, the whole scene turns.
+// ================================================================================================================
+const R_ = 3.05, K_ = .74, ZS = .85, KH = 1.3, DD = 2.05;
+const FLOWERS = Array.from({ length: 44 }, (_, i) => { const a = hash(i) * TAU, r = 1.0 + Math.sqrt(hash(i + 99)) * 1.95; return { x: Math.cos(a) * r, y: Math.sin(a) * r, c: ['#FFD166', '#FF7A7A', '#C9A7FF', '#fff'][i % 4] }; });
+const TREES = [[.62, 2.78], [2.5, 2.8], [3.7, 2.75], [5.5, 2.8]].map(([a, r]) => ({ x: Math.cos(a) * r, y: Math.sin(a) * r }));
+
+function drawTree(c, x, y, s) {
+  c.save(); c.globalAlpha = 1;
+  c.fillStyle = 'rgba(30,50,40,.2)'; c.beginPath(); c.ellipse(x, y, s * .42, s * .12, 0, 0, TAU); c.fill();
+  c.fillStyle = shade(PAVE, .4); c.strokeStyle = shade(PAVE, .6); c.lineWidth = 1.2; c.beginPath(); c.roundRect(x - s * .07, y - s * .5, s * .14, s * .5, 3); c.fill(); c.stroke();
+  for (const [dx, dy, r, k] of [[-.2, -.72, .3, .0], [.2, -.7, .3, .08], [0, -.98, .34, .14]]) {
+    const g = c.createRadialGradient(x + (dx - .1) * s, y + (dy - .1) * s, 1, x + dx * s, y + dy * s, r * s);
+    g.addColorStop(0, tint('#9ED7A6', .2 - k)); g.addColorStop(1, shade('#8CCB95', .12 + k * .4));
+    c.fillStyle = g; c.strokeStyle = shade('#8CCB95', .4); c.beginPath(); c.arc(x + dx * s, y + dy * s, Math.max(0, r * s), 0, TAU); c.fill(); c.stroke();
+  }
+  c.restore();
+}
+function drawTeddy(c, x, y, u) {
+  c.save(); c.globalAlpha = 1; c.lineJoin = 'round'; c.translate(x, y); c.scale(u, u); const lw = 1.3 / u, brown = '#C48A55', dk = '#8F5E36';
+  c.save(); c.scale(1, .26); const sg = c.createRadialGradient(0, 0, 0, 0, 0, .42); sg.addColorStop(0, 'rgba(30,40,50,.34)'); sg.addColorStop(1, 'rgba(30,40,50,0)'); c.fillStyle = sg; c.beginPath(); c.arc(0, 0, .42, 0, TAU); c.fill(); c.restore();
+  const fill = (cx, cy, rx, ry, col) => { const g = c.createRadialGradient(cx - rx * .35, cy - ry * .4, 0, cx, cy, Math.max(rx, ry) * 1.1); g.addColorStop(0, tint(col, .3)); g.addColorStop(1, shade(col, .12)); c.fillStyle = g; c.strokeStyle = dk; c.lineWidth = lw; c.beginPath(); c.ellipse(cx, cy, rx, ry, 0, 0, TAU); c.fill(); c.stroke(); };
+  fill(-.16, -.06, .08, .08, brown); fill(.16, -.06, .08, .08, brown); // feet
+  fill(0, -.24, .2, .22, brown); // body
+  fill(0, -.22, .11, .13, tint(brown, .45)); // belly
+  fill(-.22, -.34, .07, .07, brown); fill(.22, -.34, .07, .07, brown); // arms
+  fill(-.14, -.62, .07, .07, brown); fill(.14, -.62, .07, .07, brown); // ears
+  fill(0, -.5, .19, .17, brown); // head
+  fill(0, -.46, .08, .06, tint(brown, .5)); // snout
+  c.fillStyle = INK; c.beginPath(); c.arc(-.07, -.53, .017, 0, TAU); c.arc(.07, -.53, .017, 0, TAU); c.fill(); c.beginPath(); c.ellipse(0, -.48, .022, .015, 0, 0, TAU); c.fill();
+  c.fillStyle = WARM; c.beginPath(); poly(c, [[-.05, -.35], [0, -.33], [.05, -.35], [.05, -.31], [0, -.33], [-.05, -.31]]); c.fill(); // bow tie
+  c.restore();
+}
+function drawBox(c, P, th, hw, hd, hh, cols) {
+  const cs = Math.cos(th), sn = Math.sin(th);
+  const sh = poly; // shadow on the ground
+  c.fillStyle = 'rgba(30,50,40,.2)'; sh(c, [[-hw - .1, -hd - .05], [hw + .15, -hd - .05], [hw + .2, hd + .12], [-hw - .1, hd + .12]].map(([x, y]) => P(x, y, 0))); c.fill();
+  const FACES = [['py', 0, 1, [[-hw, hd], [hw, hd]]], ['ny', 0, -1, [[hw, -hd], [-hw, -hd]]], ['px', 1, 0, [[hw, hd], [hw, -hd]]], ['nx', -1, 0, [[-hw, -hd], [-hw, hd]]]];
+  c.lineJoin = 'round'; c.lineWidth = 1.5; c.strokeStyle = 'rgba(46,42,74,.55)';
+  for (const [key, nx, ny, [[ax, ay], [bx, by]]] of FACES) {
+    if (nx * sn + ny * cs < .02) continue; // faces turned away are never drawn
+    const nxr = nx * cs - ny * sn, A0 = P(ax, ay, 0), B0 = P(bx, by, 0), A1 = P(ax, ay, hh), B1 = P(bx, by, hh), col = cols[key];
+    const g = c.createLinearGradient(0, A1[1], 0, A0[1]); g.addColorStop(0, shade(col, .02 + .1 * clamp01(nxr))); g.addColorStop(1, shade(col, .12 + .18 * clamp01(nxr)));
+    c.fillStyle = g; poly(c, [A0, B0, B1, A1]); c.fill(); c.stroke();
+  }
+  const tp = [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]].map(([x, y]) => P(x, y, hh)), tg = c.createLinearGradient(tp[0][0], tp[0][1], tp[2][0], tp[2][1]);
+  tg.addColorStop(0, tint(cols.top, .3)); tg.addColorStop(1, cols.top); c.fillStyle = tg; poly(c, tp); c.fill(); c.stroke();
+}
+function eyeScene(c, r, kind, val) {
+  c.save(); c.beginPath(); c.arc(0, 0, Math.max(0, r), 0, TAU); c.clip();
+  const sky = c.createLinearGradient(0, -r, 0, r * .1); sky.addColorStop(0, '#9AD0FF'); sky.addColorStop(1, '#DDF1FF'); c.fillStyle = sky; c.fillRect(-r, -r, 2 * r, 1.2 * r);
+  const gr = c.createLinearGradient(0, r * .1, 0, r); gr.addColorStop(0, '#CBEBCB'); gr.addColorStop(1, '#A9D4AE'); c.fillStyle = gr; c.fillRect(-r, r * .1, 2 * r, r);
+  if (kind === 'num') {
+    c.fillStyle = PAVE; poly(c, [[-.5 * r, .15 * r], [.5 * r, .15 * r], [1.1 * r, r], [-1.1 * r, r]]); c.fill();
+    c.font = `900 ${r * .95}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineJoin = 'round'; c.lineWidth = r * .08; c.strokeStyle = INK; c.fillStyle = WARM;
+    c.strokeText(val, 0, r * .52); c.fillText(val, 0, r * .52);
+  } else {
+    const col = kind === 'wall' ? shade(PAVE, .1) : val;
+    c.fillStyle = 'rgba(30,50,40,.2)'; c.beginPath(); c.ellipse(0, .68 * r, .8 * r, .1 * r, 0, 0, TAU); c.fill();
+    c.fillStyle = tint(col, .35); poly(c, [[-.62 * r, -.28 * r], [.62 * r, -.28 * r], [.46 * r, -.5 * r], [-.46 * r, -.5 * r]]); c.fill();
+    const g = c.createLinearGradient(0, -.28 * r, 0, .66 * r); g.addColorStop(0, tint(col, .1)); g.addColorStop(1, shade(col, .12)); c.fillStyle = g; c.fillRect(-.62 * r, -.28 * r, 1.24 * r, .94 * r);
+    c.strokeStyle = 'rgba(46,42,74,.45)'; c.lineWidth = 2; c.strokeRect(-.62 * r, -.28 * r, 1.24 * r, .94 * r);
+  }
+  c.restore();
+}
+// the round "eye window" with a thick white rim and a tail that points at the head
+function eyeWindow(c, bx, by, r, tx, ty, kind, val, p) {
+  if (p <= 0) return;
+  const sc = backOut(p), ang = Math.atan2(ty - by, tx - bx), rim = 5;
+  c.save(); c.globalAlpha = 1; c.translate(tx, ty); c.scale(sc, sc); c.translate(-tx, -ty);
+  c.save(); c.shadowColor = 'rgba(20,30,70,.35)'; c.shadowBlur = 14; c.shadowOffsetY = 4; c.fillStyle = '#fff';
+  c.beginPath(); c.arc(bx, by, r + rim, 0, TAU); c.fill();
+  const a1 = ang - .38, a2 = ang + .38, rr = r + rim - 2;
+  poly(c, [[bx + Math.cos(a1) * rr, by + Math.sin(a1) * rr], [tx, ty], [bx + Math.cos(a2) * rr, by + Math.sin(a2) * rr]]); c.fill(); c.restore();
+  c.save(); c.translate(bx, by); eyeScene(c, r, kind, val); c.restore();
+  c.strokeStyle = 'rgba(46,42,74,.28)'; c.lineWidth = 1.5; c.beginPath(); c.arc(bx, by, r, 0, TAU); c.stroke();
+  c.restore();
+}
+function dotted(c, a, b, p, time, col = '#fff') {
+  if (p <= 0) return;
+  const ex = lerp(a[0], b[0], ease(p)), ey = lerp(a[1], b[1], ease(p));
+  c.save(); c.globalAlpha = 1; c.lineCap = 'round'; c.setLineDash([1, 8]); c.lineDashOffset = -time * 14;
+  c.strokeStyle = 'rgba(46,42,74,.4)'; c.lineWidth = 5.5; c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(ex, ey); c.stroke();
+  c.strokeStyle = col; c.lineWidth = 3.2; c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(ex, ey); c.stroke(); c.restore();
+}
+
+function drawSee(c, w, h, dt, time) {
+  if (S.tw) { const p = clamp01((time - S.tw.t0) / S.tw.dur); S.th = lerp(S.tw.a, S.tw.b, ease(p)); if (p >= 1) S.tw = null; }
+  const th = S.th, cs = Math.cos(th), sn = Math.sin(th), explore = S.round >= 3, r = SEE[Math.min(S.round, 2)], scene = explore ? 'num' : r.scene;
+  const sc = Math.min(w * .45 / R_, h / 5.2), topExt = Math.max(DD * K_ * sc + KH * ZS * sc + 8, R_ * K_ * sc), botExt = R_ * K_ * sc + .3 * sc;
+  const cx = w / 2, cy = (h - topExt - botExt) / 2 + topExt;
+  const P = (x, y, z = 0) => { const rx = x * cs - y * sn, ry = x * sn + y * cs; return [cx + rx * sc, cy + ry * K_ * sc - z * sc * ZS, ry]; };
+  drawSky(c, w, h, time);
+  // the park: a round island with a soft shadow, a rim and a lawn
+  const a = R_ * sc, b = R_ * K_ * sc, dep = .3 * sc;
+  c.save(); c.translate(cx, cy + dep + b * .2); c.scale(1, .3); const shg = c.createRadialGradient(0, 0, a * .3, 0, 0, a * 1.2); shg.addColorStop(0, 'rgba(40,60,100,.28)'); shg.addColorStop(1, 'rgba(40,60,100,0)');
+  c.fillStyle = shg; c.beginPath(); c.arc(0, 0, a * 1.2, 0, TAU); c.fill(); c.restore();
+  const sideG = c.createLinearGradient(cx - a, 0, cx + a, 0); sideG.addColorStop(0, '#A9D4AE'); sideG.addColorStop(.5, '#8FC49A'); sideG.addColorStop(1, '#78AE84');
+  c.fillStyle = sideG; c.beginPath(); c.ellipse(cx, cy + dep, a, b, 0, 0, TAU); c.fill(); c.fillRect(cx - a, cy, 2 * a, dep);
+  const lg = c.createRadialGradient(cx - a * .3, cy - b * .45, 0, cx, cy, a * 1.1); lg.addColorStop(0, '#D6F1D6'); lg.addColorStop(.55, GRASS); lg.addColorStop(1, '#A4D1AA');
+  c.fillStyle = lg; c.strokeStyle = 'rgba(46,42,74,.22)'; c.lineWidth = 1.5; c.beginPath(); c.ellipse(cx, cy, a, b, 0, 0, TAU); c.fill(); c.stroke();
+  // flat things painted on the ground use one transform: they turn with the park
+  c.save(); c.globalAlpha = 1; c.transform(sc * cs, K_ * sc * sn, -sc * sn, K_ * sc * cs, cx, cy);
+  for (const f of FLOWERS) { c.fillStyle = f.c; c.beginPath(); c.arc(f.x, f.y, .055, 0, TAU); c.fill(); c.fillStyle = '#FFD166'; c.beginPath(); c.arc(f.x, f.y, .02, 0, TAU); c.fill(); }
+  if (scene === 'num') {
+    const pg = c.createLinearGradient(-1.4, -1.4, 1.4, 1.4); pg.addColorStop(0, tint(PAVE, .35)); pg.addColorStop(1, shade(PAVE, .06));
+    c.fillStyle = pg; c.strokeStyle = shade(PAVE, .22); c.lineWidth = .05; c.beginPath(); c.roundRect(-1.4, -1.4, 2.8, 2.8, .32); c.fill(); c.stroke();
+    c.strokeStyle = shade(PAVE, .1); c.lineWidth = .02; c.beginPath(); for (const v of [-.7, 0, .7]) { c.moveTo(-1.4, v); c.lineTo(1.4, v); c.moveTo(v, -1.4); c.lineTo(v, 1.4); } c.stroke();
+    c.save(); c.scale(.01, .01); c.font = '900 270px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineJoin = 'round';
+    c.lineWidth = 16; c.strokeStyle = INK; c.fillStyle = WARM; c.strokeText('6', 0, 10); c.fillText('6', 0, 10); c.restore();
+  }
+  c.restore();
+  // everything that stands up, far to near
+  const items = [], add = (x, y, fn) => items.push({ d: P(x, y)[2], fn });
+  for (const t of TREES) add(t.x, t.y, () => { const [X, Y] = P(t.x, t.y); drawTree(c, X, Y, sc * 1.25); });
+  const info = (dir) => { const fx = dir[0] * cs - dir[1] * sn, fy = dir[0] * sn + dir[1] * cs; return { back: fy < -.2, look: clamp(fx * 1.3, -1, 1) }; };
+  const kids = [{ id: 'you', x: 0, y: DD, dir: [0, -1] }, { id: explore ? 'mia' : r.other, x: 0, y: -DD, dir: [0, 1] }];
+  const KU = sc * ZS * KH;
+  for (const kd of kids) add(kd.x, kd.y, () => { const [X, Y] = P(kd.x, kd.y); drawKid(c, X, Y, KU, kd.id, { ...info(kd.dir), face: MOODS.smile, time, blink: (time + kd.x + kd.y) % 4.1 < .12 ? .1 : 1 }); });
+  if (scene === 'col') add(0, 0, () => drawBox(c, P, th, .8, .8, 1.0, { py: '#E8505B', ny: COOL, px: PAVE, nx: PAVE, top: tint(PAVE, .3) }));
+  if (scene === 'teddy') {
+    add(0, 0, () => drawBox(c, P, th, 1.0, .75, 1.5, { py: PAVE, ny: PAVE, px: PAVE, nx: PAVE, top: tint(PAVE, .3) }));
+    add(0, 1.2, () => { const [X, Y] = P(0, 1.2); drawTeddy(c, X, Y, sc * ZS * .8); });
+  }
+  items.sort((p, q) => p.d - q.d).forEach((it) => it.fn());
+  // the reveal: sight lines, eye windows
+  const hd = P(0, DD, .95), hu = P(0, -DD, .95), ep = S.eyeAt < 0 ? 0 : (time - S.eyeAt) / .5;
+  if (!explore && S.pick !== null && S.eyeAt >= 0) {
+    const lineP = clamp01((time - S.eyeAt + .4) / .7), wr = clamp(Math.min(w, h) * .14, 34, 60);
+    const who = [{ k: kids[0], p: P(0, DD, .95) }, { k: kids[1], p: P(0, -DD, .95) }].map((o) => ({ ...o, top: o.p[1] < cy }));
+    if (scene === 'num') {
+      for (const o of who) dotted(c, [o.p[0], o.p[1]], P(0, 0, 0), lineP, time);
+    } else if (scene === 'col') {
+      for (const o of who) { const wy = o.k.y > 0 ? .8 : -.8; dotted(c, [o.p[0], o.p[1]], P(0, wy, .5), lineP, time); }
+    } else {
+      // Tom looks at the teddy, but the box is in the way
+      const T0 = P(0, -DD, .95), t = (-.75 + DD) / (1.2 + DD), hit = P(0, -.75, .95 - t * .6), tedP = P(0, 1.2, .35);
+      dotted(c, [T0[0], T0[1]], hit, lineP, time);
+      if (lineP > .98) {
+        c.save(); c.globalAlpha = .55; dotted(c, hit, tedP, 1, time, '#FF4D4D'); c.restore();
+        c.save(); c.globalAlpha = 1; c.strokeStyle = '#E8505B'; c.lineWidth = 4; c.lineCap = 'round'; c.fillStyle = 'rgba(255,255,255,.9)';
+        c.beginPath(); c.arc(hit[0], hit[1], 11, 0, TAU); c.fill(); c.beginPath(); c.moveTo(hit[0] - 5, hit[1] - 5); c.lineTo(hit[0] + 5, hit[1] + 5); c.moveTo(hit[0] + 5, hit[1] - 5); c.lineTo(hit[0] - 5, hit[1] + 5); c.stroke(); c.restore();
+      }
+    }
+    const wins = scene === 'teddy' ? [{ o: who[1], kind: 'wall', val: '' }]
+      : scene === 'num' ? [{ o: who[0], kind: 'num', val: '6' }, { o: who[1], kind: 'num', val: '9' }]
+      : [{ o: who[0], kind: 'col', val: '#E8505B' }, { o: who[1], kind: 'col', val: COOL }];
+    // after the turn, "you" stand where Mia/Leo stood and the other way round: the window shows what that child really sees
+    for (const wd of wins) {
+      const head = [wd.o.p[0], wd.o.p[1] - KU * .02], isTop = wd.o.top, side = isTop ? -1 : 1;
+      const bx = clamp(head[0] + side * (wr * 2.0), wr + 8, w - wr - 8), by = clamp(head[1] - (isTop ? wr * .3 : wr * .15), wr + 8, h - wr - 8);
+      const toward = Math.atan2(by - head[1], bx - head[0]), hr_ = KU * .24;
+      eyeWindow(c, bx, by, wr, head[0] + Math.cos(toward) * hr_, head[1] + Math.sin(toward) * hr_, wd.kind, wd.val, ep);
+    }
+  }
+  // names, always upright
+  for (const kd of kids) { const [X, Y] = P(kd.x, kd.y); pill(c, kd.id === 'you' ? T[lang].you : T[lang].names[kd.id], X, Y + 16, 12); }
+  // before the reveal the child sees the painted number the way it stands now
+}
+
+// ---- secret 1: duck or rabbit ---------------------------------------------------------------------------------
+function lobe(c, x0, y0, cx, cy, x1, y1, w0, w1) {
+  c.beginPath(); c.moveTo(x0, y0 - w0 / 2); c.quadraticCurveTo(cx, cy - (w0 + w1) / 4, x1, y1 - w1 / 2); c.quadraticCurveTo(x1 - w1 * .9, y1, x1, y1 + w1 / 2);
+  c.quadraticCurveTo(cx, cy + (w0 + w1) / 4, x0, y0 + w0 / 2); c.closePath();
+}
+function drawDuck(c, w, h, dt, time) {
+  c.save(); c.fillStyle = '#FFF8EA'; c.beginPath(); c.roundRect(6, 6, w - 12, h - 12, 22); c.fill(); c.clip();
+  const vg = c.createRadialGradient(w / 2, h / 2, Math.min(w, h) * .2, w / 2, h / 2, Math.max(w, h) * .75); vg.addColorStop(0, 'rgba(243,227,195,0)'); vg.addColorStop(1, 'rgba(210,180,130,.45)');
+  c.fillStyle = vg; c.fillRect(0, 0, w, h);
+  S.dpond += ((S.dh === 1 ? 1 : 0) - S.dpond) * Math.min(1, dt * 4); S.dgrass += ((S.dh === 2 ? 1 : 0) - S.dgrass) * Math.min(1, dt * 4);
+  const s = Math.min(w / 215, h / 190) * .95, ox = w / 2 - 100 * s, oy = h / 2 - 78 * s;
+  c.save(); c.translate(ox, oy); c.scale(s, s);
+  // faint hints: a pond for the duck, grass and a carrot for the rabbit
+  if (S.dpond > .01) {
+    c.save(); c.globalAlpha = .38 * S.dpond; const pg = c.createLinearGradient(0, 130, 0, 175); pg.addColorStop(0, '#9AD0FF'); pg.addColorStop(1, '#5B8DEF');
+    c.fillStyle = pg; c.beginPath(); c.ellipse(100, 152, 108, 20, 0, 0, TAU); c.fill();
+    c.strokeStyle = '#fff'; c.lineWidth = 2; for (let i = 0; i < 3; i++) { c.beginPath(); c.ellipse(60 + i * 40 + Math.sin(time + i) * 3, 152 + (i % 2) * 5, 14, 3.5, 0, 0, TAU); c.stroke(); } c.restore();
+  }
+  if (S.dgrass > .01) {
+    c.save(); c.globalAlpha = .45 * S.dgrass; c.fillStyle = '#5BD38A';
+    for (let i = 0; i < 13; i++) { const gx = 6 + i * 16.5, gh = 16 + hash(i) * 12; poly(c, [[gx - 4, 160], [gx + Math.sin(time * 1.5 + i) * 2, 160 - gh], [gx + 4, 160]]); c.fill(); }
+    c.fillStyle = WARM; poly(c, [[170, 120], [196, 130], [172, 150]]); c.fill(); c.fillStyle = '#5BD38A'; poly(c, [[170, 120], [162, 110], [168, 118]]); c.fill(); poly(c, [[170, 120], [172, 108], [175, 118]]); c.fill(); c.restore();
+  }
+  // the figure itself never changes: a head with two long shapes on the left (a beak, or a pair of ears) and one eye
+  const draw = (pass) => {
+    c.lineJoin = 'round'; c.lineCap = 'round';
+    const shapes = [() => { c.beginPath(); c.ellipse(120, 92, 58, 48, -.08, 0, TAU); }, () => lobe(c, 100, 68, 56, 58, 13, 42, 24, 9), () => lobe(c, 98, 96, 58, 84, 17, 68, 24, 9)];
+    for (const sh of shapes) { sh(); if (pass === 0) { c.lineWidth = 6; c.strokeStyle = INK; c.stroke(); } else { const g = c.createLinearGradient(40, 40, 170, 140); g.addColorStop(0, '#FFFDF4'); g.addColorStop(1, '#F1DFB8'); c.fillStyle = g; c.fill(); } }
+  };
+  draw(0); draw(1);
+  c.fillStyle = INK; c.beginPath(); c.arc(138, 80, 6.8, 0, TAU); c.fill(); c.fillStyle = '#fff'; c.beginPath(); c.arc(140, 77.5, 2.2, 0, TAU); c.fill();
+  c.restore(); c.restore();
+}
+
+// ---- secret 2: the three mountains ------------------------------------------------------------------------------
+const MT = [
+  { x: -.42, y: -.3, r: .36, h: .95, col: '#7C8DB5', kind: 'snow' }, { x: .4, y: -.1, r: .3, h: .62, col: '#6FB67E', kind: 'hut' }, { x: -.02, y: .5, r: .25, h: .42, col: '#D98F6A', kind: 'cross' },
+];
+let mtGeo = null;
+function drawMountains(c, w, h, dt, time) {
+  const wide = w > h * 1.15, tsz = wide ? Math.min(h - 20, w * .5 - 16) : Math.min(w - 20, h * .58), m = tsz / 3.1;
+  const tx = wide ? 10 + tsz / 2 : w / 2, ty = wide ? h / 2 : 10 + tsz / 2;
+  mtGeo = { cx: tx, cy: ty, m };
+  c.save(); c.fillStyle = '#EAF6FF'; const pg = c.createLinearGradient(0, ty - tsz / 2, 0, ty + tsz / 2); pg.addColorStop(0, '#DDF1FF'); pg.addColorStop(1, '#C9E8D0');
+  c.fillStyle = pg; c.beginPath(); c.roundRect(tx - tsz / 2, ty - tsz / 2, tsz, tsz, 20); c.fill(); c.restore();
+  // the table
+  const P = (x, y) => [tx + x * m, ty + y * m];
+  c.save(); c.fillStyle = 'rgba(30,50,40,.22)'; c.beginPath(); c.roundRect(tx - m + 4, ty - m + 8, 2 * m, 2 * m, 12); c.fill();
+  const tg = c.createLinearGradient(tx - m, ty - m, tx + m, ty + m); tg.addColorStop(0, tint(PAVE, .4)); tg.addColorStop(1, shade(PAVE, .06));
+  c.fillStyle = tg; c.strokeStyle = shade(PAVE, .35); c.lineWidth = 2; c.beginPath(); c.roundRect(tx - m, ty - m, 2 * m, 2 * m, 12); c.fill(); c.stroke(); c.restore();
+  // doll ring and view cone
+  const dx = Math.cos(S.phi), dy = Math.sin(S.phi), dp = P(dx * 1.32, dy * 1.32);
+  c.save(); c.setLineDash([3, 6]); c.strokeStyle = 'rgba(46,42,74,.28)'; c.lineWidth = 1.5; c.beginPath(); c.arc(tx, ty, 1.32 * m, 0, TAU); c.stroke(); c.restore();
+  const ang = Math.atan2(-dy, -dx);
+  c.save(); const cg = c.createLinearGradient(dp[0], dp[1], tx, ty); cg.addColorStop(0, 'rgba(255,255,255,.55)'); cg.addColorStop(1, 'rgba(255,255,255,0)');
+  c.fillStyle = cg; c.beginPath(); c.moveTo(dp[0], dp[1]); c.lineTo(dp[0] + Math.cos(ang - .5) * 2.8 * m, dp[1] + Math.sin(ang - .5) * 2.8 * m); c.lineTo(dp[0] + Math.cos(ang + .5) * 2.8 * m, dp[1] + Math.sin(ang + .5) * 2.8 * m); c.closePath(); c.fill(); c.restore();
+  // mountains from above
+  for (const q of MT) {
+    const [X, Y] = P(q.x, q.y), rr = q.r * m;
+    c.save(); c.globalAlpha = 1; c.fillStyle = 'rgba(30,50,40,.25)'; c.beginPath(); c.arc(X + 4, Y + 5, Math.max(0, rr), 0, TAU); c.fill();
+    const g = c.createRadialGradient(X - rr * .3, Y - rr * .3, rr * .05, X, Y, rr); g.addColorStop(0, tint(q.col, .45)); g.addColorStop(.6, q.col); g.addColorStop(1, shade(q.col, .3));
+    c.fillStyle = g; c.strokeStyle = shade(q.col, .45); c.lineWidth = 1.5; c.beginPath(); c.arc(X, Y, Math.max(0, rr), 0, TAU); c.fill(); c.stroke();
+    if (q.kind === 'snow') { c.fillStyle = '#fff'; c.beginPath(); c.arc(X - rr * .02, Y - rr * .02, rr * .42, 0, TAU); c.fill(); }
+    if (q.kind === 'hut') { c.fillStyle = '#B5603F'; c.strokeStyle = INK; c.lineWidth = 1.2; c.beginPath(); c.roundRect(X + rr * .22, Y + rr * .1, rr * .42, rr * .36, 2); c.fill(); c.stroke(); c.fillStyle = '#fff'; c.fillRect(X + rr * .38, Y + rr * .28, rr * .1, rr * .18); }
+    if (q.kind === 'cross') { c.strokeStyle = INK; c.lineWidth = Math.max(2, rr * .14); c.lineCap = 'round'; c.beginPath(); c.moveTo(X, Y - rr * .38); c.lineTo(X, Y + rr * .32); c.moveTo(X - rr * .26, Y - rr * .14); c.lineTo(X + rr * .26, Y - rr * .14); c.stroke(); }
+    c.restore();
+  }
+  // the doll, standing at the table edge and looking at the table; a pulsing ring says "drag me"
+  c.save(); c.globalAlpha = 1; const pulse = 1 + .08 * Math.sin(time * 4); c.strokeStyle = '#fff'; c.lineWidth = 3; c.beginPath(); c.arc(dp[0], dp[1] - m * .22, Math.max(0, m * .42 * pulse), 0, TAU); c.stroke(); c.restore();
+  drawKid(c, dp[0], dp[1] + m * .22, m * .62, 'doll', { back: dy < -.2, look: clamp(-dx * 1.2, -1, 1), face: MOODS.smile, time });
+  // the window: what the doll sees
+  const wx = wide ? tx + tsz / 2 + 16 : 10, wy = wide ? 10 : ty + tsz / 2 + 12, ww = wide ? w - wx - 10 : w - 20, wh = wide ? h - 20 : h - wy - 10;
+  if (ww < 60 || wh < 50) return;
+  c.save(); c.beginPath(); c.roundRect(wx, wy, ww, wh, 18); c.clip();
+  const hz = wy + wh * .46, sky = c.createLinearGradient(0, wy, 0, hz); sky.addColorStop(0, '#9AD0FF'); sky.addColorStop(1, '#DDF1FF'); c.fillStyle = sky; c.fillRect(wx, wy, ww, hz - wy);
+  const tb = c.createLinearGradient(0, hz, 0, wy + wh); tb.addColorStop(0, tint(PAVE, .3)); tb.addColorStop(1, shade(PAVE, .1)); c.fillStyle = tb; c.fillRect(wx, hz, ww, wy + wh - hz);
+  const dvx = -dx, dvy = -dy, rx = -dvy, ry = dvx, F = Math.min(wh * 1.05, ww * .7), Hc = .5;
+  const list = MT.map((q) => { const ox = q.x - dx * 1.32, oy = q.y - dy * 1.32; return { q, d: ox * dvx + oy * dvy, l: ox * rx + oy * ry }; }).sort((p, q) => q.d - p.d);
+  for (const { q, d, l } of list) {
+    if (d < .25) continue;
+    const sx = wx + ww / 2 + l / d * F, by = hz + Hc * F / d, rw = q.r * F / d, ph = q.h * F / d, tp = by - ph;
+    c.save(); c.globalAlpha = 1; c.lineJoin = 'round';
+    const g = c.createLinearGradient(sx - rw, 0, sx + rw, 0); g.addColorStop(0, tint(q.col, .3)); g.addColorStop(.5, q.col); g.addColorStop(1, shade(q.col, .3));
+    c.fillStyle = g; c.strokeStyle = shade(q.col, .5); c.lineWidth = 1.5;
+    c.beginPath(); c.moveTo(sx, tp); c.lineTo(sx + rw, by); c.ellipse(sx, by, Math.max(0, rw), Math.max(0, rw * .16), 0, 0, Math.PI); c.closePath(); c.fill(); c.stroke();
+    if (q.kind === 'snow') { const sk = .34, ex = rw * sk, ey = ph * sk; c.fillStyle = '#fff'; poly(c, [[sx, tp], [sx + ex, tp + ey], [sx + ex * .5, tp + ey * .8], [sx, tp + ey * 1.05], [sx - ex * .5, tp + ey * .8], [sx - ex, tp + ey]]); c.fill(); }
+    if (q.kind === 'hut') { const hs = rw * .3, hx = sx + rw * .12, hyy = by - ph * .3; c.fillStyle = '#B5603F'; c.strokeStyle = INK; c.lineWidth = 1.2; c.fillRect(hx - hs / 2, hyy - hs * .6, hs, hs * .6); c.strokeRect(hx - hs / 2, hyy - hs * .6, hs, hs * .6); c.fillStyle = '#8F2F2F'; poly(c, [[hx - hs * .65, hyy - hs * .6], [hx, hyy - hs * 1.1], [hx + hs * .65, hyy - hs * .6]]); c.fill(); c.stroke(); }
+    if (q.kind === 'cross') { const cl = Math.max(7, ph * .24); c.strokeStyle = INK; c.lineWidth = Math.max(2, rw * .06); c.lineCap = 'round'; c.beginPath(); c.moveTo(sx, tp); c.lineTo(sx, tp - cl); c.moveTo(sx - cl * .4, tp - cl * .65); c.lineTo(sx + cl * .4, tp - cl * .65); c.stroke(); }
+    c.restore();
+  }
+  c.restore(); c.save(); c.strokeStyle = '#fff'; c.lineWidth = 4; c.beginPath(); c.roundRect(wx, wy, ww, wh, 18); c.stroke(); c.restore();
+}
+$('cv').addEventListener('pointerdown', (ev) => { if (lab.view !== 'see' || S.sec !== 'mountains' || !mtGeo) return; S.drag = true; $('cv').setPointerCapture?.(ev.pointerId); moveDoll(ev); });
+$('cv').addEventListener('pointermove', (ev) => { if (S.drag) moveDoll(ev); });
+$('cv').addEventListener('pointerup', () => { S.drag = false; });
+$('cv').addEventListener('pointercancel', () => { S.drag = false; });
+function moveDoll(ev) { const r = $('cv').getBoundingClientRect(); S.phi = Math.atan2(ev.clientY - r.top - mtGeo.cy, ev.clientX - r.left - mtGeo.cx); }
+
+// ================================================================================================================
+// VIEW 2: how do they feel? Story cards with a character whose face changes.
+// ================================================================================================================
+const BLOCKS = ['#FF8A5B', '#5B8DEF', '#FFD166', '#5BD38A', '#C9A7FF', '#FF7A7A', '#7FB2FF'];
+function drawFeel(c, w, h, dt, time) {
+  const F = S.f, card = FEEL[F.i], kn = card.kids.length, m = 10, cx0 = m, cy0 = m, cw = w - 2 * m, ch = h - 2 * m, gy = cy0 + ch * .87;
+  const u = Math.min(ch * (kn > 1 ? .5 : .56), cw * (kn > 1 ? .4 : .6)), xs = kn > 1 ? [cx0 + cw * .3, cx0 + cw * .7] : [cx0 + cw * .5];
+  c.save(); c.beginPath(); c.roundRect(cx0, cy0, cw, ch, 22); c.clip();
+  const bg = c.createLinearGradient(0, cy0, 0, cy0 + ch); bg.addColorStop(0, '#E4F4FF'); bg.addColorStop(1, '#F4FBFF'); c.fillStyle = bg; c.fillRect(cx0, cy0, cw, ch);
+  // each child's feeling colour slowly tints the card
+  card.kids.forEach((id, i) => {
+    const q = card.qs.find((z) => z.kid === id); if (!q || F.tint[id] === undefined) return;
+    const p = Math.min(1, F.tint[id] + dt * 1.2); F.tint[id] = p;
+    c.fillStyle = rgba(q.hue, .28 * p * (kn > 1 ? .6 : 1)); c.fillRect(cx0, cy0, cw, ch);
+    const g = c.createRadialGradient(xs[i], gy - u * .5, 0, xs[i], gy - u * .5, Math.max(cw, ch) * .75); g.addColorStop(0, rgba(q.hue, .75 * p)); g.addColorStop(1, rgba(q.hue, 0)); c.fillStyle = g; c.fillRect(cx0, cy0, cw, ch);
+  });
+  const since = time - F.cardAt;
+  // ground and the scene around the child
+  const ground = (col) => { const g = c.createLinearGradient(0, gy - 16, 0, cy0 + ch); g.addColorStop(0, tint(col, .25)); g.addColorStop(1, shade(col, .1)); c.fillStyle = g; c.fillRect(cx0, gy - 16, cw, cy0 + ch - gy + 16); c.fillStyle = shade(col, .1); c.fillRect(cx0, gy - 16, cw, 2); };
+  if (card.scene === 'tower') {
+    ground(PAVE);
+    const bh = ch * .065, p = ease((since - .6) / .9);
+    BLOCKS.forEach((col, i) => {
+      const sx = cx0 + cw * .84, sy = gy - 4 - bh * (i + .5), ex = cx0 + cw * (.62 + hash(i + 5) * .3) + (i % 3 === 0 ? -cw * .5 : 0), ey = gy + 2 + hash(i + 11) * 10, rot = (hash(i + 3) - .5) * 1.6;
+      const bx = lerp(sx, ex, p), by = lerp(sy, ey, p) - Math.sin(p * Math.PI) * ch * .12 * (1 + i * .1);
+      c.save(); c.globalAlpha = 1; c.translate(bx, by); c.rotate(rot * p); const bw = bh * 1.5;
+      const g = c.createLinearGradient(-bw / 2, -bh / 2, bw / 2, bh / 2); g.addColorStop(0, tint(col, .3)); g.addColorStop(1, shade(col, .12)); c.fillStyle = g; c.strokeStyle = shade(col, .45); c.lineWidth = 1.5;
+      c.beginPath(); c.roundRect(-bw / 2, -bh / 2, bw, bh, 4); c.fill(); c.stroke(); c.restore();
+    });
+  } else if (card.scene === 'school') {
+    ground('#CBEBCB');
+    const bx = cx0 + cw * .08, bw = cw * .84, by = gy - ch * .42, bhh = ch * .42 - 16;
+    const wg = c.createLinearGradient(0, by, 0, gy); wg.addColorStop(0, '#FFE6D2'); wg.addColorStop(1, '#F7C9AE'); c.fillStyle = wg; c.strokeStyle = shade(WARM, .35); c.lineWidth = 2;
+    c.beginPath(); c.roundRect(bx, by, bw, bhh, 8); c.fill(); c.stroke();
+    c.fillStyle = WARM; poly(c, [[bx - 8, by + 2], [bx + bw / 2, by - ch * .1], [bx + bw + 8, by + 2]]); c.fill(); c.stroke();
+    c.fillStyle = '#9AD0FF'; for (const k of [.12, .28]) { c.beginPath(); c.roundRect(bx + bw * k, by + bhh * .25, bw * .1, bhh * .3, 4); c.fill(); c.stroke(); }
+    c.fillStyle = COOL; c.beginPath(); c.roundRect(bx + bw * .68, by + bhh * .32, bw * .16, bhh * .68, [8, 8, 0, 0]); c.fill(); c.stroke();
+    c.strokeStyle = INK; c.lineWidth = 2; c.beginPath(); c.moveTo(bx + bw / 2, by - ch * .1); c.lineTo(bx + bw / 2, by - ch * .2); c.stroke();
+    c.fillStyle = '#FF7A7A'; poly(c, [[bx + bw / 2, by - ch * .2], [bx + bw / 2 + 24 + Math.sin(time * 3) * 3, by - ch * .17], [bx + bw / 2, by - ch * .14]]); c.fill();
+  } else if (card.scene === 'rain') {
+    ground(GRASS);
+    // a picnic blanket at Ana's feet, a bed with sprouts at Ben's
+    const bw = cw * .24, ax = xs[0], bx = xs[1];
+    c.save(); c.globalAlpha = 1; c.translate(ax, gy + 8); c.fillStyle = '#fff'; c.strokeStyle = shade('#FF7A7A', .3); c.lineWidth = 1.5; poly(c, [[-bw * .5, 0], [bw * .5, 0], [bw * .6, 14], [-bw * .6, 14]]); c.fill(); c.stroke();
+    c.fillStyle = '#FF7A7A'; for (let i = 0; i < 5; i++) { poly(c, [[-bw * .5 + i * bw * .2, 0], [-bw * .5 + i * bw * .2 + bw * .1, 0], [-bw * .6 + i * bw * .24 + bw * .12, 14], [-bw * .6 + i * bw * .24, 14]]); c.fill(); }
+    c.fillStyle = '#B5603F'; c.strokeStyle = INK; c.beginPath(); c.roundRect(bw * .18, -12, bw * .26, 14, 4); c.fill(); c.stroke(); c.beginPath(); c.arc(bw * .31, -12, bw * .12, Math.PI, 0); c.stroke(); c.restore();
+    c.save(); c.translate(bx, gy + 8); c.fillStyle = shade(PAVE, .55); c.beginPath(); c.ellipse(0, 6, bw * .55, 11, 0, 0, TAU); c.fill();
+    c.strokeStyle = '#3FAE6A'; c.lineWidth = 2.5; c.lineCap = 'round'; c.fillStyle = '#5BD38A'; for (const k of [-.3, 0, .3]) { c.beginPath(); c.moveTo(bw * k, 4); c.lineTo(bw * k, -9); c.stroke(); c.beginPath(); c.ellipse(bw * k - 4, -9, 5, 3, -.5, 0, TAU); c.ellipse(bw * k + 4, -10, 5, 3, .5, 0, TAU); c.fill(); } c.restore();
+    // rain cloud over both
+    const cyc = cy0 + ch * .3; c.save(); c.globalAlpha = 1; const cgd = c.createLinearGradient(0, cyc - 30, 0, cyc + 30); cgd.addColorStop(0, '#E9EEF8'); cgd.addColorStop(1, '#AEB9D2'); c.fillStyle = cgd; cloud(c, cx0 + cw * .5, cyc, Math.min(cw * .2, 70)); c.restore();
+    c.save(); c.strokeStyle = 'rgba(70,110,200,.65)'; c.lineWidth = 2; c.lineCap = 'round';
+    for (let i = 0; i < 34; i++) { const rx = cx0 + cw * (.18 + .64 * hash(i + 40)), top = cyc + 20, span = gy - top, p = (time * (.8 + hash(i) * .5) + hash(i + 7)) % 1, ry = top + p * span; c.beginPath(); c.moveTo(rx, ry); c.lineTo(rx - 3, ry + 11); c.stroke(); }
+    c.restore();
+  } else {
+    ground('#FFD9C2');
+    c.fillStyle = 'rgba(255,255,255,.7)'; for (let i = 0; i < 3; i++) c.fillRect(cx0, gy + 10 + i * ch * .035, cw, 2);
+    const by = cy0 + ch * .3, pl = cx0 + cw * .08, pr = cx0 + cw * .92;
+    c.strokeStyle = INK; c.lineWidth = 3; c.lineCap = 'round'; c.beginPath(); c.moveTo(pl, gy); c.lineTo(pl, by - 10); c.moveTo(pr, gy); c.lineTo(pr, by - 10); c.stroke();
+    const bn = 26; c.save(); c.beginPath(); c.roundRect(pl, by - 10, pr - pl, bn, 4); c.clip(); const sq = bn / 2; for (let r = 0; r < 2; r++) for (let k = 0; k * sq < pr - pl; k++) { c.fillStyle = (r + k) % 2 ? INK : '#fff'; c.fillRect(pl + k * sq, by - 10 + r * sq, sq, sq); } c.restore();
+    c.strokeStyle = INK; c.lineWidth = 2; c.beginPath(); c.roundRect(pl, by - 10, pr - pl, bn, 4); c.stroke();
+    c.save(); c.globalAlpha = 1; c.fillStyle = '#000'; c.font = `${Math.round(ch * .1)}px serif`; c.textAlign = 'center'; c.textBaseline = 'alphabetic'; c.fillStyle = '#000'; c.fillText('🏆', cx0 + cw * .17, gy - 2); c.restore();
+  }
+  // the children
+  card.kids.forEach((id, i) => {
+    const q = card.qs.find((z) => z.kid === id), tgt = MOODS[F.mood[id] ?? 'neutral'], fc = (F.faces[id] ??= { ...MOODS.neutral });
+    approachFace(fc, tgt, 1 - Math.exp(-dt * 7));
+    const pop = backOut(since / .5), bob = Math.sin(time * 2 + i) * u * .006, bl = (time + i * 1.7) % 4.2 < .12 ? .1 : 1;
+    drawKid(c, xs[i], gy, u * (.6 + .4 * pop), id, { face: fc, time, bob, blink: bl });
+    pill(c, id === 'friend' ? T[lang].f.friend : T[lang].names[id], xs[i], gy + 22, 12);
+  });
+  c.restore();
+  c.save(); c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 2; c.beginPath(); c.roundRect(cx0, cy0, cw, ch, 22); c.stroke(); c.restore();
+}
+
+// ================================================================================================================
+// VIEW 3: two sides of one story. One sandpit, three cameras (Sam, Lena, and a look from the side).
+// ================================================================================================================
+const CASTLE = { x: 2.0, y: 0 }, BALL0 = [-3.0, .45], BALL1 = [1.52, .12], FLY0 = .9, FLYD = 1.25, HIT = FLY0 + FLYD, LOOP = 5.2;
+const CRUMBS = Array.from({ length: 11 }, (_, i) => ({ vx: -.2 - hash(i) * 1.1, vy: .9 + hash(i + 20) * 1.3, vz: (hash(i + 40) - .5) * .8, r: .03 + hash(i + 60) * .035 }));
+const SAND = '#E8CF9A', SANDL = '#F7E8C4', SANDD = '#CBAE72';
+
+function drawCastle(c, x, y, s, tw, time) {
+  // front elevation, base centre at (x, y); s = pixels per world unit
+  c.save(); c.globalAlpha = 1; c.translate(x, y); c.scale(s, -s); c.lineJoin = 'round'; c.lineWidth = 1.3 / s;
+  c.save(); c.scale(1, -.2); c.translate(0, 0); const sg = c.createRadialGradient(0, 0, 0, 0, 0, .95); sg.addColorStop(0, 'rgba(90,70,30,.32)'); sg.addColorStop(1, 'rgba(90,70,30,0)'); c.fillStyle = sg; c.beginPath(); c.arc(0, 0, .95, 0, TAU); c.fill(); c.restore();
+  const block = (x0, y0, x1, y1) => {
+    const g = c.createLinearGradient(x0, y1, x1, y0); g.addColorStop(0, SANDL); g.addColorStop(1, SAND); c.fillStyle = g; c.strokeStyle = SANDD;
+    c.beginPath(); c.rect(x0, y0, x1 - x0, y1 - y0); c.fill(); c.stroke();
+  };
+  const merlons = (x0, x1, yy, n, mh) => { const ww = (x1 - x0) / (2 * n - 1); for (let i = 0; i < n; i++) block(x0 + i * 2 * ww, yy, x0 + i * 2 * ww + ww, yy + mh); };
+  const slit = (cxx, cyy, ww, hh) => { c.fillStyle = shade(SANDD, .35); c.beginPath(); c.roundRect(cxx - ww / 2, cyy, ww, hh, [ww / 2, ww / 2, 0, 0]); c.fill(); };
+  block(-.62, 0, .62, .38); merlons(-.62, .62, .38, 7, .06);
+  block(-.2, .38, .2, .74); merlons(-.2, .2, .74, 3, .06); slit(0, .5, .09, .14);
+  c.fillStyle = shade(SANDD, .4); c.beginPath(); c.roundRect(-.09, 0, .18, .22, [.09, .09, 0, 0]); c.fill();
+  // right tower, always standing
+  block(.34, 0, .68, .78); merlons(.34, .68, .78, 3, .06); slit(.51, .48, .06, .13); slit(.51, .24, .06, .1);
+  // left tower: the one the ball knocks off
+  const lh = .1 + .68 * clamp01(tw);
+  block(-.68, 0, -.34, lh); if (tw > .55) { merlons(-.68, -.34, lh, 3, .06 * clamp01((tw - .55) * 4)); slit(-.51, .48 * (lh / .78), .06, .13 * clamp01((tw - .6) * 3)); }
+  // flag on the keep
+  c.strokeStyle = INK; c.lineWidth = 1.6 / s; c.beginPath(); c.moveTo(0, .8); c.lineTo(0, 1.0); c.stroke();
+  c.fillStyle = WARM; c.beginPath(); c.moveTo(0, 1.0); c.lineTo(.16 + Math.sin(time * 4) * .015, .955); c.lineTo(0, .91); c.closePath(); c.fill();
+  c.restore();
+}
+function drawBall(c, x, y, r, spin) {
+  c.save(); c.globalAlpha = 1; c.translate(x, y); c.rotate(spin);
+  const g = c.createRadialGradient(-r * .35, -r * .35, r * .1, 0, 0, r); g.addColorStop(0, '#FFD3BE'); g.addColorStop(.5, WARM); g.addColorStop(1, shade(WARM, .35));
+  c.fillStyle = g; c.strokeStyle = shade(WARM, .5); c.lineWidth = Math.max(1, r * .08); c.beginPath(); c.arc(0, 0, Math.max(0, r), 0, TAU); c.fill(); c.stroke();
+  c.strokeStyle = 'rgba(255,255,255,.85)'; c.lineWidth = Math.max(1.5, r * .22); c.beginPath(); c.arc(0, 0, Math.max(0, r * .68), -.5, 1.4); c.stroke(); c.beginPath(); c.arc(0, 0, Math.max(0, r * .68), 2.6, 4.4); c.stroke();
+  c.restore();
+}
+function drawShoe(c, x, y, s, kick) {
+  c.save(); c.globalAlpha = 1; c.translate(x, y - kick * s * .35); c.rotate(-kick * .55); c.scale(s * (1 + kick * .12), s * (1 + kick * .12)); c.lineJoin = 'round'; c.lineWidth = 2 / s;
+  c.fillStyle = '#fff'; c.strokeStyle = INK; c.beginPath(); c.roundRect(-.18, .3, .36, .9, .06); c.fill(); c.stroke(); // sock
+  const g = c.createLinearGradient(0, -.4, 0, .3); g.addColorStop(0, tint(COOL, .3)); g.addColorStop(1, shade(COOL, .15)); c.fillStyle = g;
+  c.beginPath(); c.moveTo(-.22, .3); c.lineTo(-.22, -.05); c.quadraticCurveTo(-.2, -.3, .12, -.3); c.quadraticCurveTo(.5, -.3, .56, .08); c.quadraticCurveTo(.58, .3, .44, .32); c.closePath(); c.fill(); c.stroke();
+  c.fillStyle = '#fff'; c.beginPath(); c.roundRect(-.24, .26, .72, .12, .05); c.fill(); c.stroke();
+  c.strokeStyle = '#fff'; c.lineWidth = 3 / s; c.lineCap = 'round'; c.beginPath(); c.moveTo(0, -.2); c.lineTo(.12, -.14); c.moveTo(.1, -.26); c.lineTo(.24, -.18); c.stroke();
+  c.restore();
+}
+function drawBucket(c, x, y, s) {
+  c.save(); c.globalAlpha = 1; c.translate(x, y); c.scale(s, s); c.lineJoin = 'round'; c.lineWidth = 2 / s;
+  c.strokeStyle = INK; c.beginPath(); c.arc(0, -.5, .36, Math.PI * 1.05, Math.PI * 1.95); c.stroke();
+  const g = c.createLinearGradient(-.4, 0, .4, 0); g.addColorStop(0, tint(WARM, .25)); g.addColorStop(1, shade(WARM, .25)); c.fillStyle = g; c.strokeStyle = shade(WARM, .5);
+  c.beginPath(); c.moveTo(-.42, -.55); c.lineTo(.42, -.55); c.lineTo(.32, .35); c.quadraticCurveTo(0, .45, -.32, .35); c.closePath(); c.fill(); c.stroke();
+  c.fillStyle = shade(WARM, .15); c.beginPath(); c.ellipse(0, -.55, .42, .08, 0, 0, TAU); c.fill(); c.stroke();
+  c.fillStyle = SAND; c.beginPath(); c.ellipse(0, -.55, .35, .05, 0, 0, TAU); c.fill();
+  c.restore();
+}
+function drawSides(c, w, h, dt, time) {
+  const d = S.d, fix = d.fixAt > 0, who = fix ? 'fix' : d.eyes, tl = fix ? 99 : (time - d.t0) % LOOP, hy = h * .42;
+  const CAMS = { sam: [-3.6, .2, 1, 0, .9, w], lena: [2.0, 2.1, 0, -1, .75, w], fix: [2.0, 5.4, 0, -1, 1.8, w * 1.05] };
+  const [px, py, dx, dy, hc, F] = CAMS[who], rx = -dy, ry = dx;
+  const pr = (x, y, z = 0) => { const ox = x - px, oy = y - py, dd = ox * dx + oy * dy, l = ox * rx + oy * ry; return { d: dd, x: w / 2 + l / dd * F, y: hy + (hc - z) / dd * F, s: F / dd }; };
+  // sky, hills, sand
+  drawSky(c, w, h, time, .42);
+  c.fillStyle = shade(GRASS, .08); c.beginPath(); c.moveTo(0, hy); for (let i = 0; i <= 12; i++) c.lineTo(w * i / 12, hy - 10 - Math.sin(i * 1.3) * 7 - (i % 3) * 3); c.lineTo(w, hy); c.fill();
+  c.fillStyle = GRASS; c.beginPath(); c.moveTo(0, hy); for (let i = 0; i <= 12; i++) c.lineTo(w * i / 12, hy - 3 - Math.sin(i * .9 + 1) * 4); c.lineTo(w, hy); c.fill();
+  const sg = c.createLinearGradient(0, hy, 0, h); sg.addColorStop(0, '#F5E6C3'); sg.addColorStop(1, '#E5CD98'); c.fillStyle = sg; c.fillRect(0, hy, w, h - hy);
+  c.fillStyle = 'rgba(160,130,70,.2)';
+  for (let i = -9; i < 11; i++) for (let j = -5; j < 12; j++) {
+    const X = pr(i * .6 + hash(i * 31 + j) * .5, j * .6 + hash(j * 17 + i) * .5, 0); if (X.d < .45 || X.x < -10 || X.x > w + 10 || X.y > h + 10) continue;
+    c.beginPath(); c.ellipse(X.x, X.y, Math.max(.6, X.s * .018), Math.max(.4, X.s * .008), 0, 0, TAU); c.fill();
+  }
+  // the timeline of the moment: a short run, then it starts again
+  let th = 1, ball, since = -1;
+  if (fix) { th = .12 + .88 * ease((time - d.fixAt) / 2.4); ball = { x: BALL1[0], y: BALL1[1], z: .13, p: 1, on: true }; }
+  else {
+    const p = clamp01((tl - FLY0) / FLYD), e = 1 - (1 - p) ** 2;
+    ball = { x: lerp(BALL0[0], BALL1[0], e), y: lerp(BALL0[1], BALL1[1], e), z: .13 + .45 * Math.sin(Math.PI * p) * (1 - p * .3), p, on: tl < 4.9 };
+    if (tl > HIT) th = tl < 4.5 ? lerp(1, .12, ease((tl - HIT) / .45)) : lerp(.12, 1, ease((tl - 4.5) / .5)), since = tl < 4.5 ? tl - HIT : -1;
+  }
+  const items = [], add = (X, fn) => { if (X.d > .3) items.push({ d: X.d, fn }); };
+  const info = (ddx, ddy) => { const f = ddx * dx + ddy * dy, l = ddx * rx + ddy * ry; return { back: f > .2, look: clamp(l * 1.2, -1, 1) }; };
+  const cp = pr(CASTLE.x, CASTLE.y);
+  add(cp, () => {
+    drawCastle(c, cp.x, cp.y, cp.s, th, time);
+    if (since >= 0) for (const k of CRUMBS) { // sand flies off the knocked tower and settles
+      const t = Math.min(since, 1.1), gx = CASTLE.x - .5 + k.vx * t, gz = Math.max(0, .75 + k.vy * t - 3 * t * t), gy_ = CASTLE.y + .1 + k.vz * t;
+      const Q = pr(gx, gy_, gz); c.fillStyle = SANDD; c.beginPath(); c.arc(Q.x, Q.y, Math.max(.8, Q.s * k.r), 0, TAU); c.fill();
+    }
+    if (fix && th < .98) for (let i = 0; i < 6; i++) { const t = (time * 1.4 + i / 6) % 1, Q = pr(CASTLE.x - .5 + (hash(i) - .5) * .3, CASTLE.y, .12 + .68 * th + .5 * (1 - t)); c.fillStyle = SANDD; c.beginPath(); c.arc(Q.x, Q.y, Math.max(.8, Q.s * .025), 0, TAU); c.fill(); }
+  });
+  const KUS = (X) => X.s * 1.2;
+  if (!fix) { const bp = pr(-.8, -.25); add(bp, () => drawKid(c, bp.x, bp.y, KUS(bp), 'ben', { ...info(1, 0), face: MOODS.neutral, time })); }
+  if (who === 'sam' || fix) {
+    const pos = fix ? [3.45, .55] : [2.0, 2.1], dir = fix ? [-1, 0] : [0, -1], lp = pr(pos[0], pos[1]);
+    add(lp, () => drawKid(c, lp.x, lp.y, KUS(lp), 'lena', { ...info(dir[0], dir[1]), face: fix ? MOODS.happy : MOODS.sad, time, armsL: fix ? .5 + .5 * Math.sin(time * 5) : 0, armsR: fix ? .5 + .5 * Math.sin(time * 5 + 2) : 0 }));
+  }
+  if (fix) { const sp = pr(.55, .55); add(sp, () => drawKid(c, sp.x, sp.y, KUS(sp), 'sam', { ...info(1, 0), face: MOODS.smile, time, armsL: .5 + .5 * Math.sin(time * 5 + 1), armsR: .5 + .5 * Math.sin(time * 5 + 3) })); }
+  if (ball.on) { // shadow and ball; a short trail behind it while it flies
+    const sp = pr(ball.x, ball.y, 0), bp = pr(ball.x, ball.y, ball.z);
+    add(bp, () => {
+      c.fillStyle = 'rgba(90,70,30,.28)'; c.beginPath(); c.ellipse(sp.x, sp.y, Math.max(0, bp.s * .13), Math.max(0, bp.s * .04), 0, 0, TAU); c.fill();
+      if (!fix && ball.p > 0 && ball.p < 1) for (let k = 4; k >= 1; k--) { const pp = clamp01(ball.p - k * .035), ee = 1 - (1 - pp) ** 2, Q = pr(lerp(BALL0[0], BALL1[0], ee), lerp(BALL0[1], BALL1[1], ee), .13 + .45 * Math.sin(Math.PI * pp)); if (Q.d > .3) { c.fillStyle = `rgba(255,255,255,${.35 - k * .07})`; c.beginPath(); c.arc(Q.x, Q.y, Math.max(0, Q.s * .13 * (1 - k * .12)), 0, TAU); c.fill(); } }
+      drawBall(c, bp.x, bp.y, bp.s * .13, ball.x * 4 + time * (ball.p > 0 && ball.p < 1 ? 9 : 0));
+    });
+  }
+  items.sort((a, b) => b.d - a.d).forEach((it) => it.fn());
+  // what is right in front of the eyes
+  if (who === 'sam') { const tk = tl < .5 ? 0 : tl < .9 ? ease((tl - .5) / .4) : Math.max(0, 1 - (tl - .9) / .5); drawShoe(c, w * .42, h * 1.0, w * .2, tk); }
+  if (who === 'lena') { drawBucket(c, w * .13, h * .99, w * .2); }
+  // a small map of where everybody stands
+  const mw = clamp(w * .27, 84, 118), mh = mw * .72, mx = w - mw - 8, my = h - mh - 8, sx = mw / 9.4, X0 = -4.7, Y0 = -2.0;
+  const M = (x, y) => [mx + (x - X0) * sx, my + (y - Y0) * sx];
+  c.save(); c.globalAlpha = 1; c.fillStyle = 'rgba(245,230,195,.92)'; c.strokeStyle = '#fff'; c.lineWidth = 2; c.beginPath(); c.roundRect(mx, my, mw, mh, 10); c.fill(); c.stroke(); c.clip();
+  const eye = { sam: [-3.6, .2, 0], lena: [2.0, 2.1, -Math.PI / 2], fix: [2.0, 5.4, -Math.PI / 2] }[who], ep = M(eye[0], eye[1]);
+  if (who !== 'fix') { const ah = Math.atan2(dy, dx); c.fillStyle = 'rgba(255,255,255,.55)'; c.beginPath(); c.moveTo(ep[0], ep[1]); c.arc(ep[0], ep[1], mw * .5, ah - .46, ah + .46); c.closePath(); c.fill(); }
+  c.setLineDash([2, 3]); c.strokeStyle = 'rgba(255,138,91,.9)'; c.lineWidth = 1.5; const b0 = M(BALL0[0], BALL0[1]), b1 = M(BALL1[0], BALL1[1]); c.beginPath(); c.moveTo(b0[0], b0[1]); c.lineTo(b1[0], b1[1]); c.stroke(); c.setLineDash([]);
+  const dot = (x, y, col, r) => { const [a, b] = M(x, y); c.fillStyle = col; c.strokeStyle = INK; c.lineWidth = 1.2; c.beginPath(); c.arc(a, b, r, 0, TAU); c.fill(); c.stroke(); };
+  const cm = M(CASTLE.x, CASTLE.y); c.fillStyle = SAND; c.strokeStyle = SANDD; c.lineWidth = 1.5; c.beginPath(); c.roundRect(cm[0] - sx * .7, cm[1] - sx * .4, sx * 1.4, sx * .8, 3); c.fill(); c.stroke();
+  if (!fix) dot(-.8, -.25, KIDS.ben.shirt, 3.6);
+  dot(fix ? .55 : -3.6, fix ? .55 : .2, COOL, 4.2); dot(fix ? 3.45 : 2.0, fix ? .55 : 2.1, WARM, 4.2);
+  c.restore();
+}
+
+// ================================================================================================================
+// controls: one render per change
+// ================================================================================================================
+const ctrl = () => $('ctrlIn');
+const abBtns = (key, list, ok, pick, shown, extra = '') => ordOf(key, list.length).map((i) =>
+  `<button class="ab ${extra} ${pick === null ? '' : shown ? (i === ok ? 'good' : i === pick ? 'bad' : '') : i === pick ? 'pick' : ''}" data-a="pick" data-i="${i}"${pick !== null ? ' disabled' : ''}>${esc(list[i])}</button>`).join('');
+const verdict = (t, good, text) => `<div class="vd ${good ? 'ok' : 'no'}"><b>${esc(good ? t.right : t.wrong)}</b>${esc(text)}</div>`;
+const setCard = (view, t) => { const [emo, title, lead] = t.st[view][S.asked[view] ? 1 : 0]; lab.setState({ emo, title, lead, body: '', extra: view === 'see' ? `<div class="fine">${esc(t.fine)}</div>` : '' }); };
+
+function render() {
+  const t = T[lang], v = lab.view;
+  storyEl.style.display = v === 'feel' ? '' : 'none'; bubsEl.style.display = v === 'sides' ? '' : 'none';
+  if (v === 'see') renderSee(t); else if (v === 'feel') renderFeel(t); else renderSides(t);
+}
+
+function renderSee(t) {
+  const open = secret.unlocked(), ex = S.round >= 3; let h = '';
+  document.body.toggleAttribute('data-mt', S.sec === 'mountains');
+  lab.setGlow('rgba(91, 141, 239, .28)');
+  const chip = (k, emo) => `<button class="chip secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-a="sec" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  if (S.sec === 'duck') {
+    h += `<div class="row2 first"><button class="chip" data-a="duck">${esc(t.sec.duckBtn)}</button></div>`;
+    lab.setReadout('🦆 🐰', t.secrets.duck[0], '', COOL); lab.setState({ emo: '🦆', title: t.secrets.duck[0], lead: t.sec.duckText, body: '', extra: `<div class="fine">${esc(t.fine)}</div>` });
+  } else if (S.sec === 'mountains') {
+    lab.setReadout('⛰️', t.secrets.mountains[0], '', COOL); lab.setState({ emo: '⛰️', title: t.secrets.mountains[0], lead: t.sec.mtText, body: '', extra: `<div class="fine">${esc(t.fine)}</div>` });
+  } else if (!ex) {
+    const r = SEE[S.round], opts = t.s[r.o];
+    h += `<div class="qq">${esc(t.s[r.q])}</div><div class="abs">${abBtns('s' + S.round, opts, r.ok, S.pick, S.shown)}</div>`;
+    if (S.shown) h += verdict(t, S.pick === r.ok, t.s[r.r]) + `<div class="row2"><button class="btn" data-a="next">${esc(t.next)}</button></div>`;
+    lab.setReadout(`${S.round + 1}/3`, '', '', COOL); setCard('see', t);
+  } else {
+    h += `<input class="big" id="walk" type="range" min="0" max="360" step="1" value="${S.deg}" aria-label="${esc(t.s.walk)}" style="--track:linear-gradient(90deg,#5B8DEF,#FF8A5B,#5B8DEF)">
+      <div class="ends"><span>0°</span><span>${esc(t.s.walk)}</span><span>360°</span></div><div class="row2 first"><button class="chip" data-a="again">${esc(t.again)}</button></div>`;
+    readWalk(t); setCard('see', t);
+  }
+  h += `<div class="row2"><div class="chips">${chip('duck', '🦆')}${chip('mountains', '⛰️')}</div></div>`;
+  ctrl().innerHTML = h;
+}
+function readWalk(t = T[lang]) {
+  const a = Math.abs(((S.deg + 180) % 360 + 360) % 360 - 180), glyph = a < 50 ? '6' : a > 130 ? '9' : '';
+  lab.setReadout(`${Math.round(S.deg)}°`, t.s.walk, glyph, COOL);
+}
+
+function renderFeel(t) {
+  const F = S.f, card = FEEL[F.i], q = card.qs[F.q], say = F.say > 0;
+  lab.setGlow('rgba(255, 209, 102, .26)'); let h = '';
+  const nm = q.kid === 'friend' ? t.f.friend : t.names[q.kid];
+  if (F.end) {
+    h = `<div class="row2 first"><button class="btn" data-a="again">${esc(t.again)}</button></div>`;
+  } else if (!say) {
+    h += `<div class="qq">${esc(t.f.q(nm))}</div><div class="abs">${abBtns(`f${F.i}.${F.q}`, t.f.opts[q.st], q.ok, F.pick, F.st === 'shown')}</div>`;
+    if (F.st === 'shown') {
+      const why = F.q === card.qs.length - 1 ? t.f.why[card.why] : '';
+      h += `<div class="vd ${F.pick === q.ok ? 'ok' : 'no'}"><b>${esc(F.pick === q.ok ? t.right : t.wrong)}</b>${esc(why)}</div><div class="row2"><button class="btn" data-a="next">${esc(t.next)}</button></div>`;
+    }
+  } else {
+    h += `<div class="qq">${esc(t.f.say)}</div><div class="abs col">${abBtns('say', t.f.sayOpts, 1, F.spick, F.sst === 'shown', 'bub')}</div>`;
+    if (F.sst === 'shown') h += `<div class="vd ${F.spick === 1 ? 'ok' : 'no'}"><b>${esc(F.spick === 1 ? t.right : t.wrong)}</b></div><div class="row2"><button class="btn" data-a="next">${esc(t.next)}</button></div>`;
+  }
+  ctrl().innerHTML = h;
+  // the story stays on the card while the child answers
+  const lines = card.qs.length > 1 && F.q === 1 ? [t.f.stories[card.qs[0].st], t.f.stories[q.st]] : [t.f.stories[q.st]];
+  storyEl.innerHTML = lines.length > 1 ? `<small>${esc(lines[0])}</small>${esc(lines[1])}` : esc(lines[0]);
+  lab.setReadout(`${F.i + 1}/4`, '', '', '#FFD166'); setCard('feel', t);
+}
+
+function renderSides(t) {
+  const D = S.d, fix = D.fixAt > 0; let h = '';
+  lab.setGlow('rgba(255, 138, 91, .26)');
+  if (D.step === 0) h += `<div class="row2 first"><div class="card seg small" id="eyesSeg">${['sam', 'lena'].map((k) => `<button data-a="eyes" data-e="${k}" class="${D.eyes === k ? 'on' : ''}">${esc(t.t[k + 'Eyes'])}</button>`).join('')}</div></div>`;
+  if (D.step === 0 || D.step === 1) {
+    const two = D.step === 1, qs = two ? t.t.q2 : t.t.q, opts = two ? t.t.o2 : t.t.o, ok = two ? 0 : 2;
+    h += `<div class="qq" style="${D.step === 0 ? 'margin-top:12px' : ''}">${esc(qs)}</div><div class="abs ${two ? 'col' : ''}">${abBtns('d' + D.step, opts, ok, D.pick, D.shown)}</div>`;
+    if (D.shown) h += verdict(t, D.pick === ok, two ? t.t.r2 : t.t.r) + `<div class="row2"><button class="btn" data-a="${two ? 'again' : 'next'}">${esc(two ? t.again : t.next)}</button></div>`;
+  }
+  ctrl().innerHTML = h;
+  const bub = (k) => `<div class="sbub ${k}"><b>${esc(t.names[k])}</b>${esc(t.t[k])}${D.both ? '<i>✓</i>' : ''}</div>`;
+  bubsEl.innerHTML = D.both || fix ? bub('sam') + bub('lena') : bub(D.eyes);
+  lab.setReadout(`${Math.min(D.step, 1) + 1}/2`, '', '', WARM); setCard('sides', t);
+}
+
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-a]'); if (!b || b.disabled) return;
+  const a = b.dataset.a, i = +b.dataset.i;
+  if (a === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    S.sec = S.sec === b.dataset.k ? null : b.dataset.k; if (S.sec === 'duck') S.dh = 0; sfx.click(); render(); return;
+  }
+  if (a === 'duck') { S.dh = S.dh === 1 ? 2 : 1; sfx.click(); return; }
+  if (a === 'again') { restart(); return; }
+  if (lab.view === 'see') pickOrNextSee(a, i);
+  else if (lab.view === 'feel') pickOrNextFeel(a, i);
+  else pickOrNextSides(a, b.dataset.e, i);
+});
+$('ctrlBody').addEventListener('input', (ev) => {
+  if (ev.target.id !== 'walk') return;
+  S.deg = +ev.target.value; S.th = S.deg * Math.PI / 180; S.tw = null; readWalk();
+});
+
+function restart() {
+  S.tok++; sfx.click();
+  if (lab.view === 'see') { S.round = 0; S.pick = null; S.shown = false; S.th = 0; S.tw = null; S.eyeAt = -1; S.deg = 0; }
+  else if (lab.view === 'feel') { Object.assign(S.f, { i: 0, q: 0, st: 'ask', pick: null, say: 0, sst: 'ask', spick: null, end: false, mood: {}, tint: {}, faces: {}, cardAt: now() }); }
+  else Object.assign(S.d, { step: 0, pick: null, shown: false, fixAt: 0, t0: now(), both: false });
+  render();
+}
+
+// view 1
+function pickOrNextSee(a, i) {
+  if (a === 'pick') {
+    if (S.pick !== null) return;
+    const r = SEE[S.round]; S.pick = i; S.asked.see = true; sfx.click(); showStage();
+    const spin = r.scene !== 'teddy', t0 = now();
+    if (spin) { S.tw = { a: 0, b: Math.PI, t0, dur: 1.2 }; S.eyeAt = t0 + 1.3; } else S.eyeAt = t0 + .3;
+    render();
+    later(spin ? 2200 : 1300, () => { S.shown = true; (i === r.ok ? sfx.good : sfx.bad)(); render(); });
+  } else if (a === 'next') {
+    S.tok++; S.round++; S.pick = null; S.shown = false; S.eyeAt = -1; S.th = 0; S.tw = null; S.deg = 0; sfx.click(); render();
+  }
+}
+// view 2
+function pickOrNextFeel(a, i) {
+  const F = S.f, card = FEEL[F.i], q = card.qs[F.q];
+  if (a === 'pick') {
+    if (F.say > 0) {
+      if (F.sst !== 'ask') return;
+      F.spick = i; F.sst = 'wait'; F.mood.friend = 'smile'; S.asked.feel = true; sfx.click(); showStage(); render();
+      later(900, () => { F.sst = 'shown'; (i === 1 ? sfx.good : sfx.bad)(); render(); });
+    } else {
+      if (F.st !== 'ask') return;
+      F.pick = i; F.st = 'wait'; F.mood[q.kid] = q.mood; F.tint[q.kid] = .001; S.asked.feel = true; sfx.click(); showStage(); render();
+      later(1000, () => { F.st = 'shown'; (i === q.ok ? sfx.good : sfx.bad)(); render(); });
+    }
+  } else if (a === 'next') {
+    S.tok++; sfx.click();
+    if (F.say === 0 && F.q < card.qs.length - 1) { F.q++; F.st = 'ask'; F.pick = null; }
+    else if (F.say === 0 && card.say) { F.say = 1; F.sst = 'ask'; F.spick = null; }
+    else if (F.i < FEEL.length - 1) { F.i++; F.q = 0; F.st = 'ask'; F.pick = null; F.say = 0; F.mood = {}; F.tint = {}; F.faces = {}; F.cardAt = now(); }
+    else F.end = true;
+    render();
+  }
+}
+// view 3
+function pickOrNextSides(a, e, i) {
+  const D = S.d;
+  if (a === 'eyes') { D.eyes = e; sfx.click(); render(); return; }
+  if (a === 'pick') {
+    if (D.pick !== null) return;
+    D.pick = i; S.asked.sides = true; sfx.click(); showStage();
+    if (D.step === 0) { D.both = true; render(); later(700, () => { D.shown = true; (i === 2 ? sfx.good : sfx.bad)(); render(); }); }
+    else { D.fixAt = now(); D.both = true; render(); later(2600, () => { D.shown = true; (i === 0 ? sfx.good : sfx.bad)(); render(); }); }
+  } else if (a === 'next') { S.tok++; D.step = 1; D.pick = null; D.shown = false; sfx.click(); render(); }
+}
+
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  CW = w; CH = h;
+  if (lab.view === 'see') { if (S.sec === 'duck') drawDuck(c, w, h, dt, time); else if (S.sec === 'mountains') drawMountains(c, w, h, dt, time); else drawSee(c, w, h, dt, time); }
+  else if (lab.view === 'feel') drawFeel(c, w, h, dt, time);
+  else drawSides(c, w, h, dt, time);
+});
+S.f.cardAt = now(); S.d.t0 = now();
+render();
+</script>
+</body>
+</html>
