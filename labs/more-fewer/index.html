@@ -1,0 +1,1074 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cups and Saucers · Skill Graph</title>
+<meta name="description" content="Cups and saucers, children and chairs, long rows and short rows of buttons: find out which group has more, and see the answer with your own eyes. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  #stage canvas { border-radius: 20px; touch-action: pan-y; }
+  .mf-dots { display: flex; gap: 6px; margin: 0 0 10px; }
+  .mf-dots i { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); opacity: .5; }
+  .mf-dots i.cur { background: #fff; opacity: 1; }
+  .mf-dots i.done { background: var(--ok); opacity: 1; }
+  .mf-q { font: 500 23px/1.2 var(--serif); color: #fff; margin: 0 0 12px; text-wrap: balance; }
+  .mf-opts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .mf-o { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 66px; padding: 10px 8px;
+    border-radius: 16px; border: 2px solid var(--stroke2); background: rgba(130, 145, 190, .1); font-weight: 800; font-size: 14px; line-height: 1.2;
+    cursor: pointer; text-wrap: balance; }
+  .mf-o:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .mf-o:disabled { cursor: default; }
+  .mf-ic { font-size: 22px; line-height: 1; }
+  .mf-o.pick { border-color: #fff; }
+  .mf-o.right { border-color: var(--ok); background: rgba(61, 220, 151, .16); }
+  .mf-o.wrong { border-color: var(--wip); background: rgba(245, 200, 76, .12); }
+  .mf-v { margin: 12px 0 4px; font-size: 14px; line-height: 1.45; color: var(--soft); }
+  .mf-v b { display: block; font-size: 18px; margin-bottom: 2px; }
+  .mf-v.ok b { color: var(--ok); }
+  .mf-v.no b { color: var(--wip); }
+  .mf-act { margin-top: 10px; }
+  .mf-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+  .mf-row:first-child { margin-top: 0; }
+  .mf-st { min-width: 66px; min-height: 44px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--stroke2);
+    background: rgba(130, 145, 190, .1); font-weight: 900; font-size: 16px; cursor: pointer; }
+  .mf-st:hover { background: rgba(130, 145, 190, .25); }
+  .mf-hint { font-size: 13.5px; font-weight: 800; color: var(--wip); }
+  .mf-chips { margin-top: 12px; }
+  .mf-chips .chip { min-height: 38px; }
+  #mfHandle { position: absolute; display: none; width: 56px; height: 46px; border-radius: 23px; background: #fff; color: #1E1A2E; align-items: center;
+    justify-content: center; font: 900 24px/1 var(--sans); touch-action: none; cursor: ew-resize; user-select: none; -webkit-user-select: none;
+    border: 3px solid #FFD166; box-shadow: 0 4px 14px rgba(0, 0, 0, .45); z-index: 2; }
+  @media (max-width: 560px) {
+    .mf-opts { grid-template-columns: 1fr; }
+    .mf-o { flex-direction: row; justify-content: flex-start; min-height: 52px; gap: 12px; padding: 8px 14px; text-align: left; }
+    .mf-q { font-size: 21px; }
+  }
+  @media (max-width: 760px) {
+    #stage { height: min(104vw, 500px); }
+    body[data-v=rows] #stage { height: min(96vw, 460px); }
+    body[data-v=chairs] #stage { height: min(104vw, 520px); }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Cups and Saucers', title: 'Which group has more?',
+    lines: [['Cups', 'and saucers.'], ['Children', 'and chairs.'], ['Which group', 'has more?']],
+    views: { cups: '☕ Cups', chairs: '🪑 Chairs', rows: '↔️ Long and short' },
+    next: 'Next ▶', again: '↻ Again', right: 'Right!', wrong: 'Not quite. Look!',
+    left: 'no partner',
+    c: { q: 'More cups or more saucers?', o: ['more cups', 'more saucers', 'the same'],
+         why: ['One cup has no saucer. There are more cups and fewer saucers.', 'Two saucers are empty. There are more saucers and fewer cups.', 'Every cup has a saucer, and no saucer is empty. The same!'],
+         count: (a, b) => `☕ ${a} · 🍽️ ${b}`,
+         result: (r) => ({ more: 'more cups', fewer: 'more saucers', same: 'the same' })[r],
+         pair: '▶ Pair them' },
+    h: { q: 'The music stops. What happens?', o: ['everyone sits', 'one child is left standing', 'one chair stays empty'],
+         why: ['One child has no chair: there are more children than chairs.', 'One chair is empty: there are more chairs than children.', 'Every child has a chair, and no chair is empty: the same.'],
+         more: 'Can I share?', play: '▶ Music!' },
+    r: { q: 'Which row has more buttons?', o: ['the long row', 'the short row', 'the same'],
+         why: ['A red button has no partner. The short row has more! Spreading out does not make more.', 'Every button has a partner. The same, even though one row is longer.', 'Three blue buttons have no partner. This time the long row has more.'],
+         state: 'pairs stay pairs', drag: 'Stretch the row' },
+    secrets: { sheep: ['The shepherd’s pebbles', 'Are all the sheep home?'], count: ['Count to check', 'Numbers say the same.'] },
+    sec: { sheepText: 'Long ago, shepherds could keep one pebble for each sheep. In the evening, one pebble for each sheep coming home. A pebble left over means a sheep is still out!',
+           countText: 'Count both rows: 5 cups, 4 saucers. 5 is more than 4, just as pairing showed.' },
+    cards: {
+      cups: { n: ['☕', 'Tea time', 'Cups and saucers.', ''], f: ['☕', 'Pair them up', 'The one left over shows which is more.', ''] },
+      chairs: { n: ['🪑', 'Musical chairs', 'Listen to the music.', ''], f: ['🪑', 'One child, one chair', 'Who is left over?', ''] },
+      rows: { n: ['↔️', 'Two rows of buttons', 'Look closely.', ''], f: ['↔️', 'Longer is not always more', 'Pairs tell the truth.', ''] },
+    },
+    quiz: [
+      { q: '5 cups, 3 saucers. Is there a saucer for every cup?', opts: ['yes', 'no'], ok: 1 },
+      { q: 'A long row of 4 buttons and a short row of 6 buttons. Which has more?', opts: ['the short row', 'the long row'], ok: 0 },
+      { q: 'How can you find which group has more without counting?', opts: ['see which row is longer', 'pair them up, one with one', 'pick the bigger things'], ok: 1 } ],
+  },
+  ru: {
+    name: 'Чашки и блюдца', title: 'Чего больше?',
+    lines: [['Чашки', 'и блюдца.'], ['Дети', 'и стулья.'], ['Чего', 'больше?']],
+    views: { cups: '☕ Чашки', chairs: '🪑 Стулья', rows: '↔️ Длинный и короткий' },
+    next: 'Дальше ▶', again: '↻ Ещё раз', right: 'Верно!', wrong: 'Не совсем. Смотри!',
+    left: 'без пары',
+    c: { q: 'Чего больше: чашек или блюдец?', o: ['больше чашек', 'больше блюдец', 'поровну'],
+         why: ['Одной чашке не хватило блюдца. Чашек больше, а блюдец меньше.', 'Два блюдца пустые. Блюдец больше, а чашек меньше.', 'У каждой чашки есть блюдце, и пустых блюдец нет. Поровну!'],
+         count: (a, b) => `☕ ${a} · 🍽️ ${b}`,
+         result: (r) => ({ more: 'больше чашек', fewer: 'больше блюдец', same: 'поровну' })[r],
+         pair: '▶ Поставить' },
+    h: { q: 'Музыка остановилась. Что будет?', o: ['все сядут', 'один ребёнок останется стоять', 'один стул останется пустым'],
+         why: ['Одному ребёнку не хватило стула: детей больше, чем стульев.', 'Один стул пустой: стульев больше, чем детей.', 'У каждого ребёнка есть стул, и пустых стульев нет: поровну.'],
+         more: 'Можно со мной?', play: '▶ Музыка!' },
+    r: { q: 'В каком ряду больше пуговиц?', o: ['в длинном', 'в коротком', 'поровну'],
+         why: ['Одной красной пуговице не хватило пары. В коротком ряду больше! Если раздвинуть, больше не станет.', 'У каждой пуговицы есть пара. Поровну, хотя один ряд длиннее.', 'Трём синим пуговицам не хватило пары. На этот раз больше в длинном ряду.'],
+         state: 'пары остаются парами', drag: 'Растяни ряд' },
+    secrets: { sheep: ['Камешки пастуха', 'Все ли овцы дома?'], count: ['Проверим счётом', 'Числа говорят то же.'] },
+    sec: { sheepText: 'Давным-давно пастух мог держать по камешку на каждую овцу. Вечером — по камешку на каждую овцу, что вернулась домой. Остался камешек — значит, одна овца ещё гуляет!',
+           countText: 'Посчитаем оба ряда: 5 чашек, 4 блюдца. 5 больше, чем 4, — как и показали пары.' },
+    cards: {
+      cups: { n: ['☕', 'Время чая', 'Чашки и блюдца.', ''], f: ['☕', 'Составь пары', 'Кто остался без пары, тех и больше.', ''] },
+      chairs: { n: ['🪑', 'Музыкальные стулья', 'Слушай музыку.', ''], f: ['🪑', 'Каждому ребёнку — стул', 'Кто остался без пары?', ''] },
+      rows: { n: ['↔️', 'Два ряда пуговиц', 'Смотри внимательно.', ''], f: ['↔️', 'Длиннее — не всегда больше', 'Пары не обманут.', ''] },
+    },
+    quiz: [
+      { q: '5 чашек и 3 блюдца. Хватит ли блюдец на все чашки?', opts: ['да', 'нет'], ok: 1 },
+      { q: 'Длинный ряд из 4 пуговиц и короткий из 6. Где больше?', opts: ['в коротком', 'в длинном'], ok: 0 },
+      { q: 'Как узнать, чего больше, не считая?', opts: ['посмотреть, какой ряд длиннее', 'составить пары: каждому по одному', 'выбрать то, что крупнее'], ok: 1 } ],
+  },
+  hu: {
+    name: 'Csészék és csészealjak', title: 'Miből van több?',
+    lines: [['Csészék', 'és csészealjak.'], ['Gyerekek', 'és székek.'], ['Miből', 'van több?']],
+    views: { cups: '☕ Csészék', chairs: '🪑 Székek', rows: '↔️ Hosszú és rövid' },
+    next: 'Tovább ▶', again: '↻ Újra', right: 'Így van!', wrong: 'Nem egészen. Nézd!',
+    left: 'nincs párja',
+    c: { q: 'Miből van több: csészéből vagy csészealjból?', o: ['csészéből', 'csészealjból', 'ugyanannyi'],
+         why: ['Egy csészének nem jutott alj. Több a csésze, kevesebb a csészealj.', 'Két csészealj üres maradt. Több a csészealj, kevesebb a csésze.', 'Minden csészének van alja, és nem maradt üres alj. Ugyanannyi!'],
+         count: (a, b) => `☕ ${a} · 🍽️ ${b}`,
+         result: (r) => ({ more: 'több a csésze', fewer: 'több a csészealj', same: 'ugyanannyi' })[r],
+         pair: '▶ Párosítás' },
+    h: { q: 'Elhallgat a zene. Mi történik?', o: ['mindenki leül', 'egy gyerek állva marad', 'egy szék üres marad'],
+         why: ['Egy gyereknek nem jutott szék: több a gyerek, mint a szék.', 'Egy szék üres: több a szék, mint a gyerek.', 'Minden gyereknek jutott szék, és nem maradt üres: ugyanannyi.'],
+         more: 'Leülhetek veled?', play: '▶ Zene!' },
+    r: { q: 'Melyik sorban van több gomb?', o: ['a hosszúban', 'a rövidben', 'ugyanannyi'],
+         why: ['Egy piros gombnak nem jutott pár. A rövid sorban van több! Attól, hogy széthúzzuk, nem lesz több.', 'Minden gombnak van párja. Ugyanannyi, pedig az egyik sor hosszabb.', 'Három kék gombnak nem jutott pár. Most a hosszú sorban van több.'],
+         state: 'a párok párok maradnak', drag: 'Húzd szét a sort!' },
+    secrets: { sheep: ['A pásztor kavicsai', 'Minden bárány hazajött?'], count: ['Számoljuk meg!', 'A számok is ezt mondják.'] },
+    sec: { sheepText: 'Régen a pásztor minden bárányért eltehetett egy kavicsot. Este minden hazatérő bárányért kivett egyet. Ha maradt kavics, egy bárány még kint van!',
+           countText: 'Számoljuk meg mindkét sort: 5 csésze, 4 csészealj. Az 5 több, mint a 4, ahogy a párosítás is mutatta.' },
+    cards: {
+      cups: { n: ['☕', 'Teázunk', 'Csészék és csészealjak.', ''], f: ['☕', 'Párosítsd őket!', 'Amiből marad pár nélkül, abból van több.', ''] },
+      chairs: { n: ['🪑', 'Székfoglaló', 'Figyeld a zenét!', ''], f: ['🪑', 'Minden gyereknek egy szék', 'Ki maradt pár nélkül?', ''] },
+      rows: { n: ['↔️', 'Két sor gomb', 'Nézd meg jól!', ''], f: ['↔️', 'A hosszabb nem mindig több', 'A párok nem csapnak be.', ''] },
+    },
+    quiz: [
+      { q: '5 csésze és 3 csészealj. Jut alj minden csészének?', opts: ['igen', 'nem'], ok: 1 },
+      { q: 'Egy hosszú sorban 4 gomb, egy rövidben 6. Melyikben van több?', opts: ['a rövidben', 'a hosszúban'], ok: 0 },
+      { q: 'Hogyan derítheted ki számolás nélkül, miből van több?', opts: ['megnézem, melyik sor hosszabb', 'párokba állítom őket, egyet eggyel', 'a nagyobbakat választom'], ok: 1 } ],
+  },
+};
+const TOPICS = [
+  { id: 'mt__h7hvT4tEb', en: 'Comparing groups: more or fewer', ru: 'Сравнение групп: больше или меньше', hu: 'Csoportok összehasonlítása: több vagy kevesebb' },
+];
+
+// rounds: [first group, second group, index of the right option]
+const DATA = {
+  cups: [[5, 4, 0], [3, 5, 1], [4, 4, 2]],     // cups, saucers
+  chairs: [[6, 5, 1], [4, 5, 2], [5, 5, 0]],   // children, chairs
+  rows: [[6, 5, 1], [5, 5, 2], [4, 7, 0]],     // red (close together), blue (spread out)
+};
+const ICONS = { cups: ['☕', '🍽️', '='], chairs: ['🧒🪑', '🧍', '🪑'], rows: ['⟷', '▪▪', '='] };
+const QKEY = { cups: 'c', chairs: 'h', rows: 'r' };
+const GLOW = { cups: 'rgba(201, 139, 91, .30)', chairs: 'rgba(90, 111, 184, .38)', rows: 'rgba(255, 107, 107, .22)' };
+
+// palette
+const TABLE = '#C98B5B', PORC = '#FFF6E8', BAND = '#3DD6C6', RUG = '#5A6FB8', CHAIR = '#B9824F', RED = '#FF6B6B', BLUE = '#4C7DFF',
+  THREAD = '#FFD166', PINK = '#FF8FB1', BG = '#1E1A2E';
+
+// --- small helpers -----------------------------------------------------------------------------------------
+const TAU = Math.PI * 2;
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+const ease = (t) => t * t * (3 - 2 * t);
+const backOut = (t) => { const c1 = 1.70158, c3 = c1 + 1, u = t - 1; return 1 + c3 * u * u * u + c1 * u * u; };
+const nowS = () => performance.now() / 1000;
+const parse = (h) => { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+const toHex = (r, g, b) => '#' + [r, g, b].map((v) => Math.round(clamp(v, 0, 255)).toString(16).padStart(2, '0')).join('');
+const mix = (a, b, t) => { const A = parse(a), B = parse(b); return toHex(A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t, A[2] + (B[2] - A[2]) * t); };
+const shade = (h, k) => (k >= 0 ? mix(h, '#000000', k) : mix(h, '#ffffff', -k)); // k > 0 darker, k < 0 lighter (hex in, hex out)
+
+// a dark rounded label on the canvas; pop 0..1 scales it in
+function pill(c, text, x, y, w, h, pop = 1, color = PINK) {
+  if (pop <= 0) return;
+  c.save(); c.globalAlpha = 1;
+  c.font = '800 13px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  const tw = c.measureText(text).width + 24, bh = 28;
+  const px = clamp(x, tw / 2 + 6, w - tw / 2 - 6), py = clamp(y, bh / 2 + 6, h - bh / 2 - 6);
+  c.translate(px, py); c.scale(Math.max(0.01, backOut(clamp01(pop))), Math.max(0.01, backOut(clamp01(pop))));
+  c.fillStyle = 'rgba(20, 16, 32, .84)'; c.strokeStyle = color; c.lineWidth = 2;
+  c.beginPath(); c.roundRect(-tw / 2, -bh / 2, tw, bh, bh / 2); c.fill(); c.stroke();
+  c.fillStyle = '#ffffff'; c.fillText(text, 0, 1);
+  c.restore();
+}
+// one pill per leftover (two at most), else one under the middle of the group; pts: [{x, y}]
+function leftPills(c, text, pts, dy, w, h, pop) {
+  if (!pts.length) return;
+  if (pts.length <= 2) pts.forEach((p) => pill(c, text, p.x, p.y + dy, w, h, pop));
+  else pill(c, text, pts.reduce((s, p) => s + p.x, 0) / pts.length, Math.max(...pts.map((p) => p.y)) + dy, w, h, pop);
+}
+function sparkle(c, x, y, age, s) { // a little burst of four-point stars
+  if (age <= 0 || age >= 1) return;
+  c.save(); c.globalAlpha = 1 - age;
+  for (let i = 0; i < 5; i++) {
+    const a = i * TAU / 5 + 0.6, d = s * (0.25 + 0.55 * age), r = Math.max(0.5, s * 0.11 * (1 - age * 0.5)), px = x + Math.cos(a) * d, py = y + Math.sin(a) * d * 0.8;
+    c.fillStyle = i % 2 ? '#ffffff' : THREAD;
+    c.beginPath();
+    for (let j = 0; j < 8; j++) { const rr = j % 2 ? r * 0.35 : r, aa = j * Math.PI / 4 - Math.PI / 2; c.lineTo(px + Math.cos(aa) * rr, py + Math.sin(aa) * rr); }
+    c.closePath(); c.fill();
+  }
+  c.restore();
+}
+function glowAt(c, x, y, rad, rgb, a) {
+  if (a <= 0) return;
+  const g = c.createRadialGradient(x, y, 0, x, y, rad);
+  g.addColorStop(0, `rgba(${rgb}, ${0.6 * a})`); g.addColorStop(1, `rgba(${rgb}, 0)`);
+  c.save(); c.globalAlpha = 1; c.fillStyle = g; c.fillRect(x - rad, y - rad, rad * 2, rad * 2); c.restore();
+}
+
+// --- state -------------------------------------------------------------------------------------------------
+const mk = () => ({ ri: 0, guess: null, t0: null, revealed: false, free: false });
+const fresh = {
+  cups: () => ({ ...mk(), nc: 5, ns: 4, pairStart: 0.25, badge: false, sec: null, s: { nc: 5, ns: 4 }, played: 0 }),
+  chairs: () => ({ ...mk(), nk: 6, nch: 5, walkA: 0, stopped: false, seat: [], rank: [], empty: [], beat: -1, sat: 0 }),
+  rows: () => ({ ...mk(), nt: 6, nb: 5, L: null, slide: 0, ticks: 0 }),
+};
+const V = { cups: fresh.cups(), chairs: fresh.chairs(), rows: fresh.rows() };
+function load(view) { // set up the scene of the current round
+  const v = V[view], d = DATA[view][v.ri];
+  Object.assign(v, { t0: null, revealed: false, guess: null, free: false });
+  if (view === 'cups') Object.assign(v, { nc: d[0], ns: d[1], pairStart: 0.25, badge: false, sec: null, played: 0 });
+  if (view === 'chairs') Object.assign(v, { nk: d[0], nch: d[1], stopped: false, sat: 0, beat: -1 });
+  if (view === 'rows') Object.assign(v, { nt: d[0], nb: d[1], L: null, slide: 0, ticks: 0 });
+}
+function start(view) { // play the reveal now
+  const v = V[view];
+  v.t0 = nowS(); v.revealed = false;
+  if (view === 'cups') v.played = 0;
+  if (view === 'chairs') { v.stopped = false; v.sat = 0; v.beat = -1; }
+  if (view === 'rows') v.ticks = 0;
+}
+
+const lab = shell({ key: 'more-fewer', T, topics: TOPICS, views: ['cups', 'chairs', 'rows'], onLang: render, onView: render });
+const secret = secretLab('more-fewer', () => ({
+  secrets: [{ emo: '🐑', title: T[lang].secrets.sheep[0], desc: T[lang].secrets.sheep[1] }, { emo: '🔢', title: T[lang].secrets.count[0], desc: T[lang].secrets.count[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = '<div id="mfQ"></div><div id="mfF"></div><div id="mfS"></div>';
+const handle = Object.assign(document.createElement('div'), { id: 'mfHandle', tabIndex: 0, textContent: '⟷' });
+$('overlay').append(handle);
+
+// ============================================================================================================
+// drawing: cups and saucers
+// ============================================================================================================
+function drawTable(c, w, h) {
+  c.save(); c.globalAlpha = 1;
+  let g = c.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, shade(TABLE, -0.12)); g.addColorStop(0.6, TABLE); g.addColorStop(1, shade(TABLE, 0.16));
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+  c.strokeStyle = 'rgba(80, 40, 15, .16)'; c.lineWidth = 1.5;
+  for (let i = 1; i < 4; i++) { c.beginPath(); c.moveTo(0, h * i * 0.22); c.lineTo(w, h * i * 0.22); c.stroke(); }
+  c.strokeStyle = 'rgba(80, 40, 15, .07)'; c.lineWidth = 1;
+  for (let i = 0; i < 14; i++) {
+    const y = h * ((i * 0.618) % 1);
+    c.beginPath(); c.moveTo(0, y); c.bezierCurveTo(w * 0.3, y + 6, w * 0.6, y - 6, w, y + 3); c.stroke();
+  }
+  // soft window light from the top left
+  g = c.createRadialGradient(w * 0.1, -h * 0.05, 0, w * 0.1, -h * 0.05, Math.max(w, h) * 0.95);
+  g.addColorStop(0, 'rgba(255, 244, 214, .40)'); g.addColorStop(1, 'rgba(255, 244, 214, 0)');
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+  c.fillStyle = 'rgba(255, 246, 220, .10)';
+  c.beginPath(); c.moveTo(w * 0.04, 0); c.lineTo(w * 0.26, 0); c.lineTo(w * 0.52, h); c.lineTo(w * 0.28, h); c.closePath(); c.fill();
+  c.beginPath(); c.moveTo(w * 0.32, 0); c.lineTo(w * 0.42, 0); c.lineTo(w * 0.68, h); c.lineTo(w * 0.58, h); c.closePath(); c.fill();
+  // checked tablecloth edge
+  const ch = Math.max(26, h * 0.09), y0 = h - ch, q = ch / 3;
+  g = c.createLinearGradient(0, y0 - 12, 0, y0);
+  g.addColorStop(0, 'rgba(60, 30, 10, 0)'); g.addColorStop(1, 'rgba(60, 30, 10, .30)');
+  c.fillStyle = g; c.fillRect(0, y0 - 12, w, 12);
+  c.fillStyle = PORC; c.fillRect(0, y0, w, ch);
+  c.fillStyle = 'rgba(255, 107, 107, .55)';
+  for (let j = 0; j < 3; j += 2) c.fillRect(0, y0 + j * q, w, q);
+  for (let i = 0; i * q < w; i += 2) c.fillRect(i * q, y0, q, ch);
+  c.fillStyle = 'rgba(255, 255, 255, .55)'; c.fillRect(0, y0, w, 2);
+  c.fillStyle = 'rgba(90, 40, 20, .35)'; c.fillRect(0, y0 + ch - 2, w, 2);
+  c.restore();
+}
+
+function drawSaucer(c, x, y, s, glow, time) {
+  c.save(); c.globalAlpha = 1;
+  if (glow > 0) glowAt(c, x, y, s * 1.3, '255, 209, 102', glow * (0.75 + 0.25 * Math.sin(time * 3)));
+  c.fillStyle = 'rgba(50, 25, 8, .30)'; c.beginPath(); c.ellipse(x + s * 0.03, y + s * 0.09, s * 0.66, s * 0.2, 0, 0, TAU); c.fill();
+  let g = c.createLinearGradient(x, y - s * 0.18, x, y + s * 0.18);
+  g.addColorStop(0, '#FFFDF6'); g.addColorStop(1, '#E3CFAE');
+  c.fillStyle = g; c.strokeStyle = '#CDB48F'; c.lineWidth = 1.2;
+  c.beginPath(); c.ellipse(x, y, s * 0.62, s * 0.18, 0, 0, TAU); c.fill(); c.stroke();
+  c.strokeStyle = BAND; c.lineWidth = 1.6; c.globalAlpha = 0.85;
+  c.beginPath(); c.ellipse(x, y, s * 0.54, s * 0.145, 0, 0, TAU); c.stroke();
+  c.globalAlpha = 1;
+  g = c.createLinearGradient(x, y - s * 0.1, x, y + s * 0.1);
+  g.addColorStop(0, '#E6D3B3'); g.addColorStop(1, '#FFF6E8');
+  c.fillStyle = g; c.strokeStyle = 'rgba(160, 130, 90, .5)'; c.lineWidth = 1;
+  c.beginPath(); c.ellipse(x, y - s * 0.005, s * 0.34, s * 0.095, 0, 0, TAU); c.fill(); c.stroke();
+  c.strokeStyle = 'rgba(255, 255, 255, .8)'; c.lineWidth = 1.4; c.lineCap = 'round';
+  c.beginPath(); c.ellipse(x, y, s * 0.58, s * 0.16, 0, Math.PI * 1.08, Math.PI * 1.38); c.stroke();
+  c.restore();
+}
+
+// the origin is the bottom centre of the cup, so squash and wobble pivot on the table
+function drawCup(c, x, yb, s, sx = 1, sy = 1, rot = 0) {
+  const bw = 0.42 * s, bh = 0.62 * s;
+  c.save(); c.globalAlpha = 1;
+  c.translate(x, yb); c.rotate(rot); c.scale(sx, sy);
+  // handle first, so the body covers its ends
+  c.lineCap = 'round';
+  c.strokeStyle = '#CDB48F'; c.lineWidth = s * 0.115;
+  c.beginPath(); c.arc(bw * 0.95, -bh * 0.55, bh * 0.23, -Math.PI * 0.5, Math.PI * 0.6); c.stroke();
+  c.strokeStyle = PORC; c.lineWidth = s * 0.075;
+  c.beginPath(); c.arc(bw * 0.95, -bh * 0.55, bh * 0.23, -Math.PI * 0.5, Math.PI * 0.6); c.stroke();
+  const body = new Path2D();
+  body.moveTo(-bw, -bh); body.bezierCurveTo(-bw, -bh * 0.22, -bw * 0.55, 0, 0, 0);
+  body.bezierCurveTo(bw * 0.55, 0, bw, -bh * 0.22, bw, -bh); body.closePath();
+  let g = c.createLinearGradient(-bw, 0, bw, 0);
+  g.addColorStop(0, '#FFFDF6'); g.addColorStop(0.55, PORC); g.addColorStop(1, '#E3CFAE');
+  c.fillStyle = g; c.fill(body);
+  c.save(); c.clip(body); // the colour band
+  g = c.createLinearGradient(-bw, 0, bw, 0);
+  g.addColorStop(0, shade(BAND, -0.15)); g.addColorStop(1, shade(BAND, 0.2));
+  c.fillStyle = g; c.fillRect(-bw, -bh * 0.62, bw * 2, bh * 0.2);
+  c.restore();
+  c.strokeStyle = '#CDB48F'; c.lineWidth = 1.2; c.stroke(body);
+  // rim with a soft inner shadow
+  c.fillStyle = '#FFFDF6'; c.strokeStyle = '#CDB48F'; c.lineWidth = 1.2;
+  c.beginPath(); c.ellipse(0, -bh, bw, bw * 0.3, 0, 0, TAU); c.fill(); c.stroke();
+  g = c.createLinearGradient(0, -bh - bw * 0.25, 0, -bh + bw * 0.25);
+  g.addColorStop(0, 'rgba(120, 80, 40, .55)'); g.addColorStop(1, 'rgba(230, 205, 165, .9)');
+  c.fillStyle = g; c.beginPath(); c.ellipse(0, -bh, bw * 0.86, bw * 0.22, 0, 0, TAU); c.fill();
+  // highlight
+  c.fillStyle = 'rgba(255, 255, 255, .75)';
+  c.beginPath(); c.ellipse(-bw * 0.52, -bh * 0.4, bw * 0.1, bh * 0.2, 0.12, 0, TAU); c.fill();
+  c.restore();
+}
+
+function cupsLayout(w, h, nc, ns) {
+  const pad = Math.max(16, w * 0.05), maxN = Math.max(nc, ns, 3);
+  const s = Math.min(78, (w - 2 * pad) / (1.3 * maxN + 0.1), h * 0.17);
+  const lo = pad + s * 0.7, hi = w - pad - s * 0.7;
+  const xs = (n) => Array.from({ length: n }, (_, i) => (n === 1 ? (lo + hi) / 2 : lo + (hi - lo) * i / (n - 1))); // both rows span the same width
+  return { s, cx: xs(nc), sx: xs(ns), y1: h * 0.26, y2: h * 0.60 };
+}
+const cupCounts = (v) => (v.sec === 'count' ? v.s : v);
+const cupsTimes = (v) => {
+  const { nc, ns } = cupCounts(v), np = Math.min(nc, ns), after = v.pairStart + np * 0.6 + 0.15;
+  return { np, after, end: after + 1.4 };
+};
+
+function cupPose(k, T, L, ps, np) {
+  const hx = L.cx[k], hyb = L.y1 + 0.3 * L.s, home = { x: hx, yb: hyb, sx: 1, sy: 1, rot: 0, landed: false, home: true };
+  if (k >= np || T < 0) return home;
+  const t1 = ps + k * 0.6, u = clamp01((T - t1) / 0.55);
+  if (u <= 0) return home;
+  const tx = L.sx[k], tyb = L.y2 - 0.02 * L.s, e = ease(u);
+  if (u < 1) {
+    const st = Math.sin(Math.PI * u) * 0.1;
+    return { x: lerp(hx, tx, e), yb: lerp(hyb, tyb, e) - Math.sin(Math.PI * u) * L.s * 1.0, sx: 1 - st * 0.8, sy: 1 + st, rot: Math.sin(u * TAU) * 0.1, landed: false };
+  }
+  const d = T - (t1 + 0.55), q = Math.exp(-d * 9) * Math.cos(d * 24) * 0.2;
+  return { x: tx, yb: tyb, sx: 1 + q, sy: 1 - q, rot: 0, landed: true, d };
+}
+
+function badge(c, x, y, n, r, pop, hot, time) {
+  if (pop <= 0) return;
+  c.save(); c.globalAlpha = 1; c.translate(x, y);
+  const k = Math.max(0.01, backOut(clamp01(pop))) * (hot ? 1.2 + 0.1 * Math.sin(time * 6) : 1);
+  c.scale(k, k);
+  c.fillStyle = hot ? PINK : THREAD; c.strokeStyle = BG; c.lineWidth = 2;
+  c.beginPath(); c.arc(0, 0, r, 0, TAU); c.fill(); c.stroke();
+  c.fillStyle = BG; c.font = `900 ${Math.round(r * 1.25)}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText(String(n), 0, 1);
+  c.restore();
+}
+
+function drawCups(c, w, h, time) {
+  const v = V.cups;
+  if (v.sec === 'sheep') return drawSheep(c, w, h, time);
+  const { nc, ns } = cupCounts(v), tm = cupsTimes(v), L = cupsLayout(w, h, nc, ns), s = L.s;
+  const T = v.t0 === null ? -1 : time - v.t0;
+  drawTable(c, w, h);
+  const landedN = T < 0 ? 0 : Math.min(tm.np, Math.max(0, Math.floor((T - v.pairStart - 0.55) / 0.6) + 1));
+  if (landedN > v.played) { v.played = landedN; sfx.snap(); }
+  if (T >= tm.end && !v.revealed && v.t0 !== null) { v.revealed = true; render(); }
+  const over = T >= tm.after, emptySaucer = over && ns > nc;
+  // saucers
+  for (let j = 0; j < ns; j++) drawSaucer(c, L.sx[j], L.y2, s, emptySaucer && j >= tm.np ? clamp01((T - tm.after) / 0.4) : 0, time);
+  // cups, the ones in the air last
+  const poses = Array.from({ length: nc }, (_, k) => ({ k, ...cupPose(k, T, L, v.pairStart, tm.np) }));
+  poses.sort((a, b) => a.yb - b.yb);
+  for (const p of poses) {
+    const left = over && p.k >= tm.np;
+    if (left) { // pink ring around the cup with no saucer
+      const pulse = 0.5 + 0.5 * Math.sin((T - tm.after) * 5), cy = p.yb - s * 0.31;
+      glowAt(c, p.x, cy, s * 0.9, '255, 143, 177', clamp01((T - tm.after) / 0.3) * 0.7);
+      c.save(); c.globalAlpha = 0.5 + 0.4 * pulse; c.strokeStyle = PINK; c.lineWidth = 3;
+      c.beginPath(); c.arc(p.x, cy, Math.max(1, s * (0.55 + 0.08 * pulse)), 0, TAU); c.stroke(); c.restore();
+    }
+    if (p.home) { // a cup still at home: its shadow on the table
+      c.save(); c.fillStyle = 'rgba(50, 25, 8, .28)'; c.globalAlpha = 1;
+      c.beginPath(); c.ellipse(p.x, p.yb + 3, s * 0.4, s * 0.1, 0, 0, TAU); c.fill(); c.restore();
+    }
+    drawCup(c, p.x, p.yb, s, p.sx, p.sy, p.rot + (left ? Math.sin((T - tm.after) * 9) * 0.13 : 0));
+    if (nc === ns && p.landed && p.d < 1) sparkle(c, p.x, p.yb - s * 0.7, p.d, s * 1.1);
+  }
+  // number badges of the "count" secret
+  if (v.sec === 'count' && v.t0 !== null) {
+    const r = Math.max(10, s * 0.3);
+    for (let k = 0; k < nc; k++) {
+      const p = poses.find((q) => q.k === k), pop = (T - (0.3 + k * 0.4)) / 0.3;
+      badge(c, p.x, p.yb - s * 0.62 - r - 4, k + 1, r, pop, over && k >= tm.np, time);
+    }
+    for (let j = 0; j < ns; j++) badge(c, L.sx[j], L.y2 + s * 0.2 + r + 6, j + 1, r, (T - (0.3 + (nc + j) * 0.4)) / 0.3, over && j >= tm.np, time);
+  }
+  if (over) {
+    const pop = (T - tm.after - 0.15) / 0.3;
+    const br = Math.max(10, s * 0.3), under = v.sec === 'count' ? 2 * br + 14 : 0; // the saucer badges of the secret sit below the saucers
+    if (nc > ns) leftPills(c, T_().left, poses.filter((p) => p.k >= tm.np).map((p) => ({ x: p.x, y: p.yb })), 26, w, h, pop);
+    if (ns > nc) leftPills(c, T_().left, L.sx.slice(tm.np).map((x) => ({ x, y: L.y2 })), s * 0.2 + 28 + under, w, h, pop);
+  }
+}
+const T_ = () => T[lang];
+
+// ============================================================================================================
+// drawing: musical chairs
+// ============================================================================================================
+const SHIRT = [RED, BLUE, BAND, THREAD, PINK, shade(BLUE, -0.25), shade(BAND, 0.25), shade(RED, 0.2)];
+const HAIR = ['#2E2233', '#7A4A2A', '#D9A441', '#B5532C'];
+const SKIN = ['#FFDDBB', '#F1BE92', '#D9A074'];
+
+function chairsLayout(w, h, n) {
+  const cx = w / 2, cy = h * 0.54, rx = w * 0.29, ry = h * 0.215, u = clamp(Math.min(w, h * 1.15) * 0.058, 11, 26);
+  const pos = Array.from({ length: n }, (_, i) => { const a = -Math.PI / 2 + (i + 0.5) * TAU / n; return { x: cx + rx * Math.cos(a), y: cy + ry * Math.sin(a) }; });
+  return { cx, cy, rx, ry, u, pos, rxW: rx * 1.36, ryW: ry * 1.45 };
+}
+function chairsTimes(v) {
+  const stop = 2.6, runEnd = stop + 0.85 + 0.05 * Math.max(0, v.nk - 1), lc = Math.max(0, v.nk - v.nch);
+  if (lc === 1) { const bub = runEnd + 0.2, cush = bub + 2.0, sit = cush + 0.8; return { stop, runEnd, lc, bub, cush, sit, end: sit + 1.0 }; }
+  return { stop, runEnd, lc, end: runEnd + 1.3 };
+}
+
+function drawRug(c, w, h) {
+  c.save(); c.globalAlpha = 1;
+  let g = c.createRadialGradient(w / 2, h * 0.5, 0, w / 2, h * 0.5, Math.max(w, h) * 0.7);
+  g.addColorStop(0, '#2C2644'); g.addColorStop(1, BG);
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+  const cx = w / 2, cy = h * 0.52, rx = w * 0.47, ry = h * 0.43;
+  c.fillStyle = 'rgba(0, 0, 0, .35)'; c.beginPath(); c.ellipse(cx + 2, cy + 8, rx, ry, 0, 0, TAU); c.fill();
+  g = c.createRadialGradient(cx - rx * 0.2, cy - ry * 0.3, 0, cx, cy, Math.max(rx, ry));
+  g.addColorStop(0, shade(RUG, -0.2)); g.addColorStop(1, shade(RUG, 0.12));
+  c.fillStyle = g; c.beginPath(); c.ellipse(cx, cy, rx, ry, 0, 0, TAU); c.fill();
+  c.lineWidth = 6; c.strokeStyle = shade(RUG, -0.3); c.stroke();
+  c.lineWidth = 2; c.strokeStyle = 'rgba(255, 255, 255, .28)'; c.setLineDash([4, 7]);
+  c.beginPath(); c.ellipse(cx, cy, rx * 0.93, ry * 0.93, 0, 0, TAU); c.stroke(); c.setLineDash([]);
+  c.strokeStyle = 'rgba(255, 209, 102, .3)'; c.lineWidth = 2;
+  c.beginPath(); c.ellipse(cx, cy, rx * 0.84, ry * 0.84, 0, 0, TAU); c.stroke();
+  c.restore();
+}
+
+function drawChair(c, x, y, u, glow, time) { // y is the middle of the seat
+  c.save(); c.globalAlpha = 1;
+  if (glow > 0) glowAt(c, x, y - u * 0.4, u * 2.4, '255, 209, 102', glow * (0.75 + 0.25 * Math.sin(time * 3)));
+  c.fillStyle = 'rgba(10, 10, 40, .30)'; c.beginPath(); c.ellipse(x, y + 0.66 * u, 0.98 * u, 0.26 * u, 0, 0, TAU); c.fill();
+  const dark = shade(CHAIR, 0.32);
+  c.fillStyle = dark; c.strokeStyle = shade(CHAIR, 0.5); c.lineWidth = 1;
+  for (const lx of [-0.66, 0.46]) { c.beginPath(); c.roundRect(x + lx * u, y + 0.1 * u, 0.2 * u, 0.58 * u, 0.06 * u); c.fill(); c.stroke(); }
+  let g = c.createLinearGradient(x - 0.7 * u, y - 1.6 * u, x + 0.7 * u, y - 0.3 * u);
+  g.addColorStop(0, shade(CHAIR, -0.2)); g.addColorStop(1, shade(CHAIR, 0.12));
+  c.fillStyle = g; c.strokeStyle = dark; c.lineWidth = 1.4;
+  c.beginPath(); c.roundRect(x - 0.7 * u, y - 1.65 * u, 1.4 * u, 1.35 * u, 0.2 * u); c.fill(); c.stroke();
+  c.strokeStyle = shade(CHAIR, 0.28); c.lineWidth = Math.max(1, 0.09 * u);
+  for (const sx of [-0.25, 0.25]) { c.beginPath(); c.moveTo(x + sx * u, y - 1.45 * u); c.lineTo(x + sx * u, y - 0.5 * u); c.stroke(); }
+  g = c.createLinearGradient(x - 0.9 * u, y - 0.4 * u, x + 0.9 * u, y + 0.4 * u);
+  g.addColorStop(0, shade(CHAIR, -0.28)); g.addColorStop(1, CHAIR);
+  c.fillStyle = g; c.strokeStyle = dark; c.lineWidth = 1.4;
+  c.beginPath(); c.ellipse(x, y, 0.92 * u, 0.4 * u, 0, 0, TAU); c.fill(); c.stroke();
+  c.strokeStyle = 'rgba(255, 255, 255, .35)'; c.lineWidth = 1.2; c.lineCap = 'round';
+  c.beginPath(); c.ellipse(x, y, 0.8 * u, 0.32 * u, 0, Math.PI * 1.05, Math.PI * 1.4); c.stroke();
+  c.restore();
+}
+
+// a round-faced child; (x, yf) are the feet. o: { bob, sway, sq, look, wow, step }
+function drawKid(c, x, yf, u, k, o = {}) {
+  const shirt = SHIRT[k % SHIRT.length], hair = HAIR[k % HAIR.length], skin = SKIN[(k * 2 + 1) % SKIN.length];
+  const bob = o.bob || 0, step = o.step || 0, hy = -1.95 * u;
+  c.save(); c.globalAlpha = 1;
+  c.fillStyle = 'rgba(10, 10, 40, .30)'; c.beginPath(); c.ellipse(x, yf, 0.7 * u, 0.2 * u, 0, 0, TAU); c.fill();
+  c.translate(x, yf - bob * u); c.rotate(o.sway || 0); c.scale(1 + (o.sq || 0), 1 - (o.sq || 0));
+  // legs
+  c.fillStyle = '#3A3347'; c.strokeStyle = '#1E1A2E'; c.lineWidth = 1;
+  for (const [lx, d] of [[-0.22, step], [0.22, -step]]) { c.beginPath(); c.roundRect(lx * u - 0.13 * u, -0.55 * u + d * 0.06 * u, 0.26 * u, 0.55 * u, 0.1 * u); c.fill(); }
+  // arms
+  c.fillStyle = skin;
+  for (const [ax, d] of [[-0.56, -step], [0.56, step]]) { c.beginPath(); c.arc(ax * u, -0.95 * u + d * 0.1 * u, 0.17 * u, 0, TAU); c.fill(); }
+  // T-shirt
+  let g = c.createLinearGradient(-0.5 * u, -1.5 * u, 0.5 * u, -0.5 * u);
+  g.addColorStop(0, shade(shirt, -0.22)); g.addColorStop(1, shade(shirt, 0.1));
+  c.fillStyle = g; c.strokeStyle = shade(shirt, 0.4); c.lineWidth = 1.3;
+  c.beginPath(); c.roundRect(-0.5 * u, -1.5 * u, 1.0 * u, 1.0 * u, 0.3 * u); c.fill(); c.stroke();
+  // head: hair behind, face in front
+  c.fillStyle = hair; c.beginPath(); c.arc(0, hy - 0.07 * u, 0.64 * u, 0, TAU); c.fill();
+  if (k % 3 === 0) { c.beginPath(); c.arc(0, hy - 0.68 * u, 0.2 * u, 0, TAU); c.fill(); } // a tuft
+  g = c.createRadialGradient(-0.2 * u, hy - 0.15 * u, 0.05 * u, 0, hy, 0.6 * u);
+  g.addColorStop(0, shade(skin, -0.2)); g.addColorStop(1, shade(skin, 0.06));
+  c.fillStyle = g; c.strokeStyle = shade(skin, 0.4); c.lineWidth = 1;
+  c.beginPath(); c.arc(0, hy + 0.05 * u, 0.57 * u, 0, TAU); c.fill(); c.stroke();
+  // eyes with a white highlight, rosy cheeks
+  const er = (o.wow ? 0.165 : 0.135) * u, lk = (o.look || 0) * 0.05 * u;
+  for (const ex of [-0.2, 0.2]) {
+    c.fillStyle = '#ffffff'; c.beginPath(); c.arc(ex * u, hy + 0.02 * u, er, 0, TAU); c.fill();
+    c.fillStyle = BG; c.beginPath(); c.arc(ex * u + lk, hy + 0.03 * u, er * 0.58, 0, TAU); c.fill();
+    c.fillStyle = '#ffffff'; c.beginPath(); c.arc(ex * u + lk - er * 0.2, hy - 0.005 * u, er * 0.22, 0, TAU); c.fill();
+  }
+  c.fillStyle = 'rgba(255, 143, 177, .55)';
+  for (const cxk of [-0.34, 0.34]) { c.beginPath(); c.arc(cxk * u, hy + 0.2 * u, 0.1 * u, 0, TAU); c.fill(); }
+  c.strokeStyle = BG; c.lineWidth = Math.max(1.2, 0.055 * u); c.lineCap = 'round';
+  if (o.wow) {
+    c.beginPath(); c.arc(-0.2 * u, hy - 0.2 * u, 0.12 * u, Math.PI * 1.15, Math.PI * 1.85); c.stroke();
+    c.beginPath(); c.arc(0.2 * u, hy - 0.2 * u, 0.12 * u, Math.PI * 1.15, Math.PI * 1.85); c.stroke();
+    c.fillStyle = '#7A2E3A'; c.beginPath(); c.arc(0, hy + 0.17 * u, 0.15 * u, 0.05 * Math.PI, 0.95 * Math.PI); c.closePath(); c.fill(); // an open, surprised smile
+  } else {
+    c.beginPath(); c.arc(0, hy + 0.15 * u, 0.14 * u, Math.PI * 0.15, Math.PI * 0.85); c.stroke();
+  }
+  c.restore();
+}
+
+function drawCushion(c, x, y, u, rot) {
+  c.save(); c.globalAlpha = 1; c.translate(x, y); c.rotate(rot);
+  c.fillStyle = 'rgba(10, 10, 40, .25)'; c.beginPath(); c.ellipse(0, 0.25 * u, 0.75 * u, 0.2 * u, 0, 0, TAU); c.fill();
+  const g = c.createLinearGradient(-0.7 * u, -0.3 * u, 0.7 * u, 0.3 * u);
+  g.addColorStop(0, shade(PINK, -0.25)); g.addColorStop(1, shade(PINK, 0.1));
+  c.fillStyle = g; c.strokeStyle = shade(PINK, 0.45); c.lineWidth = 1.3;
+  c.beginPath(); c.roundRect(-0.7 * u, -0.28 * u, 1.4 * u, 0.56 * u, 0.26 * u); c.fill(); c.stroke();
+  c.fillStyle = THREAD; c.beginPath(); c.arc(0, 0, 0.09 * u, 0, TAU); c.fill();
+  c.restore();
+}
+
+function drawNotes(c, w, h, time, alpha) {
+  if (alpha <= 0.01) return;
+  c.save(); c.textAlign = 'center'; c.textBaseline = 'middle';
+  const cols = [THREAD, PINK, BAND, '#ffffff'];
+  for (let i = 0; i < 7; i++) {
+    const p = (time * 0.32 + i / 7) % 1;
+    c.globalAlpha = Math.sin(p * Math.PI) * alpha * 0.95;
+    c.fillStyle = cols[i % 4]; c.font = `700 ${Math.round(Math.min(w, h) * 0.075)}px Nunito, sans-serif`;
+    c.fillText(i % 2 ? '♫' : '♪', w * (0.14 + 0.72 * ((i * 0.37) % 1)) + Math.sin(time * 1.6 + i) * 8, h * 0.52 - (p - 0.3) * h * 0.42);
+  }
+  c.restore();
+}
+
+function drawChairs(c, w, h, time, dt) {
+  const v = V.chairs, nk = v.nk, nch = v.nch, L = chairsLayout(w, h, nch), u = L.u, tm = chairsTimes(v);
+  const T = v.t0 === null ? -1 : time - v.t0;
+  const th0 = (k) => k * TAU / nk;
+  const kidAt = (k) => { const th = th0(k) + v.walkA; return { x: L.cx + L.rxW * Math.cos(th), y: L.cy + L.ryW * Math.sin(th) }; };
+  const seatFeet = (i) => ({ x: L.pos[i].x, y: L.pos[i].y + 0.35 * u });
+  if (T < tm.stop) v.walkA += 0.55 * dt;
+  if (T >= 0 && T < tm.stop) { const b = Math.floor(T / 0.32); if (b !== v.beat) { v.beat = b; sfx.tick(); } }
+  if (T >= tm.stop && !v.stopped) { // the music stops: every child runs to the nearest free chair
+    v.stopped = true;
+    const pairs = [];
+    for (let k = 0; k < nk; k++) { const p = kidAt(k); for (let i = 0; i < nch; i++) pairs.push({ k, i, d: Math.hypot(p.x - L.pos[i].x, p.y - L.pos[i].y) }); }
+    pairs.sort((a, b) => a.d - b.d);
+    const seat = new Array(nk).fill(-1), rank = new Array(nk).fill(0), taken = new Array(nch).fill(false);
+    let r = 0;
+    for (const p of pairs) if (seat[p.k] < 0 && !taken[p.i]) { seat[p.k] = p.i; taken[p.i] = true; rank[p.k] = r++; }
+    v.seat = seat; v.rank = rank; v.empty = taken.map((t, i) => (t ? -1 : i)).filter((i) => i >= 0);
+    v.sat = 0;
+  }
+  if (T >= tm.end && !v.revealed && v.t0 !== null) { v.revealed = true; render(); }
+
+  drawRug(c, w, h);
+  const items = [];
+  const after = T >= tm.stop && v.stopped;
+  for (let i = 0; i < nch; i++) {
+    const glow = after && v.empty.includes(i) ? clamp01((T - tm.runEnd) / 0.5) : 0;
+    items.push({ y: L.pos[i].y + 0.3 * u, f: () => drawChair(c, L.pos[i].x, L.pos[i].y, u, glow, time) });
+  }
+  // children
+  const kids = [], standing = [];
+  let sitsDone = 0;
+  for (let k = 0; k < nk; k++) {
+    let x, y, o = { bob: 0, step: 0, sway: 0, sq: 0, look: 0, wow: false };
+    if (!after) {
+      const p = kidAt(k); x = p.x; y = p.y;
+      o.bob = 0.14 * Math.abs(Math.sin(time * 5 + k)); o.step = Math.sin(time * 10 + k * 2); o.sway = Math.sin(time * 5 + k) * 0.05;
+    } else if (v.seat[k] >= 0) {
+      const a = kidAt(k), b = seatFeet(v.seat[k]), ph = T - tm.stop - 0.05 * v.rank[k], u01 = clamp01(ph / 0.85), e = ease(u01);
+      x = lerp(a.x, b.x, e); y = lerp(a.y, b.y, e);
+      if (u01 < 1) { o.bob = Math.abs(Math.sin(u01 * Math.PI * 3)) * 0.3; o.step = Math.sin(time * 18 + k) * 1.5; }
+      else { const d = ph - 0.85; o.sq = Math.exp(-d * 9) * Math.cos(d * 24) * 0.16; sitsDone++; }
+    } else { // no chair: stands where the music stopped and looks around
+      const p = kidAt(k); x = p.x; y = p.y;
+      const since = T - tm.runEnd + 0.3;
+      if (since > 0) { o.wow = true; o.look = Math.sin(time * 2.4) * 2; o.sway = Math.sin(time * 3) * 0.03; }
+      standing.push({ k, x, y });
+    }
+    kids.push({ k, x, y, o });
+  }
+  if (sitsDone > v.sat) { v.sat = sitsDone; sfx.snap(); }
+  // the friendly ending: a neighbour brings a cushion
+  let cush = null;
+  if (after && tm.lc === 1 && standing.length === 1) {
+    const sk = standing[0], kid = kids.find((q) => q.k === sk.k);
+    let best = null;
+    kids.forEach((q) => { if (v.seat[q.k] >= 0) { const d = Math.hypot(q.x - sk.x, q.y - sk.y); if (!best || d < best.d) best = { d, q }; } });
+    const seated = T >= tm.sit;
+    if (seated) { kid.o.wow = false; kid.o.look = 0; const e = ease(clamp01((T - tm.sit) / 0.3)), d = T - tm.sit; kid.o.sq = Math.exp(-d * 9) * Math.cos(d * 24) * 0.1; kid.y += 0.3 * u * e; }
+    if (best && T >= tm.cush) {
+      const f = clamp01((T - tm.cush) / 0.8), e = ease(f), sx = best.q.x, sy = best.q.y - 1.0 * u, ex = sk.x, ey = sk.y - 0.05 * u;
+      cush = { x: lerp(sx, ex, e), y: lerp(sy, ey, e) - Math.sin(Math.PI * f) * 1.6 * u, rot: (1 - f) * -2.2 };
+      items.push({ y: kid.y - 0.02, f: () => drawCushion(c, cush.x, cush.y, u, cush.rot) });
+    }
+  }
+  kids.forEach((q) => items.push({ y: q.y, f: () => drawKid(c, q.x, q.y, u, q.k, q.o) }));
+  items.sort((a, b) => a.y - b.y);
+  items.forEach((it) => it.f());
+  drawNotes(c, w, h, time, T < tm.stop ? 1 : clamp01(1 - (T - tm.stop) / 0.25));
+
+  if (after && T >= tm.runEnd + 0.2) {
+    const t = T_(), pop = (T - tm.runEnd - 0.2) / 0.3;
+    if (tm.lc > 0) {
+      const showPill = !(tm.lc === 1 && T >= tm.sit); // the cushion gives the last child a seat
+      if (showPill) leftPills(c, t.left, standing.map((q) => ({ x: q.x, y: q.y })), 0.55 * u + 22, w, h, pop);
+      if (tm.lc === 1 && T >= tm.bub && T < tm.cush + 0.5) { // a friendly speech bubble
+        const q = standing[0], bx = q.x, by = q.y - 2.7 * u - 20;
+        c.save(); c.globalAlpha = 1; c.font = '800 13px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+        const tw = c.measureText(t.h.more).width + 26, bh = 30, px = clamp(bx, tw / 2 + 6, w - tw / 2 - 6), py = Math.max(bh / 2 + 6, by);
+        const sc = Math.max(0.01, backOut(clamp01((T - tm.bub) / 0.3)));
+        c.translate(px, py); c.scale(sc, sc);
+        c.fillStyle = '#ffffff'; c.strokeStyle = BG; c.lineWidth = 1.5;
+        c.beginPath(); c.roundRect(-tw / 2, -bh / 2, tw, bh, 15); c.fill(); c.stroke();
+        c.beginPath(); c.moveTo(clamp(bx - px, -tw / 2 + 14, tw / 2 - 14) - 6, bh / 2 - 1); c.lineTo(clamp(bx - px, -tw / 2 + 14, tw / 2 - 14), bh / 2 + 9); c.lineTo(clamp(bx - px, -tw / 2 + 14, tw / 2 - 14) + 6, bh / 2 - 1); c.fill();
+        c.fillStyle = BG; c.fillText(t.h.more, 0, 1);
+        c.restore();
+      }
+    }
+    if (v.empty.length) leftPills(c, t.left, v.empty.map((i) => ({ x: L.pos[i].x, y: L.pos[i].y })), 0.85 * u + 22, w, h, pop);
+  }
+}
+
+// ============================================================================================================
+// drawing: rows of buttons
+// ============================================================================================================
+function drawLinen(c, w, h) {
+  c.save(); c.globalAlpha = 1;
+  let g = c.createLinearGradient(0, 0, w, h);
+  g.addColorStop(0, shade(PORC, -0.02)); g.addColorStop(1, shade(PORC, 0.1));
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+  c.strokeStyle = 'rgba(160, 120, 80, .08)'; c.lineWidth = 1;
+  c.beginPath();
+  for (let x = 0; x < w; x += 6) { c.moveTo(x, 0); c.lineTo(x, h); }
+  for (let y = 0; y < h; y += 6) { c.moveTo(0, y); c.lineTo(w, y); }
+  c.stroke();
+  g = c.createRadialGradient(w * 0.1, -h * 0.05, 0, w * 0.1, -h * 0.05, Math.max(w, h));
+  g.addColorStop(0, 'rgba(255, 255, 255, .5)'); g.addColorStop(1, 'rgba(255, 255, 255, 0)');
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+  c.strokeStyle = 'rgba(201, 139, 91, .75)'; c.lineWidth = 2; c.setLineDash([7, 6]);
+  c.beginPath(); c.roundRect(9, 9, w - 18, h - 18, 14); c.stroke(); c.setLineDash([]);
+  c.restore();
+}
+
+function drawButton(c, x, y, r, col, pulse, time) {
+  c.save(); c.globalAlpha = 1;
+  if (pulse > 0) { // leftover buttons pulse with a pink ring
+    const p = 0.5 + 0.5 * Math.sin(time * 6);
+    glowAt(c, x, y, r * 1.9, '255, 143, 177', pulse * 0.8);
+    c.globalAlpha = pulse * (0.6 + 0.4 * p); c.strokeStyle = PINK; c.lineWidth = 3.5;
+    c.beginPath(); c.arc(x, y, Math.max(1, r * (1.22 + 0.1 * p)), 0, TAU); c.stroke(); c.globalAlpha = 1;
+  }
+  c.translate(x, y);
+  c.fillStyle = 'rgba(40, 25, 10, .30)'; c.beginPath(); c.ellipse(r * 0.08, r * 0.2, r * 1.02, r * 0.92, 0, 0, TAU); c.fill();
+  let g = c.createRadialGradient(-r * 0.35, -r * 0.4, r * 0.1, 0, 0, r);
+  g.addColorStop(0, shade(col, -0.3)); g.addColorStop(0.6, col); g.addColorStop(1, shade(col, 0.3));
+  c.fillStyle = g; c.beginPath(); c.arc(0, 0, r, 0, TAU); c.fill();
+  c.lineWidth = 1.5; c.strokeStyle = shade(col, 0.45); c.stroke();
+  g = c.createRadialGradient(r * 0.25, r * 0.3, r * 0.05, 0, 0, r * 0.78);
+  g.addColorStop(0, shade(col, -0.15)); g.addColorStop(1, shade(col, 0.2));
+  c.fillStyle = g; c.beginPath(); c.arc(0, 0, r * 0.76, 0, TAU); c.fill();
+  c.lineWidth = 1; c.strokeStyle = shade(col, 0.32); c.stroke();
+  c.strokeStyle = shade(col, 0.5); c.lineWidth = Math.max(1, r * 0.08); c.lineCap = 'round';
+  c.beginPath(); c.moveTo(-r * 0.2, -r * 0.2); c.lineTo(r * 0.2, r * 0.2); c.moveTo(r * 0.2, -r * 0.2); c.lineTo(-r * 0.2, r * 0.2); c.stroke();
+  c.fillStyle = BG;
+  for (const hx of [-1, 1]) for (const hy of [-1, 1]) { c.beginPath(); c.arc(hx * r * 0.2, hy * r * 0.2, r * 0.12, 0, TAU); c.fill(); }
+  c.strokeStyle = 'rgba(255, 255, 255, .65)'; c.lineWidth = Math.max(1.5, r * 0.1);
+  c.beginPath(); c.arc(0, 0, r * 0.88, Math.PI * 1.12, Math.PI * 1.45); c.stroke();
+  c.restore();
+}
+
+function drawThread(c, x1, y1, x2, y2, p) { // wool curving from (x1, y1) down to (x2, y2), drawn up to the fraction p
+  if (p <= 0) return;
+  const dy = (y2 - y1) * 0.55, n = 24, m = Math.max(1, Math.round(n * clamp01(p)));
+  const pt = (t) => {
+    const a = 1 - t;
+    return [a * a * a * x1 + 3 * a * a * t * x1 + 3 * a * t * t * x2 + t * t * t * x2,
+      a * a * a * y1 + 3 * a * a * t * (y1 + dy) + 3 * a * t * t * (y2 - dy) + t * t * t * y2];
+  };
+  c.save(); c.globalAlpha = 1; c.lineCap = 'round'; c.lineJoin = 'round';
+  for (const [col, wd] of [[shade(THREAD, 0.4), 5], [THREAD, 3], [shade(THREAD, -0.4), 1]]) {
+    c.strokeStyle = col; c.lineWidth = wd; c.beginPath();
+    for (let i = 0; i <= m; i++) { const [px, py] = pt(p >= 1 ? i / m : p * i / m); if (i) c.lineTo(px, py); else c.moveTo(px, py); }
+    c.stroke();
+  }
+  c.restore();
+}
+
+function rowsGeo(w, h, v) {
+  const r = clamp(w * 0.055, 14, 26), sp = 2 * r + 2, pad = 14;
+  return { r, sp, cx: w / 2, yT: h * 0.27, yB: h * 0.60, Lmax: w - 2 * pad - 2 * r, Lmin: Math.max(0, (v.nb - 1) * sp) };
+}
+const rowsTimes = (v) => {
+  const np = Math.min(v.nt, v.nb), after = 0.3 + np * 0.4 + 0.3, slide = after + 0.5;
+  return { np, after, slide, end: slide + 1.1 + 1.0 };
+};
+
+function drawRows(c, w, h, time, dt) {
+  const v = V.rows, G = rowsGeo(w, h, v), { r, sp, cx, yT, yB } = G, tm = rowsTimes(v);
+  const T = v.t0 === null ? -1 : time - v.t0, free = v.free;
+  const L = clamp(v.L ?? G.Lmax, G.Lmin, G.Lmax);
+  if (!free && T >= 0) v.slide = ease(clamp01((T - tm.slide) / 1.1));
+  else if (free) v.slide += (0 - v.slide) * Math.min(1, dt * 5);
+  else v.slide = 0;
+  const row = (n, len) => Array.from({ length: n }, (_, k) => (n === 1 ? cx : cx - len / 2 + len * k / (n - 1)));
+  const nmax = Math.max(v.nt, v.nb), al = Array.from({ length: nmax }, (_, k) => cx + (k - (nmax - 1) / 2) * sp);
+  const tx0 = row(v.nt, (v.nt - 1) * sp), bx0 = row(v.nb, L);
+  const tx = tx0.map((x, k) => lerp(x, al[k], v.slide)), bx = bx0.map((x, k) => lerp(x, al[k], v.slide));
+  const tp = (k) => (free ? 1 : clamp01((T - (0.3 + k * 0.4)) / 0.5));
+  const threadsDone = !free && T >= 0 ? Math.min(tm.np, Math.max(0, Math.floor((T - 0.3 - 0.5) / 0.4) + 1)) : 0;
+  if (threadsDone > v.ticks) { v.ticks = threadsDone; sfx.tick(); }
+  if (T >= tm.end && !v.revealed && v.t0 !== null) { v.revealed = true; render(); }
+
+  drawLinen(c, w, h);
+  for (let k = 0; k < tm.np; k++) drawThread(c, tx[k], yT, bx[k], yB, tp(k));
+  const over = free || T >= tm.after;
+  const pulse = over ? clamp01(free ? 1 : (T - tm.after) / 0.3) : 0;
+  for (let k = 0; k < v.nt; k++) drawButton(c, tx[k], yT, r, RED, k >= tm.np ? pulse : 0, time);
+  for (let k = 0; k < v.nb; k++) drawButton(c, bx[k], yB, r, BLUE, k >= tm.np ? pulse : 0, time);
+  if (over) {
+    const pop = free ? 1 : (T - tm.after - 0.2) / 0.3;
+    if (v.nt > v.nb) leftPills(c, T_().left, tx.slice(tm.np).map((x) => ({ x, y: yT })), -r - 22, w, h, pop);
+    if (v.nb > v.nt) leftPills(c, T_().left, bx.slice(tm.np).map((x) => ({ x, y: yB })), r + 22, w, h, pop);
+  }
+  // the stretch handle of free play: at the right end of the blue row
+  const xR = bx[v.nb - 1], hy = yB + r + 62;
+  if (free) {
+    c.save(); c.strokeStyle = THREAD; c.lineWidth = 3; c.lineCap = 'round'; c.setLineDash([2, 6]);
+    c.beginPath(); c.moveTo(xR, yB + r); c.lineTo(xR, hy - 22); c.stroke(); c.restore();
+    handle.style.display = 'flex'; handle.style.left = `${xR - 28}px`; handle.style.top = `${hy - 23}px`;
+  } else handle.style.display = 'none';
+  v.geo = G;
+}
+
+// ============================================================================================================
+// drawing: the shepherd's pebbles (secret)
+// ============================================================================================================
+const SH = { M0: 0.6, GAP: 0.8, WALK: 1.6, LWALK: 2.0 };
+SH.tM = SH.M0 + 5 * SH.GAP + SH.WALK;        // the morning ends
+SH.E0 = SH.tM + 1.2;                          // the first sheep turns home
+SH.tLamb = SH.E0 + 4 * SH.GAP + SH.WALK + 1.6; // the lamb comes out from behind the bush
+SH.end = SH.tLamb + SH.LWALK + 0.9;
+const SLOTS = [[-2, 0.3], [0, 0.3], [2, 0.3], [-1, -1.4], [1, -1.4], [0, -3.0]];  // pebble spots in the bag, in pebble radii
+const PASTURE = [[0.52, 0.62], [0.64, 0.77], [0.76, 0.66], [0.88, 0.80], [0.70, 0.55]];
+
+function drawBush(c, x, y, u) {
+  c.save(); c.globalAlpha = 1;
+  c.fillStyle = 'rgba(10, 30, 10, .25)'; c.beginPath(); c.ellipse(x, y, 2.6 * u, 0.5 * u, 0, 0, TAU); c.fill();
+  for (const [dx, dy, rr, col] of [[-1.3, -0.8, 1.2, '#3F8A4A'], [1.3, -0.8, 1.2, '#3F8A4A'], [0, -1.3, 1.55, '#4E9A52'], [-0.5, -0.5, 1.1, '#5BAA5C'], [0.7, -0.6, 1.0, '#5BAA5C']]) {
+    const g = c.createRadialGradient(x + (dx - 0.4) * u, y + (dy - 0.4) * u, 0.1 * u, x + dx * u, y + dy * u, rr * u);
+    g.addColorStop(0, shade(col, -0.25)); g.addColorStop(1, shade(col, 0.15));
+    c.fillStyle = g; c.beginPath(); c.arc(x + dx * u, y + dy * u, rr * u, 0, TAU); c.fill();
+  }
+  c.restore();
+}
+
+function drawSheepBody(c, x, y, u, dir, bob, sc, ears) { // feet at (x, y)
+  const k = u * sc;
+  c.save(); c.globalAlpha = 1;
+  c.fillStyle = 'rgba(10, 30, 10, .28)'; c.beginPath(); c.ellipse(x, y, 1.15 * k, 0.28 * k, 0, 0, TAU); c.fill();
+  c.translate(x, y - bob * k); c.scale(dir, 1);
+  c.fillStyle = '#3A3347';
+  for (const [lx, d] of [[-0.7, 1], [-0.25, -1], [0.3, 1], [0.75, -1]]) { c.beginPath(); c.roundRect(lx * k - 0.07 * k, -0.7 * k + d * bob * 0.2 * k, 0.15 * k, 0.72 * k, 0.05 * k); c.fill(); }
+  const wool = [[-0.75, -1.1, 0.62], [0.75, -1.1, 0.62], [0, -1.4, 0.72], [-0.4, -0.85, 0.62], [0.4, -0.85, 0.62], [0, -1.05, 0.7]];
+  for (const [dx, dy, rr] of wool) {
+    const g = c.createRadialGradient((dx - 0.2) * k, (dy - 0.25) * k, 0.05 * k, dx * k, dy * k, rr * k);
+    g.addColorStop(0, '#ffffff'); g.addColorStop(1, '#E3D8C8');
+    c.fillStyle = g; c.strokeStyle = 'rgba(120, 100, 80, .35)'; c.lineWidth = 1;
+    c.beginPath(); c.arc(dx * k, dy * k, rr * k, 0, TAU); c.fill(); c.stroke();
+  }
+  // head to the right
+  c.fillStyle = '#4A3F5E'; c.beginPath(); c.ellipse(1.35 * k, -1.15 * k, 0.4 * k, 0.5 * k, 0.2, 0, TAU); c.fill();
+  c.fillStyle = '#5C5072'; c.beginPath(); c.ellipse(1.0 * k, -1.5 * k + ears * k * 0.2, 0.26 * k, 0.13 * k, -0.6 + ears * 0.5, 0, TAU); c.fill();
+  c.fillStyle = '#ffffff'; c.beginPath(); c.arc(1.45 * k, -1.25 * k, 0.12 * k, 0, TAU); c.fill();
+  c.fillStyle = BG; c.beginPath(); c.arc(1.48 * k, -1.24 * k, 0.07 * k, 0, TAU); c.fill();
+  c.fillStyle = '#ffffff'; c.beginPath(); c.arc(1.46 * k, -1.27 * k, 0.025 * k, 0, TAU); c.fill();
+  c.fillStyle = 'rgba(255, 143, 177, .6)'; c.beginPath(); c.arc(1.3 * k, -1.0 * k, 0.09 * k, 0, TAU); c.fill();
+  c.restore();
+}
+
+function drawPen(c, x0, y0, x1, y1, u, front) {
+  c.save(); c.globalAlpha = 1;
+  const wood = CHAIR, dark = shade(CHAIR, 0.35);
+  const rail = (ax, ay, bx, by) => { c.strokeStyle = dark; c.lineWidth = 0.34 * u; c.lineCap = 'round'; c.beginPath(); c.moveTo(ax, ay); c.lineTo(bx, by); c.stroke();
+    c.strokeStyle = wood; c.lineWidth = 0.22 * u; c.beginPath(); c.moveTo(ax, ay); c.lineTo(bx, by); c.stroke(); };
+  const post = (x, y) => { c.fillStyle = wood; c.strokeStyle = dark; c.lineWidth = 1; c.beginPath(); c.roundRect(x - 0.2 * u, y - 1.3 * u, 0.4 * u, 1.4 * u, 0.12 * u); c.fill(); c.stroke(); };
+  const gate = y0 + (y1 - y0) * 0.35, gate2 = y0 + (y1 - y0) * 0.75;
+  if (!front) {
+    rail(x0, y0 - 0.5 * u, x1, y0 - 0.5 * u); rail(x0, y0 - 0.95 * u, x1, y0 - 0.95 * u);
+    for (let x = x0; x <= x1 + 1; x += (x1 - x0) / 4) post(x, y0);
+    rail(x0, y0 - 0.5 * u, x0, y1 - 0.5 * u);
+    post(x0, (y0 + y1) / 2); post(x1, y0 + (y1 - y0) * 0.1);
+    rail(x1, y0 - 0.5 * u, x1, gate - 0.5 * u); // right side, above the gate
+  } else {
+    rail(x0, y1 - 0.5 * u, x1, y1 - 0.5 * u); rail(x0, y1 - 0.95 * u, x1, y1 - 0.95 * u);
+    for (let x = x0; x <= x1 + 1; x += (x1 - x0) / 4) post(x, y1);
+    rail(x1, gate2 - 0.5 * u, x1, y1 - 0.5 * u); // right side, below the gate
+    rail(x1, gate2 - 0.5 * u, x1 + 1.5 * u, gate2 - 1.6 * u); // the gate, swung open
+  }
+  c.restore();
+}
+
+function drawSack(c, bx, by, bw, count, time, extra) { // extra: {hot, fly}
+  const pr = bw * 0.13, mx = bx, my = by - bw * 0.92;
+  c.save(); c.globalAlpha = 1;
+  c.fillStyle = 'rgba(10, 30, 10, .28)'; c.beginPath(); c.ellipse(bx, by, bw * 0.55, bw * 0.13, 0, 0, TAU); c.fill();
+  c.fillStyle = shade(TABLE, 0.45); c.beginPath(); c.ellipse(mx, my, bw * 0.4, bw * 0.12, 0, 0, TAU); c.fill(); // dark inside
+  for (let j = 0; j < Math.min(count, 6); j++) pebble(c, mx + SLOTS[j][0] * pr, my + SLOTS[j][1] * pr, pr, 1);
+  if (extra.hot) { // the last pebble: a pink ring
+    const p = 0.5 + 0.5 * Math.sin(time * 5);
+    c.strokeStyle = PINK; c.lineWidth = 3; c.globalAlpha = 0.5 + 0.5 * p;
+    c.beginPath(); c.arc(mx + SLOTS[0][0] * pr, my + SLOTS[0][1] * pr, Math.max(1, pr * (1.7 + 0.2 * p)), 0, TAU); c.stroke(); c.globalAlpha = 1;
+  }
+  const body = new Path2D();
+  body.moveTo(mx - bw * 0.4, my); body.bezierCurveTo(mx - bw * 0.62, by - bw * 0.55, mx - bw * 0.55, by, bx, by);
+  body.bezierCurveTo(mx + bw * 0.55, by, mx + bw * 0.62, by - bw * 0.55, mx + bw * 0.4, my);
+  body.bezierCurveTo(mx + bw * 0.25, my + bw * 0.16, mx - bw * 0.25, my + bw * 0.16, mx - bw * 0.4, my);
+  const g = c.createLinearGradient(bx - bw * 0.5, 0, bx + bw * 0.5, 0);
+  g.addColorStop(0, shade(TABLE, -0.2)); g.addColorStop(1, shade(TABLE, 0.2));
+  c.fillStyle = g; c.fill(body); c.strokeStyle = shade(TABLE, 0.5); c.lineWidth = 1.5; c.stroke(body);
+  c.strokeStyle = 'rgba(80, 40, 15, .3)'; c.lineWidth = 1;
+  for (let i = -1; i <= 1; i++) { c.beginPath(); c.moveTo(bx + i * bw * 0.2, by - bw * 0.7); c.quadraticCurveTo(bx + i * bw * 0.28, by - bw * 0.35, bx + i * bw * 0.2, by - bw * 0.05); c.stroke(); }
+  c.restore();
+}
+function pebble(c, x, y, r, a) {
+  c.save(); c.globalAlpha = a;
+  const g = c.createRadialGradient(x - r * 0.3, y - r * 0.35, r * 0.1, x, y, r);
+  g.addColorStop(0, '#E4E6EE'); g.addColorStop(1, '#8F95AA');
+  c.fillStyle = g; c.strokeStyle = '#5A6078'; c.lineWidth = 1;
+  c.beginPath(); c.ellipse(x, y, r, r * 0.88, 0.3, 0, TAU); c.fill(); c.stroke();
+  c.restore();
+}
+
+function drawSheep(c, w, h, time) {
+  const v = V.cups, T = v.t0 === null ? 0 : time - v.t0, u = Math.min(w, h * 1.1) * 0.052;
+  if (T >= SH.end && !v.revealed && v.t0 !== null) { v.revealed = true; render(); }
+  const ev = ease(clamp01((T - SH.tM) / 1.0));
+  // sky, sun, ground
+  let g = c.createLinearGradient(0, 0, 0, h * 0.5);
+  g.addColorStop(0, mix('#8EC5FF', RUG, ev)); g.addColorStop(1, mix('#FFE9C2', '#FF9E80', ev));
+  c.save(); c.globalAlpha = 1; c.fillStyle = g; c.fillRect(0, 0, w, h);
+  const sx = lerp(w * 0.16, w * 0.84, ev), sy = lerp(h * 0.14, h * 0.34, ev);
+  glowAt(c, sx, sy, u * 5, '255, 220, 140', 0.9);
+  c.fillStyle = mix(THREAD, '#FF8A5C', ev); c.beginPath(); c.arc(sx, sy, u * 1.3, 0, TAU); c.fill();
+  c.fillStyle = 'rgba(255, 255, 255, .8)';
+  for (const [cx, cy, s] of [[0.3, 0.12, 1], [0.62, 0.2, 0.8]]) for (const [dx, dy, rr] of [[-1, 0.2, 0.9], [0, 0, 1.2], [1.1, 0.2, 0.8]]) {
+    c.globalAlpha = 0.85 - 0.4 * ev; c.beginPath(); c.arc(w * cx + dx * u * s * 1.2, h * cy + dy * u * s, rr * u * s, 0, TAU); c.fill();
+  }
+  c.globalAlpha = 1;
+  g = c.createLinearGradient(0, h * 0.4, 0, h);
+  g.addColorStop(0, mix('#7DC46A', '#4E8B66', ev)); g.addColorStop(1, mix('#4F9A52', '#2F6648', ev));
+  c.fillStyle = g; c.beginPath(); c.moveTo(0, h * 0.46); c.bezierCurveTo(w * 0.3, h * 0.38, w * 0.65, h * 0.5, w, h * 0.42); c.lineTo(w, h); c.lineTo(0, h); c.closePath(); c.fill();
+  // the pen floor
+  const px0 = w * 0.04, px1 = w * 0.33, py0 = h * 0.56, py1 = h * 0.86, gate = { x: px1, y: py0 + (py1 - py0) * 0.55 };
+  g = c.createLinearGradient(0, py0, 0, py1); g.addColorStop(0, mix('#B58A5C', '#7A5A45', ev)); g.addColorStop(1, mix('#9C7449', '#654A3A', ev));
+  c.fillStyle = g; c.beginPath(); c.roundRect(px0, py0 - 0.4 * u, px1 - px0, py1 - py0 + 0.4 * u, 8); c.fill();
+  c.restore();
+  drawPen(c, px0, py0, px1, py1, u, false);
+
+  // where every animal is
+  const pen = (i) => ({ x: px0 + (px1 - px0) * (0.2 + 0.3 * (i % 3)), y: py0 + (py1 - py0) * (0.5 + 0.34 * Math.floor(i / 3)) });
+  const bush = { x: w * 0.86, y: h * 0.62 };
+  const spot = (i) => (i < 5 ? { x: w * PASTURE[i][0], y: h * PASTURE[i][1] } : { x: bush.x, y: bush.y - 1.5 * u });
+  const leg = (a, b, f) => ({ x: lerp(a.x, b.x, f), y: lerp(a.y, b.y, f) });
+  const animals = [];
+  for (let i = 0; i < 6; i++) {
+    const P = pen(i), S = spot(i), tm = SH.M0 + i * SH.GAP, te = i < 5 ? SH.E0 + i * SH.GAP : SH.tLamb, wk = i < 5 ? SH.WALK : SH.LWALK;
+    let p = P, dir = 1, walking = false;
+    if (T < tm) p = P;
+    else if (T < tm + SH.WALK) { // out of the pen, through the gate, to the pasture
+      const f = (T - tm) / SH.WALK; walking = true;
+      if (f < 0.3) { p = leg(P, gate, f / 0.3); dir = gate.x >= P.x ? 1 : -1; } else { p = leg(gate, S, (f - 0.3) / 0.7); dir = S.x >= gate.x ? 1 : -1; }
+    } else if (T < te) p = S;
+    else if (T < te + wk) { // home again
+      const f = (T - te) / wk; walking = true;
+      if (f < 0.7) { p = leg(S, gate, f / 0.7); dir = gate.x >= S.x ? 1 : -1; } else { p = leg(gate, P, (f - 0.7) / 0.3); dir = P.x >= gate.x ? 1 : -1; }
+    } else p = P;
+    const lamb = i === 5;
+    const ears = lamb && T >= SH.tM + 0.3 && T < te ? Math.sin(time * 7) : 0;
+    animals.push({ y: p.y, f: () => drawSheepBody(c, p.x, p.y, u, dir, walking ? Math.abs(Math.sin(time * 9 + i)) * 0.12 : 0, lamb ? 0.72 : 1, ears) });
+  }
+  animals.push({ y: bush.y, f: () => drawBush(c, bush.x, bush.y, u) });
+  animals.sort((a, b) => a.y - b.y).forEach((a) => a.f());
+  drawPen(c, px0, py0, px1, py1, u, true);
+
+  // the bag, and the pebbles dropping in (morning) and coming out (evening)
+  const bw = Math.max(46, w * 0.15), bag = { x: w * 0.455, y: h * 0.9 }, mouth = { x: bag.x, y: bag.y - bw * 0.92 }, pr = bw * 0.13;
+  const drops = Array.from({ length: 6 }, (_, i) => SH.M0 + i * SH.GAP + 0.3 * SH.WALK);
+  const pops = [0, 1, 2, 3, 4].map((j) => SH.E0 + j * SH.GAP + 0.7 * SH.WALK).concat([SH.tLamb + 0.7 * SH.LWALK]);
+  const inBag = drops.filter((t) => T >= t + 0.6).length - pops.filter((t) => T >= t).length;
+  const hot = inBag === 1 && T >= SH.E0 + 4 * SH.GAP + SH.WALK && T < pops[5];
+  // sounds on landings and pops
+  const ev2 = drops.filter((t) => T >= t + 0.6).length + pops.filter((t) => T >= t).length;
+  if (ev2 > (v.played || 0)) { v.played = ev2; (ev2 > 6 ? sfx.click : sfx.tick)(); }
+  drawSack(c, bag.x, bag.y, bw, inBag, time, { hot });
+  drops.forEach((t, i) => { // falling in
+    const f = (T - t) / 0.6;
+    if (f > 0 && f < 1) { const sx0 = gate.x, sy0 = gate.y - 1.8 * u, ex = mouth.x + SLOTS[i][0] * pr, ey = mouth.y + SLOTS[i][1] * pr; pebble(c, lerp(sx0, ex, ease(f)), lerp(sy0, ey, f * f) - Math.sin(Math.PI * f) * u * 1.2, pr, 1); }
+  });
+  pops.forEach((t, j) => { // rising out
+    const f = (T - t) / 0.7;
+    if (f > 0 && f < 1) {
+      const slot = SLOTS[5 - j], sx0 = mouth.x + slot[0] * pr, sy0 = mouth.y + slot[1] * pr, ex = gate.x - 0.4 * u, ey = gate.y - 2.4 * u, e = ease(f);
+      pebble(c, lerp(sx0, ex, e), lerp(sy0, ey, e) - Math.sin(Math.PI * f) * u * 1.5, pr * (1 - 0.3 * f), 1 - f);
+      sparkle(c, ex, ey, f, u * 1.2);
+    }
+  });
+  if (T >= SH.end - 0.9) sparkle(c, px0 + (px1 - px0) / 2, py0 + (py1 - py0) / 2, clamp01((T - (SH.end - 0.9)) / 0.9), u * 3);
+}
+
+// ============================================================================================================
+// the draw loop
+// ============================================================================================================
+const loop = canvasLoop($('cv'), (c, w, h, dt, time) => {
+  const view = lab.view;
+  if (view === 'cups') drawCups(c, w, h, time);
+  else if (view === 'chairs') drawChairs(c, w, h, time, dt);
+  else drawRows(c, w, h, time, dt);
+});
+
+// --- the stretch handle -------------------------------------------------------------------------------------
+let dragging = false;
+const setL = (clientX) => {
+  const v = V.rows, G = v.geo; if (!G) return;
+  const r = $('cv').getBoundingClientRect();
+  const nl = clamp(2 * (clientX - r.left - G.cx), G.Lmin, G.Lmax);
+  if (Math.abs(nl - (v.L ?? G.Lmax)) > 18) sfx.tick();
+  v.L = nl;
+};
+handle.addEventListener('pointerdown', (ev) => { dragging = true; handle.setPointerCapture(ev.pointerId); sfx.click(); ev.preventDefault(); });
+handle.addEventListener('pointermove', (ev) => { if (dragging) setL(ev.clientX); });
+const endDrag = () => { dragging = false; };
+handle.addEventListener('pointerup', endDrag); handle.addEventListener('pointercancel', endDrag);
+handle.addEventListener('keydown', (ev) => {
+  const v = V.rows, G = v.geo; if (!G || !['ArrowLeft', 'ArrowRight'].includes(ev.key)) return;
+  v.L = clamp((v.L ?? G.Lmax) + (ev.key === 'ArrowRight' ? 14 : -14), G.Lmin, G.Lmax); sfx.tick(); ev.preventDefault();
+});
+
+// --- controls -----------------------------------------------------------------------------------------------
+const showStage = () => { // on a phone the options sit below the picture: bring the picture into view
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+function startSecret(k) {
+  const v = V.cups; v.sec = k;
+  if (k === 'count') { v.s = { nc: 5, ns: 4 }; v.badge = true; v.pairStart = 0.3 + 0.4 * 9 + 0.6; }
+  start('cups'); showStage();
+}
+function step(view, key, d) {
+  const v = V[view], lim = [1, 8];
+  const tgt = view === 'cups' && v.sec === 'count' ? v.s : v;
+  tgt[key] = clamp(tgt[key] + d, lim[0], lim[1]);
+  v.t0 = null; v.revealed = false; v.played = 0;
+  if (view === 'chairs') { v.stopped = false; v.sat = 0; v.beat = -1; }
+  if (view === 'cups' && v.sec === 'count') { v.pairStart = 0.3 + 0.4 * (v.s.nc + v.s.ns) + 0.6; start('cups'); }
+  sfx.tick();
+}
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const view = lab.view, v = V[view], act = b.dataset.act;
+  if (act === 'pick') {
+    if (v.t0 !== null) return;
+    v.guess = +b.dataset.i; start(view); sfx.click(); showStage();
+  } else if (act === 'next') {
+    if (v.ri < 2) { v.ri++; load(view); } else { // after the last round: free play
+      v.free = true; v.t0 = null; v.revealed = false; v.guess = null;
+      if (view === 'cups') v.played = 0;
+      if (view === 'chairs') { v.stopped = false; v.sat = 0; v.beat = -1; }
+    }
+    sfx.click();
+  } else if (act === 'again') {
+    V[view] = fresh[view](); load(view); sfx.click();
+  } else if (act === 'step') step(view, b.dataset.k, +b.dataset.d);
+  else if (act === 'play') {
+    if (view === 'cups' && v.sec === 'count') startSecret('count');
+    else { if (view === 'cups') v.pairStart = 0.25; start(view); sfx.click(); showStage(); }
+  } else if (act === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    const k = b.dataset.k;
+    if (v.sec === k) { v.sec = null; v.badge = false; v.pairStart = 0.25; v.t0 = null; v.revealed = false; v.played = 0; sfx.click(); }
+    else { startSecret(k); sfx.click(); }
+  }
+  render();
+});
+
+// --- one render per change: controls, readout, state card -----------------------------------------------------
+function qHTML(view) {
+  const v = V[view], t = T[lang], qt = t[QKEY[view]], right = DATA[view][v.ri][2], asked = v.t0 !== null;
+  const dots = [0, 1, 2].map((i) => `<i class="${i < v.ri || (i === v.ri && v.revealed) ? 'done' : i === v.ri ? 'cur' : ''}"></i>`).join('');
+  const opts = qt.o.map((o, i) => {
+    const cls = v.revealed ? (i === right ? 'right' : i === v.guess ? 'wrong' : '') : (i === v.guess ? 'pick' : '');
+    return `<button class="mf-o ${cls}" data-act="pick" data-i="${i}"${asked ? ' disabled' : ''}><span class="mf-ic">${ICONS[view][i]}</span><span>${esc(o)}</span></button>`;
+  }).join('');
+  let html = `<div class="mf-dots">${dots}</div><div class="mf-q">${esc(qt.q)}</div><div class="mf-opts">${opts}</div>`;
+  if (v.revealed) {
+    const ok = v.guess === right;
+    html += `<div class="mf-v ${ok ? 'ok' : 'no'}"><b>${esc(ok ? t.right : t.wrong)}</b>${esc(qt.why[v.ri])}</div>`
+      + `<div class="mf-act"><button class="btn" data-act="next">${esc(t.next)}</button></div>`;
+  }
+  return html;
+}
+const stepper = (key, emo, dis) => `<div class="mf-row" style="margin-top:0"><button class="mf-st" data-act="step" data-k="${key}" data-d="-1"${dis[0] ? ' disabled' : ''}>− ${emo}</button>`
+  + `<button class="mf-st" data-act="step" data-k="${key}" data-d="1"${dis[1] ? ' disabled' : ''}>+ ${emo}</button></div>`;
+const lim = (x) => [x <= 1, x >= 8];
+const card = (view, full) => { const k = T[lang].cards[view][full ? 'f' : 'n']; lab.setState({ emo: k[0], title: k[1], lead: k[2], body: k[3], extra: '' }); };
+
+function render() {
+  const t = T[lang], view = lab.view, v = V[view];
+  document.body.dataset.v = view;
+  lab.setGlow(GLOW[view]);
+  handle.style.display = view === 'rows' && v.free ? handle.style.display : 'none';
+  $('mfQ').innerHTML = ''; $('mfF').innerHTML = ''; $('mfS').innerHTML = '';
+  const full = v.free || (v.ri === 2 && v.revealed);
+  if (view === 'cups') {
+    const sheep = v.sec === 'sheep', cn = cupCounts(v);
+    if (!v.free) { $('mfQ').innerHTML = qHTML('cups'); lab.setReadout('', '', ''); card('cups', full); return; }
+    if (sheep) {
+      $('mfF').innerHTML = `<div class="mf-row"><button class="btn" data-act="play">${v.revealed ? esc(t.again) : '▶'}</button></div>`;
+      lab.setReadout('', '', '');
+    } else {
+      $('mfF').innerHTML = `<div class="mf-row">${stepper('nc', '☕', lim(cn.nc))}${stepper('ns', '🍽️', lim(cn.ns))}</div>`
+        + `<div class="mf-row"><button class="btn" data-act="play">${esc(t.c.pair)}</button><button class="chip" data-act="again">${esc(t.again)}</button></div>`;
+      const r = cn.nc > cn.ns ? 'more' : cn.nc < cn.ns ? 'fewer' : 'same';
+      lab.setReadout(t.c.count(cn.nc, cn.ns), v.revealed ? t.c.result(r) : '', '');
+    }
+    const open = secret.unlocked(), sc = (k, emo) => `<button class="chip secret ${open ? 'open' : ''} ${v.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+    $('mfS').innerHTML = `<div class="chips mf-chips">${sc('sheep', '🐑')}${sc('count', '🔢')}</div>`;
+    if (v.sec) lab.setState({ emo: v.sec === 'sheep' ? '🐑' : '🔢', title: t.secrets[v.sec][0], lead: t.sec[v.sec === 'sheep' ? 'sheepText' : 'countText'], body: '', extra: '' });
+    else card('cups', true);
+  } else if (view === 'chairs') {
+    if (!v.free) { $('mfQ').innerHTML = qHTML('chairs'); lab.setReadout('', '', ''); card('chairs', full); return; }
+    $('mfF').innerHTML = `<div class="mf-row">${stepper('nk', '🧒', lim(v.nk))}${stepper('nch', '🪑', lim(v.nch))}</div>`
+      + `<div class="mf-row"><button class="btn" data-act="play">${esc(t.h.play)}</button><button class="chip" data-act="again">${esc(t.again)}</button></div>`;
+    lab.setReadout(`🧒 ${v.nk} · 🪑 ${v.nch}`, '', '');
+    card('chairs', true);
+  } else {
+    if (!v.free) { $('mfQ').innerHTML = qHTML('rows'); lab.setReadout('', '', ''); card('rows', full); return; }
+    $('mfF').innerHTML = `<div class="mf-row"><span class="mf-hint">⟷ ${esc(t.r.drag)}</span><button class="chip" data-act="again">${esc(t.again)}</button></div>`;
+    lab.setReadout(t.r.state, '', '');
+    card('rows', true);
+  }
+}
+['cups', 'chairs', 'rows'].forEach((k) => load(k));
+render();
+</script>
+</body>
+</html>
