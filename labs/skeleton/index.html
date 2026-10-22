@@ -287,23 +287,33 @@ const showStage = () => {
   if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
 };
 
-// the "x-ray" skin: capsules painted once on two side canvases (a soft skin fill and a thin outline ring), then laid over the scene
-// segs: [x1, y1, x2, y2, width]; o: { alpha, ring, shadow }
+// the "x-ray" skin: closed shapes (paths: Path2D) and capsules (segs: [x1, y1, x2, y2, width]) are painted once on two side canvases
+// (a soft skin fill and a thin outline ring around the union of every shape), then laid over the scene
+// shape: a segs array, or { segs, paths, box }; o: { alpha, ring, shadow }
 const gA = document.createElement('canvas'), gB = document.createElement('canvas');
-function ghost(c, w, h, segs, o = {}) {
+const capsule = (x1, y1, x2, y2, wd) => path((p) => {
+  const r = Math.max(0.5, wd / 2), an = Math.atan2(y2 - y1, x2 - x1);
+  p.arc(x1, y1, r, an + Math.PI / 2, an + Math.PI * 1.5); p.arc(x2, y2, r, an - Math.PI / 2, an + Math.PI / 2); p.closePath();
+});
+function ghost(c, w, h, shape, o = {}) {
+  const arr = Array.isArray(shape), segs = (arr ? shape : shape.segs) || [], paths = (arr ? null : shape.paths) || [];
   const d = dpr(), W = Math.round(w * d), H = Math.round(h * d);
   for (const cv of [gA, gB]) if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
   const a = gA.getContext('2d'), b = gB.getContext('2d');
   for (const k of [a, b]) { k.setTransform(d, 0, 0, d, 0, 0); k.globalCompositeOperation = 'source-over'; k.clearRect(0, 0, w, h); k.lineCap = 'round'; k.lineJoin = 'round'; }
   let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
   for (const s of segs) { const r = s[4] / 2; x0 = Math.min(x0, s[0] - r, s[2] - r); y0 = Math.min(y0, s[1] - r, s[3] - r); x1 = Math.max(x1, s[0] + r, s[2] + r); y1 = Math.max(y1, s[1] + r, s[3] + r); }
-  a.strokeStyle = '#F4CDAA';
+  if (!arr && shape.box) [x0, y0, x1, y1] = shape.box;
+  a.strokeStyle = '#F4CDAA'; a.fillStyle = '#F4CDAA';
   for (const s of segs) { a.lineWidth = s[4]; a.beginPath(); a.moveTo(s[0], s[1]); a.lineTo(s[2] + 0.01, s[3]); a.stroke(); }
+  for (const p of paths) a.fill(p);
   a.globalCompositeOperation = 'source-atop'; a.fillStyle = lin(a, x0, y0, x1, y1, [[0, '#F4CDAA'], [1, '#E2A982']]); a.fillRect(0, 0, w, h);
   b.strokeStyle = '#9A6A50';
   for (const s of segs) { b.lineWidth = s[4]; b.beginPath(); b.moveTo(s[0], s[1]); b.lineTo(s[2] + 0.01, s[3]); b.stroke(); }
-  b.globalCompositeOperation = 'destination-out';
+  b.lineWidth = 3; for (const p of paths) b.stroke(p);
+  b.globalCompositeOperation = 'destination-out'; b.fillStyle = '#000';
   for (const s of segs) { b.lineWidth = Math.max(0.5, s[4] - 3); b.beginPath(); b.moveTo(s[0], s[1]); b.lineTo(s[2] + 0.01, s[3]); b.stroke(); }
+  for (const p of paths) b.fill(p);
   const ga = c.globalAlpha;
   c.save();
   if (o.shadow) { c.shadowColor = 'rgba(90,55,30,.3)'; c.shadowBlur = 16; c.shadowOffsetY = 6; }
@@ -319,7 +329,7 @@ function paintBone(c, parts, on, g) {
   for (const p of parts) c.fill(p);
 }
 // a long bone: waisted shaft with a rounded head at each end (wA, wB = head widths, wM = shaft width)
-function bone(c, x1, y1, x2, y2, wA, wM, wB, on) {
+function bone(c, x1, y1, x2, y2, wA, wM, wB, on, extra = []) {
   const dx = x2 - x1, dy = y2 - y1, L = Math.hypot(dx, dy) || 1, ux = dx / L, uy = dy / L, nx = -uy, ny = ux;
   const hA = Math.max(wM * 0.72, wA * 0.4), hB = Math.max(wM * 0.72, wB * 0.4), hm = wM / 2, ch = 2 * hm - (hA + hB) / 2;
   const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
@@ -329,7 +339,7 @@ function bone(c, x1, y1, x2, y2, wA, wM, wB, on) {
   });
   const ha = path((p) => p.arc(x1, y1, Math.max(0.5, wA / 2), 0, 7)), hb = path((p) => p.arc(x2, y2, Math.max(0.5, wB / 2), 0, 7));
   const r = Math.max(wA, wB) / 2;
-  paintBone(c, [sh, ha, hb], on, [Math.min(x1, x2) - r, Math.min(y1, y2) - r, Math.max(x1, x2) + r, Math.max(y1, y2) + r]);
+  paintBone(c, [sh, ha, hb, ...extra], on, [Math.min(x1, x2) - r, Math.min(y1, y2) - r, Math.max(x1, x2) + r, Math.max(y1, y2) + r]);
   const sg = nx + ny > 0 ? -1 : 1; // the highlight sits on the upper-left side of the shaft
   c.save(); c.lineCap = 'round'; seg(c, x1 + sg * nx * hm * 0.4 + ux * wA * 0.4, y1 + sg * ny * hm * 0.4 + uy * wA * 0.4, x2 + sg * nx * hm * 0.4 - ux * wB * 0.4, y2 + sg * ny * hm * 0.4 - uy * wB * 0.4, Math.max(1, hm * 0.4), 'rgba(255,255,255,.6)'); c.restore();
 }
@@ -341,31 +351,41 @@ function bseg(c, x1, y1, x2, y2, wd, on) {
 }
 
 // --- view 1: the arm ---------------------------------------------------------------------------------------
-// a muscle: tendon-belly-tendon between a fixed end A and the bone it pulls B; the belly thickens as it shortens
-function muscle(c, A, B, u, tendU, base, ref, out, act) {
+const bz = (p0, p1, p2, p3, t) => {
+  const s = 1 - t;
+  return [s * s * s * p0[0] + 3 * s * s * t * p1[0] + 3 * s * t * t * p2[0] + t * t * t * p3[0], s * s * s * p0[1] + 3 * s * s * t * p1[1] + 3 * s * t * t * p2[1] + t * t * t * p3[1]];
+};
+const segHit = (p1, p2, p3, p4) => { // where the segments p1-p2 and p3-p4 cross, or null
+  const r0 = p2[0] - p1[0], r1 = p2[1] - p1[1], s0 = p4[0] - p3[0], s1 = p4[1] - p3[1], den = r0 * s1 - r1 * s0;
+  if (Math.abs(den) < 1e-9) return null;
+  const t = ((p3[0] - p1[0]) * s1 - (p3[1] - p1[1]) * s0) / den, q = ((p3[0] - p1[0]) * r1 - (p3[1] - p1[1]) * r0) / den;
+  return t >= 0 && t <= 1 && q >= 0 && q <= 1 ? [p1[0] + t * r0, p1[1] + t * r1] : null;
+};
+const armCv = document.createElement('canvas'); // the whole arm scene is painted here first, so that its left edge can fade into the page
+// a muscle: tendon-belly-tendon between a fixed end A and the bone it pulls B (tA, tB: tendon lengths in u). The belly is a long spindle
+// that hugs the bone on its inner side and bulges outwards; it gets thicker as it shortens and when it works.
+function muscleGeo(A, B, u, tA, tB, base, ref, act, out) {
   const dx = B[0] - A[0], dy = B[1] - A[1], len = Math.hypot(dx, dy), ux = dx / len, uy = dy / len;
   const px = out > 0 ? uy : -uy, py = out > 0 ? -ux : ux; // outward normal
-  const tend = tendU * u, bu = (len - 2 * tend) / u;
-  const thick = Math.max(0.09, Math.min(0.36, base * (ref / bu) * (0.88 + 0.42 * act))) * u;
-  const P1 = [A[0] + ux * tend, A[1] + uy * tend], P2 = [B[0] - ux * tend, B[1] - uy * tend];
-  const o = 0.3 * thick, h2 = thick / 2, mid = [(P1[0] + P2[0]) / 2, (P1[1] + P2[1]) / 2];
-  const edge = (off) => { // a spindle edge: cubic whose bulge peaks at `off`
-    const k = off / 0.75, d = [P2[0] - P1[0], P2[1] - P1[1]];
-    return [[P1[0] + d[0] * 0.3 + px * k, P1[1] + d[1] * 0.3 + py * k], [P1[0] + d[0] * 0.7 + px * k, P1[1] + d[1] * 0.7 + py * k]];
-  };
-  const [o1, o2] = edge(o + h2), [i1, i2] = edge(o - h2);
+  const belly = Math.max(0.3, len / u - tA - tB), t = clamp(base * Math.sqrt(ref / belly) * (0.9 + 0.26 * act), 0.2, 0.5);
+  const P1 = [A[0] + ux * tA * u, A[1] + uy * tA * u], P2 = [B[0] - ux * tB * u, B[1] - uy * tB * u];
+  return { A, B, P1, P2, ux, uy, px, py, t, belly, u, mid: [(P1[0] + P2[0]) / 2 + px * 0.38 * t * u, (P1[1] + P2[1]) / 2 + py * 0.38 * t * u] };
+}
+function drawMuscle(c, g, act) {
+  const { P1, P2, px, py, u } = g, t = g.t * u, dd = [P2[0] - P1[0], P2[1] - P1[1]], m = g.mid;
+  const edge = (off) => { const k = off / 0.75; return [[P1[0] + dd[0] * 0.25 + px * k, P1[1] + dd[1] * 0.25 + py * k], [P1[0] + dd[0] * 0.68 + px * k, P1[1] + dd[1] * 0.68 + py * k]]; }; // a spindle edge whose bulge peaks at `off`
+  const [o1, o2] = edge(0.88 * t), [i1, i2] = edge(-0.12 * t);
   c.save();
   if (act > 0.05) { c.shadowColor = 'rgba(255,80,50,.95)'; c.shadowBlur = 22 * act; }
   c.beginPath(); c.moveTo(...P1); c.bezierCurveTo(...o1, ...o2, ...P2); c.bezierCurveTo(...i2, ...i1, ...P1); c.closePath();
-  c.fillStyle = lin(c, mid[0], mid[1] - thick * 1.1, mid[0], mid[1] + thick * 1.1, [[0, mixHex('#D9565F', '#FF7A66', act)], [0.5, mixHex('#C9434F', '#FF5B52', act)], [1, mixHex('#9E2B38', '#D8322F', act)]]); c.fill();
+  c.fillStyle = lin(c, m[0] + px * t * 0.5, m[1] + py * t * 0.5, m[0] - px * t * 0.5, m[1] - py * t * 0.5, [[0, mixHex('#D9565F', '#FF7A66', act)], [0.5, mixHex('#C9434F', '#FF5B52', act)], [1, mixHex('#9E2B38', '#D8322F', act)]]); c.fill();
   c.shadowBlur = 0; c.shadowColor = 'rgba(0,0,0,0)'; c.lineWidth = 1.5; c.strokeStyle = 'rgba(94,18,32,.85)'; c.stroke();
   c.clip();
   c.lineWidth = 1.1; c.strokeStyle = 'rgba(229,123,133,.7)';
-  for (const f of [-0.6, -0.3, 0, 0.3, 0.6]) { const [a1, a2] = edge(o + h2 * f); c.beginPath(); c.moveTo(...P1); c.bezierCurveTo(...a1, ...a2, ...P2); c.stroke(); }
-  const [t1, t2] = edge(o + h2 * 0.5); // soft highlight on the lit upper side
-  c.lineWidth = Math.max(1.5, thick * 0.12); c.strokeStyle = 'rgba(255,235,230,.35)'; c.beginPath(); c.moveTo(...P1); c.bezierCurveTo(...t1, ...t2, ...P2); c.stroke();
+  for (const f of [0.15, 0.33, 0.5, 0.68, 0.84]) { const [a1, a2] = edge((f - 0.12) * t); c.beginPath(); c.moveTo(...P1); c.bezierCurveTo(...a1, ...a2, ...P2); c.stroke(); }
+  const [h1, h2] = edge(0.68 * t); // soft highlight on the lit outer side
+  c.lineWidth = Math.max(1.5, t * 0.1); c.strokeStyle = 'rgba(255,235,230,.35)'; c.beginPath(); c.moveTo(...P1); c.bezierCurveTo(...h1, ...h2, ...P2); c.stroke();
   c.restore();
-  return { P1, P2, A, B, ux, uy, mid: [mid[0] + px * o, mid[1] + py * o], u };
 }
 function pullArrow(c, m, act) {
   if (act < 0.15) return;
@@ -395,50 +415,112 @@ function legend(c, w, h, t) {
   c.setLineDash([3, 3]); c.lineWidth = 1.8; c.strokeStyle = '#6cc0ff'; c.beginPath(); c.arc(x + 7, cy, 6, 0, 7); c.stroke(); c.setLineDash([]);
   c.fillStyle = '#fff'; c.fillText(items[2], x + 22, cy + 0.5); c.restore();
 }
+// the hand: four fingers (knuckle position across the palm k2, fan angle in degrees, bone lengths in u) and a thumb
+const FING = [{ k2: 0.092, fan: 9, L: [0.105, 0.075, 0.065] }, { k2: 0.032, fan: 3, L: [0.12, 0.085, 0.07] }, { k2: -0.03, fan: -3, L: [0.108, 0.078, 0.064] }, { k2: -0.088, fan: -10, L: [0.085, 0.06, 0.05] }];
+const FW = [0.072, 0.066, 0.06], TW = [0.1, 0.082, 0.068];
+// the skin of the arm as closed outlines: g = { at(x, y): upper-arm frame (shoulder at 0,0, elbow at 1,0), ev(k1, k2): forearm frame (elbow at 0,0), u, E, d, n, tB, tT, ang, xL }
+// every outline is one bezier path; they are unioned by ghost(). The inner elbow crease is rounded with a small fillet.
+function armShapes(g) {
+  const { at, ev, u, E, d, n } = g, PI = Math.PI, yb = 0.07 + 0.88 * g.tB + 0.03, yt = 0.07 + 0.88 * g.tT + 0.03; // skin follows the belly of each muscle
+  const Q0 = at(g.xL, -0.55), D = at(0.02, -0.46), Bp = at(0.42, -yb), Ee = at(1, -0.225);
+  const c1 = [at(g.xL + 0.5 * (0.02 - g.xL), -0.58), at(-0.28, -0.46)], c2 = [at(0.22, -0.46), at(0.24, -yb)], c3 = [at(0.62, -yb), at(0.8, -0.225)];
+  const arm = path((p) => { // rounded deltoid, upper arm tapering to a round elbow end, soft armpit; the left end lies outside the stage
+    p.moveTo(...Q0); p.bezierCurveTo(...c1[0], ...c1[1], ...D); p.bezierCurveTo(...c2[0], ...c2[1], ...Bp); p.bezierCurveTo(...c3[0], ...c3[1], ...Ee);
+    p.arc(E[0], E[1], 0.225 * u, -PI / 2, PI / 2, false);
+    p.bezierCurveTo(...at(0.8, 0.225), ...at(0.65, yt), ...at(0.45, yt)); p.bezierCurveTo(...at(0.15, yt + 0.01), ...at(-0.25, 0.46), ...at(g.xL, 0.56)); p.closePath();
+  });
+  const fore = path((p) => { // forearm tapering to the wrist; its elbow end is rounded with the olecranon point on the outside of the bend
+    p.moveTo(...ev(0.04, 0.235)); p.bezierCurveTo(...ev(0.32, 0.28), ...ev(0.62, 0.175), ...ev(0.92, 0.105)); p.lineTo(...ev(0.92, -0.098));
+    p.bezierCurveTo(...ev(0.62, -0.175), ...ev(0.32, -0.21), ...ev(0.04, -0.205));
+    p.bezierCurveTo(...ev(-0.12, -0.205), ...ev(-0.22, -0.17), ...ev(-0.3, -0.1)); p.bezierCurveTo(...ev(-0.31, 0.0), ...ev(-0.2, 0.215), ...ev(0.04, 0.235)); p.closePath();
+  });
+  const palm = path((p) => {
+    p.moveTo(...ev(0.86, 0.105)); p.bezierCurveTo(...ev(0.98, 0.15), ...ev(1.1, 0.135), ...ev(1.17, 0.12)); p.lineTo(...ev(1.17, -0.115));
+    p.bezierCurveTo(...ev(1.1, -0.128), ...ev(0.98, -0.106), ...ev(0.86, -0.098)); p.closePath();
+  });
+  const dirK = (a) => [d[0] * Math.cos(a) + n[0] * Math.sin(a), d[1] * Math.cos(a) + n[1] * Math.sin(a)]; // angle a turns from the forearm direction towards the thumb side
+  const chain = (K, deg, L, cu) => { const P = [K]; let a = deg * PI / 180; L.forEach((l, i) => { const v = dirK(a); P.push([P[i][0] + v[0] * l * u, P[i][1] + v[1] * l * u]); a += cu[i] * PI / 180; }); return P; };
+  const fingers = FING.map((f) => chain(ev(1.15, f.k2), f.fan, f.L, [12, 20, 0])), thumb = chain(ev(0.98, 0.07), 38, [0.13, 0.095, 0.07], [14, 10, 0]);
+  const paths = [arm, fore, palm];
+  for (const P of fingers) for (let i = 0; i < 3; i++) paths.push(capsule(...P[i], ...P[i + 1], FW[i] * u));
+  for (let i = 0; i < 3; i++) paths.push(capsule(...thumb[i], ...thumb[i + 1], TW[i] * u));
+  // inner crease: find where the forearm's front edge meets the upper arm's top edge and fill that corner with a rounded fillet
+  let apex = null;
+  if (g.ang > 12) {
+    const TP = [], FA = [], a0 = ev(0.04, 0.235), a1 = ev(0.32, 0.28), a2 = ev(0.62, 0.175), a3 = ev(0.92, 0.105);
+    for (let i = 0; i <= 14; i++) TP.push(bz(D, c2[0], c2[1], Bp, i / 14));
+    for (let i = 1; i <= 14; i++) TP.push(bz(Bp, c3[0], c3[1], Ee, i / 14));
+    for (let i = 0; i <= 24; i++) FA.push(bz(a0, a1, a2, a3, i / 24));
+    search: for (let i = TP.length - 2; i >= 0; i--) for (let j = 0; j < FA.length - 1; j++) {
+      const hit = segHit(TP[i], TP[i + 1], FA[j], FA[j + 1]);
+      if (hit) { apex = { A: hit, Pu: TP[Math.max(0, i - 4)], Pf: FA[Math.min(FA.length - 1, j + 5)] }; break search; }
+    }
+  }
+  if (apex) paths.push(path((p) => { p.moveTo(...apex.Pu); p.lineTo(...apex.A); p.lineTo(...apex.Pf); p.quadraticCurveTo(...apex.A, ...apex.Pu); p.closePath(); }));
+  return { paths, apex, fingers, thumb, box: [at(-0.5, 0)[0], at(0, -0.6)[1], at(2.6, 0)[0], at(0, 0.5)[1]] };
+}
 function drawArm(c, w, h, dt) {
   const a = S.arm, t = T[lang].a;
   panel(c, w, h);
   if (a.speed) a.ang += clamp(a.tgt - a.ang, -a.speed * dt, a.speed * dt); else a.ang = a.tgt;
-  const k = Math.min(1, dt * 6);
-  a.act[0] += ((a.lab && a.dir > 0 ? 1 : 0) - a.act[0]) * k; a.act[1] += ((a.lab && a.dir < 0 ? 1 : 0) - a.act[1]) * k;
-  const u = clamp(Math.min((w - 24) / 2.75, (h - 104) / 1.74), 60, 150);
-  const S0 = [(w - 2.6 * u) / 2 + 0.26 * u, h - 62 - 0.5 * u], E = [S0[0] + u, S0[1]];
-  const th = a.ang * Math.PI / 180, d = [Math.cos(th), -Math.sin(th)], n = [d[1], -d[0]];
+  const kk = Math.min(1, dt * 6);
+  a.act[0] += ((a.lab && a.dir > 0 ? 1 : 0) - a.act[0]) * kk; a.act[1] += ((a.lab && a.dir < 0 ? 1 : 0) - a.act[1]) * kk;
+  // the arm: shoulder S0, elbow E, forearm turning by the angle; the hand reaches 1.42 u past the elbow
+  const u = clamp(Math.min((w - 24) / 2.9, (h - 100) / 2.0), 60, 150);
+  const S0 = [(w - 2.86 * u) / 2 + 0.44 * u, h - 62 - 0.5 * u], E = [S0[0] + u, S0[1]];
+  const th = a.ang * Math.PI / 180, d = [Math.cos(th), -Math.sin(th)], n = [d[1], -d[0]]; // n points to the biceps side
   const at = (x, y) => [S0[0] + x * u, S0[1] + y * u];
   const ev = (k1, k2) => [E[0] + (d[0] * k1 + n[0] * k2) * u, E[1] + (d[1] * k1 + n[1] * k2) * u];
-  const Ob = at(0.06, -0.14), Ot = at(0.06, 0.14), Ib = ev(0.15, 0.045), It = ev(-0.05, -0.08), Wr = ev(0.95, 0);
-  const fingers = [-0.075, -0.025, 0.025, 0.075], tip = (o) => ev(1.33 - Math.abs(o) * 1.2, o * 1.9);
-  c.lineCap = 'round'; c.lineJoin = 'round';
-  // skin: a see-through shoulder, arm and hand
-  const skinSegs = [[S0[0] - 0.25 * u, S0[1] - 0.55 * u, S0[0] - 0.25 * u, S0[1] + 0.8 * u, 0.75 * u], [...S0, ...E, 0.62 * u], [...E, ...Wr, 0.44 * u],
-    [...Wr, ...ev(1.12, 0), 0.3 * u], [...ev(1.0, 0.1), ...ev(1.15, 0.22), 0.07 * u]];
-  for (const o of fingers) skinSegs.push([...ev(1.1, o * 0.8), ...tip(o), 0.062 * u]);
-  ghost(c, w, h, skinSegs, { alpha: 0.42, ring: 0.8, shadow: true });
-  // shoulder blade behind everything
-  const m = (x, y) => at(x, y);
-  const sc = path((p) => {
-    p.moveTo(...m(0.16, -0.3)); p.bezierCurveTo(...m(0.02, -0.44), ...m(-0.24, -0.36), ...m(-0.32, -0.28));
-    p.bezierCurveTo(...m(-0.38, 0), ...m(-0.3, 0.3), ...m(-0.2, 0.48)); p.bezierCurveTo(...m(-0.06, 0.4), ...m(0, 0.25), ...m(0.03, 0.1));
-    p.bezierCurveTo(...m(0.1, -0.02), ...m(0.17, -0.14), ...m(0.16, -0.3)); p.closePath();
-  });
-  paintBone(c, [sc], false, [S0[0] - 0.4 * u, S0[1] - 0.45 * u, S0[0] + 0.2 * u, S0[1] + 0.5 * u]);
-  // soft cartilage glow at the elbow, then the two muscles
-  c.fillStyle = rad(c, E[0], E[1], 0, 0.22 * u, [[0, 'rgba(190,220,240,.9)'], [1, 'rgba(190,220,240,0)']]); c.beginPath(); c.arc(E[0], E[1], 0.22 * u, 0, 7); c.fill();
-  const mb = muscle(c, Ob, Ib, u, 0.18, 0.17, 0.73, 1, a.act[0]);
-  const mt = muscle(c, Ot, It, u, 0.15, 0.17, 0.59, -1, a.act[1]);
-  // bones: ulna and radius, the humerus on top of them with its knobby ends, then the hand
-  bone(c, ...ev(-0.05, -0.03), ...ev(0.95, -0.03), 0.13 * u, 0.055 * u, 0.08 * u);
-  bone(c, ...ev(0.03, 0.045), ...ev(0.95, 0.05), 0.09 * u, 0.055 * u, 0.1 * u);
-  bone(c, ...S0, ...E, 0.21 * u, 0.095 * u, 0.17 * u);
-  bseg(c, ...ev(0.97, 0), ...ev(1.1, 0), 0.14 * u);
-  for (const o of fingers) { const k1 = ev(1.1, o * 0.8), k2 = ev(1.2, o * 1.15); bseg(c, ...k1, ...k2, 0.035 * u); bseg(c, ...k2, ...tip(o), 0.03 * u); }
-  bseg(c, ...ev(1.0, 0.09), ...ev(1.1, 0.2), 0.04 * u); bseg(c, ...ev(1.1, 0.2), ...ev(1.17, 0.26), 0.034 * u);
-  // tendons (white) and the elbow joint
-  for (const [A, P1, P2, B] of [[Ob, mb.P1, mb.P2, Ib], [Ot, mt.P1, mt.P2, It]]) {
-    tendon(c, A, P1, 0.035 * u); tendon(c, P2, B, 0.035 * u);
-    disc(c, A[0], A[1], 0.03 * u + 1, 'rgba(120,108,90,.8)'); disc(c, A[0], A[1], 0.03 * u, '#F4F1EA'); disc(c, B[0], B[1], 0.03 * u + 1, 'rgba(120,108,90,.8)'); disc(c, B[0], B[1], 0.03 * u, '#F4F1EA');
+  // muscles first: the skin follows their bellies
+  const mb = muscleGeo(at(0.04, -0.075), ev(0.12, 0.04), u, 0.1, 0.2, 0.32, 0.8, a.act[0], 1);        // biceps: top of the upper arm, tendon to the radius
+  const mt = muscleGeo(at(0.02, 0.07), ev(-0.17, -0.035), u, 0.08, 0.18, 0.29, 0.76, a.act[1], -1);  // triceps: underside, tendon to the elbow point
+  const sk = armShapes({ at, ev, u, E, d, n, tB: mb.t, tT: mt.t, ang: a.ang, xL: -S0[0] / u - 0.6 });
+  // the scene goes onto its own layer
+  const dv = dpr(), W = Math.round(w * dv), H = Math.round(h * dv);
+  if (armCv.width !== W || armCv.height !== H) { armCv.width = W; armCv.height = H; }
+  const L = armCv.getContext('2d'); L.setTransform(dv, 0, 0, dv, 0, 0); L.globalCompositeOperation = 'source-over'; L.globalAlpha = 1; L.clearRect(0, 0, w, h); L.lineCap = 'round'; L.lineJoin = 'round';
+  ghost(L, w, h, { paths: sk.paths, box: sk.box }, { alpha: 0.42, ring: 0.8, shadow: true });
+  if (sk.apex && a.ang > 25) { // soft skin creases in the bend
+    const A = sk.apex.A, vx = E[0] - A[0], vy = E[1] - A[1], vl = Math.hypot(vx, vy) || 1, ix = vx / vl, iy = vy / vl, px = -iy, py = ix;
+    L.save(); L.strokeStyle = `rgba(154,106,80,${0.4 * smooth(a.ang, 25, 70)})`; L.lineWidth = 1.2;
+    for (const [dd, hl] of [[0.05, 0.12], [0.11, 0.09], [0.17, 0.06]]) {
+      const cx = A[0] + ix * dd * u, cy = A[1] + iy * dd * u;
+      L.beginPath(); L.moveTo(cx - px * hl * u, cy - py * hl * u); L.quadraticCurveTo(cx - ix * 0.02 * u, cy - iy * 0.02 * u, cx + px * hl * u, cy + py * hl * u); L.stroke();
+    }
+    L.restore();
   }
-  c.save(); c.setLineDash([4, 4]); c.lineWidth = 2.2; c.strokeStyle = '#2E86C1'; c.beginPath(); c.arc(E[0], E[1], 0.15 * u, 0, 7); c.stroke(); c.restore();
+  // shoulder: collar bone and a small shoulder blade behind the joint (both fade out at the stage edge)
+  const sc = path((p) => {
+    p.moveTo(...at(0.13, -0.17)); p.bezierCurveTo(...at(0, -0.3), ...at(-0.2, -0.28), ...at(-0.5, -0.22));
+    p.bezierCurveTo(...at(-0.62, 0.05), ...at(-0.5, 0.35), ...at(-0.3, 0.44)); p.bezierCurveTo(...at(-0.15, 0.36), ...at(-0.08, 0.22), ...at(-0.04, 0.1));
+    p.bezierCurveTo(...at(0.03, 0.02), ...at(0.1, -0.06), ...at(0.13, -0.17)); p.closePath();
+  });
+  paintBone(L, [sc], false, [S0[0] - 0.6 * u, S0[1] - 0.3 * u, S0[0] + 0.15 * u, S0[1] + 0.45 * u]);
+  const cl = path((p) => { p.moveTo(...at(0.1, -0.2)); p.bezierCurveTo(...at(-0.1, -0.36), ...at(-0.45, -0.32), ...at(-0.9, -0.4)); });
+  L.lineWidth = 0.075 * u + 2.4; L.strokeStyle = BOUT; L.stroke(cl); L.lineWidth = 0.075 * u; L.strokeStyle = BONE; L.stroke(cl);
+  // soft cartilage glow at the elbow, then the two muscles
+  L.fillStyle = rad(L, E[0], E[1], 0, 0.22 * u, [[0, 'rgba(190,220,240,.9)'], [1, 'rgba(190,220,240,0)']]); L.beginPath(); L.arc(E[0], E[1], 0.22 * u, 0, 7); L.fill();
+  drawMuscle(L, mb, a.act[0]); drawMuscle(L, mt, a.act[1]);
+  // bones: radius and ulna (its upper end is the elbow point), then the thick humerus on top of them; carpals and the finger bones in line inside the hand
+  const ole = path((p) => p.ellipse(...ev(-0.13, -0.055), 0.085 * u, 0.075 * u, -th, 0, 7));
+  bone(L, ...ev(0.05, 0.05), ...ev(0.92, 0.045), 0.08 * u, 0.05 * u, 0.1 * u);
+  bone(L, ...ev(-0.02, -0.05), ...ev(0.9, -0.035), 0.13 * u, 0.052 * u, 0.07 * u, false, [ole]);
+  bone(L, ...S0, ...E, 0.27 * u, 0.115 * u, 0.22 * u);
+  const carp = [[0.945, -0.055], [0.945, -0.012], [0.945, 0.03], [0.945, 0.07], [1.0, -0.04], [1.0, 0.005], [1.0, 0.05]].map(([k1, k2]) => path((p) => p.ellipse(...ev(k1, k2), 0.034 * u, 0.028 * u, -th, 0, 7)));
+  paintBone(L, carp, false, [...ev(0.9, 0.1), ...ev(1.05, -0.1)]);
+  const phal = (p, q, wd) => bseg(L, p[0] + (q[0] - p[0]) * 0.07, p[1] + (q[1] - p[1]) * 0.07, q[0] - (q[0] - p[0]) * 0.07, q[1] - (q[1] - p[1]) * 0.07, wd);
+  FING.forEach((f, i) => { const P = sk.fingers[i]; phal(ev(1.03, f.k2 * 0.78), P[0], 0.034 * u); for (let j = 0; j < 3; j++) phal(P[j], P[j + 1], (0.028 - j * 0.003) * u); });
+  for (let j = 0; j < 3; j++) phal(sk.thumb[j], sk.thumb[j + 1], (0.04 - j * 0.005) * u);
+  // tendons (white) and a faint veil of skin over everything
+  for (const [g, wA, wB] of [[mb, 0.026, 0.034], [mt, 0.03, 0.04]]) {
+    tendon(L, g.A, g.P1, wA * u); tendon(L, g.P2, g.B, wB * u);
+    for (const q of [g.A, g.B]) { disc(L, q[0], q[1], 0.026 * u + 1, 'rgba(120,108,90,.8)'); disc(L, q[0], q[1], 0.026 * u, '#F4F1EA'); }
+  }
+  L.save(); L.globalAlpha = 0.12; L.drawImage(gA, 0, 0, w, h); L.restore();
+  L.save(); L.setLineDash([4, 4]); L.lineWidth = 2.2; L.strokeStyle = '#2E86C1'; L.beginPath(); L.arc(E[0], E[1], 0.16 * u, 0, 7); L.stroke(); L.restore();
+  // fade the shoulder into the left edge of the stage
+  L.globalCompositeOperation = 'destination-in'; L.fillStyle = lin(L, 0, 0, 0.36 * u, 0, [[0, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,1)']]); L.fillRect(0, 0, w, h); L.globalCompositeOperation = 'source-over';
+  c.drawImage(armCv, 0, 0, w, h);
   pullArrow(c, mb, a.act[0]); pullArrow(c, mt, a.act[1]);
   // labels: names always, "pulling / relaxed" only once the answer is revealed
   const st = (i) => (a.lab ? ` · ${(i === 0 ? a.dir > 0 : a.dir < 0) ? t.pulling : t.relaxed}` : '');
@@ -483,7 +565,7 @@ function figure(c, ox, oy, u, o = {}) {
   if (organ > 0.02 && sel === 'ribs') {
     c.save(); c.globalAlpha = organ;
     for (const s of [-1, 1]) {
-      const m = (x, y) => [X(s * x), Y(y)];
+      const m = (x, y) => [X(s * x * 0.93), Y(y)];
       const lung = path((p) => {
         p.moveTo(...m(0.2, 2.95)); p.bezierCurveTo(...m(0.55, 2.68), ...m(1.02, 2.85), ...m(1.12, 3.35));
         p.bezierCurveTo(...m(1.24, 3.9), ...m(1.2, 4.45), ...m(0.95, 4.62)); p.bezierCurveTo(...m(0.6, 4.78), ...m(0.26, 4.62), ...m(0.2, 4.3));
@@ -498,7 +580,7 @@ function figure(c, ox, oy, u, o = {}) {
       c.moveTo(...m(0.04, 2.85)); c.lineTo(...m(0.35, 3.3)); c.lineTo(...m(0.62, 3.7)); c.moveTo(...m(0.35, 3.3)); c.lineTo(...m(0.7, 3.2)); c.moveTo(...m(0.45, 3.45)); c.lineTo(...m(0.55, 4.2)); c.stroke();
     }
     const hp = path((p) => {
-      const m = (x, y) => [X(x), Y(y)];
+      const m = (x, y) => [X(x * 0.93), Y(y)];
       p.moveTo(...m(-0.18, 3.45)); p.bezierCurveTo(...m(-0.2, 3.15), ...m(0.22, 3.1), ...m(0.3, 3.38)); p.bezierCurveTo(...m(0.48, 3.16), ...m(0.82, 3.28), ...m(0.78, 3.68));
       p.bezierCurveTo(...m(0.74, 4.0), ...m(0.55, 4.22), ...m(0.34, 4.46)); p.bezierCurveTo(...m(0.08, 4.2), ...m(-0.2, 3.9), ...m(-0.18, 3.45)); p.closePath();
     });
@@ -506,24 +588,30 @@ function figure(c, ox, oy, u, o = {}) {
     c.beginPath(); c.ellipse(X(0.12), Y(3.5), 0.14 * u, 0.07 * u, -0.5, 0, 7); c.fillStyle = 'rgba(255,255,255,.3)'; c.fill();
     c.restore();
   }
-  // shoulder blades, arms and hands (not tappable)
+  // shoulder blades, arms and hands (not tappable): the hands hang to mid-thigh
   for (const s of [-1, 1]) {
     const m = (x, y) => [X(s * x), Y(y)];
     const sc = path((p) => {
-      p.moveTo(...m(1.05, 2.75)); p.bezierCurveTo(...m(1.45, 2.5), ...m(1.8, 2.65), ...m(1.78, 2.95));
-      p.bezierCurveTo(...m(1.62, 3.4), ...m(1.4, 3.85), ...m(1.2, 4.0)); p.bezierCurveTo(...m(1.02, 3.7), ...m(0.95, 3.2), ...m(1.05, 2.75)); p.closePath();
+      p.moveTo(...m(0.95, 2.78)); p.bezierCurveTo(...m(1.3, 2.55), ...m(1.62, 2.7), ...m(1.6, 2.98));
+      p.bezierCurveTo(...m(1.46, 3.4), ...m(1.28, 3.8), ...m(1.1, 3.95)); p.bezierCurveTo(...m(0.94, 3.7), ...m(0.88, 3.2), ...m(0.95, 2.78)); p.closePath();
     });
-    paintBone(c, [sc], false, gb(-1.8, 2.5, 1.8, 4.0));
-    bone(c, ...m(1.72, 4.66), ...m(1.95, 6.05), 0.15 * u, 0.09 * u, 0.11 * u); // ulna
-    bone(c, ...m(1.9, 4.72), ...m(2.1, 6.1), 0.13 * u, 0.1 * u, 0.2 * u); // radius
-    bone(c, ...m(1.48, 2.9), ...m(1.85, 4.55), 0.36 * u, 0.17 * u, 0.3 * u); // humerus
-    bseg(c, ...m(2.0, 6.3), ...m(2.1, 6.3), 0.26 * u);
-    for (const f of [-0.12, -0.04, 0.04, 0.12, 0.2]) { const x = 2.03 + f, y1 = 6.45 - Math.abs(f - 0.04) * 0.2; bseg(c, ...m(x, 6.4), ...m(x + f * 0.15, y1 + 0.35), 0.06 * u); bseg(c, ...m(x + f * 0.15, y1 + 0.35), ...m(x + f * 0.3, y1 + 0.62), 0.05 * u); }
+    paintBone(c, [sc], false, gb(-1.7, 2.5, 1.7, 4.0));
+    bone(c, ...m(1.64, 4.66), ...m(1.74, 5.98), 0.15 * u, 0.075 * u, 0.1 * u); // ulna
+    bone(c, ...m(1.82, 4.7), ...m(1.9, 6.0), 0.13 * u, 0.085 * u, 0.17 * u); // radius
+    bone(c, ...m(1.58, 2.9), ...m(1.68, 4.58), 0.34 * u, 0.15 * u, 0.28 * u); // humerus
+    const hx = 1.84;
+    bseg(c, ...m(hx - 0.02, 6.05), ...m(hx, 6.1), 0.3 * u); // wrist bones
+    [-0.14, -0.05, 0.04, 0.13].forEach((f, i) => {
+      const lf = [0.92, 1, 0.95, 0.8][i], x = hx + f, y0 = 6.42;
+      bseg(c, ...m(x - f * 0.12, 6.16), ...m(x, 6.4), 0.062 * u);
+      bseg(c, ...m(x, y0), ...m(x, y0 + 0.19 * lf), 0.05 * u); bseg(c, ...m(x, y0 + 0.21 * lf), ...m(x, y0 + 0.33 * lf), 0.042 * u); bseg(c, ...m(x, y0 + 0.35 * lf), ...m(x, y0 + 0.45 * lf), 0.036 * u);
+    });
+    bseg(c, ...m(hx + 0.12, 6.14), ...m(hx + 0.22, 6.3), 0.06 * u); bseg(c, ...m(hx + 0.23, 6.32), ...m(hx + 0.28, 6.44), 0.048 * u); bseg(c, ...m(hx + 0.285, 6.46), ...m(hx + 0.3, 6.56), 0.04 * u); // thumb
   }
-  part('pelvis', (on) => {
-    const parts = [];
+  part('pelvis', (on) => { // a butterfly, 0.8 x as wide as the shoulders: iliac crests at 4.85, hip sockets at 5.5, pubis at 5.95
+    const parts = [], T2 = (x, y) => [X(x * 0.8), Y(4.85 + (y - 5.2) * 0.6)];
     for (const s of [-1, 1]) {
-      const m = (x, y) => [X(s * x), Y(y)];
+      const m = (x, y) => T2(s * x, y);
       parts.push(path((p) => { // a butterfly wing: iliac crest, hip socket, sit bone and pubis
         p.moveTo(...m(0.18, 5.5)); p.bezierCurveTo(...m(0.45, 5.22), ...m(1.0, 5.18), ...m(1.32, 5.5)); p.bezierCurveTo(...m(1.5, 5.78), ...m(1.36, 6.12), ...m(1.12, 6.28));
         p.bezierCurveTo(...m(1.02, 6.4), ...m(0.98, 6.55), ...m(0.9, 6.62)); p.bezierCurveTo(...m(0.85, 6.85), ...m(0.62, 7.05), ...m(0.46, 6.98));
@@ -531,38 +619,39 @@ function figure(c, ox, oy, u, o = {}) {
       }));
     }
     parts.push(path((p) => { // the sacrum between the two wings
-      p.moveTo(X(-0.3), Y(5.4)); p.lineTo(X(0.3), Y(5.4)); p.bezierCurveTo(X(0.28), Y(5.9), X(0.15), Y(6.25), X(0), Y(6.5)); p.bezierCurveTo(X(-0.15), Y(6.25), X(-0.28), Y(5.9), X(-0.3), Y(5.4)); p.closePath();
+      p.moveTo(...T2(-0.3, 5.4)); p.lineTo(...T2(0.3, 5.4)); p.bezierCurveTo(...T2(0.28, 5.9), ...T2(0.15, 6.25), ...T2(0, 6.5)); p.bezierCurveTo(...T2(-0.15, 6.25), ...T2(-0.28, 5.9), ...T2(-0.3, 5.4)); p.closePath();
     }));
-    paintBone(c, parts, on, gb(-1.5, 5.2, 1.5, 7.1));
+    paintBone(c, parts, on, gb(-1.2, 4.85, 1.2, 5.97));
     c.shadowColor = 'rgba(0,0,0,0)'; c.shadowBlur = 0;
     for (const s of [-1, 1]) {
-      c.fillStyle = 'rgba(110,90,55,.5)'; c.beginPath(); c.ellipse(X(s * 0.52), Y(6.62), 0.14 * u, 0.2 * u, s * 0.3, 0, 7); c.fill(); // opening below the hip
-      c.fillStyle = 'rgba(110,90,55,.35)'; c.beginPath(); c.arc(X(s * 0.8), Y(6.32), 0.18 * u, 0, 7); c.fill(); // hip socket
-      c.fillStyle = 'rgba(110,90,55,.55)'; for (const y of [5.65, 5.85, 6.05]) { c.beginPath(); c.arc(X(s * 0.15), Y(y), Math.max(0.8, 0.025 * u), 0, 7); c.fill(); }
+      const m = (x, y) => T2(s * x, y);
+      c.fillStyle = 'rgba(110,90,55,.5)'; c.beginPath(); c.ellipse(...m(0.52, 6.62), 0.1 * u, 0.12 * u, s * 0.3, 0, 7); c.fill(); // opening below the hip
+      c.fillStyle = 'rgba(110,90,55,.35)'; c.beginPath(); c.arc(...m(0.8, 6.32), 0.17 * u, 0, 7); c.fill(); // hip socket
+      c.fillStyle = 'rgba(110,90,55,.55)'; for (const y of [5.65, 5.85, 6.05]) { c.beginPath(); c.arc(...m(0.15, y), Math.max(0.8, 0.025 * u), 0, 7); c.fill(); }
     }
   });
-  part('legs', (on) => {
+  part('legs', (on) => { // hip joint to sole is 45% of the height
     for (const s of [-1, 1]) {
       const m = (x, y) => [X(s * x), Y(y)];
-      bone(c, ...m(0.94, 6.62), ...m(0.64, 8.18), 0.3 * u, 0.2 * u, 0.36 * u, on); // femur
-      bone(c, ...m(0.78, 6.38), ...m(0.94, 6.6), 0.2 * u, 0.15 * u, 0.15 * u, on); // femur neck and ball
-      bone(c, ...m(0.6, 8.46), ...m(0.57, 9.78), 0.46 * u, 0.17 * u, 0.26 * u, on); // shin
-      bone(c, ...m(0.9, 8.55), ...m(0.84, 9.8), 0.12 * u, 0.08 * u, 0.14 * u, on); // thin shin bone
-      paintBone(c, [ell(s * 0.62, 8.3, 0.17, 0.2)], on, gb(s * 0.45, 8.1, s * 0.8, 8.5)); // knee cap
-      bseg(c, ...m(0.62, 9.9), ...m(0.66, 9.92), 0.3 * u, on);
-      for (let j = 0; j < 5; j++) { const x = 0.42 + j * 0.11 + (s > 0 ? 0 : 0); bseg(c, ...m(x, 10.0), ...m(x + 0.01, 10.12), (j === 0 ? 0.09 : 0.065) * u, on); bseg(c, ...m(x + 0.01, 10.12), ...m(x + 0.01, 10.2), (j === 0 ? 0.08 : 0.055) * u, on); }
+      bone(c, ...m(0.82, 5.8), ...m(0.6, 7.9), 0.26 * u, 0.15 * u, 0.3 * u, on); // femur
+      bone(c, ...m(0.66, 5.56), ...m(0.82, 5.8), 0.3 * u, 0.11 * u, 0.14 * u, on); // femur neck and ball
+      bone(c, ...m(0.58, 8.14), ...m(0.56, 9.98), 0.34 * u, 0.13 * u, 0.2 * u, on); // shin
+      bone(c, ...m(0.84, 8.22), ...m(0.8, 9.98), 0.1 * u, 0.06 * u, 0.12 * u, on); // thin shin bone
+      paintBone(c, [ell(s * 0.6, 8.02, 0.15, 0.17)], on, gb(s * 0.45, 7.85, s * 0.75, 8.2)); // knee cap
+      bseg(c, ...m(0.6, 10.06), ...m(0.64, 10.08), 0.26 * u, on);
+      for (let j = 0; j < 5; j++) { const x = 0.4 + j * 0.1; bseg(c, ...m(x, 10.12), ...m(x + 0.01, 10.2), (j === 0 ? 0.08 : 0.06) * u, on); bseg(c, ...m(x + 0.01, 10.2), ...m(x + 0.01, 10.28), (j === 0 ? 0.07 : 0.05) * u, on); }
     }
   });
   part('spine', (on) => {
     for (let i = 0; i < 17; i++) {
-      const y = 2.12 + i * 0.2, wd = 0.3 + i * 0.016, ht = 0.15 + (i >= 12 ? 0.07 * (1 - baby) : 0); // the lower spine fuses into one piece as you grow
+      const y = 2.12 + i * 0.17, wd = 0.3 + i * 0.012, ht = 0.13 + (i >= 12 ? 0.06 * (1 - baby) : 0); // the lower spine fuses into one piece as you grow
       const wings = i >= 1 ? [-1, 1].map((s) => ell(s * (wd / 2 + 0.1), y + ht / 2, 0.13, 0.045)) : [];
       paintBone(c, [...wings, rr(-wd / 2, y, wd, ht, 0.05)], on, gb(-wd / 2, y, wd / 2, y + ht));
     }
   });
   part('ribs', (on) => {
-    const g = lin(c, X(-1.5), Y(2.6), X(1.5), Y(4.7), on ? [[0, '#FFF1B8'], [1, '#F2C34F']] : [[0, BONE], [1, BONE2]]);
-    const XM = [1.0, 1.15, 1.27, 1.35, 1.4, 1.42, 1.4, 1.34, 1.25], ribs = [];
+    const g = lin(c, X(-1.3), Y(2.6), X(1.3), Y(4.7), on ? [[0, '#FFF1B8'], [1, '#F2C34F']] : [[0, BONE], [1, BONE2]]);
+    const XM = [0.93, 1.07, 1.18, 1.26, 1.3, 1.32, 1.3, 1.25, 1.17], ribs = [];
     for (let i = 0; i < 9; i++) for (const s of [-1, 1]) {
       const y0 = 2.72 + i * 0.17, xm = XM[i], m = (x, y) => [X(s * x), Y(y)], xe = i < 7 ? 0.2 : 0.2 + 0.12 * (i - 6);
       ribs.push(path((p) => { p.moveTo(...m(0.15, y0)); p.bezierCurveTo(...m(xm * 1.05, y0 - 0.12), ...m(xm * 1.3, y0 + 0.4), ...m(xe, y0 + 0.5 + 0.02 * i)); }));
@@ -571,7 +660,7 @@ function figure(c, ox, oy, u, o = {}) {
     c.lineWidth = 0.105 * u; c.strokeStyle = g; for (const p of ribs) c.stroke(p);
     paintBone(c, [rr(-0.2, 2.62, 0.4, 0.34, 0.1), rr(-0.14, 3.0, 0.28, 1.0, 0.09), ell(0, 4.12, 0.07, 0.14)], on, gb(-0.2, 2.6, 0.2, 4.3)); // sternum
     for (const s of [-1, 1]) { // collar bones
-      const cl = path((p) => { p.moveTo(X(s * 0.16), Y(2.62)); p.bezierCurveTo(X(s * 0.5), Y(2.4), X(s * 1.0), Y(2.8), X(s * 1.55), Y(2.75)); });
+      const cl = path((p) => { p.moveTo(X(s * 0.16), Y(2.62)); p.bezierCurveTo(X(s * 0.5), Y(2.4), X(s * 1.0), Y(2.8), X(s * 1.5), Y(2.75)); });
       c.lineWidth = 0.12 * u + 2.4; c.strokeStyle = on ? '#B8892B' : BOUT; c.stroke(cl); c.lineWidth = 0.12 * u; c.strokeStyle = g; c.stroke(cl);
     }
   });
@@ -615,29 +704,36 @@ function figure(c, ox, oy, u, o = {}) {
   }
   if (organ > 0.02 && sel === 'spine') { // the nerve cord inside the spine, with a branch at each bone
     c.save(); c.globalAlpha = organ; c.lineCap = 'round';
-    c.strokeStyle = '#B89A1F'; c.lineWidth = Math.max(1, 0.085 * u) + 1.6; c.beginPath(); c.moveTo(X(0), Y(2.0)); c.lineTo(X(0), Y(5.5)); c.stroke();
+    c.strokeStyle = '#B89A1F'; c.lineWidth = Math.max(1, 0.085 * u) + 1.6; c.beginPath(); c.moveTo(X(0), Y(2.0)); c.lineTo(X(0), Y(5.0)); c.stroke();
     c.strokeStyle = '#F7E06A'; c.lineWidth = Math.max(1, 0.085 * u); c.stroke();
     c.lineWidth = Math.max(1, 0.03 * u); c.strokeStyle = '#E8C93E';
-    for (let i = 0; i < 17; i++) for (const s of [-1, 1]) { const y = 2.2 + i * 0.2; c.beginPath(); c.moveTo(X(0), Y(y)); c.lineTo(X(s * 0.55), Y(y + 0.1)); c.stroke(); }
+    for (let i = 0; i < 17; i++) for (const s of [-1, 1]) { const y = 2.2 + i * 0.17; c.beginPath(); c.moveTo(X(0), Y(y)); c.lineTo(X(s * 0.55), Y(y + 0.09)); c.stroke(); }
     c.restore();
   }
 }
-// the soft child silhouette behind the skeleton, as capsules for ghost(); wob spreads the arms
-function bodySegs(cx, oy, u, wob = 0) {
-  const X = (x) => cx + x * u, Y = (y) => oy + y * u, s = [];
-  const add = (x1, y1, x2, y2, wd) => s.push([X(x1), Y(y1), X(x2), Y(y2), wd * u]);
-  add(0, 0.95, 0, 1.2, 2.1); add(0, 2.0, 0, 2.7, 0.95); add(-1.45, 2.95, 1.45, 2.95, 1.15); add(0, 3.2, 0, 5.3, 2.8); add(-0.5, 6.0, 0.5, 6.0, 2.4);
+// the soft child silhouette behind the skeleton: round head, neck, rounded shoulders, a slight waist, two legs; wob spreads the arms
+function bodyShape(cx, oy, u, wob = 0) {
+  const X = (x) => cx + x * u, Y = (y) => oy + y * u, m = (x, y) => [X(x), Y(y)], paths = [];
+  const cap = (x1, y1, x2, y2, wd) => paths.push(capsule(X(x1), Y(y1), X(x2), Y(y2), wd * u));
+  paths.push(path((p) => p.ellipse(X(0), Y(1.08), 1.05 * u, 1.17 * u, 0, 0, 7)));
+  cap(0, 1.95, 0, 2.6, 0.95);
+  paths.push(path((p) => {
+    p.moveTo(...m(-0.45, 2.2)); p.bezierCurveTo(...m(-0.85, 2.3), ...m(-1.55, 2.3), ...m(-1.92, 2.75)); p.bezierCurveTo(...m(-2.1, 3.0), ...m(-1.95, 3.25), ...m(-1.6, 3.45));
+    p.bezierCurveTo(...m(-1.4, 3.9), ...m(-1.28, 4.4), ...m(-1.22, 4.75)); p.bezierCurveTo(...m(-1.2, 5.1), ...m(-1.5, 5.4), ...m(-1.5, 5.85)); p.lineTo(...m(-1.5, 6.3)); p.lineTo(...m(1.5, 6.3)); p.lineTo(...m(1.5, 5.85));
+    p.bezierCurveTo(...m(1.5, 5.4), ...m(1.2, 5.1), ...m(1.22, 4.75)); p.bezierCurveTo(...m(1.28, 4.4), ...m(1.4, 3.9), ...m(1.6, 3.45)); p.bezierCurveTo(...m(1.95, 3.25), ...m(2.1, 3.0), ...m(1.92, 2.75));
+    p.bezierCurveTo(...m(1.55, 2.3), ...m(0.85, 2.3), ...m(0.45, 2.2)); p.closePath();
+  }));
   for (const g of [-1, 1]) {
-    add(g * 1.55, 3.0, g * (1.85 + wob), 4.6, 0.85); add(g * (1.85 + wob), 4.6, g * (2.05 + wob), 6.15, 0.72); add(g * (2.07 + wob), 6.35, g * (2.1 + wob), 6.85, 0.6);
-    add(g * 0.7, 6.3, g * 0.66, 8.2, 1.25); add(g * 0.66, 8.3, g * 0.62, 9.75, 0.9); add(g * 0.5, 9.98, g * 0.95, 10.02, 0.42);
+    cap(g * 1.62, 2.95, g * (1.7 + wob), 4.65, 0.78); cap(g * (1.7 + wob), 4.7, g * (1.78 + wob), 6.0, 0.64); cap(g * (1.82 + wob), 6.0, g * (1.84 + wob), 6.95, 0.62);
+    cap(g * 0.68, 5.7, g * 0.62, 8.0, 1.25); cap(g * 0.62, 8.1, g * 0.6, 10.0, 0.9); cap(g * 0.45, 10.12, g * 0.95, 10.14, 0.42);
   }
-  return s;
+  return { segs: [], paths, box: [X(-2.4), Y(-0.1), X(2.4), Y(10.4)] };
 }
 function drawCount(c, w, h, time) {
   panel(c, w, h);
-  const p = S.grow / 100, u0 = (h - 40) / 10.4, u = u0 * (0.6 + 0.4 * p), ox = w * 0.3, oy = h - 14 - 10.2 * u;
-  groundShadow(c, ox, oy + 10.25 * u, 2.2 * u);
-  ghost(c, w, h, bodySegs(ox, oy, u), { alpha: 0.35, ring: 0.6 }); figure(c, ox, oy, u, { baby: 1 - p });
+  const p = S.grow / 100, u0 = (h - 40) / 10.4, u = u0 * (0.6 + 0.4 * p), ox = w * 0.3, oy = h - 14 - 10.3 * u;
+  groundShadow(c, ox, oy + 10.33 * u, 2.2 * u);
+  ghost(c, w, h, bodyShape(ox, oy, u), { alpha: 0.35, ring: 0.6 }); figure(c, ox, oy, u, { baby: 1 - p });
   const uh = Math.min(h * 0.55 / 6, w * 0.3 / 4.4), hx = w * 0.75, hy = h * 0.5 - 2.9 * uh;
   drawHand(c, hx, hy, uh, time);
   c.save(); c.font = '900 22px Nunito, sans-serif'; c.textAlign = 'center'; c.fillStyle = '#9A5F0E'; c.fillText('27', hx, hy + 6.55 * uh + 4);
@@ -678,18 +774,18 @@ function drawMend(c, w, h) {
 // --- view 2: the skeleton ----------------------------------------------------------------------------------
 const PARTS = ['skull', 'ribs', 'spine', 'pelvis', 'legs'];
 let geo = null;
-const partAt = (x, y) => {
+const partAt = (x, y) => { // x, y in figure units (the same units figure() draws in)
   if (Math.hypot(x / 1.05, (y - 1.05) / 1.2) < 1) return 'skull';
-  if (Math.abs(x) < 0.52 && y > 2.1 && y < 5.5) return 'spine';
-  if (Math.abs(x) < 1.5 && y > 2.5 && y < 4.8) return 'ribs';
-  if (Math.abs(x) < 1.55 && y > 5.2 && y < 6.9) return 'pelvis';
-  if (Math.abs(x) < 1.3 && y >= 6.9 && y < 10.4) return 'legs';
+  if (Math.abs(x) < 0.52 && y > 2.1 && y < 5.1) return 'spine';
+  if (Math.abs(x) < 1.35 && y > 2.5 && y < 4.8) return 'ribs';
+  if (Math.abs(x) < 1.3 && y >= 4.8 && y < 6.0) return 'pelvis';
+  if (Math.abs(x) < 1.3 && y >= 6.0 && y < 10.4) return 'legs';
   return null;
 };
 function jelly(c, w, h, cx, oy, u, p, time) { // "without bones": the body slumps and spreads into a soft blob, then a jellyfish
-  const e = smooth(p, 0, 0.8), g = oy + 10.15 * u, wob = Math.sin(time * 9) * 0.05 * e * (1 - smooth(p, 0.8, 1));
+  const e = smooth(p, 0, 0.8), g = oy + 10.3 * u, wob = Math.sin(time * 9) * 0.05 * e * (1 - smooth(p, 0.8, 1));
   c.save(); c.translate(cx, g); c.scale(1 + 0.8 * e + wob, 1 - 0.7 * e - wob); c.translate(-cx, -g);
-  c.globalAlpha = 1 - smooth(p, 0.55, 0.95); ghost(c, w, h, bodySegs(cx, oy, u, e * 0.5), { alpha: 0.95, ring: 1 }); c.restore();
+  c.globalAlpha = 1 - smooth(p, 0.55, 0.95); ghost(c, w, h, bodyShape(cx, oy, u, e * 0.5), { alpha: 0.95, ring: 1 }); c.restore();
   const a = smooth(p, 0.55, 1);
   if (a > 0.01) {
     const X = (x) => cx + x * u, Y = (y) => oy + y * u, pulse = 1 + 0.04 * Math.sin(time * 3), by = Y(8.9);
@@ -769,14 +865,14 @@ function drawSkeleton(c, w, h, dt, time) {
   k.partT = Math.min(1, k.partT + dt * 3);
   k.shift += ((k.ph === 'r1' ? 1 : 0) - k.shift) * Math.min(1, dt * 5);
   if (k.ph === 'r1') k.jelly = Math.min(1, k.jelly + dt / 2.8);
-  const uS = (h - 40) / 10.4, u = lerp(uS, Math.min(uS, w / 12.4), k.shift), cx = lerp(w / 2, w * 0.27, k.shift), oy = h - 14 - 10.2 * u;
+  const uS = (h - 40) / 10.4, u = lerp(uS, Math.min(uS, w / 12.4), k.shift), cx = lerp(w / 2, w * 0.27, k.shift), oy = h - 14 - 10.3 * u;
   geo = { ox: cx, oy, u };
-  groundShadow(c, cx, oy + 10.25 * u, 2.4 * u);
-  ghost(c, w, h, bodySegs(cx, oy, u), { alpha: 0.32, ring: 0.6 });
+  groundShadow(c, cx, oy + 10.33 * u, 2.4 * u);
+  ghost(c, w, h, bodyShape(cx, oy, u), { alpha: 0.32, ring: 0.6 });
   figure(c, cx, oy, u, { part: k.part, organ: smooth(k.partT, 0, 1) });
   if (k.shift > 0.02) {
     const jx = lerp(w * 1.2, w * 0.72, k.shift);
-    groundShadow(c, jx, oy + 10.25 * u, 2.6 * u);
+    groundShadow(c, jx, oy + 10.33 * u, 2.6 * u);
     jelly(c, w, h, jx, oy, u, k.jelly, time);
     c.save(); c.globalAlpha = k.shift; pill(c, cx, 10, t.with, '', 'c'); pill(c, jx, 10, t.without, '', 'c'); c.restore();
   }
