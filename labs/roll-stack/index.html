@@ -1,0 +1,1091 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Roll or Stack? · Skill Graph</title>
+<meta name="description" content="Send solid shapes down a ramp, build a tower, and stamp every face to see what a cube is really made of. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  #stage { min-height: 480px; }
+  body[data-v=tower] #stage, body[data-v=stamp] #stage { min-height: 560px; }
+  #stage canvas { touch-action: pan-y; }
+  .ask { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); width: min(560px, calc(100% - 16px)); padding: 12px 14px 8px; text-align: center; z-index: 2; }
+  .ask .q { font: 500 21px/1.2 var(--serif); color: #fff; margin-bottom: 10px; text-wrap: balance; }
+  .ask .row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .ask .row button { min-height: 44px; padding: 8px 18px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1); font-weight: 800; cursor: pointer; }
+  .ask .row button:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .ask .row button:disabled { cursor: default; }
+  .ask .row button:disabled:not(.ok):not(.no):not(.pick) { opacity: .5; }
+  .ask .row button.pick { border-color: #fff; }
+  .ask .row button.ok { border-color: var(--ok); background: rgba(61, 220, 151, .18); }
+  .ask .row button.no { border-color: var(--red); background: rgba(255, 59, 48, .14); }
+  .ask .vrow { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 6px; min-height: 46px; flex-wrap: wrap; }
+  .ask .verdict { font-weight: 900; font-size: 14px; }
+  .ask .nx { min-height: 44px; padding: 8px 20px; border-radius: 999px; border: 1px solid #fff; background: #fff; color: var(--bg); font-weight: 800; cursor: pointer; }
+  .fine { font-size: 11px; color: var(--faint); }
+  .chip { min-height: 40px; }
+  #slideBox { margin-top: 12px; }
+  #slideBox .top { display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; }
+  #slideBox .top .lbl { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-weight: 700; }
+  #slideBox .top b { font-size: 18px; font-weight: 900; }
+  #angle { --track: linear-gradient(90deg, #F6C85A, #C98F2A); }
+  #resetBtn { min-height: 44px; }
+  @media (max-width: 760px) {
+    #stage { height: min(124vw, 540px); min-height: 0; }
+    body[data-v=tower] #stage { height: min(134vw, 580px); min-height: 0; }
+    body[data-v=stamp] #stage { height: min(144vw, 620px); min-height: 0; }
+    body[data-v=slice] #stage { height: min(112vw, 480px); min-height: 0; }
+    body[data-v=home] #stage { height: min(104vw, 450px); min-height: 0; }
+    .ask .q { font-size: 18px; margin-bottom: 8px; } .ask { padding: 10px 10px 6px; }
+    .ask .row button { padding: 8px 14px; font-size: 13px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, store, $, esc, clamp, lerp, ruPlural, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Roll or Stack?', title: 'Flat faces and curved surfaces',
+    lines: [['Flat faces', 'or curved ones?'], ['Send a shape', 'down the ramp.'], ['Stamp each face', 'and count them.']],
+    views: { ramp: '🛝 Ramp', tower: '🗼 Tower', stamp: '🔍 Stamp the faces' },
+    next: 'Next ▶', right: 'Yes!', wrong: 'Not quite. Watch!',
+    names: { ball: 'ball', cube: 'cube', cylLying: 'cylinder lying down', cylStanding: 'cylinder standing up', cone: 'cone', pyramid: 'pyramid', cylinder: 'cylinder', cuboid: 'cuboid' },
+    r: { q: (s) => `What will the ${s} do on the ramp?`, o: ['roll', 'slide', 'stay still'], both: 'Both answers are right!',
+         cone: 'A cone rolls round and round in a circle, around its tip.',
+         why: { ball: 'A ball is curved all over, so it always rolls.', cube: 'A cube has only flat faces. It can’t roll: it stays, or slides when the ramp is steep.', cylLying: 'Lying down, the cylinder’s curved side touches the ramp: it rolls straight.', cylStanding: 'Standing up, the cylinder’s flat end touches the ramp: it can’t roll.', cone: 'The cone’s curved side rolls, but its tip stays in one place, so it goes round in a circle.' } },
+    t: { q: 'What can you put on top of a ball?', o: ['a cube', 'a cylinder', 'nothing stays'], r: 'A ball has no flat face, so nothing can balance on it. Flat on flat makes a tower.', best: (n) => `Best tower: ${n}`, reset: 'Start again', height: (n) => `${n} high` },
+    s: { q1: 'How many flat faces does a cube have?', r1: 'A cube has 6 faces. You can only see 3 at once; the other 3 are hiding at the back and underneath.', hidden: 'hidden faces!',
+         q2: 'Is a cube a square?', o2: ['Yes', 'No: a square is one face of a cube', 'Only small cubes'], r2: 'A square is flat. A cube is solid and has 6 square faces.',
+         ball: 'A ball has no flat faces: it touches the paper at just one point.', flat: 'flat faces', curved: 'curved surface', count: (s, f, c) => `${s}: ${f} flat ${f === 1 ? 'face' : 'faces'}${c ? ' + 1 curved surface' : ''}`,
+         cubeLbl: 'cube: solid, 6 faces', squareLbl: 'square: flat, 1 face' },
+    secrets: { home: ['Shapes at home', 'Find the solids in the kitchen.'], slice: ['Slice it', 'What shape is the cut?'] },
+    sec: { homeText: 'Tins are cylinders, dice are cubes, boxes are cuboids, party hats are cones: solids are everywhere.', angle: 'cut angle',
+           sliceText: 'Cut a cylinder straight across and the cut is a circle. Cut it on a slant and it becomes an oval.', circle: 'circle', oval: 'oval' },
+    items: { can: 'tin can', ball: 'football', die: 'die', hat: 'party hat', ice: 'ice-cream cone', box: 'cardboard box', candle: 'candle' },
+    card: {
+      ramp: { n: ['🛝', 'Ramp test', 'Will it roll, slide or stay?', ''], f: ['🛝', 'Curved rolls, flat stays', 'Curved surfaces roll. Flat faces stand or slide.', ''] },
+      tower: { n: ['🗼', 'Build a tower', 'Which shapes stay on top of each other?', ''], f: ['🗼', 'Flat on flat', 'Stacks need flat faces at the top and the bottom.', ''] },
+      stamp: { n: ['🔍', 'Ink stamps', 'Count every face, even the hidden ones.', ''], f: ['🔍', 'Solid vs flat', 'A cube has 6 square faces. A square is just one of them.', ''] },
+    },
+    fine: 'On the ramp, whether a flat shape slides depends on the steepness and on how slippery it is.',
+    quiz: [
+      { q: 'Which shape rolls in a circle?', opts: ['a cube', 'a cone', 'a pyramid'], ok: 1 },
+      { q: 'How many faces does a cube have?', opts: ['3', '6', '4'], ok: 1 },
+      { q: 'Why can’t you stack anything on a ball?', opts: ['It is too small', 'It has no flat face', 'It is red'], ok: 1 } ],
+  },
+  ru: {
+    name: 'Катится или стоит?', title: 'Плоские грани и кривые поверхности',
+    lines: [['Грани плоские', 'или кривые?'], ['Пусти фигуру', 'с горки.'], ['Отпечатай каждую грань', 'и сосчитай.']],
+    views: { ramp: '🛝 Горка', tower: '🗼 Башня', stamp: '🔍 Отпечатки граней' },
+    next: 'Дальше ▶', right: 'Да!', wrong: 'Не совсем. Смотри!',
+    names: { ball: 'шар', cube: 'куб', cylLying: 'лежачий цилиндр', cylStanding: 'стоячий цилиндр', cone: 'конус', pyramid: 'пирамида', cylinder: 'цилиндр', cuboid: 'параллелепипед' },
+    r: { q: (s) => `Что сделает ${s} на горке?`, o: ['покатится', 'съедет', 'останется на месте'], both: 'Оба ответа верны!',
+         cone: 'Конус катится по кругу вокруг своей вершины.',
+         why: { ball: 'Шар весь кривой, поэтому он всегда катится.', cube: 'У куба только плоские грани. Катиться он не может: стоит или съезжает, если горка крутая.', cylLying: 'Лёжа цилиндр касается горки боком: он катится прямо.', cylStanding: 'Стоя цилиндр касается горки плоским донышком: катиться он не может.', cone: 'Бок конуса катится, а вершина остаётся на месте, поэтому он едет по кругу.' } },
+    t: { q: 'Что можно поставить на шар?', o: ['куб', 'цилиндр', 'ничего не удержится'], r: 'У шара нет плоской грани, на нём ничего не удержится. Плоское на плоском — вот и башня.', best: (n) => `Лучшая башня: ${n}`, reset: 'Сначала', height: (n) => `высота: ${n}` },
+    s: { q1: 'Сколько плоских граней у куба?', r1: 'У куба 6 граней. Сразу видно только 3, а ещё 3 прячутся сзади и снизу.', hidden: 'спрятанные грани!',
+         q2: 'Куб — это квадрат?', o2: ['Да', 'Нет: квадрат — одна грань куба', 'Только маленький куб'], r2: 'Квадрат плоский. Куб объёмный, у него 6 квадратных граней.',
+         ball: 'У шара нет плоских граней: он касается бумаги в одной точке.', flat: 'плоские грани', curved: 'кривая поверхность', count: (s, f, c) => `${s}: ${f} ${ruPlural(f, 'плоская грань', 'плоские грани', 'плоских граней')}${c ? ' + 1 кривая поверхность' : ''}`,
+         cubeLbl: 'куб: объёмный, 6 граней', squareLbl: 'квадрат: плоский, 1 грань' },
+    secrets: { home: ['Фигуры дома', 'Найди объёмные фигуры на кухне.'], slice: ['Разрежь', 'Какой формы срез?'] },
+    sec: { homeText: 'Банки — цилиндры, кубики — кубы, коробки — параллелепипеды, праздничные колпаки — конусы: фигуры повсюду.', angle: 'наклон среза',
+           sliceText: 'Разрежь цилиндр прямо — срез будет кругом. Разрежь наискосок — получится овал.', circle: 'круг', oval: 'овал' },
+    items: { can: 'консервная банка', ball: 'футбольный мяч', die: 'игральный кубик', hat: 'праздничный колпак', ice: 'рожок мороженого', box: 'картонная коробка', candle: 'свеча' },
+    card: {
+      ramp: { n: ['🛝', 'Испытание горкой', 'Покатится, съедет или останется?', ''], f: ['🛝', 'Кривое катится, плоское стоит', 'Кривые поверхности катятся. Плоские грани стоят или скользят.', ''] },
+      tower: { n: ['🗼', 'Построй башню', 'Какие фигуры удержатся друг на друге?', ''], f: ['🗼', 'Плоское на плоском', 'Для башни нужны плоские грани сверху и снизу.', ''] },
+      stamp: { n: ['🔍', 'Чернильные отпечатки', 'Сосчитай все грани, даже спрятанные.', ''], f: ['🔍', 'Объёмное и плоское', 'У куба 6 квадратных граней. Квадрат — лишь одна из них.', ''] },
+    },
+    fine: 'Съедет ли фигура с плоской гранью, зависит от крутизны горки и от того, насколько она скользкая.',
+    quiz: [
+      { q: 'Какая фигура катится по кругу?', opts: ['куб', 'конус', 'пирамида'], ok: 1 },
+      { q: 'Сколько граней у куба?', opts: ['3', '6', '4'], ok: 1 },
+      { q: 'Почему на шар ничего не поставить?', opts: ['Он слишком маленький', 'У него нет плоской грани', 'Он красный'], ok: 1 } ],
+  },
+  hu: {
+    name: 'Gurul vagy megáll?', title: 'Sík lapok és görbe felületek',
+    lines: [['Sík lapok', 'vagy görbék?'], ['Engedj le egy testet', 'a lejtőn.'], ['Nyomd le minden lapját,', 'és számold meg.']],
+    views: { ramp: '🛝 Lejtő', tower: '🗼 Torony', stamp: '🔍 Lappecsétek' },
+    next: 'Tovább ▶', right: 'Igen!', wrong: 'Nem egészen. Figyeld!',
+    names: { ball: 'gömb', cube: 'kocka', cylLying: 'fekvő henger', cylStanding: 'álló henger', cone: 'kúp', pyramid: 'gúla', cylinder: 'henger', cuboid: 'téglatest' },
+    r: { q: (s) => `Mit csinál a lejtőn ez a test: ${s}?`, o: ['gurul', 'lecsúszik', 'megáll'], both: 'Mindkét válasz jó!',
+         cone: 'A kúp körbe-körbe gurul a csúcsa körül.',
+         why: { ball: 'A gömb mindenhol görbe, ezért mindig gurul.', cube: 'A kockának csak sík lapjai vannak. Gurulni nem tud: megáll, vagy lecsúszik, ha meredek a lejtő.', cylLying: 'Fekve a henger görbe oldala ér a lejtőhöz: egyenesen gurul.', cylStanding: 'Állva a henger sík alja ér a lejtőhöz: nem tud gurulni.', cone: 'A kúp görbe oldala gurul, de a csúcsa egy helyben marad, ezért körbe megy.' } },
+    t: { q: 'Mit tehetsz egy gömb tetejére?', o: ['kockát', 'hengert', 'semmi sem marad meg rajta'], r: 'A gömbnek nincs sík lapja, ezért semmi sem marad meg rajta. Sík a síkon: ebből lesz torony.', best: (n) => `Legjobb torony: ${n}`, reset: 'Újrakezdés', height: (n) => `magasság: ${n}` },
+    s: { q1: 'Hány sík lapja van a kockának?', r1: 'A kockának 6 lapja van. Egyszerre csak 3-at látsz, a másik 3 hátul és alul bújik meg.', hidden: 'rejtett lapok!',
+         q2: 'A kocka négyzet?', o2: ['Igen', 'Nem: a négyzet a kocka egyik lapja', 'Csak a kis kocka'], r2: 'A négyzet lapos. A kocka test, és 6 négyzet alakú lapja van.',
+         ball: 'A gömbnek nincs sík lapja: csak egy pontban érinti a papírt.', flat: 'sík lapok', curved: 'görbe felület', count: (s, f, c) => `${s}: ${f} sík lap${c ? ' + 1 görbe felület' : ''}`,
+         cubeLbl: 'kocka: test, 6 lap', squareLbl: 'négyzet: síkidom, 1 lap' },
+    secrets: { home: ['Testek otthon', 'Keresd meg a testeket a konyhában.'], slice: ['Vágd el', 'Milyen alakú a vágás?'] },
+    sec: { homeText: 'A konzervdoboz henger, a dobókocka kocka, a doboz téglatest, a csákó kúp: a testek mindenhol ott vannak.', angle: 'a vágás dőlése',
+           sliceText: 'Ha a hengert egyenesen vágod el, a vágás kör. Ha ferdén, ovális lesz.', circle: 'kör', oval: 'ovális' },
+    items: { can: 'konzervdoboz', ball: 'focilabda', die: 'dobókocka', hat: 'csákó', ice: 'fagylaltkúp', box: 'kartondoboz', candle: 'gyertya' },
+    card: {
+      ramp: { n: ['🛝', 'Lejtőpróba', 'Gurul, csúszik vagy megáll?', ''], f: ['🛝', 'A görbe gurul, a sík megáll', 'A görbe felületek gurulnak. A sík lapok megállnak vagy csúsznak.', ''] },
+      tower: { n: ['🗼', 'Építs tornyot', 'Melyik testek maradnak meg egymáson?', ''], f: ['🗼', 'Sík a síkon', 'A toronyhoz sík lap kell alul és felül.', ''] },
+      stamp: { n: ['🔍', 'Tintapecsétek', 'Számold meg az összes lapot, a rejtetteket is.', ''], f: ['🔍', 'Test és síkidom', 'A kockának 6 négyzet alakú lapja van. A négyzet csak az egyik.', ''] },
+    },
+    fine: 'Hogy egy sík lapú test lecsúszik-e, az a lejtő meredekségén és csúszósságán múlik.',
+    quiz: [
+      { q: 'Melyik test gurul körbe?', opts: ['a kocka', 'a kúp', 'a gúla'], ok: 1 },
+      { q: 'Hány lapja van a kockának?', opts: ['3', '6', '4'], ok: 1 },
+      { q: 'Miért nem lehet semmit a gömbre rakni?', opts: ['Túl kicsi', 'Nincs sík lapja', 'Mert piros'], ok: 1 } ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_yGv8doDAmp', en: '3-D shapes (age 5+)', ru: 'Объёмные фигуры (5+ лет)', hu: 'Testek (5 éves kortól)' },
+];
+
+// --- small helpers -----------------------------------------------------------------------------------------
+const TAU = Math.PI * 2, DEG = Math.PI / 180;
+const ease = (t) => (t < .5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
+const smooth = (t) => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
+const RR = (r) => Math.max(0, r);
+const hexRgb = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+// lighten (k > 0) or darken (k < 0) a hex colour
+const tint = (h, k, a = 1) => { const [r, g, b] = hexRgb(h), t = k > 0 ? 255 : 0, f = Math.abs(k); return `rgba(${Math.round(r + (t - r) * f)},${Math.round(g + (t - g) * f)},${Math.round(b + (t - b) * f)},${a})`; };
+const rgba = (h, a) => { const [r, g, b] = hexRgb(h); return `rgba(${r},${g},${b},${a})`; };
+const poly = (c, pts) => { c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.closePath(); };
+const EMO = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+const COL = { ball: '#FF6B6B', cube: '#5B8DEF', cyl: '#FFC94A', cone: '#6BCB8B', pyr: '#B48CF2' };
+const CUBE = { top: '#8DB1FF', front: '#5B8DEF', side: '#3E6CC9', edge: '#2B4E96' };
+const PAPER = '#FFF6E6';
+let CW = 0, CH = 0; // canvas size of the current frame, for clamping labels
+
+// soft contact shadow: a dark ellipse that fades to nothing at its rim
+function shadowE(c, x, y, rx, ry, a = .38) {
+  rx = Math.max(2, rx);
+  c.save(); c.translate(x, y); c.scale(1, ry / rx);
+  const g = c.createRadialGradient(0, 0, 0, 0, 0, rx);
+  g.addColorStop(0, `rgba(4,7,18,${a})`); g.addColorStop(1, 'rgba(4,7,18,0)');
+  c.fillStyle = g; c.beginPath(); c.arc(0, 0, rx, 0, TAU); c.fill(); c.restore();
+}
+// dark rounded label, clamped inside the canvas
+function pill(c, text, x, y, o = {}) {
+  c.save(); const size = o.size || 12;
+  c.font = `800 ${size}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.globalAlpha = 1;
+  const tw = c.measureText(text).width + 18, th = size + 11, px = clamp(x - tw / 2, 6, Math.max(6, CW - tw - 6));
+  c.fillStyle = 'rgba(10,14,28,.84)'; c.beginPath(); c.roundRect(px, y - th / 2, tw, th, th / 2); c.fill();
+  if (o.stroke) { c.strokeStyle = o.stroke; c.lineWidth = 1.5; c.stroke(); }
+  c.fillStyle = o.color || '#fff'; c.fillText(text, px + tw / 2, y + .5); c.restore();
+}
+// two-line label "head: rest"
+function pill2(c, text, x, y, color) {
+  const [a, b = ''] = text.split(': ');
+  c.save(); c.font = '900 12px Nunito, sans-serif'; const wa = c.measureText(a).width; c.font = '700 12px Nunito, sans-serif';
+  const tw = Math.max(wa, c.measureText(b).width) + 18, th = 40, px = clamp(x - tw / 2, 6, Math.max(6, CW - tw - 6));
+  c.fillStyle = 'rgba(10,14,28,.88)'; c.beginPath(); c.roundRect(px, y - th / 2, tw, th, 12); c.fill();
+  c.strokeStyle = color; c.lineWidth = 1.5; c.stroke(); c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillStyle = color; c.font = '900 12px Nunito, sans-serif'; c.fillText(a, px + tw / 2, y - 7);
+  c.fillStyle = '#fff'; c.font = '700 12px Nunito, sans-serif'; c.fillText(b, px + tw / 2, y + 9); c.restore();
+}
+
+// --- the five solids, drawn as shaded bodies; origin = contact point (front-bottom), body goes up (negative y) ---
+function drawBall(c, r, spin = 0) {
+  c.save(); c.translate(0, -r);
+  const g = c.createRadialGradient(-r * .3, -r * .36, r * .05, 0, 0, r * 1.1);
+  g.addColorStop(0, COL.ball); g.addColorStop(1, '#C93C3C');
+  c.fillStyle = g; c.beginPath(); c.arc(0, 0, RR(r), 0, TAU); c.fill();
+  c.save(); c.beginPath(); c.arc(0, 0, RR(r), 0, TAU); c.clip(); c.rotate(spin);
+  c.fillStyle = 'rgba(110,22,34,.38)'; c.fillRect(-r * 1.2, r * .1, r * 2.4, r * .32);   // darker band: shows the spin
+  c.fillStyle = 'rgba(255,225,225,.22)'; c.fillRect(-r * 1.2, -r * .52, r * 2.4, r * .1);
+  c.restore();
+  const sh = c.createRadialGradient(-r * .3, -r * .35, r * .25, 0, 0, r * 1.05);
+  sh.addColorStop(0, 'rgba(60,5,15,0)'); sh.addColorStop(1, 'rgba(60,5,15,.34)');
+  c.fillStyle = sh; c.beginPath(); c.arc(0, 0, RR(r), 0, TAU); c.fill();
+  c.save(); c.translate(-r * .36, -r * .42); c.rotate(-.6); c.scale(1, .62);
+  const hl = c.createRadialGradient(0, 0, 0, 0, 0, r * .34);
+  hl.addColorStop(0, 'rgba(255,255,255,.95)'); hl.addColorStop(1, 'rgba(255,255,255,0)');
+  c.fillStyle = hl; c.beginPath(); c.arc(0, 0, RR(r * .34), 0, TAU); c.fill(); c.restore();
+  c.strokeStyle = 'rgba(120,25,30,.75)'; c.lineWidth = 1.5; c.beginPath(); c.arc(0, 0, RR(r), 0, TAU); c.stroke();
+  c.restore();
+}
+// cabinet projection: front square, lighter top and darker side leaning back to the right
+function drawCube(c, s, ghost = false) {
+  const dx = s * .34, dy = -s * .3, h = s / 2;
+  const F = [[-h, 0], [h, 0], [h, -s], [-h, -s]], Tp = [[-h, -s], [h, -s], [h + dx, -s + dy], [-h + dx, -s + dy]], Sd = [[h, 0], [h + dx, dy], [h + dx, -s + dy], [h, -s]];
+  c.save(); c.lineJoin = 'round'; c.lineCap = 'round';
+  if (ghost) { // see-through: the hidden back edges show, dashed
+    c.save(); c.setLineDash([4, 3]); c.strokeStyle = 'rgba(190,210,255,.85)'; c.lineWidth = 1.3; c.beginPath();
+    c.moveTo(-h, 0); c.lineTo(-h + dx, dy); c.lineTo(h + dx, dy); c.moveTo(-h + dx, dy); c.lineTo(-h + dx, -s + dy); c.stroke(); c.restore();
+  }
+  c.globalAlpha *= ghost ? .55 : 1;
+  const fg = c.createLinearGradient(-h, -s, h, 0); fg.addColorStop(0, tint(CUBE.front, .1)); fg.addColorStop(1, tint(CUBE.front, -.1));
+  const tg = c.createLinearGradient(-h, 0, h + dx, 0); tg.addColorStop(0, tint(CUBE.top, .12)); tg.addColorStop(1, CUBE.top);
+  const sg = c.createLinearGradient(h, 0, h + dx, 0); sg.addColorStop(0, tint(CUBE.side, .06)); sg.addColorStop(1, tint(CUBE.side, -.14));
+  c.strokeStyle = CUBE.edge; c.lineWidth = 1.5;
+  [[F, fg], [Tp, tg], [Sd, sg]].forEach(([p, f]) => { c.fillStyle = f; poly(c, p); c.fill(); c.stroke(); });
+  c.strokeStyle = 'rgba(255,255,255,.3)'; c.lineWidth = 1; c.beginPath(); c.moveTo(-h + 2, -2); c.lineTo(-h + 2, -s + 2); c.lineTo(h - 2, -s + 2); c.stroke();
+  c.restore();
+}
+// standing cylinder: front-most base point at the origin, flat elliptical cap on top
+function drawCylS(c, u) {
+  const rx = .46 * u, ry = .14 * u, hb = u, base = COL.cyl;
+  c.save(); c.lineJoin = 'round';
+  const g = c.createLinearGradient(-rx, 0, rx, 0);
+  g.addColorStop(0, tint(base, -.2)); g.addColorStop(.3, tint(base, .32)); g.addColorStop(.62, base); g.addColorStop(1, tint(base, -.36));
+  c.fillStyle = g; c.strokeStyle = tint(base, -.5); c.lineWidth = 1.5;
+  c.beginPath(); c.moveTo(-rx, -ry - hb); c.lineTo(-rx, -ry); c.ellipse(0, -ry, rx, ry, 0, Math.PI, 0, true); c.lineTo(rx, -ry - hb); c.closePath(); c.fill(); c.stroke();
+  const cg = c.createLinearGradient(-rx, -hb - 2 * ry, rx, -hb); cg.addColorStop(0, '#FFEDB0'); cg.addColorStop(1, '#FFE08A');
+  c.fillStyle = cg; c.beginPath(); c.ellipse(0, -ry - hb, rx, ry, 0, 0, TAU); c.fill(); c.stroke();
+  c.restore();
+}
+function drawConeS(c, u) {
+  const rx = .46 * u, ry = .14 * u, H = 1.15 * u, base = COL.cone;
+  c.save(); c.lineJoin = 'round';
+  const g = c.createLinearGradient(-rx, 0, rx, 0);
+  g.addColorStop(0, tint(base, -.2)); g.addColorStop(.3, tint(base, .3)); g.addColorStop(.65, base); g.addColorStop(1, tint(base, -.38));
+  c.fillStyle = g; c.strokeStyle = tint(base, -.55); c.lineWidth = 1.5;
+  c.beginPath(); c.moveTo(0, -H); c.lineTo(-rx, -ry); c.ellipse(0, -ry, rx, ry, 0, Math.PI, 0, true); c.closePath(); c.fill(); c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.26)'; c.beginPath(); c.moveTo(-u * .02, -H + u * .06); c.lineTo(-rx * .55, -ry * 1.8); c.lineTo(-rx * .3, -ry * 1.6); c.closePath(); c.fill();
+  c.restore();
+}
+// square pyramid seen from a corner: two lit faces
+function drawPyr(c, u) {
+  const hw = .52 * u, ry = .14 * u, ap = -(ry + .96 * u), base = COL.pyr;
+  const A = [0, ap], L = [-hw, -ry], Fr = [0, 0], Rt = [hw, -ry];
+  c.save(); c.lineJoin = 'round'; c.lineWidth = 1.5; c.strokeStyle = tint(base, -.55);
+  const g1 = c.createLinearGradient(-hw, 0, 0, 0); g1.addColorStop(0, tint(base, .12)); g1.addColorStop(1, tint(base, .28));
+  const g2 = c.createLinearGradient(0, 0, hw, 0); g2.addColorStop(0, tint(base, -.12)); g2.addColorStop(1, tint(base, -.34));
+  c.fillStyle = g1; poly(c, [A, L, Fr]); c.fill(); c.stroke();
+  c.fillStyle = g2; poly(c, [A, Fr, Rt]); c.fill(); c.stroke();
+  c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 1; c.beginPath(); c.moveTo(A[0] - 1, A[1] + 3); c.lineTo(L[0] + 4, L[1] - 1); c.stroke();
+  c.restore();
+}
+// cylinder lying down, seen a little from the side: elliptical cap on the left; spin turns the stripes and the cap
+function drawCylL(c, u, spin = 0) {
+  const rr = .46 * u, ex = .36 * u, lx = .5 * u, cx0 = -lx / 2, cy = -rr, base = COL.cyl;
+  c.save(); c.lineJoin = 'round';
+  const g = c.createLinearGradient(0, -2 * rr, 0, 0);
+  g.addColorStop(0, tint(base, .12)); g.addColorStop(.3, tint(base, .4)); g.addColorStop(.6, base); g.addColorStop(1, tint(base, -.4));
+  const body = () => { c.beginPath(); c.moveTo(cx0, -2 * rr); c.lineTo(cx0 + lx, -2 * rr); c.ellipse(cx0 + lx, cy, ex, rr, 0, -Math.PI / 2, Math.PI / 2, false); c.lineTo(cx0, 0); c.closePath(); };
+  c.fillStyle = g; body(); c.fill();
+  c.save(); body(); c.clip(); c.strokeStyle = 'rgba(120,70,10,.5)';
+  for (let k = 0; k < 4; k++) { const ph = spin + k * Math.PI / 2, co = Math.cos(ph); if (co > 0) { c.lineWidth = .8 + 3 * co; c.beginPath(); c.moveTo(cx0, cy + rr * Math.sin(ph)); c.lineTo(cx0 + lx + ex, cy + rr * Math.sin(ph)); c.stroke(); } }
+  c.restore();
+  c.strokeStyle = tint(base, -.5); c.lineWidth = 1.5; body(); c.stroke();
+  const cg = c.createLinearGradient(cx0 - ex, -2 * rr, cx0 + ex, 0); cg.addColorStop(0, '#FFEDB0'); cg.addColorStop(1, '#FFE08A');
+  c.fillStyle = cg; c.beginPath(); c.ellipse(cx0, cy, ex, rr, 0, 0, TAU); c.fill(); c.stroke();
+  c.save(); c.translate(cx0, cy); c.scale(ex / rr, 1); c.rotate(spin); c.strokeStyle = 'rgba(150,100,20,.7)'; c.lineWidth = 2.5; c.lineCap = 'round';
+  c.beginPath(); c.moveTo(-rr * .8, 0); c.lineTo(rr * .8, 0); c.stroke(); c.restore();
+  c.restore();
+}
+// cone lying on its side: tip on the left, round base on the right; rock turns it about the tip
+function drawConeL(c, u, rock = 0) {
+  const rb = .46 * u, ex = .15 * u, A = [-.55 * u, -.02 * u], bx = .38 * u, base = COL.cone;
+  c.save(); c.lineJoin = 'round'; c.translate(A[0], A[1]); c.rotate(rock); c.translate(-A[0], -A[1]);
+  const g = c.createLinearGradient(0, -2 * rb, 0, 0); g.addColorStop(0, tint(base, .3)); g.addColorStop(.45, base); g.addColorStop(1, tint(base, -.4));
+  c.fillStyle = g; c.strokeStyle = tint(base, -.55); c.lineWidth = 1.5;
+  c.beginPath(); c.moveTo(A[0], A[1]); c.lineTo(bx, -2 * rb); c.ellipse(bx, -rb, ex, rb, 0, -Math.PI / 2, Math.PI / 2, false); c.closePath(); c.fill(); c.stroke();
+  c.fillStyle = tint(base, .45); c.beginPath(); c.ellipse(bx, -rb, ex, rb, 0, 0, TAU); c.fill(); c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.3)'; c.beginPath(); c.ellipse(A[0] + u * .3, -rb * .95, u * .17, u * .045, -.28, 0, TAU); c.fill();
+  c.restore();
+}
+// cone lying on its side seen from above: tip at (ax, ay), pointing along ang
+function drawConeTop(c, ax, ay, ang, L, rb, alpha = 1) {
+  c.save(); c.globalAlpha *= alpha; c.translate(ax, ay); c.rotate(ang); c.lineJoin = 'round';
+  const g = c.createLinearGradient(0, -rb, 0, rb); g.addColorStop(0, tint(COL.cone, .3)); g.addColorStop(.5, COL.cone); g.addColorStop(1, tint(COL.cone, -.38));
+  c.fillStyle = g; c.strokeStyle = tint(COL.cone, -.55); c.lineWidth = 1.5;
+  c.beginPath(); c.moveTo(0, 0); c.lineTo(L, -rb); c.lineTo(L, rb); c.closePath(); c.fill(); c.stroke();
+  c.fillStyle = tint(COL.cone, .45); c.beginPath(); c.ellipse(L, 0, RR(rb * .28), RR(rb), 0, 0, TAU); c.fill(); c.stroke();
+  c.restore();
+}
+const FLAT_TOP = { ball: 0, cube: 1, cyl: 1, cone: 0, pyr: 0 }, FLAT_BOT = { ball: 0, cube: 1, cyl: 1, cone: 1, pyr: 1 };
+const HH = (k, u) => ({ ball: 1, cube: 1, cyl: 1, cone: 1.15, pyr: 1.1 })[k] * u;   // height of the front face / body
+const WW = (k, u) => ({ ball: 1, cube: 1, cyl: .92, cone: .92, pyr: 1.04 })[k] * u;
+function drawPiece(c, k, u, spin = 0) {
+  if (k === 'ball') drawBall(c, u / 2, spin); else if (k === 'cube') drawCube(c, u); else if (k === 'cyl') drawCylS(c, u);
+  else if (k === 'cone') drawConeS(c, u); else drawPyr(c, u);
+}
+
+// --- backgrounds ---------------------------------------------------------------------------------------------
+function drawSky(c, w, h) {
+  const g = c.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#2A3D66'); g.addColorStop(1, '#3E5A8A');
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+  c.fillStyle = 'rgba(255,255,255,.07)';
+  for (const [fx, fy, s] of [[.2, .12, 1], [.72, .2, .8], [.92, .08, .55]]) {
+    const x = w * fx, y = h * fy, k = Math.min(w, 420) / 420 * 34 * s;
+    for (const [ox, oy, r] of [[-1.1, 0, .7], [0, -.35, 1], [1.1, 0, .75], [0, .25, 1.2]]) { c.beginPath(); c.ellipse(x + ox * k, y + oy * k, RR(r * k * 1.1), RR(r * k * .62), 0, 0, TAU); c.fill(); }
+  }
+}
+function drawFloor(c, w, h, yF) {
+  const g = c.createLinearGradient(0, yF, 0, h); g.addColorStop(0, '#5B77A6'); g.addColorStop(1, '#31497A');
+  c.fillStyle = g; c.fillRect(0, yF, w, h - yF);
+  c.fillStyle = 'rgba(255,255,255,.2)'; c.fillRect(0, yF, w, 1.5);
+}
+function drawGrass(c, x, y, wd) {
+  const g = c.createLinearGradient(0, y - 3, 0, y + 8); g.addColorStop(0, '#6FD08A'); g.addColorStop(1, '#3F9A5A');
+  c.fillStyle = g; c.beginPath(); c.roundRect(x, y - 2, wd, 9, 4); c.fill();
+  c.fillStyle = '#6FD08A';
+  for (let i = 0; i < wd - 4; i += 5) { const hgt = 3 + 2.5 * Math.abs(Math.sin(i * 1.7)); c.beginPath(); c.moveTo(x + i + 1, y - 1); c.lineTo(x + i + 3, y - 1 - hgt); c.lineTo(x + i + 5, y - 1); c.fill(); }
+}
+
+// --- state ---------------------------------------------------------------------------------------------------
+const KIND = ['ball', 'cube', 'cylL', 'cylS', 'coneL'];
+const NAME_KEY = { ball: 'ball', cube: 'cube', cylL: 'cylLying', cylS: 'cylStanding', coneL: 'cone' };
+const RIGHT = { ball: [0], cube: [1, 2], cylL: [0], cylS: [1, 2], coneL: [0] };
+const S = { sec: null, top: 12, askOn: true, found: new Set(), pick: null, angle: 0, seenFlat: false, seenSlant: false };
+const R = { i: 0, phase: 'ask', ans: null, ok: false, t: 0, theta: 0, from: 0, lowerT: 1, s: -1, v: 0, dec: 0, spin: 0, st: 'idle', stopT: 0, wob: 0, ang: 0, inset: 0, full: false };
+const TW = { phase: 'ask', ans: null, ok: false, tray: ['ball', 'cube', 'cube', 'cyl', 'cyl', 'cone', 'pyr'].map((kind) => ({ kind, out: false })),
+  stack: [{ kind: 'ball', sq: 0 }], fx: [], dropping: false, best: store.get('rollstack:best', 0), rstep: 0, rt: 0, rdone: false, L: null };
+const M = { phase: 'q1', ans1: null, ok1: false, ans2: null, ok2: false, shape: 'cube', prints: [], seq: null, count: 0, gt: 0, gstage: 0, seqDone: false, done1: false, rev2: false, L: null, dirty: false };
+
+const lab = shell({ key: 'roll-stack', T, topics: TOPICS, views: ['ramp', 'tower', 'stamp'], onLang: render, onView: (v) => { if (v !== 'ramp') S.sec = null; render(); } });
+const secret = secretLab('roll-stack', () => ({
+  secrets: [{ emo: '🏠', title: T[lang].secrets.home[0], desc: T[lang].secrets.home[1] }, { emo: '🔪', title: T[lang].secrets.slice[0], desc: T[lang].secrets.slice[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="secRamp">
+    <div class="chips" id="secChips"></div>
+    <div id="slideBox"><div class="top"><span class="lbl" id="angLbl"></span><b id="angVal">0°</b></div>
+      <input type="range" class="big" id="angle" min="0" max="40" step="1" value="0"></div>
+  </div>
+  <div id="secTower"><div class="row2" style="margin-top:0"><button class="btn" data-act="reset" id="resetBtn"></button></div></div>
+  <div id="secStamp"><div class="chips" id="shapeChips"></div></div>`;
+const askEl = Object.assign(document.createElement('div'), { className: 'ask card' });
+$('overlay').append(askEl);
+
+// --- the question panel on top of the stage (shared by the three views) ---------------------------------------
+function panelHTML(o) {
+  const btns = o.opts.map((txt, i) => {
+    let cls = o.ans === i ? 'pick' : '';
+    if (o.done) cls = o.right.includes(i) ? 'ok' : (o.ans === i ? 'no' : '');
+    return `<button data-o="${i}" class="${cls}"${o.ans !== null ? ' disabled' : ''}>${esc(txt)}</button>`;
+  }).join('');
+  const show = !!o.verdict;
+  return `<div class="q">${esc(o.q)}</div><div class="row">${btns}</div>
+    <div class="vrow" style="visibility:${show ? 'visible' : 'hidden'}"><span class="verdict" style="color:${o.vcol || 'var(--ok)'}">${show ? esc(o.verdict) : '&nbsp;'}</span>
+    <button class="nx" data-nx="1" style="visibility:${o.next ? 'visible' : 'hidden'}">${esc(T[lang].next)}</button></div>`;
+}
+const showStage = () => { // on phones the controls sit below the stage: bring the reveal into view
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+
+// =================================================================================================================
+// VIEW 1 · RAMP
+// =================================================================================================================
+function rampGeom(w, h, top) {
+  const u = clamp(w * .15, 32, 56), yF = h - Math.max(30, h * .075), availH = yF - top - 14; // a bigger scene: the ramp is the picture
+  const Lr = Math.max(120, Math.min(w * .62, (availH - 1.3 * u) / .574, 460)), hx = 14 + Lr * .92;
+  return { u, yF, hx, hy: yF, Lr, floorRun: Math.max(60, w - 14 - .6 * u - hx), w, h };
+}
+function rampReset() {
+  R.phase = 'ask'; R.ans = null; R.t = 0; R.s = -1; R.v = 0; R.spin = 0; R.st = 'idle'; R.stopT = 0; R.wob = 0; R.ang = 0;
+  R.from = R.theta; R.lowerT = R.theta > 0 ? 0 : 1;
+}
+function finishRamp() {
+  R.phase = 'done'; if (R.i === 4) R.full = true;
+  (R.ok ? sfx.good : sfx.bad)(); render(); showStage();
+}
+function rampUpdate(g, dt, kind) {
+  const steep = kind === 'cube' || kind === 'cylS', rolls = kind === 'ball' || kind === 'cylL', rr = kind === 'ball' ? g.u * .5 : g.u * .46;
+  if (R.lowerT < 1) { R.lowerT = Math.min(1, R.lowerT + dt / .45); R.theta = R.from * (1 - ease(R.lowerT)); }
+  R.inset = clamp(R.inset + (kind === 'coneL' && R.phase !== 'ask' ? dt / .4 : -dt / .3), 0, 1);
+  if (R.phase === 'ask') return;
+  R.t += dt;
+  let th = 25 * DEG * ease(clamp(R.t / 1, 0, 1));
+  if (steep && R.t > 1.6) th = (25 + 10 * ease(clamp((R.t - 1.6) / 1, 0, 1))) * DEG;
+  R.theta = th;
+  if (rolls) {
+    if (R.s < g.Lr) { R.v += 560 * Math.sin(th) * dt; R.s += R.v * dt; if (R.s >= g.Lr) R.dec = R.v * R.v / (2 * g.floorRun * .9); }
+    else if (R.v > 0) { R.v = Math.max(0, R.v - R.dec * dt); R.s += R.v * dt; }
+    R.spin += R.v * dt / rr;
+    if (R.s > g.Lr && R.v <= .01) { R.stopT += dt; if (R.stopT > .5 && R.phase === 'run') finishRamp(); }
+  } else if (steep) {
+    if (R.st === 'idle' && th >= 33.5 * DEG) R.st = 'slide';
+    if (R.st === 'slide') {
+      if (R.s < g.Lr) { R.v += 520 * (Math.sin(th) - .3 * Math.cos(th)) * dt; R.s += R.v * dt; if (R.s >= g.Lr) R.dec = R.v * R.v / (2 * g.floorRun * .38); }
+      else { R.v = Math.max(0, R.v - R.dec * dt); R.s += R.v * dt; if (R.v <= .01) R.st = 'stopped'; }
+    }
+    if (R.st === 'stopped') { R.wob += dt; if (R.wob > .8 && R.phase === 'run') finishRamp(); }
+  } else {
+    if (R.t > .5) R.ang += dt * 1.6;
+    if (R.t > 4.6 && R.phase === 'run') finishRamp();
+  }
+}
+function rampPose(g) {
+  const th = R.theta, s = R.s; let Px, Py, a;
+  if (s <= g.Lr) { const d = g.Lr - s; Px = g.hx - d * Math.cos(th); Py = g.hy - d * Math.sin(th); a = th; }
+  else { Px = g.hx + (s - g.Lr); Py = g.hy; a = th * (1 - smooth((s - g.Lr) / (g.u * .9))); }
+  return { Px: Px + Math.sin(a) * 3, Py: Py - Math.cos(a) * 3, a };   // a few pixels up: the shape stands on the plank top
+}
+function drawPlank(c, g) {
+  const th = R.theta, t = clamp(g.u * .28, 9, 14), L = g.Lr;
+  const tbx = g.hx - L * Math.cos(th) - t * Math.sin(th), tby = g.hy - L * Math.sin(th) + t * Math.cos(th);
+  if (g.yF - tby > 6) { // a post under the raised end
+    const pg = c.createLinearGradient(tbx + 6, 0, tbx + 16, 0); pg.addColorStop(0, '#9B6D3A'); pg.addColorStop(1, '#6E4A24');
+    c.fillStyle = pg; c.fillRect(tbx + 6, tby - 2, 10, g.yF - tby + 2);
+  }
+  c.save(); c.translate(g.hx, g.hy); c.rotate(th);
+  const pg = c.createLinearGradient(0, -6, 0, t); pg.addColorStop(0, '#D9A86C'); pg.addColorStop(1, '#B07D45');
+  c.fillStyle = pg; c.beginPath(); c.roundRect(-L, -6, L, t + 6, 3); c.fill();
+  c.fillStyle = 'rgba(255,238,205,.3)'; c.fillRect(-L + 2, -6, L - 4, 5);          // top surface
+  c.strokeStyle = 'rgba(70,40,15,.42)'; c.lineWidth = 1; c.beginPath(); c.moveTo(-L + 1, 0); c.lineTo(-1, 0); c.stroke();
+  c.strokeStyle = 'rgba(100,62,25,.24)';
+  for (let k = 1; k <= 3; k++) { const y = t * k / 4 + 1; c.beginPath(); c.moveTo(-L + 6, y); for (let x = -L + 6; x < -6; x += 18) c.quadraticCurveTo(x + 9, y + (k % 2 ? 1.6 : -1.6), x + 18, y); c.stroke(); }
+  c.fillStyle = 'rgba(60,35,10,.28)'; c.fillRect(-L, -6, 5, t + 6);                  // darker end edge
+  c.fillStyle = 'rgba(60,35,10,.5)'; for (const x of [-L + 12, -9]) { c.beginPath(); c.arc(x, t * .55, 1.7, 0, TAU); c.fill(); }
+  c.strokeStyle = 'rgba(122,82,40,.85)'; c.lineWidth = 1.5; c.beginPath(); c.roundRect(-L, -6, L, t + 6, 3); c.stroke();
+  c.restore();
+}
+function drawRampShape(c, g, kind, time) {
+  const u = g.u, { Px, Py, a } = rampPose(g), wob = R.st === 'stopped' ? .07 * Math.exp(-5 * R.wob) * Math.sin(26 * R.wob) : 0;
+  const run = R.phase !== 'ask', grow = clamp((R.theta / DEG - 25) / 8.5, 0, 1);
+  const trem = kind !== 'coneL' && R.st === 'idle' && R.t > 1 && run ? (.006 + .02 * grow) * Math.sin(R.t * 45) : 0;
+  if (kind === 'ball' || kind === 'cylL') {
+    const rr = kind === 'ball' ? u * .5 : u * .46, cx = Px + Math.sin(a) * rr, cy = Py - Math.cos(a) * rr;
+    c.save(); c.translate(Px, Py); c.rotate(a); shadowE(c, 2, 2, u * .6, u * .1, .5); c.restore();
+    c.save();
+    if (kind === 'ball') { c.translate(cx, cy + rr); drawBall(c, rr, R.spin); }
+    else { c.translate(Px, Py); c.rotate(a); drawCylL(c, u, R.spin); }   // the cylinder lies along the plank
+    c.restore();
+  } else if (kind === 'coneL') {
+    const rock = run ? Math.sin(time * 2.4) * .11 * smooth(R.t * 2) : 0;
+    c.save(); c.translate(Px, Py); c.rotate(a); shadowE(c, 0, 2, u * .8, u * .1, .5); drawConeL(c, u, rock); c.restore();
+  } else {
+    c.save(); c.translate(Px, Py); c.rotate(a + wob + trem); shadowE(c, 3, 2, u * .62, u * .1, .5);
+    if (kind === 'cube') drawCube(c, u); else drawCylS(c, u);
+    c.restore();
+  }
+}
+function drawInset(c, w, time) {
+  const al = R.inset; if (al <= .01) return;
+  const sz = clamp(Math.min(w * .4, 150), 96, 150), x = w - sz - 10, y = S.top + 4, cx = x + sz / 2, cy = y + sz / 2, L = sz * .34, rb = L * .4;
+  c.save(); c.globalAlpha = al;
+  c.beginPath(); c.roundRect(x, y, sz, sz, 16); c.save(); c.clip();
+  const g = c.createRadialGradient(cx, cy, 4, cx, cy, sz * .75); g.addColorStop(0, '#6E8BBB'); g.addColorStop(1, '#3A5282');
+  c.fillStyle = g; c.fillRect(x, y, sz, sz);
+  c.strokeStyle = 'rgba(255,255,255,.08)'; c.lineWidth = 1; c.beginPath();
+  for (let i = 1; i < 6; i++) { c.moveTo(x + i * sz / 6, y); c.lineTo(x + i * sz / 6, y + sz); c.moveTo(x, y + i * sz / 6); c.lineTo(x + sz, y + i * sz / 6); }
+  c.stroke();
+  const tr = Math.min(R.ang, TAU - .05);
+  c.setLineDash([2, 6]); c.lineCap = 'round'; c.strokeStyle = 'rgba(255,255,255,.65)'; c.lineWidth = 2.2; c.beginPath(); c.arc(cx, cy, RR(L), 0, TAU); c.stroke(); c.setLineDash([]);
+  if (tr > .02) { c.strokeStyle = rgba(COL.cone, .9); c.lineWidth = 3.2; c.beginPath(); c.arc(cx, cy, RR(L), Math.PI, Math.PI + tr); c.stroke(); }
+  shadowE(c, cx + L * Math.cos(Math.PI + R.ang) * .5, cy + L * Math.sin(Math.PI + R.ang) * .5 + 3, L * .55, L * .22, .35);
+  drawConeTop(c, cx, cy, Math.PI + R.ang, L, rb);
+  c.fillStyle = '#fff'; c.beginPath(); c.arc(cx, cy, 3.2, 0, TAU); c.fill();
+  c.restore();
+  c.strokeStyle = 'rgba(190,205,255,.5)'; c.lineWidth = 1.5; c.beginPath(); c.roundRect(x, y, sz, sz, 16); c.stroke();
+  c.restore();
+}
+function drawRamp(c, w, h, dt, time) {
+  const g = rampGeom(w, h, S.top), kind = KIND[R.i];
+  if (R.s < 0) R.s = g.u * .85;
+  rampUpdate(g, dt, kind);
+  drawFloor(c, w, h, g.yF);
+  drawGrass(c, g.hx - 8, g.yF, Math.min(80, w * .22));
+  drawPlank(c, g);
+  drawRampShape(c, g, kind, time);
+  drawInset(c, w, time);
+}
+
+// =================================================================================================================
+// VIEW 2 · TOWER
+// =================================================================================================================
+function tLayout(w, h, top) {
+  const free = TW.phase === 'free', tile = clamp((w - 24 - 30) / 7, 34, 56), trayH = tile + 18, trayY = h - trayH - 8;
+  const yF = free ? trayY - 14 : h - 34, u = clamp(Math.min(w * .15, (yF - top - 8) / 6.4), 24, 56);
+  return { w, h, tile, trayY, trayH, yF, u, x0: w / 2 - u * .12, gap: 5 };
+}
+const stackH = (u) => TW.stack.reduce((n, p) => n + HH(p.kind, u), 0);
+function dropPiece(kind, slot, dir) {
+  const below = TW.stack.length ? TW.stack[TW.stack.length - 1].kind : null;
+  const stays = below === null ? true : !!(FLAT_TOP[below] && FLAT_BOT[kind]);
+  TW.fx.push({ kind, slot, stays, below, phase: 'drop', t: 0, cx: 0, cy: undefined, rot: 0, spin: 0, w: 0, vx: 0, vy: 0, dir: dir || (Math.random() < .5 ? -1 : 1), alpha: 1, bounces: 0 });
+  TW.dropping = true; sfx.click();
+}
+function fxExt(f, u) { const hh = HH(f.kind, u) / 2; return f.kind === 'ball' ? hh : Math.abs(Math.cos(f.rot)) * hh + Math.abs(Math.sin(f.rot)) * WW(f.kind, u) / 2; }
+function updateFx(f, dt, L) {
+  const u = L.u, Hk = HH(f.kind, u), Wk = WW(f.kind, u), hh = Hk / 2, yb = L.yF - stackH(u);
+  if (f.phase === 'drop') {
+    if (f.cy === undefined) { f.cy = -Hk; f.vy = 0; }
+    f.vy += 2400 * dt; f.cy += f.vy * dt; f.cx = L.x0;
+    if (f.cy + hh >= yb) {
+      f.cy = yb - hh; TW.dropping = false;
+      if (f.stays) {
+        TW.stack.push({ kind: f.kind, sq: 1 }); f.phase = 'done'; sfx.snap();
+        if (TW.phase === 'free') { TW.best = Math.max(TW.best, TW.stack.length); store.set('rollstack:best', TW.best); }
+        render();
+      } else { f.phase = 'wobble'; f.t = 0; sfx.bad(); }
+    }
+  } else if (f.phase === 'wobble') {
+    f.t += dt; const k = Math.max(0, 1 - f.t / .5);
+    if (f.kind === 'ball') { f.cx = L.x0 + Math.sin(f.t * 24) * u * .07 * k; f.cy = yb - hh; }
+    else { f.rot = f.dir * .1 * Math.sin(f.t * 20) * k; f.cx = L.x0 + hh * Math.sin(f.rot); f.cy = yb - hh * Math.cos(f.rot); }
+    if (f.t >= .5) {
+      f.rot = 0; f.t = 0;
+      if (f.kind === 'ball') {
+        if (FLAT_TOP[f.below]) { f.phase = 'roll'; f.vx = 0; f.cx = L.x0; f.cy = yb - hh; }
+        else { f.phase = 'fall'; f.vx = f.dir * 1.5 * u; f.vy = -.9 * u; }
+      } else {
+        f.phase = 'topple'; f.pw = FLAT_TOP[f.below] ? Math.min(Wk, WW(f.below, u)) / 2 : 0; f.phi = 0; f.w = 0;
+        f.Ex = L.x0 + f.dir * f.pw; f.Ey = yb; f.c0x = L.x0; f.c0y = yb - hh;
+      }
+    }
+  } else if (f.phase === 'topple') {
+    f.w += f.dir * 7 * dt; f.phi += f.w * dt;
+    const rx = f.c0x - f.Ex, ry = f.c0y - f.Ey, co = Math.cos(f.phi), si = Math.sin(f.phi), px = rx * co - ry * si, py = rx * si + ry * co;
+    f.cx = f.Ex + px; f.cy = f.Ey + py; f.rot = f.phi;
+    if (Math.abs(f.phi) > 1.15) { f.vx = -f.w * py + f.dir * .3 * u; f.vy = f.w * px; f.phase = 'fall'; f.bounces = 0; }
+  } else if (f.phase === 'roll') {
+    f.vx += f.dir * 5 * u * dt; f.cx += f.vx * dt; f.spin += f.vx * dt / (u / 2); f.cy = yb - hh;
+    if (Math.abs(f.cx - L.x0) > WW(f.below, u) / 2 + .3 * u) { f.phase = 'fall'; f.vy = 0; f.bounces = 0; }
+  } else if (f.phase === 'fall') {
+    f.vy += 2400 * dt; f.cx += f.vx * dt; f.cy += f.vy * dt; f.rot += f.w * dt;
+    if (f.kind === 'ball') f.spin += f.vx * dt / (u / 2);
+    const ext = fxExt(f, u);
+    if (f.cy + ext >= L.yF && f.vy > 0) {
+      f.cy = L.yF - ext;
+      if (f.bounces < 1) { f.bounces++; f.vy = -f.vy * .36; f.vx *= .65; f.w *= .55; sfx.tick(); }
+      else { f.phase = 'rest'; f.rest = 0; f.vy = 0; sfx.tick(); }
+    }
+  } else if (f.phase === 'rest') {
+    f.rest += dt; f.cx += f.vx * dt; f.vx *= Math.exp(-(f.kind === 'ball' ? 2.2 : 8) * dt);
+    if (f.kind === 'ball') f.spin += f.vx * dt / (u / 2);
+    else { const tg = Math.round(f.rot / (Math.PI / 2)) * Math.PI / 2; f.rot += (tg - f.rot) * Math.min(1, dt * 12); }
+    f.cy = L.yF - fxExt(f, u);
+    if (f.rest > 1.1) f.alpha = 1 - (f.rest - 1.1) / .4;
+    if (f.alpha <= 0) { if (f.slot >= 0) TW.tray[f.slot].out = false; f.phase = 'done'; }
+  }
+}
+function towerReset(toFree) {
+  TW.fx = []; TW.dropping = false; TW.tray.forEach((p) => { p.out = false; });
+  TW.stack = toFree ? [] : [{ kind: 'ball', sq: 0 }];
+}
+function trayRects(L) {
+  const sx = (L.w - (7 * L.tile + 6 * L.gap)) / 2;
+  return TW.tray.map((_, i) => ({ x: sx + i * (L.tile + L.gap), y: L.trayY + 9, s: L.tile }));
+}
+function drawTower(c, w, h, dt, time) {
+  const L = tLayout(w, h, S.top); TW.L = L; const u = L.u;
+  // scripted reveal: a cube and then a cylinder are dropped on the ball
+  const busy = () => TW.fx.some((f) => f.phase !== 'rest');
+  if (TW.phase === 'reveal' && !TW.rdone) {
+    TW.rt += dt;
+    if (TW.rstep === 0 && TW.rt > .6) { dropPiece('cube', -1, 1); TW.rstep = 1; TW.rt = 0; }
+    else if (TW.rstep === 1 && !busy()) { TW.rstep = 2; TW.rt = 0; }
+    else if (TW.rstep === 2 && TW.rt > .5) { dropPiece('cyl', -1, -1); TW.rstep = 3; TW.rt = 0; }
+    else if (TW.rstep === 3 && !busy()) { TW.rstep = 4; TW.rt = 0; }
+    else if (TW.rstep === 4 && TW.rt > .5) { TW.rdone = true; (TW.ok ? sfx.good : sfx.bad)(); render(); showStage(); }
+  }
+  TW.fx.forEach((f) => updateFx(f, dt, L)); TW.fx = TW.fx.filter((f) => f.phase !== 'done');
+  TW.stack.forEach((p) => { p.sq = Math.max(0, p.sq - dt * 5); });
+
+  drawFloor(c, w, h, L.yF);
+  const maxW = Math.max(u, ...TW.stack.map((p) => WW(p.kind, u)));
+  shadowE(c, L.x0, L.yF + 4, maxW * .75, u * .13, .45);
+  let yb = L.yF;
+  TW.stack.forEach((p, i) => {
+    c.save(); c.translate(L.x0, yb);
+    if (p.sq > 0) c.scale(1 + .06 * p.sq, 1 - .1 * p.sq);
+    drawPiece(c, p.kind, u); c.restore(); yb -= HH(p.kind, u);
+  });
+  for (const f of TW.fx) {
+    if (f.cy === undefined) continue;
+    c.save(); c.globalAlpha = clamp(f.alpha, 0, 1);
+    if (f.phase === 'rest' || f.phase === 'fall') shadowE(c, f.cx, L.yF + 3, u * .6, u * .1, .3);
+    if (f.kind === 'ball') { c.translate(f.cx, f.cy + u / 2); drawBall(c, u / 2, f.spin); }
+    else { c.translate(f.cx, f.cy); c.rotate(f.rot); c.translate(0, HH(f.kind, u) / 2); drawPiece(c, f.kind, u); }
+    c.restore();
+  }
+  if (TW.phase === 'free') { // the tray of pieces
+    c.fillStyle = 'rgba(14,17,28,.78)'; c.strokeStyle = 'rgba(130,145,190,.3)'; c.lineWidth = 1;
+    c.beginPath(); c.roundRect(8, L.trayY, w - 16, L.trayH, 16); c.fill(); c.stroke();
+    trayRects(L).forEach((r, i) => {
+      const p = TW.tray[i], ok = !p.out;
+      c.save(); c.globalAlpha = ok ? 1 : .22;
+      c.fillStyle = 'rgba(130,145,190,.12)'; c.strokeStyle = 'rgba(130,145,190,.35)'; c.beginPath(); c.roundRect(r.x, r.y, r.s, r.s, 12); c.fill(); c.stroke();
+      const iu = r.s * .5; c.translate(r.x + r.s / 2 - (p.kind === 'cube' ? iu * .17 : 0), r.y + r.s - 8); drawPiece(c, p.kind, iu); c.restore();
+    });
+  }
+}
+
+// =================================================================================================================
+// VIEW 3 · STAMP THE FACES
+// =================================================================================================================
+const rngf = (seed) => () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+// a polygon with a slightly ragged ink edge
+function ragged(path, seed, amp = 1.1) {
+  const r = rngf(seed), out = [];
+  for (let i = 0; i < path.length; i++) {
+    const a = path[i], b = path[(i + 1) % path.length], n = Math.max(1, Math.round(Math.hypot(b[0] - a[0], b[1] - a[1]) / 6));
+    for (let k = 0; k < n; k++) { const f = k / n; out.push([a[0] + (b[0] - a[0]) * f + (r() - .5) * 2 * amp, a[1] + (b[1] - a[1]) * f + (r() - .5) * 2 * amp]); }
+  }
+  return out;
+}
+const circlePath = (cx, cy, r, n = 28) => Array.from({ length: n }, (_, i) => [cx + r * Math.cos(i / n * TAU), cy + r * Math.sin(i / n * TAU)]);
+const rectPath = (x, y, w, h) => [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+const sectorPath = (ax, ay, L, a0, sw, n = 26) => [[ax, ay], ...Array.from({ length: n + 1 }, (_, i) => [ax + L * Math.cos(a0 + sw * i / n), ay + L * Math.sin(a0 + sw * i / n)])];
+
+function sLayout(w, h, top) {
+  const padW = clamp(w * .46, 120, 210), padH = 38, padTop = h - 14 - padH, px = 10, pw = w - 20, py = top + 2, ph = Math.max(120, padTop - 44 - py);
+  return { w, h, px, py, pw, ph, q: clamp(Math.min(pw / 3.5, ph / 4.5), 22, 58), padW, padH, padTop, padX: w / 2, padY: padTop + padH * .55 };
+}
+function mkPrint(pts, col, num, cx, cy, extra = {}) { return { pts, col, num, cx, cy, a: 0, on: false, clip: null, clipP: 1, glow: 0, age: 0, ...extra }; }
+// the stamping script of one shape: a list of steps, each leaves a print (positions are relative to the paper)
+function buildSeq(kind, L) {
+  const { pw, ph, q } = L, steps = [], prints = [];
+  const add = (st, pr) => { st.print = pr; steps.push(st); prints.push(pr); };
+  if (kind === 'cube') {
+    const ox = (pw - 3 * q) / 2, oy = (ph - 4 * q) / 2;
+    [[1, 1, 'front'], [1, 0, 'top'], [2, 1, 'side'], [0, 1, 'side'], [1, 2, 'top'], [1, 3, 'front']].forEach(([cx, cy, f], i) => {
+      const x = ox + cx * q, y = oy + cy * q;
+      add({ tx: x + q / 2, ty: y + q, flat: true }, mkPrint(ragged(rectPath(x + 1.5, y + 1.5, q - 3, q - 3), 11 + i), CUBE[f], i + 1, x + q / 2, y + q / 2));
+    });
+  } else if (kind === 'cyl') {
+    const rc = .46 * q, ry = .14 * q, y1 = ph * .24, cxs = [pw * .3, pw * .7];
+    cxs.forEach((cx, i) => add({ tx: cx, ty: y1 + ry, flat: true }, mkPrint(ragged(circlePath(cx, y1, rc), 21 + i, .9), COL.cyl, i + 1, cx, y1)));
+    const rw = TAU * rc, x0 = pw / 2 - rw / 2, yc = ph * .62;
+    add({ tx: x0 + .2 * q, ty: yc + q * .5, roll: { type: 'cyl', x0: x0 + .2 * q, x1: x0 + .2 * q + rw, y: yc + q * .5, dur: 1.5, rr: rc } },
+      mkPrint(ragged(rectPath(x0, yc - q / 2, rw, q), 31), COL.cyl, 0, pw / 2, yc, { clip: { type: 'x', x0, x1: x0 + rw, y0: yc - q / 2, y1: yc + q / 2 }, clipP: 0, curved: true }));
+  } else if (kind === 'cone') {
+    const rc = .46 * q, ry = .14 * q, cx = pw * .26, cy = ph * .3, Ls = 1.1 * q, sw = TAU * rc / Ls, ax = pw * .62, ay = ph * .1, a0 = Math.PI / 2 - sw / 2;
+    add({ tx: cx, ty: cy + ry, flat: true }, mkPrint(ragged(circlePath(cx, cy, rc), 41, .9), COL.cone, 1, cx, cy));
+    add({ tx: ax, ty: ay + 1.15 * q, roll: { type: 'cone', ax, ay, a0, sw, L: Ls, rb: rc, dur: 1.7 } },
+      mkPrint(ragged(sectorPath(ax, ay, Ls, a0, sw), 42), COL.cone, 0, ax, ay + Ls * .55, { clip: { type: 'wedge', ax, ay, L: Ls, a0, sw }, clipP: 0, curved: true }));
+  } else if (kind === 'pyr') {
+    const a = .74 * q, hs = 1.03 * q, cx = pw / 2, cy = ph / 2, c0 = COL.pyr;
+    const tris = [[[cx - a / 2, cy - a / 2], [cx + a / 2, cy - a / 2], [cx, cy - a / 2 - hs], tint(c0, .12)], [[cx + a / 2, cy - a / 2], [cx + a / 2, cy + a / 2], [cx + a / 2 + hs, cy], tint(c0, -.2)],
+      [[cx + a / 2, cy + a / 2], [cx - a / 2, cy + a / 2], [cx, cy + a / 2 + hs], tint(c0, .12)], [[cx - a / 2, cy + a / 2], [cx - a / 2, cy - a / 2], [cx - a / 2 - hs, cy], tint(c0, -.2)]];
+    add({ tx: cx, ty: cy + .08 * q, flat: true }, mkPrint(ragged(rectPath(cx - a / 2, cy - a / 2, a, a), 51), c0, 1, cx, cy));
+    tris.forEach(([p1, p2, p3, col], i) => {
+      const gx = (p1[0] + p2[0] + p3[0]) / 3, gy = (p1[1] + p2[1] + p3[1]) / 3;
+      const pr = mkPrint(ragged([p1, p2, p3], 52 + i), c0, i + 2, gx, gy); pr.fillOverride = col;
+      add({ tx: gx, ty: gy + .08 * q, flat: true }, pr);
+    });
+  } else { // ball: a single dot
+    const dx = pw / 2, dy = ph * .42;
+    add({ tx: dx, ty: dy, flat: false }, mkPrint(ragged(circlePath(dx, dy, 3.6, 12), 61, .5), COL.ball, 0, dx, dy, { dot: true }));
+  }
+  return { kind, steps, prints, k: 0, ph: 'pad', t: 0, x: 0, y: 0, gy: 0, rot: 0, sq: 0, swap: 0, spin: 0, ang: 0, fx: 0, fy: 0, done: false, ghost: false };
+}
+const D = { pad: .14, up: .36, down: .12, back: .28 };
+function seqUpdate(s, dt, L) {
+  if (s.done) return;
+  const st = s.steps[s.k], padX = L.padX, padY = L.padY, ax = L.px + st.tx, ay = L.py + st.ty;
+  s.t += dt;
+  const go = (ph) => { s.ph = ph; s.t = 0; };
+  const hop = (x0, y0, x1, y1, p) => { const e = ease(p); s.x = lerp(x0, x1, e); s.gy = lerp(y0, y1, e); s.y = s.gy - Math.sin(p * Math.PI) * clamp(Math.hypot(x1 - x0, y1 - y0) * .28, 14, 64); };
+  if (s.ph === 'pad') {
+    s.x = padX; s.y = s.gy = padY; s.rot = 0; s.sq = Math.sin(clamp(s.t / D.pad, 0, 1) * Math.PI);
+    if (s.t >= D.pad) go('up');
+  } else if (s.ph === 'up') {
+    const p = clamp(s.t / D.up, 0, 1); hop(padX, padY, ax, ay, p); s.rot = s.kind === 'cube' ? ease(p) * TAU : 0; s.sq = 0;
+    if (p >= 1) {
+      s.rot = 0; sfx.click();
+      if (st.roll) go('swap'); else { st.print.on = true; if (st.flat) { M.count++; M.dirty = true; } go('down'); }
+    }
+  } else if (s.ph === 'down') {
+    s.sq = Math.max(0, 1 - s.t / D.down);
+    if (s.t >= D.down) { s.fx = s.x; s.fy = s.gy; go('back'); }
+  } else if (s.ph === 'swap') {
+    s.swap = clamp(s.t / .2, 0, 1);
+    if (s.t >= .2) { st.print.on = true; s.rx = ax; go('roll'); }
+  } else if (s.ph === 'roll') {
+    const ro = st.roll, p = clamp(s.t / ro.dur, 0, 1), e = ease(p); st.print.clipP = e; s.swap = 1;
+    if (ro.type === 'cyl') { s.x = L.px + lerp(ro.x0, ro.x1, e); s.y = s.gy = L.py + ro.y; s.spin = (s.x - (L.px + ro.x0)) / ro.rr; }
+    else s.ang = ro.a0 + ro.sw * e;
+    if (p >= 1) { s.fx = s.x; s.fy = s.gy; s.swap = 0; go('back'); }
+  } else if (s.ph === 'back') {
+    const p = clamp(s.t / D.back, 0, 1); hop(s.fx, s.fy, padX, padY, p); s.rot = 0;
+    if (p >= 1) { s.k++; if (s.k >= s.steps.length) { s.done = true; s.sq = 0; s.x = padX; s.y = s.gy = padY; M.seqDone = true; M.dirty = true; } else go('pad'); }
+  }
+}
+function drawPrint(c, pr, L, time) {
+  if (pr.a <= .01) return;
+  c.save(); c.translate(L.px, L.py);
+  if (pr.clip) {
+    c.beginPath();
+    if (pr.clip.type === 'x') c.rect(pr.clip.x0 - 4, pr.clip.y0 - 4, (pr.clip.x1 - pr.clip.x0 + 8) * pr.clipP, pr.clip.y1 - pr.clip.y0 + 8);
+    else { c.moveTo(pr.clip.ax, pr.clip.ay); c.arc(pr.clip.ax, pr.clip.ay, RR(pr.clip.L + 6), pr.clip.a0, pr.clip.a0 + pr.clip.sw * pr.clipP); c.closePath(); }
+    c.clip();
+  }
+  const col = pr.fillOverride ? pr.fillOverride.replace(/[\d.]+\)$/, `${.85 * pr.a})`) : rgba(pr.col, .85 * pr.a);
+  poly(c, pr.pts); c.fillStyle = col; c.fill();
+  c.save(); c.translate(pr.cx, pr.cy); c.scale(.82, .82); c.translate(-pr.cx, -pr.cy); poly(c, pr.pts); c.fillStyle = `rgba(255,255,255,${.07 * pr.a})`; c.fill(); c.restore();
+  c.lineWidth = 1.2; c.strokeStyle = tint(pr.col, -.45, .6 * pr.a); c.lineJoin = 'round'; poly(c, pr.pts); c.stroke();
+  if (pr.glow > 0) { c.shadowColor = '#fff'; c.shadowBlur = 14; c.strokeStyle = `rgba(255,255,255,${pr.glow})`; c.lineWidth = 3; poly(c, pr.pts); c.stroke(); }
+  c.restore();
+  if (pr.dot && pr.age < 1.4) { c.save(); c.strokeStyle = `rgba(255,107,107,${1 - pr.age / 1.4})`; c.lineWidth = 2; c.beginPath(); c.arc(L.px + pr.cx, L.py + pr.cy, RR(4 + pr.age * 22), 0, TAU); c.stroke(); c.restore(); }
+  if (pr.num && pr.a > .6) {
+    c.save(); c.globalAlpha = 1; const x = L.px + pr.cx, y = L.py + pr.cy;
+    c.fillStyle = 'rgba(255,255,255,.92)'; c.beginPath(); c.arc(x, y, 11, 0, TAU); c.fill();
+    c.fillStyle = '#1b2036'; c.font = '900 14px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(pr.num, x, y + 1); c.restore();
+  }
+  if (pr.curved && pr.clipP >= .999) pill(c, T[lang].s.curved, L.px + pr.cx, L.py + pr.cy, { size: 12, stroke: rgba(pr.col, .9) });
+}
+function drawInkPad(c, L, glint) {
+  const x = L.padX - L.padW / 2, y = L.padTop, w = L.padW, h = L.padH;
+  c.save(); c.shadowColor = 'rgba(0,0,0,.45)'; c.shadowBlur = 10; c.shadowOffsetY = 4;
+  const g = c.createLinearGradient(0, y, 0, y + h); g.addColorStop(0, '#2A3150'); g.addColorStop(1, '#12162A');
+  c.fillStyle = g; c.beginPath(); c.roundRect(x, y, w, h, 12); c.fill(); c.restore();
+  c.strokeStyle = '#0A0C14'; c.lineWidth = 1.5; c.beginPath(); c.roundRect(x, y, w, h, 12); c.stroke();
+  const ig = c.createLinearGradient(x, y, x + w, y + h); ig.addColorStop(0, '#2F4290'); ig.addColorStop(1, '#1B2352');
+  c.fillStyle = ig; c.beginPath(); c.roundRect(x + 7, y + 6, w - 14, h - 12, 8); c.fill();
+  c.save(); c.beginPath(); c.roundRect(x + 7, y + 6, w - 14, h - 12, 8); c.clip();
+  c.fillStyle = 'rgba(255,255,255,.14)'; c.beginPath(); c.ellipse(x + w * .34, y + 8, w * .3, 7, -.08, 0, TAU); c.fill();
+  if (glint > 0) { c.fillStyle = `rgba(160,190,255,${.35 * glint})`; c.fillRect(x, y, w, h); }
+  c.restore();
+}
+function drawPaper(c, L) {
+  c.save(); c.shadowColor = 'rgba(0,0,0,.45)'; c.shadowBlur = 14; c.shadowOffsetY = 4;
+  c.fillStyle = PAPER; c.beginPath(); c.roundRect(L.px, L.py, L.pw, L.ph, 8); c.fill(); c.restore();
+  const g = c.createLinearGradient(L.px, L.py, L.px + L.pw, L.py + L.ph); g.addColorStop(0, 'rgba(255,255,255,.35)'); g.addColorStop(1, 'rgba(200,170,120,.18)');
+  c.fillStyle = g; c.beginPath(); c.roundRect(L.px, L.py, L.pw, L.ph, 8); c.fill();
+}
+function drawSeqShape(c, s, L) {
+  const q = L.q, k = s.kind, pa = L.px, pb = L.py;
+  const body = (alpha, x, y) => {
+    c.save(); c.globalAlpha *= alpha; c.translate(x, y);
+    if (s.sq) c.scale(1 + .08 * Math.abs(s.sq), 1 - .14 * Math.max(0, s.sq) + .08 * Math.max(0, -s.sq));
+    if (s.rot) { c.translate(0, -q / 2); c.rotate(s.rot); c.translate(0, q / 2); }
+    if (k === 'cube') drawCube(c, q, s.ghost); else if (k === 'ball') drawBall(c, q * .5, 0); else drawPiece(c, k, q);
+    c.restore();
+  };
+  const st = s.steps[Math.min(s.k, s.steps.length - 1)], hgt = Math.max(0, s.gy - s.y);
+  shadowE(c, s.x, s.gy + 2, q * .55, q * .1, .4 / (1 + hgt / 30));
+  if (s.ph === 'swap' || s.ph === 'roll') {
+    const ro = st.roll, sw = s.ph === 'swap' ? s.swap : 1;
+    if (ro.type === 'cyl') {
+      if (sw < 1) body(1 - sw, s.x, s.y);
+      c.save(); c.globalAlpha *= sw; c.translate(s.x, s.y); drawCylL(c, q, s.spin); c.restore();
+    } else {
+      if (sw < 1) body(1 - sw, s.x, s.y);
+      drawConeTop(c, pa + ro.ax, pb + ro.ay, s.ph === 'swap' ? ro.a0 : s.ang, ro.L, ro.rb, sw);
+    }
+  } else body(1, s.x, s.y);
+}
+function drawStamp(c, w, h, dt, time) {
+  const L = sLayout(w, h, S.top); M.L = L;
+  const q2 = M.phase === 'q2' || M.phase === 'r2';
+  if (M.seq && !M.seq.done && !q2) seqUpdate(M.seq, dt, L);
+  M.prints.forEach((p) => { if (p.on) { p.a = Math.min(1, p.a + dt / .18); p.age += dt; } });
+  if (M.dirty) { M.dirty = false; render(); }
+  if (M.phase === 'r1' && M.seqDone && !M.done1) { // glow: the visible three, then the hidden three
+    M.gt += dt; const stg = M.gt < 1.3 ? 1 : M.gt < 2.9 ? 2 : 3;
+    if (stg !== M.gstage) { M.gstage = stg; if (stg === 3) { M.done1 = true; (M.ok1 ? sfx.good : sfx.bad)(); showStage(); } render(); }
+    M.prints.forEach((p, i) => { p.glow = (stg === 1 && i < 3) || (stg === 2 && i >= 3) ? .55 + .45 * Math.sin(time * 9) : 0; });
+  }
+  drawPaper(c, L);
+  if (q2) { drawQ2(c, L); drawInkPad(c, L, 0); return; }
+  M.prints.forEach((p) => drawPrint(c, p, L, time));
+  const s = M.seq, glint = s && !s.done && s.ph === 'pad' ? Math.sin(clamp(s.t / D.pad, 0, 1) * Math.PI) : 0;
+  drawInkPad(c, L, glint);
+  if (s && !s.done) drawSeqShape(c, s, L);
+  else { // resting on the pad
+    const idle = s && s.done ? s : { kind: M.shape, steps: [{}], k: 0, x: L.padX, y: L.padY, gy: L.padY, rot: 0, sq: 0, ph: 'idle', ghost: false };
+    idle.x = L.padX; idle.y = idle.gy = L.padY; drawSeqShape(c, idle, L);
+  }
+}
+function drawQ2(c, L) {
+  const s2 = Math.min(L.pw * .26, L.ph * .3, 84), by = L.py + L.ph * .6, cx1 = L.px + L.pw * .3, cx2 = L.px + L.pw * .7;
+  shadowE(c, cx1, by + 3, s2 * .65, s2 * .1, .45); c.save(); c.translate(cx1 - s2 * .17, by); drawCube(c, s2); c.restore();
+  const pts = ragged(rectPath(cx2 - s2 / 2, by - s2, s2, s2), 71, 1.4);
+  poly(c, pts); c.fillStyle = rgba(CUBE.front, .85); c.fill(); c.strokeStyle = tint(CUBE.front, -.45, .6); c.lineWidth = 1.2; c.stroke();
+  if (M.rev2) {
+    pill2(c, T[lang].s.cubeLbl, cx1, by + 38, CUBE.top);
+    pill2(c, T[lang].s.squareLbl, cx2, by + 38, '#FFF6E6');
+  }
+}
+function startSeq(kind, ghost) {
+  const L = sLayout(CW || 343, CH || 480, S.top);
+  M.prints = []; M.count = 0; M.seqDone = false; M.shape = kind;
+  const sq = buildSeq(kind, L); sq.ghost = !!ghost; M.seq = sq; M.prints = sq.prints;
+}
+
+// =================================================================================================================
+// SECRET 1 · SHAPES AT HOME
+// =================================================================================================================
+const HOME = [
+  { id: 'can', row: 's', x: .56, solid: 'cyl', emo: '🥫' }, { id: 'candle', row: 's', x: .74, solid: 'cyl', emo: '🕯️' }, { id: 'box', row: 's', x: .91, solid: 'cuboid', emo: '📦' },
+  { id: 'ball', row: 't', x: .17, solid: 'ball', emo: '⚽' }, { id: 'die', row: 't', x: .39, solid: 'cube', emo: '🎲' }, { id: 'hat', row: 't', x: .61, solid: 'cone', emo: null }, { id: 'ice', row: 't', x: .83, solid: 'cone', emo: '🍦' },
+];
+const SOLID_COL = { cyl: COL.cyl, ball: COL.ball, cube: COL.cube, cuboid: COL.cube, cone: COL.cone };
+const SOLID_NAME = { cyl: 'cylinder', ball: 'ball', cube: 'cube', cuboid: 'cuboid', cone: 'cone' };
+function homeLayout(w, h) {
+  const es = clamp(w * .115, 34, 50), shelfY = h * .42, tableY = h * .8;
+  return { es, shelfY, tableY, items: HOME.map((it) => { const sy = it.row === 's' ? shelfY : tableY; return { ...it, px: w * it.x, py: sy - es * .55, sy }; }) };
+}
+function drawHat(c, cx, by, es) {
+  const hw = es * .46, hh = es * 1.05;
+  c.save(); c.lineJoin = 'round';
+  const g = c.createLinearGradient(cx - hw, 0, cx + hw, 0); g.addColorStop(0, tint(COL.cone, -.15)); g.addColorStop(.35, tint(COL.cone, .3)); g.addColorStop(1, tint(COL.cone, -.35));
+  c.fillStyle = g; c.strokeStyle = tint(COL.cone, -.55); c.lineWidth = 1.5;
+  c.beginPath(); c.moveTo(cx, by - hh); c.lineTo(cx - hw, by); c.lineTo(cx + hw, by); c.closePath(); c.fill(); c.stroke();
+  c.save(); c.beginPath(); c.moveTo(cx, by - hh); c.lineTo(cx - hw, by); c.lineTo(cx + hw, by); c.closePath(); c.clip();
+  c.strokeStyle = 'rgba(255,255,255,.7)'; c.lineWidth = es * .1;
+  for (let k = 0; k < 3; k++) { const y = by - hh * (.2 + k * .27); c.beginPath(); c.moveTo(cx - hw, y + es * .14); c.lineTo(cx + hw, y - es * .14); c.stroke(); }
+  c.restore();
+  c.fillStyle = COL.cyl; c.strokeStyle = tint(COL.cyl, -.5); c.beginPath(); c.arc(cx, by - hh, RR(es * .1), 0, TAU); c.fill(); c.stroke();
+  c.restore();
+}
+function drawHome(c, w, h, time) {
+  const L = homeLayout(w, h), t = T[lang];
+  const wg = c.createLinearGradient(0, 0, 0, h); wg.addColorStop(0, '#4A5F92'); wg.addColorStop(1, '#34466F'); c.fillStyle = wg; c.fillRect(0, 0, w, h);
+  c.fillStyle = 'rgba(255,255,255,.05)'; for (let x = 0; x < w; x += 34) c.fillRect(x, 0, 1.5, h);
+  // window
+  const wx = w * .06, wy = h * .07, ww = w * .32, wh = h * .26;
+  c.fillStyle = '#B07D45'; c.beginPath(); c.roundRect(wx - 6, wy - 6, ww + 12, wh + 12, 8); c.fill();
+  const sg = c.createLinearGradient(0, wy, 0, wy + wh); sg.addColorStop(0, '#8FC4F5'); sg.addColorStop(1, '#D3EBFF'); c.fillStyle = sg; c.fillRect(wx, wy, ww, wh);
+  const sun = c.createRadialGradient(wx + ww * .72, wy + wh * .3, 2, wx + ww * .72, wy + wh * .3, wh * .3); sun.addColorStop(0, 'rgba(255,240,170,1)'); sun.addColorStop(1, 'rgba(255,240,170,0)');
+  c.fillStyle = sun; c.fillRect(wx, wy, ww, wh);
+  c.fillStyle = '#D9A86C'; c.fillRect(wx + ww / 2 - 2.5, wy, 5, wh); c.fillRect(wx, wy + wh / 2 - 2.5, ww, 5);
+  c.fillStyle = '#D9A86C'; c.beginPath(); c.roundRect(wx - 10, wy + wh + 4, ww + 20, 8, 3); c.fill();
+  // shelf with brackets
+  const sx0 = w * .46, sx1 = w * .98, sg2 = c.createLinearGradient(0, L.shelfY, 0, L.shelfY + 9); sg2.addColorStop(0, '#D9A86C'); sg2.addColorStop(1, '#B07D45');
+  c.fillStyle = '#8A5E30'; for (const bx of [sx0 + 14, sx1 - 26]) { c.beginPath(); c.moveTo(bx, L.shelfY + 9); c.lineTo(bx + 14, L.shelfY + 9); c.lineTo(bx, L.shelfY + 28); c.closePath(); c.fill(); }
+  c.fillStyle = sg2; c.beginPath(); c.roundRect(sx0, L.shelfY, sx1 - sx0, 9, 3); c.fill();
+  // table
+  c.fillStyle = '#8A5E30'; c.fillRect(w * .1, L.tableY + 12, 9, h - L.tableY - 18); c.fillRect(w * .9 - 9, L.tableY + 12, 9, h - L.tableY - 18);
+  const tg = c.createLinearGradient(0, L.tableY, 0, L.tableY + 14); tg.addColorStop(0, '#D9A86C'); tg.addColorStop(1, '#B07D45');
+  c.fillStyle = tg; c.beginPath(); c.roundRect(w * .04, L.tableY, w * .92, 14, 5); c.fill();
+  c.strokeStyle = 'rgba(90,55,20,.5)'; c.lineWidth = 1.2; c.beginPath(); c.roundRect(w * .04, L.tableY, w * .92, 14, 5); c.stroke();
+  // objects
+  for (const it of L.items) {
+    const col = SOLID_COL[it.solid], sel = S.pick === it.id, found = S.found.has(it.id);
+    shadowE(c, it.px, it.sy + 1, L.es * .5, L.es * .08, .4);
+    c.save(); c.globalAlpha = 1; c.fillStyle = '#000';
+    if (it.emo) { c.font = `${L.es}px ${EMO}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(it.emo, it.px, it.py); }
+    else drawHat(c, it.px, it.sy, L.es);
+    c.restore();
+    if (sel) {
+      c.save(); c.shadowColor = col; c.shadowBlur = 14; c.strokeStyle = col; c.lineWidth = 3; c.beginPath(); c.roundRect(it.px - L.es * .62, it.py - L.es * .62, L.es * 1.24, L.es * 1.24, 14); c.stroke(); c.restore();
+      pill(c, `${t.items[it.id]}: ${t.names[SOLID_NAME[it.solid]]}`, it.px, it.py - L.es * .62 - 16, { size: 12, stroke: col });
+    } else if (found) {
+      c.save(); c.fillStyle = col; c.beginPath(); c.arc(it.px + L.es * .46, it.py - L.es * .46, 9, 0, TAU); c.fill();
+      c.fillStyle = '#10142a'; c.font = '900 12px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('✓', it.px + L.es * .46, it.py - L.es * .46 + 1); c.restore();
+    }
+  }
+}
+
+// =================================================================================================================
+// SECRET 2 · SLICE IT
+// =================================================================================================================
+const CHEESE = '#F6C85A';
+function knife(c, x1, y1, x2, y2) {
+  const ang = Math.atan2(y2 - y1, x2 - x1);
+  c.save(); c.lineCap = 'round'; c.strokeStyle = '#B7C2D9'; c.lineWidth = 4; c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke();
+  c.strokeStyle = 'rgba(255,255,255,.85)'; c.lineWidth = 1; c.beginPath(); c.moveTo(x1, y1 - 1.5); c.lineTo(x2, y2 - 1.5); c.stroke();
+  c.translate(x2, y2); c.rotate(ang); c.fillStyle = '#7A4F22'; c.strokeStyle = '#4C2F12'; c.lineWidth = 1.2; c.beginPath(); c.roundRect(0, -5.5, 30, 11, 5); c.fill(); c.stroke();
+  c.fillStyle = '#C9A24A'; c.fillRect(0, -6.5, 4, 13); c.restore();
+}
+function slicePiece(c, kind, cx, baseY, R0, Ht, h0, tA, hole) {
+  const cE = Math.cos(.42), sE = Math.sin(.42), Y = (hgt, z) => baseY - hgt * cE + z * sE;
+  const cut = (phi) => {
+    const cs = Math.cos(phi), sn = Math.sin(phi);
+    if (kind === 'cyl') { const x = R0 * cs; return [x, h0 + x * tA, R0 * sn]; }
+    const t = (Ht - h0) / (Ht + R0 * cs * tA); return [t * R0 * cs, Ht * (1 - t), t * R0 * sn];
+  };
+  const scr = (p) => [cx + p[0], Y(p[1], p[2])];
+  const PL = cut(Math.PI), PR = cut(0), N = 48, ring = Array.from({ length: N }, (_, i) => scr(cut(i / N * TAU)));
+  // ghost of the removed upper part, dashed
+  c.save(); c.setLineDash([4, 4]); c.strokeStyle = 'rgba(255,255,255,.4)'; c.lineWidth = 1.3; c.lineJoin = 'round'; c.beginPath();
+  if (kind === 'cyl') {
+    c.moveTo(...scr(PL)); c.lineTo(cx - R0, Y(Ht, 0)); c.moveTo(...scr(PR)); c.lineTo(cx + R0, Y(Ht, 0)); c.moveTo(cx + R0, Y(Ht, 0)); c.ellipse(cx, Y(Ht, 0), R0, R0 * sE, 0, 0, TAU);
+  } else { c.moveTo(...scr(PL)); c.lineTo(cx, Y(Ht, 0)); c.lineTo(...scr(PR)); }
+  c.stroke(); c.restore();
+  // lower piece: visible side
+  const path = () => {
+    c.beginPath(); c.moveTo(...scr(PL)); c.lineTo(cx - R0, baseY); c.ellipse(cx, baseY, R0, R0 * sE, 0, Math.PI, 0, true); c.lineTo(...scr(PR));
+    for (let i = 0; i <= 24; i++) c.lineTo(...scr(cut(i / 24 * Math.PI)));
+    c.closePath();
+  };
+  const g = c.createLinearGradient(cx - R0, 0, cx + R0, 0);
+  g.addColorStop(0, tint(CHEESE, -.15)); g.addColorStop(.3, tint(CHEESE, .32)); g.addColorStop(.65, CHEESE); g.addColorStop(1, tint(CHEESE, -.38));
+  c.fillStyle = g; path(); c.fill();
+  c.save(); path(); c.clip(); c.fillStyle = 'rgba(150,95,10,.38)';
+  for (const [fx, fy, r] of hole) { c.beginPath(); c.ellipse(cx + fx * R0, baseY - fy * Ht * cE + R0 * sE * .5, RR(r * R0 * .9), RR(r * R0 * .55), 0, 0, TAU); c.fill(); }
+  c.restore();
+  c.strokeStyle = tint(CHEESE, -.5); c.lineWidth = 1.5; c.lineJoin = 'round'; path(); c.stroke();
+  // cut face
+  const mx = ring.reduce((a, p) => a + p[0], 0) / N, my = ring.reduce((a, p) => a + p[1], 0) / N;
+  const fg = c.createRadialGradient(mx - 6, my - 4, 2, mx, my, R0); fg.addColorStop(0, '#FFF1BF'); fg.addColorStop(1, '#F6D26E');
+  c.fillStyle = fg; poly(c, ring); c.fill(); c.stroke();
+  c.save(); poly(c, ring); c.clip(); c.fillStyle = 'rgba(190,130,20,.35)';
+  for (const [dx, dy, r] of [[-.35, -.1, .09], [.3, .15, .07], [.05, .3, .05]]) { c.beginPath(); c.ellipse(mx + dx * R0, my + dy * R0 * sE * 1.4, RR(r * R0), RR(r * R0 * .7), 0, 0, TAU); c.fill(); }
+  c.restore();
+}
+// semi-axes (a along the slant, b across) of the cut face, from the maths of the section
+function cutAxes(kind, R0, Ht, h0, al) {
+  if (kind === 'cyl') return { a: R0 / Math.cos(al), b: R0 };
+  const tb = R0 / Ht, d = Ht - h0, s = Math.sin(al), co = Math.cos(al), A = s * s * tb * tb - co * co, B = 2 * d * s * tb * tb, C = d * d * tb * tb, fm = C - B * B / (4 * A);
+  return { a: Math.sqrt(fm / -A), b: Math.sqrt(fm) };
+}
+function drawSlice(c, w, h) {
+  const t = T[lang], al = S.angle * DEG, tA = Math.tan(al), R0 = Math.min(w * .17, h * .115), baseY = h * .5, cx1 = w * .25, cx2 = w * .7;
+  const wg = c.createLinearGradient(0, 0, 0, h); wg.addColorStop(0, '#3A4E7E'); wg.addColorStop(1, '#2A3D66'); c.fillStyle = wg; c.fillRect(0, 0, w, h);
+  const board = c.createLinearGradient(0, baseY - 6, 0, baseY + R0 * .7); board.addColorStop(0, '#D9A86C'); board.addColorStop(1, '#B07D45');
+  c.fillStyle = board; c.beginPath(); c.roundRect(10, baseY - 4, w - 20, R0 * .7 + 4, 12); c.fill();
+  const Hs = R0 * 2.2, Hk = R0 * 2.4, h0c = Hs * .55, h0k = Hk * .55;
+  const holes = [[-.45, .3, .14], [.35, .55, .11], [.1, .15, .1], [-.1, .75, .08]];
+  for (const [kind, cx, Ht, h0] of [['cyl', cx1, Hs, h0c], ['cone', cx2, Hk, h0k]]) {
+    shadowE(c, cx, baseY + R0 * .15, R0 * 1.15, R0 * .28, .45);
+    slicePiece(c, kind, cx, baseY, R0, Ht, h0, tA, holes);
+    const cE = Math.cos(.42), yl = baseY - (h0 - (R0 + 8) * tA) * cE, yr = baseY - (h0 + (R0 + 8) * tA) * cE;
+    knife(c, cx - R0 - 8, yl, cx + R0 + 8, yr);
+    // true shape of the cut
+    const { a, b } = cutAxes(kind, R0, Ht, h0, al), a0 = cutAxes(kind, R0, Ht, h0, 0).a, sc = 36 / a0, ty = h * .8;
+    c.save(); c.fillStyle = 'rgba(14,17,28,.55)'; c.beginPath(); c.roundRect(cx - w * .22, ty - 56, w * .44, 112, 16); c.fill(); c.restore();
+    const fg = c.createRadialGradient(cx - 8, ty - 6, 2, cx, ty, a * sc); fg.addColorStop(0, '#FFF1BF'); fg.addColorStop(1, '#F6D26E');
+    c.fillStyle = fg; c.strokeStyle = tint(CHEESE, -.5); c.lineWidth = 2; c.beginPath(); c.ellipse(cx, ty - 6, RR(a * sc), RR(b * sc), 0, 0, TAU); c.fill(); c.stroke();
+    pill(c, a / b < 1.015 ? t.sec.circle : t.sec.oval, cx, ty + 40, { size: 13, color: '#FFE08A' });
+  }
+}
+
+// --- the loop -------------------------------------------------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  CW = w; CH = h;
+  const v = lab.view, key = v === 'ramp' ? (S.sec || 'ramp') : v;
+  const tgt = S.askOn ? (askEl.offsetHeight || 130) + 12 : 10;
+  S.top += (tgt - S.top) * Math.min(1, dt * 10);
+  c.save(); c.beginPath(); c.roundRect(0, 0, w, h, 20); c.clip();
+  if (key === 'home') drawHome(c, w, h, time);
+  else if (key === 'slice') drawSlice(c, w, h);
+  else {
+    drawSky(c, w, h);
+    if (key === 'ramp') drawRamp(c, w, h, dt, time); else if (key === 'tower') drawTower(c, w, h, dt, time); else drawStamp(c, w, h, dt, time);
+  }
+  c.restore();
+});
+
+// --- input ----------------------------------------------------------------------------------------------------
+$('cv').addEventListener('pointerdown', (ev) => {
+  const r = $('cv').getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+  if (lab.view === 'ramp' && S.sec === 'home') {
+    const L = homeLayout(r.width, r.height); let best = null, bd = 1e9;
+    for (const it of L.items) { const d = Math.hypot(x - it.px, y - it.py); if (d < bd) { bd = d; best = it; } }
+    if (best && bd < L.es * .8) { S.pick = best.id; S.found.add(best.id); sfx.click(); if (S.found.size === HOME.length) sfx.good(); render(); }
+  } else if (lab.view === 'tower' && TW.phase === 'free' && TW.L && !TW.dropping) {
+    const i = trayRects(TW.L).findIndex((q) => x >= q.x && x <= q.x + q.s && y >= q.y && y <= q.y + q.s);
+    if (i >= 0 && !TW.tray[i].out) { TW.tray[i].out = true; dropPiece(TW.tray[i].kind, i); }
+  }
+});
+askEl.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  const v = lab.view;
+  if (b.dataset.o !== undefined) {
+    const i = +b.dataset.o;
+    if (v === 'ramp') {
+      if (R.phase !== 'ask') return;
+      R.ans = i; R.ok = RIGHT[KIND[R.i]].includes(i); R.phase = 'run'; R.t = 0; sfx.push();
+    } else if (v === 'tower') {
+      if (TW.phase !== 'ask') return;
+      TW.ans = i; TW.ok = i === 2; TW.phase = 'reveal'; TW.rstep = 0; TW.rt = 0; TW.rdone = false; sfx.push();
+    } else if (M.phase === 'q1') {
+      M.ans1 = i; M.ok1 = i === 2; M.phase = 'r1'; M.done1 = false; M.gt = 0; M.gstage = 0; startSeq('cube', true); sfx.push();
+    } else if (M.phase === 'q2') {
+      M.ans2 = i; M.ok2 = i === 1; M.phase = 'r2'; M.rev2 = true; (M.ok2 ? sfx.good : sfx.bad)(); showStage();
+    }
+  } else if (b.dataset.nx) {
+    sfx.click();
+    if (v === 'ramp') { R.i = (R.i + 1) % 5; rampReset(); }
+    else if (v === 'tower') { TW.phase = 'free'; towerReset(true); }
+    else if (M.phase === 'r1') { M.phase = 'q2'; M.prints = []; M.seq = null; M.rev2 = false; }
+    else if (M.phase === 'r2') { M.phase = 'free'; M.shape = 'cube'; M.prints = []; M.seq = null; M.count = 0; }
+  }
+  render();
+});
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b) return;
+  const act = b.dataset.act;
+  if (act === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    const k = b.dataset.k; S.sec = S.sec === k ? null : k;
+    if (k === 'slice' && S.sec) { S.angle = 0; S.seenFlat = true; S.seenSlant = false; $('angle').value = 0; }
+    sfx.click();
+  } else if (act === 'reset') { towerReset(true); sfx.click(); }
+  else if (act === 'shape') { startSeq(b.dataset.k, false); sfx.click(); }
+  render();
+});
+$('angle').addEventListener('input', (ev) => {
+  S.angle = +ev.target.value; if (S.angle <= 1) S.seenFlat = true; if (S.angle >= 20) S.seenSlant = true; render();
+});
+
+// --- one render per change: controls, panel, readout and the state card ----------------------------------------
+function render() {
+  const t = T[lang], v = lab.view, key = v === 'ramp' ? (S.sec || 'ramp') : v;
+  document.body.dataset.v = key;
+  $('secRamp').style.display = v === 'ramp' ? '' : 'none';
+  $('secTower').style.display = v === 'tower' && TW.phase === 'free' ? '' : 'none';
+  $('secStamp').style.display = v === 'stamp' && M.phase === 'free' ? '' : 'none';
+  $('slideBox').style.display = v === 'ramp' && S.sec === 'slice' ? '' : 'none';
+  if (v === 'ramp') renderRamp(t); else if (v === 'tower') renderTower(t); else renderStamp(t);
+  askEl.style.display = S.askOn ? '' : 'none';
+}
+const card = (t, k, full) => { const [emo, title, lead, body] = t.card[k][full ? 'f' : 'n']; return { emo, title, lead, body }; };
+
+function renderRamp(t) {
+  const open = secret.unlocked(), chip = (k, emo) => `<button class="chip secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  $('secChips').innerHTML = chip('home', '🏠') + chip('slice', '🔪');
+  if (S.sec === 'home') {
+    S.askOn = false; lab.setGlow('rgba(255, 201, 74, .2)');
+    const it = HOME.find((x) => x.id === S.pick), all = S.found.size === HOME.length;
+    lab.setReadout(`${S.found.size} / ${HOME.length}`, '', '', '#FFC94A');
+    lab.setState({ emo: '🏠', title: t.secrets.home[0], lead: t.secrets.home[1], body: all ? t.sec.homeText : it ? `${t.items[it.id]}: ${t.names[SOLID_NAME[it.solid]]}` : '', extra: '' });
+    return;
+  }
+  if (S.sec === 'slice') {
+    S.askOn = false; lab.setGlow('rgba(246, 200, 90, .2)');
+    $('angLbl').textContent = t.sec.angle; $('angVal').textContent = `${S.angle}°`; $('angle').setAttribute('aria-label', t.sec.angle);
+    lab.setReadout(`${S.angle}°`, t.sec.angle, S.angle <= 1 ? t.sec.circle : t.sec.oval, '#F6C85A');
+    lab.setState({ emo: '🔪', title: t.secrets.slice[0], lead: t.secrets.slice[1], body: S.seenFlat && S.seenSlant ? t.sec.sliceText : '', extra: '' });
+    return;
+  }
+  S.askOn = true; lab.setGlow('rgba(217, 168, 108, .24)');
+  const kind = KIND[R.i], done = R.phase === 'done', run = R.phase !== 'ask', two = RIGHT[kind].length === 2;
+  const verdict = done ? (R.ok ? `${t.right}${two ? ` ${t.r.both}` : ''}` : t.wrong) : run && !R.ok ? t.wrong : '';
+  askEl.innerHTML = panelHTML({ q: t.r.q(t.names[NAME_KEY[kind]]), opts: t.r.o, ans: R.ans, right: RIGHT[kind], done, verdict, vcol: R.ok ? 'var(--ok)' : 'var(--wip)', next: done });
+  lab.setReadout(`${R.i + 1} / 5`, t.names[NAME_KEY[kind]], done ? (R.ok ? t.right : t.wrong) : '', '#D9A86C');
+  const c0 = card(t, 'ramp', R.full);
+  lab.setState({ ...c0, body: done ? `${kind === 'coneL' ? `${t.r.cone} ` : ''}${t.r.why[NAME_KEY[kind]]}` : '', extra: `<div class="fine">${esc(t.fine)}</div>` });
+}
+function renderTower(t) {
+  const free = TW.phase === 'free', reveal = TW.phase === 'reveal';
+  S.askOn = !free; lab.setGlow('rgba(91, 141, 239, .24)');
+  $('resetBtn').textContent = t.t.reset;
+  if (!free) {
+    askEl.innerHTML = panelHTML({ q: t.t.q, opts: t.t.o, ans: TW.ans, right: [2], done: TW.rdone, verdict: TW.rdone ? (TW.ok ? t.right : t.wrong) : '', vcol: TW.ok ? 'var(--ok)' : 'var(--wip)', next: TW.rdone });
+    lab.setReadout('?', '', '', '#5B8DEF');
+    lab.setState({ ...card(t, 'tower', TW.rdone), body: TW.rdone ? t.t.r : '', extra: '' });
+    return;
+  }
+  lab.setReadout(esc(t.t.height(TW.stack.length)), t.t.best(TW.best), '', '#5B8DEF');
+  lab.setState({ ...card(t, 'tower', true), body: '', extra: '' });
+}
+function renderStamp(t) {
+  const ph = M.phase, free = ph === 'free';
+  S.askOn = !free; lab.setGlow('rgba(180, 140, 242, .24)');
+  const flatTxt = t.s.flat;
+  if (ph === 'q1' || ph === 'r1') {
+    const done = ph === 'r1' && M.done1;
+    askEl.innerHTML = panelHTML({ q: t.s.q1, opts: ['3', '4', '6'], ans: M.ans1, right: [2], done, verdict: done ? (M.ok1 ? t.right : t.wrong) : (ph === 'r1' && !M.ok1 ? t.wrong : ''), vcol: M.ok1 ? 'var(--ok)' : 'var(--wip)', next: done });
+    if (ph === 'q1') lab.setReadout('?', '', '', '#B48CF2'); else lab.setReadout(String(M.count), flatTxt, M.gstage === 2 ? t.s.hidden : '', '#B48CF2');
+    lab.setState({ ...card(t, 'stamp', false), body: done ? t.s.r1 : '', extra: '' });
+  } else if (ph === 'q2' || ph === 'r2') {
+    const done = ph === 'r2';
+    askEl.innerHTML = panelHTML({ q: t.s.q2, opts: t.s.o2, ans: M.ans2, right: [1], done, verdict: done ? (M.ok2 ? t.right : t.wrong) : '', vcol: M.ok2 ? 'var(--ok)' : 'var(--wip)', next: done });
+    lab.setReadout(done ? '6' : '?', done ? flatTxt : '', '', '#B48CF2');
+    lab.setState({ ...card(t, 'stamp', done), body: done ? t.s.r2 : '', extra: '' });
+  } else {
+    const k = M.shape, nm = t.names[{ cube: 'cube', cyl: 'cylinder', cone: 'cone', pyr: 'pyramid', ball: 'ball' }[k]];
+    const f = { cube: 6, cyl: 2, cone: 1, pyr: 5, ball: 0 }[k], cv = k === 'cyl' || k === 'cone' || k === 'ball';
+    $('shapeChips').innerHTML = ['cube', 'cyl', 'cone', 'pyr', 'ball'].map((x) => `<button class="chip ${x === k ? 'on' : ''}" data-act="shape" data-k="${x}">${esc(t.names[{ cube: 'cube', cyl: 'cylinder', cone: 'cone', pyr: 'pyramid', ball: 'ball' }[x]])}</button>`).join('');
+    lab.setReadout(`<span style="font:800 18px/1.3 var(--sans);letter-spacing:0">${esc(t.s.count(nm, f, cv))}</span>`, '', '', '#B48CF2');
+    lab.setState({ ...card(t, 'stamp', true), body: k === 'ball' && M.seq ? t.s.ball : '', extra: '' });
+  }
+}
+render();
+</script>
+</body>
+</html>

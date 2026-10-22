@@ -1,0 +1,801 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The Goat on a Rope · Skill Graph</title>
+<meta name="description" content="Tie a goat to a peg, find the radius and the diameter, and roll a wheel once round to discover the number 3.14. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  #stage canvas { border-radius: 20px; box-shadow: 0 0 0 1px var(--stroke); touch-action: auto; }
+  #stage { min-height: 540px; }
+  .ask { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); width: min(560px, calc(100% - 16px)); padding: 12px 14px; text-align: center; }
+  .ask .q { font: 500 21px/1.2 var(--serif); color: #fff; margin-bottom: 10px; text-wrap: balance; }
+  .ask .opts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .ob { padding: 9px 16px; min-height: 38px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 800; cursor: pointer; }
+  .ob:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .ob:disabled { cursor: default; }
+  .ob.ok { border-color: var(--ok); background: rgba(61, 220, 151, .18); }
+  .ob.no { border-color: var(--red); background: rgba(255, 59, 48, .16); }
+  .ob.dim { opacity: .45; }
+  .ask .verdict { font-weight: 900; margin: 10px 0 2px; }
+  .ask .verdict.good { color: var(--ok); }
+  .ask .verdict.warn { color: var(--wip); }
+  .ask p { margin: 0 0 8px; color: var(--soft); font-size: 13px; }
+  .ask .btn { padding: 9px 22px; min-height: 38px; }
+  .fine { font-size: 11px; color: var(--faint); }
+  .rrow { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px; }
+  .rrow span { color: var(--mut); font-size: 12.5px; font-weight: 700; }
+  .rrow b { font-size: 16px; }
+  .pt { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .pt th { text-align: left; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); padding: 2px 0 6px; }
+  .pt td { padding: 5px 0; border-top: 1px solid var(--stroke); }
+  .pt td:last-child, .pt th:last-child { text-align: right; font-weight: 900; }
+  @media (max-width: 760px) {
+    #stage { height: min(150vw, 640px); min-height: 0; }
+    body[data-v=wheel] #stage { height: min(124vw, 540px); }
+    .ask .q { font-size: 17px; }
+    .ask { padding: 10px 12px; }
+    .ob { padding: 8px 14px; font-size: 13px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'The Goat on a Rope', title: 'A goat, a peg and a rope',
+    lines: [['A goat', 'is tied to a peg.'], ['It walks', 'as far as the rope lets it.'], ['What shape', 'does it trample?']],
+    views: { goat: '🐐 Goat', parts: '📏 Radius or diameter?', wheel: '🛞 Wheel' },
+    next: 'Next ▶', right: 'You got it!', wrong: 'Not quite. Watch!', again: 'Again ↻',
+    g: { q1: 'The goat walks as far as the rope lets it, all the way round. What shape does it trample?', o1: ['a circle', 'a square', 'an oval'],
+         r1: 'Every point of the path is one rope-length from the peg. That is what a circle is.',
+         q2: 'The rope is 3 m. How wide is the trampled circle, from edge to edge through the peg?', o2: ['3 m', '6 m', '9 m'],
+         r2: 'The rope is the radius: 3 m. Across through the centre is two ropes: the diameter is 6 m.',
+         rope: 'rope length', radius: 'radius', diameter: 'diameter', m: 'm' },
+    p: { q: 'What is this line?', o: ['radius', 'diameter', 'neither'],
+         why: ['From the centre to the edge: a radius.', 'Edge to edge through the centre: a diameter.', 'Edge to edge, but it misses the centre: neither.', 'From the centre, but it doesn’t reach the edge: neither.', 'Through the centre, even at a slant: a diameter.', 'From the centre to the edge: a radius, in any direction.'],
+         sum: 'A diameter is always two radii: d = 2 × r.' },
+    w: { q: 'Roll the wheel once round, until the red dot touches the ground again. How far does it go?', o: ['about 1 diameter', 'about 2 diameters', 'a bit more than 3 diameters'],
+         r: 'Once round is a bit more than 3 diameters: about 3.14. This number is called π (pi).', ratio: 'round ÷ across', size: 'wheel size' },
+    items: ['coin', 'plate', 'hoop'],
+    secrets: { ripples: ['Ripples', 'Drop a stone into a pond.'], pi: ['Same number', 'Coin, plate or hoop?'] },
+    sec: { ripplesText: 'Every point on a ripple is the same distance from where the stone fell: ripples are circles.',
+           piText: 'Tiny coin or big hoop: the way round is always about 3.14 times the way across.' },
+    st: {
+      goat: { n: ['🐐', 'A goat on a rope', 'Where can the goat reach?', ''], f: ['🐐', 'Radius and diameter', 'Radius: from the centre to the edge. Diameter: across through the centre.', 'd = 2 × r'] },
+      parts: { n: ['📏', 'Line detective', 'Look where each line starts and ends.', ''], f: ['📏', 'Through the centre?', 'A diameter must pass through the centre.', 'A radius must reach the edge.'] },
+      wheel: { n: ['🛞', 'One full turn', 'Watch the red dot.', ''], f: ['🛞', 'π ≈ 3.14', 'Round = π × across, for every circle.', ''] },
+    },
+    fine: 'π = 3.14159… goes on forever without repeating; 3.14 is a good everyday value.',
+    quiz: [
+      { q: 'A radius is 4 cm. How long is the diameter?', opts: ['2 cm', '4 cm', '8 cm'], ok: 2 },
+      { q: 'Which line is a diameter?', opts: ['any line from edge to edge', 'an edge-to-edge line through the centre', 'a line from the centre'], ok: 1 },
+      { q: 'One turn of a wheel goes about…', opts: ['1 diameter', '2 diameters', '3.14 diameters'], ok: 2 } ],
+  },
+  ru: {
+    name: 'Коза на верёвке', title: 'Коза, колышек и верёвка',
+    lines: [['Коза', 'привязана к колышку.'], ['Она ходит', 'так далеко, как пускает верёвка.'], ['Какую фигуру', 'она вытопчет?']],
+    views: { goat: '🐐 Коза', parts: '📏 Радиус или диаметр?', wheel: '🛞 Колесо' },
+    next: 'Дальше ▶', right: 'Верно!', wrong: 'Не совсем. Смотри!', again: 'Ещё раз ↻',
+    g: { q1: 'Коза обходит колышек по кругу, натянув верёвку. Какую фигуру она вытопчет?', o1: ['круг', 'квадрат', 'овал'],
+         r1: 'Каждая точка тропинки — на расстоянии одной верёвки от колышка. Это и есть круг.',
+         q2: 'Верёвка — 3 м. Какой ширины вытоптанный круг от края до края через колышек?', o2: ['3 м', '6 м', '9 м'],
+         r2: 'Верёвка — это радиус: 3 м. Поперёк через центр — две верёвки: диаметр 6 м.',
+         rope: 'длина верёвки', radius: 'радиус', diameter: 'диаметр', m: 'м' },
+    p: { q: 'Что это за линия?', o: ['радиус', 'диаметр', 'ни то ни другое'],
+         why: ['От центра до края — радиус.', 'От края до края через центр — диаметр.', 'От края до края, но мимо центра — ни то ни другое.', 'От центра, но не доходит до края — ни то ни другое.', 'Через центр, пусть и наискосок, — диаметр.', 'От центра до края — радиус, в любую сторону.'],
+         sum: 'Диаметр всегда равен двум радиусам: d = 2 × r.' },
+    w: { q: 'Прокати колесо на один оборот, пока красная точка снова не коснётся земли. Какое расстояние оно проедет?', o: ['около 1 диаметра', 'около 2 диаметров', 'чуть больше 3 диаметров'],
+         r: 'Один оборот — чуть больше 3 диаметров, примерно 3,14. Это число называют π (пи).', ratio: 'вокруг ÷ поперёк', size: 'размер колеса' },
+    items: ['монета', 'тарелка', 'обруч'],
+    secrets: { ripples: ['Круги на воде', 'Брось камешек в пруд.'], pi: ['Одно и то же число', 'Монета, тарелка или обруч?'] },
+    sec: { ripplesText: 'Каждая точка волны — на одном расстоянии от места, куда упал камешек: волны — это круги.',
+           piText: 'Крошечная монета или большой обруч: вокруг всегда примерно в 3,14 раза длиннее, чем поперёк.' },
+    st: {
+      goat: { n: ['🐐', 'Коза на верёвке', 'Докуда может дойти коза?', ''], f: ['🐐', 'Радиус и диаметр', 'Радиус — от центра до края. Диаметр — поперёк через центр.', 'd = 2 × r'] },
+      parts: { n: ['📏', 'Линейный детектив', 'Смотри, где каждая линия начинается и кончается.', ''], f: ['📏', 'Через центр?', 'Диаметр обязательно проходит через центр.', 'Радиус обязательно доходит до края.'] },
+      wheel: { n: ['🛞', 'Один полный оборот', 'Следи за красной точкой.', ''], f: ['🛞', 'π ≈ 3,14', 'Длина окружности = π × диаметр — для любого круга.', ''] },
+    },
+    fine: 'π = 3,14159… — бесконечная непериодическая дробь; в жизни хватает 3,14.',
+    quiz: [
+      { q: 'Радиус — 4 см. Чему равен диаметр?', opts: ['2 см', '4 см', '8 см'], ok: 2 },
+      { q: 'Какая линия — диаметр?', opts: ['любая линия от края до края', 'линия от края до края через центр', 'линия от центра'], ok: 1 },
+      { q: 'За один оборот колесо проезжает примерно…', opts: ['1 диаметр', '2 диаметра', '3,14 диаметра'], ok: 2 } ],
+  },
+  hu: {
+    name: 'A kikötött kecske', title: 'Kecske, cövek, kötél',
+    lines: [['Egy kecske', 'ki van kötve egy cövekhez.'], ['Olyan messzire megy,', 'amennyire a kötél engedi.'], ['Milyen alakot', 'tapos ki?']],
+    views: { goat: '🐐 Kecske', parts: '📏 Sugár vagy átmérő?', wheel: '🛞 Kerék' },
+    next: 'Tovább ▶', right: 'Eltaláltad!', wrong: 'Nem egészen. Figyeld!', again: 'Még egyszer ↻',
+    g: { q1: 'A kecske kifeszített kötéllel körbejárja a cöveket. Milyen alakot tapos ki?', o1: ['kört', 'négyzetet', 'oválist'],
+         r1: 'Az ösvény minden pontja egy kötélnyire van a cövektől. Pontosan ez a kör.',
+         q2: 'A kötél 3 m. Milyen széles a kitaposott kör széltől szélig, a cöveken át?', o2: ['3 m', '6 m', '9 m'],
+         r2: 'A kötél a sugár: 3 m. A középponton át keresztben két kötél: az átmérő 6 m.',
+         rope: 'kötélhossz', radius: 'sugár', diameter: 'átmérő', m: 'm' },
+    p: { q: 'Mi ez a vonal?', o: ['sugár', 'átmérő', 'egyik sem'],
+         why: ['A középponttól a szélig: sugár.', 'Széltől szélig a középponton át: átmérő.', 'Széltől szélig, de elkerüli a középpontot: egyik sem.', 'A középponttól indul, de nem ér el a szélig: egyik sem.', 'A középponton át, akár ferdén is: átmérő.', 'A középponttól a szélig: sugár, bármerre is mutat.'],
+         sum: 'Az átmérő mindig két sugár: d = 2 × r.' },
+    w: { q: 'Gurítsd körbe egyszer a kereket, amíg a piros pötty újra a földhöz nem ér. Mekkora utat tesz meg?', o: ['kb. 1 átmérőnyit', 'kb. 2 átmérőnyit', 'kicsit több mint 3 átmérőnyit'],
+         r: 'Egy kör kicsit több mint 3 átmérő, kb. 3,14. Ezt a számot π-nek (pí) hívják.', ratio: 'körben ÷ keresztben', size: 'kerékméret' },
+    items: ['érme', 'tányér', 'karika'],
+    secrets: { ripples: ['Hullámkörök', 'Dobj egy kavicsot a tóba.'], pi: ['Ugyanaz a szám', 'Érme, tányér vagy karika?'] },
+    sec: { ripplesText: 'A hullám minden pontja ugyanolyan messze van attól a helytől, ahová a kavics esett: a hullámok körök.',
+           piText: 'Apró érme vagy nagy karika: körben mindig kb. 3,14-szer hosszabb, mint keresztben.' },
+    st: {
+      goat: { n: ['🐐', 'Kecske kötélen', 'Meddig ér el a kecske?', ''], f: ['🐐', 'Sugár és átmérő', 'Sugár: a középponttól a szélig. Átmérő: keresztben a középponton át.', 'd = 2 × r'] },
+      parts: { n: ['📏', 'Vonalnyomozó', 'Nézd meg, hol kezdődik és hol végződik a vonal.', ''], f: ['📏', 'A középponton át?', 'Az átmérőnek át kell mennie a középponton.', 'A sugárnak el kell érnie a szélét.'] },
+      wheel: { n: ['🛞', 'Egy teljes fordulat', 'Figyeld a piros pöttyöt.', ''], f: ['🛞', 'π ≈ 3,14', 'Kerület = π × átmérő, minden körre.', ''] },
+    },
+    fine: 'π = 3,14159… végtelen, nem ismétlődő tizedes tört; a hétköznapokban a 3,14 is elég.',
+    quiz: [
+      { q: 'A sugár 4 cm. Mekkora az átmérő?', opts: ['2 cm', '4 cm', '8 cm'], ok: 2 },
+      { q: 'Melyik vonal az átmérő?', opts: ['bármelyik vonal széltől szélig', 'a széltől szélig a középponton átmenő vonal', 'a középpontból induló vonal'], ok: 1 },
+      { q: 'A kerék egy fordulattal kb. ennyit tesz meg:', opts: ['1 átmérőt', '2 átmérőt', '3,14 átmérőt'], ok: 2 } ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_xq3YHZ2zeR', en: 'Parts of a circle', ru: 'Части окружности и круга', hu: 'A kör részei' },
+];
+
+// --- helpers -----------------------------------------------------------------------------------------------
+const TAU = Math.PI * 2;
+const COL = { rad: '#5B8DEF', dia: '#FF9F5A', non: '#9AA0B5', gold: '#FFC94A', trample: '#D9E58A', rope: '#A0703F', peg: '#8A5A2B', tyre: '#2E2E3A', red: '#FF5A5A' };
+const KCOL = [COL.rad, COL.dia, COL.non];
+const ease = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+const easeOut = (x) => 1 - (1 - clamp(x, 0, 1)) ** 3;
+const bounce = (x) => { // easeOutBounce
+  x = clamp(x, 0, 1);
+  if (x < 1 / 2.75) return 7.5625 * x * x;
+  if (x < 2 / 2.75) { x -= 1.5 / 2.75; return 7.5625 * x * x + 0.75; }
+  if (x < 2.5 / 2.75) { x -= 2.25 / 2.75; return 7.5625 * x * x + 0.9375; }
+  x -= 2.625 / 2.75; return 7.5625 * x * x + 0.984375;
+};
+const now = () => performance.now() / 1000;
+const dec = (s) => (lang === 'en' ? s : s.replace('.', ','));        // decimal comma in RU / HU
+const num = (x) => dec(String(Math.round(x * 10) / 10));
+const fix = (x, d) => dec(x.toFixed(d));
+const PI2 = () => fix(Math.PI, 2), LEFT = () => fix(Math.PI - 3, 2);
+const rng = (seed) => () => { seed |= 0; seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+let CW = 0, CH = 0; // canvas size of the current frame, for clamping labels
+
+// --- state -------------------------------------------------------------------------------------------------
+const S = {
+  sec: null, rip: [], lastVal: '',
+  g: { q: 1, ans: null, t0: 0, rdone: false, free: false, moved: false, rope: 3, rv: 3, a: 0, a0: 0, sweep: 0, phase: 0 },
+  p: { i: 0, ans: null, t0: 0, right: [], endAt: 0 },
+  w: { ans: null, t0: 0, rdone: false, free: false, sz: 0.8 },
+  pi: { idx: 0, t0: 0, done: [false, false, false] },
+};
+const lab = shell({ key: 'circle', T, topics: TOPICS, views: ['goat', 'parts', 'wheel'], onLang: render, onView: () => { S.sec = null; render(); } });
+const secret = secretLab('circle', () => ({
+  secrets: [{ emo: '💧', title: T[lang].secrets.ripples[0], desc: T[lang].secrets.ripples[1] }, { emo: '🍕', title: T[lang].secrets.pi[0], desc: T[lang].secrets.pi[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="goatCtl">
+    <div id="ropeBox" hidden>
+      <div class="rrow"><span id="ropeLbl"></span><b id="ropeVal"></b></div>
+      <input id="rope" class="big" type="range" min="1" max="5" step="0.5" value="3" style="--track: linear-gradient(90deg, #5DAA4E, #D9E58A)">
+      <div class="ends"><span id="ropeMin"></span><span id="ropeMax"></span></div>
+    </div>
+    <div class="row2" style="margin-top:0"><div class="chips" id="secChips"></div></div>
+  </div>
+  <div id="wheelCtl" hidden>
+    <div class="rrow"><span id="szLbl"></span></div>
+    <input id="wsize" class="big" type="range" min="0.35" max="1" step="0.05" value="0.8" style="--track: linear-gradient(90deg, #5B8DEF, #FF9F5A)">
+    <div class="ends"><span style="font-size:11px">🛞</span><span style="font-size:20px">🛞</span></div>
+  </div>`;
+const askEl = Object.assign(document.createElement('div'), { className: 'ask card' });
+$('overlay').append(askEl);
+
+// --- drawing helpers ---------------------------------------------------------------------------------------
+const R_ = rng(11);
+const TICKS = Array.from({ length: 38 }, () => ({ x: R_(), y: R_(), dx: (R_() - 0.5) * 4, l: 4 + R_() * 4 }));
+const FLOWERS = Array.from({ length: 7 }, () => ({ x: 0.06 + R_() * 0.88, y: 0.06 + R_() * 0.88 }));
+const SPARK = Array.from({ length: 26 }, () => ({ x: R_(), y: R_(), l: 8 + R_() * 14 }));
+
+function meadow(c, w, h) {
+  const g = c.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.hypot(w, h) / 2);
+  g.addColorStop(0, '#8FD16E'); g.addColorStop(1, '#5DAA4E');
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+  c.save(); c.strokeStyle = '#4C9544'; c.lineWidth = 1.6; c.lineCap = 'round'; c.beginPath();
+  for (const k of TICKS) {
+    const x = k.x * w, y = k.y * h;
+    c.moveTo(x, y); c.lineTo(x + k.dx, y - k.l);
+    c.moveTo(x + 3.5, y + 1); c.lineTo(x + 3.5 + k.dx * 0.6, y + 1 - k.l * 0.7);
+  }
+  c.stroke(); c.restore();
+  c.save(); c.globalAlpha = 1; c.fillStyle = '#fff'; c.font = '15px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  for (const f of FLOWERS) c.fillText('🌼', f.x * w, f.y * h);
+  c.restore();
+}
+// a text label on a dark pill, kept inside the canvas
+function pill(c, text, x, y, o = {}) {
+  c.save(); c.globalAlpha = o.alpha ?? 1; c.font = '800 13px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  const tw = c.measureText(text).width + 18, th = 24;
+  const bx = clamp(x - tw / 2, 6, Math.max(6, CW - tw - 6)), by = clamp(y - th / 2, 6, Math.max(6, CH - th - 6));
+  c.fillStyle = 'rgba(16,19,32,.82)'; c.beginPath(); c.roundRect(bx, by, tw, th, th / 2); c.fill();
+  if (o.bd) { c.lineWidth = 2; c.strokeStyle = o.bd; c.stroke(); }
+  c.fillStyle = '#fff'; c.fillText(text, bx + tw / 2, by + th / 2 + 1);
+  c.restore();
+}
+function seg(c, x1, y1, x2, y2, col, lw, o = {}) {
+  c.save(); c.globalAlpha = o.alpha ?? 1; c.lineCap = 'round';
+  if (o.under) { c.strokeStyle = 'rgba(20,24,36,.4)'; c.lineWidth = lw + 3.5; c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); }
+  if (o.glow) { c.shadowColor = col; c.shadowBlur = o.glow; }
+  if (o.dash) c.setLineDash(o.dash);
+  c.strokeStyle = col; c.lineWidth = lw; c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke();
+  c.restore();
+}
+// the trampled band: a 10 px stroke with soft edges
+function ring(c, cx, cy, r, a0, sweep) {
+  if (sweep <= 0.001) return;
+  c.save(); c.lineCap = 'round'; c.lineWidth = 10; c.strokeStyle = COL.trample; c.shadowColor = COL.trample; c.shadowBlur = 9;
+  c.beginPath();
+  if (sweep >= TAU - 0.001) c.arc(cx, cy, Math.max(0, r), 0, TAU); else c.arc(cx, cy, Math.max(0, r), a0, a0 + sweep);
+  c.stroke(); c.restore();
+}
+function peg(c, x, y, gold) {
+  c.save(); c.globalAlpha = 1;
+  c.fillStyle = 'rgba(30,50,20,.3)'; c.beginPath(); c.ellipse(x + 2, y + 3, 9.5, 7, 0, 0, TAU); c.fill();
+  const g = c.createRadialGradient(x - 2.5, y - 2.5, 1, x, y, 9);
+  g.addColorStop(0, '#B98650'); g.addColorStop(1, COL.peg);
+  c.fillStyle = g; c.beginPath(); c.arc(x, y, 8, 0, TAU); c.fill();
+  c.lineWidth = 1.5; c.strokeStyle = '#5E3A17'; c.stroke();
+  c.lineWidth = 2; c.strokeStyle = '#C9965B'; c.beginPath(); c.arc(x, y, 5.2, 0, TAU); c.stroke();
+  if (gold) { c.fillStyle = COL.gold; c.beginPath(); c.arc(x, y, 3.4, 0, TAU); c.fill(); c.fillStyle = '#FFF3C8'; c.beginPath(); c.arc(x - 1, y - 1, 1.1, 0, TAU); c.fill(); }
+  c.restore();
+}
+// a braided-looking rope with a knot every metre
+function rope(c, x1, y1, x2, y2, ppm, alpha = 1) {
+  c.save(); c.globalAlpha = alpha; c.lineCap = 'round';
+  c.strokeStyle = COL.rope; c.lineWidth = 2.5; c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke();
+  c.strokeStyle = '#6E4A24'; c.lineWidth = 1.2; c.setLineDash([2, 3.2]); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]);
+  const d = Math.hypot(x2 - x1, y2 - y1), ux = (x2 - x1) / (d || 1), uy = (y2 - y1) / (d || 1);
+  c.fillStyle = '#8A5A2B'; c.strokeStyle = '#4A2F14'; c.lineWidth = 1;
+  for (let k = 1; k * ppm < d - 6; k++) { c.beginPath(); c.arc(x1 + ux * k * ppm, y1 + uy * k * ppm, 2.6, 0, TAU); c.fill(); c.stroke(); }
+  c.restore();
+}
+// the goat: origin = the collar on the path, +x = the way she walks, +y = towards the peg
+function goat(c, x, y, heading, gs, phase, walking) {
+  c.save(); c.globalAlpha = 1; c.translate(x, y); c.rotate(heading); c.scale(gs, gs); c.lineJoin = 'round';
+  const wig = walking ? Math.sin(phase) : 0;
+  c.fillStyle = 'rgba(20,50,20,.28)'; c.beginPath(); c.ellipse(-8, 4, 21, 12, 0, 0, TAU); c.fill();
+  c.fillStyle = '#6F6F7C';                                  // hooves, moving in diagonal pairs
+  for (const [lx, ly, s] of [[-3, -10, 1], [-3, 10, -1], [-20, -10, -1], [-20, 10, 1]]) {
+    c.beginPath(); c.ellipse(lx + wig * 3.4 * s, ly, 4.4, 2.9, 0, 0, TAU); c.fill();
+  }
+  const body = c.createRadialGradient(-17, -5, 2, -12, 0, 22);
+  body.addColorStop(0, '#FFFFFF'); body.addColorStop(0.55, '#F7F3EA'); body.addColorStop(1, '#CFCAC0');
+  c.fillStyle = body; c.strokeStyle = '#B2ADA3'; c.lineWidth = 1;
+  c.beginPath(); c.ellipse(-31, 0, 4, 3, 0, 0, TAU); c.fill(); c.stroke();               // tail
+  c.beginPath(); c.ellipse(-12, 0, 19, 11, 0, 0, TAU); c.fill(); c.stroke();             // body
+  c.beginPath(); c.ellipse(0, 0, 8, 6.2, 0, 0, TAU); c.fill();                           // neck
+  c.fillStyle = '#E7E2D6'; c.beginPath(); c.ellipse(20.5, 0, 3.6, 2.4, 0, 0, TAU); c.fill(); c.stroke(); // beard tuft
+  for (const s of [-1, 1]) {                                                              // ears
+    c.save(); c.translate(5.5, s * 8.4); c.rotate(s * 0.55);
+    c.fillStyle = '#F7F3EA'; c.beginPath(); c.ellipse(0, 0, 5.6, 2.6, 0, 0, TAU); c.fill(); c.stroke();
+    c.fillStyle = '#F4B6BE'; c.beginPath(); c.ellipse(0.4, 0, 3.2, 1.2, 0, 0, TAU); c.fill(); c.restore();
+  }
+  const head = c.createRadialGradient(6, -3, 1, 9, 0, 11);
+  head.addColorStop(0, '#FFFFFF'); head.addColorStop(1, '#E3DED3');
+  c.fillStyle = head; c.beginPath(); c.ellipse(9, 0, 10, 7.6, 0, 0, TAU); c.fill(); c.stroke();
+  c.beginPath(); c.ellipse(16, 0, 5.6, 4.4, 0, 0, TAU); c.fill(); c.stroke();             // snout
+  c.lineCap = 'round';
+  for (const s of [-1, 1]) {                                                              // horns sweeping back
+    c.beginPath(); c.moveTo(7, s * 4.2); c.quadraticCurveTo(4, s * 11.5, -5, s * 9.5);
+    c.strokeStyle = '#6C6C76'; c.lineWidth = 4.2; c.stroke(); c.strokeStyle = '#8C8C96'; c.lineWidth = 2.6; c.stroke();
+  }
+  c.strokeStyle = COL.rope; c.lineWidth = 3; c.beginPath(); c.moveTo(-0.5, -6.3); c.lineTo(-0.5, 6.3); c.stroke(); // collar
+  c.fillStyle = '#C99A5B'; c.strokeStyle = '#6E4A24'; c.lineWidth = 1; c.beginPath(); c.arc(0, 0, 2.6, 0, TAU); c.fill(); c.stroke();
+  c.fillStyle = '#F4A6B0'; c.beginPath(); c.ellipse(20, 0, 2.5, 2.2, 0, 0, TAU); c.fill();   // nose
+  for (const s of [-1, 1]) {                                                              // eyes
+    c.fillStyle = '#2A2A33'; c.beginPath(); c.arc(12, s * 4.3, 1.9, 0, TAU); c.fill();
+    c.fillStyle = '#fff'; c.beginPath(); c.arc(11.4, s * 4.3 - 0.7, 0.7, 0, TAU); c.fill();
+  }
+  c.restore();
+}
+
+// the part of the canvas below the question card
+const askH = () => (askEl.hidden ? 0 : askEl.offsetHeight + 20);
+const area = (w, h) => { const y0 = askH() || 8; return { rw: w, y0, rh: Math.max(60, h - y0) }; };
+
+// --- view 1: the goat --------------------------------------------------------------------------------------
+const G = { cx: 0, cy: 0, ppm: 0, init: false };
+function sceneGoat(c, w, h, dt, time) {
+  const g = S.g, t = T[lang], gt = t.g, A = area(w, h);
+  const e = g.ans === null ? -1 : time - g.t0;
+  g.rv += (g.rope - g.rv) * Math.min(1, dt * 12);
+  const tp = Math.max(8, (Math.min(A.rw, A.rh) / 2 - 12) / (g.free ? 5.5 : 4.4)), tx = A.rw / 2, ty = A.y0 + A.rh / 2;
+  if (!G.init) { G.cx = tx; G.cy = ty; G.ppm = tp; G.init = true; }
+  const k = Math.min(1, dt * 7);
+  G.cx += (tx - G.cx) * k; G.cy += (ty - G.cy) * k; G.ppm += (tp - G.ppm) * k;
+  const { cx, cy, ppm } = G, Rp = g.rv * ppm;
+
+  let walking = false;
+  if (g.q === 1) {
+    if (g.ans === null) { g.a = 0; g.a0 = 0; g.sweep = 0; }
+    else { g.a = TAU * ease(e / 3); g.a0 = 0; g.sweep = g.a; walking = e < 3; }
+  } else if (g.moved) {
+    const wv = TAU / (2.2 + 0.4 * g.rope);
+    if (g.sweep < TAU) { g.a += wv * dt; g.sweep = Math.min(TAU, g.sweep + wv * dt); walking = true; } // one new lap, then she stops
+  } else { g.a = 0; g.a0 = 0; g.sweep = TAU; }
+  if (walking) g.phase += dt * 11;
+  if (!g.rdone && e >= (g.q === 1 ? 4.8 : 2.8)) { g.rdone = true; if (g.q === 2) g.free = true; render(); }
+
+  meadow(c, w, h);
+  ring(c, cx, cy, Rp, g.a0, g.sweep);
+  // scale: 1 m
+  seg(c, 20, h - 18, 20 + ppm, h - 18, '#fff', 3, { under: true });
+  seg(c, 20, h - 24, 20, h - 12, '#fff', 3, { under: true }); seg(c, 20 + ppm, h - 24, 20 + ppm, h - 12, '#fff', 3, { under: true });
+  pill(c, `1 ${gt.m}`, 20 + ppm + 28, h - 18);
+
+  const ca = Math.cos(g.a), sa = Math.sin(g.a), px = cx + ca * Rp, py = cy + sa * Rp;
+  const onRope = (ang, f, off) => [cx + Math.cos(ang) * Rp * f + Math.sin(ang) * off, cy + Math.sin(ang) * Rp * f - Math.cos(ang) * off];
+  // second rope on the opposite side (question 2 and free play)
+  const q2 = g.q === 2 && g.ans !== null;
+  const ghost = q2 ? (e < 0.9 ? ease(e / 0.9) : 1) : 0;
+  const light = q2 ? (e < 0.9 ? 0 : ease((e - 0.9) / 0.8)) * (1 - 0.7 * ease((e - 3.2) / 1)) : 0;
+  const gx = cx - ca * Rp * ghost, gy = cy - sa * Rp * ghost;
+  if (light > 0) { // the two ropes light up as one straight line
+    const pulse = 0.75 + 0.25 * Math.sin(time * 4);
+    seg(c, gx, gy, px, py, COL.dia, 10, { alpha: light * 0.55 * pulse, glow: 16 });
+  }
+  if (ghost > 0) rope(c, cx, cy, gx, gy, ppm, 0.62);
+  peg(c, cx, cy, false);
+  rope(c, cx, cy, px, py, ppm);
+  goat(c, px, py, g.a + Math.PI / 2, clamp(Rp / 80, 0.55, 0.82), g.phase, walking);
+
+  // Q1: the rope sweeps once more as a glowing line
+  let sweepAng = null;
+  if (g.q === 1 && e >= 3 && e < 4.8) {
+    sweepAng = TAU * ease((e - 3) / 1.8);
+    const fade = 1 - ease((e - 4.4) / 0.4);
+    c.save(); c.globalAlpha = 0.12 * fade; c.fillStyle = '#fff'; c.beginPath(); c.moveTo(cx, cy); c.arc(cx, cy, Math.max(0, Rp), 0, sweepAng); c.closePath(); c.fill(); c.restore();
+    seg(c, cx, cy, cx + Math.cos(sweepAng) * Rp, cy + Math.sin(sweepAng) * Rp, '#FFFBD0', 4, { alpha: fade, glow: 18 });
+  }
+  // labels
+  const ropeTag = g.q === 1 || (g.q === 2 && (g.ans === null || e < 1.7));
+  if (ropeTag) {
+    const [lx, ly] = sweepAng !== null ? onRope(sweepAng, 0.5, 18) : onRope(g.a, 0.5, 18);
+    pill(c, `${gt.rope} ${num(g.rope)} ${gt.m}`, lx, ly, { bd: COL.rope });
+  } else if (g.q === 2) {
+    const ra = g.free ? 1 : ease((e - 1.7) / 0.6), da = g.free ? 1 : ease((e - 2.0) / 0.6);
+    const rt = `${gt.radius} = ${num(g.rope)} ${gt.m}`;
+    const [l1x, l1y] = onRope(g.a, 0.5, 18);
+    pill(c, g.moved ? `r = ${num(g.rope)} ${gt.m}` : rt, l1x, l1y, { bd: COL.rad, alpha: ra });
+    if (!g.moved) { const [l2x, l2y] = onRope(g.a + Math.PI, 0.5, -18); pill(c, rt, l2x, l2y, { bd: COL.rad, alpha: ra }); }
+    // dimension line for the diameter, a little way off the ropes
+    const nx = sa, ny = -ca, off = 34;
+    const d1x = gx - nx * off, d1y = gy - ny * off, d2x = px - nx * off, d2y = py - ny * off;
+    seg(c, d1x, d1y, d2x, d2y, COL.dia, 3, { alpha: da, under: true });
+    for (const [qx, qy] of [[d1x, d1y], [d2x, d2y]]) seg(c, qx + nx * 6, qy + ny * 6, qx - nx * 6, qy - ny * 6, COL.dia, 3, { alpha: da, under: true });
+    pill(c, g.moved ? `d = ${num(2 * g.rope)} ${gt.m}` : `${gt.diameter} = ${num(2 * g.rope)} ${gt.m}`, (d1x + d2x) / 2, (d1y + d2y) / 2, { bd: COL.dia, alpha: da });
+  }
+}
+
+// --- view 2: radius or diameter? ---------------------------------------------------------------------------
+const rad = (deg) => (deg * Math.PI) / 180;
+const ROUNDS = [
+  { kind: 0, a: [0, 0], b: [Math.cos(rad(-35)), Math.sin(rad(-35))] },
+  { kind: 1, a: [-1, 0], b: [1, 0] },
+  { kind: 2, a: [-0.4, -0.9165], b: [-0.4, 0.9165], ghost: { kind: 1, a: [0, -1], b: [0, 1] } },
+  { kind: 2, a: [0, 0], b: [Math.cos(rad(140)) * 0.58, Math.sin(rad(140)) * 0.58], ghost: { kind: 0, a: [0, 0], b: [Math.cos(rad(140)), Math.sin(rad(140))] } },
+  { kind: 1, a: [Math.cos(rad(62)), Math.sin(rad(62))], b: [Math.cos(rad(242)), Math.sin(rad(242))] },
+  { kind: 0, a: [0, 0], b: [-Math.SQRT1_2, -Math.SQRT1_2] },
+];
+const PV = { cx: 0, cy: 0, init: false };
+function sceneParts(c, w, h, dt, time) {
+  const p = S.p, t = T[lang], A = area(w, h);
+  const R = Math.max(40, Math.min(190, Math.min(A.rw, A.rh) / 2 - 24)), tx = A.rw / 2, ty = A.y0 + A.rh / 2;
+  if (!PV.init) { PV.cx = tx; PV.cy = ty; PV.init = true; }
+  const k = Math.min(1, dt * 7); PV.cx += (tx - PV.cx) * k; PV.cy += (ty - PV.cy) * k;
+  const { cx, cy } = PV;
+  meadow(c, w, h);
+  const gd = c.createRadialGradient(cx - R * 0.3, cy - R * 0.3, R * 0.1, cx, cy, R);
+  gd.addColorStop(0, 'rgba(255,255,255,.16)'); gd.addColorStop(1, 'rgba(255,255,255,.03)');
+  c.save(); c.fillStyle = gd; c.beginPath(); c.arc(cx, cy, R, 0, TAU); c.fill(); c.restore();
+  ring(c, cx, cy, R, 0, TAU);
+  const P = (q) => [cx + q[0] * R, cy + q[1] * R];
+
+  if (p.i >= 6) { // summary: the diameter is two radii
+    const f = ease((time - p.endAt) / 0.7), ry = cy - R * 0.5;
+    seg(c, cx - R, cy, cx + R, cy, COL.dia, 7, { alpha: f, under: true });
+    for (const [x1, x2] of [[cx - R, cx], [cx, cx + R]]) {
+      seg(c, x1, ry, x2, ry, COL.rad, 6, { alpha: f, under: true });
+      pill(c, 'r', (x1 + x2) / 2, ry - 20, { alpha: f, bd: COL.rad });
+    }
+    for (const x of [cx - R, cx, cx + R]) seg(c, x, ry, x, cy, '#fff', 1.5, { alpha: f * 0.55, dash: [4, 4] });
+    pill(c, 'd', cx, cy + 24, { alpha: f, bd: COL.dia });
+    pill(c, 'd = 2 × r', cx, cy + R * 0.55, { alpha: f });
+    peg(c, cx, cy, true);
+    return;
+  }
+  const rd = ROUNDS[p.i], answered = p.ans !== null, e = answered ? time - p.t0 : 0;
+  if (answered && rd.ghost) { // the true radius or diameter, dashed, for comparison
+    const [x1, y1] = P(rd.ghost.a), [x2, y2] = P(rd.ghost.b);
+    seg(c, x1, y1, x2, y2, KCOL[rd.ghost.kind], 5, { alpha: ease(e / 0.4) * 0.9, dash: [9, 7] });
+  }
+  const [x1, y1] = P(rd.a), [x2, y2] = P(rd.b);
+  const col = answered ? KCOL[rd.kind] : '#F4F1E8';
+  const glow = answered ? 8 + 12 * (0.5 + 0.5 * Math.sin(e * 9)) * Math.max(0, 1 - e / 1.8) : 0;
+  seg(c, x1, y1, x2, y2, col, 7, { under: true, glow });
+  c.save(); c.globalAlpha = 1; c.lineWidth = 1.6; c.strokeStyle = '#1E2230'; c.fillStyle = '#fff';
+  for (const [qx, qy] of [[x1, y1], [x2, y2]]) {
+    if (Math.hypot(qx - cx, qy - cy) < 3) continue;
+    c.beginPath(); c.arc(qx, qy, 5.5, 0, TAU); c.fill(); c.stroke();
+  }
+  c.restore();
+  peg(c, cx, cy, true);
+  if (answered) {
+    const mx = (x1 + x2) / 2, my = (y1 + y2) / 2, len = Math.hypot(x2 - x1, y2 - y1) || 1;
+    let nx = -(y2 - y1) / len, ny = (x2 - x1) / len;
+    if (nx * (mx - cx) + ny * (my - cy) < 0 || (Math.abs(mx - cx) + Math.abs(my - cy) < 3 && ny > 0)) { nx = -nx; ny = -ny; }
+    pill(c, t.p.o[rd.kind], mx + nx * 22, my + ny * 22, { bd: col, alpha: ease((e - 0.2) / 0.4) });
+  }
+}
+
+// --- view 3: the wheel -------------------------------------------------------------------------------------
+const WT = { roll: 3.0, seg: 0.5, gap: 0.4, drop: 0.6, tail: 1.2 };
+WT.sticks = WT.roll + WT.seg + WT.gap;                  // the first stick drops here
+WT.total = WT.sticks + 3 * WT.drop + 0.5 + WT.tail;
+function wheelBody(c, x, y, R, th) {
+  c.save(); c.globalAlpha = 1;
+  c.fillStyle = 'rgba(0,0,0,.32)'; c.beginPath(); c.ellipse(x, y + R + 1, R * 0.85, Math.max(2, R * 0.07), 0, 0, TAU); c.fill();
+  const ty = c.createRadialGradient(x - R * 0.35, y - R * 0.35, R * 0.2, x, y, R);
+  ty.addColorStop(0, '#4D4D60'); ty.addColorStop(0.7, COL.tyre); ty.addColorStop(1, '#1D1D27');
+  c.fillStyle = ty; c.beginPath(); c.arc(x, y, R, 0, TAU); c.fill();
+  c.lineWidth = 1.5; c.strokeStyle = '#12121A'; c.stroke();
+  c.lineCap = 'round'; c.lineWidth = Math.max(1.6, R * 0.05); c.strokeStyle = '#4A4A5E';
+  c.beginPath();
+  for (let i = 0; i < 28; i++) { const a = th + (i * TAU) / 28; c.moveTo(x + Math.cos(a) * R * 0.86, y + Math.sin(a) * R * 0.86); c.lineTo(x + Math.cos(a) * R * 0.97, y + Math.sin(a) * R * 0.97); }
+  c.stroke();
+  const rim = c.createLinearGradient(x - R * 0.6, y - R * 0.6, x + R * 0.6, y + R * 0.6);
+  rim.addColorStop(0, '#E6E9F0'); rim.addColorStop(1, '#9AA3B5');
+  c.fillStyle = rim; c.beginPath(); c.arc(x, y, R * 0.68, 0, TAU); c.fill();
+  c.lineWidth = 1.2; c.strokeStyle = '#6F7A90'; c.stroke();
+  const well = c.createLinearGradient(x - R * 0.5, y - R * 0.5, x + R * 0.5, y + R * 0.5);
+  well.addColorStop(0, '#8E98AC'); well.addColorStop(1, '#D5DAE5');
+  c.fillStyle = well; c.beginPath(); c.arc(x, y, R * 0.57, 0, TAU); c.fill();
+  c.lineCap = 'round';
+  for (let i = 0; i < 8; i++) {                       // 8 spokes
+    const a = th + (i * TAU) / 8, ca = Math.cos(a), sa = Math.sin(a);
+    c.strokeStyle = '#6F7A90'; c.lineWidth = Math.max(2.4, R * 0.075); c.beginPath(); c.moveTo(x + ca * R * 0.16, y + sa * R * 0.16); c.lineTo(x + ca * R * 0.58, y + sa * R * 0.58); c.stroke();
+    c.strokeStyle = '#E6E9F0'; c.lineWidth = Math.max(1, R * 0.03); c.beginPath(); c.moveTo(x + ca * R * 0.16, y + sa * R * 0.16); c.lineTo(x + ca * R * 0.58, y + sa * R * 0.58); c.stroke();
+  }
+  const hub = c.createRadialGradient(x - R * 0.05, y - R * 0.05, 1, x, y, R * 0.19);
+  hub.addColorStop(0, '#F4F6FA'); hub.addColorStop(1, '#8E98AC');
+  c.fillStyle = hub; c.beginPath(); c.arc(x, y, R * 0.18, 0, TAU); c.fill(); c.lineWidth = 1; c.strokeStyle = '#5C667B'; c.stroke();
+  c.fillStyle = '#3A4256'; c.beginPath(); c.arc(x, y, R * 0.055, 0, TAU); c.fill();
+  // the red paint dot, on the tread: it starts at the ground and turns with the wheel
+  const dr = clamp(R * 0.1, 3.5, 7), fa = Math.PI / 2 + th, pr = R - dr;
+  c.fillStyle = COL.red; c.strokeStyle = '#B53636'; c.lineWidth = 1;
+  c.beginPath(); c.arc(x + Math.cos(fa) * pr, y + Math.sin(fa) * pr, dr, 0, TAU); c.fill(); c.stroke();
+  c.fillStyle = '#FFB1B1'; c.beginPath(); c.arc(x + Math.cos(fa) * pr - dr * 0.3, y + Math.sin(fa) * pr - dr * 0.3, dr * 0.3, 0, TAU); c.fill();
+  c.restore();
+}
+function stick(c, x, y, len, hgt, label) {
+  c.save(); c.globalAlpha = 1;
+  const g = c.createLinearGradient(0, y - hgt / 2, 0, y + hgt / 2);
+  g.addColorStop(0, '#FFC08E'); g.addColorStop(1, COL.dia);
+  c.fillStyle = g; c.strokeStyle = '#C96F2E'; c.lineWidth = 1.5;
+  c.beginPath(); c.roundRect(x + 0.75, y - hgt / 2, Math.max(2, len - 1.5), hgt, Math.min(5, len / 2)); c.fill(); c.stroke();
+  if (label) { c.fillStyle = '#4A2400'; c.font = '900 12px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(label, x + len / 2, y + 1); }
+  c.restore();
+}
+function sceneWheel(c, w, h, dt, time) {
+  const wh = S.w, t = T[lang], A = area(w, h);
+  const Rmax = clamp(Math.min((w - 28) / (TAU + 2.5), (A.rh - 132) / 2), 20, 100), R = Math.max(14, Rmax * wh.sz);
+  const e = wh.ans === null ? -1 : time - wh.t0;
+  if (!wh.rdone && e >= WT.total) { wh.rdone = true; wh.free = true; render(); }
+  const D = 2 * R, stickH = clamp(R * 0.3, 11, 18), plankH = 20;
+  const blockH = 2 * R + plankH + 16 + stickH + 18 + 52;
+  const yG = Math.max(A.y0 + 6, A.y0 + (A.rh - blockH) / 2) + 2 * R;       // ground line = top of the plank
+  const x0 = (w - (TAU + 2) * R) / 2 + R, xe = x0 + TAU * R, yL = yG + plankH + 16 + stickH / 2;
+  // soft sky
+  const sky = c.createLinearGradient(0, 0, 0, h); sky.addColorStop(0, '#2A365A'); sky.addColorStop(1, '#1B2239');
+  c.fillStyle = sky; c.fillRect(0, 0, w, h);
+  // the wooden ruler track
+  const wood = c.createLinearGradient(0, yG, 0, yG + plankH); wood.addColorStop(0, '#DDB87F'); wood.addColorStop(1, '#B38650');
+  c.fillStyle = wood; c.fillRect(-4, yG, w + 8, plankH);
+  c.fillStyle = 'rgba(255,255,255,.35)'; c.fillRect(-4, yG, w + 8, 1.5);
+  c.fillStyle = '#7A5530'; c.fillRect(-4, yG + plankH - 1, w + 8, 1);
+  c.strokeStyle = '#6B4A24'; c.lineWidth = 1; c.beginPath();
+  for (let i = 0, x = 6; x < w; i++, x += 12) { c.moveTo(x + 0.5, yG + 1.5); c.lineTo(x + 0.5, yG + (i % 5 === 0 ? 10 : 5.5)); }
+  c.stroke();
+  const mark = (x, a) => { c.save(); c.globalAlpha = a; c.fillStyle = COL.red; c.strokeStyle = '#B53636'; c.lineWidth = 1; c.beginPath(); c.roundRect(x - 2.5, yG, 5, 12, 2); c.fill(); c.stroke(); c.beginPath(); c.arc(x, yG + 1, 3.6, 0, TAU); c.fill(); c.stroke(); c.restore(); };
+  mark(x0, 1);
+
+  const th = e < 0 ? 0 : TAU * ease(e / WT.roll), xc = e < 0 ? x0 : x0 + R * th;
+  if (e >= WT.roll) {
+    mark(xe, ease((e - WT.roll) / 0.2));
+    const sp = ease((e - WT.roll) / WT.seg), gx = x0 + (xe - x0) * sp;     // the two marks joined
+    seg(c, x0, yG + 6, gx, yG + 6, COL.gold, 5, { glow: 10 });
+    const ga = ease((e - WT.roll - 0.1) / WT.seg);
+    c.save(); c.globalAlpha = ga * 0.8; c.setLineDash([4, 4]); c.strokeStyle = COL.gold; c.lineWidth = 1.5;
+    c.beginPath(); c.moveTo(x0, yG + plankH); c.lineTo(x0, yL + stickH / 2 + 6); c.moveTo(xe, yG + plankH); c.lineTo(xe, yL + stickH / 2 + 6); c.stroke(); c.restore();
+  }
+  // diameter sticks drop into the lane under the segment: 1, 2, 3 and a little leftover
+  const left = (Math.PI - 3) * D, drop = yL - (yG + 6);
+  for (let i = 0; i < 4; i++) {
+    const ti = e - (WT.sticks + i * WT.drop);
+    if (ti <= 0) continue;
+    const pr = clamp(ti / 0.5, 0, 1), dy = -(1 - bounce(pr)) * drop * 0.6 - (1 - ease(pr * 3)) * 6;
+    c.save(); c.globalAlpha = clamp(pr * 4, 0, 1);
+    if (i < 3) stick(c, x0 + i * D, yL + dy, D, stickH, String(i + 1)); else stick(c, x0 + 3 * D, yL + dy, left, stickH, '');
+    c.restore();
+  }
+  const tl = e - (WT.sticks + 3 * WT.drop + 0.4);
+  if (tl > 0) {
+    const a = ease(tl / 0.4), lx = x0 + 3 * D + left / 2, ly = yL + stickH / 2 + 18;
+    seg(c, lx, yL + stickH / 2 + 2, lx, ly - 12, '#fff', 1.5, { alpha: a * 0.7 });
+    pill(c, LEFT(), lx, ly, { alpha: a, bd: COL.dia });
+    pill(c, `3 + ${LEFT()} = ${PI2()}`, (x0 + xe) / 2, ly + 30, { alpha: ease((tl - 0.3) / 0.4) });
+  }
+  // the wheel itself, with its diameter drawn as an orange stick
+  wheelBody(c, xc, yG - R, R, th);
+  seg(c, xc - R, yG - R, xc + R, yG - R, COL.dia, 4, { under: true, alpha: 0.95 });
+  seg(c, xc - R, yG - R - 6, xc - R, yG - R + 6, COL.dia, 3, { under: true });
+  seg(c, xc + R, yG - R - 6, xc + R, yG - R + 6, COL.dia, 3, { under: true });
+}
+
+// --- secret 1: ripples on a pond ---------------------------------------------------------------------------
+function scenePond(c, w, h, time) {
+  const gt = T[lang].g;
+  const bg = c.createLinearGradient(0, 0, w, h); bg.addColorStop(0, '#3F7FBF'); bg.addColorStop(1, '#2A5E99');
+  c.fillStyle = bg; c.fillRect(0, 0, w, h);
+  c.save(); c.strokeStyle = 'rgba(255,255,255,.14)'; c.lineWidth = 1.5; c.lineCap = 'round'; c.beginPath();
+  for (const s of SPARK) { c.moveTo(s.x * w, s.y * h); c.lineTo(s.x * w + s.l, s.y * h); }
+  c.stroke(); c.restore();
+  const ppm = Math.min(w, h) / 8, speed = 1.05;
+  S.rip = S.rip.filter((r) => time - r.t0 < 4.6);
+  for (const r of S.rip) {
+    const age = time - r.t0, x = r.x * w, y = r.y * h;
+    if (age < 0.35) { c.save(); c.globalAlpha = 1 - age / 0.35; c.fillStyle = '#D4E3F5'; c.beginPath(); c.arc(x, y, Math.max(0, 5 * (1 - age / 0.35) + 1), 0, TAU); c.fill(); c.restore(); }
+    for (let k = 0; k < 4; k++) {
+      const ag = age - k * 0.34; if (ag <= 0) continue;
+      const al = Math.pow(Math.max(0, 1 - ag / 3.9), 1.4) * (1 - k * 0.18);
+      c.save(); c.strokeStyle = `rgba(255,255,255,${(al * 0.9).toFixed(3)})`; c.lineWidth = 3 - k * 0.5;
+      c.beginPath(); c.arc(x, y, Math.max(0, ag * speed * ppm), 0, TAU); c.stroke(); c.restore();
+    }
+    if (age > 0.25 && age < 3.9) {
+      const rm = age * speed, rp = rm * ppm;
+      pill(c, `${gt.radius} = ${fix(rm, 1)} ${gt.m}`, x + rp * 0.7, y - rp * 0.7, { alpha: clamp(Math.pow(1 - age / 3.9, 0.6), 0, 1) });
+    }
+  }
+  const last = S.rip[S.rip.length - 1], v = last ? Math.min(3.9, time - last.t0) * speed : 0;
+  const txt = `r = ${fix(v, 1)} ${gt.m}`;
+  if (txt !== S.lastVal) { S.lastVal = txt; lab.setReadout(txt, '', '', '#3F7FBF'); }
+}
+
+// --- secret 2: the same number for a coin, a plate and a hoop ----------------------------------------------
+const PI_UNITS = [1, 3, 8];
+function piItem(c, kind, cx, cy, R) {
+  c.save(); c.globalAlpha = 1;
+  c.fillStyle = 'rgba(20,50,20,.28)'; c.beginPath(); c.ellipse(cx + R * 0.05, cy + R * 0.12, R * 1.02, R * 0.98, 0, 0, TAU); c.fill();
+  if (kind === 0) {
+    const g = c.createRadialGradient(cx - R * 0.35, cy - R * 0.35, R * 0.1, cx, cy, R);
+    g.addColorStop(0, '#FFE69E'); g.addColorStop(0.6, COL.gold); g.addColorStop(1, '#C99422');
+    c.fillStyle = g; c.beginPath(); c.arc(cx, cy, R, 0, TAU); c.fill(); c.lineWidth = 2; c.strokeStyle = '#9A6F12'; c.stroke();
+    c.lineWidth = 1.5; c.strokeStyle = 'rgba(154,111,18,.6)'; c.beginPath(); c.arc(cx, cy, R * 0.78, 0, TAU); c.stroke();
+  } else if (kind === 1) {
+    const g = c.createRadialGradient(cx - R * 0.35, cy - R * 0.35, R * 0.1, cx, cy, R);
+    g.addColorStop(0, '#FFFFFF'); g.addColorStop(1, '#DDD7CA');
+    c.fillStyle = g; c.beginPath(); c.arc(cx, cy, R, 0, TAU); c.fill(); c.lineWidth = 1.5; c.strokeStyle = '#B2ADA3'; c.stroke();
+    c.lineWidth = R * 0.07; c.strokeStyle = COL.rad; c.beginPath(); c.arc(cx, cy, R * 0.86, 0, TAU); c.stroke();
+    c.lineWidth = 1.5; c.strokeStyle = '#C8C2B5'; c.beginPath(); c.arc(cx, cy, R * 0.6, 0, TAU); c.stroke();
+  } else {
+    const lw = R * 0.13;
+    c.lineWidth = lw + 3; c.strokeStyle = '#8C2B2B'; c.beginPath(); c.arc(cx, cy, R - lw / 2, 0, TAU); c.stroke();
+    c.lineWidth = lw; c.strokeStyle = COL.red; c.beginPath(); c.arc(cx, cy, R - lw / 2, 0, TAU); c.stroke();
+    c.lineWidth = lw * 0.28; c.strokeStyle = '#FFB1B1'; c.beginPath(); c.arc(cx, cy, R - lw / 2, rad(200), rad(260)); c.stroke();
+  }
+  c.restore();
+}
+function scenePi(c, w, h, time) {
+  const t = T[lang], pi = S.pi, idx = pi.idx;
+  let e = time - pi.t0;
+  if (e > 7.4) { pi.idx = (idx + 1) % 3; pi.t0 = time; e = 0; }
+  const i = pi.idx;
+  if (e > WT_PI.table && !pi.done[i]) { pi.done[i] = true; render(); }
+  meadow(c, w, h);
+  // sizes 1 : 3 : 8 at the top, the one on show is ringed
+  const u = 6, gap = 10, tot = u * 12 + gap * 2;
+  let sx = (w - tot) / 2;
+  pill(c, t.items[i], w / 2, 18, { bd: COL.gold });
+  for (let k = 0; k < 3; k++) {
+    const dd = u * PI_UNITS[k], cxk = sx + dd / 2;
+    c.save(); c.globalAlpha = k === i ? 1 : 0.55;
+    piItem(c, k, cxk, 58, dd / 2);
+    if (k === i) { c.strokeStyle = '#fff'; c.lineWidth = 1.5; c.beginPath(); c.arc(cxk, 58, dd / 2 + 4, 0, TAU); c.stroke(); }
+    c.restore();
+    sx += dd + gap;
+  }
+  const d = Math.max(60, Math.min((w - 48) / Math.PI, h - 92 - 170, 170)), R = d / 2, cx = w / 2, cy = 96 + R;
+  const xs = (w - Math.PI * d) / 2, yb = cy + R + 34, ys = yb + 28, sh = clamp(d * 0.15, 12, 18);
+  piItem(c, i, cx, cy, R);
+  // the string wraps the edge, then is pulled straight
+  const p = ease((e - 0.8) / 2.3), ra = R + (i === 2 ? 1.5 : 2);
+  const intro = ease(e / 0.5);
+  const a1 = -Math.PI / 2 + TAU * p;
+  if (p < 0.999) {
+    c.save(); c.globalAlpha = intro; c.lineCap = 'round';
+    c.strokeStyle = 'rgba(20,24,36,.45)'; c.lineWidth = 6; c.beginPath(); c.arc(cx, cy, Math.max(0, ra), a1, -Math.PI / 2 + TAU); c.stroke();
+    c.strokeStyle = '#F7F3EA'; c.lineWidth = 3.5; c.beginPath(); c.arc(cx, cy, Math.max(0, ra), a1, -Math.PI / 2 + TAU); c.stroke();
+    c.restore();
+  }
+  if (p > 0.001) {
+    const xe = xs + p * Math.PI * d;
+    seg(c, xs, yb, xe, yb, '#F7F3EA', 3.5, { under: true });
+    c.save(); c.fillStyle = '#fff'; c.strokeStyle = '#1E2230'; c.lineWidth = 1.5;
+    c.beginPath(); c.arc(xe, yb, 4.5, 0, TAU); c.fill(); c.stroke();
+    if (p < 0.999) { c.beginPath(); c.arc(cx + Math.cos(a1) * ra, cy + Math.sin(a1) * ra, 4.5, 0, TAU); c.fill(); c.stroke(); }
+    c.restore();
+  }
+  // three diameter sticks and a little leftover, laid next to the string
+  const left = (Math.PI - 3) * d;
+  for (let k = 0; k < 4; k++) {
+    const ti = e - (WT_PI.sticks + k * 0.55);
+    if (ti <= 0) continue;
+    const pr = clamp(ti / 0.5, 0, 1), dy = -(1 - bounce(pr)) * 26;
+    c.save(); c.globalAlpha = clamp(pr * 4, 0, 1);
+    if (k < 3) stick(c, xs + k * d, ys + dy, d, sh, String(k + 1)); else stick(c, xs + 3 * d, ys + dy, left, sh, '');
+    c.restore();
+  }
+  const tl = e - WT_PI.label;
+  if (tl > 0) {
+    const a = ease(tl / 0.4), lx = xs + 3 * d + left / 2, ly = ys + sh / 2 + 20;
+    seg(c, lx, ys + sh / 2 + 2, lx, ly - 12, '#fff', 1.5, { alpha: a * 0.7 });
+    pill(c, LEFT(), lx, ly, { alpha: a, bd: COL.dia });
+    pill(c, `3 + ${LEFT()} = ${PI2()}`, w / 2, ly + 30, { alpha: ease((tl - 0.3) / 0.4) });
+  }
+}
+const WT_PI = { sticks: 3.3, label: 5.3, table: 5.3 };
+
+// --- the loop ----------------------------------------------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  CW = w; CH = h;
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  const v = lab.view;
+  if (v === 'goat') {
+    if (S.sec === 'ripples') scenePond(c, w, h, time);
+    else if (S.sec === 'pi') scenePi(c, w, h, time);
+    else sceneGoat(c, w, h, dt, time);
+  } else if (v === 'parts') sceneParts(c, w, h, dt, time);
+  else sceneWheel(c, w, h, dt, time);
+});
+$('cv').addEventListener('pointerdown', (ev) => {
+  if (lab.view !== 'goat') return;
+  const r = $('cv').getBoundingClientRect();
+  if (S.sec === 'ripples') {
+    S.rip.push({ x: (ev.clientX - r.left) / r.width, y: (ev.clientY - r.top) / r.height, t0: now() });
+    if (S.rip.length > 4) S.rip.shift();
+    sfx.tick();
+  } else if (S.sec === 'pi') { S.pi.idx = (S.pi.idx + 1) % 3; S.pi.t0 = now(); sfx.click(); }
+});
+
+// --- questions and controls --------------------------------------------------------------------------------
+// on a phone the controls sit below the canvas: bring the reveal into view
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+function cardHTML(q, opts, ans, okIdx, showVerdict, text, btn) {
+  const t = T[lang];
+  const o = opts.map((l, i) => `<button class="ob ${ans === null ? '' : i === okIdx ? 'ok' : i === ans ? 'no' : 'dim'}" data-k="${i}"${ans === null ? '' : ' disabled'}>${esc(l)}</button>`).join('');
+  const v = showVerdict
+    ? `<div class="verdict ${ans === okIdx ? 'good' : 'warn'}">${esc(ans === okIdx ? t.right : t.wrong)}</div><p>${esc(text)}</p>${btn ? `<button class="btn" data-go="${btn[0]}">${esc(btn[1])}</button>` : ''}` : '';
+  return `<div class="q">${esc(q)}</div><div class="opts">${o}</div>${v}`;
+}
+askEl.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b || b.disabled) return;
+  const v = lab.view;
+  if (b.dataset.k !== undefined) {
+    const k = +b.dataset.k, o = v === 'goat' ? S.g : v === 'parts' ? S.p : S.w;
+    if (o.ans !== null) return;
+    const ok = v === 'goat' ? (S.g.q === 1 ? 0 : 1) : v === 'parts' ? ROUNDS[S.p.i].kind : 2;
+    o.ans = k; o.t0 = now(); o.rdone = false;
+    if (v === 'parts') S.p.right[S.p.i] = k === ok;
+    (k === ok ? sfx.good : sfx.bad)();
+    if (v !== 'parts') showStage();
+  } else if (b.dataset.go === 'next') {
+    sfx.click();
+    if (v === 'goat') Object.assign(S.g, { q: 2, ans: null, rdone: false, free: false, moved: false });
+    else { S.p.i++; S.p.ans = null; if (S.p.i >= 6) S.p.endAt = now(); }
+  } else if (b.dataset.go === 'again') {
+    sfx.click();
+    if (v === 'parts') S.p = { i: 0, ans: null, t0: 0, right: [], endAt: 0 };
+    else { S.w.t0 = now(); S.w.rdone = false; showStage(); }
+  }
+  render();
+});
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-sec]'); if (!b) return;
+  if (!secret.unlocked()) return secret.open();
+  const k = b.dataset.sec;
+  S.sec = S.sec === k ? null : k;
+  if (S.sec === 'ripples') { S.rip = [{ x: 0.5, y: 0.5, t0: now() }]; S.lastVal = ''; }
+  if (S.sec === 'pi') { S.pi.idx = 0; S.pi.t0 = now(); S.lastVal = ''; }
+  sfx.click(); showStage(); render();
+});
+$('ctrlBody').addEventListener('input', (ev) => {
+  if (ev.target.id === 'rope') { // the goat re-walks the new circle live
+    const g = S.g; g.rope = +ev.target.value; g.a0 = g.a; g.sweep = 0; g.moved = true; sfx.tick(); render();
+  } else if (ev.target.id === 'wsize') {  // the finished roll, redrawn at the new size
+    S.w.sz = +ev.target.value; S.w.t0 = now() - 100; S.w.rdone = true; sfx.tick(); render();
+  }
+});
+
+// --- one render per change: controls, readout and the state card -------------------------------------------
+const stateOf = (a) => ({ emo: a[0], title: a[1], lead: a[2], body: '', extra: a[3] ? esc(a[3]) : '' });
+function render() {
+  const t = T[lang], v = lab.view;
+  document.body.dataset.v = v;
+  $('goatCtl').hidden = v !== 'goat';
+  $('wheelCtl').hidden = v !== 'wheel' || !S.w.free;
+  askEl.hidden = v === 'goat' && S.sec !== null;
+  if (v === 'goat') renderGoat(t); else if (v === 'parts') renderParts(t); else renderWheel(t);
+}
+function renderGoat(t) {
+  const g = S.g, gt = t.g, open = secret.unlocked();
+  const sc = (k, emo) => `<button class="chip secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-sec="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  $('secChips').innerHTML = sc('ripples', '💧') + sc('pi', '🍕');
+  $('ropeBox').hidden = !g.free || S.sec !== null;
+  $('ropeLbl').textContent = gt.rope; $('ropeVal').textContent = `${num(g.rope)} ${gt.m}`;
+  $('ropeMin').textContent = `1 ${gt.m}`; $('ropeMax').textContent = `5 ${gt.m}`; $('rope').setAttribute('aria-label', gt.rope);
+  lab.setGlow('rgba(93, 170, 78, .26)');
+  if (S.sec === 'ripples') {
+    lab.setReadout(`r = ${fix(0, 1)} ${gt.m}`, '', '', '#3F7FBF'); S.lastVal = '';
+    lab.setState({ emo: '💧', title: t.secrets.ripples[0], lead: t.secrets.ripples[1], body: t.sec.ripplesText, extra: '' });
+    return;
+  }
+  if (S.sec === 'pi') {
+    lab.setReadout(`<span style="font-size:.55em;font-weight:800;color:var(--soft)">${esc(t.w.ratio)} =</span> ${PI2()}`, '', '', COL.gold);
+    const rows = t.items.map((n, i) => `<tr><td>${['🪙', '🍽️', '⭕'][i]} ${esc(n)}</td><td>${S.pi.done[i] ? PI2() : '…'}</td></tr>`).join('');
+    lab.setState({ emo: '🍕', title: t.secrets.pi[0], lead: t.secrets.pi[1], body: t.sec.piText,
+      extra: `<table class="pt"><tr><th></th><th>${esc(t.w.ratio)}</th></tr>${rows}</table><div class="fine" style="margin-top:10px">${esc(t.fine)}</div>` });
+    return;
+  }
+  const done = g.q === 2 && g.rdone;
+  askEl.innerHTML = cardHTML(gt['q' + g.q], gt['o' + g.q], g.ans, g.q === 1 ? 0 : 1, g.rdone, gt['r' + g.q], g.q === 1 ? ['next', t.next] : null);
+  lab.setReadout(done ? `r = ${num(g.rope)} ${gt.m} · d = ${num(2 * g.rope)} ${gt.m}` : `${num(g.rope)} ${gt.m}`, done ? '' : gt.rope, '', '#8FD16E');
+  lab.setState(stateOf(done ? t.st.goat.f : t.st.goat.n));
+}
+function renderParts(t) {
+  const p = S.p, k = p.right.filter(Boolean).length;
+  lab.setGlow('rgba(91, 141, 239, .26)');
+  const dots = [0, 1, 2, 3, 4, 5].map((i) => (i < p.i ? '●' : i === p.i ? '◉' : '○')).join(' ');
+  lab.setReadout(`${k}/6`, dots, '', COL.rad);
+  if (p.i >= 6) {
+    askEl.innerHTML = `<div class="verdict good" style="margin-top:0">${k}/6</div><p>${esc(t.p.sum)}</p><button class="btn" data-go="again">${esc(t.again)}</button>`;
+  } else {
+    const rd = ROUNDS[p.i];
+    askEl.innerHTML = cardHTML(t.p.q, t.p.o, p.ans, rd.kind, p.ans !== null, t.p.why[p.i], ['next', t.next]);
+  }
+  lab.setState(stateOf(p.ans !== null || p.i > 0 ? t.st.parts.f : t.st.parts.n));
+}
+function renderWheel(t) {
+  const w = S.w;
+  lab.setGlow('rgba(255, 159, 90, .24)');
+  $('szLbl').textContent = t.w.size; $('wsize').setAttribute('aria-label', t.w.size);
+  askEl.innerHTML = cardHTML(t.w.q, t.w.o, w.ans, 2, w.rdone, t.w.r, ['again', t.again]);
+  if (w.free) lab.setReadout(`<span style="font-size:.55em;font-weight:800;color:var(--soft)">${esc(t.w.ratio)} =</span> ${PI2()}`, '', '', COL.dia);
+  else lab.setReadout('?', '', '', COL.dia);
+  lab.setState(stateOf(w.free ? t.st.wheel.f : t.st.wheel.n));
+  $('stExtra').innerHTML = w.free ? `<div class="fine">${esc(t.fine)}</div>` : '';
+}
+render();
+</script>
+</body>
+</html>
