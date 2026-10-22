@@ -1,0 +1,764 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Beat and Rhythm · Skill Graph</title>
+<meta name="description" content="Find the steady drummer, fill a bar like a chocolate bar with whole, half and quarter notes, and hear a march and a waltz. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  @media (min-width: 1101px) {
+    .lab { grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); grid-template-areas: 'hero stage' 'state stage' 'state ctrl'; }
+  }
+  .q { font: 500 20px/1.2 var(--serif); color: #fff; margin: 0 0 10px; text-wrap: balance; }
+  .fine { font-size: 11px; color: var(--faint); }
+  .pick { padding: 9px 16px; min-height: 40px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 800; cursor: pointer; }
+  .pick:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .pick:disabled { opacity: .5; cursor: default; }
+  .pick.good { border-color: var(--ok); background: rgba(61, 220, 151, .18); opacity: 1; }
+  .pick.bad { border-color: var(--red); background: rgba(255, 59, 48, .16); opacity: 1; }
+  .verdict { font-weight: 900; margin: 12px 0 0; }
+  .btn:disabled { opacity: .35; cursor: default; }
+  .push { margin-left: auto; }
+  .tray { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; margin-top: 10px; }
+  .noteBtn { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 2px; padding: 5px 1px 4px; min-height: 68px;
+    border-radius: 14px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .08); cursor: pointer; color: var(--soft);
+    font-size: 10.5px; font-weight: 800; line-height: 1.15; text-align: center; overflow-wrap: anywhere; }
+  .noteBtn:hover { background: rgba(130, 145, 190, .2); }
+  .noteBtn canvas { width: 44px; height: 46px; display: block; flex: none; }
+  .lead2 { margin: 0; color: var(--soft); font-size: 13px; font-weight: 700; }
+  .tapbtn { width: 100%; justify-content: center; font-size: 22px; padding: 18px; margin-top: 12px; touch-action: manipulation; }
+  .tempo-cap { font-weight: 800; color: #fff; margin: 12px 0 0; }
+  @media (max-width: 760px) {
+    #stage { height: min(92vw, 380px); }
+    body[data-v=beat] #stage { height: min(100vw, 420px); }
+    body[data-v=metre] #stage { height: min(78vw, 330px); }
+    #ctrl { padding: 14px 12px 14px; }
+    .q { font-size: 18px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, store, $, esc, clamp, lerp, ruPlural, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Beat and Rhythm', title: 'Beat and rhythm',
+    lines: [['The beat', 'ticks evenly, like a heart.'], ['Rhythm', 'is long and short sounds on top.'], ['A bar', 'is a chocolate bar of beats.']],
+    views: { beat: '💓 Beat', bar: '🍫 Bar', metre: '💃 March or waltz' },
+    play: '▶ Play', stop: '⏹ Stop', next: 'Next ▶', right: 'Yes!', wrong: 'Listen and look again.',
+    notes: { whole: 'whole note', half: 'half note', quarter: 'quarter note', eighths: 'two eighth notes', rest: 'quarter rest' },
+    beats: (n) => `${n} ${n === 1 ? 'beat' : 'beats'}`, beatsWord: 'beats',
+    b: { play: '▶ Play both', q: 'Which drummer keeps a steady beat?', a: 'Drummer A', b: 'Drummer B',
+         why: 'A steady beat has equal gaps, tick after tick. The other drummer speeds up and slows down.', tap: 'Tap along with the heart', tapBtn: '👏 Tap',
+         score: (k, n) => `${k} of ${n} taps on the beat` },
+    r: { q: 'Will these notes fill exactly one bar?', yes: 'Exactly one bar', tooMany: 'Too many', tooFew: 'Too few', noFit: 'It doesn’t fit: not enough room left in the bar.',
+         clear: 'Clear', play: '▶ Play', free: 'Now build your own bars.', restCounts: 'A rest is silent, but it still takes up a beat.',
+         why: ['Two halves make a whole bar.', 'Half (2) + three quarters (3) = 5 beats: one too many.', 'Three quarters are 3 beats: one beat is missing.',
+               'A whole note lasts the whole bar.', 'Half (2) + two eighths (1) + quarter (1) = 4.', 'Quarter (1) + rest (1) + half (2) = 4. The rest counts.'] },
+    m: { q: 'March, waltz or four beats?', march: 'March (2)', waltz: 'Waltz (3)', four: 'Four (4)',
+         why: { march: 'A march goes STRONG–weak, STRONG–weak: left, right, left, right.', waltz: 'A waltz goes STRONG–weak–weak: one, two, three.',
+                four: 'Many songs count STRONG–weak–medium–weak: one, two, three, four.' } },
+    secrets: { compose: ['Compose', 'Write two bars and loop them.'], tempo: ['Tempo', 'Same rhythm, faster or slower.'] },
+    sec: { loop: '🔁 Loop', composeText: 'Each bar must add up to 4 beats. Try a rest on beat 1 for a surprise.',
+           tempo: (b) => `${b} beats per minute`, tempoText: 'Faster or slower, the rhythm keeps its shape: a half note is always twice as long as a quarter.' },
+    cards: {
+      beat: ['💓', 'A steady beat', 'Equal gaps, like a clock or a heartbeat.', 'You can clap, march or tap along to it.'],
+      bar: ['🍫', 'A bar of 4 beats', 'Whole = 4, half = 2, quarter = 1, two eighths = 1.', 'The notes in a bar must add up to 4. Rests count too.'],
+      metre: ['💃', 'Strong and weak', 'Beats come in groups. The first one in each group is strong.', 'Groups of 2: a march. Groups of 3: a waltz.'] },
+    fine: 'This lab uses 4/4 time for the bar. Note names: whole, half, quarter and eighth notes (UK: semibreve, minim, crotchet, quaver).',
+    quiz: [
+      { q: 'How many quarter notes last as long as one whole note?', opts: ['2', '4', '8'], ok: 1 },
+      { q: 'A rest in music means…', opts: ['the music is over', 'a silent beat that still counts', 'play louder'], ok: 1 },
+      { q: 'A waltz counts in…', opts: ['1, 2', '1, 2, 3', '1, 2, 3, 4'], ok: 1 } ],
+  },
+  ru: {
+    name: 'Пульс и ритм', title: 'Пульс и ритм',
+    lines: [['Пульс', 'стучит ровно, как сердце.'], ['Ритм —', 'долгие и короткие звуки поверх него.'], ['Такт —', 'плитка шоколада из долей.']],
+    views: { beat: '💓 Пульс', bar: '🍫 Такт', metre: '💃 Марш или вальс' },
+    play: '▶ Играть', stop: '⏹ Стоп', next: 'Дальше ▶', right: 'Да!', wrong: 'Послушай и посмотри ещё раз.',
+    notes: { whole: 'целая нота', half: 'половинная', quarter: 'четвертная', eighths: 'две восьмые', rest: 'четвертная пауза' },
+    beats: (n) => `${n} ${ruPlural(n, 'доля', 'доли', 'долей')}`, beatsWord: 'долей',
+    b: { play: '▶ Сыграть обоих', q: 'Кто из барабанщиков держит ровный пульс?', a: 'Барабанщик А', b: 'Барабанщик Б',
+         why: 'У ровного пульса одинаковые промежутки — удар за ударом. Второй барабанщик то ускоряется, то замедляется.', tap: 'Хлопай вместе с сердцем', tapBtn: '👏 Хлоп',
+         score: (k, n) => `В долю: ${k} из ${n}` },
+    r: { q: 'Заполнят ли эти ноты ровно один такт?', yes: 'Ровно один такт', tooMany: 'Слишком много', tooFew: 'Слишком мало', noFit: 'Не помещается: в такте не осталось места.',
+         clear: 'Очистить', play: '▶ Играть', free: 'Теперь собери свои такты.', restCounts: 'Пауза молчит, но тоже занимает долю.',
+         why: ['Две половинные — целый такт.', 'Половинная (2) + три четвертные (3) = 5 долей: на одну больше.', 'Три четвертные — 3 доли: одной не хватает.',
+               'Целая нота звучит весь такт.', 'Половинная (2) + две восьмые (1) + четвертная (1) = 4.', 'Четвертная (1) + пауза (1) + половинная (2) = 4. Пауза считается.'] },
+    m: { q: 'Марш, вальс или четыре доли?', march: 'Марш (2)', waltz: 'Вальс (3)', four: 'Четыре (4)',
+         why: { march: 'Марш идёт СИЛЬНАЯ–слабая, СИЛЬНАЯ–слабая: левой, правой.', waltz: 'Вальс идёт СИЛЬНАЯ–слабая–слабая: раз, два, три.',
+                four: 'Многие песни считают СИЛЬНАЯ–слабая–средняя–слабая: раз, два, три, четыре.' } },
+    secrets: { compose: ['Сочини', 'Напиши два такта и запусти их по кругу.'], tempo: ['Темп', 'Тот же ритм быстрее или медленнее.'] },
+    sec: { loop: '🔁 По кругу', composeText: 'В каждом такте должно быть 4 доли. Попробуй паузу на первой доле — будет сюрприз.',
+           tempo: (b) => `${b} ударов в минуту`, tempoText: 'Быстрее или медленнее — форма ритма не меняется: половинная всегда вдвое длиннее четвертной.' },
+    cards: {
+      beat: ['💓', 'Ровный пульс', 'Одинаковые промежутки, как у часов или сердца.', 'Под него можно хлопать, маршировать, стучать.'],
+      bar: ['🍫', 'Такт из 4 долей', 'Целая = 4, половинная = 2, четвертная = 1, две восьмые = 1.', 'Ноты в такте должны давать в сумме 4. Паузы тоже считаются.'],
+      metre: ['💃', 'Сильные и слабые', 'Доли собираются в группы. Первая в группе — сильная.', 'По 2 — марш. По 3 — вальс.'] },
+    fine: 'В лаборатории такт на 4/4. Длительности: целая, половинная, четвертная и восьмая.',
+    quiz: [
+      { q: 'Сколько четвертных нот звучат столько же, сколько одна целая?', opts: ['2', '4', '8'], ok: 1 },
+      { q: 'Пауза в музыке — это…', opts: ['конец музыки', 'тихая доля, которая всё равно считается', 'играть громче'], ok: 1 },
+      { q: 'Вальс считают…', opts: ['раз, два', 'раз, два, три', 'раз, два, три, четыре'], ok: 1 } ],
+  },
+  hu: {
+    name: 'Lüktetés és ritmus', title: 'Lüktetés és ritmus',
+    lines: [['Az egyenletes lüktetés', 'úgy ver, mint a szív.'], ['A ritmus', 'hosszú és rövid hangok fölötte.'], ['Az ütem', 'egy csokitábla a lüktetésekből.']],
+    views: { beat: '💓 Lüktetés', bar: '🍫 Ütem', metre: '💃 Induló vagy keringő' },
+    play: '▶ Lejátszás', stop: '⏹ Állj', next: 'Tovább ▶', right: 'Igen!', wrong: 'Hallgasd és nézd meg újra.',
+    notes: { whole: 'egész kotta', half: 'fél kotta', quarter: 'negyed kotta', eighths: 'két nyolcad', rest: 'negyed szünet' },
+    beats: (n) => `${n} lüktetés`, beatsWord: 'lüktetés',
+    b: { play: '▶ Mindkettő', q: 'Melyik dobos tartja egyenletesen a lüktetést?', a: 'A dobos', b: 'B dobos',
+         why: 'Az egyenletes lüktetésben a közök egyformák, ütés ütés után. A másik dobos hol gyorsít, hol lassít.', tap: 'Tapsolj a szívvel együtt', tapBtn: '👏 Taps',
+         score: (k, n) => `${n}-ből ${k} taps volt pontos` },
+    r: { q: 'Pontosan egy ütemet töltenek ki ezek a kották?', yes: 'Pontosan egy ütem', tooMany: 'Túl sok', tooFew: 'Túl kevés', noFit: 'Nem fér be: nincs elég hely az ütemben.',
+         clear: 'Törlés', play: '▶ Lejátszás', free: 'Most építs saját ütemeket.', restCounts: 'A szünet csendes, de az is elfoglal egy lüktetést.',
+         why: ['Két fél kotta egy egész ütem.', 'Fél (2) + három negyed (3) = 5: eggyel több.', 'Három negyed 3 lüktetés: egy hiányzik.',
+               'Az egész kotta az egész ütemen át szól.', 'Fél (2) + két nyolcad (1) + negyed (1) = 4.', 'Negyed (1) + szünet (1) + fél (2) = 4. A szünet is számít.'] },
+    m: { q: 'Induló, keringő vagy négyes?', march: 'Induló (2)', waltz: 'Keringő (3)', four: 'Négyes (4)',
+         why: { march: 'Az induló ERŐS–gyenge, ERŐS–gyenge: bal, jobb, bal, jobb.', waltz: 'A keringő ERŐS–gyenge–gyenge: egy, kettő, három.',
+                four: 'Sok dal így számol: ERŐS–gyenge–közepes–gyenge: egy, kettő, három, négy.' } },
+    secrets: { compose: ['Komponálj', 'Írj két ütemet, és játszd körbe.'], tempo: ['Tempó', 'Ugyanaz a ritmus gyorsabban vagy lassabban.'] },
+    sec: { loop: '🔁 Körbe', composeText: 'Minden ütemben 4 lüktetésnek kell lennie. Próbálj szünetet az első lüktetésre: meglepő lesz.',
+           tempo: (b) => `${b} ütés percenként`, tempoText: 'Gyorsabban vagy lassabban, a ritmus alakja marad: a fél kotta mindig kétszer olyan hosszú, mint a negyed.' },
+    cards: {
+      beat: ['💓', 'Egyenletes lüktetés', 'Egyforma közök, mint az órán vagy a szívverésben.', 'Tapsolhatsz, menetelhetsz, kopoghatsz rá.'],
+      bar: ['🍫', 'Egy 4 lüktetésből álló ütem', 'Egész = 4, fél = 2, negyed = 1, két nyolcad = 1.', 'Az ütemben a kották összege 4. A szünetek is számítanak.'],
+      metre: ['💃', 'Erős és gyenge', 'A lüktetések csoportokba rendeződnek. Minden csoport első tagja erős.', 'Kettesével: induló. Hármasával: keringő.'] },
+    fine: 'A labor 4/4-es ütemet használ. Kottaértékek: egész, fél, negyed és nyolcad.',
+    quiz: [
+      { q: 'Hány negyed kotta szól ugyanannyi ideig, mint egy egész kotta?', opts: ['2', '4', '8'], ok: 1 },
+      { q: 'A szünet a zenében…', opts: ['azt jelenti, hogy vége a zenének', 'egy csendes lüktetés, ami ugyanúgy számít', 'hangosabb játékot jelent'], ok: 1 },
+      { q: 'A keringőt így számoljuk:', opts: ['1, 2', '1, 2, 3', '1, 2, 3, 4'], ok: 1 } ],
+  },
+};
+const TOPICS = [
+  { id: 'sg_art_42', en: 'Keeping a Steady Beat', ru: 'Ровная пульсация', hu: 'Egyenletes lüktetés' },
+  { id: 'sg_art_43', en: 'Rhythm: Long and Short Sounds', ru: 'Ритм: длинные и короткие звуки', hu: 'Ritmus: hosszú és rövid hangok' },
+  { id: 'sg_art_58', en: 'Reading and Writing Rhythms', ru: 'Чтение и запись ритма', hu: 'Ritmusok olvasása és írása' },
+  { id: 'sg_art_45', en: 'Metre: Strong and Weak Beats', ru: 'Размер: сильные и слабые доли', hu: 'Ütem: erős és gyenge hangsúlyok' },
+];
+const LET = { en: ['A', 'B'], ru: ['А', 'Б'], hu: ['A', 'B'] }; // drummer letters on the canvas, matching the buttons
+
+// --- the music: note lengths, rounds, patterns -------------------------------------------------------------
+const BPM = 80, LEAD = 0.08;
+const NB = { whole: 4, half: 2, quarter: 1, eighths: 1, rest: 1 }; // beats per note
+const KINDS = ['whole', 'half', 'quarter', 'eighths', 'rest'];
+const COL = { whole: '#5fa8a0', half: '#e0b050', quarter: '#d9825f', eighths: '#8f7fd0', rest: '#98A0B8' };
+const RED = '#e5484d';
+const ROUNDS = [['half', 'half'], ['half', 'quarter', 'quarter', 'quarter'], ['quarter', 'quarter', 'quarter'], ['whole'],
+                ['half', 'eighths', 'quarter'], ['quarter', 'rest', 'half']];
+const TEMPO_BARS = [['half', 'quarter', 'quarter'], ['eighths', 'eighths', 'half']];
+const GS = new Array(7).fill(0.75), GD = [0.75, 0.6, 0.9, 0.55, 0.95, 0.62, 0.88]; // gaps in s: steady and drifting (both 5.25 s in all)
+const ACC = { march: [1, 0.25], waltz: [1, 0.25, 0.25], four: [1, 0.25, 0.6, 0.25] }; // click level of each beat in a group
+const M_ROUNDS = ['waltz', 'march', 'four', 'waltz'];
+const sum = (items) => items.reduce((n, k) => n + NB[k], 0);
+const times = (gaps) => gaps.reduce((a, g) => (a.push(a[a.length - 1] + g), a), [0]);
+
+// --- sound: our own small Web Audio helper; the context is made on the first tap ----------------------------
+const AU = { ctx: null, master: null };
+function actx() {
+  try {
+    if (!AU.ctx) {
+      AU.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      AU.master = AU.ctx.createGain(); AU.master.gain.value = 0.9; AU.master.connect(AU.ctx.destination);
+    }
+    if (AU.ctx.state === 'suspended') AU.ctx.resume();
+    return AU.ctx;
+  } catch { return null; }
+}
+addEventListener('pointerdown', () => actx(), { passive: true });
+const PL = { on: false, kind: null, ev: [], len: 0, bs: 0.75, loop: false, end: null, meta: null, t0: 0, base: null, i: 0, fx: {}, queued: false, nodes: [] };
+function osc(x, type, f, at, dur, vol, f0) {
+  const o = x.createOscillator(), g = x.createGain();
+  o.type = type; o.frequency.setValueAtTime(f0 ?? f, at);
+  if (f0) o.frequency.exponentialRampToValueAtTime(f, at + 0.02);
+  g.gain.setValueAtTime(0.0001, at); g.gain.linearRampToValueAtTime(vol, at + 0.004);
+  g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+  o.connect(g).connect(AU.master); o.start(at); o.stop(at + dur + 0.03); o._end = at + dur + 0.03;
+  return o;
+}
+// a woodblock click: level 0..1 is both louder and higher
+const wood = (x, at, lv) => { const f = 700 + 900 * lv, v = 0.1 + 0.4 * lv; return [osc(x, 'sine', f, at, 0.09, v, f * 1.25), osc(x, 'triangle', f * 2.3, at, 0.04, v * 0.3)]; };
+function note(x, at, dur, f = 330) { // a soft tone that lasts the note's length, with a tiny gap at the end
+  const d = Math.max(0.1, dur - 0.05), o = x.createOscillator(), g = x.createGain();
+  o.type = 'triangle'; o.frequency.value = f;
+  g.gain.setValueAtTime(0.0001, at); g.gain.linearRampToValueAtTime(0.22, at + 0.015);
+  g.gain.setValueAtTime(0.22, at + Math.max(0.02, d - 0.06)); g.gain.linearRampToValueAtTime(0.0001, at + d);
+  o.connect(g).connect(AU.master); o.start(at); o.stop(at + d + 0.02); o._end = at + d + 0.02;
+  return [o];
+}
+const kick = (x, at) => [osc(x, 'sine', 45, at, 0.22, 0.7, 130)];
+function schedule(base) {
+  const x = AU.ctx;
+  if (!x || base == null) return;
+  PL.nodes = PL.nodes.filter((n) => n._end > x.currentTime);
+  for (const e of PL.ev) {
+    const at = base + e.t;
+    PL.nodes.push(...(e.snd === 'note' ? note(x, at, e.dur) : e.snd === 'kick' ? kick(x, at) : wood(x, at, e.lv ?? 0.5)));
+  }
+}
+// events: [{t (s), snd: 'wood'|'note'|'kick', lv, dur, fx}]; fx names are what the picture reacts to
+function startPlay(kind, ev, len, o = {}) {
+  stopPlay();
+  const x = actx();
+  Object.assign(PL, { on: true, kind, ev, len, bs: o.bs ?? 60 / BPM, loop: !!o.loop, end: o.end ?? null, meta: o.meta ?? null,
+    t0: performance.now() + LEAD * 1000, base: x ? x.currentTime + LEAD : null, i: 0, fx: {}, queued: false });
+  schedule(PL.base);
+  render();
+}
+function stopPlay() {
+  for (const n of PL.nodes) { try { n.stop(); } catch { /* already over */ } }
+  Object.assign(PL, { on: false, kind: null, end: null, nodes: [], fx: {} });
+}
+// called every frame: fires picture events, queues the next loop, ends the play
+function pump() {
+  if (!PL.on) return;
+  const ms = performance.now();
+  let pos = (ms - PL.t0) / 1000;
+  if (PL.loop && !PL.queued && pos > PL.len - 0.3) { schedule(PL.base == null ? null : PL.base + PL.len); PL.queued = true; }
+  if (pos >= PL.len) {
+    if (PL.loop) { PL.t0 += PL.len * 1000; if (PL.base != null) PL.base += PL.len; PL.queued = false; PL.i = 0; pos -= PL.len; }
+    else if (pos >= PL.len + 0.15) { const cb = PL.end; stopPlay(); cb?.(); render(); return; }
+  }
+  while (PL.i < PL.ev.length && PL.ev[PL.i].t <= pos) { const e = PL.ev[PL.i++]; if (e.fx) PL.fx[e.fx] = { at: ms / 1000, e }; }
+}
+const nowS = () => performance.now() / 1000;
+const playPos = (...kinds) => (PL.on && kinds.includes(PL.kind) ? Math.max(-1, (performance.now() - PL.t0) / 1000) : -1);
+const fxAge = (k) => (PL.fx[k] ? nowS() - PL.fx[k].at : 9);
+
+// events for bars of notes: beat clicks all the way (rests stay silent but the clicks go on), a tone for every note
+function rhythmEvents(bars, bs, withKick) {
+  const ev = []; let off = 0;
+  bars.forEach((items, bi) => {
+    const L = Math.max(4, sum(items));
+    for (let j = 0; j < L; j++) {
+      if (withKick && j === 0) ev.push({ t: off * bs, snd: 'kick', fx: 'kick', bar: bi });
+      else ev.push({ t: (off + j) * bs, snd: 'wood', lv: j % 4 === 0 ? 0.8 : 0.35 });
+    }
+    let s = off;
+    for (const k of items) {
+      if (k === 'eighths') for (const d of [0, 0.5]) ev.push({ t: (s + d) * bs, snd: 'note', dur: 0.5 * bs });
+      else if (k !== 'rest') ev.push({ t: s * bs, snd: 'note', dur: NB[k] * bs });
+      s += NB[k];
+    }
+    off += L;
+  });
+  ev.sort((a, b) => a.t - b.t);
+  return { ev, len: off * bs };
+}
+
+// --- state -------------------------------------------------------------------------------------------------
+const S = { sec: null, bpm: 80 };
+const B = { steadyA: Math.random() < 0.5, played: false, answer: null, rt0: 0, mode: 'round', taps: [], epoch: 0, lastBeat: -1 };
+const R = { round: 0, answer: null, rev: null, bar: [], ghost: null, noFit: false };
+const C = { bars: [[], []], sel: 0, loop: false };
+const M = { round: 0, played: false, answer: null, rt0: 0, dx: 0 };
+const HIT = [];
+
+const lab = shell({ key: 'rhythm', T, topics: TOPICS, views: ['beat', 'bar', 'metre'], onLang: render, onView: () => { stopPlay(); R.ghost = null; render(); } });
+const secret = secretLab('rhythm', () => ({
+  secrets: [{ emo: '🎼', title: T[lang].secrets.compose[0], desc: T[lang].secrets.compose[1] }, { emo: '🐢', title: T[lang].secrets.tempo[0], desc: T[lang].secrets.tempo[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="vBeat">
+    <div id="bDyn"></div>
+    <div id="bTapBox"><button class="btn tapbtn" id="bTap"></button></div>
+  </div>
+  <div id="vBar">
+    <div id="rDyn"></div>
+    <div id="tempoBox"><div class="tempo-cap" id="tempoCap"></div><input class="big" type="range" id="tempoR" min="50" max="160" step="1" value="80"></div>
+    <div class="row2"><div class="chips" id="rChips"></div></div>
+  </div>
+  <div id="vMetre"><div id="mDyn"></div></div>`;
+
+// --- canvas helpers ----------------------------------------------------------------------------------------
+const EMO = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+const ease = (p) => p * p * (3 - 2 * p);
+const mix = (hex, k) => { const n = parseInt(hex.slice(1), 16), f = (v) => Math.round(v + (255 - v) * k); return `rgb(${f((n >> 16) & 255)},${f((n >> 8) & 255)},${f(n & 255)})`; };
+function emoji(c, ch, x, y, size, rot = 0) {
+  c.save(); c.globalAlpha = 1; c.fillStyle = '#fff'; c.font = `${size}px ${EMO}`; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.translate(x, y); if (rot) c.rotate(rot); c.fillText(ch, 0, 0); c.restore();
+}
+// geometry of one note + its chocolate block, from the block's top y and the width of one beat
+const ig = (cw, by) => { const u = clamp(cw * 0.26, 9, 20); return { cw, u, bh: clamp(cw * 0.62, 26, 46), by, hc: by - 8 - 0.5 * u }; };
+// a whole bar: ball zone, beat numbers, the band for note pictures, then the chocolate row
+function barGeom(x0, y0, cw) {
+  const g = ig(cw, 0), by = y0 + 16 + 18 + (3.2 * g.u + 10) + 4;
+  return { ...ig(cw, by), x0, y0, numY: y0 + 25, gy: y0 + 14, h: by + g.bh - y0 };
+}
+
+// note pictures drawn with paths (phones often lack the music symbols in their fonts)
+function drawSym(c, kind, cx, cy, u, span, col) {
+  c.save(); c.strokeStyle = col; c.fillStyle = col; c.lineCap = 'round'; c.lineJoin = 'round';
+  const head = (x, filled, big) => {
+    c.beginPath(); c.ellipse(x, cy, u * (big ? 0.8 : 0.62), u * (big ? 0.5 : 0.44), -0.35, 0, Math.PI * 2);
+    if (filled) c.fill(); else { c.lineWidth = u * (big ? 0.26 : 0.2); c.stroke(); }
+  };
+  const top = cy - 2.7 * u;
+  const stem = (x) => { c.lineWidth = Math.max(2, u * 0.14); c.beginPath(); c.moveTo(x + u * 0.56, cy - u * 0.1); c.lineTo(x + u * 0.56, top); c.stroke(); };
+  if (kind === 'whole') head(cx, false, true);
+  else if (kind === 'half') { head(cx, false); stem(cx); }
+  else if (kind === 'quarter') { head(cx, true); stem(cx); }
+  else if (kind === 'eighths') {
+    const x1 = cx - span / 4, x2 = cx + span / 4;
+    head(x1, true); head(x2, true); stem(x1); stem(x2);
+    c.lineWidth = u * 0.42; c.lineCap = 'butt'; c.beginPath(); c.moveTo(x1 + u * 0.56 - u * 0.07, top + u * 0.12); c.lineTo(x2 + u * 0.56 + u * 0.07, top + u * 0.12); c.stroke();
+  } else { // quarter rest: a zig-zag squiggle
+    c.lineWidth = Math.max(2, u * 0.26); c.beginPath();
+    c.moveTo(cx - u * 0.3, cy - 2.6 * u); c.lineTo(cx + u * 0.35, cy - 1.85 * u); c.lineTo(cx - u * 0.35, cy - 0.95 * u); c.lineTo(cx + u * 0.3, cy - 0.15 * u);
+    c.quadraticCurveTo(cx - u * 0.55, cy + 0.05 * u, cx - u * 0.25, cy + 0.65 * u); c.stroke();
+  }
+  c.restore();
+}
+// the chocolate: 4 / 2 / 1 / ½+½ squares; a rest is dashed and empty. lit: false | 'all' | segment index
+function drawBlock(c, g, kind, x, col, lit) {
+  const w = NB[kind] * g.cw, n = kind === 'whole' ? 4 : kind === 'half' || kind === 'eighths' ? 2 : 1, sw = w / n, y = g.by, h = g.bh;
+  c.save();
+  for (let i = 0; i < n; i++) {
+    const on = lit === 'all' || lit === i, m = g.m ?? 1.5, lx = x + i * sw + m, lw = sw - 2 * m;
+    c.beginPath(); c.roundRect(lx, y, lw, h, g.r ?? 6);
+    if (kind === 'rest') {
+      c.setLineDash([5, 4]); c.lineWidth = 1.5; c.strokeStyle = on ? '#fff' : col;
+      if (on) { c.fillStyle = 'rgba(255,255,255,.22)'; c.fill(); }
+      c.stroke();
+    } else {
+      c.fillStyle = on ? mix(col, 0.45) : col; c.fill(); c.lineWidth = on ? 2.5 : 1.5; c.strokeStyle = on ? '#fff' : '#15182a'; c.stroke();
+      if (lw > 14) { c.beginPath(); c.roundRect(lx + 4, y + 4, lw - 8, h - 8, 3); c.strokeStyle = 'rgba(255,255,255,.3)'; c.lineWidth = 1; c.stroke(); }
+    }
+  }
+  if (kind !== 'rest' && !g.noText) {
+    c.fillStyle = '#15182a'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.font = `900 ${Math.round(clamp(h * 0.4, 12, 17))}px Nunito, sans-serif`;
+    if (kind === 'eighths') for (let i = 0; i < 2; i++) c.fillText('½', x + (i + 0.5) * sw, y + h / 2 + 1);
+    else c.fillText(String(NB[kind]), x + w / 2, y + h / 2 + 1);
+  }
+  c.restore();
+}
+// one note: picture above, chocolate below. o: { lit, endX (past it the note is red), red, a }
+function drawItem(c, g, kind, x, o = {}) {
+  const w = NB[kind] * g.cw, cx = x + w / 2;
+  const paint = (red) => { drawBlock(c, g, kind, x, red ? RED : COL[kind], o.lit ?? false); drawSym(c, kind, cx, g.hc, g.u, w, red ? RED : '#EDEFF7'); };
+  c.save(); c.globalAlpha = o.a ?? 1;
+  if (o.red) paint(true);
+  else if (o.endX == null || x + w <= o.endX + 0.5) paint(false);
+  else {
+    c.save(); c.beginPath(); c.rect(-60, -60, o.endX + 60, 4000); c.clip(); paint(false); c.restore();
+    c.save(); c.beginPath(); c.rect(o.endX, -60, 4000, 4000); c.clip(); paint(true); c.restore();
+  }
+  c.restore();
+}
+// the empty bar: four dashed squares, bar lines, numbers 1 2 3 4 (the current one grows)
+function drawFrame(c, g, pos) {
+  c.save();
+  c.setLineDash([4, 4]); c.lineWidth = 1.5; c.strokeStyle = 'rgba(130,145,190,.45)';
+  for (let i = 0; i < 4; i++) { c.beginPath(); c.roundRect(g.x0 + i * g.cw + 1.5, g.by, g.cw - 3, g.bh, 6); c.stroke(); }
+  c.setLineDash([]); c.strokeStyle = 'rgba(237,239,247,.55)'; c.lineWidth = 2; c.beginPath();
+  for (const x of [g.x0 - 1, g.x0 + 4 * g.cw + 1]) { c.moveTo(x, g.numY + 10); c.lineTo(x, g.by + g.bh + 4); }
+  c.stroke();
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  for (let i = 0; i < 4; i++) {
+    const on = pos >= i && pos < i + 1;
+    c.font = `900 ${on ? 19 : 15}px Nunito, sans-serif`; c.fillStyle = on ? '#fff' : '#98A0B8';
+    c.fillText(String(i + 1), g.x0 + (i + 0.5) * g.cw, g.numY);
+  }
+  c.restore();
+}
+// playhead and the ball that touches the "ground" on every beat
+function drawHead(c, g, pos) {
+  if (pos < 0 || pos > 8) return;
+  const x = g.x0 + pos * g.cw, f = pos % 1;
+  c.save(); c.strokeStyle = '#fff'; c.lineWidth = 2.5; c.globalAlpha = 0.85;
+  c.beginPath(); c.moveTo(x, g.numY + 11); c.lineTo(x, g.by + g.bh + 5); c.stroke();
+  c.globalAlpha = 1; c.fillStyle = '#ff6b5e'; c.beginPath(); c.arc(x, g.gy - 5 - 12 * Math.sin(Math.PI * f), 5, 0, Math.PI * 2); c.fill();
+  c.restore();
+}
+const litOf = (kind, s, pos) => (pos < s || pos >= s + NB[kind] ? false : kind === 'eighths' ? (pos - s < 0.5 ? 0 : 1) : 'all');
+// a note that does not fit: slides in from the right, sticks out in red, slides back out
+function drawGhost(c, g, gh, used) {
+  const p = (nowS() - gh.t0) / 0.95;
+  if (p >= 1) { R.ghost = null; return; }
+  let off, a = 1;
+  if (p < 0.35) off = (1 - ease(p / 0.35)) * 3.2 * g.cw;
+  else if (p < 0.55) off = Math.sin((p - 0.35) * 60) * 2;
+  else { const q = (p - 0.55) / 0.45; off = ease(q) * 3.5 * g.cw; a = 1 - q * 0.6; }
+  drawItem(c, g, gh.kind, g.x0 + used * g.cw + off, { red: true, a });
+}
+
+// --- drawing: one canvas, four scenes ------------------------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt) => {
+  pump();
+  const v = lab.view;
+  if (v === 'beat') drawBeat(c, w, h);
+  else if (v === 'bar') drawBar(c, w, h);
+  else drawMetre(c, w, h, dt);
+});
+
+// view 1: two drummers; after the answer their hits become dots on a timeline
+function drawBeat(c, w, h) {
+  if (B.mode === 'tap') return drawTap(c, w, h);
+  const t = nowS(), rt = B.answer ? t - B.rt0 : 0, rv = B.answer ? ease(clamp(rt / 0.6, 0, 1)) : 0;
+  const hz = clamp(h * 0.36, 110, 150), cy = lerp(h * 0.46, hz * 0.5, rv), sc = lerp(1.3, 1, rv), L = LET[lang];
+  const steadyW = B.steadyA ? 'A' : 'B';
+  const pp = playPos('beat'), active = pp < 0 ? null : pp < (PL.meta?.off ?? 0) - 0.4 ? 'A' : 'B';
+  ['A', 'B'].forEach((who, i) => {
+    const cx = w * (i ? 0.75 : 0.25), fl = clamp(1 - fxAge(who) / 0.22, 0, 1);
+    if (active === who) { c.save(); c.fillStyle = 'rgba(255,255,255,.07)'; c.beginPath(); c.arc(cx, cy + 4 * sc, 66 * sc, 0, Math.PI * 2); c.fill(); c.restore(); }
+    emoji(c, '🧒', cx, cy - 36 * sc, 40 * sc);
+    if (fl > 0) { c.save(); c.globalAlpha = fl * 0.8; c.strokeStyle = '#ffb3a8'; c.lineWidth = 3; c.beginPath(); c.arc(cx, cy + 16 * sc, (30 + (1 - fl) * 26) * sc, 0, Math.PI * 2); c.stroke(); c.restore(); }
+    emoji(c, '🥁', cx, cy + 16 * sc, (46 + 18 * fl) * sc);
+    c.save(); c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillStyle = active === who ? '#fff' : 'rgba(130,145,190,.25)'; c.beginPath(); c.arc(cx, cy + 58 * sc, 14, 0, Math.PI * 2); c.fill();
+    c.fillStyle = active === who ? '#15182a' : '#EDEFF7'; c.font = '900 17px Nunito, sans-serif'; c.fillText(L[i], cx, cy + 59 * sc);
+    c.restore();
+  });
+  if (rv <= 0) return;
+  const rows = [['A', B.steadyA ? GS : GD, hz + (h - hz) * 0.27], ['B', B.steadyA ? GD : GS, hz + (h - hz) * 0.73]];
+  c.save(); c.globalAlpha = rv; c.textAlign = 'center'; c.textBaseline = 'middle';
+  rows.forEach(([who, gaps, y], ri) => {
+    const ts = times(gaps), steady = who === steadyW, left = 46, right = 20, sx = (w - left - right) / ts[7], X = (k) => left + ts[k] * sx;
+    c.fillStyle = 'rgba(130,145,190,.2)'; c.beginPath(); c.arc(22, y, 13, 0, Math.PI * 2); c.fill();
+    c.fillStyle = '#EDEFF7'; c.font = '900 15px Nunito, sans-serif'; c.fillText(L[ri], 22, y + 1);
+    c.strokeStyle = 'rgba(130,145,190,.28)'; c.lineWidth = 1; c.beginPath(); c.moveTo(left - 6, y); c.lineTo(w - right + 6, y); c.stroke();
+    const shown = rt < 0.2 ? 0 : Math.min(8, Math.floor((rt - 0.2) / 0.16) + 1), col = steady ? '#3ddc97' : '#ff5a52';
+    for (let k = 0; k < shown - 1; k++) {
+      const a = X(k) + 2, b = X(k + 1) - 2;
+      c.strokeStyle = col; c.lineWidth = 2; c.beginPath(); c.moveTo(a, y + 10); c.lineTo(a, y + 16); c.lineTo(b, y + 16); c.lineTo(b, y + 10); c.stroke();
+      c.fillStyle = col; c.font = '800 12px Nunito, sans-serif'; c.fillText(gaps[k].toFixed(2), (a + b) / 2, y + 31);
+    }
+    for (let k = 0; k < shown; k++) { c.fillStyle = '#EDEFF7'; c.beginPath(); c.arc(X(k), y, 6.5, 0, Math.PI * 2); c.fill(); }
+  });
+  c.restore();
+}
+// view 1, free part: a heart at 80 bpm and the child's taps sliding past its beat marks
+function drawTap(c, w, h) {
+  const ms = performance.now(), beat = 60000 / BPM, ph = (((ms - B.epoch) % beat) + beat) % beat / beat, idx = Math.floor((ms - B.epoch) / beat);
+  if (idx !== B.lastBeat) { B.lastBeat = idx; const x = AU.ctx; if (x && store.get('sound', false)) wood(x, x.currentTime, idx % 4 === 0 ? 0.7 : 0.4); }
+  const k = Math.exp(-ph * 6), cx = w / 2, cy = h * 0.3;
+  c.save(); c.fillStyle = `rgba(255,95,95,${0.18 * k})`; c.beginPath(); c.arc(cx, cy, 70 + 30 * k, 0, Math.PI * 2); c.fill(); c.restore();
+  emoji(c, '💓', cx, cy, 70 * (1 + 0.3 * k));
+  const ts = (ms - B.epoch) / 1000, nowX = w * 0.74, pps = (nowX - 20) / 4.5, y1 = h * 0.64, y2 = y1 + 38, bs = beat / 1000;
+  c.save();
+  for (let n = Math.ceil((ts - 4.6) / bs); n * bs <= ts + (w - nowX - 8) / pps; n++) {
+    const x = nowX + (n * bs - ts) * pps;
+    c.fillStyle = 'rgba(61,220,151,.1)'; c.fillRect(x - 0.12 * pps, y1 - 16, 0.24 * pps, y2 - y1 + 32);
+    c.fillStyle = 'rgba(237,239,247,.9)'; c.beginPath(); c.arc(x, y1, 5, 0, Math.PI * 2); c.fill();
+  }
+  c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 2; c.setLineDash([4, 4]); c.beginPath(); c.moveTo(nowX, y1 - 24); c.lineTo(nowX, y2 + 24); c.stroke(); c.setLineDash([]);
+  for (const tp of B.taps) {
+    const x = nowX + (tp.t - ts) * pps; if (x < 8) continue;
+    c.fillStyle = tp.ok ? '#3ddc97' : '#f5c84c'; c.beginPath(); c.arc(x, y2, 7, 0, Math.PI * 2); c.fill();
+  }
+  c.restore();
+}
+
+// view 2: the bar. Single bar with the round's notes above it, or two bars in the secrets
+function drawBar(c, w, h) {
+  HIT.length = 0;
+  if (S.sec) return drawDouble(c, w, h);
+  const t = nowS(), predict = R.round < 6, cw = clamp((w - 28) / 5, 24, 100), x0 = Math.max(10, (w - 5 * cw) / 2);
+  const cwp = cw * 0.85, pg = ig(cwp, 0), pileH = 8 + 3.2 * pg.u + pg.bh, GAP = 22;
+  let y = Math.max(8, (h - (barGeom(0, 0, cw).h + (predict ? pileH + GAP : 0))) / 2);
+  const pileBy = y + 8 + 3.2 * pg.u;
+  if (predict) y += pileH + GAP;
+  const g = barGeom(x0, y, cw), endX = g.x0 + 4 * cw, entries = predict ? ROUNDS[R.round] : R.bar;
+  const rev = predict ? R.rev : null, el = rev ? t - rev.t0 : -1, pp = playPos('bar'), pos = pp >= 0 ? pp / PL.bs : -1;
+  if (rev && !rev.played && el > (rev.n - 1) * 0.6 + 0.9) { rev.played = true; const r = rhythmEvents([entries], 60 / BPM, false); startPlay('bar', r.ev, r.len, { bs: 60 / BPM }); }
+  const slots = []; let s = 0;
+  for (const k of entries) { slots.push(s); s += NB[k]; }
+  const prog = (i) => (!predict ? 1 : rev ? ease(clamp((el - i * 0.6) / 0.5, 0, 1)) : 0);
+  drawFrame(c, g, pos);
+  entries.forEach((k, i) => {
+    if (prog(i) < 1) return;
+    const x = g.x0 + slots[i] * cw;
+    drawItem(c, g, k, x, { lit: litOf(k, slots[i], pos), endX });
+    if (!predict) HIT.push({ type: 'note', bar: 0, idx: i, x, y: g.hc - 3 * g.u, w: NB[k] * cw, h: g.by + g.bh - (g.hc - 3 * g.u) });
+  });
+  if (predict) {
+    const tw = sum(entries) * cwp + (entries.length - 1) * 8, px0 = (w - tw) / 2;
+    entries.forEach((k, i) => {
+      const p = prog(i); if (p >= 1) return;
+      const xp = px0 + slots[i] * cwp + i * 8, gi = ig(lerp(cwp, cw, p), lerp(pileBy, g.by, p));
+      drawItem(c, gi, k, lerp(xp, g.x0 + slots[i] * cw, p));
+    });
+  }
+  drawHead(c, g, pos);
+  if (R.ghost) drawGhost(c, g, R.ghost, sum(R.bar));
+}
+function drawDouble(c, w, h) {
+  const tempo = S.sec === 'tempo', bars = tempo ? TEMPO_BARS : C.bars, wide = w >= 620;
+  const cw = wide ? Math.min(70, (w - 52) / 8) : Math.min(64, (w - 28) / 4.4), gh = barGeom(0, 0, cw).h;
+  const gs = bars.map((_, i) => {
+    if (wide) return barGeom((w - (8 * cw + 24)) / 2 + i * (4 * cw + 24), (h - gh) / 2, cw);
+    return barGeom(Math.max(10, (w - 4.4 * cw) / 2), Math.max(6, (h - (2 * gh + 14)) / 2) + i * (gh + 14), cw);
+  });
+  const pp = playPos(tempo ? 'tempo' : 'compose'), pos = pp >= 0 ? pp / PL.bs : -1;
+  gs.forEach((g, bi) => {
+    const local = pos >= 0 ? pos - 4 * bi : -1, here = local >= 0 && local < 4, endX = g.x0 + 4 * cw;
+    c.save(); c.fillStyle = 'rgba(20,24,38,.5)'; c.strokeStyle = !tempo && C.sel === bi ? 'rgba(255,255,255,.6)' : 'rgba(130,145,190,.25)'; c.lineWidth = 1.5;
+    c.beginPath(); c.roundRect(g.x0 - 9, g.y0 - 4, 4 * cw + 18, g.h + 8, 14); c.fill(); c.stroke(); c.restore();
+    if (!tempo) HIT.push({ type: 'bar', bar: bi, x: g.x0 - 9, y: g.y0 - 4, w: 4 * cw + 18, h: g.h + 8 });
+    drawFrame(c, g, here ? local : -1);
+    let s = 0;
+    bars[bi].forEach((k, i) => {
+      const x = g.x0 + s * cw;
+      drawItem(c, g, k, x, { lit: here ? litOf(k, s, local) : false, endX });
+      if (!tempo) HIT.push({ type: 'note', bar: bi, idx: i, x, y: g.hc - 3 * g.u, w: NB[k] * cw, h: g.by + g.bh - (g.hc - 3 * g.u) });
+      s += NB[k];
+    });
+    if (here) drawHead(c, g, local);
+    if (!tempo && fxAge('kick') < 0.4 && PL.fx.kick.e.bar === bi) {
+      const a = fxAge('kick'); c.save(); c.globalAlpha = (1 - a / 0.4) * 0.7; c.strokeStyle = '#fff'; c.lineWidth = 3;
+      c.beginPath(); c.arc(g.x0 + 0.5 * cw, g.by + g.bh / 2, 8 + a * cw * 2.5, 0, Math.PI * 2); c.stroke(); c.restore();
+    }
+    if (R.ghost && R.ghost.bar === bi) drawGhost(c, g, R.ghost, sum(bars[bi]));
+  });
+}
+
+// view 3: before the answer only a pulsing dot; after it the beats in groups, big and small, and a dancer
+function drawMetre(c, w, h, dt) {
+  const kind = M_ROUNDS[M.round], lv = ACC[kind], g = lv.length, bars = 12 / g;
+  const pp = playPos('metre'), pos = pp >= 0 ? pp / PL.bs : -1;
+  if (M.answer === null) {
+    const k = clamp(1 - fxAge('beat') / 0.25, 0, 1), cx = w / 2, cy = h * 0.5;
+    c.save(); c.fillStyle = `rgba(143,127,208,${0.25 + 0.45 * k})`; c.beginPath(); c.arc(cx, cy, 30 + 14 * k, 0, Math.PI * 2); c.fill();
+    c.fillStyle = '#b9a8ff'; c.beginPath(); c.arc(cx, cy, 20 + 8 * k, 0, Math.PI * 2); c.fill(); c.restore();
+    return;
+  }
+  const mg = 14, units = 12 + (bars - 1) * 0.6, unit = (w - 2 * mg) / units, cy = h * 0.62;
+  const X = (i) => mg + (i + Math.floor(i / g) * 0.6 + 0.5) * unit, a = ease(clamp((nowS() - M.rt0) / 0.4, 0, 1));
+  c.save(); c.globalAlpha = a; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.strokeStyle = 'rgba(237,239,247,.45)'; c.lineWidth = 2; c.beginPath();
+  const lines = [mg - 3, mg + units * unit + 3];
+  for (let j = 1; j < bars; j++) lines.push(mg + (j * g + (j - 1) * 0.6 + 0.3) * unit);
+  for (const x of lines) { c.moveTo(x, cy - 36); c.lineTo(x, cy + 44); }
+  c.stroke();
+  const cur = pos >= 0 ? Math.min(11, Math.floor(pos)) : -1;
+  for (let i = 0; i < 12; i++) {
+    const l = lv[i % g], r = clamp(unit * (l >= 1 ? 0.44 : l > 0.5 ? 0.34 : 0.24), 4, l >= 1 ? 20 : 14);
+    c.fillStyle = i === cur ? '#fff' : l >= 1 ? '#b9a8ff' : l > 0.5 ? '#8f7fd0' : '#5c6590';
+    c.beginPath(); c.arc(X(i), cy, r, 0, Math.PI * 2); c.fill();
+    c.fillStyle = l >= 1 ? '#EDEFF7' : '#98A0B8'; c.font = `800 ${l >= 1 ? 14 : 13}px Nunito, sans-serif`; c.fillText(String((i % g) + 1), X(i), cy + 34);
+  }
+  c.restore();
+  // the dancer hops over the current beat: big for strong, small for weak; a march leans left, right, left, right
+  const idx = Math.max(0, cur), f = pos >= 0 ? pos % 1 : 0, l = lv[idx % g], hop = (l >= 1 ? 20 : l > 0.5 ? 12 : 6) * (pos >= 0 ? Math.sin(Math.PI * f) : 0);
+  if (!M.dx) M.dx = X(idx);
+  M.dx += (X(idx) - M.dx) * Math.min(1, dt * 14);
+  const lean = kind === 'march' && pos >= 0 ? (idx % 2 ? 0.22 : -0.22) : 0;
+  emoji(c, kind === 'waltz' ? '💃' : '🕺', M.dx, cy - 66 - hop, (l >= 1 ? 40 : 34), lean);
+}
+
+// --- controls ------------------------------------------------------------------------------------------------
+const setView = (id) => ['vBeat', 'vBar', 'vMetre'].forEach((k) => { $(k).style.display = k === id ? '' : 'none'; });
+// on a phone the controls sit below the canvas: bring the reveal into view
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+const state = (t, k) => { const [emo, title, lead, body] = t.cards[k]; return { emo, title, lead, body, extra: `<div class="fine">${esc(t.fine)}</div>` }; };
+const verdictState = (t, ok, lead, body = '') => ({ emo: ok ? '✅' : '🤔', title: ok ? t.right : t.wrong, lead, body, extra: `<div class="fine">${esc(t.fine)}</div>` });
+const verdictHtml = (t, ok) => `<div class="verdict" style="color:${ok ? 'var(--ok)' : 'var(--wip)'}">${esc(ok ? t.right : t.wrong)}</div>`;
+
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const act = b.dataset.act, a = b.dataset.a;
+  if (act === 'bplay') {
+    if (PL.on) { stopPlay(); return render(); }
+    const ta = times(B.steadyA ? GS : GD), tb = times(B.steadyA ? GD : GS), off = ta[7] + 1;
+    const ev2 = [...ta.map((t) => ({ t, snd: 'wood', lv: 0.55, fx: 'A' })), ...tb.map((t) => ({ t: off + t, snd: 'wood', lv: 0.55, fx: 'B' }))];
+    startPlay('beat', ev2, off + tb[7] + 0.4, { bs: 0.75, meta: { off }, end: () => { B.played = true; } });
+  } else if (act === 'bans') {
+    B.answer = a; B.rt0 = nowS(); (a === (B.steadyA ? 'A' : 'B') ? sfx.good : sfx.bad)(); showStage(); render();
+  } else if (act === 'bnext') {
+    stopPlay(); Object.assign(B, { mode: 'round', steadyA: Math.random() < 0.5, played: false, answer: null }); sfx.click(); render();
+  } else if (act === 'btap') {
+    stopPlay(); Object.assign(B, { mode: 'tap', taps: [], epoch: performance.now(), lastBeat: -1 }); sfx.click(); render(); showStage();
+  } else if (act === 'rans') {
+    const tot = sum(ROUNDS[R.round]);
+    R.answer = a; R.rev = { t0: nowS(), n: ROUNDS[R.round].length, played: false };
+    (a === (tot === 4 ? 'yes' : tot > 4 ? 'many' : 'few') ? sfx.good : sfx.bad)(); showStage(); render();
+  } else if (act === 'rnext') {
+    stopPlay(); R.answer = null; R.rev = null; R.round++; sfx.click(); render();
+  } else if (act === 'note') addNote(b.dataset.k);
+  else if (act === 'rclear') {
+    stopPlay(); if (S.sec === 'compose') { C.bars = [[], []]; C.sel = 0; } else R.bar = [];
+    R.ghost = null; R.noFit = false; sfx.click(); render();
+  } else if (act === 'rplay') {
+    if (PL.on) { stopPlay(); return render(); }
+    if (S.sec === 'compose') {
+      const r = rhythmEvents(C.bars, 60 / BPM, true);
+      startPlay('compose', r.ev, r.len, { bs: 60 / BPM, loop: C.loop });
+    } else if (S.sec === 'tempo') playTempo();
+    else {
+      if (R.rev) R.rev.played = true;
+      const items = R.round < 6 ? ROUNDS[R.round] : R.bar, r = rhythmEvents([items], 60 / BPM, false);
+      startPlay('bar', r.ev, r.len, { bs: 60 / BPM });
+    }
+  } else if (act === 'loop') { C.loop = !C.loop; if (PL.on && PL.kind === 'compose') PL.loop = C.loop; sfx.click(); render(); }
+  else if (act === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    const k = b.dataset.k; stopPlay(); R.ghost = null; R.noFit = false;
+    S.sec = S.sec === k ? null : k; sfx.click(); render();
+  } else if (act === 'mplay') {
+    if (PL.on) { stopPlay(); return render(); }
+    playMetre();
+  } else if (act === 'mans') {
+    M.answer = a; M.rt0 = nowS(); (a === M_ROUNDS[M.round] ? sfx.good : sfx.bad)(); showStage();
+    playMetre(); // the reveal plays the pattern again while the dancer steps
+  } else if (act === 'mnext') {
+    stopPlay(); M.round = (M.round + 1) % M_ROUNDS.length; M.answer = null; M.played = false; M.dx = 0; sfx.click(); render();
+  }
+});
+// the tap button reacts on pointerdown so the timing is the finger's, not the click's
+$('bTap').addEventListener('pointerdown', (ev) => { ev.preventDefault(); tapNow(); });
+$('bTap').addEventListener('click', (ev) => { if (ev.detail === 0) tapNow(); }); // keyboard
+function tapNow() {
+  const ms = performance.now(), beat = 60000 / BPM, k = Math.round((ms - B.epoch) / beat), off = (ms - B.epoch - k * beat) / 1000;
+  B.taps.push({ t: (ms - B.epoch) / 1000, ok: Math.abs(off) <= 0.12 });
+  if (B.taps.length > 60) B.taps.shift();
+  sfx.tick(); render();
+}
+let tempoTimer = 0;
+$('tempoR').addEventListener('input', () => {
+  S.bpm = +$('tempoR').value; render();
+  if (PL.on && PL.kind === 'tempo') { clearTimeout(tempoTimer); tempoTimer = setTimeout(() => { if (S.sec === 'tempo') playTempo(); }, 150); }
+});
+function playTempo() {
+  const r = rhythmEvents(TEMPO_BARS, 60 / S.bpm, false);
+  startPlay('tempo', r.ev, r.len, { bs: 60 / S.bpm, loop: true });
+}
+function playMetre() {
+  const lv = ACC[M_ROUNDS[M.round]], bs = 60 / BPM;
+  startPlay('metre', Array.from({ length: 12 }, (_, i) => ({ t: i * bs, snd: 'wood', lv: lv[i % lv.length], fx: 'beat' })), 12 * bs, { bs, end: () => { M.played = true; } });
+}
+
+function addNote(k) {
+  stopPlay();
+  const comp = S.sec === 'compose', bi = comp ? C.sel : 0, items = comp ? C.bars[bi] : R.bar;
+  if (sum(items) + NB[k] > 4) { R.ghost = { kind: k, t0: nowS(), bar: bi }; R.noFit = true; sfx.bad(); return render(); }
+  items.push(k); R.noFit = false; R.ghost = null; sfx.click();
+  if (comp && bi === 0 && sum(items) === 4 && sum(C.bars[1]) < 4) C.sel = 1; // the first bar is full: carry on in the second
+  render();
+}
+// tap a placed note to take it out again; in the compose secret a tap on a bar chooses it
+$('cv').addEventListener('pointerdown', (ev) => {
+  if (lab.view !== 'bar' || !HIT.length || (S.sec === 'tempo') || (!S.sec && R.round < 6)) return;
+  const r = $('cv').getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+  const inside = (q) => x >= q.x && x <= q.x + q.w && y >= q.y && y <= q.y + q.h;
+  const n = HIT.find((q) => q.type === 'note' && inside(q));
+  if (n) { stopPlay(); (S.sec === 'compose' ? C.bars[n.bar] : R.bar).splice(n.idx, 1); if (S.sec === 'compose') C.sel = n.bar; R.noFit = false; sfx.tick(); return render(); }
+  const b = HIT.find((q) => q.type === 'bar' && inside(q));
+  if (b && C.sel !== b.bar) { C.sel = b.bar; sfx.tick(); render(); }
+});
+
+// --- one render per change: controls, readout and the state card ------------------------------------------------
+function render() {
+  const t = T[lang], v = lab.view;
+  document.body.dataset.v = v;
+  setView(v === 'beat' ? 'vBeat' : v === 'bar' ? 'vBar' : 'vMetre');
+  // one set of buttons in the DOM at a time: blank the controls of the views that are not showing
+  if (v !== 'beat') $('bDyn').innerHTML = '';
+  if (v !== 'bar') $('rDyn').innerHTML = '';
+  if (v !== 'metre') $('mDyn').innerHTML = '';
+  if (v === 'beat') renderBeat(t); else if (v === 'bar') renderBar(t); else renderMetre(t);
+}
+
+function renderBeat(t) {
+  lab.setGlow('rgba(255, 95, 95, .22)');
+  const tap = B.mode === 'tap', play = PL.on ? t.stop : t.b.play;
+  $('bTapBox').style.display = tap ? '' : 'none';
+  $('bTap').textContent = t.b.tapBtn;
+  if (tap) {
+    const last = B.taps.slice(-8), k = last.filter((x) => x.ok).length, n = last.length;
+    $('bDyn').innerHTML = `<p class="q">${esc(t.b.tap)}</p><div class="row2" style="margin-top:0"><button class="chip" data-act="bnext">${esc(t.next)}</button></div>`;
+    lab.setReadout(n ? `${k}/${n}` : '💓', n ? t.b.score(k, n) : '', '', '#ff5f5f');
+    lab.setState(state(t, 'beat'));
+    return;
+  }
+  const ans = B.answer, steadyW = B.steadyA ? 'A' : 'B', ok = ans === steadyW;
+  const picks = ['A', 'B'].map((w, i) => `<button class="pick ${ans ? (w === steadyW ? 'good' : w === ans ? 'bad' : '') : ''}" data-act="bans" data-a="${w}"${!B.played || ans ? ' disabled' : ''}>${esc(t.b[i ? 'b' : 'a'])}</button>`).join('');
+  $('bDyn').innerHTML = `<p class="q">${esc(t.b.q)}</p>
+    <div class="row2" style="margin-top:0"><button class="btn" data-act="bplay">${esc(play)}</button></div>
+    <div class="row2">${picks}</div>
+    ${ans ? `${verdictHtml(t, ok)}<div class="row2"><button class="btn" data-act="bnext">${esc(t.next)}</button><button class="chip" data-act="btap">💓 ${esc(t.b.tap)}</button></div>` : ''}`;
+  lab.setReadout(ans ? (ok ? '✓' : '✗') : '?', '', '', '#ff5f5f');
+  lab.setState(ans ? verdictState(t, ok, t.b.why) : state(t, 'beat'));
+}
+
+// the five note buttons: a small picture of the note and its chocolate
+function trayHtml(t) {
+  return `<div class="tray">${KINDS.map((k) => `<button class="noteBtn" data-act="note" data-k="${k}" aria-label="${esc(t.notes[k])}"><canvas width="88" height="92" data-k="${k}"></canvas><span>${esc(t.notes[k])}</span></button>`).join('')}</div>`;
+}
+function paintTray() {
+  $('rDyn').querySelectorAll('canvas[data-k]').forEach((cv) => {
+    const k = cv.dataset.k, c = cv.getContext('2d'), g = { cw: 10, bh: 10, by: 34, m: 0.75, r: 2, noText: true };
+    c.setTransform(2, 0, 0, 2, 0, 0); c.clearRect(0, 0, 44, 46);
+    drawBlock(c, g, k, 22 - NB[k] * 5, COL[k], false);
+    drawSym(c, k, 22, 27, 7, 26, '#EDEFF7');
+  });
+}
+
+function renderBar(t) {
+  lab.setGlow('rgba(217, 130, 95, .24)');
+  const unl = secret.unlocked();
+  const chip = (k, emo) => `<button class="chip secret ${unl ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${unl ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  $('rChips').innerHTML = chip('compose', '🎼') + chip('tempo', '🐢');
+  $('tempoBox').style.display = S.sec === 'tempo' ? '' : 'none';
+  const play = (dis) => `<button class="btn${S.sec === 'compose' ? '' : ' push'}" data-act="rplay"${dis ? ' disabled' : ''}>${esc(PL.on ? t.stop : t.r.play)}</button>`;
+  const fine = `<div class="fine">${esc(t.fine)}</div>`;
+  if (S.sec === 'tempo') {
+    $('tempoCap').textContent = t.sec.tempo(S.bpm); $('tempoR').value = S.bpm; $('tempoR').setAttribute('aria-label', t.sec.tempo(S.bpm));
+    $('rDyn').innerHTML = `<div class="row2" style="margin-top:0">${play(false)}</div>`;
+    lab.setReadout(S.bpm, t.sec.tempo(S.bpm).replace(String(S.bpm), '').trim(), '', '#d9825f');
+    return lab.setState({ emo: '🐢', title: t.secrets.tempo[0], lead: t.sec.tempoText, body: '', extra: fine });
+  }
+  if (S.sec === 'compose') {
+    const u = C.bars.map(sum);
+    $('rDyn').innerHTML = `<p class="lead2">${esc(t.sec.composeText)}</p>${trayHtml(t)}
+      <div class="row2"><button class="chip" data-act="rclear">${esc(t.r.clear)}</button><button class="chip ${C.loop ? 'on' : ''}" data-act="loop">${esc(t.sec.loop)}</button>${play(!u[0] && !u[1])}</div>`;
+    paintTray();
+    lab.setReadout(`${u[0]} / 4 · ${u[1]} / 4`, t.beatsWord, '', '#d9825f');
+    return lab.setState(R.noFit ? { emo: '🚫', title: t.r.noFit, lead: '', body: '', extra: fine } : { emo: '🎼', title: t.secrets.compose[0], lead: t.sec.composeText, body: '', extra: fine });
+  }
+  if (R.round >= 6) { // free building
+    const n = sum(R.bar);
+    $('rDyn').innerHTML = `<p class="lead2">${esc(t.r.free)}</p>${trayHtml(t)}
+      <div class="row2"><button class="chip" data-act="rclear">${esc(t.r.clear)}</button>${play(!n)}</div>`;
+    paintTray();
+    lab.setReadout(`${n} / 4`, t.beatsWord, '', '#d9825f');
+    return lab.setState(R.noFit ? { emo: '🚫', title: t.r.noFit, lead: '', body: '', extra: fine } : state(t, 'bar'));
+  }
+  // predict rounds
+  const set = ROUNDS[R.round], tot = sum(set), right = tot === 4 ? 'yes' : tot > 4 ? 'many' : 'few', ans = R.answer, ok = ans === right;
+  const picks = [['yes', t.r.yes], ['many', t.r.tooMany], ['few', t.r.tooFew]].map(([k, l]) => `<button class="pick ${ans ? (k === right ? 'good' : k === ans ? 'bad' : '') : ''}" data-act="rans" data-a="${k}"${ans ? ' disabled' : ''}>${esc(l)}</button>`).join('');
+  $('rDyn').innerHTML = `<p class="q">${esc(t.r.q)}</p><div class="row2" style="margin-top:0">${picks}</div>
+    ${ans ? `${verdictHtml(t, ok)}<div class="row2"><button class="btn" data-act="rnext">${esc(t.next)}</button>${play(false)}</div>` : ''}`;
+  lab.setReadout(ans ? `${tot} / 4` : '?', ans ? t.beatsWord : '', '', '#d9825f');
+  lab.setState(ans ? verdictState(t, ok, t.r.why[R.round], R.round === 5 ? t.r.restCounts : '') : state(t, 'bar'));
+}
+
+function renderMetre(t) {
+  lab.setGlow('rgba(143, 127, 208, .26)');
+  const kind = M_ROUNDS[M.round], ans = M.answer, ok = ans === kind;
+  const picks = ['march', 'waltz', 'four'].map((k) => `<button class="pick ${ans ? (k === kind ? 'good' : k === ans ? 'bad' : '') : ''}" data-act="mans" data-a="${k}"${!M.played || ans ? ' disabled' : ''}>${esc(t.m[k])}</button>`).join('');
+  $('mDyn').innerHTML = `<p class="q">${esc(t.m.q)}</p>
+    <div class="row2" style="margin-top:0"><button class="btn" data-act="mplay">${esc(PL.on ? t.stop : t.play)}</button></div>
+    <div class="row2">${picks}</div>
+    ${ans ? `${verdictHtml(t, ok)}<div class="row2"><button class="btn" data-act="mnext">${esc(t.next)}</button></div>` : ''}`;
+  lab.setReadout(ans ? esc(t.m[kind]) : '?', '', '', '#8f7fd0');
+  lab.setState(ans ? verdictState(t, ok, t.m.why[kind]) : state(t, 'metre'));
+}
+render();
+</script>
+</body>
+</html>
