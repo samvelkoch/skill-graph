@@ -1,0 +1,989 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>How Hot Is It? · Skill Graph</title>
+<meta name="description" content="Dip a thermometer into icy, warm and hot water, put ice cream and a cup of tea on one scale, and find out why metal fools your hand. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  .q { font: 500 20px/1.25 var(--serif); color: #fff; margin: 0 0 10px; text-wrap: balance; }
+  .obs { display: flex; flex-wrap: wrap; gap: 8px; }
+  .ob { padding: 9px 16px; min-height: 40px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 800; font-size: 13.5px; cursor: pointer; text-align: left; }
+  .ob:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .ob:disabled { cursor: default; }
+  .ob:disabled:not(.good):not(.miss) { opacity: .5; }
+  .ob.good { border-color: var(--ok); background: rgba(61, 220, 151, .16); }
+  .ob.miss { border-color: var(--red); background: rgba(255, 59, 48, .14); }
+  .verdict { font-weight: 900; margin: 12px 0 4px; }
+  .explain { color: var(--soft); font-size: 13px; margin: 0 0 10px; }
+  .hint { color: var(--mut); font-size: 13px; margin: 0 0 10px; }
+  .fine { font-size: 11px; color: var(--faint); }
+  .btn:disabled { opacity: .35; cursor: default; }
+  .chips .last { margin-left: auto; }
+  .chip { min-height: 36px; }
+  @media (max-width: 760px) {
+    #stage { height: min(122vw, 540px); }
+    body[data-v=scale] #stage { height: min(140vw, 620px); }
+    body[data-v=touch] #stage { height: min(112vw, 480px); }
+    body[data-v=bottle] #stage { height: min(112vw, 480px); }
+    body[data-v=records] #stage { height: min(150vw, 640px); }
+    .q { font-size: 18px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'How Hot Is It?', title: 'How hot is it?',
+    lines: [['A thermometer', 'in a glass of water.'], ['Watch the red line', 'when the water changes.'], ['And trust your hand?', 'Try it!']],
+    views: { cups: '🥤 Cups', scale: '🌡️ One scale', touch: '✋ Touch test' },
+    next: 'Next ▶', right: 'You got it!', wrong: 'Not quite. Watch the red line.', again: 'Again', mm: 'mm',
+    c: { q1: 'We move the thermometer into warm water. What will the red line do?', o1: ['go up', 'go down', 'stay the same'],
+         r1: 'The liquid in the bulb warms up. Its tiny particles move faster and need more room, so the liquid spreads up the thin tube.',
+         q2: 'And in very hot water?', o2: ['even higher', 'back down', 'the same as warm'], r2: 'Hotter water, higher line: 70 °C.',
+         q3: 'Did the thermometer make the water hot?', o3: ['yes', 'no, it only shows how hot it is'],
+         r3: 'A thermometer only measures. In icy water the same thermometer goes back down.',
+         cups: { icy: '🧊 icy', warm: '🌤️ warm', hot: '♨️ hot' }, word: (t) => (t < 5 ? 'cold' : t < 18 ? 'cool' : t < 45 ? 'warm' : 'hot') },
+    s: { names: ['ice cream', 'snowy day', 'fridge', 'spring day', 'you', 'warm bath', 'cup of tea', 'boiling water'], check: 'Check', tap: 'Tap a card, then a place on the scale.',
+         r: 'Cold, cool, warm and hot are all on the same scale — just at different places.', zones: ['cold', 'cool', 'warm', 'hot'] },
+    t: { q: 'A metal spoon and a wooden spoon lay on the same table all night. You touch both. Which one is colder?', o: ['the metal spoon', 'the wooden spoon', 'both are the same temperature'],
+         r: 'Both are 20 °C! Metal pulls the warmth out of your hand fast, so it feels colder. Your hand is not a thermometer.', feelsCold: 'feels cold', feelsWarm: 'feels warm' },
+    secrets: { bottle: ['Make a thermometer', 'A bottle, a straw and coloured water.'], records: ['Earth’s records', 'The coldest and the hottest.'] },
+    sec: { hands: '🙌 Warm it with hands', ice: '🧊 Put it in ice', bottleText: 'Warm water takes up a little more room, so it climbs the straw. That’s exactly how a real thermometer works.',
+           recordsText: 'The coldest temperature measured on Earth: −89.2 °C at Vostok station, Antarctica (1983). The hottest: 56.7 °C in Death Valley, USA (1913).',
+           vostok: 'Vostok, Antarctica', valley: 'Death Valley, USA' },
+    quiz: [
+      { q: 'A thermometer goes into warmer water. The red line…', opts: ['goes up', 'goes down', 'disappears'], ok: 0 },
+      { q: 'What does a thermometer do?', opts: ['makes things warm', 'measures how hot or cold', 'makes things cold'], ok: 1 },
+      { q: 'A metal and a wooden spoon on the same table. Which is colder?', opts: ['metal', 'wood', 'they are the same'], ok: 2 } ],
+    st: {
+      cups: [['🥤', 'Icy water', 'The red line is low.', ''], ['🌡️', 'Up = hotter', 'Warm liquid takes more room and climbs the tube.', 'A thermometer measures; it doesn’t heat.']],
+      scale: [['🌡️', 'One long scale', 'From ice cream to boiling water.', ''], ['🌡️', 'Cold to hot', 'Ice cream −18 °C, you 37 °C, boiling water 100 °C.', '']],
+      touch: [['✋', 'Two spoons', 'Metal and wood, same table.', ''], ['✋', 'Hands can be fooled', 'Same temperature, different feeling.', '']],
+    },
+    fine: 'Records recognised by the World Meteorological Organization. Body temperature is about 36.5–37 °C.',
+  },
+  ru: {
+    name: 'Насколько горячо?', title: 'Насколько горячо?',
+    lines: [['Градусник', 'в стакане воды.'], ['Следи за красной полоской,', 'когда вода меняется.'], ['А руке верить можно?', 'Проверь!']],
+    views: { cups: '🥤 Стаканы', scale: '🌡️ Одна шкала', touch: '✋ Проверка рукой' },
+    next: 'Дальше ▶', right: 'Верно!', wrong: 'Не совсем. Смотри на красную полоску.', again: 'Ещё раз', mm: 'мм',
+    c: { q1: 'Переносим градусник в тёплую воду. Что сделает красная полоска?', o1: ['поднимется', 'опустится', 'останется на месте'],
+         r1: 'Жидкость в шарике нагревается. Её крошечные частицы движутся быстрее, им нужно больше места, и жидкость поднимается по тонкой трубке.',
+         q2: 'А в очень горячей воде?', o2: ['ещё выше', 'опустится обратно', 'как в тёплой'], r2: 'Вода горячее — полоска выше: 70 °C.',
+         q3: 'Градусник нагрел воду?', o3: ['да', 'нет, он только показывает, насколько она горячая'],
+         r3: 'Градусник только измеряет. В ледяной воде тот же градусник снова опустится.',
+         cups: { icy: '🧊 ледяная', warm: '🌤️ тёплая', hot: '♨️ горячая' }, word: (t) => (t < 5 ? 'холодно' : t < 18 ? 'прохладно' : t < 45 ? 'тепло' : 'горячо') },
+    s: { names: ['мороженое', 'снежный день', 'холодильник', 'весенний день', 'ты', 'тёплая ванна', 'чашка чая', 'кипяток'], check: 'Проверить', tap: 'Нажми на карточку, потом на место на шкале.',
+         r: 'Холодно, прохладно, тепло и горячо — всё это на одной шкале, просто в разных местах.', zones: ['холодно', 'прохладно', 'тепло', 'горячо'] },
+    t: { q: 'Металлическая и деревянная ложки всю ночь лежали на одном столе. Ты трогаешь обе. Какая холоднее?', o: ['металлическая', 'деревянная', 'у обеих одинаковая температура'],
+         r: 'Обе — 20 °C! Металл быстро забирает тепло из руки, поэтому кажется холоднее. Рука — не градусник.', feelsCold: 'кажется холодной', feelsWarm: 'кажется тёплой' },
+    secrets: { bottle: ['Сделай градусник', 'Бутылка, трубочка и цветная вода.'], records: ['Рекорды Земли', 'Самое холодное и самое жаркое.'] },
+    sec: { hands: '🙌 Согреть руками', ice: '🧊 Положить в лёд', bottleText: 'Тёплая вода занимает чуть больше места, поэтому поднимается по трубочке. Так и работает настоящий градусник.',
+           recordsText: 'Самая низкая температура на Земле: −89,2 °C на станции «Восток» в Антарктиде (1983). Самая высокая: 56,7 °C в Долине Смерти, США (1913).',
+           vostok: 'Восток, Антарктида', valley: 'Долина Смерти, США' },
+    quiz: [
+      { q: 'Градусник опустили в воду потеплее. Красная полоска…', opts: ['поднимается', 'опускается', 'исчезает'], ok: 0 },
+      { q: 'Что делает градусник?', opts: ['нагревает', 'измеряет, насколько горячо или холодно', 'охлаждает'], ok: 1 },
+      { q: 'Металлическая и деревянная ложки на одном столе. Какая холоднее?', opts: ['металлическая', 'деревянная', 'одинаковые'], ok: 2 } ],
+    st: {
+      cups: [['🥤', 'Ледяная вода', 'Красная полоска внизу.', ''], ['🌡️', 'Выше — горячее', 'Тёплая жидкость занимает больше места и поднимается по трубке.', 'Градусник измеряет, а не нагревает.']],
+      scale: [['🌡️', 'Одна длинная шкала', 'От мороженого до кипятка.', ''], ['🌡️', 'От холода к жаре', 'Мороженое −18 °C, ты 37 °C, кипяток 100 °C.', '']],
+      touch: [['✋', 'Две ложки', 'Металл и дерево на одном столе.', ''], ['✋', 'Руку можно обмануть', 'Температура одна, а ощущения разные.', '']],
+    },
+    fine: 'Рекорды признаны Всемирной метеорологической организацией. Температура тела — около 36,5–37 °C.',
+  },
+  hu: {
+    name: 'Mennyire meleg?', title: 'Mennyire meleg?',
+    lines: [['Egy hőmérő', 'egy pohár vízben.'], ['Figyeld a piros csíkot,', 'amikor változik a víz.'], ['És a kezedben bízhatsz?', 'Próbáld ki!']],
+    views: { cups: '🥤 Poharak', scale: '🌡️ Egy skála', touch: '✋ Tapintás' },
+    next: 'Tovább ▶', right: 'Eltaláltad!', wrong: 'Nem egészen. Figyeld a piros csíkot.', again: 'Újra', mm: 'mm',
+    c: { q1: 'Átrakjuk a hőmérőt langyos vízbe. Mit csinál a piros csík?', o1: ['felmegy', 'lemegy', 'ugyanott marad'],
+         r1: 'A gömbben lévő folyadék felmelegszik. Apró részecskéi gyorsabban mozognak, több hely kell nekik, ezért a folyadék felkúszik a vékony csőben.',
+         q2: 'És nagyon forró vízben?', o2: ['még magasabbra', 'vissza le', 'ugyanott, mint langyosban'], r2: 'Forróbb víz, magasabb csík: 70 °C.',
+         q3: 'A hőmérő melegítette fel a vizet?', o3: ['igen', 'nem, csak megmutatja, mennyire meleg'],
+         r3: 'A hőmérő csak mér. Jeges vízben ugyanez a hőmérő újra lemegy.',
+         cups: { icy: '🧊 jeges', warm: '🌤️ langyos', hot: '♨️ forró' }, word: (t) => (t < 5 ? 'hideg' : t < 18 ? 'hűvös' : t < 45 ? 'meleg' : 'forró') },
+    s: { names: ['fagyi', 'havas nap', 'hűtő', 'tavaszi nap', 'te', 'meleg fürdő', 'egy csésze tea', 'forrásban lévő víz'], check: 'Ellenőrzés', tap: 'Koppints egy kártyára, aztán egy helyre a skálán.',
+         r: 'A hideg, a hűvös, a meleg és a forró mind ugyanazon a skálán van, csak más-más helyen.', zones: ['hideg', 'hűvös', 'meleg', 'forró'] },
+    t: { q: 'Egy fém- és egy fakanál egész éjjel ugyanazon az asztalon feküdt. Mindkettőt megfogod. Melyik a hidegebb?', o: ['a fémkanál', 'a fakanál', 'egyforma a hőmérsékletük'],
+         r: 'Mindkettő 20 °C! A fém gyorsan elvezeti a meleget a kezedből, ezért hidegebbnek érzed. A kezed nem hőmérő.', feelsCold: 'hidegnek tűnik', feelsWarm: 'melegnek tűnik' },
+    secrets: { bottle: ['Készíts hőmérőt', 'Egy üveg, egy szívószál és színes víz.'], records: ['A Föld rekordjai', 'A leghidegebb és a legmelegebb.'] },
+    sec: { hands: '🙌 Melegítsd a kezeddel', ice: '🧊 Tedd jégbe', bottleText: 'A meleg víz egy kicsit több helyet foglal, ezért felkúszik a szívószálban. Pontosan így működik egy igazi hőmérő.',
+           recordsText: 'A Földön mért leghidegebb hőmérséklet: −89,2 °C a Vosztok állomáson, az Antarktiszon (1983). A legmelegebb: 56,7 °C a Halál-völgyben, USA (1913).',
+           vostok: 'Vosztok, Antarktisz', valley: 'Halál-völgy, USA' },
+    quiz: [
+      { q: 'A hőmérőt melegebb vízbe tesszük. A piros csík…', opts: ['felmegy', 'lemegy', 'eltűnik'], ok: 0 },
+      { q: 'Mit csinál a hőmérő?', opts: ['melegít', 'megméri, mennyire meleg vagy hideg', 'hűt'], ok: 1 },
+      { q: 'Egy fém- és egy fakanál ugyanazon az asztalon. Melyik a hidegebb?', opts: ['a fém', 'a fa', 'egyformák'], ok: 2 } ],
+    st: {
+      cups: [['🥤', 'Jeges víz', 'A piros csík lent van.', ''], ['🌡️', 'Feljebb = melegebb', 'A meleg folyadék több helyet foglal, és felkúszik a csőben.', 'A hőmérő mér, nem melegít.']],
+      scale: [['🌡️', 'Egy hosszú skála', 'A fagyitól a forró vízig.', ''], ['🌡️', 'Hidegtől a forróig', 'Fagyi −18 °C, te 37 °C, forrásban lévő víz 100 °C.', '']],
+      touch: [['✋', 'Két kanál', 'Fém és fa, ugyanazon az asztalon.', ''], ['✋', 'A kéz becsapható', 'Ugyanaz a hőmérséklet, más érzés.', '']],
+    },
+    fine: 'A rekordokat a Meteorológiai Világszervezet ismeri el. A testhőmérséklet kb. 36,5–37 °C.',
+  },
+};
+const TOPICS = [
+  { id: 'mt_PrWc-HZzDl', en: 'Temperature & Thermometers', ru: 'Температура и термометры', hu: 'Hőmérséklet és hőmérők' },
+];
+
+// --- numbers and colours -----------------------------------------------------------------------------------
+const MIN = -20, MAX = 100;
+const C = { cold: '#5BA8FF', cool: '#8FD3C5', warm: '#FFD45C', hot: '#FF6B4A', red: '#E8475A', wood: '#C9955B', metal: '#C9D1DE', ink: '#14213d' };
+const CUPS = [
+  { key: 'icy', t: 2, fx: 0.2, w0: 'rgba(170,215,255,.55)', w1: 'rgba(80,150,230,.7)', surf: 'rgba(200,232,255,.7)', ov: 'rgba(120,180,255,.2)', drop: '#A8D6FF' },
+  { key: 'warm', t: 38, fx: 0.5, w0: 'rgba(255,240,180,.5)', w1: 'rgba(255,222,130,.6)', surf: 'rgba(255,246,205,.7)', ov: 'rgba(255,225,140,.16)', drop: '#FFEBAA' },
+  { key: 'hot', t: 70, fx: 0.8, w0: 'rgba(255,196,100,.62)', w1: 'rgba(235,140,40,.75)', surf: 'rgba(255,214,140,.75)', ov: 'rgba(245,160,60,.22)', drop: '#F7B552' },
+];
+const ITEMS = [['🍦', -18], ['❄️', -5], ['🧊', 4], ['🌷', 15], ['🧒', 37], ['🛁', 40], ['🍵', 70], ['🫖', 100]];
+const ZONES = [[MIN, 5, C.cold], [5, 18, C.cool], [18, 45, C.warm], [45, MAX, C.hot]];
+const OKC = [0, 0, 1];            // right answers of the three cup questions
+const TT_END = 5.8;               // touch reveal length, seconds
+const WET = 0.55;                 // lift below which the bulb is under water
+const FONT = 'Nunito, sans-serif';
+const EMOJI = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+const hexRgb = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+const mix = (a, b, t) => { const A = hexRgb(a), B = hexRgb(b); return `rgb(${A.map((v, i) => Math.round(v + (B[i] - v) * t)).join(',')})`; };
+const STOPS = [C.cold, C.cool, C.warm, C.hot];
+const fracColor = (f) => { const g = clamp01(f) * 3, i = Math.min(2, Math.floor(g)); return mix(STOPS[i], STOPS[i + 1], g - i); };
+const tempColor = (t) => fracColor((t - MIN) / (MAX - MIN));
+const fmt = (n, d = 0) => {
+  let s = n.toFixed(d);
+  if (Number(s) === 0) s = s.replace(/^-/, '');
+  if (s[0] === '-') s = '−' + s.slice(1);
+  return lang === 'en' ? s : s.replace('.', ',');
+};
+const deg = (n, d = 0) => `${fmt(n, d)} °C`;
+const shuffle = () => { const a = [0, 1, 2, 3, 4, 5, 6, 7]; for (let i = 7; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+
+// --- state -------------------------------------------------------------------------------------------------
+const S = {
+  sec: null,                                    // cups view only: 'bottle' | 'records'
+  qi: 0, guess: null, shown: false, hold: false, // cups: question, picked option, verdict visible, waiting for the thermometer to come back
+  order: shuffle(), pos: new Array(8).fill(null), sel: null, last: null, checked: false, ct: 0, selAfter: 0, col: -20, // scale
+  tg: null, tt: 0, tdone: false,                // touch
+  bt: 10, bmode: 0,                             // bottle: target level in mm, 0 none / 1 hands / 2 ice
+};
+// the thermometer in the cups scene
+const M = { fx: CUPS[0].fx, lift: 0, tilt: 0, cup: 0, dest: 0, side: 1, reading: 2, target: 2, steps: [], drops: [], drip: 0, dacc: 0, rip: [], ph: 0 };
+const B = { bl: 10, ha: 0, ia: 0 };            // bottle: shown level, hands and ice animation
+const R = { t: 0, val: 20 };                    // records
+const G = {};                                   // geometry of the last frame, for taps
+
+const lab = shell({ key: 'thermometer', T, topics: TOPICS, views: ['cups', 'scale', 'touch'], onLang: render, onView: render });
+const secret = secretLab('thermometer', () => ({
+  secrets: [{ emo: '🍾', title: T[lang].secrets.bottle[0], desc: T[lang].secrets.bottle[1] }, { emo: '🌍', title: T[lang].secrets.records[0], desc: T[lang].secrets.records[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = '<div id="secCups"></div><div id="secScale"></div><div id="secTouch"></div>';
+
+// --- small drawing helpers -------------------------------------------------------------------------------
+const rr = (c, x, y, w, h, r) => { c.beginPath(); c.roundRect(x, y, Math.max(0, w), Math.max(0, h), Math.max(0, Math.min(r, w / 2, h / 2))); };
+function pill(c, text, x, y, o = {}) {
+  const { size = 12, fg = '#fff', bg = 'rgba(10,16,34,.82)', align = 'center', padX = 10, h = 22 } = o;
+  c.save(); c.font = `800 ${size}px ${FONT}`; c.textBaseline = 'middle'; c.textAlign = 'left';
+  const pw = c.measureText(text).width + padX * 2;
+  let px = align === 'center' ? x - pw / 2 : align === 'left' ? x : x - pw;
+  if (o.cw) px = Math.max(4, Math.min(o.cw - pw - 4, px));
+  rr(c, px, y - h / 2, pw, h, h / 2); c.fillStyle = bg; c.fill();
+  c.fillStyle = fg; c.fillText(text, px + padX, y + 1); c.restore();
+}
+function emoji(c, ch, x, y, size) {
+  c.save(); c.globalAlpha = 1; c.fillStyle = '#fff'; c.font = `${size}px ${EMOJI}`; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText(ch, x, y); c.restore();
+}
+// split a label into at most two lines that fit maxW
+function wrap2(c, text, maxW) {
+  if (c.measureText(text).width <= maxW) return [text];
+  const words = text.split(' ');
+  let best = [text], bestW = Infinity;
+  for (let i = 1; i < words.length; i++) {
+    const a = words.slice(0, i).join(' '), b = words.slice(i).join(' '), m = Math.max(c.measureText(a).width, c.measureText(b).width);
+    if (m < bestW) { bestW = m; best = [a, b]; }
+  }
+  return best;
+}
+
+// --- the thermometer: a glass tube, a bulb, a red column, a cold-to-hot band and a scale -----------------
+// o: x (tube axis), yHot / yCold (where max / min sit), tw (tube width), br (bulb radius), min, max, val,
+//    band, minor / major / every (tick steps in degrees), rot (the picture is rotated by this angle)
+function drawThermo(c, o) {
+  const { x, yHot, yCold, tw, br, min, max, val } = o, rot = o.rot || 0;
+  const a = tw / 2, rb = br + 3, k = Math.sqrt(rb * rb - a * a);
+  const yAt = (t) => yCold - (clamp(t, min, max) - min) / (max - min) * (yCold - yHot);
+  const yb = yCold + br * 1.1, top = yHot - a * 1.4, L = x - a, Rr = x + a, cw = tw * 0.36;
+  c.save(); c.lineJoin = 'round'; c.lineCap = 'round';
+  if (o.band) {
+    const bw = Math.max(5, tw * 0.34), g = c.createLinearGradient(0, yHot, 0, yCold);
+    g.addColorStop(0, C.hot); g.addColorStop(1 / 3, C.warm); g.addColorStop(2 / 3, C.cool); g.addColorStop(1, C.cold);
+    rr(c, L - bw - 5, yHot, bw, yCold - yHot, bw / 2); c.fillStyle = g; c.fill();
+    c.lineWidth = 1; c.strokeStyle = 'rgba(10,20,40,.55)'; c.stroke();
+  }
+  const sil = () => { // one outline for tube + bulb shell
+    const a1 = Math.atan2(-k, a);
+    c.beginPath(); c.moveTo(L, top + a); c.arc(x, top + a, a, Math.PI, 2 * Math.PI); c.lineTo(Rr, yb - k);
+    c.arc(x, yb, rb, a1, Math.PI - a1); c.lineTo(L, top + a); c.closePath();
+  };
+  c.save(); c.shadowColor = 'rgba(0,0,0,.35)'; c.shadowBlur = 12; c.shadowOffsetY = 5;
+  const gg = c.createLinearGradient(x - rb, 0, x + rb, 0);
+  gg.addColorStop(0, 'rgba(165,205,245,.30)'); gg.addColorStop(0.3, 'rgba(210,235,255,.34)'); gg.addColorStop(0.7, 'rgba(160,200,245,.24)'); gg.addColorStop(1, 'rgba(105,150,210,.42)');
+  sil(); c.fillStyle = gg; c.fill(); c.restore();
+  // the thin bore and the red column
+  rr(c, x - cw / 2 - 1, top + a * 0.9, cw + 2, yb - (top + a * 0.9), cw / 2 + 1); c.fillStyle = 'rgba(15,30,70,.38)'; c.fill();
+  const yv = yAt(val);
+  rr(c, x - cw / 2, yv, cw, yb - yv, cw / 2); c.fillStyle = C.red; c.fill();
+  c.beginPath(); c.moveTo(x - cw * 0.18, yv + cw * 0.6); c.lineTo(x - cw * 0.18, Math.max(yv + cw * 0.6, yb - br)); c.lineWidth = Math.max(1, cw * 0.16);
+  c.strokeStyle = 'rgba(255,255,255,.4)'; c.stroke();
+  c.beginPath(); c.ellipse(x - cw * 0.12, yv + cw * 0.5, cw * 0.14, cw * 0.22, 0, 0, Math.PI * 2); c.fillStyle = 'rgba(255,255,255,.35)'; c.fill();
+  // bulb: a sphere lit from the top-left of the screen
+  const gx = -0.7, gy = -0.7, lx = gx * Math.cos(rot) + gy * Math.sin(rot), ly = -gx * Math.sin(rot) + gy * Math.cos(rot);
+  const bg = c.createRadialGradient(x + lx * br * 0.45, yb + ly * br * 0.45, br * 0.1, x, yb, br);
+  bg.addColorStop(0, '#FF6B6B'); bg.addColorStop(1, '#C9283B');
+  c.beginPath(); c.arc(x, yb, br, 0, Math.PI * 2); c.fillStyle = bg; c.fill(); c.lineWidth = 1.5; c.strokeStyle = 'rgba(110,15,30,.65)'; c.stroke();
+  c.beginPath(); c.ellipse(x + lx * br * 0.55, yb + ly * br * 0.55, br * 0.24, br * 0.15, Math.atan2(ly, lx) + Math.PI / 2 + 0.3, 0, Math.PI * 2); c.fillStyle = 'rgba(255,255,255,.75)'; c.fill();
+  // glass on top: highlight stripe along the left third, a darker edge on the right, the outline
+  const hg = c.createLinearGradient(0, top, 0, yb);
+  hg.addColorStop(0, 'rgba(255,255,255,0)'); hg.addColorStop(0.12, 'rgba(255,255,255,.55)'); hg.addColorStop(0.85, 'rgba(255,255,255,.4)'); hg.addColorStop(1, 'rgba(255,255,255,0)');
+  rr(c, L + a * 0.28, top + a * 1.2, a * 0.42, (yb - k) - (top + a * 1.2) - 2, a * 0.21); c.fillStyle = hg; c.fill();
+  c.beginPath(); c.moveTo(Rr - 1.5, top + a); c.lineTo(Rr - 1.5, yb - k); c.lineWidth = 2.5; c.strokeStyle = 'rgba(8,24,60,.35)'; c.stroke();
+  sil(); c.lineWidth = 1.5; c.strokeStyle = 'rgba(215,235,255,.6)'; c.stroke();
+  // the scale
+  if (o.minor) {
+    for (let t = Math.ceil(min / o.minor) * o.minor; t <= max; t += o.minor) {
+      const y = yAt(t), mj = o.major && t % o.major === 0;
+      c.beginPath(); c.moveTo(Rr + 4, y); c.lineTo(Rr + 4 + (mj ? 10 : 5), y);
+      c.lineWidth = mj ? 1.8 : 1; c.strokeStyle = mj ? 'rgba(225,232,248,.95)' : 'rgba(200,212,235,.5)'; c.stroke();
+    }
+  }
+  if (o.every) {
+    c.fillStyle = '#D3D9E8'; c.font = `800 12px ${FONT}`;
+    for (let t = Math.ceil(min / o.every) * o.every; t <= max; t += o.every) {
+      c.save(); c.translate(Rr + 17, yAt(t)); c.rotate(-rot);
+      if (rot) { c.textAlign = 'center'; c.textBaseline = 'top'; c.fillText(fmt(t), 0, 1); } else { c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(fmt(t), 0, 1); }
+      c.restore();
+    }
+  }
+  c.restore();
+}
+
+// --- motion of the thermometer in the cups scene -----------------------------------------------------------
+function stepsTo(i, wait = 0) {
+  const s = [];
+  if (M.lift < 0.98) s.push({ k: 'lift', d: 0.5 });
+  if (wait) s.push({ k: 'wait', d: wait });
+  if (Math.abs(M.fx - CUPS[i].fx) > 0.001) s.push({ k: 'slide', to: CUPS[i].fx, d: 0.6 });
+  s.push({ k: 'dip', cup: i, d: 0.55 });
+  M.dest = i;
+  return s;
+}
+function goCup(i) {
+  if (S.sec) return;
+  if (M.dest === i && !M.steps.length && M.lift < 0.02) return;
+  M.steps = stepsTo(i); sfx.click(); render();
+}
+
+// one tick of everything that moves independently of the drawing
+function tick(dt) {
+  M.ph += dt * (1.3 + 10 * clamp01((M.reading - MIN) / (MAX - MIN)));
+  const st = M.steps[0];
+  if (st) {
+    if (st.t === undefined) {
+      st.t = 0; st.f0 = M.fx; st.l0 = M.lift;
+      if (st.k === 'dip') M.cup = st.cup;
+      if (st.k === 'lift') { if (M.lift < WET) M.drip = 0.7; sfx.push(); }
+    }
+    st.t += dt;
+    const p = clamp01(st.t / st.d), e = ease(p);
+    if (st.k === 'lift') M.lift = lerp(st.l0, 1, e);
+    else if (st.k === 'slide') { M.fx = lerp(st.f0, st.to, e); M.tilt = Math.sin(p * Math.PI) * 0.1 * Math.sign(st.to - st.f0); }
+    else if (st.k === 'dip') {
+      M.lift = lerp(st.l0, 0, e);
+      if (!st.rip && M.lift < WET) { st.rip = true; M.rip.push({ cup: M.cup, t: 0 }); sfx.click(); }
+    }
+    if (p >= 1) { M.steps.shift(); if (st.k === 'slide') M.tilt = 0; if (st.k === 'dip') M.lift = 0; }
+  }
+  if (M.lift < WET) M.target = CUPS[M.cup].t;
+  const d = M.target - M.reading;
+  M.reading = Math.abs(d) < 0.05 ? M.target : M.reading + d * (1 - Math.exp(-dt / 0.55));
+  M.rip.forEach((r) => { r.t += dt / 0.9; }); M.rip = M.rip.filter((r) => r.t < 1);
+  if (S.hold && !M.steps.length && Math.abs(M.target - M.reading) < 1) { S.hold = false; render(); }
+  if (S.guess !== null && !S.shown && !M.steps.length && Math.abs(M.target - M.reading) < 1) {
+    S.shown = true; (OKC[S.qi] === S.guess ? sfx.good : sfx.bad)(); render();
+  }
+  if (S.tg !== null && !S.tdone) {
+    S.tt += dt;
+    if (S.tt >= TT_END) { S.tdone = true; (S.tg === 2 ? sfx.good : sfx.bad)(); render(); }
+  }
+  if (S.checked) S.ct += dt;
+  B.bl += (S.bt - B.bl) * (1 - Math.exp(-dt / 0.8));
+  B.ha += ((S.bmode === 1 ? 1 : 0) - B.ha) * (1 - Math.exp(-dt / 0.35));
+  B.ia += ((S.bmode === 2 ? 1 : 0) - B.ia) * (1 - Math.exp(-dt / 0.3));
+  R.t += dt;
+}
+
+// --- records: the column runs down to the coldest and up to the hottest place --------------------------------
+const REC_COLD = -89.2, REC_HOT = 56.7;
+function recPhase(t) {
+  const c = t % 12;
+  if (c < 1) return { v: 20, cold: 0, hot: 0 };
+  if (c < 3.4) return { v: lerp(20, REC_COLD, ease((c - 1) / 2.4)), cold: 0, hot: 0 };
+  if (c < 5) return { v: REC_COLD, cold: (c - 3.4) / 1.6, hot: 0 };
+  if (c < 8) return { v: lerp(REC_COLD, REC_HOT, ease((c - 5) / 3)), cold: 0, hot: 0 };
+  if (c < 10) return { v: REC_HOT, cold: 0, hot: (c - 8) / 2 };
+  return { v: lerp(REC_HOT, 20, ease((c - 10) / 2)), cold: 0, hot: 0 };
+}
+
+// --- readout (also called from the draw loop, so it never gets stuck) -------------------------------------------
+let rdKey = '';
+function readout() {
+  const t = T[lang], v = lab.view;
+  let val = '', sub = '', col = C.cold;
+  if (v === 'cups') {
+    if (S.sec === 'bottle') { val = `${fmt(Math.round(B.bl))} ${t.mm}`; col = C.red; }
+    else if (S.sec === 'records') { const x = R.val; val = deg(x, 1); sub = t.c.word(x); col = fracColor((x + 90) / 150); }
+    else { const x = Math.round(M.reading); val = deg(x); sub = t.c.word(x); col = tempColor(M.reading); }
+  } else if (v === 'scale') {
+    if (S.checked) { const it = ITEMS[S.selAfter]; val = deg(it[1]); sub = t.s.names[S.selAfter]; col = tempColor(it[1]); }
+    else { val = `${S.pos.filter((p) => p !== null).length}/8`; sub = t.s.tap; col = C.cool; }
+  } else {
+    val = S.tg !== null && S.tt > 1.1 ? deg(20) : '?'; col = C.metal;
+  }
+  const key = `${val}|${sub}|${col}|${lang}`;
+  if (key !== rdKey) { rdKey = key; lab.setReadout(val, sub, '', col); }
+}
+
+// --- drawing: a shared backdrop, then one scene per view ------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  tick(dt);
+  c.save();
+  rr(c, 0, 0, w, h, 20); c.clip();
+  const g = c.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#1C2A4A'); g.addColorStop(1, '#24365C');
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  const v = lab.view;
+  if (v === 'cups') { if (S.sec === 'bottle') drawBottle(c, w, h, time); else if (S.sec === 'records') drawRecords(c, w, h); else drawCups(c, w, h, dt, time); }
+  else if (v === 'scale') drawScale(c, w, h, dt);
+  else drawTouch(c, w, h, dt, time);
+  c.restore();
+  readout();
+});
+
+// ----- view 1: cups -----------------------------------------------------------------------------------------
+function cupsLayout(w, h) {
+  const gh = h * 0.16, gw = clamp(w * 0.24, 70, 118), gb = h * 0.915;
+  const br = clamp(h * 0.04, 12, 19), tw = clamp(h * 0.046, 15, 24), th = h * 0.68;
+  const yb = gb - 6 - br, yCold = yb - br * 1.1, bottom = yb + br + 3;
+  return { gh, gw, gb, br, tw, lift: h * 0.195, yb, yCold, yHot: bottom - th + tw * 0.7, waterY: gb - gh * 0.8, xs: CUPS.map((p) => p.fx * w) };
+}
+
+function glass(c, L, i, pass) {
+  const cp = CUPS[i], x = L.xs[i], gw = L.gw, bw = gw * 0.78, gb = L.gb, gt = gb - L.gh, ry = gw * 0.5 * 0.15, bry = bw * 0.5 * 0.15;
+  const wy = L.waterY, hww = lerp(bw / 2, gw / 2, (gb - bry - wy) / (gb - bry - gt)), sry = hww * 0.15;
+  const wall = () => { c.beginPath(); c.moveTo(x - gw / 2, gt); c.lineTo(x - bw / 2, gb - bry); c.ellipse(x, gb - bry, bw / 2, bry, 0, Math.PI, 0, true); c.lineTo(x + gw / 2, gt); };
+  const water = () => {
+    c.beginPath(); c.moveTo(x - hww, wy); c.lineTo(x - bw / 2, gb - bry); c.ellipse(x, gb - bry, bw / 2, bry, 0, Math.PI, 0, true);
+    c.lineTo(x + hww, wy); c.ellipse(x, wy, hww, sry, 0, 0, Math.PI); c.closePath();
+  };
+  c.save(); c.lineJoin = 'round';
+  if (pass === 0) {
+    c.fillStyle = 'rgba(0,0,0,.28)'; c.beginPath(); c.ellipse(x + 4, gb + 1, bw * 0.6, bry * 1.7, 0, 0, Math.PI * 2); c.fill();
+    c.beginPath(); c.ellipse(x, gt, gw / 2, ry, 0, Math.PI, Math.PI * 2); c.strokeStyle = 'rgba(210,235,255,.4)'; c.lineWidth = 1.5; c.stroke();
+    const wg = c.createLinearGradient(0, wy, 0, gb); wg.addColorStop(0, cp.w0); wg.addColorStop(1, cp.w1);
+    water(); c.fillStyle = wg; c.fill();
+    c.beginPath(); c.ellipse(x, wy, hww, sry, 0, 0, Math.PI * 2); c.fillStyle = cp.surf; c.fill(); c.lineWidth = 1; c.strokeStyle = 'rgba(255,255,255,.45)'; c.stroke();
+  } else {
+    wall(); c.closePath(); c.fillStyle = 'rgba(190,225,255,.07)'; c.fill();
+    water(); c.fillStyle = cp.ov; c.fill();
+    c.beginPath(); c.moveTo(x - gw / 2 + 7, gt + 8); c.lineTo(x - bw / 2 + 6, gb - bry - 10); c.strokeStyle = 'rgba(255,255,255,.28)'; c.lineWidth = 4; c.stroke();
+    const sg = c.createLinearGradient(0, gt, 0, gb); sg.addColorStop(0, 'rgba(255,255,255,.8)'); sg.addColorStop(1, 'rgba(160,205,255,.35)');
+    wall(); c.strokeStyle = sg; c.lineWidth = 2.5; c.stroke();
+    c.beginPath(); c.ellipse(x, gt, gw / 2, ry, 0, 0, Math.PI); c.strokeStyle = 'rgba(255,255,255,.75)'; c.lineWidth = 2; c.stroke();
+    c.beginPath(); c.ellipse(x, gb - bry - 2, bw / 2 - 5, Math.max(0, bry - 2), 0, 0.15, Math.PI - 0.15); c.strokeStyle = 'rgba(255,255,255,.22)'; c.lineWidth = 1.5; c.stroke();
+  }
+  c.restore();
+}
+
+function steam(c, L, time) {
+  const x = L.xs[2], top = L.waterY - L.gh * 1.2;
+  c.save(); c.lineWidth = 3.5; c.lineCap = 'round';
+  const g = c.createLinearGradient(0, L.waterY, 0, top);
+  g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.15, 'rgba(255,255,255,.45)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+  c.strokeStyle = g;
+  for (let k = 0; k < 3; k++) {
+    const bx = x + (k - 1) * L.gw * 0.24;
+    c.beginPath();
+    for (let n = 0; n <= 14; n++) {
+      const u = n / 14, X = bx + Math.sin(u * 6 + time * 1.7 + k * 2.1) * (3 + u * 9), Y = L.waterY - 6 - u * (L.waterY - 6 - top);
+      if (n) c.lineTo(X, Y); else c.moveTo(X, Y);
+    }
+    c.stroke();
+  }
+  c.restore();
+}
+
+// the zoom bubble: liquid as particles that jiggle faster and spread out as it gets warmer
+const PARTS = Array.from({ length: 25 }, (_, i) => ({ col: i % 5, row: (i / 5) | 0, jx: ((i * 37) % 11) / 11 - 0.5, jy: ((i * 53) % 13) / 13 - 0.5, p1: i * 1.7, p2: i * 2.9, k1: 1 + ((i * 7) % 5) * 0.09, k2: 1 + ((i * 11) % 5) * 0.07 }));
+function drawBubble(c, cx, cy, R0, reading, ph) {
+  const f = clamp01((reading - MIN) / (MAX - MIN)), r = R0 - 3;
+  c.save(); c.shadowColor = 'rgba(0,0,0,.4)'; c.shadowBlur = 14; c.shadowOffsetY = 4;
+  c.beginPath(); c.arc(cx, cy, R0, 0, Math.PI * 2); c.fillStyle = '#0f1a33'; c.fill(); c.restore();
+  c.save(); c.beginPath(); c.arc(cx, cy, r, 0, Math.PI * 2); c.clip();
+  const bgG = c.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.1, cx, cy, r); bgG.addColorStop(0, '#223a6b'); bgG.addColorStop(1, '#0f1a33');
+  c.fillStyle = bgG; c.fillRect(cx - r, cy - r, 2 * r, 2 * r);
+  const boxW = r * 1.45, bottom = cy + r * 0.72, hf = r * 1.3 * lerp(0.34, 0.95, f), amp = lerp(0.6, 4.5, f) * (R0 / 56), pr = R0 * 0.062;
+  const lq = c.createLinearGradient(0, bottom - hf, 0, bottom); lq.addColorStop(0, 'rgba(232,71,90,.30)'); lq.addColorStop(1, 'rgba(201,40,59,.16)');
+  c.fillStyle = lq; c.fillRect(cx - r, bottom - hf - pr * 1.2, 2 * r, hf + pr * 1.2 + r);
+  c.beginPath(); c.moveTo(cx - r, bottom - hf - pr * 1.2); c.lineTo(cx + r, bottom - hf - pr * 1.2); c.strokeStyle = 'rgba(255,150,160,.7)'; c.lineWidth = 2; c.stroke();
+  for (const p of PARTS) {
+    const hx = cx - boxW / 2 + (p.col + 0.5 + p.jx * 0.35) / 5 * boxW, hy = bottom - (p.row + 0.5 + p.jy * 0.35) / 5 * hf;
+    const X = hx + amp * Math.sin(ph * p.k1 + p.p1) * Math.cos(ph * 0.7 + p.p2), Y = hy + amp * Math.cos(ph * p.k2 + p.p2) * Math.sin(ph * 0.6 + p.p1);
+    c.beginPath(); c.arc(X, Y, pr, 0, Math.PI * 2); c.fillStyle = '#FF6B6B'; c.fill();
+    c.beginPath(); c.arc(X - pr * 0.3, Y - pr * 0.3, pr * 0.35, 0, Math.PI * 2); c.fillStyle = 'rgba(255,255,255,.55)'; c.fill();
+  }
+  c.restore();
+  c.beginPath(); c.arc(cx, cy, r, 0, Math.PI * 2); c.lineWidth = 3; c.strokeStyle = 'rgba(200,230,255,.8)'; c.stroke();
+  c.beginPath(); c.arc(cx, cy, r - 6, Math.PI * 1.08, Math.PI * 1.45); c.lineWidth = 3; c.strokeStyle = 'rgba(255,255,255,.4)'; c.stroke();
+}
+
+function drawCups(c, w, h, dt, time) {
+  const t = T[lang], L = cupsLayout(w, h), lp = M.lift * L.lift, px = M.fx * w, topY = L.yHot - L.tw * 0.7;
+  G.cups = { xs: L.xs, top: h * 0.45 };
+  // table
+  const tg = c.createLinearGradient(0, L.gb - 6, 0, h); tg.addColorStop(0, '#2d3d68'); tg.addColorStop(1, '#1a2543');
+  c.fillStyle = tg; c.fillRect(0, L.gb - 6, w, h - L.gb + 6);
+  c.fillStyle = 'rgba(255,255,255,.1)'; c.fillRect(0, L.gb - 6, w, 1.5);
+  CUPS.forEach((_, i) => glass(c, L, i, 0));
+  // ripples where the bulb went in
+  for (const r of M.rip) {
+    const rx = lerp(6, L.gw * 0.4, ease(r.t));
+    c.beginPath(); c.ellipse(L.xs[r.cup], L.waterY, rx, rx * 0.15, 0, 0, Math.PI * 2); c.strokeStyle = `rgba(255,255,255,${(1 - r.t) * 0.6})`; c.lineWidth = 1.5; c.stroke();
+  }
+  // the thermometer, swinging a little while it travels
+  c.save(); c.translate(px, topY - lp); c.rotate(M.tilt); c.translate(-px, -topY);
+  drawThermo(c, { x: px, yHot: L.yHot, yCold: L.yCold, tw: L.tw, br: L.br, min: MIN, max: MAX, val: M.reading, band: true, minor: 2, major: 10, every: 10 });
+  c.restore();
+  CUPS.forEach((_, i) => glass(c, L, i, 1));
+  // drops falling off the bulb as it comes out
+  const bx = px, by = L.yb + L.br + 3 - lp;
+  if (M.drip > 0) {
+    M.drip -= dt; M.dacc += dt;
+    while (M.dacc > 0.035) { M.dacc -= 0.035; M.drops.push({ x: bx + (Math.random() - 0.5) * 9, y: by - 2, vy: 0, r: 2 + Math.random() * 1.8, life: 1 }); }
+  }
+  for (const d of M.drops) { d.vy += 900 * dt; d.y += d.vy * dt; d.life -= dt; }
+  M.drops = M.drops.filter((d) => d.y < L.waterY + 2 && d.life > 0);
+  c.fillStyle = CUPS[M.cup].drop;
+  for (const d of M.drops) { c.beginPath(); c.ellipse(d.x, d.y, d.r * 0.75, d.r * 1.15, 0, 0, Math.PI * 2); c.fill(); }
+  // ice cubes sit on the water of the icy glass, at full opacity
+  const isz = Math.round(clamp(L.gw * 0.3, 20, 34)), bob = (k) => Math.sin(time * 1.3 + k * 2) * 2;
+  emoji(c, '🧊', L.xs[0] - L.gw * 0.27, L.waterY + 3 + bob(0), isz);
+  emoji(c, '🧊', L.xs[0] + L.gw * 0.26, L.waterY + 7 + bob(1), isz);
+  if (Math.abs(M.fx - CUPS[0].fx) > 0.05 || M.lift > 0.6) emoji(c, '🧊', L.xs[0] - L.gw * 0.02, L.waterY + 9 + bob(2), Math.round(isz * 0.9));
+  steam(c, L, time);
+  // the zoom bubble sits on the side away from the thermometer
+  M.side += ((M.dest === 2 ? -1 : 1) - M.side) * (1 - Math.exp(-dt * 6));
+  const R0 = clamp(Math.min(w, h) * 0.14, 40, 66), bcx = clamp(px + M.side * (R0 + L.tw / 2 + 78), R0 + 10, w - R0 - 10), bcy = clamp(h * 0.27, R0 + 10, h);
+  c.save(); c.setLineDash([3, 4]); c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1.5;
+  c.beginPath(); c.arc(bx, L.yb - lp, L.br + 8, 0, Math.PI * 2); c.stroke();
+  const ang = Math.atan2(bcy - (L.yb - lp), bcx - bx);
+  c.beginPath(); c.moveTo(bx + Math.cos(ang) * (L.br + 8), L.yb - lp + Math.sin(ang) * (L.br + 8)); c.lineTo(bcx - Math.cos(ang) * R0, bcy - Math.sin(ang) * R0); c.strokeStyle = 'rgba(255,255,255,.3)'; c.stroke();
+  c.restore();
+  drawBubble(c, bcx, bcy, R0, M.reading, M.ph);
+  // names of the glasses
+  CUPS.forEach((cp, i) => pill(c, t.c.cups[cp.key], L.xs[i], (L.gb + h) / 2 + 4, { cw: w, bg: M.dest === i && S.qi >= 3 ? 'rgba(255,255,255,.2)' : 'rgba(10,16,34,.7)' }));
+}
+
+// ----- view 2: one scale ------------------------------------------------------------------------------------
+const SC = ITEMS.map(() => ({ x: 0, y: 0, hw: 40, hh: 33, init: false }));
+function drawScale(c, w, h, dt) {
+  const t = T[lang], names = t.s.names, trayN = S.pos.filter((p) => p === null).length;
+  const cols = w >= 640 ? 8 : 4, gap = 6, pad = 12, cw = Math.min(92, (w - 2 * pad - (cols - 1) * gap) / cols), ch = 66, rows = 8 / cols;
+  const trayB = 12 + rows * ch + (rows - 1) * gap;
+  const ty = h - 128, x0 = 48, x1 = w - 26, X = (v) => lerp(x0, x1, (v - MIN) / (MAX - MIN));
+  G.scale = { ty, T: (x) => MIN + (x - x0) / (x1 - x0) * (MAX - MIN) };
+  // the column follows the card you moved last (or, after the check, the card you tapped)
+  const colT = S.checked ? ITEMS[S.selAfter][1] : S.last !== null && S.pos[S.last] !== null ? S.pos[S.last] : MIN;
+  S.col += (colT - S.col) * (1 - Math.exp(-dt * 7));
+  c.save(); c.translate(0, ty); c.rotate(Math.PI / 2);
+  drawThermo(c, { x: 0, yHot: -x1, yCold: -x0, tw: 26, br: 17, min: MIN, max: MAX, val: S.col, band: true, minor: 2, major: 10, every: w >= 520 ? 10 : 20, rot: Math.PI / 2 });
+  c.restore();
+  // word zones light up after the check
+  const za = S.checked ? clamp01((S.ct - 1.9) / 0.7) : 0;
+  if (za > 0) {
+    ZONES.forEach(([lo, hi, col], zi) => {
+      const xa = X(lo) + 1.5, xb = X(hi) - 1.5, mx = (xa + xb) / 2, py = ty + (zi % 2 ? 104 : 78);
+      c.save(); c.globalAlpha = za * 0.3; rr(c, xa, ty - 13, xb - xa, 26, 8); c.fillStyle = col; c.fill();
+      c.globalAlpha = za; rr(c, xa, ty + 56, xb - xa, 4, 2); c.fillStyle = col; c.fill();
+      c.beginPath(); c.moveTo(mx, ty + 60); c.lineTo(mx, py - 11); c.strokeStyle = col; c.lineWidth = 1.5; c.stroke();
+      pill(c, t.s.zones[zi], mx, py, { bg: col, fg: C.ink, cw: w });
+      c.restore();
+    });
+  }
+  // lanes: cards that sit near each other go on different rows
+  const placed = S.pos.map((p, i) => (p !== null ? i : -1)).filter((i) => i >= 0);
+  const key = (i) => (S.checked ? ITEMS[i][1] : S.pos[i]);
+  placed.sort((p, q) => key(p) - key(q) || p - q);
+  const sep = S.checked ? 96 : 48, laneH = S.checked ? 78 : 52, base = ty - 46;
+  const maxL = trayN ? Math.max(2, Math.floor((base - 22 - (trayB + 8)) / laneH) + 1) : 6;
+  const lanes = [], lane = {};
+  placed.forEach((i, n) => {
+    const x = X(key(i)); let l = lanes.findIndex((lx) => x - lx >= sep);
+    if (l < 0) { if (lanes.length < maxL) { l = lanes.length; lanes.push(x); } else { l = n % maxL; lanes[l] = x; } } else lanes[l] = x;
+    lane[i] = l;
+  });
+  // where every card wants to be
+  const goal = ITEMS.map((_, i) => {
+    if (S.pos[i] === null) {
+      const k = S.order.indexOf(i), col = k % cols, row = (k / cols) | 0, x = (w - (cols * cw + (cols - 1) * gap)) / 2 + col * (cw + gap) + cw / 2;
+      return { x, y: 12 + row * (ch + gap) + ch / 2, hw: cw / 2, hh: ch / 2, tray: true };
+    }
+    let tp = S.pos[i];
+    if (S.checked) { const e = ease(clamp01((S.ct - ITEMS.filter((it) => it[1] < ITEMS[i][1]).length * 0.1) / 1.0)); tp = lerp(S.pos[i], ITEMS[i][1], e); }
+    return { x: X(tp), y: base - lane[i] * laneH, hw: 22, hh: 22, tray: false, tp, e: S.checked ? ease(clamp01((S.ct - ITEMS.filter((it) => it[1] < ITEMS[i][1]).length * 0.1) / 1.0)) : 0 };
+  });
+  const kk = 1 - Math.exp(-dt * 14);
+  SC.forEach((s, i) => {
+    const g = goal[i];
+    if (!s.init) { s.x = g.x; s.y = g.y; s.hw = g.hw; s.hh = g.hh; s.init = true; }
+    s.x += (g.x - s.x) * kk; s.y += (g.y - s.y) * kk; s.hw += (g.hw - s.hw) * kk; s.hh += (g.hh - s.hh) * kk;
+  });
+  G.scale.hit = (px, py) => {
+    for (let i = 7; i >= 0; i--) { const s = SC[i]; if (Math.abs(px - s.x) <= s.hw + 3 && Math.abs(py - s.y) <= s.hh + 3) return i; }
+    return null;
+  };
+  // empty places in the tray
+  if (trayN) {
+    c.save(); c.setLineDash([4, 4]); c.strokeStyle = 'rgba(190,210,255,.25)'; c.lineWidth = 1.5;
+    S.order.forEach((_, k) => {
+      const col = k % cols, row = (k / cols) | 0, x = (w - (cols * cw + (cols - 1) * gap)) / 2 + col * (cw + gap);
+      rr(c, x, 12 + row * (ch + gap), cw, ch, 14); c.stroke();
+    });
+    c.restore();
+  }
+  // pins and arrows
+  const pinEnd = ty - 28;
+  for (const i of placed) {
+    const s = SC[i], g = goal[i];
+    c.beginPath(); c.moveTo(g.x, s.y + 22); c.lineTo(g.x, pinEnd); c.strokeStyle = 'rgba(230,238,255,.55)'; c.lineWidth = 1.5; c.stroke();
+    c.beginPath(); c.arc(g.x, pinEnd, 3.5, 0, Math.PI * 2); c.fillStyle = '#fff'; c.fill();
+    if (S.checked) {
+      const gx = X(S.pos[i]), dx = g.x - gx;
+      if (Math.abs(ITEMS[i][1] - S.pos[i]) >= 3 && Math.abs(dx) > 8) {
+        const col = Math.abs(ITEMS[i][1] - S.pos[i]) <= 5 ? '#3ddc97' : '#f5c84c', dir = Math.sign(dx), ex = g.x - dir * 26, sx = gx + dir * 2;
+        c.save(); c.strokeStyle = col; c.fillStyle = col; c.lineWidth = 2.5; c.globalAlpha = clamp01(Math.abs(dx) / 30);
+        c.setLineDash([5, 4]); c.beginPath(); c.arc(gx, s.y, 15, 0, Math.PI * 2); c.stroke(); c.setLineDash([]);
+        if ((ex - sx) * dir > 4) {
+          c.beginPath(); c.moveTo(sx + dir * 15, s.y); c.lineTo(ex, s.y); c.stroke();
+          c.beginPath(); c.moveTo(ex + dir * 7, s.y); c.lineTo(ex - dir * 3, s.y - 6); c.lineTo(ex - dir * 3, s.y + 6); c.closePath(); c.fill();
+        }
+        c.restore();
+      }
+    }
+  }
+  // the cards, the picked one last
+  const drawOrder = [...Array(8).keys()].sort((p, q) => (S.sel === p) - (S.sel === q));
+  for (const i of drawOrder) {
+    const s = SC[i], g = goal[i], sel = S.sel === i || (S.checked && S.selAfter === i);
+    c.save(); c.translate(s.x, s.y - (S.sel === i ? 6 : 0)); if (S.sel === i) c.scale(1.07, 1.07);
+    c.shadowColor = 'rgba(0,0,0,.4)'; c.shadowBlur = 12; c.shadowOffsetY = 5;
+    const fg = c.createLinearGradient(-s.hw, -s.hh, s.hw, s.hh); fg.addColorStop(0, '#F8FAFF'); fg.addColorStop(1, '#D3DEF3');
+    rr(c, -s.hw, -s.hh, s.hw * 2, s.hh * 2, 14); c.fillStyle = fg; c.fill(); c.shadowColor = 'transparent';
+    c.lineWidth = sel ? 3 : 1.5; c.strokeStyle = sel ? '#FFD45C' : S.checked && g.e > 0.98 ? tempColor(ITEMS[i][1]) : 'rgba(20,30,60,.45)'; c.stroke();
+    if (g.tray) {
+      emoji(c, ITEMS[i][0], 0, -s.hh * 0.36, 28);
+      c.font = `800 12px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#1C2A4A';
+      const lines = wrap2(c, names[i], cw - 4);
+      lines.forEach((ln, n) => c.fillText(ln, 0, lines.length === 1 ? s.hh * 0.5 : s.hh * 0.3 + n * 13));
+    } else emoji(c, ITEMS[i][0], 0, 1, 26);
+    c.restore();
+    if (S.checked && !g.tray && g.e > 0.5) { // the name under a card that has found its place
+      c.save(); c.globalAlpha = clamp01((g.e - 0.5) * 2); c.font = `800 12px ${FONT}`;
+      const lines = wrap2(c, names[i], 90), mw = Math.max(...lines.map((ln) => c.measureText(ln).width)) + 14, bh = lines.length * 14 + 8, by = s.y + 28;
+      rr(c, s.x - mw / 2, by, mw, bh, 9); c.fillStyle = 'rgba(10,16,34,.82)'; c.fill();
+      c.fillStyle = '#EDEFF7'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      lines.forEach((ln, n) => c.fillText(ln, s.x, by + 4 + 7 + n * 14 + 1));
+      c.restore();
+    }
+  }
+  // a picked card asks for a place on the track
+  if (S.sel !== null) {
+    c.save(); c.globalAlpha = 0.35 + 0.25 * Math.sin(performance.now() / 260); c.strokeStyle = '#FFD45C'; c.lineWidth = 3;
+    rr(c, x0 - 6, ty - 17, x1 - x0 + 12, 34, 14); c.stroke(); c.restore();
+  }
+}
+
+function scaleTap(x, y) {
+  const g = G.scale; if (!g?.hit) return;
+  if (S.checked) { const i = g.hit(x, y); if (i !== null && i !== S.selAfter) { S.selAfter = i; sfx.tick(); render(); } return; }
+  if (S.sel !== null && y > g.ty - 22 && y < g.ty + 70) {
+    S.pos[S.sel] = Math.round(clamp(g.T(x), MIN, MAX)); S.last = S.sel; S.sel = null; sfx.snap(); render(); return;
+  }
+  const i = g.hit(x, y);
+  if (i !== null) { S.sel = S.sel === i ? null : i; sfx.click(); render(); } else if (S.sel !== null) { S.sel = null; render(); }
+}
+
+// ----- view 3: touch test -----------------------------------------------------------------------------------
+let tbl = null;
+function tableCanvas(w, h) {
+  if (tbl && tbl.w === w && tbl.h === h) return tbl.cv;
+  const d = Math.min(window.devicePixelRatio || 1, 2), cv = document.createElement('canvas'), x = cv.getContext('2d');
+  cv.width = Math.round(w * d); cv.height = Math.round(h * d); x.setTransform(d, 0, 0, d, 0, 0);
+  const g = x.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#6f4d34'); g.addColorStop(1, '#4a3322');
+  x.fillStyle = g; x.fillRect(0, 0, w, h);
+  let s = 7; const rnd = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
+  const planks = 4, pw = w / planks;
+  for (let p = 0; p < planks; p++) {
+    const px = p * pw;
+    x.fillStyle = `rgba(${p % 2 ? '255,220,170' : '0,0,0'},.05)`; x.fillRect(px, 0, pw, h);
+    for (let n = 0; n < 16; n++) {
+      const gx = px + 4 + rnd() * (pw - 8), amp = 1 + rnd() * 3, ph = rnd() * 6;
+      x.beginPath();
+      for (let yy = 0; yy <= h; yy += 12) { const X = gx + Math.sin(yy / 38 + ph) * amp; if (yy) x.lineTo(X, yy); else x.moveTo(X, yy); }
+      x.strokeStyle = rnd() > 0.35 ? 'rgba(40,22,10,.16)' : 'rgba(255,225,180,.08)'; x.lineWidth = 0.8 + rnd(); x.stroke();
+    }
+    x.fillStyle = 'rgba(20,10,4,.55)'; x.fillRect(px - 1, 0, 2, h);
+  }
+  const v = x.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.3, w / 2, h / 2, Math.max(w, h) * 0.75);
+  v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.4)'); x.fillStyle = v; x.fillRect(0, 0, w, h);
+  tbl = { w, h, cv };
+  return cv;
+}
+
+function spoon(c, x, top, len, rx, wood) {
+  const ry = rx * 1.3, cy = top + ry, hw0 = rx * 0.2, hw1 = rx * 0.34, yEnd = top + len;
+  const sil = () => {
+    c.beginPath(); c.ellipse(x, cy, rx, ry, 0, 0, Math.PI * 2, true);
+    c.moveTo(x - hw0, cy + ry * 0.8); c.lineTo(x - hw1, yEnd - hw1); c.arc(x, yEnd - hw1, hw1, Math.PI, 0, true); c.lineTo(x + hw0, cy + ry * 0.8); c.closePath();
+  };
+  c.save(); c.lineJoin = 'round';
+  c.save(); c.shadowColor = 'rgba(0,0,0,.45)'; c.shadowBlur = 14; c.shadowOffsetX = 6; c.shadowOffsetY = 8; sil(); c.fillStyle = wood ? C.wood : C.metal; c.fill(); c.restore();
+  const g = c.createLinearGradient(x - rx, 0, x + rx, 0);
+  if (wood) { g.addColorStop(0, '#E2B47C'); g.addColorStop(0.4, C.wood); g.addColorStop(1, '#9A6A36'); } else { g.addColorStop(0, '#F5F8FC'); g.addColorStop(0.35, C.metal); g.addColorStop(0.75, '#9AA5B8'); g.addColorStop(1, '#7C8798'); }
+  sil(); c.fillStyle = g; c.fill();
+  c.save(); sil(); c.clip();
+  if (wood) { // grain along the handle and rings in the bowl
+    c.strokeStyle = 'rgba(95,58,24,.32)'; c.lineWidth = 1;
+    for (let n = -2; n <= 2; n++) { c.beginPath(); for (let yy = top; yy <= yEnd; yy += 10) { const X = x + n * hw1 * 0.38 + Math.sin(yy / 30 + n) * 1.6; if (yy > top) c.lineTo(X, yy); else c.moveTo(X, yy); } c.stroke(); }
+  }
+  c.restore();
+  // the bowl, a little hollow
+  const ig = c.createLinearGradient(x - rx * 0.7, cy - ry * 0.7, x + rx * 0.7, cy + ry * 0.7);
+  if (wood) { ig.addColorStop(0, '#85582A'); ig.addColorStop(1, '#DDAE74'); } else { ig.addColorStop(0, '#8C97AA'); ig.addColorStop(1, '#EAEFF6'); }
+  c.beginPath(); c.ellipse(x, cy + ry * 0.03, rx * 0.74, ry * 0.78, 0, 0, Math.PI * 2); c.fillStyle = ig; c.fill();
+  c.lineWidth = 1; c.strokeStyle = wood ? 'rgba(70,40,15,.5)' : 'rgba(60,70,90,.5)'; c.stroke();
+  c.beginPath(); c.ellipse(x - rx * 0.28, cy - ry * 0.3, rx * 0.16, ry * 0.1, -0.6, 0, Math.PI * 2); c.fillStyle = 'rgba(255,255,255,.55)'; c.fill();
+  if (!wood) { c.beginPath(); c.moveTo(x - hw0 * 0.35, cy + ry * 1.05); c.lineTo(x - hw1 * 0.4, yEnd - hw1 * 1.4); c.strokeStyle = 'rgba(255,255,255,.65)'; c.lineWidth = 2; c.stroke(); }
+  sil(); c.lineWidth = 1.5; c.strokeStyle = wood ? 'rgba(70,40,15,.6)' : 'rgba(55,65,85,.65)'; c.stroke();
+  c.restore();
+}
+
+const HD = []; // heat dots streaming from the hand
+function drawTouch(c, w, h, dt, time) {
+  const t = T[lang], tt = S.tg !== null ? S.tt : 0;
+  c.drawImage(tableCanvas(w, h), 0, 0, w, h);
+  const sx = [w * 0.3, w * 0.7], top = h * 0.17, len = h * 0.62, rx = clamp(w * 0.075, 22, 40), cyc = top + len * 0.6;
+  spoon(c, sx[0], top, len, rx, false); spoon(c, sx[1], top, len, rx, true);
+  // where the hand is: resting below, then on the metal, then on the wood
+  const hs = clamp(w * 0.15, 48, 64), rest = [w * 0.5, h * 0.9];
+  const pos = (j) => [sx[j] + hs * 0.08, cyc + hs * 0.1];
+  let hx = rest[0], hy = rest[1], touching = -1, moving = 0;
+  if (tt >= 1.0) {
+    const A = pos(0), Bp = pos(1);
+    if (tt < 1.6) { const e = ease((tt - 1.0) / 0.6); hx = lerp(rest[0], A[0], e); hy = lerp(rest[1], A[1], e); moving = Math.sin(e * Math.PI); if (tt > 1.5) touching = 0; }
+    else if (tt < 3.3) { hx = A[0]; hy = A[1]; touching = 0; }
+    else if (tt < 3.9) { const e = ease((tt - 3.3) / 0.6); hx = lerp(A[0], Bp[0], e); hy = lerp(A[1], Bp[1], e); moving = Math.sin(e * Math.PI); if (tt > 3.8) touching = 1; }
+    else { hx = Bp[0]; hy = Bp[1]; touching = 1; }
+  }
+  // warmth stays on the wood
+  if (tt > 3.9) {
+    const gw = clamp01((tt - 3.9) / 1.5), P = pos(1), gr = c.createRadialGradient(sx[1], cyc, 0, sx[1], cyc, rx * 1.6);
+    gr.addColorStop(0, `rgba(255,150,60,${0.55 * gw})`); gr.addColorStop(1, 'rgba(255,150,60,0)');
+    c.fillStyle = gr; c.beginPath(); c.arc(sx[1], P[1] - hs * 0.1, rx * 1.6, 0, Math.PI * 2); c.fill();
+  }
+  // heat dots: fast and pulled away down the metal, slow and staying on the wood
+  if (touching >= 0) {
+    const rate = touching === 0 ? 26 : 3.5;
+    HD.acc = (HD.acc || 0) + dt * rate;
+    while (HD.acc > 1) {
+      HD.acc -= 1;
+      HD.push({ j: touching, x: sx[touching] + (Math.random() - 0.5) * rx * 0.25, y: cyc + (Math.random() - 0.5) * 8, vy: touching === 0 ? 150 + Math.random() * 60 : 6 + Math.random() * 8, age: 0, max: touching === 0 ? 1.3 : 2.4 });
+    }
+  }
+  for (const d of HD) { d.age += dt; d.y += d.vy * dt; }
+  for (let i = HD.length - 1; i >= 0; i--) if (HD[i].age > HD[i].max || HD[i].y > top + len - 6) HD.splice(i, 1);
+  for (const d of HD) {
+    const a = 1 - d.age / d.max;
+    c.save(); c.globalAlpha = clamp01(a * 1.3);
+    const gr = c.createRadialGradient(d.x, d.y, 0, d.x, d.y, 7); gr.addColorStop(0, 'rgba(255,170,70,.9)'); gr.addColorStop(1, 'rgba(255,150,40,0)');
+    c.fillStyle = gr; c.beginPath(); c.arc(d.x, d.y, 7, 0, Math.PI * 2); c.fill();
+    c.fillStyle = '#FF9A3C'; c.beginPath(); c.arc(d.x, d.y, 3, 0, Math.PI * 2); c.fill();
+    c.restore();
+  }
+  // two small thermometers appear, both reading 20 °C
+  if (tt > 0) {
+    const ta = ease(clamp01(tt / 0.7)), mt = clamp(h * 0.3, 90, 150), tx = [w * 0.1, w * 0.9], yHot = h * 0.2 + (1 - ta) * 14;
+    for (let j = 0; j < 2; j++) {
+      c.save(); c.globalAlpha = ta;
+      drawThermo(c, { x: tx[j], yHot, yCold: yHot + mt, tw: 12, br: 11, min: MIN, max: MAX, val: lerp(MIN, 20, ease(clamp01((tt - 0.3) / 1.2))), band: true, minor: 10, major: 10 });
+      pill(c, deg(20), tx[j], yHot + mt + 38, { cw: w });
+      c.restore();
+    }
+  }
+  // what it feels like
+  const labelY = top + len + 30;
+  [[0, 2.4, t.t.feelsCold, '#3C78C9'], [1, 4.7, t.t.feelsWarm, '#D9742E']].forEach(([j, at, text, bg]) => {
+    if (tt < at) return;
+    const k = ease(clamp01((tt - at) / 0.35)); c.save(); c.translate(sx[j], labelY); c.scale(0.6 + 0.4 * k, 0.6 + 0.4 * k); c.globalAlpha = k;
+    pill(c, text, 0, 0, { bg, size: 13, h: 26, padX: 12 }); c.restore();
+  });
+  // the hand, at full opacity
+  c.save(); c.globalAlpha = 1;
+  c.fillStyle = 'rgba(0,0,0,.3)'; c.beginPath(); c.ellipse(hx + 6 + moving * 6, hy + hs * 0.42 + moving * 5, hs * 0.38, hs * 0.12, 0, 0, Math.PI * 2); c.fill();
+  c.restore();
+  emoji(c, '🖐️', hx, hy - hs * 0.15 - moving * 8, hs * (touching >= 0 ? 0.96 : 1 + moving * 0.08));
+}
+
+// ----- secret 1: a bottle thermometer -----------------------------------------------------------------------------
+function drawBottle(c, w, h, time) {
+  const cx = w * 0.42, bw = clamp(w * 0.3, 90, 130) / 2, bodyB = h * 0.9, bodyT = bodyB - h * 0.34, nw = bw * 0.28, ys0 = bodyT - h * 0.045, neckT = bodyT - h * 0.1, capH = h * 0.04;
+  const capTop = neckT - capH, strawTop = h * 0.07, pxMm = (capTop - strawTop - 6) / 25, levelY = capTop - B.bl * pxMm, sw = 9;
+  // table
+  const tg = c.createLinearGradient(0, bodyB, 0, h); tg.addColorStop(0, '#2d3d68'); tg.addColorStop(1, '#1a2543');
+  c.fillStyle = tg; c.fillRect(0, bodyB, w, h - bodyB); c.fillStyle = 'rgba(255,255,255,.1)'; c.fillRect(0, bodyB, w, 1.5);
+  c.fillStyle = 'rgba(0,0,0,.3)'; c.beginPath(); c.ellipse(cx + 5, bodyB + 2, bw * 1.05, 8, 0, 0, Math.PI * 2); c.fill();
+  // warm glow behind the bottle
+  if (B.ha > 0.02) {
+    const gr = c.createRadialGradient(cx, bodyT + h * 0.15, 10, cx, bodyT + h * 0.15, bw * 2.4); gr.addColorStop(0, `rgba(255,150,70,${0.4 * B.ha})`); gr.addColorStop(1, 'rgba(255,150,70,0)');
+    c.fillStyle = gr; c.fillRect(0, 0, w, h);
+  }
+  // ruler behind the straw: 0 mm at the top of the cap
+  const rw = 52, rx0 = cx - 8;
+  const rg = c.createLinearGradient(rx0, 0, rx0 + rw, 0); rg.addColorStop(0, '#F6EBC8'); rg.addColorStop(1, '#E2D3A6');
+  rr(c, rx0, strawTop - 4, rw, capTop - strawTop + 4, 6); c.fillStyle = rg; c.fill(); c.lineWidth = 1.5; c.strokeStyle = 'rgba(80,60,20,.55)'; c.stroke();
+  c.fillStyle = '#4a3a1a'; c.font = `800 12px ${FONT}`; c.textAlign = 'left'; c.textBaseline = 'middle';
+  for (let mm = 0; mm <= 25; mm++) {
+    const y = capTop - mm * pxMm, mj = mm % 5 === 0;
+    c.beginPath(); c.moveTo(rx0 + rw, y); c.lineTo(rx0 + rw - (mj ? 14 : 7), y); c.lineWidth = mj ? 1.6 : 1; c.strokeStyle = 'rgba(60,45,15,.8)'; c.stroke();
+    if (mj) c.fillText(String(mm), rx0 + rw - 36, y + 1);
+  }
+  // the bottle, full of coloured water
+  const body = () => {
+    const r = 22;
+    c.beginPath(); c.moveTo(cx - nw, neckT); c.lineTo(cx - nw, ys0);
+    c.bezierCurveTo(cx - nw, ys0 + h * 0.06, cx - bw, bodyT, cx - bw, bodyT + h * 0.07); c.lineTo(cx - bw, bodyB - r);
+    c.quadraticCurveTo(cx - bw, bodyB, cx - bw + r, bodyB); c.lineTo(cx + bw - r, bodyB); c.quadraticCurveTo(cx + bw, bodyB, cx + bw, bodyB - r);
+    c.lineTo(cx + bw, bodyT + h * 0.07); c.bezierCurveTo(cx + bw, bodyT, cx + nw, ys0 + h * 0.06, cx + nw, ys0); c.lineTo(cx + nw, neckT); c.closePath();
+  };
+  c.save(); c.shadowColor = 'rgba(0,0,0,.35)'; c.shadowBlur = 14; c.shadowOffsetY = 6; body(); c.fillStyle = 'rgba(200,230,255,.2)'; c.fill(); c.restore();
+  c.save(); body(); c.clip();
+  const wg = c.createLinearGradient(cx - bw, 0, cx + bw, 0); wg.addColorStop(0, '#F0687A'); wg.addColorStop(0.5, C.red); wg.addColorStop(1, '#B8283C');
+  c.fillStyle = wg; c.fillRect(cx - bw, neckT, bw * 2, bodyB - neckT);
+  if (B.ia > 0.02) { c.fillStyle = `rgba(190,225,255,${0.3 * B.ia})`; c.fillRect(cx - bw, neckT, bw * 2, bodyB - neckT); }
+  c.beginPath(); c.moveTo(cx - bw + 14, bodyT + h * 0.09); c.lineTo(cx - bw + 14, bodyB - 26); c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 6; c.stroke();
+  c.restore();
+  body(); c.lineWidth = 2; c.strokeStyle = 'rgba(220,240,255,.65)'; c.stroke();
+  // the straw: clear, with the water climbing in it
+  const strawBottom = bodyB - 16;
+  rr(c, cx - sw / 2, levelY, sw, strawBottom - levelY, 3); c.fillStyle = C.red; c.fill();
+  rr(c, cx - sw / 2, strawTop, sw, strawBottom - strawTop, 4); c.fillStyle = 'rgba(210,235,255,.22)'; c.fill();
+  c.lineWidth = 1.5; c.strokeStyle = 'rgba(230,245,255,.75)'; c.stroke();
+  c.beginPath(); c.moveTo(cx - sw / 2 + 2, strawTop + 6); c.lineTo(cx - sw / 2 + 2, strawBottom - 4); c.strokeStyle = 'rgba(255,255,255,.4)'; c.lineWidth = 1.5; c.stroke();
+  c.beginPath(); c.ellipse(cx, levelY, sw / 2 - 1, 2, 0, 0, Math.PI * 2); c.fillStyle = '#FF8A96'; c.fill();
+  // the cap, with the straw through it
+  const cg = c.createLinearGradient(cx - nw, 0, cx + nw, 0); cg.addColorStop(0, '#E2B47C'); cg.addColorStop(0.5, C.wood); cg.addColorStop(1, '#9A6A36');
+  c.beginPath(); c.moveTo(cx - nw - 3, capTop); c.lineTo(cx + nw + 3, capTop); c.lineTo(cx + nw + 6, neckT + 2); c.lineTo(cx - nw - 6, neckT + 2); c.closePath();
+  c.fillStyle = cg; c.fill(); c.lineWidth = 1.5; c.strokeStyle = 'rgba(70,40,15,.7)'; c.stroke();
+  rr(c, cx - sw / 2 - 1, capTop - 1, sw + 2, capH + 3, 2); c.fillStyle = 'rgba(210,235,255,.5)'; c.fill();
+  // level marker on the ruler
+  c.beginPath(); c.moveTo(rx0 + 2, levelY); c.lineTo(rx0 + rw - 2, levelY); c.setLineDash([3, 3]); c.strokeStyle = C.red; c.lineWidth = 2; c.stroke(); c.setLineDash([]);
+  // ice around the bottle
+  if (B.ia > 0.02) {
+    const s = ease(B.ia), spots = [[-1.25, 0.9], [-0.7, 1.0], [0, 1.05], [0.7, 1.0], [1.25, 0.9], [-0.95, 0.55], [0.95, 0.55]];
+    spots.forEach(([dx, dy], n) => emoji(c, '🧊', cx + dx * bw, bodyB - 14 * dy - 6 - (n > 4 ? 28 : 0), Math.round(34 * s)));
+  }
+  // two hands around the bottle
+  if (B.ha > 0.02) {
+    const e = ease(B.ha), hs = clamp(w * 0.15, 50, 62), y = bodyT + h * 0.14;
+    emoji(c, '🖐️', cx - bw - hs * 0.2 - (1 - e) * 70, y, hs);
+    c.save(); c.translate(cx + bw + hs * 0.2 + (1 - e) * 70, y); c.scale(-1, 1); emoji(c, '🖐️', 0, 0, hs); c.restore();
+  }
+}
+
+// ----- secret 2: Earth's records --------------------------------------------------------------------------------------
+const LAND = [
+  [[-168, 66], [-160, 70], [-140, 70], [-125, 70], [-95, 72], [-80, 70], [-65, 60], [-55, 52], [-67, 45], [-76, 36], [-81, 25], [-97, 26], [-97, 18], [-87, 21], [-82, 9], [-92, 15], [-105, 20], [-117, 32], [-124, 40], [-125, 49], [-135, 58], [-150, 60], [-165, 62]],
+  [[-55, 60], [-45, 60], [-20, 70], [-20, 82], [-60, 82], [-70, 76]],
+  [[-78, 8], [-60, 10], [-50, 0], [-35, -6], [-40, -22], [-55, -35], [-66, -47], [-70, -55], [-75, -48], [-72, -30], [-70, -18], [-81, -5]],
+  [[-17, 21], [-6, 36], [10, 37], [32, 31], [43, 12], [51, 12], [40, -5], [40, -16], [33, -26], [20, -35], [15, -28], [12, -12], [9, 4], [-8, 4], [-17, 14]],
+  [[-10, 36], [-9, 43], [-1, 46], [-5, 50], [8, 54], [5, 60], [15, 68], [30, 71], [60, 69], [90, 76], [130, 72], [160, 69], [180, 66], [170, 60], [150, 58], [140, 45], [128, 35], [122, 30], [120, 22], [108, 10], [103, 1], [98, 15], [90, 22], [80, 10], [73, 20], [60, 25], [48, 30], [36, 35], [28, 36], [22, 38], [12, 44], [3, 43], [-5, 36]],
+  [[114, -22], [125, -14], [137, -12], [143, -11], [153, -26], [150, -37], [140, -38], [130, -32], [115, -34]],
+];
+const ICE = [[-180, -70], [-120, -74], [-60, -72], [0, -70], [60, -68], [120, -66], [180, -70], [180, -90], [-180, -90]];
+function blob(c, pts, P) { // a closed shape with smoothed corners
+  const q = pts.map(([lo, la]) => P(lo, la)), n = q.length;
+  c.beginPath(); c.moveTo((q[0][0] + q[n - 1][0]) / 2, (q[0][1] + q[n - 1][1]) / 2);
+  for (let i = 0; i < n; i++) { const a = q[i], b = q[(i + 1) % n]; c.quadraticCurveTo(a[0], a[1], (a[0] + b[0]) / 2, (a[1] + b[1]) / 2); }
+  c.closePath();
+}
+function pin(c, x, y, col, pulse) {
+  if (pulse > 0) { c.beginPath(); c.arc(x, y, 6 + pulse * 22, 0, Math.PI * 2); c.strokeStyle = col; c.globalAlpha = 1 - pulse; c.lineWidth = 2.5; c.stroke(); c.globalAlpha = 1; }
+  c.save(); c.shadowColor = 'rgba(0,0,0,.5)'; c.shadowBlur = 6;
+  c.beginPath(); c.moveTo(x, y); c.arc(x, y - 13, 7, 0.569, 2.572, true); c.closePath(); c.fillStyle = col; c.fill(); c.restore();
+  c.lineWidth = 1.5; c.strokeStyle = '#fff'; c.beginPath(); c.moveTo(x, y); c.arc(x, y - 13, 7, 0.569, 2.572, true); c.closePath(); c.stroke();
+  c.beginPath(); c.arc(x, y - 13, 2.6, 0, Math.PI * 2); c.fillStyle = '#fff'; c.fill();
+}
+function drawRecords(c, w, h) {
+  const t = T[lang], wide = w >= 560, ph = recPhase(R.t); R.val = ph.v;
+  let map, thx, zoneTop, zoneBot;
+  if (wide) { const mw = w - 366; map = { x: 350, y: (h - mw * 0.486) / 2, w: mw, h: mw * 0.486 }; thx = 70; zoneTop = 18; zoneBot = h - 18; }
+  else { const mw = w - 28; map = { x: 14, y: 14, w: mw, h: mw * 0.486 }; thx = clamp(w * 0.2, 60, 110); zoneTop = map.y + map.h + 28; zoneBot = h - 16; }
+  // the map
+  const P = (lo, la) => [map.x + (lo + 180) / 360 * map.w, map.y + (85 - la) / 175 * map.h];
+  c.save(); rr(c, map.x, map.y, map.w, map.h, 14); c.clip();
+  const og = c.createLinearGradient(0, map.y, 0, map.y + map.h); og.addColorStop(0, '#1b3763'); og.addColorStop(1, '#102446'); c.fillStyle = og; c.fillRect(map.x, map.y, map.w, map.h);
+  c.strokeStyle = 'rgba(190,215,255,.08)'; c.lineWidth = 1; c.beginPath();
+  for (let la = -60; la <= 60; la += 30) { const [, y] = P(0, la); c.moveTo(map.x, y); c.lineTo(map.x + map.w, y); }
+  for (let lo = -120; lo <= 120; lo += 60) { const [x] = P(lo, 0); c.moveTo(x, map.y); c.lineTo(x, map.y + map.h); }
+  c.stroke();
+  const lg = c.createLinearGradient(0, map.y, 0, map.y + map.h); lg.addColorStop(0, '#58799F'); lg.addColorStop(1, '#3A5A85');
+  for (const pts of LAND) { blob(c, pts, P); c.fillStyle = lg; c.fill(); c.lineWidth = 1; c.strokeStyle = 'rgba(200,225,255,.4)'; c.stroke(); }
+  blob(c, ICE, P); c.fillStyle = '#DCE9F8'; c.fill();
+  c.restore();
+  c.lineWidth = 1.5; c.strokeStyle = 'rgba(200,225,255,.35)'; rr(c, map.x, map.y, map.w, map.h, 14); c.stroke();
+  const [vx, vy] = P(-116.9, 36.5), [ox, oy] = P(106.8, -78.5);
+  pin(c, ox, oy, C.cold, ph.cold); pin(c, vx, vy, C.hot, ph.hot);
+  // the big thermometer, −90 to 60 °C
+  const tw = clamp(h * 0.05, 18, 26), br = tw * 0.85, yHot = zoneTop + tw * 1.4 + 6, yCold = zoneBot - br * 2.3 - 4;
+  drawThermo(c, { x: thx, yHot, yCold, tw, br, min: -90, max: 60, val: ph.v, band: true, minor: 5, major: 30, every: 30 });
+  const yAt = (v) => yCold - (v + 90) / 150 * (yCold - yHot);
+  // the two record cards, tied to their place on the scale
+  [[REC_HOT, C.hot, t.sec.valley, ph.hot], [REC_COLD, C.cold, t.sec.vostok, ph.cold]].forEach(([v, col, name, act]) => {
+    const y = yAt(v), x = thx + tw / 2 + 62;
+    c.save(); c.font = `900 20px ${FONT}`; const num = deg(v, 1), nw = c.measureText(num).width; c.font = `800 12px ${FONT}`;
+    const cwid = Math.max(nw, c.measureText(name).width) + 24, chh = 52, cy = clamp(y - chh / 2, 8, h - chh - 8);
+    c.beginPath(); c.moveTo(thx + tw / 2 + 54, y); c.lineTo(x, y); c.setLineDash([3, 3]); c.strokeStyle = col; c.lineWidth = 1.5; c.stroke(); c.setLineDash([]);
+    c.beginPath(); c.moveTo(thx - tw / 2 - 2, y); c.lineTo(thx + tw / 2 + 2, y); c.strokeStyle = col; c.lineWidth = 2; c.stroke();
+    rr(c, x, cy, cwid, chh, 14); c.fillStyle = 'rgba(10,16,34,.85)'; c.fill(); c.lineWidth = 2 + act * 1.5; c.strokeStyle = col; c.stroke();
+    c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillStyle = '#fff'; c.font = `900 20px ${FONT}`; c.fillText(num, x + 12, cy + 18);
+    c.fillStyle = '#C6CDE0'; c.font = `800 12px ${FONT}`; c.fillText(name, x + 12, cy + 38);
+    c.restore();
+  });
+}
+
+// --- controls ------------------------------------------------------------------------------------------------
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+function answerCups(i) {
+  if (S.guess !== null) return;
+  S.guess = i; S.shown = false; sfx.click();
+  M.steps = S.qi === 2 ? stepsTo(0, 1.2) : stepsTo(S.qi === 0 ? 1 : 2);
+  render(); showStage();
+}
+function answerTouch(i) {
+  if (S.tg !== null) return;
+  S.tg = i; S.tt = 0; S.tdone = false; HD.length = 0; sfx.click(); render(); showStage();
+}
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const a = b.dataset.act, k = b.dataset.k;
+  if (a === 'cq') return answerCups(+k);
+  if (a === 'cnext') { S.qi++; S.guess = null; S.shown = false; sfx.click(); return render(); }
+  if (a === 'cup') return goCup(+k);
+  if (a === 'cagain') { S.qi = 0; S.guess = null; S.shown = false; S.hold = true; M.steps = stepsTo(0); sfx.click(); return render(); }
+  if (a === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    S.sec = S.sec === k ? null : k;
+    if (S.sec === 'records') R.t = 0;
+    if (S.sec === 'bottle') { S.bt = 10; B.bl = 10; S.bmode = 0; }
+    sfx.click(); return render();
+  }
+  if (a === 'hands') { S.bt = 16; S.bmode = 1; sfx.push(); return render(); }
+  if (a === 'ice') { S.bt = 4; S.bmode = 2; sfx.click(); return render(); }
+  if (a === 'scheck') { if (S.pos.some((p) => p === null)) return; S.checked = true; S.ct = 0; S.selAfter = 0; S.sel = null; sfx.good(); render(); return showStage(); }
+  if (a === 'sagain') { Object.assign(S, { order: shuffle(), pos: new Array(8).fill(null), sel: null, last: null, checked: false, ct: 0, selAfter: 0 }); sfx.click(); return render(); }
+  if (a === 'tq') return answerTouch(+k);
+  if (a === 'tagain') { S.tg = null; S.tt = 0; S.tdone = false; HD.length = 0; sfx.click(); return render(); }
+});
+$('cv').addEventListener('pointerdown', (ev) => {
+  const r = $('cv').getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+  if (lab.view === 'cups' && !S.sec && S.qi >= 3 && G.cups && y > G.cups.top) {
+    let best = 0; G.cups.xs.forEach((cx, i) => { if (Math.abs(cx - x) < Math.abs(G.cups.xs[best] - x)) best = i; });
+    goCup(best);
+  } else if (lab.view === 'scale') scaleTap(x, y);
+});
+
+// --- one render per change: controls, the state card, glow --------------------------------------------------------
+function questionBlock(q, opts, ok, picked, shown, res, act, nextAct, hold = false) {
+  const t = T[lang], done = picked !== null;
+  let html = `<p class="q">${esc(q)}</p><div class="obs">${opts.map((o, i) =>
+    `<button class="ob${done && shown && i === ok ? ' good' : ''}${done && shown && i === picked && i !== ok ? ' miss' : ''}" data-act="${act}" data-k="${i}"${done || hold ? ' disabled' : ''}>${esc(o)}</button>`).join('')}</div>`;
+  if (done && shown) {
+    html += `<div class="verdict" style="color:${picked === ok ? 'var(--ok)' : 'var(--wip)'}">${esc(picked === ok ? t.right : t.wrong)}</div><p class="explain">${esc(res)}</p>`;
+    if (nextAct) html += `<button class="btn" data-act="${nextAct}">${esc(t.next)}</button>`;
+  }
+  return html;
+}
+function render() {
+  const t = T[lang], v = lab.view;
+  document.body.dataset.v = v === 'cups' && S.sec ? S.sec : v;
+  $('secCups').style.display = v === 'cups' ? '' : 'none';
+  $('secScale').style.display = v === 'scale' ? '' : 'none';
+  $('secTouch').style.display = v === 'touch' ? '' : 'none';
+  for (const id of ['secCups', 'secScale', 'secTouch']) if (id !== { cups: 'secCups', scale: 'secScale', touch: 'secTouch' }[v]) $(id).innerHTML = ''; // one set of buttons at a time
+  let st;
+  if (v === 'cups') st = renderCups(t); else if (v === 'scale') st = renderScale(t); else st = renderTouch(t);
+  // the fine print names body temperature: keep it away from the scale puzzle until it is checked
+  const extra = v === 'scale' && !S.checked ? '' : `<div class="fine">${esc(t.fine)}</div>`;
+  lab.setState({ emo: st[0], title: st[1], lead: st[2], body: st[3], extra });
+  readout();
+}
+function renderCups(t) {
+  const free = S.qi >= 3, open = secret.unlocked(), c = t.c;
+  const sc = (k, emo, last) => `<button class="chip secret${open ? ' open' : ''}${S.sec === k ? ' on' : ''}${last ? ' last' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  let main = '', mid = '';
+  if (S.sec === 'bottle') main = `<div class="chips"><button class="chip" data-act="hands">${esc(t.sec.hands)}</button><button class="chip" data-act="ice">${esc(t.sec.ice)}</button></div>`;
+  else if (!S.sec && !free) {
+    const q = S.qi;
+    main = questionBlock([c.q1, c.q2, c.q3][q], [c.o1, c.o2, c.o3][q], OKC[q], S.guess, S.shown, [c.r1, c.r2, c.r3][q], 'cq', 'cnext', S.hold);
+  } else if (!S.sec) {
+    mid = CUPS.map((cp, i) => `<button class="chip${M.dest === i ? ' on' : ''}" data-act="cup" data-k="${i}">${esc(c.cups[cp.key])}</button>`).join('') + `<button class="chip" data-act="cagain">↻ ${esc(t.again)}</button>`;
+  }
+  $('secCups').innerHTML = `${main}<div class="row2"><div class="chips" style="width:100%">${sc('bottle', '🍾')}${mid}${sc('records', '🌍', true)}</div></div>`;
+  lab.setGlow(S.sec === 'records' ? 'rgba(255, 120, 90, .22)' : S.sec === 'bottle' ? 'rgba(232, 71, 90, .22)' : 'rgba(91, 168, 255, .28)');
+  if (S.sec === 'bottle') return ['🍾', t.secrets.bottle[0], S.bmode ? t.sec.bottleText : t.secrets.bottle[1], ''];
+  if (S.sec === 'records') return ['🌍', t.secrets.records[0], t.sec.recordsText, ''];
+  return t.st.cups[S.qi > 1 || (S.qi === 1 && S.shown) ? 1 : 0]; // 'Up = hotter' would answer Q2
+}
+function renderScale(t) {
+  const placed = S.pos.filter((p) => p !== null).length;
+  $('secScale').innerHTML = S.checked
+    ? `<p class="explain">${esc(t.s.r)}</p><button class="chip" data-act="sagain">↻ ${esc(t.again)}</button>`
+    : `<p class="hint">${esc(t.s.tap)}</p><button class="btn" data-act="scheck"${placed < 8 ? ' disabled' : ''}>${esc(t.s.check)}</button>`;
+  lab.setGlow('rgba(143, 211, 197, .24)');
+  return t.st.scale[S.checked ? 1 : 0];
+}
+function renderTouch(t) {
+  $('secTouch').innerHTML = questionBlock(t.t.q, t.t.o, 2, S.tg, S.tdone, t.t.r, 'tq', null) + (S.tdone ? `<div class="row2"><button class="chip" data-act="tagain">↻ ${esc(t.again)}</button></div>` : '');
+  lab.setGlow('rgba(201, 149, 91, .24)');
+  return t.st.touch[S.tdone ? 1 : 0];
+}
+render();
+</script>
+</body>
+</html>
