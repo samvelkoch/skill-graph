@@ -5,12 +5,12 @@
 (() => {
   const UI = {
     en: { done: 'Done ✓', labs: 'Labs', title: 'Interactive explainers', sub: 'Learn a topic by playing with it.', open: 'Open the explorer',
-          topics: (n) => `${n} ${n === 1 ? 'topic' : 'topics'}`, all: 'All labs', show: (n) => `Show all ${n} topics with a lab`, subj: { Science: 'Science', Mathematics: 'Mathematics', Computing: 'Computing', Geography: 'Geography', History: 'History', Music: 'Music', English: 'Reading', Other: 'Other' }, more: 'More explainers are on the way.', has: 'Has an interactive explainer', find: 'Find a lab…', none: 'No labs found.', moreIn: (n) => `${n} more →` },
+          topics: (n) => `${n} ${n === 1 ? 'topic' : 'topics'}`, allN: (n) => `All ${n} labs →`, show: (n) => `Show the ${n} topics that have a lab`, subj: { Science: 'Science', Mathematics: 'Mathematics', Computing: 'Computing', Geography: 'Geography', History: 'History', Music: 'Music', English: 'Reading', Other: 'Other' }, more: 'More explainers are on the way.', has: 'Has an interactive explainer', find: 'Find a lab…', none: 'No labs found.', moreIn: (n) => `${n} more →` },
     ru: { done: 'Пройдена ✓', labs: 'Лаборатории', title: 'Интерактивные объяснения', sub: 'Разберись в теме, играя с ней.', open: 'Открыть лабораторию',
           topics: (n) => `${n} ${n % 10 === 1 && n % 100 !== 11 ? 'тема' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'темы' : 'тем'}`,
-          all: 'Все лаборатории', show: (n) => `Показать все темы с лабораториями (${n})`, subj: { Science: 'Естествознание', Mathematics: 'Математика', Computing: 'Информатика', Geography: 'География', History: 'История', Music: 'Музыка', English: 'Чтение', Other: 'Другое' }, more: 'Скоро будут и другие.', has: 'Есть интерактивное объяснение', find: 'Найти лабораторию…', none: 'Ничего не нашлось.', moreIn: (n) => `ещё ${n} →` },
+          allN: (n) => `Все лаборатории (${n}) →`, show: (n) => `Показать темы с лабораториями (${n})`, subj: { Science: 'Естествознание', Mathematics: 'Математика', Computing: 'Информатика', Geography: 'География', History: 'История', Music: 'Музыка', English: 'Чтение', Other: 'Другое' }, more: 'Скоро будут и другие.', has: 'Есть интерактивное объяснение', find: 'Найти лабораторию…', none: 'Ничего не нашлось.', moreIn: (n) => `ещё ${n} →` },
     hu: { done: 'Kész ✓', labs: 'Laborok', title: 'Interaktív magyarázók', sub: 'Értsd meg a témát játék közben.', open: 'A labor megnyitása',
-          topics: (n) => `${n} téma`, all: 'Minden labor', show: (n) => `Mind a ${n} laboros téma mutatása`, subj: { Science: 'Természettudomány', Mathematics: 'Matematika', Computing: 'Informatika', Geography: 'Földrajz', History: 'Történelem', Music: 'Ének-zene', English: 'Olvasás', Other: 'Egyéb' }, more: 'Hamarosan jönnek az újak.', has: 'Interaktív magyarázó tartozik hozzá', find: 'Labor keresése…', none: 'Nincs találat.', moreIn: (n) => `még ${n} →` },
+          topics: (n) => `${n} téma`, allN: (n) => `Mind a ${n} labor →`, show: (n) => `Mind a ${n} laboros téma mutatása`, subj: { Science: 'Természettudomány', Mathematics: 'Matematika', Computing: 'Informatika', Geography: 'Földrajz', History: 'Történelem', Music: 'Ének-zene', English: 'Olvasás', Other: 'Egyéb' }, more: 'Hamarosan jönnek az újak.', has: 'Interaktív magyarázó tartozik hozzá', find: 'Labor keresése…', none: 'Nincs találat.', moreIn: (n) => `még ${n} →` },
   };
   const SUBJ_ORDER = ['Science', 'Mathematics', 'Computing', 'Geography', 'History', 'Music', 'English', 'Other'];
   const ALL_UP_TO = 16, PER_SUBJ = 5, HITS = 12;
@@ -45,6 +45,7 @@
     #labsQ:focus { border-color: var(--red); }
     #labsMenu .moreln { display: block; margin: -2px 2px 6px; font-size: 12px; font-weight: 800; color: var(--soft); text-decoration: none; text-align: right; }
     #labsMenu .moreln:hover { color: #fff; }
+    #labsAll { width: 100%; justify-content: center; margin-bottom: 8px; text-decoration: none; }
     #labsShow { width: 100%; justify-content: center; margin-bottom: 4px; white-space: normal; }
     #labsMenu .grp { font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); font-weight: 700; margin: 12px 2px 6px; }
     .labcard .m { display: flex; gap: 8px; align-items: center; margin-top: 6px; font-size: 11px; color: var(--faint); font-weight: 700; }
@@ -68,7 +69,8 @@
     $('labsBtn').innerHTML = `🧪 <span class="t">${esc(u.labs)}</span> <span class="n">${labs.length}</span>`;
     $('labsBtn').title = u.title;
     $('labsHead').innerHTML = `<h3>${esc(u.title)}<span style="color:var(--red)">.</span></h3><p class="s">${esc(u.sub)}</p>
-      <button class="btn" id="labsShow">🗺 ${esc(u.show(byTopic.size))}</button>`;
+      <a class="btn primary" id="labsAll" href="labs/?lang=${cur()}">🧪 ${esc(u.allN(labs.length))}</a>
+      <button class="btn" id="labsShow">${esc(u.show(byTopic.size))}</button>`;
     $('labsQ').placeholder = u.find;
     renderLabs();
   }
@@ -89,7 +91,7 @@
         `<div class="grp">${esc(u.subj[sj] ?? sj)} · ${ls.length}</div>${ls.slice(0, cap).map(card).join('')}${
           ls.length > cap ? `<a class="moreln" href="labs/?lang=${cur()}&subject=${sj}">${esc(u.moreIn(ls.length - cap))}</a>` : ''}`).join('');
     }
-    $('labsList').innerHTML = html + `<div class="foot"><span>${esc(u.more)}</span><a href="labs/?lang=${cur()}">${esc(u.all)} →</a></div>`;
+    $('labsList').innerHTML = html + `<div class="foot"><span>${esc(u.more)}</span></div>`;
   }
   function decoratePanel() {
     const body = $('panelBody'), l = byTopic.get(topic());
@@ -122,7 +124,7 @@
     $('labsMenu').addEventListener('click', (ev) => {
       if (!ev.target.closest('#labsShow')) return;
       $('labsMenu').classList.remove('open');
-      try { f.labs = true; select(null); applyFilters(); } catch { /* viewer not ready yet */ }
+      try { f.labs = true; select(null); setView('list'); applyFilters(); scrollTo(0, 0); } catch { /* viewer not ready yet */ }
     });
     document.addEventListener('click', (ev) => { if (!ev.target.closest('#labsMenu')) $('labsMenu').classList.remove('open'); });
     addEventListener('keydown', (ev) => { if (ev.key === 'Escape') $('labsMenu').classList.remove('open'); });
