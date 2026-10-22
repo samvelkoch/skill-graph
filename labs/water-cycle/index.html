@@ -1,0 +1,794 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Where Does the Puddle Go? · Skill Graph</title>
+<meta name="description" content="Follow one drop from a puddle up into a cloud and back to the sea, race puddles in the sun and the shade, and pour all of Earth’s water into 100 cups. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  #stage { min-height: 500px; }
+  .ask { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); width: min(560px, calc(100% - 16px)); padding: 12px 14px; text-align: center;
+    background: rgba(14, 17, 28, .9); }
+  .ask .q { font: 500 21px/1.2 var(--serif); color: #fff; margin-bottom: 10px; text-wrap: balance; }
+  .ask .opts { display: grid; gap: 6px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .ask .opts.col1 { grid-template-columns: 1fr; }
+  .ask .opts.two { grid-template-columns: 1fr 1fr; }
+  .ask .opt { min-height: 36px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 800; font-size: 13px; line-height: 1.25; cursor: pointer; text-wrap: balance; }
+  .ask .opt:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .ask .opt:disabled { cursor: default; }
+  .ask .opt.sel { border-color: #fff; background: rgba(255, 255, 255, .16); }
+  .ask .verdict { font-weight: 900; font-size: 15px; margin-bottom: 6px; }
+  .ask .verdict.ok { color: var(--ok); } .ask .verdict.no { color: var(--wip); }
+  .ask .ans { display: inline-block; padding: 4px 12px; border-radius: 999px; font-weight: 800; font-size: 13px; margin: 0 3px 8px; }
+  .ask .ans.good { border: 1px solid var(--ok); background: rgba(61, 220, 151, .16); }
+  .ask .ans.bad { border: 1px solid var(--red); background: rgba(255, 59, 48, .14); text-decoration: line-through; }
+  .ask p { margin: 0 0 10px; color: var(--soft); font-size: 13px; line-height: 1.45; }
+  .ask p:last-child { margin-bottom: 0; }
+  .ask .note { color: var(--mut); font-size: 12.5px; }
+  .ask .btn { min-height: 38px; }
+  .slab { display: flex; justify-content: space-between; font-size: 12.5px; font-weight: 800; color: var(--soft); margin: 0 2px; }
+  #sun { --track: linear-gradient(90deg, #5a6b92, #ffd35a); }
+  #temp { --track: linear-gradient(90deg, #6fb6ff, #ff8a5a); }
+  .chip, .seg.small button { min-height: 36px; }
+  #legend { display: grid; gap: 6px; }
+  #legend .lg { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 700; color: var(--soft); }
+  #legend .sw { flex: none; width: 16px; height: 16px; border-radius: 5px; border: 1px solid var(--stroke2); }
+  #legend .sw.sp { width: 8px; height: 8px; margin: 4px; border-radius: 50%; }
+  .fine { font-size: 11px; color: var(--faint); }
+  @media (max-width: 760px) {
+    #stage { min-height: 0; }
+    body[data-v=cycle] #stage { height: min(150vw, 620px); }
+    body[data-v=dry] #stage { height: min(150vw, 640px); }
+    body[data-v=earth] #stage { height: min(165vw, 700px); }
+    .ask .q { font-size: 17px; margin-bottom: 8px; } .ask { padding: 10px 12px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Where Does the Puddle Go?', title: 'Where does the puddle go?',
+    lines: [['Water never vanishes.', 'It goes round.'], ['The Sun lifts it', 'as invisible vapour.'], ['Clouds and rain', 'bring it back.']],
+    views: { cycle: '🔄 One drop', dry: '☀️ Dry it', earth: '🌍 All the water' },
+    next: 'Next ▶', right: 'You guessed right!', wrong: 'Look where it went.',
+    cards: {
+      cycle: ['🔄', 'The water cycle', 'Evaporation: water becomes invisible vapour. Condensation: vapour becomes cloud drops.', 'Precipitation: rain or snow falls, flows back to the sea, and it starts again.'],
+      dry: ['☀️', 'Faster or slower', 'Warmth and wind speed evaporation up.', 'A lid stops the vapour from leaving.'],
+      earth: ['🌍', 'Salty, frozen, hidden', 'Almost all water on Earth is salty sea water.', 'Most fresh water is ice or underground. Lakes and rivers hold very little.'],
+    },
+    fine: 'Numbers from USGS “Where is Earth’s water?” (after Shiklomanov): oceans 96.5 %, ice and glaciers 1.7 %, groundwater 1.7 %, lakes, rivers and air together well under 0.1 %. Rounded to cups.',
+    c: { invisible: 'water vapour (invisible)', cloudLabel: 'a cloud: tiny drops of water', sun: 'Sun', auto: '▶ Go round again', stop: '⏸ Stop', trips: (n) => `Trips around: ${n}`,
+         st: { liquid: 'liquid water', vapour: 'water vapour', cloud: 'cloud drop', rain: 'raindrop' },
+         place: { puddle: 'in a puddle', air: 'in the air', cloud: 'in a cloud', mountain: 'on the mountain', river: 'in the river', sea: 'in the sea' },
+         q1: 'The Sun warms the puddle. What happens to our drop?', o1: ['It is gone for ever', 'It rises into the air as invisible vapour', 'A cloud sucks it up at once'],
+         q2: 'High up the air is cold. What does the vapour do?', o2: ['Turns into tiny drops: a cloud', 'Keeps rising into space', 'Turns into smoke'],
+         q3: 'The cloud grows heavy over the mountain. What next?', o3: ['It stays there for ever', 'The drops fall as rain or snow', 'It flies back to the puddle'],
+         q4: 'Our drop is on the mountain. Where does it go?', o4: ['It stays on the top', 'It disappears into the rock', 'Downhill, into a river and the sea'],
+         q5: 'Now it is in the sea and the Sun shines. What happens?', o5: ['It evaporates again: the trip starts over', 'Nothing, the trip is over', 'It sinks for ever'],
+         why: ['The water didn’t vanish. It became water vapour, a gas you can’t see.', 'Cold air turns vapour back into tiny drops of liquid. Many drops make a cloud.',
+               'When the drops join and grow heavy, they fall: rain, or snow where it is cold.', 'Water runs downhill: streams join into rivers, rivers flow into the sea.',
+               'The sea warms up and evaporates too. The water goes round and round.'] },
+    d: { q: (r) => 'Which one dries first?', cases: { sunShade: ['in the sun', 'in the shade'], windy: ['warm and windy', 'cold and still'], lid: ['with a lid', 'without a lid'] },
+         why: { sunShade: 'Warmth makes water evaporate faster.', windy: 'Warm air and wind carry the vapour away, so more water can evaporate.',
+                lid: 'Under the lid the vapour can’t escape: it turns back into drops on the lid.' }, hours: (h) => `${h} h` },
+    e: { q1: 'Where is most of Earth’s water?', o1: ['in rivers and lakes', 'in the salty oceans', 'in ice', 'under the ground'],
+         q2: 'And most of the FRESH water?', o2: ['in rivers and lakes', 'frozen in ice and glaciers', 'in clouds'],
+         salt: '97 cups: salty water (oceans)', ice: '2 cups: ice and glaciers', ground: '1 cup: fresh water under the ground', spoon: 'one spoonful: all the lakes, rivers and the air',
+         legend: 'If all Earth’s water were 100 cups, only about a spoonful would be in lakes and rivers.' },
+    secrets: { snow: ['Rain or snow?', 'Turn the cloud’s temperature up and down.'], old: ['Dinosaur water', 'How old is the water in your glass?'] },
+    sec: { temp: 'Temperature in the cloud', snowText: 'Below 0 °C the drops freeze and fall as snow. Above 0 °C they fall as rain.',
+           oldText: 'Water has been going round on Earth for billions of years. A drop in your glass may once have been rain on a dinosaur.',
+           eras: ['Today', '150 million years ago', '3+ billion years ago'] },
+    quiz: [
+      { q: 'A puddle dries up on a sunny day. Where did the water go?', opts: ['It disappeared for ever', 'Into the air as invisible water vapour', 'The ground ate all of it'], ok: 1 },
+      { q: 'Where is most of Earth’s water?', opts: ['In rivers and lakes', 'In the salty oceans', 'In the clouds'], ok: 1 },
+      { q: 'Does water evaporate only from the sea?', opts: ['Yes, only from the sea', 'No: from puddles, wet clothes, leaves and lakes too', 'Only when it boils'], ok: 1 } ],
+  },
+  ru: {
+    name: 'Куда девается лужа?', title: 'Куда девается лужа?',
+    lines: [['Вода не исчезает.', 'Она ходит по кругу.'], ['Солнце поднимает её', 'невидимым паром.'], ['Облака и дождь', 'возвращают её.']],
+    views: { cycle: '🔄 Одна капля', dry: '☀️ Высуши', earth: '🌍 Вся вода' },
+    next: 'Дальше ▶', right: 'Угадал!', wrong: 'Смотри, куда она делась.',
+    cards: {
+      cycle: ['🔄', 'Круговорот воды', 'Испарение: вода становится невидимым паром. Конденсация: пар становится каплями облака.', 'Осадки: дождь или снег падают, вода стекает в море — и всё начинается снова.'],
+      dry: ['☀️', 'Быстрее или медленнее', 'Тепло и ветер ускоряют испарение.', 'Крышка не выпускает пар.'],
+      earth: ['🌍', 'Солёная, замёрзшая, спрятанная', 'Почти вся вода на Земле — солёная морская.', 'Пресная вода — в основном лёд и подземные воды. В озёрах и реках её совсем мало.'],
+    },
+    fine: 'Числа по USGS «Where is Earth’s water?» (по данным Шикломанова): океаны 96,5 %, льды и ледники 1,7 %, подземные воды 1,7 %, озёра, реки и воздух вместе — гораздо меньше 0,1 %. Округлено до стаканов.',
+    c: { invisible: 'водяной пар (невидимый)', cloudLabel: 'облако: крошечные капли воды', sun: 'Солнце', auto: '▶ Ещё круг', stop: '⏸ Стоп', trips: (n) => `Кругов пройдено: ${n}`,
+         st: { liquid: 'жидкая вода', vapour: 'водяной пар', cloud: 'капля облака', rain: 'дождевая капля' },
+         place: { puddle: 'в луже', air: 'в воздухе', cloud: 'в облаке', mountain: 'на горе', river: 'в реке', sea: 'в море' },
+         q1: 'Солнце греет лужу. Что будет с нашей каплей?', o1: ['Она исчезнет навсегда', 'Поднимется в воздух невидимым паром', 'Облако сразу её всосёт'],
+         q2: 'Наверху воздух холодный. Что делает пар?', o2: ['Превращается в крошечные капли — облако', 'Поднимается дальше в космос', 'Превращается в дым'],
+         q3: 'Облако над горой стало тяжёлым. Что дальше?', o3: ['Останется там навсегда', 'Капли выпадут дождём или снегом', 'Улетит обратно к луже'],
+         q4: 'Наша капля на горе. Куда она денется?', o4: ['Останется на вершине', 'Исчезнет в камне', 'Стечёт вниз, в реку и в море'],
+         q5: 'Теперь она в море, и светит солнце. Что будет?', o5: ['Снова испарится — путешествие начнётся заново', 'Ничего, путешествие окончено', 'Утонет навсегда'],
+         why: ['Вода не исчезла. Она стала водяным паром — газом, которого не видно.', 'Холодный воздух превращает пар обратно в крошечные капли жидкости. Много капель — это облако.',
+               'Когда капли сливаются и тяжелеют, они падают: дождём, а где холодно — снегом.', 'Вода течёт вниз: ручьи сливаются в реки, реки впадают в море.',
+               'Море тоже нагревается и испаряется. Вода ходит по кругу снова и снова.'] },
+    d: { q: (r) => 'Что высохнет первым?', cases: { sunShade: ['на солнце', 'в тени'], windy: ['тепло и ветрено', 'холодно и тихо'], lid: ['с крышкой', 'без крышки'] },
+         why: { sunShade: 'В тепле вода испаряется быстрее.', windy: 'Тёплый воздух и ветер уносят пар, и вода испаряется быстрее.',
+                lid: 'Под крышкой пару некуда деться: он снова превращается в капли на крышке.' }, hours: (h) => `${h} ч` },
+    e: { q1: 'Где больше всего воды на Земле?', o1: ['в реках и озёрах', 'в солёных океанах', 'во льду', 'под землёй'],
+         q2: 'А больше всего ПРЕСНОЙ воды где?', o2: ['в реках и озёрах', 'замёрзла во льдах и ледниках', 'в облаках'],
+         salt: '97 стаканов: солёная вода (океаны)', ice: '2 стакана: льды и ледники', ground: '1 стакан: пресная вода под землёй', spoon: 'одна ложка: все озёра, реки и воздух',
+         legend: 'Если бы вся вода Земли была 100 стаканами, в озёрах и реках была бы всего примерно ложка.' },
+    secrets: { snow: ['Дождь или снег?', 'Меняй температуру в облаке.'], old: ['Вода динозавров', 'Сколько лет воде в твоём стакане?'] },
+    sec: { temp: 'Температура в облаке', snowText: 'Ниже 0 °C капли замерзают и падают снегом. Выше 0 °C — дождём.',
+           oldText: 'Вода ходит по кругу на Земле миллиарды лет. Капля в твоём стакане, может быть, когда-то падала дождём на динозавра.',
+           eras: ['Сегодня', '150 млн лет назад', '3+ млрд лет назад'] },
+    quiz: [
+      { q: 'В солнечный день лужа высохла. Куда делась вода?', opts: ['Исчезла навсегда', 'Ушла в воздух невидимым водяным паром', 'Её всю впитала земля'], ok: 1 },
+      { q: 'Где больше всего воды на Земле?', opts: ['В реках и озёрах', 'В солёных океанах', 'В облаках'], ok: 1 },
+      { q: 'Вода испаряется только из моря?', opts: ['Да, только из моря', 'Нет: из луж, с мокрого белья, листьев и озёр тоже', 'Только когда кипит'], ok: 1 } ],
+  },
+  hu: {
+    name: 'Hová tűnik a tócsa?', title: 'Hová tűnik a tócsa?',
+    lines: [['A víz nem tűnik el.', 'Körbe jár.'], ['A Nap felemeli', 'láthatatlan gőzként.'], ['A felhő és az eső', 'visszahozza.']],
+    views: { cycle: '🔄 Egy csepp', dry: '☀️ Száradás', earth: '🌍 Az összes víz' },
+    next: 'Tovább ▶', right: 'Eltaláltad!', wrong: 'Nézd, hová lett.',
+    cards: {
+      cycle: ['🔄', 'A víz körforgása', 'Párolgás: a vízből láthatatlan gőz lesz. Lecsapódás: a gőzből felhőcseppek lesznek.', 'Csapadék: eső vagy hó hullik, a víz visszafolyik a tengerbe, és minden kezdődik elölről.'],
+      dry: ['☀️', 'Gyorsabban vagy lassabban', 'A meleg és a szél gyorsítja a párolgást.', 'A fedő nem engedi elszökni a gőzt.'],
+      earth: ['🌍', 'Sós, fagyott, rejtett', 'A Föld vizének szinte egésze sós tengervíz.', 'Az édesvíz nagy része jég vagy föld alatti víz. A tavakban és folyókban nagyon kevés van.'],
+    },
+    fine: 'Az adatok forrása: USGS „Where is Earth’s water?” (Shiklomanov nyomán): óceánok 96,5 %, jég és gleccserek 1,7 %, felszín alatti víz 1,7 %, a tavak, folyók és a levegő együtt jóval 0,1 % alatt. Poharakra kerekítve.',
+    c: { invisible: 'vízgőz (láthatatlan)', cloudLabel: 'felhő: apró vízcseppek', sun: 'Nap', auto: '▶ Még egy kör', stop: '⏸ Állj', trips: (n) => `Megtett körök: ${n}`,
+         st: { liquid: 'folyékony víz', vapour: 'vízgőz', cloud: 'felhőcsepp', rain: 'esőcsepp' },
+         place: { puddle: 'egy tócsában', air: 'a levegőben', cloud: 'egy felhőben', mountain: 'a hegyen', river: 'a folyóban', sea: 'a tengerben' },
+         q1: 'A Nap melegíti a tócsát. Mi lesz a cseppünkkel?', o1: ['Örökre eltűnik', 'Láthatatlan gőzként felszáll a levegőbe', 'Egy felhő azonnal felszívja'],
+         q2: 'Fent hideg a levegő. Mit csinál a gőz?', o2: ['Apró cseppekké válik: felhő lesz', 'Tovább száll az űrbe', 'Füstté válik'],
+         q3: 'A felhő elnehezül a hegy fölött. Mi jön ezután?', o3: ['Örökre ott marad', 'A cseppek esőként vagy hóként lehullanak', 'Visszarepül a tócsához'],
+         q4: 'A cseppünk a hegyen van. Hová megy?', o4: ['A csúcson marad', 'Eltűnik a sziklában', 'Lefolyik a folyóba, aztán a tengerbe'],
+         q5: 'Most a tengerben van, és süt a nap. Mi történik?', o5: ['Újra elpárolog: kezdődik elölről az út', 'Semmi, vége az útnak', 'Örökre lesüllyed'],
+         why: ['A víz nem tűnt el. Vízgőz lett belőle, láthatatlan gáz.', 'A hideg levegő a gőzt újra apró folyadékcseppekké változtatja. Sok cseppből felhő lesz.',
+               'Amikor a cseppek összeállnak és elnehezülnek, lehullanak: esőként, ahol hideg van, hóként.', 'A víz lefelé folyik: a patakok folyókká állnak össze, a folyók a tengerbe ömlenek.',
+               'A tenger is melegszik és párolog. A víz újra meg újra körbejár.'] },
+    d: { q: (r) => 'Melyik szárad meg előbb?', cases: { sunShade: ['napon', 'árnyékban'], windy: ['meleg és szeles', 'hideg és szélcsendes'], lid: ['fedővel', 'fedő nélkül'] },
+         why: { sunShade: 'Melegben a víz gyorsabban párolog.', windy: 'A meleg levegő és a szél elviszi a gőzt, így több víz párologhat el.',
+                lid: 'A fedő alatt a gőz nem tud elszökni: a fedőn újra cseppekké válik.' }, hours: (h) => `${h} óra` },
+    e: { q1: 'Hol van a Föld vizének legnagyobb része?', o1: ['folyókban és tavakban', 'a sós óceánokban', 'jégben', 'a föld alatt'],
+         q2: 'És az ÉDESVÍZ legnagyobb része?', o2: ['folyókban és tavakban', 'jégbe és gleccserekbe fagyva', 'a felhőkben'],
+         salt: '97 pohár: sós víz (óceánok)', ice: '2 pohár: jég és gleccserek', ground: '1 pohár: édesvíz a föld alatt', spoon: 'egy kanálnyi: az összes tó, folyó és a levegő',
+         legend: 'Ha a Föld összes vize 100 pohár lenne, a tavakban és folyókban csak nagyjából egy kanálnyi lenne.' },
+    secrets: { snow: ['Eső vagy hó?', 'Állítsd a felhő hőmérsékletét.'], old: ['Dinoszauruszvíz', 'Milyen idős a víz a poharadban?'] },
+    sec: { temp: 'Hőmérséklet a felhőben', snowText: '0 °C alatt a cseppek megfagynak, és hóként hullanak. 0 °C fölött esőként.',
+           oldText: 'A víz évmilliárdok óta jár körbe a Földön. Egy csepp a poharadban talán egyszer esőként hullott egy dinoszauruszra.',
+           eras: ['Ma', '150 millió éve', '3+ milliárd éve'] },
+    quiz: [
+      { q: 'Egy napos napon kiszáradt a tócsa. Hová lett a víz?', opts: ['Örökre eltűnt', 'Láthatatlan vízgőzként a levegőbe', 'Az egészet beitta a föld'], ok: 1 },
+      { q: 'Hol van a Föld vizének legnagyobb része?', opts: ['A folyókban és tavakban', 'A sós óceánokban', 'A felhőkben'], ok: 1 },
+      { q: 'Csak a tengerből párolog a víz?', opts: ['Igen, csak a tengerből', 'Nem: tócsákból, vizes ruhából, levelekből és tavakból is', 'Csak ha forr'], ok: 1 } ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_fhqVdj4BYr', en: 'The Water Cycle', ru: 'Круговорот воды', hu: 'A víz körforgása' },
+  { id: 'mt_Qkewo5M3_c', en: 'Evaporation & the Water Cycle', ru: 'Испарение и круговорот воды', hu: 'Párolgás és a víz körforgása' },
+  { id: 'mt_nRF_VRntrW', en: 'Where water is found on Earth', ru: 'Где на Земле есть вода', hu: 'Hol található víz a Földön' },
+];
+
+// --- helpers -----------------------------------------------------------------------------------------------
+const sat = (x) => clamp(x, 0, 1);
+const ease = (x) => x * x * (3 - 2 * x);
+const hex = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+const mix = (a, b, k) => { const p = hex(a), q = hex(b); return `rgb(${p.map((v, i) => Math.round(lerp(v, q[i], k))).join(',')})`; };
+const EMOJI = '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+const FONT = 'Nunito, sans-serif';
+const lab = shell({ key: 'water-cycle', T, topics: TOPICS, views: ['cycle', 'dry', 'earth'], onLang: render, onView: render });
+const secret = secretLab('water-cycle', () => ({
+  secrets: [{ emo: '🌨️', title: T[lang].secrets.snow[0], desc: T[lang].secrets.snow[1] }, { emo: '🦕', title: T[lang].secrets.old[0], desc: T[lang].secrets.old[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="secCycle">
+    <div class="slab"><span id="sunLbl"></span></div>
+    <input id="sun" class="big" type="range" min="0" max="100" step="1">
+    <div id="tempBox" hidden><div class="slab"><span id="tempLbl"></span><span id="tempVal"></span></div>
+      <input id="temp" class="big" type="range" min="-10" max="10" step="1"></div>
+    <div class="row2" id="eraRow" hidden><div class="card seg small" id="eraSeg"></div></div>
+    <div class="row2"><button class="chip" id="autoB" data-act="auto" hidden></button><div class="chips" id="secChips"></div></div>
+  </div>
+  <div id="secEarth" hidden><div id="legend"></div></div>`;
+const askEl = Object.assign(document.createElement('div'), { className: 'ask card' });
+$('overlay').append(askEl);
+
+// --- state -------------------------------------------------------------------------------------------------
+const S = { R: 150 }; // height the question card takes: the scene is drawn below it
+const C = { k: 0, phase: 'ask', p: 0, pick: null, trips: 0, auto: false, mode: null, sun: 50, temp: -4, era: 1, eraT: 0, pile: 0, parts: [], emit: 0 };
+const D = { race: 0, phase: 'ask', pick: null, t: 0, flip: [], dots: [[], []], acc: [0, 0] };
+const E = { step: 0, phase: 'ask', pick: null, t: 0, z: 0 };
+const OK = [1, 0, 1, 2, 0];     // right answers of the five questions of one trip
+const WIN = [0, 0, 1];          // which case dries first, per race (index into d.cases)
+const DUR = [3, 4, 2.8, 3.2, 3.6];
+const speed = () => 0.4 + C.sun * 0.012; // evaporation speed from the sun slider (1 at the middle)
+const dur = (k) => DUR[k] / (k === 0 || k === 4 ? speed() : 1);
+const autoRunning = () => C.auto || C.mode === 'old';
+const newFlips = () => { D.flip = [0, 1, 2].map(() => Math.random() < 0.5); };
+newFlips();
+const order = () => (D.flip[D.race] ? [1, 0] : [0, 1]); // case shown on the left / right
+
+// --- scene geometry (fractions of the scene rectangle) ----------------------------------------------------
+const MTN = [[0, 0.55], [0.06, 0.38], [0.14, 0.22], [0.20, 0.32], [0.27, 0.40], [0.34, 0.50], [0.41, 0.62]];
+const mtnY = (x) => {
+  if (x <= 0) return MTN[0][1];
+  for (let i = 1; i < MTN.length; i++) if (x <= MTN[i][0]) return lerp(MTN[i - 1][1], MTN[i][1], (x - MTN[i - 1][0]) / (MTN[i][0] - MTN[i - 1][0]));
+  return 0.62;
+};
+function smooth(pts, n = 8) { // quadratic curve through the middles of a polyline
+  const out = [pts[0]], mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  let prev = pts[0];
+  for (let i = 1; i < pts.length - 1; i++) {
+    const end = i === pts.length - 2 ? pts[pts.length - 1] : mid(pts[i], pts[i + 1]);
+    for (let s = 1; s <= n; s++) {
+      const q = s / n, a = (1 - q) * (1 - q), b = 2 * (1 - q) * q, c = q * q;
+      out.push([a * prev[0] + b * pts[i][0] + c * end[0], a * prev[1] + b * pts[i][1] + c * end[1]]);
+    }
+    prev = end;
+  }
+  return out;
+}
+const RIVER = smooth([[0.34, 0.50], [0.31, 0.66], [0.32, 0.82], [0.40, 0.93], [0.58, 0.955], [0.70, 0.93], [0.79, 0.88]]);
+const W = { puddle: [0.53, 0.775], air: [0.52, 0.27], cloud0: [0.52, 0.21], cloud1: [0.20, 0.11], land: [0.26, mtnY(0.26) - 0.012], sea: [0.88, 0.80] };
+const FLOW = [W.land, [0.30, mtnY(0.30)], ...RIVER, W.sea];
+let G = { X: 0, Y: 0, rw: 100, rh: 100, U: 1 };
+const px = (u) => G.X + u * G.rw, py = (v) => G.Y + v * G.rh;
+function along(poly, f) { // point at fraction f of the polyline's length (measured in pixels)
+  const seg = [];
+  let L = 0;
+  for (let i = 1; i < poly.length; i++) { const d = Math.hypot((poly[i][0] - poly[i - 1][0]) * G.rw, (poly[i][1] - poly[i - 1][1]) * G.rh); seg.push(d); L += d; }
+  let s = f * L;
+  for (let i = 0; i < seg.length; i++) {
+    if (s <= seg[i] || i === seg.length - 1) { const q = seg[i] ? sat(s / seg[i]) : 0; return [lerp(poly[i][0], poly[i + 1][0], q), lerp(poly[i][1], poly[i + 1][1], q)]; }
+    s -= seg[i];
+  }
+}
+const OTHERS = Array.from({ length: 14 }, (_, i) => [0.06 + ((i * 0.618) % 1) * 0.88, 0.60 + ((i * 0.37) % 1) * 0.05]); // other bits of vapour
+
+// where is our drop, what is around it? k = finished animation (-1: none), p = progress inside it
+function pose(ak, ap) {
+  const o = { d: [{ x: W.puddle[0], y: W.puddle[1], vap: 0, a: 1 }], cloud: null, puddle: 1, st: 'liquid', place: 'puddle', others: -1, rain: false };
+  if (ak < 0) return o;
+  if (ak === 0) {
+    const e = ease(ap), vap = sat((ap - 0.08) / 0.2);
+    o.d = [{ x: lerp(W.puddle[0], W.air[0], e) + Math.sin(e * 9) * 0.012, y: lerp(W.puddle[1], W.air[1], e), vap, a: 1 }];
+    o.puddle = lerp(1, 0.55, ap); o.st = vap > 0.5 ? 'vapour' : 'liquid'; o.place = ap < 0.12 ? 'puddle' : 'air';
+    return o;
+  }
+  o.puddle = 0.55;
+  if (ak === 1) {
+    const q = ease(sat((ap - 0.55) / 0.45)), cx = lerp(W.cloud0[0], W.cloud1[0], q), cy = lerp(W.cloud0[1], W.cloud1[1], q), m = sat((ap - 0.35) / 0.25);
+    o.cloud = { x: cx, y: cy, grey: q * 0.9, size: lerp(1, 1.3, q), a: ease(sat((ap - 0.12) / 0.35)) };
+    o.d = [{ x: lerp(W.air[0], cx, m), y: lerp(W.air[1], cy + 0.015, m), vap: 1 - sat((ap - 0.25) / 0.25), a: 1 }];
+    o.others = ap; o.st = ap < 0.5 ? 'vapour' : 'cloud'; o.place = ap < 0.5 ? 'air' : 'cloud';
+    return o;
+  }
+  if (ak === 2) {
+    const f = sat((ap - 0.12) / 0.6);
+    o.cloud = { x: W.cloud1[0], y: W.cloud1[1], grey: lerp(0.9, 0.55, ap), size: lerp(1.3, 1.15, ap), a: 1 };
+    o.d = [{ x: lerp(W.cloud1[0], W.land[0], f), y: lerp(W.cloud1[1] + 0.015, W.land[1], f * f), vap: 0, a: 1 }];
+    o.st = ap < 0.12 ? 'cloud' : f < 1 ? 'rain' : 'liquid'; o.place = ap < 0.12 ? 'cloud' : f < 1 ? 'air' : 'mountain';
+    o.rain = ap > 0.02 && ap < 0.8;
+    return o;
+  }
+  if (ak === 3) {
+    const [x, y] = along(FLOW, ap), a = 1 - sat(ap / 0.35);
+    if (a > 0) o.cloud = { x: W.cloud1[0], y: W.cloud1[1], grey: 0.55, size: 1.15, a };
+    o.d = [{ x, y, vap: 0, a: 1 }];
+    o.place = ap < 0.12 ? 'mountain' : ap > 0.9 ? 'sea' : 'river';
+    return o;
+  }
+  // ak === 4: out of the sea as vapour; at the end the puddle is full again and the drop is back in it
+  const r = ease(sat(ap / 0.7)), vap = sat((ap - 0.05) / 0.2);
+  const up = { x: lerp(W.sea[0], 0.84, r) + Math.sin(r * 9) * 0.012, y: lerp(W.sea[1], 0.36, r), vap, a: 1 - sat((ap - 0.7) / 0.2) };
+  o.d = [up];
+  if (ap > 0.78) o.d.push({ x: W.puddle[0], y: W.puddle[1], vap: 0, a: sat((ap - 0.78) / 0.22) });
+  o.puddle = lerp(0.55, 1, ease(sat((ap - 0.7) / 0.3)));
+  o.st = ap < 0.1 ? 'liquid' : ap < 0.78 ? 'vapour' : 'liquid'; o.place = ap < 0.1 ? 'sea' : ap < 0.78 ? 'air' : 'puddle';
+  return o;
+}
+const SNOWPOSE = { d: [{ x: W.cloud1[0], y: W.cloud1[1] + 0.015, vap: 0, a: 1 }], cloud: { x: W.cloud1[0], y: W.cloud1[1], grey: 0.9, size: 1.3, a: 1 }, puddle: 0.55, st: 'cloud', place: 'cloud', others: -1, rain: true };
+function currentPose() {
+  if (C.mode === 'snow') return SNOWPOSE;
+  return C.phase === 'ask' ? pose(C.k - 1, 1) : C.phase === 'play' ? pose(C.k, C.p) : pose(C.k, 1);
+}
+
+// --- drawing helpers ---------------------------------------------------------------------------------------
+const poly = (c, pts) => { c.beginPath(); pts.forEach(([X, Y], i) => (i ? c.lineTo(X, Y) : c.moveTo(X, Y))); c.closePath(); };
+function emoji(c, ch, x, y, size) {
+  c.save(); c.globalAlpha = 1; c.fillStyle = '#fff'; c.font = `${size}px ${EMOJI}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(ch, x, y); c.restore();
+}
+function tag(c, text, x, y, w, left = false) { // a small readable label that stays on screen
+  c.save(); c.globalAlpha = 1; c.font = `800 12px ${FONT}`;
+  const tw = c.measureText(text).width + 16, cx = clamp(left ? x : x - tw / 2, 4, Math.max(4, w - tw - 4));
+  c.fillStyle = 'rgba(10, 12, 20, .8)'; c.beginPath(); c.roundRect(cx, y - 10, tw, 20, 10); c.fill();
+  c.fillStyle = '#fff'; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(text, cx + 8, y + 1); c.restore();
+}
+function wrap(c, text, x, y, maxW, lh) {
+  let line = '';
+  for (const word of text.split(' ')) {
+    const t = line ? `${line} ${word}` : word;
+    if (c.measureText(t).width > maxW && line) { c.fillText(line, x, y); line = word; y += lh; } else line = t;
+  }
+  if (line) { c.fillText(line, x, y); y += lh; }
+  return y;
+}
+function dropPath(c, x, y, r) { // a drop with its point up; (x, y) is the middle of the round part
+  c.beginPath(); c.moveTo(x, y - r * 1.9);
+  c.bezierCurveTo(x + r * 0.15, y - r * 1.1, x + r, y - r * 0.5, x + r, y + r * 0.1);
+  c.arc(x, y + r * 0.1, r, 0, Math.PI, false);
+  c.bezierCurveTo(x - r, y - r * 0.5, x - r * 0.15, y - r * 1.1, x, y - r * 1.9); c.closePath();
+}
+function drawDrop(c, x, y, r, a, time) { // our drop: bright, with a glowing ring
+  if (a <= 0.01) return;
+  c.save(); c.globalAlpha = a;
+  const pulse = 1 + 0.12 * Math.sin(time * 4);
+  c.strokeStyle = 'rgba(150, 225, 255, .6)'; c.lineWidth = 2; c.beginPath(); c.arc(x, y - r * 0.2, r * 2.1 * pulse, 0, 6.283); c.stroke();
+  const g = c.createRadialGradient(x, y - r * 0.2, r * 1.2, x, y - r * 0.2, r * 3); g.addColorStop(0, 'rgba(120, 210, 255, .35)'); g.addColorStop(1, 'rgba(120, 210, 255, 0)');
+  c.fillStyle = g; c.beginPath(); c.arc(x, y - r * 0.2, r * 3, 0, 6.283); c.fill();
+  c.fillStyle = '#6fd3ff'; dropPath(c, x, y, r); c.fill(); c.strokeStyle = '#ffffff'; c.lineWidth = 1.5; c.stroke();
+  c.fillStyle = 'rgba(255, 255, 255, .85)'; c.beginPath(); c.ellipse(x - r * 0.35, y - r * 0.05, r * 0.2, r * 0.38, 0.4, 0, 6.283); c.fill();
+  c.restore();
+}
+function drawVapour(c, x, y, r, a) { // dashed, almost transparent outline: the drop as invisible vapour
+  if (a <= 0.01) return;
+  c.save(); c.globalAlpha = a * 0.6; c.strokeStyle = '#dcefff'; c.lineWidth = 1.5; c.setLineDash([3, 3]); dropPath(c, x, y, r); c.stroke(); c.restore();
+}
+function drawCloud(c, cl) {
+  const x = px(cl.x), y = py(cl.y), s = G.U * cl.size * 0.8, g = Math.round(246 - cl.grey * 120);
+  c.save(); c.globalAlpha = cl.a; c.fillStyle = `rgb(${g},${g + 3},${Math.min(255, g + 12)})`;
+  for (const [dx, dy, r] of [[-8, 1.5, 6], [-2, -2.5, 8.5], [6, -1, 7.5], [12, 2, 5.5], [2, 3, 7.5]]) { c.beginPath(); c.arc(x + (dx - 2) * s, y + dy * s, r * s, 0, 6.283); c.fill(); }
+  c.restore();
+}
+
+// --- cycle: update and draw --------------------------------------------------------------------------------
+function tickCycle(dt, time, po) {
+  const parts = C.parts;
+  if (C.mode !== 'snow' && C.phase === 'play') {
+    C.p += dt / dur(C.k);
+    if (C.p >= 1) {
+      C.p = 1;
+      if (C.k === 4) C.trips++;
+      if (autoRunning()) { C.k = (C.k + 1) % 5; C.p = 0; } else C.phase = 'done';
+      render();
+    }
+  }
+  if (po.rain && po.cloud) {
+    C.emit += dt * (C.mode === 'snow' ? 55 : 80);
+    while (C.emit >= 1) {
+      C.emit -= 1;
+      const x = clamp(po.cloud.x + (Math.random() - 0.5) * 0.16 * po.cloud.size, 0.10, 0.36), y0 = po.cloud.y + 0.06, landY = mtnY(x);
+      if (landY <= y0 + 0.02 || parts.length > 160) continue;
+      const snow = C.mode === 'snow' ? C.temp < 0 : landY < 0.30;
+      parts.push({ x, y: y0, vy: snow ? 0.10 + Math.random() * 0.05 : 0.75 + Math.random() * 0.25, snow, ph: Math.random() * 6, landY });
+    }
+  }
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const q = parts[i];
+    q.y += q.vy * dt; if (q.snow) q.x += Math.sin(time * 2 + q.ph) * 0.01 * dt * 3;
+    if (q.y >= q.landY) { if (q.snow && C.mode === 'snow') C.pile = Math.min(1, C.pile + 0.012); parts.splice(i, 1); }
+  }
+  if (C.mode === 'snow' && C.temp > 0) C.pile = Math.max(0, C.pile - dt * 0.06);
+  C.eraT += clamp((C.mode === 'old' ? C.era : 0) - C.eraT, -dt * 1.2, dt * 1.2);
+}
+
+function drawLand(c, w, h, time, U) {
+  const et = C.eraT, ha = sat(1 - et * 1.5), ta = sat(et * 1.5) * sat((2 - et) * 2), rock = sat(et - 1);
+  // sky, sun
+  const hz = py(0.63), sky = c.createLinearGradient(0, 0, 0, hz);
+  sky.addColorStop(0, mix('#27447f', '#4a2a2a', rock)); sky.addColorStop(1, mix('#8cc4ee', '#e0a070', rock));
+  c.fillStyle = sky; c.fillRect(0, 0, w, hz + 1);
+  const sr = U * (4 + C.sun * 0.03), sx = px(0.88), sy = py(0.11);
+  const sg = c.createRadialGradient(sx, sy, sr * 0.5, sx, sy, sr * 3.2); sg.addColorStop(0, 'rgba(255, 230, 140, .75)'); sg.addColorStop(1, 'rgba(255, 230, 140, 0)');
+  c.fillStyle = sg; c.beginPath(); c.arc(sx, sy, sr * 3.2, 0, 6.283); c.fill();
+  c.fillStyle = '#ffe28a'; c.beginPath(); c.arc(sx, sy, sr, 0, 6.283); c.fill();
+  // ground, sea, beach
+  c.fillStyle = mix('#3f7a4a', '#6b4a3a', rock); c.fillRect(0, py(0.62), px(0.76), h - py(0.62));
+  c.fillStyle = '#d8c48a'; poly(c, [[px(0.66), py(0.64)], [px(0.80), py(0.64)], [px(0.78), h], [px(0.64), h]]); c.fill();
+  const sea = c.createLinearGradient(0, py(0.64), 0, h); sea.addColorStop(0, '#3a86d0'); sea.addColorStop(1, '#14447c');
+  c.fillStyle = sea; poly(c, [[px(0.77), py(0.64)], [w, py(0.64)], [w, h], [px(0.75), h]]); c.fill();
+  c.strokeStyle = 'rgba(255, 255, 255, .28)'; c.lineWidth = 1.5; c.lineCap = 'round';
+  for (let i = 0; i < 5; i++) {
+    const yy = py(0.70 + i * 0.065), x0 = px(0.80 + (i % 2) * 0.05);
+    c.beginPath(); for (let s = 0; s <= 24; s++) { const X = x0 + s * 2.2 * U * 0.3, Y = yy + Math.sin(time * 1.6 + s * 0.6 + i) * 2; if (X < w) (s ? c.lineTo(X, Y) : c.moveTo(X, Y)); } c.stroke();
+  }
+  // mountain with a snow cap
+  c.fillStyle = mix('#6b7390', '#5a4a48', rock); poly(c, [...MTN.map(([u, v]) => [px(u), py(v)]), [px(0.41), py(0.63)], [0, py(0.63)], [0, py(0.55)]]); c.fill();
+  c.fillStyle = 'rgba(20, 24, 50, .22)'; poly(c, [[px(0.14), py(0.22)], [px(0.20), py(0.32)], [px(0.27), py(0.40)], [px(0.34), py(0.50)], [px(0.41), py(0.62)], [px(0.16), py(0.62)]]); c.fill();
+  c.fillStyle = '#f4f8ff'; poly(c, [[px(0.14), py(0.22)], [px(0.194), py(0.31)], [px(0.185), py(0.325)], [px(0.16), py(0.30)], [px(0.135), py(0.32)], [px(0.115), py(0.295)], [px(0.09), py(0.31)]]); c.fill();
+  if (C.pile > 0.01) { // snow piling up on the slope
+    const top = [], bot = [];
+    for (let x = 0.14; x <= 0.37; x += 0.02) { const k = Math.sin(Math.PI * sat((x - 0.14) / 0.23)); top.push([px(x), py(mtnY(x)) - C.pile * 0.05 * G.rh * k]); bot.push([px(x), py(mtnY(x)) + 1]); }
+    c.fillStyle = '#ffffff'; poly(c, [...top, ...bot.reverse()]); c.fill();
+  }
+  // river
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  c.strokeStyle = '#3a90e0'; c.lineWidth = U * 2.4; c.beginPath(); RIVER.forEach(([u, v], i) => (i ? c.lineTo(px(u), py(v)) : c.moveTo(px(u), py(v)))); c.stroke();
+  c.strokeStyle = 'rgba(255, 255, 255, .25)'; c.lineWidth = 1.5; c.stroke();
+  // town: road and houses (today), trees (dinosaur time)
+  if (ha > 0.01) {
+    c.save(); c.globalAlpha = ha;
+    c.fillStyle = '#4b5064'; poly(c, [[px(0.38), py(0.70)], [px(0.66), py(0.70)], [px(0.66), py(0.85)], [px(0.38), py(0.85)]]); c.fill();
+    c.strokeStyle = 'rgba(255, 255, 255, .5)'; c.lineWidth = 2; c.setLineDash([8, 8]); c.beginPath(); c.moveTo(px(0.38), py(0.775)); c.lineTo(px(0.66), py(0.775)); c.stroke(); c.setLineDash([]);
+    [['#d9825f', 0.41], ['#e0b050', 0.48], ['#8f7fd0', 0.55], ['#5fa8a0', 0.61]].forEach(([col, u]) => {
+      const x = px(u), bw = G.rw * 0.055, y1 = py(0.70), bh = G.rh * 0.12;
+      c.fillStyle = col; c.fillRect(x, y1 - bh, bw, bh);
+      c.fillStyle = '#7a3b3b'; poly(c, [[x - bw * 0.12, y1 - bh], [x + bw * 0.5, y1 - bh - bh * 0.5], [x + bw * 1.12, y1 - bh]]); c.fill();
+      c.fillStyle = 'rgba(255, 240, 180, .85)'; c.fillRect(x + bw * 0.3, y1 - bh * 0.62, bw * 0.4, bh * 0.32);
+    });
+    c.restore();
+  }
+  if (ta > 0.01) {
+    c.save(); c.globalAlpha = ta;
+    for (const u of [0.42, 0.50, 0.58, 0.64]) {
+      const x = px(u), y1 = py(0.70), th = G.rh * 0.14;
+      c.strokeStyle = '#6b4a2a'; c.lineWidth = U * 0.9; c.beginPath(); c.moveTo(x, y1); c.lineTo(x, y1 - th); c.stroke();
+      c.fillStyle = '#3f9a52'; for (const a of [-0.9, -0.3, 0.3, 0.9]) { c.beginPath(); c.ellipse(x + Math.sin(a) * U * 2.2, y1 - th + Math.cos(a) * -U * 0.4, U * 2.6, U * 0.9, a * 0.8, 0, 6.283); c.fill(); }
+    }
+    c.restore();
+    emoji(c, '🦕', px(0.39), py(0.67), U * 12 * ta);
+  }
+  // the puddle
+  const po = currentPose(), ps = po.puddle;
+  if (ps > 0.02) {
+    const X = px(W.puddle[0]), Y = py(W.puddle[1] + 0.012), rx = G.rw * 0.085 * ps, ry = G.rh * 0.032 * ps;
+    c.fillStyle = '#5cb0f0'; c.beginPath(); c.ellipse(X, Y, rx, ry, 0, 0, 6.283); c.fill();
+    c.fillStyle = 'rgba(255, 255, 255, .35)'; c.beginPath(); c.ellipse(X - rx * 0.3, Y - ry * 0.25, rx * 0.35, ry * 0.25, 0, 0, 6.283); c.fill();
+  }
+}
+
+function drawCycle(c, w, h, dt, time) {
+  const Y = S.R, rw = w, rh = h - Y;
+  if (rh < 120) return;
+  G = { X: 0, Y, rw, rh, U: Math.min(rw / 100, rh / 70) };
+  const U = G.U, po = currentPose();
+  tickCycle(dt, time, po);
+  drawLand(c, w, h, time, U);
+  // other bits of vapour rising and joining the cloud
+  if (po.others >= 0 && po.cloud) {
+    const e = ease(sat(po.others / 0.55)), a = 0.55 * sat(po.others / 0.1) * (1 - sat((po.others - 0.4) / 0.25));
+    if (a > 0.01) OTHERS.forEach(([u, v], i) => {
+      const tx = po.cloud.x + (((i * 0.31) % 1) - 0.5) * 0.14, ty = po.cloud.y + (((i * 0.53) % 1) - 0.5) * 0.05;
+      drawVapour(c, px(lerp(u, tx, e)), py(lerp(v, ty, e)), U * 1.1, a * 1.7);
+    });
+  }
+  if (po.cloud) drawCloud(c, po.cloud);
+  // rain and snow
+  c.save(); c.globalAlpha = 1; c.lineCap = 'round';
+  for (const q of C.parts) {
+    if (q.snow) { c.fillStyle = '#ffffff'; c.beginPath(); c.arc(px(q.x), py(q.y), U * 0.7, 0, 6.283); c.fill(); }
+    else { c.strokeStyle = 'rgba(170, 215, 255, .9)'; c.lineWidth = 1.6; c.beginPath(); c.moveTo(px(q.x), py(q.y)); c.lineTo(px(q.x), py(q.y) + U * 1.8); c.stroke(); }
+  }
+  c.restore();
+  // our drop
+  const r = U * 3;
+  for (const d of po.d) {
+    drawDrop(c, px(d.x), py(d.y), r * (1 - 0.3 * d.vap), d.a * (1 - d.vap), time);
+    drawVapour(c, px(d.x), py(d.y), r * 0.7, d.a * d.vap);
+  }
+  const lead = po.d[0];
+  if (lead.vap > 0.5 && lead.a > 0.5) tag(c, T[lang].c.invisible, px(lead.x), py(lead.y) + r * 3.2, w);
+  if (po.cloud && po.cloud.a > 0.6) tag(c, T[lang].c.cloudLabel, px(po.cloud.x), py(po.cloud.y) + G.rh * 0.1, w);
+  if (C.mode === 'snow') tag(c, `${C.temp < 0 ? '−' : ''}${Math.abs(C.temp)} °C`, px(po.cloud.x), py(po.cloud.y) - G.rh * 0.07, w);
+  if (C.mode === 'old') { // the timeline
+    const x0 = px(0.08), x1 = px(0.70), yy = G.Y + 16, labels = T[lang].sec.eras;
+    c.save(); c.globalAlpha = 1; c.strokeStyle = 'rgba(255, 255, 255, .6)'; c.lineWidth = 2; c.beginPath(); c.moveTo(x0, yy); c.lineTo(x1, yy); c.stroke();
+    for (let i = 0; i < 3; i++) { c.fillStyle = i === C.era ? '#ffffff' : 'rgba(255, 255, 255, .45)'; c.beginPath(); c.arc(lerp(x0, x1, i / 2), yy, i === C.era ? 6 : 4, 0, 6.283); c.fill(); }
+    c.restore();
+    tag(c, labels[C.era], lerp(x0, x1, C.era / 2), yy + 22, w);
+  }
+  readoutCycle(po);
+}
+let lastRead = '';
+function readoutCycle(po) {
+  const t = T[lang], key = [lang, C.mode, C.temp, po.st, po.place, C.trips].join('|');
+  if (key === lastRead) return;
+  lastRead = key;
+  const pill = C.trips > 0 ? t.c.trips(C.trips) : '';
+  if (C.mode === 'snow') lab.setReadout(`${C.temp < 0 ? '−' : ''}${Math.abs(C.temp)} °C`, t.sec.temp, pill, '#6fb6ff');
+  else lab.setReadout(esc(t.c.st[po.st]), t.c.place[po.place], pill, '#4ea8ff');
+}
+
+// --- dry: update and draw ----------------------------------------------------------------------------------
+const remain = (race, ci, t) => { // how much water is left
+  const win = ci === WIN[race];
+  if (race === 2) return win ? 1 - 0.75 * t : 1 - 0.12 * t;
+  return win ? Math.max(0, 1 - 1.7 * t) : 1 - 0.45 * t;
+};
+function clock(c, x, y, r, h) {
+  c.save(); c.globalAlpha = 1; c.fillStyle = 'rgba(14, 17, 28, .95)'; c.strokeStyle = '#fff'; c.lineWidth = 2;
+  c.beginPath(); c.arc(x, y, r, 0, 6.283); c.fill(); c.stroke();
+  for (const [len, turns] of [[0.55, h / 12], [0.82, h]]) {
+    const a = turns * 6.283 - Math.PI / 2; c.beginPath(); c.moveTo(x, y); c.lineTo(x + Math.cos(a) * r * len, y + Math.sin(a) * r * len); c.stroke();
+  }
+  c.restore();
+}
+function panel(c, race, ci, side, ox, oy, pw, ph, t, time, dt, playing) {
+  const rem = remain(race, ci, t), win = ci === WIN[race], u = Math.min(pw, ph * 1.4) / 100;
+  c.save(); c.beginPath(); c.roundRect(ox, oy, pw, ph, 16); c.clip(); c.translate(ox, oy);
+  const X = (f) => f * pw, Yp = (f) => f * ph;
+  // background and props
+  if (race === 0) {
+    c.fillStyle = ci === 0 ? '#3f86d0' : '#24406a'; c.fillRect(0, 0, pw, ph);
+    c.fillStyle = ci === 0 ? '#5a5f74' : '#3a3f54'; c.fillRect(0, Yp(0.62), pw, ph);
+    if (ci === 0) emoji(c, '☀️', X(0.82), Yp(0.24), u * 14); else { emoji(c, '🌳', X(0.5), Yp(0.3), u * 24); c.fillStyle = 'rgba(0, 0, 0, .25)'; c.fillRect(0, Yp(0.62), pw, ph); }
+    const rx = X(0.3) * (0.2 + 0.8 * rem);
+    if (rem > 0.02) { c.fillStyle = '#5cb0f0'; c.beginPath(); c.ellipse(X(0.5), Yp(0.8), rx, rx * 0.28, 0, 0, 6.283); c.fill(); c.fillStyle = 'rgba(255,255,255,.3)'; c.beginPath(); c.ellipse(X(0.5) - rx * 0.3, Yp(0.8) - rx * 0.08, rx * 0.3, rx * 0.07, 0, 0, 6.283); c.fill(); }
+  } else if (race === 1) {
+    c.fillStyle = ci === 0 ? '#3f6aa0' : '#2a3a5c'; c.fillRect(0, 0, pw, ph);
+    c.fillStyle = ci === 0 ? '#4c8a58' : '#3d5a58'; c.fillRect(0, Yp(0.88), pw, ph);
+    emoji(c, ci === 0 ? '☀️' : '❄️', X(0.86), Yp(0.2), u * 13);
+    c.strokeStyle = '#8a7a5a'; c.lineWidth = u * 1.4; c.beginPath(); c.moveTo(X(0.1), Yp(0.2)); c.lineTo(X(0.1), Yp(0.9)); c.moveTo(X(0.9), Yp(0.2)); c.lineTo(X(0.9), Yp(0.9)); c.stroke();
+    c.strokeStyle = 'rgba(255, 255, 255, .7)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(X(0.1), Yp(0.22)); c.lineTo(X(0.9), Yp(0.22)); c.stroke();
+    if (ci === 0) { // wind
+      c.strokeStyle = 'rgba(255, 255, 255, .45)'; c.lineWidth = 2; c.lineCap = 'round';
+      for (let i = 0; i < 3; i++) { const yy = Yp(0.42 + i * 0.15), off = ((time * 0.5 + i * 0.33) % 1) * pw * 0.4; c.beginPath(); for (let s = 0; s <= 20; s++) { const x = X(0.12) + off + s * 3 * u * 0.4, y = yy + Math.sin(s * 0.5 + time * 3) * 3; (s ? c.lineTo(x, y) : c.moveTo(x, y)); } c.stroke(); }
+    }
+    // the T-shirt: dry colour, a wet patch on top shrinks as it dries
+    c.save(); c.translate(X(0.5), Yp(0.22)); if (ci === 0) c.rotate(Math.sin(time * 5) * 0.07);
+    const sh = ph * 0.55, sw = sh * 0.6, pts = [[-0.35, 0], [-0.12, 0.06], [0.12, 0.06], [0.35, 0], [1, 0.28], [0.75, 0.5], [0.5, 0.4], [0.5, 1], [-0.5, 1], [-0.5, 0.4], [-0.75, 0.5], [-1, 0.28]].map(([a, b]) => [a * sw, b * sh]);
+    c.fillStyle = '#f2efe4'; poly(c, pts); c.fill();
+    if (rem > 0.01) { c.save(); poly(c, pts); c.clip(); c.fillStyle = 'rgba(40, 90, 170, .8)'; c.beginPath(); c.arc(0, sh * 0.5, sw * 1.7 * rem, 0, 6.283); c.fill(); c.restore(); }
+    c.strokeStyle = 'rgba(0, 0, 0, .35)'; c.lineWidth = 1.5; poly(c, pts); c.stroke();
+    c.restore();
+  } else {
+    c.fillStyle = '#22304f'; c.fillRect(0, 0, pw, ph);
+    c.fillStyle = '#5a4a3a'; c.fillRect(0, Yp(0.86), pw, ph);
+    const gl = [[0.3, 0.3], [0.7, 0.3], [0.66, 0.86], [0.34, 0.86]].map(([a, b]) => [X(a), Yp(b)]);
+    const top = Yp(0.86) - Yp(0.56) * (0.1 + 0.75 * rem);
+    c.save(); poly(c, gl); c.clip(); c.fillStyle = '#4aa3ee'; c.fillRect(0, top, pw, ph); c.fillStyle = 'rgba(255, 255, 255, .25)'; c.fillRect(0, top, pw, 2); c.restore();
+    c.strokeStyle = 'rgba(220, 235, 255, .8)'; c.lineWidth = 2.5; c.lineJoin = 'round'; poly(c, gl); c.stroke();
+    if (ci === 0) { // lid, with the drops it collects
+      c.fillStyle = '#9aa3bb'; c.beginPath(); c.roundRect(X(0.28), Yp(0.25), X(0.44), Yp(0.045), 4); c.fill(); c.fillRect(X(0.48), Yp(0.2), X(0.04), Yp(0.05));
+      c.fillStyle = '#cfe8ff'; for (let i = 0; i < Math.min(8, Math.floor(t * 8.99)); i++) { c.beginPath(); c.arc(X(0.33 + i * 0.048), Yp(0.325) + (i % 2) * 2, Math.max(2, u * 1.1), 0, 6.283); c.fill(); }
+    }
+  }
+  // vapour dots leaving the water: more on the faster side
+  const dots = D.dots[side];
+  if (playing) {
+    D.acc[side] += dt * (win ? 8 : race === 2 ? 4 : 2.2) * (rem > 0.02 ? 1 : 0);
+    while (D.acc[side] >= 1) {
+      D.acc[side] -= 1;
+      const s = race === 0 ? [0.5 - 0.25 * rem, 0.5 + 0.25 * rem, 0.78] : race === 1 ? [0.38, 0.62, 0.55] : [0.36, 0.64, 0.86 - 0.56 * (0.1 + 0.75 * rem) - 0.02];
+      dots.push({ x: lerp(s[0], s[1], Math.random()), y: s[2], vy: -(0.16 + Math.random() * 0.1), life: 0 });
+    }
+  }
+  c.fillStyle = '#ffffff';
+  for (let i = dots.length - 1; i >= 0; i--) {
+    const q = dots[i];
+    q.y += q.vy * dt; q.x += Math.sin(time * 3 + i) * 0.02 * dt; q.life += dt * 0.55;
+    if (q.life >= 1 || q.y < 0.04 || (race === 2 && ci === 0 && q.y < 0.34)) { dots.splice(i, 1); continue; }
+    c.globalAlpha = 0.4 * (1 - q.life); c.beginPath(); c.arc(X(q.x), Yp(q.y), Math.max(2, u * 0.9), 0, 6.283); c.fill();
+  }
+  c.globalAlpha = 1;
+  c.restore();
+  // frame, case name, the winner's tick
+  const done = D.phase === 'done';
+  c.save(); c.globalAlpha = 1; c.strokeStyle = done && win ? '#3ddc97' : 'rgba(130, 145, 190, .4)'; c.lineWidth = done && win ? 3 : 1.5; c.beginPath(); c.roundRect(ox, oy, pw, ph, 16); c.stroke(); c.restore();
+  tag(c, T[lang].d.cases[['sunShade', 'windy', 'lid'][race]][ci], ox + 10, oy + 18, ox + pw, true);
+  if (done && win) { c.save(); c.globalAlpha = 1; c.fillStyle = '#3ddc97'; c.beginPath(); c.arc(ox + pw - 22, oy + 22, 14, 0, 6.283); c.fill(); c.fillStyle = '#0a0c14'; c.font = `900 17px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('✓', ox + pw - 22, oy + 23); c.restore(); }
+}
+function drawDry(c, w, h, dt, time) {
+  const playing = D.phase === 'play';
+  if (playing) { D.t += dt / 4; if (D.t >= 1) { D.t = 1; D.phase = 'done'; D.dots = [[], []]; render(); } }
+  const t = D.t, pad = 10, ay = S.R + 40, ax = pad, aw = w - pad * 2, ah = h - ay - pad, wide = w >= 560;
+  if (ah < 100) return;
+  const hours = t * 8;
+  clock(c, w / 2 - 38, S.R + 22, 13, hours);
+  c.save(); c.globalAlpha = 1; c.fillStyle = '#fff'; c.font = `900 16px ${FONT}`; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(T[lang].d.hours(Math.round(hours)), w / 2 - 18, S.R + 23); c.restore();
+  const pw = wide ? (aw - pad) / 2 : aw, ph = wide ? ah : (ah - pad) / 2, ord = order();
+  for (let s = 0; s < 2; s++) panel(c, D.race, ord[s], s, wide ? ax + s * (pw + pad) : ax, wide ? ay : ay + s * (ph + pad), pw, ph, t, time, dt, playing);
+}
+
+// --- earth: update and draw --------------------------------------------------------------------------------
+const CUP = { salt: '#2456b8', ice: '#f4f8ff', ground: '#7cc8ff' };
+const cupColor = (i) => (i < 97 ? CUP.salt : i < 99 ? CUP.ice : CUP.ground);
+const cupStart = (i) => (i < 97 ? i * 0.022 : [2.6, 2.9, 3.25][i - 97]);
+const SPOON_AT = 3.8, POUR_END = 4.4;
+function cup(c, x, y, w, h, level, color, a) {
+  const tw = w, bw = w * 0.74, pts = [[x - tw / 2, y], [x + tw / 2, y], [x + bw / 2, y + h], [x - bw / 2, y + h]];
+  c.save(); c.globalAlpha = a;
+  c.fillStyle = 'rgba(130, 145, 190, .1)'; poly(c, pts); c.fill();
+  if (level > 0.01) { c.save(); poly(c, pts); c.clip(); c.fillStyle = color; c.fillRect(x - tw, y + h * (1 - level), tw * 2, h * level + 1); c.restore(); }
+  c.strokeStyle = 'rgba(200, 212, 255, .65)'; c.lineWidth = 1.5; c.lineJoin = 'round'; poly(c, pts); c.stroke();
+  c.restore();
+}
+function spoon(c, x, y, size, a) {
+  c.save(); c.globalAlpha = a; c.lineCap = 'round';
+  c.strokeStyle = '#c9d1e6'; c.lineWidth = Math.max(3, size * 0.25); c.beginPath(); c.moveTo(x + size * 0.5, y); c.lineTo(x + size * 3, y + size * 0.5); c.stroke();
+  c.fillStyle = '#dfe5f3'; c.beginPath(); c.ellipse(x, y, size * 0.7, size * 0.5, 0, 0, 6.283); c.fill();
+  c.fillStyle = CUP.ground; c.beginPath(); c.ellipse(x, y, size * 0.28, size * 0.2, 0, 0, 6.283); c.fill();
+  c.restore();
+}
+function drawEarth(c, w, h, dt, time) {
+  if (E.phase === 'play') {
+    if (E.step === 1) { E.t += dt; if (E.t >= POUR_END + 0.6) { E.t = POUR_END + 0.6; E.phase = 'done'; render(); } }
+    else if (E.step === 3) { E.z += dt / 1.4; if (E.z >= 1) { E.z = 1; E.phase = 'done'; render(); } }
+  }
+  const Y = S.R, rh = h - Y, wide = w >= 640;
+  if (rh < 160) return;
+  const gs = wide ? Math.min(rh - 24, w * 0.5, 460) : w - 24, cw = gs / 10, ch = wide ? cw : cw * 0.92, gx = wide ? 18 : 12, gy = Y + 8;
+  const tt = E.step >= 2 ? 99 : E.step === 1 ? E.t : -1, z = E.step === 3 ? ease(E.z) : 0;
+  const cupW = cw * 0.78, cupH = ch * 0.86;
+  let pouring = -1;
+  for (let i = 0; i < 100; i++) {
+    const cx = gx + (i % 10) * cw + cw / 2, cy = gy + Math.floor(i / 10) * ch, lv = tt < 0 ? 0 : sat((tt - cupStart(i)) / 0.3);
+    if (lv > 0 && lv < 1) pouring = i;
+    if (i >= 97 && z > 0) continue; // these three are drawn big, below
+    cup(c, cx, cy, cupW, cupH, lv, cupColor(i), 1 - 0.85 * z);
+  }
+  if (pouring >= 0) { // a thin stream into the cup that is filling now
+    const cx = gx + (pouring % 10) * cw + cw / 2, cy = gy + Math.floor(pouring / 10) * ch;
+    c.save(); c.globalAlpha = 1; c.strokeStyle = pouring < 97 ? '#4a86e8' : pouring < 99 ? '#ffffff' : CUP.ground; c.lineWidth = 2.5; c.lineCap = 'round';
+    c.beginPath(); c.moveTo(cx, cy - ch * 0.5); c.lineTo(cx, cy + cupH * 0.35); c.stroke(); c.restore();
+  }
+  // the spoon: lakes, rivers and the air
+  const sa = E.step >= 2 ? 1 : E.step === 1 ? sat((E.t - SPOON_AT) / 0.5) : 0, sz = cw * 0.9;
+  const sx = wide ? gx + gs + 60 : gx + 34, sy = wide ? gy + 50 : gy + 10 * ch + 34;
+  const spa = sa * (1 - z);
+  if (spa > 0) {
+    spoon(c, sx, sy, sz, spa);
+    c.save(); c.globalAlpha = spa; c.fillStyle = '#d3d9e8'; c.font = `800 12.5px ${FONT}`; c.textAlign = 'left'; c.textBaseline = 'alphabetic';
+    if (wide) wrap(c, T[lang].e.spoon, sx - sz * 0.7, sy + sz * 0.5 + 22, w - (sx - sz * 0.7) - 12, 17);
+    else wrap(c, T[lang].e.spoon, sx + sz * 3.3, sy - 4, w - (sx + sz * 3.3) - 10, 17);
+    c.restore();
+  }
+  if (z > 0) { // zoom: the three cups that are not salty
+    const big = Math.min(w * 0.16, rh * 0.2, 72), cy = Y + rh * 0.12, cx0 = w / 2;
+    for (let j = 0; j < 3; j++) {
+      const i = 97 + j, sx0 = gx + (i % 10) * cw + cw / 2, sy0 = gy + 9 * ch;
+      const X = lerp(sx0, cx0 + (j - 1) * big * 1.5, z), Yy = lerp(sy0, cy, z), k = lerp(1, big / cupW, z);
+      cup(c, X, Yy, cupW * k, cupH * k, 1, cupColor(i), 1);
+    }
+    if (z > 0.7) {
+      c.save(); c.globalAlpha = sat((z - 0.7) / 0.3); c.fillStyle = '#e6ebf8'; c.font = `800 12.5px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'alphabetic';
+      const ly = cy + big * 1.2 + 20, e = T[lang].e;
+      wrap(c, e.ice, cx0 - big * 0.75, ly, big * 2.6, 16); wrap(c, e.ground, cx0 + big * 1.5, ly, big * 1.5, 16);
+      spoon(c, w * 0.3, Y + rh * 0.62, sz * 1.1, 1);
+      c.textAlign = 'left'; wrap(c, e.spoon, w * 0.3 + sz * 3.7, Y + rh * 0.62 - 4, w * 0.7 - sz * 3.7 - 10, 17);
+      c.restore();
+    }
+  }
+}
+
+// --- one frame ---------------------------------------------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  const bh = askEl.offsetHeight, target = bh ? bh + 16 : 8;
+  S.R += (target - S.R) * Math.min(1, dt * 10);
+  const v = lab.view;
+  c.save();
+  if (v === 'cycle') drawCycle(c, w, h, dt, time); else if (v === 'dry') drawDry(c, w, h, dt, time); else drawEarth(c, w, h, dt, time);
+  c.restore();
+});
+
+// --- controls ------------------------------------------------------------------------------------------------
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+const resetCycle = () => { C.k = 0; C.phase = 'ask'; C.p = 0; C.pick = null; C.parts = []; C.emit = 0; C.pile = 0; };
+function setMode(m) {
+  const was = C.mode;
+  C.mode = was === m ? null : m; C.auto = false; C.parts = []; C.emit = 0; C.pile = 0;
+  if (C.mode === 'old') { C.era = 1; C.k = 0; C.p = 0; C.phase = 'play'; }
+  else if (C.mode === 'snow') C.temp = -4;
+  else resetCycle();
+}
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act], [data-era]'); if (!b) return;
+  if (b.dataset.era) { C.era = +b.dataset.era; sfx.click(); }
+  else if (b.dataset.act === 'auto') {
+    if (C.auto) { C.auto = false; resetCycle(); } else { C.mode = null; C.auto = true; C.k = 0; C.p = 0; C.phase = 'play'; C.parts = []; }
+    sfx.click();
+  } else if (b.dataset.act === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    setMode(b.dataset.k); sfx.click();
+  }
+  render();
+});
+$('sun').addEventListener('input', (ev) => { C.sun = +ev.target.value; });
+$('temp').addEventListener('input', (ev) => { C.temp = +ev.target.value; $('tempVal').textContent = `${C.temp < 0 ? '−' : ''}${Math.abs(C.temp)} °C`; });
+askEl.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b || b.disabled) return;
+  const v = lab.view;
+  if (b.dataset.j !== undefined) {
+    const j = +b.dataset.j;
+    if (v === 'cycle') { C.pick = j; C.phase = 'play'; C.p = 0; (j === OK[C.k] ? sfx.good : sfx.bad)(); }
+    else if (v === 'dry') { D.pick = j; D.phase = 'play'; D.t = 0; D.dots = [[], []]; (order()[j] === WIN[D.race] ? sfx.good : sfx.bad)(); }
+    else { E.pick = j; E.phase = 'play'; E.t = 0; E.z = 0; E.step++; (j === 1 ? sfx.good : sfx.bad)(); }
+    render(); showStage();
+  } else if (b.dataset.nx !== undefined) {
+    sfx.click();
+    if (v === 'cycle') { if (C.k === 4) resetCycle(); else { C.k++; C.phase = 'ask'; C.p = 0; C.pick = null; } C.parts = []; }
+    else if (v === 'dry') { D.race++; if (D.race > 2) { D.race = 0; newFlips(); } D.phase = 'ask'; D.pick = null; D.t = 0; D.dots = [[], []]; }
+    else if (E.step === 1) { E.step = 2; E.phase = 'ask'; E.pick = null; }
+    else { E.step = 0; E.phase = 'ask'; E.pick = null; E.t = 0; E.z = 0; }
+    render();
+  }
+});
+
+// --- one render per change: controls, the question card, the state card -----------------------------------
+const optsHTML = (list, cls, pick, locked) => `<div class="opts ${cls}">${list.map((o, j) => `<button class="opt${pick === j ? ' sel' : ''}" data-j="${j}"${locked ? ' disabled' : ''}>${esc(o)}</button>`).join('')}</div>`;
+function verdict(t, ok, pickName, rightName, why) {
+  return `<div class="verdict ${ok ? 'ok' : 'no'}">${ok ? '✓ ' : ''}${esc(ok ? t.right : t.wrong)}</div>
+    <div>${ok ? '' : `<span class="ans bad">✗ ${esc(pickName)}</span>`}<span class="ans good">✓ ${esc(rightName)}</span></div>
+    ${why ? `<p>${esc(why)}</p>` : ''}`;
+}
+const nextBtn = (t) => `<button class="btn" data-nx>${esc(t.next)}</button>`;
+
+function render() {
+  const t = T[lang], v = lab.view;
+  document.body.dataset.v = v;
+  $('secCycle').hidden = v !== 'cycle'; $('secEarth').hidden = v !== 'earth';
+  $('ctrl').style.display = v === 'dry' ? 'none' : '';
+  document.querySelector('.readout').style.display = v === 'earth' ? 'none' : '';
+  lastRead = '';
+  if (v === 'cycle') renderCycle(t); else if (v === 'dry') renderDry(t); else renderEarth(t);
+}
+
+function renderCycle(t) {
+  const open = secret.unlocked(), k = C.k, m = C.mode, running = autoRunning();
+  lab.setGlow('rgba(78, 168, 255, .28)');
+  $('sunLbl').textContent = `☀️ ${t.c.sun}`; $('sun').value = C.sun; $('sun').setAttribute('aria-label', t.c.sun);
+  $('tempBox').hidden = m !== 'snow'; $('tempLbl').textContent = t.sec.temp; $('temp').value = C.temp; $('temp').setAttribute('aria-label', t.sec.temp);
+  $('tempVal').textContent = `${C.temp < 0 ? '−' : ''}${Math.abs(C.temp)} °C`;
+  $('eraRow').hidden = m !== 'old';
+  $('eraSeg').innerHTML = t.sec.eras.map((l, i) => `<button data-era="${i}" class="${i === C.era ? 'on' : ''}">${esc(l)}</button>`).join('');
+  $('autoB').hidden = !(C.trips > 0 || C.auto) || m !== null; $('autoB').textContent = C.auto ? t.c.stop : t.c.auto;
+  const sc = (key, emo) => `<button class="chip secret ${open ? 'open' : ''} ${m === key ? 'on' : ''}" data-act="sec" data-k="${key}">${open ? `${emo} ${esc(t.secrets[key][0])}` : '🔒 ???'}</button>`;
+  $('secChips').innerHTML = sc('snow', '🌨️') + sc('old', '🦕');
+  // the question card
+  if (m === 'snow') askEl.innerHTML = `<p>${esc(t.sec.snowText)}</p>`;
+  else if (m === 'old') askEl.innerHTML = `<p>${esc(t.sec.oldText)}</p>`;
+  else if (C.auto) askEl.innerHTML = `<p><b>${esc(t.c.why[k])}</b></p>`;
+  else if (C.phase === 'done') {
+    const ok = C.pick === OK[k], list = t.c['o' + (k + 1)];
+    askEl.innerHTML = verdict(t, ok, list[C.pick], list[OK[k]], t.c.why[k]) + nextBtn(t);
+  } else askEl.innerHTML = `<div class="q">${esc(t.c['q' + (k + 1)])}</div>${optsHTML(t.c['o' + (k + 1)], 'col1', C.pick, C.phase === 'play')}`;
+  // the state card tells the story only as far as the child has seen it
+  const [emo, title, lead, body] = t.cards.cycle, seen = C.trips > 0 || running || m !== null ? 9 : k + (C.phase === 'done' ? 1 : 0);
+  lab.setState({ emo, title, lead: seen >= 2 ? lead : '', body: seen >= 5 ? body : '', extra: '' });
+}
+
+function renderDry(t) {
+  const race = D.race, key = ['sunShade', 'windy', 'lid'][race], ord = order(), cases = t.d.cases[key];
+  lab.setGlow('rgba(255, 200, 80, .22)');
+  if (D.phase === 'done') {
+    const ok = ord[D.pick] === WIN[race];
+    askEl.innerHTML = verdict(t, ok, cases[ord[D.pick]], cases[WIN[race]], t.d.why[key]) + nextBtn(t);
+  } else askEl.innerHTML = `<div class="q">${esc(t.d.q(race))}</div>${optsHTML(ord.map((i) => cases[i]), 'two', D.pick, D.phase === 'play')}`;
+  const [emo, title, lead, body] = t.cards.dry, seen = race + (D.phase === 'done' ? 1 : 0);
+  lab.setState({ emo, title, lead: seen >= 2 ? lead : '', body: seen >= 3 ? body : '', extra: '' });
+}
+
+function renderEarth(t) {
+  const e = t.e, step = E.step, play = E.phase === 'play', done = E.phase === 'done';
+  lab.setGlow('rgba(60, 120, 200, .3)');
+  if (step === 0) askEl.innerHTML = `<div class="q">${esc(e.q1)}</div>${optsHTML(e.o1, '', E.pick, false)}`;
+  else if (step === 1) {
+    if (play) askEl.innerHTML = `<div class="q">${esc(e.q1)}</div>${optsHTML(e.o1, '', E.pick, true)}`;
+    else askEl.innerHTML = verdict(t, E.pick === 1, e.o1[E.pick], e.o1[1], '') + nextBtn(t);
+  } else if (step === 2) askEl.innerHTML = `<div class="q">${esc(e.q2)}</div>${optsHTML(e.o2, '', null, false)}`;
+  else if (play) askEl.innerHTML = `<div class="q">${esc(e.q2)}</div>${optsHTML(e.o2, '', E.pick, true)}`;
+  else askEl.innerHTML = verdict(t, E.pick === 1, e.o2[E.pick], e.o2[1], e.legend) + nextBtn(t);
+  // legend of the cups
+  const rows = step >= 2 || (step === 1 && done) ? [[CUP.salt, e.salt, ''], [CUP.ice, e.ice, ''], [CUP.ground, e.ground, ''], [CUP.ground, e.spoon, 'sp']] : [];
+  $('legend').innerHTML = rows.map(([col, txt, cls]) => `<div class="lg"><i class="sw ${cls}" style="background:${col}"></i><span>${esc(txt)}</span></div>`).join('');
+  $('ctrl').style.display = rows.length ? '' : 'none';
+  const [emo, title, lead, body] = t.cards.earth, full = step === 3 && done;
+  lab.setState({ emo, title: full ? title : step >= 2 ? e.q2 : e.q1, lead: step === 1 && !done ? '' : step >= 1 ? lead : '', body: full ? body : '', extra: `<div class="fine">${esc(t.fine)}</div>` });
+}
+render();
+</script>
+</body>
+</html>
