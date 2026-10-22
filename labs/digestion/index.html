@@ -170,20 +170,36 @@ const mixHex = (a, b, t) => {
   const pa = [1, 3, 5].map((i) => parseInt(a.slice(i, i + 2), 16)), pb = [1, 3, 5].map((i) => parseInt(b.slice(i, i + 2), 16));
   return '#' + pa.map((v, i) => Math.round(lerp(v, pb[i], t)).toString(16).padStart(2, '0')).join('');
 };
-const EMO_FONT = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
-function emoji(c, ch, x, y, size) {
-  c.save(); c.globalAlpha = 1; c.fillStyle = '#fff'; c.font = `${size}px ${EMO_FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle';
-  c.fillText(ch, x, y); c.restore();
+const lin = (c, x0, y0, x1, y1, stops) => { const g = c.createLinearGradient(x0, y0, x1, y1); stops.forEach(([o, col]) => g.addColorStop(o, col)); return g; };
+const rad = (c, x, y, r0, r1, stops) => { const g = c.createRadialGradient(x, y, Math.max(0, r0), x, y, Math.max(0.01, r1)); stops.forEach(([o, col]) => g.addColorStop(o, col)); return g; };
+const shade = (hex, t) => (t < 0 ? mixHex(hex, '#000000', -t) : mixHex(hex, '#ffffff', t)); // hex in, hex out
+const INK = '#2B2233', GOLD = '#E8B94A';
+// a dark pill with white text, kept inside the canvas when `w` is given; `border` colours its 1 px rim
+function pill(c, text, x, y, size = 12, border = '#fff', align = 'center', w = 0) {
+  c.save(); c.globalAlpha = 1; c.font = `800 ${size}px Nunito, sans-serif`;
+  const pw = c.measureText(text).width + 16, ph = size + 7;
+  let x0 = align === 'center' ? x - pw / 2 : align === 'right' ? x - pw : x;
+  if (w) x0 = clamp(x0, 4, Math.max(4, w - pw - 4));
+  c.fillStyle = 'rgba(30,26,43,.94)'; c.strokeStyle = border; c.lineWidth = 1;
+  c.beginPath(); c.roundRect(x0, y - ph / 2, pw, ph, ph / 2); c.fill(); c.stroke();
+  c.fillStyle = '#fff'; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(text, x0 + 8, y + .5);
+  c.restore();
 }
-function label(c, text, x, y, color, size = 13, align = 'center') {
-  c.save(); c.globalAlpha = 1; c.font = `800 ${size}px Nunito, sans-serif`; c.textAlign = align; c.textBaseline = 'middle';
-  c.lineWidth = 4; c.lineJoin = 'round'; c.strokeStyle = 'rgba(10,12,20,.85)'; c.strokeText(text, x, y);
-  c.fillStyle = color; c.fillText(text, x, y); c.restore();
-}
-// a label centred on x but kept inside the canvas
-function labelFit(c, text, x, y, color, w, size = 12) {
-  c.save(); c.font = `800 ${size}px Nunito, sans-serif`; const tw = c.measureText(text).width; c.restore();
-  label(c, text, clamp(x, tw / 2 + 4, w - tw / 2 - 4), y, color, size);
+const label = (c, text, x, y, color, size = 12, align = 'center') => pill(c, text, x, y, size, color, align);
+const labelFit = (c, text, x, y, color, w, size = 12) => pill(c, text, x, y, size, color, 'center', w);
+// the warm book-page backdrop; it leaves a rounded clip open, the caller closes it with c.restore()
+let DOTS = null;
+function panel(c, w, h) {
+  c.save();
+  c.beginPath(); c.roundRect(0, 0, w, h, 16); c.clip();
+  c.fillStyle = lin(c, 0, 0, 0, h, [[0, '#F7F1E8'], [1, '#EADFCF']]); c.fillRect(0, 0, w, h);
+  if (!DOTS) {
+    const k = document.createElement('canvas'); k.width = k.height = 14;
+    const g = k.getContext('2d'); g.fillStyle = 'rgba(90,65,40,.06)'; g.beginPath(); g.arc(7, 7, 1, 0, 7); g.fill();
+    DOTS = c.createPattern(k, 'repeat');
+  }
+  if (DOTS) { c.fillStyle = DOTS; c.fillRect(0, 0, w, h); }
+  c.fillStyle = rad(c, w / 2, h / 2, Math.min(w, h) * .3, Math.max(w, h) * .75, [[0, 'rgba(120,90,60,0)'], [1, 'rgba(120,90,60,.16)']]); c.fillRect(0, 0, w, h);
 }
 
 // --- geometry of the one tube (body units: x centred, y down, the body is about 224 tall) -------------------------
@@ -278,7 +294,7 @@ const DWELL = [1.5, 1.3, 1.8, 3.2, 2.6, 1.6];
 
 // blood vessels: a loop around the coil, one vessel up to the heart
 const VL = resample(rounded([[-26.2, 200], [-26.2, 155.5], [26.2, 155.5], [26.2, 200]], 4), STEP);
-const VM = resample(catmull([[-10, 155.5], [-10, 100], [-3, 92], [9, 86]], 4), STEP); // the heart sits a little to the body's left
+const VM = resample(catmull([[-10, 155.5], [-10, 100], [-3, 92], [10, 87]], 4), STEP); // the heart sits a little to the body's left
 const VJ = VL.reduce((b, p, i) => (Math.hypot(p[0] + 10, p[1] - 155.5) < Math.hypot(VL[b][0] + 10, VL[b][1] - 155.5) ? i : b), 0);
 const mkPath = (arr) => { const p = new Path2D(); arr.forEach(([x, y], i) => (i ? p.lineTo(x, y) : p.moveTo(x, y))); return p; };
 const VLP = mkPath(VL), VMP = mkPath(VM);
@@ -316,6 +332,14 @@ function tickFX(dt, P, time) {
   spAcc += dt * (P.spawn.kind === 'dot' ? 11 : 7);
   while (spAcc >= 1) { spAcc -= 1; spawnFrom(P.spawn, time); }
 }
+const NUT = ['rgba(255,214,70,.4)', '#FFD23F', '#E89B0C'], WAT = ['rgba(80,170,255,.38)', '#8FD0FF', '#2F86D6'];
+function glowDot(c, x, y, r, col) { // a small glowing dot: halo, bright core
+  c.save(); c.globalAlpha = 1;
+  c.fillStyle = col[0]; c.beginPath(); c.arc(x, y, r * 2.4, 0, 7); c.fill();
+  c.fillStyle = rad(c, x - r * .3, y - r * .3, 0, r * 1.3, [[0, '#fff'], [.4, col[1]], [1, col[2]]]);
+  c.beginPath(); c.arc(x, y, r * 1.1, 0, 7); c.fill();
+  c.restore();
+}
 function drawFX(c, time) {
   for (let n = FX.length - 1; n >= 0; n--) {
     const f = FX[n], e = time - f.t0;
@@ -323,101 +347,376 @@ function drawFX(c, time) {
     if (e >= f.tt[f.tt.length - 1]) { heartKick = time; FX.splice(n, 1); continue; }
     while (f.k < f.tt.length - 2 && f.tt[f.k + 1] < e) f.k++;
     const a = f.tt[f.k], b = f.tt[f.k + 1], u = b > a ? (e - a) / (b - a) : 0, p = f.pts[f.k], q = f.pts[f.k + 1];
-    c.save(); c.globalAlpha = 1; c.fillStyle = f.color; c.strokeStyle = 'rgba(20,10,10,.55)'; c.lineWidth = .5;
-    c.beginPath(); c.arc(lerp(p[0], q[0], u), lerp(p[1], q[1], u), f.r, 0, 7); c.fill(); c.stroke(); c.restore();
+    glowDot(c, lerp(p[0], q[0], u), lerp(p[1], q[1], u), f.r, f.color === '#ffd23f' ? NUT : WAT);
   }
 }
 
 // --- the body picture (journey, jobs and the upside-down secret) -----------------------------------------------
-const BODY = new Path2D('M -9 52 L -30 56 Q -46 58 -46 74 L -42 224 L 42 224 L 46 74 Q 46 58 30 56 L 9 52 Z');
+// an x-ray child: opaque head and limbs, a see-through torso, organs inside. Light comes from the top left.
+// a child's torso: the neck flares into sloping, rounded shoulders; the sides ease in at the waist and out again at the hips
+const BODY = new Path2D('M -8 36 L -8.4 47 C -12 50.5 -25 53 -35 55.5 C -45 58 -51 63.5 -50.6 76 C -50.2 100 -47 128 -45.2 152 C -44.6 172 -50 190 -49.8 207 C -49.6 222 -42 229 -28 229 L 28 229 C 42 229 49.6 222 49.8 207 C 50 190 44.6 172 45.2 152 C 47 128 50.2 100 50.6 76 C 51 63.5 45 58 35 55.5 C 25 53 12 50.5 8.4 47 L 8 36 Z');
+const BODYX = new Path2D(); BODYX.rect(-400, -400, 800, 1200); BODYX.addPath(BODY); // clip with 'evenodd': everything outside the torso
 const VIEW = { K: 1, ox: 0, oy: 0, on: false };
-const OUT = '#8f3a4d', FILL = ['#f1a1ae', '#f1a1ae', '#ee8d9d', '#f6a9b4', '#e98698'];
 const MUSH = '#b9722e', DARK = '#5e3b1e';
+const SKIN_OUT = '#9A6A50';
+// tube colours: outline, body, light centre, highlight
+const TC = {
+  oes: ['#B24A60', '#E9798C', '#F4A5B3', '#FFD9E0'], stom: ['#B24A60', '#D9677C', '#F08FA0', '#FFD0D8'],
+  si: ['#B8685A', '#E3917E', '#F7B9A8', '#FFE3DA'], li: ['#9E5A40', '#C67A5A', '#E3A07E', '#F7CDB0'],
+  red: ['#8E1B2B', '#E0313F', '#F26A72', '#FFC0C4'], blue: ['#2F3688', '#5A62C8', '#8A92E8', '#C8CCFF'],
+  end: ['#8F7479', '#B99AA0', '#D6BFC4', '#F1E4E7'],
+};
+const PIECE_TC = [TC.oes, TC.oes, TC.stom, TC.si, TC.li];
 
-function foodBlob(c, x, y, spread, mix, time, rad) { // three apple pieces that merge into a brown-orange mush
-  const cols = ['#e5483b', '#f4e7b0', '#d83a30'];
-  c.save(); c.globalAlpha = 1;
-  for (let i = 0; i < 3; i++) {
-    const a = i * 2.094 + .6 + time * mix * 5, d = spread * (1 - mix) + mix * 1.6 * Math.sin(time * 7 + i * 2);
-    c.fillStyle = mixHex(cols[i], MUSH, mix);
-    c.beginPath(); c.arc(x + Math.cos(a) * d, y + Math.sin(a) * d, lerp(rad, rad * 1.7, mix), 0, 7); c.fill();
+// a tube: dark outline, mid-tone body, light centre, a thin highlight nudged to the light
+function tube(c, path, wid, col) {
+  const [o, m, l, h] = col;
+  c.save(); c.lineCap = 'round'; c.lineJoin = 'round';
+  c.strokeStyle = o; c.lineWidth = wid + 1.6; c.stroke(path);
+  c.strokeStyle = m; c.lineWidth = wid; c.stroke(path);
+  c.strokeStyle = l; c.lineWidth = wid * .55; c.stroke(path);
+  c.globalAlpha *= .75; c.strokeStyle = h; c.lineWidth = Math.max(.45, wid * .14); c.translate(-wid * .1, -wid * .14); c.stroke(path);
+  c.restore();
+}
+// the large intestine: a puffy tube with a bump (haustrum) every `gap` units
+function bumpy(c, path, wid, col, gap = 6.5) {
+  const [o, m, l, h] = col;
+  c.save(); c.lineCap = 'round'; c.lineJoin = 'round';
+  c.strokeStyle = o; c.lineWidth = wid * .9; c.stroke(path);
+  c.setLineDash([.01, gap]); c.lineWidth = wid + 1.8; c.stroke(path);
+  c.strokeStyle = m; c.lineWidth = wid; c.stroke(path);
+  c.setLineDash([]); c.lineWidth = wid * .74; c.stroke(path);
+  c.strokeStyle = l; c.lineWidth = wid * .42; c.stroke(path);
+  c.globalAlpha *= .75; c.strokeStyle = h; c.lineWidth = Math.max(.45, wid * .12); c.translate(-wid * .1, -wid * .14); c.stroke(path);
+  c.restore();
+}
+// fine folds across a tube: short butt-capped dashes read as rings
+function stripes(c, path, wid, col, gap, alpha = .3) {
+  c.save(); c.lineCap = 'butt'; c.setLineDash([.9, gap]); c.strokeStyle = col; c.globalAlpha *= alpha; c.lineWidth = wid * .8; c.stroke(path); c.restore();
+}
+function glowStroke(c, path, wid, time, k) { // the "this one" glow: warm gold, readable on the light page
+  c.save(); c.shadowColor = 'rgba(255,170,0,1)'; c.shadowBlur = (10 + 6 * Math.sin(time * 5)) * k;
+  c.strokeStyle = 'rgba(255,200,40,.95)'; c.lineWidth = wid + 3.5; c.lineCap = 'round'; c.lineJoin = 'round'; c.stroke(path); c.restore();
+}
+const nrm = (pts, i) => { // unit normal of a polyline at point i
+  const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1;
+  return [-dy / l, dx / l];
+};
+// the stomach's folds (rugae): wavy lines along the J, made once
+const RUGAE = [-4.6, -1.6, 1.6, 4.6].map((off, j) => mkPath(stomR.map((p, i) => {
+  const [nx, ny] = nrm(stomR, i), o = off + 1.1 * Math.sin(i * .6 + j * 1.9);
+  return [p[0] + nx * o, p[1] + ny * o];
+})));
+// a net of fine vessels between the loop and the small intestine
+const CAPS = (() => {
+  const p = new Path2D();
+  for (let y = 159; y <= 199; y += 4) for (const sg of [-1, 1]) { p.moveTo(sg * 26.2, y); p.lineTo(sg * 21.5, y + 1.6); }
+  for (let x = -22; x <= 22; x += 4.4) { p.moveTo(x, 155.5); p.lineTo(x + 1, 159.5); }
+  return p;
+})();
+
+// --- organs ---------------------------------------------------------------------------------------------------------
+const LUNG = new Path2D('M -3 58 C -13 54 -33 59 -37 77 C -40 90 -34 97 -22 96 C -11 96 -5 93 -4 86 Z');
+const ALV = (() => { let s = 7; const r = () => (s = (s * 16807) % 2147483647) / 2147483647; return Array.from({ length: 34 }, () => [-37 + r() * 33, 57 + r() * 40, .45 + r() * .5]); })();
+const BRONCH = (() => {
+  const p = new Path2D();
+  p.moveTo(-3, 57); p.lineTo(-8, 66); p.lineTo(-18, 74); p.moveTo(-8, 66); p.lineTo(-11, 80); p.moveTo(-18, 74); p.lineTo(-27, 78); p.moveTo(-18, 74); p.lineTo(-24, 88);
+  return p;
+})();
+function lungs(c) { // two spongy lobed lungs; the left one (screen right) is a little smaller
+  for (const sx of [1, -.9]) {
+    c.save(); c.scale(sx, 1);
+    c.fillStyle = lin(c, -38, 56, -4, 98, [[0, '#F9C6CD'], [1, '#E0798C']]); c.fill(LUNG);
+    c.save(); c.clip(LUNG);
+    c.save(); c.globalAlpha *= .55; c.fillStyle = '#FFE0E4'; for (const [x, y, r] of ALV) { c.beginPath(); c.arc(x, y, r, 0, 7); c.fill(); } c.restore();
+    c.save(); c.globalAlpha *= .5; c.strokeStyle = '#C65D74'; c.lineWidth = .8; c.stroke(BRONCH); c.restore();
+    c.save(); c.globalAlpha *= .45; c.strokeStyle = '#fff'; c.lineWidth = 1.6; c.beginPath(); c.moveTo(-31, 66); c.quadraticCurveTo(-35, 78, -31, 88); c.stroke(); c.restore();
+    c.restore();
+    c.strokeStyle = '#B4566A'; c.lineWidth = .9; c.stroke(LUNG);
+    c.restore();
   }
+}
+const LIVER = new Path2D('M -40 104 C -38 94 -22 92 -6 95 C 6 97 14 102 16 108 C 8 112 -4 124 -18 128 C -32 130 -40 120 -40 104 Z');
+function liver(c) { // a brown-red lobe on the child's right (screen left); its tip tucks under the stomach
+  c.fillStyle = lin(c, -40, 94, 12, 130, [[0, '#BC5650'], [1, '#8A312E']]); c.fill(LIVER);
+  c.save(); c.clip(LIVER);
+  c.strokeStyle = 'rgba(70,16,14,.45)'; c.lineWidth = .8; c.beginPath(); c.moveTo(-10, 96); c.quadraticCurveTo(-14, 112, -6, 124); c.stroke();
+  c.strokeStyle = 'rgba(255,200,190,.5)'; c.lineWidth = 1.8; c.beginPath(); c.moveTo(-34, 103); c.quadraticCurveTo(-30, 97, -18, 96); c.stroke();
+  c.restore();
+  c.strokeStyle = '#5E1F1C'; c.lineWidth = .9; c.stroke(LIVER);
+}
+function ribs(c) { // curved rib pairs and two collarbones; the stomach sits just under them, high up
+  c.save(); c.lineCap = 'round';
+  const draw = (fn) => {
+    c.strokeStyle = '#9C8A66'; c.lineWidth = 2.6; fn();
+    c.strokeStyle = '#F5EEDC'; c.lineWidth = 1.5; fn();
+  };
+  for (let i = 0; i < 4; i++) for (const sg of [-1, 1]) {
+    const y = 64 + i * 10;
+    draw(() => { c.beginPath(); c.moveTo(sg * 3, y); c.quadraticCurveTo(sg * 22, y - 3, sg * 37, y + 9); c.stroke(); });
+  }
+  for (const sg of [-1, 1]) draw(() => { c.beginPath(); c.moveTo(sg * 4, 57); c.quadraticCurveTo(sg * 18, 54, sg * 36, 59); c.stroke(); });
+  c.restore();
+}
+// the heart, tilted to the child's left, with its aortic arch; the right side leans blue-purple, the left red
+const HEART = new Path2D('M 0 -5 C -3 -12 -11 -10 -10 -2 C -9.5 4 -3 8 1.5 12 C 7 8 11 3 10 -2 C 10 -9 3 -12 0 -5 Z');
+const ARCH = mkPath(catmull([[2, -5], [3, -12], [-2, -16], [-8, -13], [-9, -6]], 5));
+const CAVA = mkPath([[-5, -5], [-6, -15]]);
+function heart(c, x, y, s) {
+  c.save(); c.translate(x, y); c.rotate(-.5); c.scale(s, s);
+  tube(c, CAVA, 3, TC.blue); tube(c, ARCH, 3.4, TC.red);
+  c.shadowColor = 'rgba(80,0,20,.35)'; c.shadowBlur = 4 * VIEW.K; c.shadowOffsetY = 1.5 * VIEW.K;
+  c.fillStyle = lin(c, -10, -4, 10, 6, [[0, '#7B5CB8'], [.34, '#B03F7E'], [.55, '#D63A4C'], [1, '#A0182E']]); c.fill(HEART);
+  c.shadowColor = 'transparent'; c.strokeStyle = '#6E0F20'; c.lineWidth = .9; c.stroke(HEART);
+  c.strokeStyle = 'rgba(70,0,20,.28)'; c.lineWidth = .8; c.beginPath(); c.moveTo(-6, -3); c.quadraticCurveTo(0, 2, 4, 8); c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.55)'; c.beginPath(); c.ellipse(-3.6, -5, 2.8, 1.4, -.6, 0, 7); c.fill();
+  c.restore();
+}
+
+// --- limbs, face --------------------------------------------------------------------------------------------------
+function limb(c, x1, y1, x2, y2, r1, r2) { // a tapered capsule from (x1,y1) to (x2,y2)
+  const a = Math.atan2(y2 - y1, x2 - x1);
+  c.beginPath(); c.arc(x2, y2, r2, a - Math.PI / 2, a + Math.PI / 2); c.arc(x1, y1, r1, a + Math.PI / 2, a + Math.PI * 1.5); c.closePath(); c.fill(); c.stroke();
+}
+// an arm and its mitten hand as one smooth outline: round shoulder, a swell at the biceps, a slight elbow, a slim wrist,
+// a palm that ends in a rounded tip. dy = +1 hangs down, -1 reaches up; a1/a2: angle of the upper arm / forearm from the vertical.
+const ARM_R = [[0, 8.2], [10, 8.4], [26, 7.2], [44, 5.9], [56, 6.1], [72, 5], [82, 4.2], [90, 5.6]];
+function armShape(sg, a1, a2, dy) {
+  const L1 = 44, L2 = 38, LH = 14, S = [sg * 51, 67];
+  const d1 = [sg * Math.sin(a1), dy * Math.cos(a1)], d2 = [sg * Math.sin(a2), dy * Math.cos(a2)];
+  const E = [S[0] + d1[0] * L1, S[1] + d1[1] * L1], Wr = [E[0] + d2[0] * L2, E[1] + d2[1] * L2], H = [Wr[0] + d2[0] * LH, Wr[1] + d2[1] * LH];
+  const pts = resample(catmull([S, E, Wr, H], 8), 1.2);
+  let len = 0; const cum = pts.map((p, i) => (i && (len += Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1])), len));
+  const U = cum.map((v) => v / len * (L1 + L2 + LH));
+  const R = (u) => {
+    if (u >= 90) return 5.6 * Math.sqrt(Math.max(0, 1 - ((u - 90) / 6) ** 2));
+    let k = 0; while (k < ARM_R.length - 2 && u > ARM_R[k + 1][0]) k++;
+    const [u0, r0] = ARM_R[k], [u1, r1] = ARM_R[k + 1], t = clamp((u - u0) / (u1 - u0), 0, 1);
+    return r0 + (r1 - r0) * t * t * (3 - 2 * t);
+  };
+  const N = pts.length, nr = pts.map((p, i) => {
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(N - 1, i + 1)], l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    return [-(b[1] - a[1]) / l, (b[0] - a[0]) / l, (b[0] - a[0]) / l, (b[1] - a[1]) / l]; // normal, tangent
+  });
+  const left = pts.map((p, i) => [p[0] + nr[i][0] * R(U[i]), p[1] + nr[i][1] * R(U[i])]);
+  const right = pts.map((p, i) => [p[0] - nr[i][0] * R(U[i]), p[1] - nr[i][1] * R(U[i])]);
+  const path = new Path2D(), [n0x, n0y] = nr[0], r0 = R(0);
+  path.moveTo(...left[0]); left.forEach((q) => path.lineTo(...q)); for (let i = N - 1; i >= 0; i--) path.lineTo(...right[i]);
+  path.arc(pts[0][0], pts[0][1], r0, Math.atan2(-n0y, -n0x), Math.atan2(n0y, n0x), true); path.closePath();
+  const iT = U.findIndex((u) => u >= 85), [nx, ny, tx, ty] = nr[iT];
+  const sI = nx * sg < 0 ? 1 : -1, ix = nx * sI, iy = ny * sI; // unit normal pointing at the body
+  const ax = pts[iT][0] + ix * 3.2, ay = pts[iT][1] + iy * 3.2, c38 = Math.cos(.66), s38 = Math.sin(.66);
+  const thumb = [ax, ay, ax + (tx * c38 + ix * s38) * 8.5, ay + (ty * c38 + iy * s38) * 8.5];
+  const sL = nr[Math.floor(N / 3)][0] < 0 ? 1 : -1, hi = new Path2D(); // a soft light streak down the left edge (light from the top left)
+  for (let i = 4; i < N; i++) { if (U[i] > 78) break; const q = [pts[i][0] + nr[i][0] * sL * R(U[i]) * .5, pts[i][1] + nr[i][1] * sL * R(U[i]) * .5]; i === 4 ? hi.moveTo(...q) : hi.lineTo(...q); }
+  return { path, thumb, hi };
+}
+const ARM_DOWN = { '-1': armShape(-1, .227, .332, 1), '1': armShape(1, .227, .332, 1) };   // A-pose: about 13-19 degrees out of the vertical
+const ARM_UP = { '-1': armShape(-1, .07, .06, -1), '1': armShape(1, .07, .06, -1) };      // handstand: straight up in body space, down on the floor
+function drawArm(c, A, skin) {
+  c.save(); c.lineCap = 'round';
+  c.strokeStyle = SKIN_OUT; c.lineWidth = 6.8; c.beginPath(); c.moveTo(A.thumb[0], A.thumb[1]); c.lineTo(A.thumb[2], A.thumb[3]); c.stroke();
+  c.strokeStyle = skin; c.lineWidth = 5; c.stroke();
+  c.restore();
+  c.fillStyle = skin; c.fill(A.path); c.stroke(A.path);
+  c.save(); c.globalAlpha *= .4; c.strokeStyle = '#fff'; c.lineWidth = 1.6; c.stroke(A.hi); c.restore();
+}
+const HEADP = new Path2D('M -19 20 C -19 0 19 0 19 20 C 19 34 10 43 0 43 C -10 43 -19 34 -19 20 Z');
+const HAIR = new Path2D('M -20 21 C -23 3 -8 -3 3 -2 C 15 -2 23 7 20 21 C 17 14 10 9 3 9 C -4 9 -14 11 -20 21 Z');
+function head(c, time) {
+  c.save();
+  c.shadowColor = 'rgba(90,60,40,.3)'; c.shadowBlur = 7 * VIEW.K; c.shadowOffsetY = 2.5 * VIEW.K;
+  c.fillStyle = lin(c, -16, 4, 16, 42, [[0, '#F8D9BA'], [1, '#E2A982']]); c.strokeStyle = SKIN_OUT; c.lineWidth = .9;
+  for (const s of [-1, 1]) { c.beginPath(); c.ellipse(s * 18.8, 25, 3.2, 4.4, 0, 0, 7); c.fill(); c.stroke(); } // ears
+  c.fill(HEADP); c.shadowColor = 'transparent'; c.stroke(HEADP);
+  c.fillStyle = 'rgba(255,120,130,.28)'; for (const s of [-1, 1]) { c.beginPath(); c.arc(s * 11.5, 28, 3.6, 0, 7); c.fill(); } // cheeks
+  c.fillStyle = lin(c, -18, -2, 18, 14, [[0, '#8A6347'], [1, '#4A3226']]); c.fill(HAIR);
+  c.strokeStyle = '#3A271D'; c.lineWidth = .7; c.stroke(HAIR);
+  c.strokeStyle = 'rgba(255,230,200,.45)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(-10, 3); c.quadraticCurveTo(-3, -.5, 6, 1); c.stroke();
+  const blink = time % 4.3 < .12;
+  for (const s of [-1, 1]) { // eyes: white, dark iris, a little light
+    const ex = s * 7, ey = 19;
+    c.fillStyle = '#fff'; c.strokeStyle = '#6A4A3A'; c.lineWidth = .6; c.beginPath(); c.ellipse(ex, ey, 3.2, blink ? .5 : 3.6, 0, 0, 7); c.fill(); c.stroke();
+    if (!blink) {
+      c.fillStyle = '#3B2A24'; c.beginPath(); c.arc(ex + .3, ey + .5, 2.2, 0, 7); c.fill();
+      c.fillStyle = '#fff'; c.beginPath(); c.arc(ex - .5, ey - .6, .8, 0, 7); c.fill();
+    }
+    c.strokeStyle = '#4A3226'; c.lineWidth = .9; c.beginPath(); c.moveTo(ex - 3, ey - 5.6); c.quadraticCurveTo(ex, ey - 7, ex + 3, ey - 5.6); c.stroke();
+  }
+  c.strokeStyle = '#C98F6E'; c.lineWidth = .9; c.beginPath(); c.moveTo(-1.6, 25.5); c.quadraticCurveTo(0, 27, 1.6, 25.5); c.stroke(); // nose
   c.restore();
 }
 function drawMouth(c, chew, time, glow) {
-  const o = 3.2 * chew, cy = 30 + o / 2, ry = 1.7 + o / 2;
-  c.save(); c.globalAlpha = 1;
-  c.strokeStyle = 'rgba(190,200,230,.4)'; c.lineWidth = 1; c.beginPath(); c.moveTo(-13, 36); c.quadraticCurveTo(0, 44 + o * 1.4, 13, 36); c.stroke(); // the jaw line bobs
+  const o = 3.2 * chew, cy = 30.5 + o / 2, ry = 1.6 + o / 2;
+  c.save(); c.globalAlpha = 1; c.lineCap = 'round';
   if (glow) {
-    c.save(); c.shadowColor = 'rgba(255,240,150,1)'; c.shadowBlur = (10 + 6 * Math.sin(time * 5)) * VIEW.K; c.strokeStyle = 'rgba(255,244,180,.9)'; c.lineWidth = 5;
-    c.beginPath(); c.ellipse(0, cy, 7.2, ry, 0, 0, 7); c.stroke(); c.restore();
+    c.save(); c.shadowColor = 'rgba(255,170,0,1)'; c.shadowBlur = (10 + 6 * Math.sin(time * 5)) * VIEW.K; c.strokeStyle = 'rgba(255,200,40,.95)'; c.lineWidth = 3.6;
+    c.beginPath(); c.ellipse(0, cy, 8.4, Math.max(ry, 3.2), 0, 0, 7); c.stroke(); c.restore();
   }
-  c.fillStyle = '#4a1822'; c.beginPath(); c.ellipse(0, cy, 7.2, ry, 0, 0, 7); c.fill();
-  c.fillStyle = '#fffbee';
-  for (let i = -2; i <= 2; i++) { c.fillRect(i * 2.5 - 1.1, cy - ry + .5, 2.2, 2.3); if (o > 1) c.fillRect(i * 2.5 - 1.1, cy + ry - 2.8, 2.2, 2.3); }
-  c.strokeStyle = '#e0566a'; c.lineWidth = 1.8; c.beginPath(); c.ellipse(0, cy, 7.2, ry, 0, 0, 7); c.stroke();
+  if (o < .25) { // closed: a small smile
+    c.strokeStyle = '#A64A55'; c.lineWidth = 1.6; c.beginPath(); c.moveTo(-6, 29.5); c.quadraticCurveTo(0, 35, 6, 29.5); c.stroke();
+  } else {
+    c.fillStyle = '#5A1A26'; c.beginPath(); c.ellipse(0, cy, 6.8, ry, 0, 0, 7); c.fill();
+    c.save(); c.beginPath(); c.ellipse(0, cy, 6.8, ry, 0, 0, 7); c.clip();
+    c.fillStyle = '#E77B8C'; c.beginPath(); c.ellipse(0, cy + ry * .75, 4.4, ry * .6, 0, 0, 7); c.fill();
+    c.fillStyle = lin(c, 0, cy - ry, 0, cy - ry + 2.4, [[0, '#FFFDF6'], [1, '#E7E0CE']]); c.fillRect(-6, cy - ry, 12, 2.4);
+    if (o > 1) c.fillRect(-5, cy + ry - 2, 10, 2);
+    c.restore();
+    c.strokeStyle = '#C9535F'; c.lineWidth = 1.5; c.beginPath(); c.ellipse(0, cy, 6.8, ry, 0, 0, 7); c.stroke();
+  }
   c.restore();
 }
-function kidney(c, x, y, rot) {
-  c.beginPath(); c.ellipse(x, y, 3.4, 6.2, rot, 0, 7); c.fillStyle = '#b4545a'; c.fill(); c.strokeStyle = '#6f2a33'; c.lineWidth = 1; c.stroke();
+
+// --- food -----------------------------------------------------------------------------------------------------------
+function ball(c, x, y, r, col, outline = true) { // a lit little ball
+  r = Math.max(.05, r);
+  c.fillStyle = rad(c, x - r * .35, y - r * .35, 0, r * 1.25, [[0, shade(col, .5)], [.55, col], [1, shade(col, -.3)]]);
+  c.beginPath(); c.arc(x, y, r, 0, 7); c.fill();
+  if (outline) { c.strokeStyle = 'rgba(60,20,10,.4)'; c.lineWidth = .4; c.stroke(); }
+}
+function apple(c, x, y, size, bite) { // red gradient, a stalk and a leaf; a scalloped bite when bitten
+  const r = size * .46;
+  c.save(); c.translate(x, y); c.globalAlpha = 1; c.lineJoin = 'round'; c.lineCap = 'round';
+  c.shadowColor = 'rgba(60,20,20,.35)'; c.shadowBlur = 3 * VIEW.K; c.shadowOffsetY = VIEW.K;
+  const p = new Path2D(), f = (u, v) => [u * r, v * r];
+  p.moveTo(0, -.62 * r);
+  if (bite) {
+    p.bezierCurveTo(...f(.3, -1), ...f(.62, -1.02), ...f(.82, -.72));
+    for (const [cx, cy, ex, ey] of [[.45, -.75, .55, -.4], [.3, -.2, .58, -.02], [.3, .18, .6, .38], [.5, .6, .78, .72]]) {
+      p.quadraticCurveTo(...f(cx, cy), ...f(ex, ey));
+    }
+    p.bezierCurveTo(...f(.6, 1.1), ...f(.3, 1.1), ...f(0, .92));
+  } else {
+    p.bezierCurveTo(...f(.55, -1.05), ...f(1.25, -.55), ...f(1.05, .2));
+    p.bezierCurveTo(...f(.9, .9), ...f(.35, 1.1), ...f(0, .92));
+  }
+  p.bezierCurveTo(...f(-.35, 1.1), ...f(-.9, .9), ...f(-1.05, .2));
+  p.bezierCurveTo(...f(-1.25, -.55), ...f(-.55, -1.05), ...f(0, -.62));
+  c.fillStyle = rad(c, -.4 * r, -.4 * r, .1 * r, 1.5 * r, [[0, '#FF8D7C'], [.45, '#E5483B'], [1, '#A81E2A']]); c.fill(p);
+  c.shadowColor = 'transparent'; c.strokeStyle = '#8F1B24'; c.lineWidth = .6; c.stroke(p);
+  if (bite) { // pale flesh along the bite edge
+    c.save(); c.strokeStyle = '#F6E9B8'; c.lineWidth = 1.1; c.beginPath(); c.moveTo(...f(.82, -.72));
+    for (const [cx, cy, ex, ey] of [[.45, -.75, .55, -.4], [.3, -.2, .58, -.02], [.3, .18, .6, .38], [.5, .6, .78, .72]]) c.quadraticCurveTo(...f(cx, cy), ...f(ex, ey));
+    c.stroke(); c.restore();
+  }
+  c.strokeStyle = '#6B4423'; c.lineWidth = 1.1; c.beginPath(); c.moveTo(0, -.6 * r); c.quadraticCurveTo(.1 * r, -1.1 * r, .22 * r, -1.28 * r); c.stroke();
+  c.fillStyle = lin(c, 0, -1.2 * r, .9 * r, -.8 * r, [[0, '#7CC46A'], [1, '#3F8A3C']]);
+  c.beginPath(); c.ellipse(.62 * r, -1.05 * r, .5 * r, .22 * r, -.45, 0, 7); c.fill();
+  c.fillStyle = 'rgba(255,255,255,.55)'; c.beginPath(); c.ellipse(-.5 * r, -.3 * r, .17 * r, .32 * r, .5, 0, 7); c.fill();
+  c.restore();
+}
+function foodBlob(c, x, y, spread, mix, time, r0) { // three apple pieces that merge into one brown-orange bolus
+  const cols = ['#e5483b', '#f4e7b0', '#d83a30'], rr = lerp(r0, r0 * 1.7, mix);
+  c.save(); c.globalAlpha = 1;
+  if (mix > .45) ball(c, x, y, r0 * lerp(1.5, 2.2, mix), mixHex('#d8603a', MUSH, mix), false);
+  for (let i = 0; i < 3; i++) {
+    const a = i * 2.094 + .6 + time * mix * 5, d = spread * (1 - mix) + mix * 1.6 * Math.sin(time * 7 + i * 2);
+    ball(c, x + Math.cos(a) * d, y + Math.sin(a) * d, rr, mixHex(cols[i], MUSH, mix), mix < .45);
+  }
+  c.restore();
+}
+function poop(c, x, y) { // the leftovers: a small brown swirl
+  c.save(); c.globalAlpha = 1; c.lineWidth = .6; c.strokeStyle = '#4A2A14';
+  c.fillStyle = rad(c, x - 2, y - 3, 0, 8, [[0, '#C98A55'], [1, '#6E4224']]);
+  for (const [dy, rx, ry] of [[2.6, 5, 2.8], [-.2, 3.8, 2.4], [-2.7, 2.4, 2]]) { c.beginPath(); c.ellipse(x, y + dy, rx, ry, 0, 0, 7); c.fill(); c.stroke(); }
+  c.restore();
+}
+const GLASS = new Path2D('M -5.5 -8 L 5.5 -8 L 4.2 8 Q 4 9.5 2.5 9.5 L -2.5 9.5 Q -4 9.5 -4.2 8 Z');
+function glass(c, x, y, tilt) { // a glass of juice with a straw
+  c.save(); c.translate(x, y); c.rotate(tilt); c.globalAlpha = 1; c.lineCap = 'round';
+  c.fillStyle = 'rgba(255,255,255,.7)'; c.fill(GLASS);
+  c.save(); c.clip(GLASS); c.fillStyle = lin(c, -5, -3, 5, 9, [[0, '#FFB347'], [1, '#EE7A1C']]); c.fillRect(-6, -3, 12, 14); c.restore();
+  c.strokeStyle = '#E5483B'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(1, -2); c.lineTo(4.4, -12); c.stroke();
+  c.strokeStyle = '#7B8AA0'; c.lineWidth = .8; c.stroke(GLASS);
+  c.strokeStyle = 'rgba(255,255,255,.8)'; c.lineWidth = 1; c.beginPath(); c.moveTo(-3.4, -6); c.lineTo(-2.8, 5); c.stroke();
+  c.restore();
+}
+function kidney(c, x, y, rot, dir) { // a bean, curved in towards the middle of the body
+  c.save(); c.translate(x, y); c.rotate(rot); c.scale(dir, 1);
+  const p = new Path2D('M -1 -7 C -6 -6 -6 6 -1 7 C 2 7.2 3 4 1.5 0 C 3 -4 2 -7.2 -1 -7 Z');
+  c.fillStyle = lin(c, -5, -6, 3, 7, [[0, '#CF6168'], [1, '#8E343C']]); c.fill(p);
+  c.strokeStyle = '#6f2a33'; c.lineWidth = .9; c.stroke(p);
+  c.fillStyle = 'rgba(255,255,255,.4)'; c.beginPath(); c.ellipse(-3, -2.5, .9, 2.2, 0, 0, 7); c.fill();
+  c.restore();
 }
 
 // P: the pose of everything that moves: { hl, chew, apple, pieces, lump, blob, plug, poop, glass, kid, churn, flip, spawn }
 function drawBody(c, w, h, time, P) {
-  const flip = !!P.flip, K = flip ? Math.min(h * .86 / 266, w / 150) : Math.min(h / 262, w / 150);
+  const flip = !!P.flip, K = flip ? Math.min(h * .86 / 290, w / 150) : Math.min(h / 262, w / 182);
   const oy = (h - 262 * K) / 2 + 16 * K;
   VIEW.K = K; VIEW.ox = w / 2; VIEW.oy = oy; VIEW.on = !flip;
   c.save();
-  if (flip) { c.translate(w / 2, h * .5); c.scale(K, K); c.rotate(Math.PI); c.translate(0, -118); } else { c.translate(w / 2, oy); c.scale(K, K); }
+  if (flip) { c.translate(w / 2, h * .5); c.scale(K, K); c.rotate(Math.PI); c.translate(0, -117); } else { c.translate(w / 2, oy); c.scale(K, K); }
   c.lineCap = 'round'; c.lineJoin = 'round';
-  const hl = P.hl ?? -1, dimA = (i) => (hl < 0 || hl === i ? 1 : .22), vesA = hl < 0 || hl === 3 || hl === 4 ? 1 : .22;
+  const hl = P.hl ?? -1, dimA = (i) => (hl < 0 || hl === i ? 1 : .25), vesA = hl < 0 || hl === 3 || hl === 4 ? 1 : .25, bgA = hl < 0 ? 1 : .5;
+  const skin = lin(c, -50, 30, 50, 210, [[0, '#F7D6B6'], [1, '#E2A982']]);
 
-  // the child: arms, neck, torso, head
-  c.fillStyle = '#1b2133'; c.strokeStyle = 'rgba(150,165,210,.42)'; c.lineWidth = 1.2;
-  c.save(); c.strokeStyle = 'rgba(150,165,210,.42)';
+  if (flip) { // the floor under the hands
+    c.fillStyle = lin(c, 0, -29, 0, -90, [[0, '#DCC8A6'], [1, '#BFA982']]); c.fillRect(-w / K, -90, 2 * w / K, 61);
+    c.strokeStyle = '#9C8A66'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(-w / K, -29); c.lineTo(w / K, -29); c.stroke();
+  }
+  // arms (and, upside down, the legs in the air); only the part outside the torso, the torso itself stays see-through
+  c.save(); c.clip(BODYX, 'evenodd');
+  c.shadowColor = 'rgba(90,60,40,.3)'; c.shadowBlur = 7 * K; c.shadowOffsetY = 2.5 * K;
+  c.fillStyle = skin; c.strokeStyle = SKIN_OUT; c.lineWidth = .9;
   for (const sg of [-1, 1]) {
-    const [y0, y1] = flip ? [64, -6] : [66, 128];
-    c.lineWidth = 13.5; c.stroke(mkPath([[sg * 51, y0], [sg * 54, y1]])); c.lineWidth = 11.5; c.strokeStyle = '#1b2133'; c.stroke(mkPath([[sg * 51, y0], [sg * 54, y1]])); c.strokeStyle = 'rgba(150,165,210,.42)';
-    if (flip) { c.lineWidth = 15; c.stroke(mkPath([[sg * 18, 224], [sg * 22, 252]])); c.lineWidth = 13; c.strokeStyle = '#1b2133'; c.stroke(mkPath([[sg * 18, 224], [sg * 22, 252]])); c.strokeStyle = 'rgba(150,165,210,.42)'; }
+    drawArm(c, (flip ? ARM_UP : ARM_DOWN)[sg], skin);
+    if (flip) {
+      limb(c, sg * 24, 222, sg * 26, 252, 12, 8.5);
+      c.save(); c.fillStyle = '#5F7FB8'; c.beginPath(); c.roundRect(sg * 26 - 10, 252, 20, 9, 4); c.fill(); c.stroke(); c.restore();
+    }
   }
   c.restore();
-  c.fillRect(-7, 40, 14, 14); c.fill(BODY); c.stroke(BODY);
-  c.beginPath(); c.ellipse(0, 22, 19, 21, 0, 0, 7); c.fill(); c.stroke();
-  c.fillStyle = '#8d97b8'; c.beginPath(); c.arc(-7, 16, 1.7, 0, 7); c.arc(7, 16, 1.7, 0, 7); c.fill();
-  // ribs: the stomach sits just under them, high up
-  c.strokeStyle = 'rgba(190,200,230,.22)'; c.lineWidth = 1.1;
-  for (let i = 0; i < 4; i++) for (const sg of [-1, 1]) { const y = 64 + i * 10; c.beginPath(); c.moveTo(sg * 3, y); c.quadraticCurveTo(sg * 22, y - 3, sg * 37, y + 9); c.stroke(); }
+
+  // the see-through torso, with a soft glow inside
+  c.save(); c.globalAlpha = .4; c.fillStyle = skin; c.fill(BODY); c.restore();
+  c.save(); c.clip(BODY);
+  c.fillStyle = rad(c, 0, 135, 0, 110, [[0, 'rgba(255,255,255,.7)'], [1, 'rgba(255,255,255,.08)']]); c.fillRect(-56, 30, 112, 205);
+  c.fillStyle = lin(c, -50, 0, 50, 0, [[0, 'rgba(255,255,255,.28)'], [.3, 'rgba(255,255,255,0)'], [.8, 'rgba(150,90,60,0)'], [1, 'rgba(150,90,60,.14)']]); c.fillRect(-56, 30, 112, 205);
+  c.restore();
+  c.strokeStyle = SKIN_OUT; c.lineWidth = 1; c.stroke(BODY);
+
+  c.save(); c.globalAlpha = bgA; lungs(c); liver(c); ribs(c); c.restore();
+  c.save(); c.globalAlpha = .45 * bgA; c.fillStyle = '#9A6A50'; c.beginPath(); c.ellipse(0, 178, 1.9, 1.3, 0, 0, 7); c.fill(); c.restore(); // belly button
 
   // the tube, from the large intestine up to the mouth, with the blood vessels between
-  const tube = (i) => {
-    const wid = W[i] + (i === 2 && P.churn ? 1.8 * Math.sin(time * 9) : 0);
+  const tubeI = (i) => {
+    const wid = W[i] + (i === 2 && P.churn ? 1.8 * Math.sin(time * 9) : 0), path = PATHS[i];
     c.save(); c.globalAlpha = dimA(i);
-    if (hl === i && i > 0) { c.save(); c.shadowColor = 'rgba(255,240,150,1)'; c.shadowBlur = (10 + 6 * Math.sin(time * 5)) * K; c.strokeStyle = 'rgba(255,244,180,.9)'; c.lineWidth = wid + 3.5; c.stroke(PATHS[i]); c.restore(); }
-    c.strokeStyle = OUT; c.lineWidth = wid + 1.6; c.stroke(PATHS[i]);
-    c.strokeStyle = FILL[i]; c.lineWidth = wid; c.stroke(PATHS[i]);
+    if (hl === i && i > 0) glowStroke(c, path, wid, time, K);
+    if (i === 4) bumpy(c, path, wid, TC.li); else tube(c, path, wid, PIECE_TC[i]);
+    if (i === 3) stripes(c, path, wid, '#B8685A', 2.8, .3);
+    if (i === 2) {
+      c.globalAlpha = dimA(2); c.lineWidth = .7;
+      for (const r of RUGAE) { c.strokeStyle = 'rgba(150,50,75,.5)'; c.stroke(r); c.save(); c.translate(.5, .6); c.strokeStyle = 'rgba(255,215,222,.55)'; c.lineWidth = .4; c.stroke(r); c.restore(); }
+    }
     c.restore();
   };
-  tube(4);
-  c.save(); c.globalAlpha = vesA; c.strokeStyle = '#ff4d42'; c.lineWidth = 1; c.stroke(VLP); c.stroke(VMP); c.restore();
-  tube(3); tube(2);
+  tubeI(4);
+  c.save(); c.globalAlpha = vesA; tube(c, VLP, 1.7, TC.red); tube(c, VMP, 1.7, TC.red);
+  c.strokeStyle = '#E0313F'; c.lineWidth = .5; c.globalAlpha = .6 * vesA; c.stroke(CAPS); c.restore();
+  tubeI(3); tubeI(2);
   if (P.churn) { // acid bubbles
-    c.save(); c.globalAlpha = 1; c.fillStyle = 'rgba(255,255,255,.6)';
-    for (let i = 0; i < 5; i++) { const a = time * 2 + i * 1.26, r = 5 + 2 * Math.sin(time * 3 + i); c.beginPath(); c.arc(20 + Math.cos(a) * r, 118 + Math.sin(a) * r, .9, 0, 7); c.fill(); }
+    c.save(); c.globalAlpha = 1; c.fillStyle = 'rgba(255,255,255,.55)'; c.strokeStyle = 'rgba(255,255,255,.9)'; c.lineWidth = .3;
+    for (let i = 0; i < 5; i++) { const a = time * 2 + i * 1.26, r = 5 + 2 * Math.sin(time * 3 + i); c.beginPath(); c.arc(20 + Math.cos(a) * r, 118 + Math.sin(a) * r, 1, 0, 7); c.fill(); c.stroke(); }
     c.restore();
   }
-  tube(1); tube(0);
+  tubeI(1);
   const kick = Math.exp(-(time - heartKick) * 6);
-  emoji(c, '❤️', 14, 80, 17 * (1 + .07 * Math.sin(time * 5) + .25 * kick));
-  c.save(); c.globalAlpha = 1; c.fillStyle = '#e8d3c4'; c.strokeStyle = '#8a7060'; c.lineWidth = .7; c.beginPath(); c.arc(0, 178, 1.7, 0, 7); c.fill(); c.stroke(); c.restore(); // belly button
+  c.save(); c.globalAlpha = bgA < 1 ? .6 : 1; heart(c, 15, 79, 1.12 * (1 + .06 * Math.sin(time * 5) + .18 * kick)); c.restore();
+
+  // the face sits over the top of the tube
+  head(c, time);
+  if (P.apple) apple(c, P.apple.x, P.apple.y, P.apple.size, P.apple.bite);
+  drawMouth(c, P.chew || 0, time, hl === 0);
 
   // food
-  if (P.apple) emoji(c, '🍎', P.apple.x, P.apple.y, P.apple.size);
-  drawMouth(c, P.chew || 0, time, hl === 0);
   if (P.pieces) foodBlob(c, P.pieces.x, P.pieces.y, P.pieces.spread, P.pieces.mix, time, 1.7);
   if (P.plug) {
-    const pg = P.plug, pts = sub(Math.max(pg.lo, pg.s - pg.len), pg.s);
-    c.save(); c.globalAlpha = 1; c.strokeStyle = pg.color; c.lineWidth = pg.w; c.stroke(mkPath(pts));
-    const [hx, hy] = at(pg.s); c.fillStyle = pg.color; c.beginPath(); c.arc(hx, hy, pg.w * .62, 0, 7); c.fill(); c.restore();
+    const pg = P.plug, pts = sub(Math.max(pg.lo, pg.s - pg.len), pg.s), path = mkPath(pts);
+    c.save(); c.globalAlpha = 1; c.strokeStyle = pg.color; c.lineWidth = pg.w; c.stroke(path);
+    c.strokeStyle = shade(pg.color, .35); c.globalAlpha = .6; c.lineWidth = pg.w * .38; c.translate(-pg.w * .1, -pg.w * .14); c.stroke(path); c.restore();
+    const [hx, hy] = at(pg.s); c.save(); ball(c, hx, hy, pg.w * .64, pg.color, false); c.restore();
   }
   if (P.lump) {
     const L = P.lump, [lx, ly] = at(L.s);
@@ -426,33 +725,32 @@ function drawBody(c, w, h, time, P) {
       for (let j = 1; j <= 3; j++) {
         const ps = L.s - j * 6.5; if (ps < PART_S[1] || ps > PART_S[2]) continue;
         const [rx, ry, ra] = at(ps), nx = -Math.sin(ra), ny = Math.cos(ra);
-        c.strokeStyle = OUT; c.lineWidth = 1.6;
+        c.strokeStyle = TC.oes[0]; c.lineWidth = 1.6;
         for (const sg of [-1, 1]) { c.beginPath(); c.moveTo(rx + sg * nx * 3.4, ry + sg * ny * 3.4); c.lineTo(rx + sg * nx * (2.6 - j * .3), ry + sg * ny * (2.6 - j * .3)); c.stroke(); }
       }
     }
-    if (L.bulge) {
-      c.fillStyle = OUT; c.beginPath(); c.arc(lx, ly, 4.9, 0, 7); c.fill();
-      c.fillStyle = '#f7b0bb'; c.beginPath(); c.arc(lx, ly, 4.1, 0, 7); c.fill();
+    if (L.bulge) { // the tube swells around the lump
+      c.fillStyle = TC.oes[0]; c.beginPath(); c.arc(lx, ly, 4.9, 0, 7); c.fill();
+      c.fillStyle = rad(c, lx - 1.4, ly - 1.4, 0, 4.4, [[0, '#FFC1CC'], [1, '#EC8497']]); c.beginPath(); c.arc(lx, ly, 4.1, 0, 7); c.fill();
     }
     c.restore();
     foodBlob(c, lx, ly, 1.1, 0, time, 1.9);
   }
   if (P.blob) foodBlob(c, P.blob.x, P.blob.y, 2.4, P.blob.mix, time, 3);
-  if (P.poop) emoji(c, '💩', P.poop.x, P.poop.y, 11);
+  if (P.poop) poop(c, P.poop.x, P.poop.y);
   drawFX(c, time);
 
   // the drink and the kidneys
-  if (P.glass !== undefined) { c.save(); c.translate(-36, 24); c.rotate(.6 * ease(clamp(P.glass, 0, 1))); emoji(c, '🥤', 0, 0, 20); c.restore(); }
+  if (P.glass !== undefined) glass(c, -36, 24, .6 * ease(clamp(P.glass, 0, 1)));
   if (P.kid > 0) {
     c.save(); c.globalAlpha = clamp(P.kid, 0, 1);
-    c.strokeStyle = 'rgba(130,195,255,.8)'; c.lineWidth = 1; c.setLineDash([2, 2.6]);
+    c.strokeStyle = 'rgba(40,130,220,.85)'; c.lineWidth = 1; c.setLineDash([2, 2.6]);
     c.beginPath(); c.moveTo(-10.5, 134); c.quadraticCurveTo(-22, 128, -33, 138); c.stroke(); // kidneys sit low, at the waist
     c.beginPath(); c.moveTo(-10.5, 130); c.quadraticCurveTo(12, 118, 33, 138); c.stroke();
-    c.setLineDash([]); kidney(c, -37, 138, .15); kidney(c, 37, 138, -.15); c.restore();
+    c.setLineDash([]); kidney(c, -37, 138, .15, 1); kidney(c, 37, 138, -.15, -1); c.restore();
   }
-  if (flip) { c.strokeStyle = 'rgba(150,165,210,.55)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(-w / K, -12); c.lineTo(w / K, -12); c.stroke(); }
   c.restore();
-  if (P.kid > .6 && !flip) label(c, T[lang].j.kidneys, w / 2 - 37 * K, oy + 152 * K, '#9fd0ff', 12);
+  if (P.kid > .6 && !flip) label(c, T[lang].j.kidneys, w / 2 - 37 * K, oy + 152 * K, '#7CC4FF', 12);
 }
 
 // --- state -------------------------------------------------------------------------------------------------
@@ -486,10 +784,10 @@ function journeyPose(time) {
   const f = (k) => (i > k ? 1 : i === k && dwell ? fr : 0); // how far stop k is done
   if (i === 0) {
     if (!dwell) { const e = ease(tr); P.apple = { x: lerp(PX0[0], 0, e), y: lerp(PX0[1], 30, e), size: 16 - 4 * e }; }
-    else { P.chew = Math.abs(Math.sin(fr * Math.PI * 3)); if (fr < .45) P.apple = { x: 0, y: 30, size: 12 }; else P.pieces = { x: 0, y: 32, spread: 2.2, mix: 0 }; }
+    else { P.chew = Math.abs(Math.sin(fr * Math.PI * 3)); if (fr < .45) P.apple = { x: 0, y: 30, size: 12, bite: fr > .12 }; else P.pieces = { x: 0, y: 32, spread: 2.2, mix: 0 }; }
     return P;
   }
-  if (i === 5) { P.poop = { x: 0, y: 227 + 9 * ease(fr) }; return P; }
+  if (i === 5) { P.poop = { x: 0, y: 232 + 9 * ease(fr) }; return P; }
   const s = dwell ? lerp(SA[i], SB[i], ease(fr)) : lerp(SB[i - 1], SA[i], ease(tr));
   if (s < PART_S[2]) P.lump = { s, bulge: s >= PART_S[1] };
   else if (s < PART_S[3]) {
@@ -523,7 +821,7 @@ function tickJourney(dt) {
 // ====================================================================================================================
 function demoPose(part, u, time) { // the little animation of one part, looping
   const P = { hl: part };
-  if (part === 0) { P.chew = Math.abs(Math.sin(u * Math.PI * 4)); if (u < .5) P.apple = { x: 0, y: 30, size: 12 }; else P.pieces = { x: 0, y: 32, spread: 2.2, mix: 0 }; }
+  if (part === 0) { P.chew = Math.abs(Math.sin(u * Math.PI * 4)); if (u < .5) P.apple = { x: 0, y: 30, size: 12, bite: u > .08 }; else P.pieces = { x: 0, y: 32, spread: 2.2, mix: 0 }; }
   else if (part === 1) P.lump = { s: lerp(PART_S[1], PART_S[2], ease(clamp(u * 1.15, 0, 1))), bulge: true };
   else if (part === 2) { const [x, y] = at(lerp(SA[2], SB[2], .5)); P.churn = 1; P.blob = { x: x + 3 * Math.cos(time * 7), y: y + 3 * Math.sin(time * 9), mix: ease(clamp(u * 1.2, 0, 1)) }; }
   else if (part === 3) {
@@ -567,28 +865,32 @@ function villiScene(c, w, h, time, dt) {
   V.flat += clamp(V.target - V.flat, -dt * 1.4, dt * 1.4);
   const f = ease(V.flat), y0 = h * .6, amp = 24 * (1 - f), lam = Math.max(150, w / 2.1), len = 32 * (1 - f), n = Math.max(12, Math.round(w / 17));
   const yAt = (x) => y0 + amp * Math.sin(x / lam * 6.283 + .6), dyAt = (x) => amp * Math.cos(x / lam * 6.283 + .6) * 6.283 / lam;
-  const vy = Math.min(h - 16, y0 + 64);
+  const vy = Math.min(h - 18, y0 + 64);
   c.save(); c.globalAlpha = 1; c.lineCap = 'round'; c.lineJoin = 'round';
-  c.fillStyle = '#7a3a4c'; c.beginPath(); c.moveTo(0, h);
+  // the inside of the gut: a faint chyme haze above the wall
+  c.fillStyle = lin(c, 0, 0, 0, y0 + amp, [[0, 'rgba(255,232,180,0)'], [1, 'rgba(255,222,150,.5)']]); c.fillRect(0, 0, w, y0 + amp);
+  // the wall
+  c.fillStyle = lin(c, 0, y0 - amp, 0, h, [[0, '#F2A896'], [.4, '#E3917E'], [1, '#C9677B']]); c.beginPath(); c.moveTo(0, h);
   for (let x = 0; x <= w; x += 4) c.lineTo(x, yAt(x));
   c.lineTo(w, h); c.closePath(); c.fill();
-  c.strokeStyle = '#a64a5e'; c.lineWidth = 3; c.beginPath(); for (let x = 0; x <= w; x += 4) (x ? c.lineTo(x, yAt(x)) : c.moveTo(x, yAt(x))); c.stroke();
-  c.strokeStyle = '#d63a32'; c.lineWidth = 8; c.beginPath(); c.moveTo(0, vy); c.lineTo(w, vy); c.stroke();
-  c.strokeStyle = '#ff7a6e'; c.lineWidth = 2.5; c.beginPath(); c.moveTo(0, vy - 1); c.lineTo(w, vy - 1); c.stroke();
+  const edge = new Path2D(); for (let x = 0; x <= w; x += 4) (x ? edge.lineTo(x, yAt(x)) : edge.moveTo(x, yAt(x)));
+  c.strokeStyle = '#B8685A'; c.lineWidth = 3; c.stroke(edge);
+  c.strokeStyle = 'rgba(255,230,220,.7)'; c.lineWidth = 1; c.save(); c.translate(0, -1.5); c.stroke(edge); c.restore();
+  tube(c, mkPath([[0, vy], [w, vy]]), 7.5, TC.red); // the blood vessel under the wall
   const tips = [];
   for (let i = 0; i < n; i++) {
     const x = (i + .5) * w / n, y = yAt(x), m = dyAt(x), k = Math.hypot(m, 1), nx = m / k, ny = -1 / k;
     const tip = [x + nx * len, y + ny * len]; tips.push({ x, y, tip, nx, ny });
-    c.strokeStyle = '#e8352b'; c.lineWidth = 1.3; c.beginPath(); c.moveTo(x, y + 3); c.lineTo(x, vy); c.stroke(); // capillary stem
+    c.strokeStyle = '#D6283A'; c.lineWidth = 1.3; c.beginPath(); c.moveTo(x, y + 3); c.lineTo(x, vy); c.stroke(); // capillary stem
     if (len > 1.5) {
       const path = new Path2D(); path.moveTo(x, y + 2); path.lineTo(tip[0], tip[1]);
-      c.strokeStyle = '#a64a5e'; c.lineWidth = 10.5; c.stroke(path); c.strokeStyle = '#f09aa8'; c.lineWidth = 8.5; c.stroke(path);
+      tube(c, path, 8.5, TC.si);
       const px = -ny, py = nx, e = [x + nx * (len - 4), y + ny * (len - 4)];
-      c.strokeStyle = '#e8352b'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(x + px * 1.5 + nx * 2, y + py * 1.5 + ny * 2); c.lineTo(e[0] + px * 1.5, e[1] + py * 1.5);
+      c.strokeStyle = '#D6283A'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(x + px * 1.5 + nx * 2, y + py * 1.5 + ny * 2); c.lineTo(e[0] + px * 1.5, e[1] + py * 1.5);
       c.quadraticCurveTo(e[0] + nx * 3, e[1] + ny * 3, e[0] - px * 1.5, e[1] - py * 1.5); c.lineTo(x - px * 1.5 + nx * 2, y - py * 1.5 + ny * 2); c.stroke();
     }
   }
-  // yellow food dots land on the fingers and pass into the red loops
+  // glowing food dots land on the fingers and pass into the red loops
   for (let i = 0; i < 24; i++) {
     const ph = ((time + i * .37) % 4.6) / 4.6, tp = tips[(i * 7) % n], ox = (i % 3 - 1) * 5;
     let x, y;
@@ -597,15 +899,14 @@ function villiScene(c, w, h, time, dt) {
     else if (ph < .78) { const e = ease((ph - .6) / .18); x = lerp(tp.tip[0], tp.x, e); y = lerp(tp.tip[1], tp.y + 2, e); }
     else if (ph < .92) { const e = (ph - .78) / .14; x = tp.x; y = lerp(tp.y + 2, vy, e); }
     else { const e = (ph - .92) / .08; x = tp.x + e * 30; y = vy; }
-    c.globalAlpha = ph > .92 ? 1 - (ph - .92) / .08 : 1;
-    c.fillStyle = '#ffd23f'; c.strokeStyle = 'rgba(60,40,0,.6)'; c.lineWidth = .8; c.beginPath(); c.arc(x, y, 3, 0, 7); c.fill(); c.stroke();
+    c.save(); c.globalAlpha = ph > .92 ? 1 - (ph - .92) / .08 : 1; glowDot(c, x, y, 2.6, NUT); c.restore();
   }
   c.globalAlpha = 1;
   // the area bar: from long to short
   const r0 = villiRatio(w, 0), r = villiRatio(w, f), bx = 16, bw = w - 32;
-  c.fillStyle = 'rgba(130,145,190,.16)'; c.fillRect(bx, 16, bw, 12);
-  c.fillStyle = '#ffd23f'; c.fillRect(bx, 16, Math.max(3, bw * r / r0), 12);
-  c.fillStyle = '#fff'; c.fillRect(bx + bw / r0 - 1, 12, 2, 20);
+  c.fillStyle = 'rgba(30,26,43,.94)'; c.beginPath(); c.roundRect(bx - 3, 12, bw + 6, 20, 10); c.fill();
+  c.fillStyle = lin(c, bx, 0, bx + bw, 0, [[0, '#F5D36A'], [1, GOLD]]); c.beginPath(); c.roundRect(bx, 16, Math.max(12, bw * r / r0), 12, 6); c.fill();
+  c.fillStyle = '#fff'; c.fillRect(bx + bw / r0 - 1, 11, 2, 22);
   c.restore();
   const txt = `× ${Math.round(r)}`;
   if ($('val').textContent !== txt) $('val').textContent = txt;
@@ -617,6 +918,7 @@ function villiScene(c, w, h, time, dt) {
 const M_SEG = [.3, .3, 6, 1.5];                       // metres: mouth + oesophagus, stomach, small intestine, large intestine
 const M0 = [0, .3, .6, 6.6];
 const SPTS = [[...mouthR, ...oesR.slice(1)], stomR, siR, liR].map((a) => a.filter((_, i) => i % 2 === 0 || i === a.length - 1));
+const COIL_XC = (() => { const xs = SPTS.flat().map((q) => q[0]); return (Math.min(...xs) + Math.max(...xs)) / 2; })(); // the coil's own centre, so it can be centred
 const SW = [5, 13, 5, 12];                            // widths on the ground (not to scale)
 const unroll = (time) => (St.pick[0] === null ? 0 : ease(clamp((time - St.t0) / 2, 0, 1)));
 const reachM = (p) => 9 * clamp(1.25 * p - .25, 0, 1); // how much of the tube lies straight so far
@@ -625,14 +927,81 @@ function stretchVal(time) {
   const p = unroll(time);
   return p >= 1 ? `≈ 9 ${T[lang].s.m}` : `${num(Math.round(reachM(p) * 10) / 10)} ${T[lang].s.m}`;
 }
+// a grown-up of 1.7 m standing with the feet at `base`; H is the height in pixels
+function adult(c, x, base, H) {
+  const u = H / 170;
+  c.save(); c.translate(x, base); c.scale(u, u); c.lineJoin = 'round'; c.lineCap = 'round';
+  c.fillStyle = 'rgba(60,40,30,.22)'; c.beginPath(); c.ellipse(0, 0, 30, 5, 0, 0, 7); c.fill();
+  const ol = (fill) => { c.fillStyle = fill; c.fill(); c.strokeStyle = SKIN_OUT; c.lineWidth = 1.4 / u; c.stroke(); };
+  const skinG = lin(c, -12, -170, 12, -140, [[0, '#F8D9BA'], [1, '#E2A982']]);
+  for (const sg of [-1, 1]) { c.beginPath(); c.roundRect(sg * 8 - 8, -8, 16, 8, 4); ol('#3B3552'); }               // shoes
+  for (const sg of [-1, 1]) { c.beginPath(); c.roundRect(sg * 8.5 - 7.5, -84, 15, 78, 5); ol(lin(c, -14, -84, 14, 0, [[0, '#6C86B8'], [1, '#3F5688']])); } // legs
+  c.beginPath(); c.roundRect(-21, -146, 42, 66, 12); ol(lin(c, -21, -146, 21, -80, [[0, '#EE8F76'], [1, '#C25B4A']]));  // shirt
+  for (const sg of [-1, 1]) { c.beginPath(); c.roundRect(sg * 26 - 5, -140, 10, 56, 5); ol(skinG); }               // arms
+  c.beginPath(); c.roundRect(-4.5, -154, 9, 12, 3); ol(skinG);                                                      // neck
+  c.beginPath(); c.ellipse(0, -158.5, 11, 12.5, 0, 0, 7); ol(skinG);                                                  // head
+  c.fillStyle = '#4A3226'; c.beginPath(); c.ellipse(0, -164.5, 11.5, 8, 0, Math.PI, 0); c.fill();                      // hair
+  c.fillStyle = '#3B2A24'; for (const sg of [-1, 1]) { c.beginPath(); c.arc(sg * 4.2, -158.5, 1.3, 0, 7); c.fill(); }
+  c.strokeStyle = '#A64A55'; c.lineWidth = 1.3 / u; c.beginPath(); c.moveTo(-3.6, -153); c.quadraticCurveTo(0, -150, 3.6, -153); c.stroke();
+  c.restore();
+}
+// a car of 4.5 m, nose to the right; k maps metres to pixels as in the scene
+function car(c, k, ppm) {
+  c.save(); c.lineJoin = 'round'; c.lineCap = 'round';
+  const [sx, sy] = k(2.25, 0);
+  c.fillStyle = 'rgba(60,40,30,.22)'; c.beginPath(); c.ellipse(sx, sy - 1, 2.5 * ppm, 5, 0, 0, 7); c.fill();
+  const body = new Path2D();
+  body.moveTo(...k(.1, -.3)); body.lineTo(...k(0, -.7)); body.quadraticCurveTo(...k(0, -.9), ...k(.35, -.94)); body.lineTo(...k(1, -.97));
+  body.quadraticCurveTo(...k(1.3, -1.02), ...k(1.6, -1.4)); body.lineTo(...k(3.1, -1.4)); body.quadraticCurveTo(...k(3.5, -1.36), ...k(3.9, -.97));
+  body.lineTo(...k(4.3, -.9)); body.quadraticCurveTo(...k(4.5, -.85), ...k(4.5, -.6)); body.lineTo(...k(4.45, -.3)); body.closePath();
+  const [, topY] = k(0, -1.4), [, botY] = k(0, -.3);
+  c.fillStyle = lin(c, 0, topY, 0, botY, [[0, '#8FB0D8'], [.5, '#5B7FB5'], [1, '#34507F']]); c.fill(body);
+  c.strokeStyle = '#2A3F66'; c.lineWidth = 1.6; c.stroke(body);
+  const win = (pts) => { c.beginPath(); c.moveTo(...k(...pts[0])); pts.slice(1).forEach((p) => c.lineTo(...k(...p))); c.closePath(); c.fillStyle = lin(c, 0, topY, 0, topY + .45 * ppm, [[0, '#E4F1FA'], [1, '#A9CBE6']]); c.fill(); c.strokeStyle = '#2A3F66'; c.lineWidth = 1; c.stroke(); };
+  win([[1.2, -1], [1.68, -1.33], [2.15, -1.33], [2.15, -1]]); win([[2.35, -1], [2.35, -1.33], [3.05, -1.33], [3.5, -1]]);
+  c.fillStyle = '#FFE9A0'; c.beginPath(); c.ellipse(...k(4.4, -.66), .08 * ppm, .06 * ppm, 0, 0, 7); c.fill();
+  c.fillStyle = '#D6404A'; c.beginPath(); c.ellipse(...k(.06, -.66), .05 * ppm, .07 * ppm, 0, 0, 7); c.fill();
+  c.strokeStyle = 'rgba(255,255,255,.5)'; c.lineWidth = 1.4; c.beginPath(); c.moveTo(...k(.4, -.88)); c.lineTo(...k(1, -.9)); c.stroke();
+  for (const wx of [.95, 3.65]) {
+    const [x, y] = k(wx, -.3);
+    c.fillStyle = '#2B2233'; c.beginPath(); c.arc(x, y, .32 * ppm, 0, 7); c.fill(); c.strokeStyle = '#14101C'; c.stroke();
+    c.fillStyle = rad(c, x - 2, y - 2, 0, .2 * ppm, [[0, '#F1F2F6'], [1, '#9AA0B2']]); c.beginPath(); c.arc(x, y, .17 * ppm, 0, 7); c.fill();
+  }
+  c.restore();
+}
+// a cross-section of a gut tube: wall, dark lumen, folds (small intestine) or deep puckers (large intestine)
+function cross(c, x, y, r, kind) {
+  c.save(); c.globalAlpha = 1;
+  const col = kind === 'si' ? TC.si : TC.li;
+  c.shadowColor = 'rgba(60,30,20,.3)'; c.shadowBlur = 6; c.shadowOffsetY = 2;
+  c.fillStyle = rad(c, x - r * .3, y - r * .3, 0, r * 1.2, [[0, col[2]], [.6, col[1]], [1, shade(col[1], -.15)]]); c.beginPath(); c.arc(x, y, Math.max(r, .1), 0, 7); c.fill();
+  c.shadowColor = 'transparent'; c.strokeStyle = col[0]; c.lineWidth = 2; c.stroke();
+  const lr = r * .62;
+  c.fillStyle = rad(c, x, y, 0, lr, [[0, '#8A3A4A'], [1, '#5A2230']]); c.beginPath(); c.arc(x, y, lr, 0, 7); c.fill();
+  if (kind === 'si') { c.fillStyle = col[2]; for (let i = 0; i < 18; i++) { const a = i / 18 * 6.283; c.beginPath(); c.arc(x + Math.cos(a) * lr, y + Math.sin(a) * lr, Math.max(.4, r * .075), 0, 7); c.fill(); } }
+  else { c.strokeStyle = col[0]; c.lineWidth = Math.max(1, r * .06); for (let i = 0; i < 3; i++) { const a = i * 2.094 + .5; c.beginPath(); c.arc(x, y, lr, a, a + .7); c.stroke(); } }
+  c.restore();
+}
 function stretchScene(c, w, h, time) {
-  const t = T[lang].s, pad = clamp(w * .045, 12, 30), ppm = (w - 2 * pad) / 9, gy = h - 96, base = gy - 16;
-  const p = unroll(time), revealed = St.pick[0] !== null, boxH = clamp(h * .5, 100, 230), cs = boxH / 196;
+  const t = T[lang].s, pad = clamp(w * .045, 12, 30), ppm = (w - 2 * pad) / 9, gy = h - 104, base = gy - 16;
+  const p = unroll(time), revealed = St.pick[0] !== null;
+  // the coil: centred, over the line, tall (about half the stage or more) with a margin above for the widest loop and its glow
+  const boxH = clamp(Math.min(h * .62, gy - 14 - 36), 100, 320), cs = boxH / 196, coilTop = gy - 14 - boxH, coilX = w / 2 - COIL_XC * cs;
   c.save(); c.globalAlpha = 1; c.lineCap = 'round'; c.lineJoin = 'round';
-  // the ground line: dashed and open-ended until the tube is stretched
-  c.strokeStyle = 'rgba(150,165,210,.3)'; c.lineWidth = 1.5; c.setLineDash(revealed ? [] : [6, 6]);
-  c.beginPath(); c.moveTo(pad, gy); c.lineTo(w - pad, gy); c.stroke(); c.setLineDash([]);
-  if (!revealed) label(c, '?', w - pad - 8, gy - 16, '#98A0B8', 24);
+  if (revealed) { // the ground line
+    c.strokeStyle = 'rgba(120,95,65,.35)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(pad, gy); c.lineTo(w - pad, gy); c.stroke();
+  } else { // a dimension line under the coil: |<-- ? -->|  "how long would this be laid out straight?"
+    const ax = pad + 6, bx = w - pad - 6, d = 7;
+    c.strokeStyle = 'rgba(120,95,65,.65)'; c.lineWidth = 1.6; c.setLineDash([6, 6]);
+    c.beginPath(); c.moveTo(ax + 4, gy); c.lineTo(w / 2 - 26, gy); c.moveTo(w / 2 + 26, gy); c.lineTo(bx - 4, gy); c.stroke(); c.setLineDash([]);
+    c.lineWidth = 1.8; c.beginPath();
+    c.moveTo(ax, gy - 9); c.lineTo(ax, gy + 9); c.moveTo(bx, gy - 9); c.lineTo(bx, gy + 9);
+    c.moveTo(ax + d, gy - d * .7); c.lineTo(ax, gy); c.lineTo(ax + d, gy + d * .7);
+    c.moveTo(bx - d, gy - d * .7); c.lineTo(bx, gy); c.lineTo(bx - d, gy + d * .7); c.stroke();
+    c.fillStyle = '#1E1A2B'; c.beginPath(); c.arc(w / 2, gy, 18, 0, 7); c.fill();
+    c.strokeStyle = GOLD; c.lineWidth = 1.5; c.stroke();
+    c.font = '800 22px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#fff'; c.fillText('?', w / 2, gy + 1);
+  }
   // the tube: every point slides from the coil to its place on the line
   const glowSI = St.pick[1] !== null;
   SPTS.forEach((pts, j) => {
@@ -640,59 +1009,55 @@ function stretchScene(c, w, h, time) {
     let tm = 0;
     pts.forEach(([x, y], i) => {
       const m = M0[j] + M_SEG[j] * i / (n - 1), tg = ease(clamp((p * 1.25 - m / 9) / .25, 0, 1));
-      line.push([lerp(pad + (x + 36) * cs, pad + m * ppm, tg), lerp(gy + 8 - boxH + (y - 28) * cs, gy, tg)]);
+      line.push([lerp(coilX + x * cs, pad + m * ppm, tg), lerp(coilTop + (y - 28) * cs, gy, tg)]);
       if (i === n >> 1) tm = tg;
     });
     const wid = lerp([6.2, 17, 4.2, 11.5][j] * cs, SW[j], tm), path = mkPath(line);
-    if (j === 2 && glowSI) { c.save(); c.shadowColor = 'rgba(255,240,150,1)'; c.shadowBlur = 12 + 6 * Math.sin(time * 5); c.strokeStyle = 'rgba(255,244,180,.95)'; c.lineWidth = wid + 4; c.stroke(path); c.restore(); }
-    c.strokeStyle = OUT; c.lineWidth = wid + 1.6; c.stroke(path);
-    c.strokeStyle = FILL[[0, 2, 3, 4][j]]; c.lineWidth = wid; c.stroke(path);
+    if (j === 2 && glowSI) glowStroke(c, path, wid, time, 1);
+    if (j === 3) bumpy(c, path, wid, TC.li); else tube(c, path, wid, [TC.oes, TC.stom, TC.si][j]);
+    if (j === 1) stripes(c, path, wid, '#963A52', 4.2, .32);
+    if (j === 2) stripes(c, path, wid, '#B8685A', 2.6, .3);
   });
   const reach = reachM(p);
   if (revealed && reach > 8.1) { // the throat and the end: the last 0.9 m
-    c.strokeStyle = '#6b7186'; c.lineWidth = 6.6; c.beginPath(); c.moveTo(pad + 8.1 * ppm, gy); c.lineTo(pad + Math.min(9, reach) * ppm, gy); c.stroke();
-    c.strokeStyle = '#98A0B8'; c.lineWidth = 5; c.stroke();
+    tube(c, mkPath([[pad + 8.1 * ppm, gy], [pad + Math.min(9, reach) * ppm, gy]]), 6.6, TC.end);
   }
   if (revealed && p > .05) {
     c.globalAlpha = clamp(p * 1.5, 0, 1);
-    // ruler
-    c.strokeStyle = 'rgba(150,165,210,.35)'; c.lineWidth = 1;
-    for (let i = 0; i <= 9; i++) { c.beginPath(); c.moveTo(pad + i * ppm, gy + 9); c.lineTo(pad + i * ppm, gy + 14); c.stroke(); }
-    for (let i = 0; i <= 9; i += 1) label(c, i === 9 ? `9 ${t.m}` : String(i), pad + i * ppm, gy + 26, '#7a829c', 12);
+    // a measuring tape under the tube
+    const tx = pad - 6, tw = 9 * ppm + 12, ty = gy + 10;
+    c.fillStyle = lin(c, 0, ty, 0, ty + 22, [[0, '#FFE9A0'], [1, '#F2C94C']]); c.beginPath(); c.roundRect(tx, ty, tw, 22, 4); c.fill();
+    c.strokeStyle = '#B8902A'; c.lineWidth = 1; c.stroke();
+    c.strokeStyle = INK; c.lineWidth = 1;
+    for (let i = 0; i <= 9; i++) {
+      c.beginPath(); c.moveTo(pad + i * ppm, ty); c.lineTo(pad + i * ppm, ty + 7); c.stroke();
+      if (i < 9) { c.beginPath(); c.moveTo(pad + (i + .5) * ppm, ty); c.lineTo(pad + (i + .5) * ppm, ty + 4); c.stroke(); }
+    }
+    c.font = '800 12px Nunito, sans-serif'; c.textBaseline = 'middle'; c.fillStyle = INK; c.textAlign = 'center';
+    for (let i = 0; i <= 9; i++) c.fillText(i === 9 ? `9 ${t.m}` : String(i), pad + i * ppm - (i === 9 ? 10 : 0), ty + 15);
     // labels: names only, leaders for the short parts
-    const rows = [gy + 46, gy + 64, gy + 82], cx = (j) => pad + (M0[j] + M_SEG[j] / 2) * ppm;
-    const lead = (x, y1) => { c.strokeStyle = 'rgba(150,165,210,.45)'; c.beginPath(); c.moveTo(x, gy + 15); c.lineTo(x, y1 - 8); c.stroke(); };
+    const rows = [gy + 50, gy + 68, gy + 86], cx = (j) => pad + (M0[j] + M_SEG[j] / 2) * ppm, rim = '#8E86A8';
+    const lead = (x, y1) => { c.strokeStyle = 'rgba(80,60,60,.4)'; c.lineWidth = 1; c.beginPath(); c.moveTo(x, gy + 33); c.lineTo(x, y1 - 10); c.stroke(); };
     lead(cx(0), rows[2]);
-    labelFit(c, t.seg[0], cx(0) + 60, rows[2], '#D3D9E8', w);
-    lead(cx(1), rows[1]); labelFit(c, t.seg[1], cx(1) + 32, rows[1], '#D3D9E8', w);
-    labelFit(c, t.seg[2], cx(2), rows[0], glowSI ? '#f5c84c' : '#D3D9E8', w);
-    labelFit(c, t.seg[3], cx(3), rows[0], '#D3D9E8', w);
-    const ox = pad + 8.55 * ppm; lead(ox, rows[1]); labelFit(c, t.other, ox - 38, rows[1], '#98A0B8', w);
+    labelFit(c, t.seg[0], cx(0) + 60, rows[2], rim, w);
+    lead(cx(1), rows[1]); labelFit(c, t.seg[1], cx(1) + 32, rows[1], rim, w);
+    labelFit(c, t.seg[2], cx(2), rows[0], glowSI ? GOLD : rim, w);
+    labelFit(c, t.seg[3], cx(3), rows[0], rim, w);
+    const ox = pad + 8.55 * ppm; lead(ox, rows[1]); labelFit(c, t.other, ox - 38, rows[1], rim, w);
     // a grown-up 1.7 m and a car 4.5 m, to the same scale
-    c.save(); c.globalAlpha = clamp(p * 1.5, 0, 1); c.strokeStyle = '#aeb7d4'; c.fillStyle = '#1b2133'; c.lineWidth = 1.8;
-    const px = pad + .35 * ppm, m = (x, y) => [px + x * ppm, base + y * ppm];
-    c.beginPath(); c.arc(...m(0, -1.58), .12 * ppm, 0, 7); c.fill(); c.stroke();
-    c.beginPath(); c.roundRect(px - .2 * ppm, base - 1.45 * ppm, .4 * ppm, .62 * ppm, 5); c.fill(); c.stroke();
-    c.beginPath(); c.roundRect(px - .17 * ppm, base - .84 * ppm, .15 * ppm, .84 * ppm, 3); c.roundRect(px + .02 * ppm, base - .84 * ppm, .15 * ppm, .84 * ppm, 3); c.fill(); c.stroke();
-    label(c, `${num(1.7)} ${t.m}`, px, base - 1.78 * ppm - 8, '#aeb7d4', 12);
+    adult(c, pad + .35 * ppm, base, 1.7 * ppm);
+    pill(c, `${num(1.7)} ${t.m}`, pad + .35 * ppm, base - 1.7 * ppm - 14, 12, rim, 'center', w);
     const cx0 = pad + 1.5 * ppm, k = (x, y) => [cx0 + x * ppm, base + y * ppm];
-    c.beginPath(); c.moveTo(...k(0, -.3)); c.lineTo(...k(0, -.7)); c.quadraticCurveTo(...k(0, -.88), ...k(.35, -.92)); c.lineTo(...k(1, -.95)); c.lineTo(...k(1.55, -1.4)); c.lineTo(...k(3.2, -1.4));
-    c.lineTo(...k(3.85, -.95)); c.lineTo(...k(4.3, -.88)); c.quadraticCurveTo(...k(4.5, -.85), ...k(4.5, -.6)); c.lineTo(...k(4.5, -.3)); c.closePath(); c.fill(); c.stroke();
-    for (const wx of [.95, 3.65]) { c.beginPath(); c.arc(...k(wx, -.3), .32 * ppm, 0, 7); c.fillStyle = '#0A0C14'; c.fill(); c.stroke(); }
-    c.fillStyle = 'rgba(174,183,212,.25)';
-    c.beginPath(); c.moveTo(...k(1.2, -.98)); c.lineTo(...k(1.62, -1.32)); c.lineTo(...k(2.15, -1.32)); c.lineTo(...k(2.15, -.98)); c.closePath(); c.fill();
-    c.beginPath(); c.moveTo(...k(2.35, -.98)); c.lineTo(...k(2.35, -1.32)); c.lineTo(...k(3.12, -1.32)); c.lineTo(...k(3.6, -.98)); c.closePath(); c.fill();
-    label(c, `${num(4.5)} ${t.m}`, ...k(2.25, -1.4 - 14 / ppm), '#aeb7d4', 12);
-    c.restore();
+    car(c, k, ppm);
+    pill(c, `${num(4.5)} ${t.m}`, ...k(2.25, -1.4 - 18 / ppm), 12, rim, 'center', w);
   }
   c.restore();
   // two cross-sections, to scale with each other
   if (St.pick[1] !== null) {
     const e = ease(clamp((time - St.t1) / .5, 0, 1)), cm = clamp(w / 330 * 8.8, 8.8, 15), r1 = 1.25 * cm * e, r2 = 3.25 * cm * e, cy = 10 + 3.25 * cm;
     for (const [x, r, k, wcm] of [[w * .52, r1, 2, 2.5], [w * .8, r2, 3, 6.5]]) {
-      c.save(); c.globalAlpha = 1; c.beginPath(); c.arc(x, cy, Math.max(r, .1), 0, 7); c.fillStyle = '#4a1822'; c.fill();
-      c.lineWidth = 3; c.strokeStyle = OUT; c.stroke(); c.lineWidth = 1.8; c.strokeStyle = FILL[k + 1]; c.stroke(); c.restore();
-      if (e > .9) { labelFit(c, t.seg[k], x, cy + 3.25 * cm + 14, '#D3D9E8', w); labelFit(c, `≈ ${num(wcm)} ${t.cm}`, x, cy + 3.25 * cm + 29, '#98A0B8', w); }
+      cross(c, x, cy, r, k === 2 ? 'si' : 'li');
+      if (e > .9) { labelFit(c, t.seg[k], x, cy + 3.25 * cm + 16, '#8E86A8', w); labelFit(c, `≈ ${num(wcm)} ${t.cm}`, x, cy + 3.25 * cm + 36, '#8E86A8', w); }
     }
   }
   const txt = stretchVal(time);
@@ -701,6 +1066,10 @@ function stretchScene(c, w, h, time) {
 
 // ====================================================================================================================
 canvasLoop($('cv'), (c, w, h, dt, time) => {
+  panel(c, w, h); // opens a rounded clip that keeps the whole scene inside the page
+  try { scene(c, w, h, dt, time); } finally { c.restore(); }
+});
+function scene(c, w, h, dt, time) {
   const v = lab.view;
   if (v === 'stretch') return stretchScene(c, w, h, time);
   if (v === 'journey' && S.sec === 'villi') return villiScene(c, w, h, time, dt);
@@ -711,7 +1080,7 @@ canvasLoop($('cv'), (c, w, h, dt, time) => {
   } else P = jobsPose(time);
   tickFX(dt, P, time);
   drawBody(c, w, h, time, P);
-});
+}
 // tapping a part (jobs, once the five rounds are done)
 $('cv').addEventListener('pointerdown', (ev) => {
   if (lab.view !== 'jobs' || !B.done || !VIEW.on) return;
