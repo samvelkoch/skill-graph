@@ -1,0 +1,903 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Map from Above · Skill Graph</title>
+<meta name="description" content="Tilt a model village until it turns into a map, raise the sea and watch islands, bays and peninsulas appear, and find your way with a compass. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  .ask { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); width: min(620px, calc(100% - 16px)); padding: 10px 14px; text-align: center; z-index: 2; }
+  .ask .q { font: 500 20px/1.2 var(--serif); color: #fff; text-wrap: balance; }
+  .ask .v { font-weight: 900; font-size: 14px; line-height: 1.3; }
+  .ask .v.ok { color: var(--ok); }
+  .ask .v.bad { color: var(--wip); }
+  .ask p { margin: 4px 0 0; color: var(--soft); font-size: 13px; line-height: 1.35; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: center; margin-top: 8px; font-size: 12px; font-weight: 800; color: var(--soft); }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .sw { display: inline-block; width: 13px; height: 13px; border-radius: 3px; border: 1px solid rgba(255, 255, 255, .5); }
+  .sw.dot { border-radius: 50%; }
+  .sw.road { height: 7px; background: #8a8f99; border-color: #fff; }
+  .sw.bridge { background: linear-gradient(#fff 0 2px, #8a8f99 2px 11px, #fff 11px); border: 0; }
+  .sw.river { height: 5px; background: #8cc4f3; border-color: #5f9fd6; }
+  .cards { position: absolute; left: 8px; right: 8px; bottom: 8px; display: flex; gap: 8px; justify-content: center; z-index: 2; }
+  .cardb { position: relative; flex: 0 1 140px; aspect-ratio: 1; padding: 0; overflow: hidden; border-radius: 14px; cursor: pointer;
+    border: 2px solid var(--stroke2); background: rgba(14, 17, 28, .92); transition: opacity .3s, border-color .3s; }
+  .cardb:hover { border-color: #fff; }
+  .cardb canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: auto; }
+  .cardb .tag { position: absolute; left: 7px; top: 4px; font: 900 15px/1 var(--sans); color: #fff; text-shadow: 0 1px 4px #000; z-index: 1; }
+  .cards.small .cardb { aspect-ratio: auto; height: 62px; cursor: default; }
+  .cards.small .cardb:hover { border-color: var(--stroke2); }
+  .cardb.ok { border-color: var(--ok) !important; }
+  .cardb.no { border-color: var(--red) !important; }
+  .cardb.dim { opacity: .4; }
+  .lbl { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-weight: 700; }
+  .chip.good { border-color: var(--ok); background: rgba(61, 220, 151, .2); color: #fff; }
+  .chip.bad { border-color: var(--red); background: rgba(255, 59, 48, .18); color: #fff; }
+  .chip:disabled { cursor: default; }
+  .chip, .btn { min-height: 36px; }
+  .fine { font-size: 11px; color: var(--faint); }
+  input[type=range].big:disabled { opacity: .35; cursor: default; }
+  @media (max-width: 760px) {
+    #stage { height: min(130vw, 560px); }
+    body[data-v=water] #stage { height: min(126vw, 540px); }
+    body[data-v=compass] #stage { height: min(136vw, 580px); }
+    body[data-v=sec] #stage { height: min(150vw, 620px); }
+    .ask .q { font-size: 18px; } .ask { padding: 8px 10px; }
+    .cardb { flex-basis: 33%; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Map from Above', title: 'A map is a view from above',
+    lines: [['Fly up', 'and look straight down.'], ['Things get smaller', 'and turn into symbols.'], ['Water shapes', 'the land’s names.']],
+    views: { above: '🛩️ From above', water: '🌊 Raise the water', compass: '🧭 Compass' },
+    next: 'Next ▶', right: 'Yes!', wrong: 'Look again.',
+    a: { q: 'Which card is the map of this village?', cards: ['A', 'B', 'C'], tilt: 'Look from', side: 'the side', top: 'above',
+         right: 'Yes! A map is the place seen from straight above.', sideView: 'That is a picture from the side, like a photo. A map looks down from above.',
+         mirror: 'Close, but it’s back to front: the river is on the wrong side.',
+         legend: { house: 'house', school: 'school', forest: 'forest', road: 'road', bridge: 'bridge', river: 'river', lake: 'lake', hill: 'hill' } },
+    w: { level: 'Sea level', rain: '🌧️ Rain', contours: 'Contour lines',
+         q1: 'Raise the sea to 3. Tap where the first island will appear.', q2: (k) => `Tap the ${k}.`,
+         kinds: { bay: 'bay', peninsula: 'peninsula', island: 'island', lake: 'lake' },
+         def: { island: 'Island: land with water all round.', peninsula: 'Peninsula: land with water on three sides.', bay: 'Bay: water with land on three sides.', lake: 'Lake: still water with land all round.' },
+         q3: 'The sea is now at 6. What happened to the island?', o3: ['It is under the water', 'It floated away', 'It grew bigger'],
+         r3: 'The water rose over the small hill. Only its top is under the sea now.', contourText: 'Each line is where the shore would be at that height.' },
+    c: { q1: 'What is north of the park?', q2: 'The fox walks 2 squares east and 1 south. Where is it now?', q3: 'The fox turns to face south. Is the pond on its left or its right?',
+         q4: 'Now the fox faces north. Is the pond still on the same side?', q5: 'At noon in Europe, where is the Sun?', left: 'Left', right: 'Right', same: 'Same side', other: 'The other side',
+         dirs: { N: 'North', E: 'East', S: 'South', W: 'West' }, letters: { N: 'N', E: 'E', S: 'S', W: 'W' },
+         places: { park: 'park', school: 'school', shop: 'shop', bakery: 'bakery', pond: 'pond', bridge: 'bridge', playground: 'playground' },
+         r3: 'Facing south, east is on your left.', r4: 'Left and right turn with you. North, east, south and west stay where they are.',
+         r5: 'In Europe the Sun is in the south at midday. That is how people found south before compasses.' },
+    secrets: { scale: ['Map scale', 'Measure real distances on the map.'], contour: ['Contour lines', 'Slice a hill like a cake.'] },
+    sec: { scaleText: 'On this map 1 cm stands for 100 m in real life.', bar: '1 cm = 100 m', measure: (cm, m) => `${cm} cm on the map = ${m} m for real`,
+           contourText: 'Each slice’s outline is a contour line. Where the lines are close together, the hill is steep.' },
+    st: {
+      above: ['🛩️', 'Seen from above', 'A map shows a place from straight above.', 'Symbols stand for real things: the legend tells you which.'],
+      water: ['🌊', 'Where land meets water', 'Island, peninsula, bay and lake are named by where the water is.', 'Raise the water and the coast changes shape.'],
+      compass: ['🧭', 'Directions that stay', 'North, east, south, west never change.', 'Left and right depend on which way you face.'],
+    },
+    fine: 'The village and the relief are invented. Contour lines and scale bars are used on real maps (e.g. topographic maps).',
+    quiz: [
+      { q: 'A map shows a place…', opts: ['as you see it standing in it', 'from straight above, smaller, with symbols', 'only with its buildings'], ok: 1 },
+      { q: 'What is the difference between a river and a lake?', opts: ['None, both are water', 'A river flows; a lake is still water with land all round', 'A lake is always bigger'], ok: 1 },
+      { q: 'Land with water all round it is…', opts: ['a bay', 'an island', 'a peninsula'], ok: 1 } ],
+  },
+  ru: {
+    name: 'Карта сверху', title: 'Карта — это вид сверху',
+    lines: [['Поднимись', 'и посмотри прямо вниз.'], ['Всё становится меньше', 'и превращается в знаки.'], ['Вода даёт', 'суше имена.']],
+    views: { above: '🛩️ Сверху', water: '🌊 Подними воду', compass: '🧭 Компас' },
+    next: 'Дальше ▶', right: 'Да!', wrong: 'Посмотри ещё раз.',
+    a: { q: 'Какая карточка — карта этой деревни?', cards: ['А', 'Б', 'В'], tilt: 'Смотреть', side: 'сбоку', top: 'сверху',
+         right: 'Да! Карта — это место, увиденное прямо сверху.', sideView: 'Это картинка сбоку, как фотография. Карта смотрит сверху вниз.',
+         mirror: 'Почти, но наоборот: река не с той стороны.',
+         legend: { house: 'дом', school: 'школа', forest: 'лес', road: 'дорога', bridge: 'мост', river: 'река', lake: 'озеро', hill: 'холм' } },
+    w: { level: 'Уровень моря', rain: '🌧️ Дождь', contours: 'Горизонтали',
+         q1: 'Подними море до 3. Нажми туда, где появится первый остров.', q2: (k) => `Нажми на ${k}.`,
+         kinds: { bay: 'залив', peninsula: 'полуостров', island: 'остров', lake: 'озеро' },
+         def: { island: 'Остров: суша, со всех сторон окружённая водой.', peninsula: 'Полуостров: суша, с трёх сторон окружённая водой.', bay: 'Залив: вода, с трёх сторон окружённая сушей.', lake: 'Озеро: стоячая вода, со всех сторон окружённая сушей.' },
+         q3: 'Теперь море на уровне 6. Что стало с островом?', o3: ['Он под водой', 'Он уплыл', 'Он вырос'],
+         r3: 'Вода поднялась выше маленького холма. Теперь даже его вершина под водой.', contourText: 'Каждая линия — это берег, каким он был бы на этой высоте.' },
+    c: { q1: 'Что находится к северу от парка?', q2: 'Лиса проходит 2 клетки на восток и 1 на юг. Где она теперь?', q3: 'Лиса повернулась лицом на юг. Пруд у неё слева или справа?',
+         q4: 'Теперь лиса смотрит на север. Пруд всё с той же стороны?', q5: 'Где Солнце в полдень в Европе?', left: 'Слева', right: 'Справа', same: 'С той же', other: 'С другой',
+         dirs: { N: 'Север', E: 'Восток', S: 'Юг', W: 'Запад' }, letters: { N: 'С', E: 'В', S: 'Ю', W: 'З' },
+         places: { park: 'парк', school: 'школа', shop: 'магазин', bakery: 'пекарня', pond: 'пруд', bridge: 'мост', playground: 'площадка' },
+         r3: 'Если смотреть на юг, восток слева.', r4: 'Лево и право поворачиваются вместе с тобой. А север, восток, юг и запад остаются на месте.',
+         r5: 'В Европе в полдень Солнце на юге. Так люди находили юг ещё до компаса.' },
+    secrets: { scale: ['Масштаб', 'Измерь настоящие расстояния по карте.'], contour: ['Горизонтали', 'Разрежь холм, как торт.'] },
+    sec: { scaleText: 'На этой карте 1 см — это 100 м на местности.', bar: '1 см = 100 м', measure: (cm, m) => `${cm} см на карте = ${m} м на самом деле`,
+           contourText: 'Контур каждого слоя — это горизонталь. Где линии близко друг к другу, склон крутой.' },
+    st: {
+      above: ['🛩️', 'Вид сверху', 'Карта показывает место прямо сверху.', 'Условные знаки обозначают настоящие предметы — какие, подскажет легенда.'],
+      water: ['🌊', 'Где суша встречается с водой', 'Остров, полуостров, залив и озеро названы по тому, где вода.', 'Подними воду — и берег изменит форму.'],
+      compass: ['🧭', 'Направления, которые не меняются', 'Север, восток, юг, запад не меняются.', 'Лево и право зависят от того, куда ты смотришь.'],
+    },
+    fine: 'Деревня и рельеф придуманы. Горизонтали и масштаб есть на настоящих топографических картах.',
+    quiz: [
+      { q: 'Карта показывает место…', opts: ['таким, каким его видно, когда стоишь там', 'прямо сверху, уменьшенным, условными знаками', 'только со зданиями'], ok: 1 },
+      { q: 'Чем река отличается от озера?', opts: ['Ничем, там и там вода', 'Река течёт, а озеро — стоячая вода, окружённая сушей', 'Озеро всегда больше'], ok: 1 },
+      { q: 'Суша, со всех сторон окружённая водой, — это…', opts: ['залив', 'остров', 'полуостров'], ok: 1 } ],
+  },
+  hu: {
+    name: 'Térkép felülről', title: 'A térkép felülnézet',
+    lines: [['Emelkedj fel,', 'és nézz egyenesen le.'], ['Minden kisebb lesz,', 'és jellé változik.'], ['A víz adja', 'a táj formáinak nevét.']],
+    views: { above: '🛩️ Felülről', water: '🌊 Emeld a vizet', compass: '🧭 Iránytű' },
+    next: 'Tovább ▶', right: 'Igen!', wrong: 'Nézd meg újra.',
+    a: { q: 'Melyik kártya ennek a falunak a térképe?', cards: ['A', 'B', 'C'], tilt: 'Nézd', side: 'oldalról', top: 'felülről',
+         right: 'Igen! A térkép a hely, egyenesen felülről nézve.', sideView: 'Ez egy oldalnézeti kép, mint egy fénykép. A térkép felülről néz le.',
+         mirror: 'Majdnem, de fordítva van: a folyó a rossz oldalon van.',
+         legend: { house: 'ház', school: 'iskola', forest: 'erdő', road: 'út', bridge: 'híd', river: 'folyó', lake: 'tó', hill: 'domb' } },
+    w: { level: 'Tengerszint', rain: '🌧️ Eső', contours: 'Szintvonalak',
+         q1: 'Emeld a tengert 3-ig. Koppints oda, ahol az első sziget megjelenik.', q2: (k) => `Koppints erre: ${k}.`,
+         kinds: { bay: 'öböl', peninsula: 'félsziget', island: 'sziget', lake: 'tó' },
+         def: { island: 'Sziget: minden oldalról víz veszi körül.', peninsula: 'Félsziget: három oldalról víz veszi körül.', bay: 'Öböl: három oldalról szárazföld veszi körül.', lake: 'Tó: álló víz, minden oldalról szárazföld veszi körül.' },
+         q3: 'A tenger most 6-on áll. Mi lett a szigettel?', o3: ['A víz alatt van', 'Elúszott', 'Megnőtt'],
+         r3: 'A víz a kis domb fölé emelkedett. Most már a teteje is a víz alatt van.', contourText: 'Minden vonal azt mutatja, hol lenne a part azon a magasságon.' },
+    c: { q1: 'Mi van a parktól északra?', q2: 'A róka 2 mezőt megy keletre és 1-et délre. Hol van most?', q3: 'A róka dél felé fordul. A tó a bal vagy a jobb oldalán van?',
+         q4: 'Most a róka észak felé néz. A tó még mindig ugyanazon az oldalon van?', q5: 'Délben Európában merre van a Nap?', left: 'Balra', right: 'Jobbra', same: 'Ugyanott', other: 'A másik oldalon',
+         dirs: { N: 'Észak', E: 'Kelet', S: 'Dél', W: 'Nyugat' }, letters: { N: 'É', E: 'K', S: 'D', W: 'Ny' },
+         places: { park: 'park', school: 'iskola', shop: 'bolt', bakery: 'pékség', pond: 'tó', bridge: 'híd', playground: 'játszótér' },
+         r3: 'Dél felé nézve a kelet a bal kezed felé van.', r4: 'A bal és a jobb veled együtt fordul. Az észak, kelet, dél és nyugat a helyén marad.',
+         r5: 'Európában délben a Nap délen van. Így találták meg az emberek a délt iránytű nélkül.' },
+    secrets: { scale: ['Méretarány', 'Mérj valódi távolságot a térképen.'], contour: ['Szintvonalak', 'Vágd fel a dombot, mint egy tortát.'] },
+    sec: { scaleText: 'Ezen a térképen 1 cm a valóságban 100 m.', bar: '1 cm = 100 m', measure: (cm, m) => `${cm} cm a térképen = ${m} m a valóságban`,
+           contourText: 'Minden szelet körvonala egy szintvonal. Ahol a vonalak sűrűn vannak, ott meredek a domb.' },
+    st: {
+      above: ['🛩️', 'Felülről nézve', 'A térkép egy helyet egyenesen felülről mutat.', 'A jelek valódi dolgokat jelentenek: a jelmagyarázat megmondja, melyiket.'],
+      water: ['🌊', 'Ahol a föld és a víz találkozik', 'A sziget, a félsziget, az öböl és a tó nevét az adja, hol van a víz.', 'Emeld a vizet, és a part alakja megváltozik.'],
+      compass: ['🧭', 'Irányok, amelyek nem változnak', 'Az észak, kelet, dél és nyugat nem változik.', 'A bal és a jobb attól függ, merre nézel.'],
+    },
+    fine: 'A falu és a domborzat kitalált. Szintvonalak és méretarány a valódi topográfiai térképeken is vannak.',
+    quiz: [
+      { q: 'A térkép egy helyet…', opts: ['úgy mutat, ahogy állva látod', 'egyenesen felülről, kicsinyítve, jelekkel mutat', 'csak az épületeivel mutat'], ok: 1 },
+      { q: 'Mi a különbség a folyó és a tó között?', opts: ['Semmi, mindkettő víz', 'A folyó folyik; a tó álló víz, körülötte szárazföld', 'A tó mindig nagyobb'], ok: 1 },
+      { q: 'Az a szárazföld, amelyet minden oldalról víz vesz körül:', opts: ['öböl', 'sziget', 'félsziget'], ok: 1 } ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_KsKLVW_ssY', en: 'Shapes of land and water', ru: 'Формы суши и воды', hu: 'A szárazföld és a víz alakzatai' },
+  { id: 'sg_civ_16', en: 'Compass Directions and Map Symbols', ru: 'Стороны света и условные знаки карты', hu: 'Világtájak és térképjelek' },
+  { id: 'sg_civ_17', en: 'Position and Direction in Space', ru: 'Положение и направление в пространстве', hu: 'Tájékozódás a térben: helyzet és irány' },
+];
+
+// --- small helpers -----------------------------------------------------------------------------------------
+const sm = (x) => x * x * (3 - 2 * x);
+const ease = (p) => (p < 0.5 ? 2 * p * p : 1 - ((-2 * p + 2) ** 2) / 2);
+const rgb = (h) => { const n = parseInt(h.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; };
+const mv = (a, b, k) => a.map((v, i) => v + (b[i] - v) * k);
+const css = (v) => `rgb(${v.map(Math.round).join(',')})`;
+const mix = (a, b, k) => css(mv(rgb(a), rgb(b), k));
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+const fmt = (x) => (lang === 'en' ? String(x) : String(x).replace('.', ','));
+const FONT = '800 12px Nunito, sans-serif';
+const EMOJI = '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+const poly = (c, pts) => { c.beginPath(); pts.forEach(([X, Y], i) => (i ? c.lineTo(X, Y) : c.moveTo(X, Y))); c.closePath(); };
+// Catmull-Rom spline through the points, as Bezier curves (closed loop or open line)
+function smooth(c, pts, closed) {
+  const n = pts.length;
+  c.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 0; i < (closed ? n : n - 1); i++) {
+    const g = (j) => (closed ? pts[(j + n) % n] : pts[clamp(j, 0, n - 1)]);
+    const p0 = g(i - 1), p1 = g(i), p2 = g(i + 1), p3 = g(i + 2);
+    c.bezierCurveTo(p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6, p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6, p2[0], p2[1]);
+  }
+  if (closed) c.closePath();
+}
+const inPoly = (p, pl) => {
+  let r = false;
+  for (let i = 0, j = pl.length - 1; i < pl.length; j = i++) {
+    const [xi, yi] = pl[i], [xj, yj] = pl[j];
+    if ((yi > p[1]) !== (yj > p[1]) && p[0] < ((xj - xi) * (p[1] - yi)) / (yj - yi) + xi) r = !r;
+  }
+  return r;
+};
+function tag(c, text, x, y, color = '#fff') {
+  c.save(); c.globalAlpha = 1; c.font = FONT; c.textAlign = 'center'; c.textBaseline = 'middle';
+  const tw = c.measureText(text).width + 16;
+  c.fillStyle = 'rgba(10,12,20,.86)'; c.beginPath(); c.roundRect(x - tw / 2, y - 12, tw, 24, 12); c.fill();
+  c.fillStyle = color; c.fillText(text, x, y + 1); c.restore();
+}
+
+// --- the model village: ground plan in [0,1] x [0,1] (x east, y south), heights in the same units ----------
+const ISLAND = [[.14, .45], [.2, .25], [.38, .12], [.6, .08], [.8, .17], [.9, .38], [.88, .6], [.78, .82], [.58, .92], [.36, .9], [.2, .78], [.12, .62]];
+const FOREST = [[.62, .62], [.72, .58], [.81, .63], [.78, .74], [.69, .78], [.62, .74]];
+const RIVER = [[.34, .4], [.4, .47], [.5, .55], [.56, .66], [.54, .78], [.58, .9], [.58, 1.02]];
+const ROAD = [[.13, .56], [.28, .575], [.42, .565], [.52, .585], [.62, .535], [.76, .525], [.9, .52]];
+const LAKE = { x: .74, y: .38, r: .085 };
+const BRIDGE = { x: .52, y: .585, a: -.15 };
+const HILL = { x: .33, y: .32, R: .11, H: .17 };
+const HOUSES = [[.2, .5], [.31, .5], [.22, .66], [.33, .67], [.58, .44]];
+const SCHOOL = { x: .45, y: .68 };
+const HMAX = .2;
+// the hill is a dome whose west side is steep: ring u (0 = foot, 1 = top) has this radius and centre
+const hillR = (u) => HILL.R * Math.pow(1 - u, .85);
+const hillX = (u) => HILL.x - HILL.R + .35 * HILL.R * u + hillR(u);
+
+const rng = (() => { let s = 7; return () => (s = (s * 16807) % 2147483647) / 2147483647; })();
+const OBJS = (() => {
+  const list = HOUSES.map(([x, y]) => ({ k: 'house', x, y })).concat([{ k: 'school', x: SCHOOL.x, y: SCHOOL.y }]);
+  [[.17, .62], [.43, .46], [.42, .8]].forEach(([x, y]) => list.push({ k: 'tree', x, y, r: .021, h: .07 }));
+  const trees = [];
+  for (let n = 0; n < 500 && trees.length < 15; n++) {
+    const p = [.6 + rng() * .25, .54 + rng() * .27];
+    if (inPoly(p, FOREST) && trees.every((q) => Math.hypot(q.x - p[0], q.y - p[1]) > .04)) trees.push({ k: 'tree', x: p[0], y: p[1], r: .02 + rng() * .006, h: .06 + rng() * .02 });
+  }
+  return list.concat(trees).sort((p, q) => p.y - q.y);
+})();
+const SNAPS = HOUSES.map(([x, y]) => ({ x, y })).concat([{ x: SCHOOL.x, y: SCHOOL.y }]);
+
+const HOUSE_C = { wallF: '#f1e6cc', wallE: '#d6c8a6', roofS: '#d1674c', roofN: '#b3513b', sym: '#c4563f' };
+const SCHOOL_C = { wallF: '#e9e1f4', wallE: '#cfc3e6', roofS: '#8a63c9', roofN: '#6f4fa8', sym: '#8a63c9' };
+const morph = (col, k) => ({ wallF: mix(col.wallF, col.sym, k), wallE: mix(col.wallE, col.sym, k), roofS: mix(col.roofS, col.sym, k), roofN: mix(col.roofN, col.sym, k) });
+
+// draws the model with the camera tilted `tilt` degrees (10 = side view, 90 = straight down) into the box X, Y, W, H.
+// opt.wide: scale by width only (the side-view card); opt.mirror: flip left-right. Returns the camera.
+function drawVillage(c, X, Y, W, H, tilt, opt = {}) {
+  const t = (tilt * Math.PI) / 180, st = Math.sin(t), ct = Math.cos(t), k = sm(clamp((tilt - 50) / 40, 0, 1));
+  const B = .05, EXT = 1 + 2 * B, TH = .035, SH = .3;
+  const S = opt.wide ? (W * .97) / EXT : Math.min((W * .97) / EXT, (H * .97) / (EXT * st + (HMAX + TH) * ct));
+  const cx = X + W / 2, cy = Y + H / 2 + (S * (HMAX - TH) * ct) / 2;
+  const P = (x, y, z = 0) => [cx + (x - .5) * S - z * S * ct * SH, cy + (y - .5) * S * st - z * S * ct];
+  const ground = (z, fn) => {
+    c.save(); c.translate(cx - z * S * ct * SH, cy - z * S * ct); c.scale(S, S * st); c.translate(-.5, -.5); fn(); c.restore();
+  };
+  c.save(); c.globalAlpha = 1; c.lineJoin = 'round'; c.lineCap = 'round';
+  if (opt.mirror) { c.translate(cx, 0); c.scale(-1, 1); c.translate(-cx, 0); }
+  const water = mix('#4f93d6', '#8cc4f3', k);
+
+  // the baseboard: sea
+  const b0 = -B, b1 = 1 + B;
+  if (ct > .01) {
+    c.fillStyle = '#5a4430'; poly(c, [P(b0, b1, 0), P(b1, b1, 0), P(b1, b1, -TH), P(b0, b1, -TH)]); c.fill();
+    c.fillStyle = '#46351f'; poly(c, [P(b1, b0, 0), P(b1, b1, 0), P(b1, b1, -TH), P(b1, b0, -TH)]); c.fill();
+  }
+  ground(0, () => { c.fillStyle = mix('#3a78bf', '#8cc4f3', k); c.fillRect(b0, b0, EXT, EXT); });
+
+  // island, forest patch, river, lake
+  ground(0, () => {
+    c.beginPath(); smooth(c, ISLAND, true);
+    c.lineWidth = .016; c.strokeStyle = mix('#e6d79c', '#b9b384', k); c.stroke();
+    c.fillStyle = mix('#7db55f', '#ebe6bf', k); c.fill();
+    c.globalAlpha = .3 + .7 * k; c.beginPath(); smooth(c, FOREST, true); c.fillStyle = mix('#4f9a45', '#79b97a', k); c.fill(); c.globalAlpha = 1;
+    if (k < .98) { c.globalAlpha = 1 - k; c.beginPath(); smooth(c, RIVER, false); c.lineWidth = .037; c.strokeStyle = '#3d6fa6'; c.stroke(); c.globalAlpha = 1; }
+    c.beginPath(); smooth(c, RIVER, false); c.lineWidth = .028; c.strokeStyle = water; c.stroke();
+    c.beginPath(); c.arc(LAKE.x, LAKE.y, LAKE.r, 0, Math.PI * 2);
+    c.fillStyle = water; c.fill(); c.lineWidth = .008; c.strokeStyle = mix('#2f5f95', '#6aa8dc', k); c.stroke();
+    c.beginPath(); smooth(c, ROAD, false); c.lineWidth = .036; c.strokeStyle = mix('#6e6759', '#ffffff', k); c.stroke();
+    c.lineWidth = .026; c.strokeStyle = mix('#a49d8f', '#8a8f99', k); c.stroke();
+  });
+  // bridge: a slab on the river with white rails
+  ground(0, () => {
+    c.save(); c.translate(BRIDGE.x, BRIDGE.y); c.rotate(BRIDGE.a); c.globalAlpha = 1 - k; c.fillStyle = '#3f392f'; c.fillRect(-.047, -.03, .094, .06); c.restore();
+  });
+  ground(.016, () => {
+    c.save(); c.translate(BRIDGE.x, BRIDGE.y); c.rotate(BRIDGE.a);
+    c.fillStyle = mix('#a49d8f', '#8a8f99', k); c.fillRect(-.047, -.03, .094, .06);
+    c.strokeStyle = '#fff'; c.lineWidth = .008; c.beginPath(); c.moveTo(-.047, -.03); c.lineTo(.047, -.03); c.moveTo(-.047, .03); c.lineTo(.047, .03); c.stroke();
+    c.restore();
+  });
+
+  // the hill: a stack of thin discs; from above they read as contour rings
+  const NL = 28, lowV = mv(rgb('#86b565'), rgb('#d8c593'), k), highV = mv(rgb('#6b9a4e'), rgb('#a4794c'), k);
+  for (let i = 0; i <= NL; i++) {
+    const u = i / NL, r = i === NL ? .004 : hillR(u), [HX, HY] = P(hillX(u), HILL.y, u * HILL.H);
+    c.beginPath(); c.ellipse(HX, HY, r * S, r * S * st, 0, 0, Math.PI * 2);
+    c.fillStyle = css(mv(lowV, highV, u)); c.fill();
+    if (i % 4 === 0 && i < NL) { c.lineWidth = 1; c.strokeStyle = `rgba(100,62,28,${.12 + .6 * k})`; c.stroke(); }
+  }
+
+  // houses, school and trees, far to near
+  c.lineWidth = 1; c.strokeStyle = 'rgba(35,28,22,.55)';
+  const face = (pts, fill) => { poly(c, pts); c.fillStyle = fill; c.fill(); c.stroke(); };
+  const prism = (x0, y0, x1, y1, h, rh, col) => {
+    const ym = (y0 + y1) / 2;
+    face([P(x0, y0, 0), P(x0, y1, 0), P(x0, y1, h), P(x0, y0, h)], col.wallE);
+    face([P(x0, y0, 0), P(x1, y0, 0), P(x1, y0, h), P(x0, y0, h)], col.wallE);
+    face([P(x0, y0, h), P(x0, y1, h), P(x0, ym, h + rh)], col.wallE);
+    face([P(x0, y0, h), P(x1, y0, h), P(x1, ym, h + rh), P(x0, ym, h + rh)], col.roofN);
+    face([P(x1, y0, 0), P(x1, y1, 0), P(x1, y1, h), P(x1, y0, h)], col.wallE);
+    face([P(x1, y0, h), P(x1, y1, h), P(x1, ym, h + rh)], col.wallE);
+    face([P(x0, y1, 0), P(x1, y1, 0), P(x1, y1, h), P(x0, y1, h)], col.wallF);
+    face([P(x0, y1, h), P(x1, y1, h), P(x1, ym, h + rh), P(x0, ym, h + rh)], col.roofS);
+  };
+  // flat map symbol laid over the solid as the tilt reaches 90
+  const symbol = (x0, y0, x1, y1, color) => {
+    if (k < .4) return;
+    c.globalAlpha = (k - .4) / .6; poly(c, [P(x0, y0), P(x1, y0), P(x1, y1), P(x0, y1)]); c.fillStyle = color; c.fill(); c.stroke(); c.globalAlpha = 1;
+  };
+  const hc = morph(HOUSE_C, k), scc = morph(SCHOOL_C, k);
+  for (const o of OBJS) {
+    if (o.k !== 'tree') { c.lineWidth = 1; c.strokeStyle = 'rgba(35,28,22,.55)'; }
+    if (o.k === 'house') {
+      prism(o.x - .026, o.y - .023, o.x + .026, o.y + .023, .045, .03, hc);
+      symbol(o.x - .026, o.y - .023, o.x + .026, o.y + .023, HOUSE_C.sym);
+    } else if (o.k === 'school') {
+      prism(o.x - .043, o.y - .026, o.x + .043, o.y + .026, .048, .03, scc);
+      prism(o.x - .047, o.y - .02, o.x - .013, o.y + .014, .1, .05, scc);
+      symbol(o.x - .043, o.y - .026, o.x + .043, o.y + .026, SCHOOL_C.sym);
+      symbol(o.x - .047, o.y - .02, o.x - .013, o.y + .014, SCHOOL_C.sym);
+    } else {
+      const [EX, EY] = P(o.x, o.y, .015), [AX, AY] = P(o.x, o.y, .015 + o.h), [GX, GY] = P(o.x, o.y, 0), rx = o.r * S, ry = o.r * S * st;
+      c.beginPath(); c.moveTo(GX, GY); c.lineTo(EX, EY); c.lineWidth = Math.max(1.5, o.r * S * .5); c.strokeStyle = mix('#6b4a2b', '#2f7d44', k); c.stroke();
+      c.lineWidth = 1; c.strokeStyle = 'rgba(20,50,25,.55)';
+      c.beginPath(); c.ellipse(EX, EY, rx, ry, 0, 0, Math.PI * 2); c.fillStyle = mix('#2c6535', '#2f7d44', k); c.fill(); c.stroke();
+      c.beginPath(); c.moveTo(EX - rx, EY); c.lineTo(AX, AY); c.lineTo(EX + rx, EY); c.ellipse(EX, EY, rx, ry, 0, 0, Math.PI, false); c.closePath();
+      c.fillStyle = mix('#4f9d4c', '#2f7d44', k); c.fill(); c.stroke();
+    }
+  }
+  c.restore();
+  return { cx, cy, S };
+}
+
+// --- state -------------------------------------------------------------------------------------------------
+const S = {
+  a: { tilt: 20, answer: null, anim: false, p: 0, sec: null, drag: false, cT: 0, cam: null,
+       ruler: { a: { x: HOUSES[0][0], y: HOUSES[0][1] }, b: { x: SCHOOL.x, y: SCHOOL.y } } },
+  w: { level: 0, goal: null, r: 0, phase: 'ask', tap: null, ok: null, hl: null, rain: false, contours: false },
+  c: { r: 0, phase: 'ask', pick: null, ok: null, fx: 1, fy: 3, ang: -90, angGoal: -90, walk: null },
+};
+const lab = shell({ key: 'maps', T, topics: TOPICS, views: ['above', 'water', 'compass'], onLang: render, onView: render });
+const secret = secretLab('maps', () => ({
+  secrets: [{ emo: '📏', title: T[lang].secrets.scale[0], desc: T[lang].secrets.scale[1] }, { emo: '🏔️', title: T[lang].secrets.contour[0], desc: T[lang].secrets.contour[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="secAbove">
+    <div id="tiltRow">
+      <span class="lbl" id="tiltLbl"></span>
+      <input type="range" class="big" id="tilt" min="10" max="90" step="1" style="--track: linear-gradient(90deg, #8fb7e8, #7DB59A)">
+      <div class="ends"><span id="tEnd1"></span><span id="tEnd2"></span></div>
+    </div>
+    <div class="row2"><div class="chips" id="secChips"></div></div>
+  </div>
+  <div id="secWater">
+    <span class="lbl" id="lvlLbl"></span>
+    <input type="range" class="big" id="lvl" min="0" max="9" step="0.1" style="--track: linear-gradient(90deg, #cfe9ff, #1b4f93)">
+    <div class="ends"><span>0</span><span>9</span></div>
+    <div class="chips" id="wChips"></div>
+    <div class="chips" id="wOpts"></div>
+  </div>
+  <div id="secCompass"><div class="chips" id="cOpts"></div></div>
+  <div class="row2"><button class="btn" id="nextBtn" hidden></button></div>`;
+const askEl = Object.assign(document.createElement('div'), { className: 'ask card' });
+const cardsEl = Object.assign(document.createElement('div'), { className: 'cards' });
+cardsEl.innerHTML = ['map', 'side', 'mirror'].map((k, i) => `<button class="cardb" data-k="${k}"><span class="tag"></span><canvas></canvas></button>`).join('');
+$('overlay').append(askEl, cardsEl);
+
+// on a phone the controls sit below the canvas: bring the reveal into view
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+const verdictHTML = (ok, text, extra) => `<div class="v ${ok ? 'ok' : 'bad'}">${esc(text)}</div>${extra ? `<p>${esc(extra)}</p>` : ''}`;
+const fineHTML = (t) => `<div class="fine">${esc(t.fine)}</div>`;
+const setCard = (t, key) => { const [emo, title, lead, body] = t.st[key]; lab.setState({ emo, title, lead, body, extra: fineHTML(t) }); };
+
+// --- card pictures: the predict step of the first view ----------------------------------------------------
+function paintCard(cv, kind) {
+  const r = cv.getBoundingClientRect(), d = Math.min(window.devicePixelRatio || 1, 2), w = Math.max(1, r.width), h = Math.max(1, r.height);
+  cv.width = Math.round(w * d); cv.height = Math.round(h * d);
+  const c = cv.getContext('2d'); c.setTransform(d, 0, 0, d, 0, 0);
+  if (kind === 'side') {
+    const g = c.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#8fc0ea'); g.addColorStop(1, '#e6f2fb');
+    c.fillStyle = g; c.fillRect(0, 0, w, h);
+    drawVillage(c, 0, 0, w, h, 14, { wide: true });
+  } else drawVillage(c, 0, 0, w, h, 90, { mirror: kind === 'mirror' });
+}
+const cardCanvases = [...cardsEl.querySelectorAll('canvas')];
+const kinds = ['map', 'side', 'mirror'];
+const ro = new ResizeObserver((es) => es.forEach((e) => paintCard(e.target, kinds[cardCanvases.indexOf(e.target)])));
+cardCanvases.forEach((cv) => ro.observe(cv));
+
+// =============================================================================================================
+// View 1: from above
+// =============================================================================================================
+function drawAbove(c, w, h, dt, top) {
+  const A = S.a;
+  if (A.sec === 'scale') return drawScale(c, w, h, top);
+  if (A.sec === 'contour') return drawContour(c, w, h, dt, top);
+  if (A.anim) {
+    A.p = Math.min(1, A.p + dt / 2.5); A.tilt = lerp(20, 90, ease(A.p));
+    if (A.p >= 1) { A.anim = false; A.tilt = 90; }
+    syncTilt();
+  }
+  const bottom = cardsEl.style.display === 'none' ? 0 : cardsEl.offsetHeight + 16;
+  drawVillage(c, 0, top, w, h - top - bottom, A.tilt);
+}
+function syncTilt() {
+  const A = S.a, t = T[lang];
+  $('tilt').value = A.tilt;
+  if (A.answer) lab.setReadout(`${Math.round(A.tilt)}°`, A.tilt <= 30 ? t.a.side : A.tilt >= 80 ? t.a.top : '', '', '#7DB59A');
+}
+function legendHTML(t) {
+  const L = t.a.legend, sw = (cls, st) => `<i class="sw ${cls}" style="${st}"></i>`;
+  const items = [['house', sw('', 'background:#c4563f')], ['school', sw('', 'background:#8a63c9')], ['forest', sw('dot', 'background:#2f7d44;border-color:#79b97a')], ['road', sw('road', '')],
+    ['bridge', sw('bridge', '')], ['river', sw('river', '')], ['lake', sw('dot', 'background:#8cc4f3;border-color:#5f9fd6')], ['hill', sw('dot', 'background:#d8c593;border:2px solid #a4794c')]];
+  return `<div class="legend">${items.map(([k, s]) => `<span>${s}${esc(L[k])}</span>`).join('')}</div>`;
+}
+function renderAbove(t) {
+  const A = S.a, ans = A.answer, open = secret.unlocked();
+  lab.setGlow('rgba(125, 181, 154, .28)');
+  const sc = (k, emo) => `<button class="chip secret ${open ? 'open' : ''} ${A.sec === k ? 'on' : ''}" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  $('secChips').innerHTML = sc('scale', '📏') + sc('contour', '🏔️');
+  const showCards = !A.sec && ans !== 'skip';
+  cardsEl.style.display = showCards ? '' : 'none';
+  cardsEl.classList.toggle('small', !!ans);
+  cardsEl.querySelectorAll('.cardb').forEach((b, i) => {
+    const k = b.dataset.k;
+    b.querySelector('.tag').textContent = t.a.cards[i];
+    b.setAttribute('aria-label', t.a.cards[i]);
+    b.classList.toggle('ok', !!ans && k === 'map');
+    b.classList.toggle('no', !!ans && ans === k && k !== 'map');
+    b.classList.toggle('dim', !!ans && k !== 'map' && ans !== k);
+  });
+  $('tiltRow').hidden = !ans || !!A.sec;
+  $('tiltLbl').textContent = t.a.tilt; $('tEnd1').textContent = t.a.side; $('tEnd2').textContent = t.a.top;
+  $('tilt').setAttribute('aria-label', t.a.tilt);
+  if (A.sec === 'scale') {
+    askEl.innerHTML = scaleAsk(t);
+    lab.setReadout(t.sec.bar, '', '', '#7DB59A');
+    lab.setState({ emo: '📏', title: t.secrets.scale[0], lead: t.sec.scaleText, body: '', extra: fineHTML(t) });
+  } else if (A.sec === 'contour') {
+    askEl.innerHTML = `<p style="margin:0">${esc(t.sec.contourText)}</p>`;
+    lab.setReadout(t.secrets.contour[0], '', '', '#7DB59A');
+    lab.setState({ emo: '🏔️', title: t.secrets.contour[0], lead: t.sec.contourText, body: '', extra: fineHTML(t) });
+  } else {
+    if (!ans) { askEl.innerHTML = `<div class="q">${esc(t.a.q)}</div>`; lab.setReadout('?', '', '', '#7DB59A'); }
+    else {
+      const txt = ans === 'map' ? t.a.right : ans === 'side' ? t.a.sideView : ans === 'mirror' ? t.a.mirror : '';
+      askEl.innerHTML = (txt ? verdictHTML(ans === 'map', txt) : '') + legendHTML(t);
+      syncTilt();
+    }
+    setCard(t, 'above');
+  }
+  $('nextBtn').hidden = true;
+}
+cardsEl.addEventListener('click', (ev) => {
+  const b = ev.target.closest('.cardb'); if (!b || S.a.answer) return;
+  const k = b.dataset.k; S.a.answer = k; S.a.anim = true; S.a.p = 0;
+  (k === 'map' ? sfx.good : sfx.bad)(); render(); showStage();
+});
+$('tilt').addEventListener('input', (ev) => { S.a.anim = false; S.a.tilt = +ev.target.value; syncTilt(); });
+$('secChips').addEventListener('click', (ev) => {
+  const b = ev.target.closest('.chip'); if (!b) return;
+  if (!secret.unlocked()) return secret.open();
+  const A = S.a, k = b.dataset.k;
+  if (!A.answer) { A.answer = 'skip'; A.tilt = 90; A.anim = false; } // a secret needs the plain map: set the reveal up itself
+  A.sec = A.sec === k ? null : k; A.cT = 0; sfx.click(); render();
+});
+
+// secret 1: scale and a ruler on the map
+function scaleAsk(t) {
+  const r = S.a.ruler, d = Math.hypot(r.b.x - r.a.x, r.b.y - r.a.y), cm = Math.round(d * 100) / 10; // the map is 10 cm wide
+  return `<p style="margin:0">${esc(t.sec.scaleText)}</p>${cm > 0 ? `<div class="v ok" style="margin-top:4px">${esc(t.sec.measure(fmt(cm.toFixed(1)), Math.round(cm * 100)))}</div>` : ''}`;
+}
+function drawScale(c, w, h, top) {
+  const A = S.a, cam = drawVillage(c, 0, top, w, h - top, 90);
+  A.cam = cam;
+  const pt = (p) => [cam.cx + (p.x - .5) * cam.S, cam.cy + (p.y - .5) * cam.S];
+  const bw = cam.S / 10, bx = cam.cx - cam.S * .52, by = cam.cy + cam.S * .5;
+  c.save(); c.globalAlpha = 1; c.lineCap = 'butt';
+  c.strokeStyle = '#0a1a30'; c.lineWidth = 4; c.beginPath(); c.moveTo(bx, by); c.lineTo(bx + bw, by); c.stroke();
+  c.lineWidth = 2; c.beginPath(); c.moveTo(bx, by - 6); c.lineTo(bx, by + 6); c.moveTo(bx + bw, by - 6); c.lineTo(bx + bw, by + 6); c.stroke();
+  c.font = FONT; c.fillStyle = '#0a1a30'; c.textAlign = 'left'; c.textBaseline = 'bottom'; c.fillText(T[lang].sec.bar, bx + bw + 8, by + 6);
+  const [x1, y1] = pt(A.ruler.a), [x2, y2] = pt(A.ruler.b);
+  c.lineCap = 'round'; c.strokeStyle = 'rgba(10,12,20,.9)'; c.lineWidth = 6; c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke();
+  c.strokeStyle = '#fff'; c.lineWidth = 3; c.stroke();
+  for (const [x, y] of [[x1, y1], [x2, y2]]) { c.beginPath(); c.arc(x, y, 6, 0, Math.PI * 2); c.fillStyle = '#ffd54a'; c.fill(); c.lineWidth = 2; c.strokeStyle = '#0a0c14'; c.stroke(); }
+  c.restore();
+}
+const worldOf = (ev) => {
+  const r = $('cv').getBoundingClientRect(), cam = S.a.cam;
+  return { x: (ev.clientX - r.left - cam.cx) / cam.S + .5, y: (ev.clientY - r.top - cam.cy) / cam.S + .5 };
+};
+function snap(p) {
+  const cam = S.a.cam; let best = null, bd = 24 / cam.S;
+  for (const q of SNAPS) { const d = Math.hypot(q.x - p.x, q.y - p.y); if (d < bd) { bd = d; best = q; } }
+  return best ? { x: best.x, y: best.y } : { x: clamp(p.x, -.05, 1.05), y: clamp(p.y, -.05, 1.05) };
+}
+
+// secret 2: slice the hill like a cake; the outlines drop onto paper as contour lines
+const CN = 6, SLICE_T = 1.25;
+function drawContour(c, w, h, dt, top) {
+  const A = S.a, total = CN * SLICE_T + 1.7;
+  A.cT += dt; if (A.cT > total + 4) A.cT = 0;
+  const rh = h - top, wide = w >= rh * 1.25, ws = 2 * HILL.R + .04;
+  const ps = wide ? Math.min(w * .42, rh * .86) : Math.min(w - 24, rh * .48);
+  const px = wide ? w * .5 + (w * .5 - ps) / 2 : (w - ps) / 2, py = wide ? top + (rh - ps) / 2 : top + rh - ps - 6;
+  const sx = wide ? w * .25 : w / 2, sTop = top, sH = wide ? rh : rh - ps - 12;
+  const Qx = (x) => px + ((x - (HILL.x - ws / 2)) / ws) * ps, Qy = (y) => py + ((y - (HILL.y - ws / 2)) / ws) * ps, Qr = (r) => (r / ws) * ps;
+  // stack camera
+  const tl = 38 * Math.PI / 180, st = Math.sin(tl), ct = Math.cos(tl), HS = .09, LIFT = .1, dz = HS / CN;
+  const S3 = Math.min(((wide ? w * .5 : w) * .86) / ws, (sH * .94) / ((HS + LIFT) * ct + ws * st));
+  const sy0 = sTop + sH / 2 + ((HS + LIFT) * ct * S3) / 2;
+  const P3 = (x, y, z) => [sx + (x - HILL.x) * S3, sy0 + (y - HILL.y) * S3 * st - z * S3 * ct];
+  c.save(); c.globalAlpha = 1; c.lineJoin = 'round';
+  // the table under the hill
+  poly(c, [P3(HILL.x - ws / 2, HILL.y - ws / 2, 0), P3(HILL.x + ws / 2, HILL.y - ws / 2, 0), P3(HILL.x + ws / 2, HILL.y + ws / 2, 0), P3(HILL.x - ws / 2, HILL.y + ws / 2, 0)]);
+  c.fillStyle = 'rgba(150,165,215,.14)'; c.fill(); c.strokeStyle = 'rgba(190,205,255,.3)'; c.lineWidth = 1; c.stroke();
+  // the paper
+  c.fillStyle = '#f3ecd8'; c.beginPath(); c.roundRect(px, py, ps, ps, 8); c.fill();
+  c.save(); c.beginPath(); c.roundRect(px, py, ps, ps, 8); c.clip();
+  const tau = (i) => A.cT - (.4 + (CN - 1 - i) * SLICE_T); // time since slice i was picked up (the top slice goes first)
+  for (let i = 0; i < CN; i++) {
+    if (tau(i) < 1.2) continue;
+    const u = i / CN, r = hillR(u);
+    c.beginPath(); c.arc(Qx(hillX(u)), Qy(HILL.y), Qr(r), 0, Math.PI * 2);
+    c.fillStyle = css(mv(rgb('#ead9b0'), rgb('#b88a56'), i / (CN - 1))); c.globalAlpha = .85; c.fill(); c.globalAlpha = 1;
+    c.strokeStyle = '#7a4f25'; c.lineWidth = 1.8; c.stroke();
+  }
+  c.restore();
+  c.strokeStyle = 'rgba(190,205,255,.35)'; c.lineWidth = 1; c.beginPath(); c.roundRect(px, py, ps, ps, 8); c.stroke();
+  // slices, bottom to top
+  for (let i = 0; i < CN; i++) {
+    const tu = tau(i);
+    if (tu > 1.2) continue;
+    const e = ease(clamp(tu / .45, 0, 1)), alpha = 1 - clamp((tu - .7) / .25, 0, 1), u = i / CN, r = hillR(u), x = hillX(u);
+    const z0 = i * dz + LIFT * e, z1 = z0 + dz, [X0, Y0] = P3(x, HILL.y, z0), [X1, Y1] = P3(x, HILL.y, z1), rx = r * S3, ry = r * S3 * st;
+    const topC = mix('#e6d3a3', '#c49a60', i / (CN - 1)), sideC = mix('#bba27a', '#8e6a3c', i / (CN - 1));
+    c.globalAlpha = alpha; c.strokeStyle = 'rgba(60,40,20,.7)'; c.lineWidth = 1;
+    c.fillStyle = sideC; c.beginPath(); c.ellipse(X0, Y0, rx, ry, 0, 0, Math.PI * 2); c.fill();
+    c.fillRect(X0 - rx, Y1, rx * 2, Y0 - Y1);
+    c.beginPath(); c.moveTo(X0 - rx, Y1); c.lineTo(X0 - rx, Y0); c.moveTo(X0 + rx, Y1); c.lineTo(X0 + rx, Y0); c.stroke();
+    c.beginPath(); c.ellipse(X0, Y0, rx, ry, 0, 0, Math.PI); c.stroke();
+    c.fillStyle = topC; c.beginPath(); c.ellipse(X1, Y1, rx, ry, 0, 0, Math.PI * 2); c.fill(); c.stroke();
+    c.globalAlpha = 1;
+    if (tu > .55 && tu <= 1.2) { // the outline flies to the paper and flattens into a circle
+      const f = ease(clamp((tu - .7) / .5, 0, 1));
+      c.strokeStyle = '#7a4f25'; c.lineWidth = 2.4;
+      c.beginPath(); c.ellipse(lerp(X1, Qx(x), f), lerp(Y1, Qy(HILL.y), f), lerp(rx, Qr(r), f), lerp(ry, Qr(r), f), 0, 0, Math.PI * 2); c.stroke();
+    }
+  }
+  c.restore();
+}
+
+// =============================================================================================================
+// View 2: raise the water
+// =============================================================================================================
+const GW = 160;
+const BASIN = { x: .22, y: .64, r: .075 };
+const g2 = (x, y, cx, cy, sx, sy) => Math.exp(-(((x - cx) / sx) ** 2 + ((y - cy) / sy) ** 2) / 2);
+const sstep = (a, b, x) => sm(clamp((x - a) / (b - a), 0, 1));
+// the relief: a mountain with a shoulder, a ridge running east, a small separate hill, a bay cut in from the south and an inland basin
+function heightAt(x, y) {
+  const mount = 6.9 * g2(x, y, .3, .45, .13, .13), shoulder = 5 * g2(x, y, .35, .66, x > .35 ? .22 : .26, .21);
+  const A = 3.4 + 3.6 * Math.pow(clamp((.84 - x) / .54, 0, 1), 1.3), tip = x < .84 ? 1 : Math.exp(-(((x - .84) / .04) ** 2) / 2);
+  const ridge = A * Math.exp(-(((y - .4) / .045) ** 2) / 2) * tip * sstep(.3, .42, x);
+  let h = Math.max(mount + shoulder, ridge, 4 * g2(x, y, .83, .66, .065, .065));
+  h -= 5.5 * sstep(.56, .76, y) * Math.exp(-(((x - .41) / .045) ** 2) / 2);
+  // the basin: bottom 1, rim 3 at its edge, walls that melt into the slope
+  const d = Math.hypot(x - BASIN.x, y - BASIN.y), wgt = 1 - sstep(BASIN.r, BASIN.r * 2.1, d);
+  h = lerp(h, Math.min(h, 1 + 2 * (d / BASIN.r) ** 2), wgt);
+  return Math.max(0, h);
+}
+const HF = new Float32Array(GW * GW), SHD = new Float32Array(GW * GW), LK = new Uint8Array(GW * GW);
+for (let j = 0; j < GW; j++) for (let i = 0; i < GW; i++) {
+  const x = (i + .5) / GW, y = (j + .5) / GW;
+  HF[j * GW + i] = heightAt(x, y);
+  LK[j * GW + i] = Math.hypot(x - BASIN.x, y - BASIN.y) < BASIN.r * .98 ? 1 : 0;
+}
+for (let j = 0; j < GW; j++) for (let i = 0; i < GW; i++) {
+  const at = (a, b) => HF[clamp(b, 0, GW - 1) * GW + clamp(a, 0, GW - 1)];
+  SHD[j * GW + i] = clamp(1 + .7 * (at(i + 1, j) - at(i - 1, j) + at(i, j + 1) - at(i, j - 1)), .62, 1.3);
+}
+const RAMP = [[0, '#7dbb6a'], [2, '#a9c96f'], [4, '#d2c27a'], [6, '#b98f58'], [7.6, '#8c6a44'], [8.8, '#cfc6b8'], [9.5, '#f6f4ee']].map(([h, c]) => [h, rgb(c)]);
+const LUT = Array.from({ length: 101 }, (_, n) => {
+  const h = n / 10; let i = 0; while (i < RAMP.length - 2 && h > RAMP[i + 1][0]) i++;
+  const [h0, c0] = RAMP[i], [h1, c1] = RAMP[i + 1]; return mv(c0, c1, clamp((h - h0) / (h1 - h0), 0, 1));
+});
+const SHALLOW = rgb('#7ec8f2'), DEEP = rgb('#1b4f93'), FOAM = [232, 247, 255], LAKEC = rgb('#5fb4ef');
+// sea = water at or below level L that is joined to the edge of the map (a dry basin stays dry until it rains)
+const stack = new Int32Array(GW * GW);
+function flood(L, out) {
+  out.fill(0); let sp = 0;
+  const push = (i) => { if (!out[i] && HF[i] < L) { out[i] = 1; stack[sp++] = i; } };
+  for (let k = 0; k < GW; k++) { push(k); push((GW - 1) * GW + k); push(k * GW); push(k * GW + GW - 1); }
+  while (sp) {
+    const i = stack[--sp], x = i % GW, y = (i / GW) | 0;
+    if (x > 0) push(i - 1); if (x < GW - 1) push(i + 1); if (y > 0) push(i - GW); if (y < GW - 1) push(i + GW);
+  }
+}
+function component(seed, ok) {
+  const out = new Uint8Array(GW * GW); let sp = 0;
+  if (!ok(seed)) return out;
+  out[seed] = 1; stack[sp++] = seed;
+  while (sp) {
+    const i = stack[--sp], x = i % GW, y = (i / GW) | 0;
+    for (const j of [x > 0 ? i - 1 : -1, x < GW - 1 ? i + 1 : -1, y > 0 ? i - GW : -1, y < GW - 1 ? i + GW : -1]) if (j >= 0 && !out[j] && ok(j)) { out[j] = 1; stack[sp++] = j; }
+  }
+  return out;
+}
+function grow(mask, n) {
+  let cur = mask;
+  for (let s = 0; s < n; s++) {
+    const nx = new Uint8Array(cur);
+    for (let i = 0; i < cur.length; i++) if (cur[i]) { const x = i % GW; if (x > 0) nx[i - 1] = 1; if (x < GW - 1) nx[i + 1] = 1; if (i >= GW) nx[i - GW] = 1; if (i < cur.length - GW) nx[i + GW] = 1; }
+    cur = nx;
+  }
+  return cur;
+}
+// the three areas the child can be asked about, found at sea level 3
+const REG = (() => {
+  const sea3 = new Uint8Array(GW * GW); flood(3, sea3);
+  const cell = (x, y) => Math.floor(y * GW) * GW + Math.floor(x * GW), land = (i) => !sea3[i];
+  const island = component(cell(.83, .66), land), main = component(cell(.3, .45), land);
+  const pen = new Uint8Array(GW * GW), bay = new Uint8Array(GW * GW);
+  for (let i = 0; i < GW * GW; i++) {
+    const x = ((i % GW) + .5) / GW, y = (((i / GW) | 0) + .5) / GW;
+    if (main[i] && x >= .52 && y >= .32 && y <= .46) pen[i] = 1;
+    if (sea3[i] && x >= .36 && x <= .5 && y >= .64 && y <= .82) bay[i] = 1;
+  }
+  const info = (mask) => { let sx = 0, sy = 0, n = 0; for (let i = 0; i < mask.length; i++) if (mask[i]) { sx += (i % GW) + .5; sy += ((i / GW) | 0) + .5; n++; } return { mask, near: grow(mask, 6), x: sx / n / GW, y: sy / n / GW }; };
+  return { island: info(island), peninsula: info(pen), bay: info(bay) };
+})();
+
+const WR = [{ kind: 'island' }, { kind: 'bay' }, { kind: 'peninsula' }, { kind: 'island' }, { q3: true }];
+const seaBuf = new Uint8Array(GW * GW), off = document.createElement('canvas'), octx = off.getContext('2d');
+off.width = off.height = GW;
+const img = octx.createImageData(GW, GW);
+let wKey = '';
+function recolor() {
+  const W = S.w, L = W.level, hl = W.hl && Math.abs(L - 3) < .05 ? W.hl : null;
+  const key = `${L.toFixed(2)}|${W.rain}|${W.contours}|${hl ? hl.kind : ''}`;
+  if (key === wKey) return; wKey = key;
+  flood(L, seaBuf);
+  const px = img.data, wet = (i) => seaBuf[i] || (W.rain && LK[i]);
+  for (let j = 0; j < GW; j++) for (let i = 0; i < GW; i++) {
+    const idx = j * GW + i, h = HF[idx]; let col;
+    if (wet(idx)) {
+      const edge = (i > 0 && !wet(idx - 1)) || (i < GW - 1 && !wet(idx + 1)) || (j > 0 && !wet(idx - GW)) || (j < GW - 1 && !wet(idx + GW));
+      col = edge ? FOAM : seaBuf[idx] ? mv(SHALLOW, DEEP, clamp((L - h) / 5, 0, 1)) : LAKEC;
+    } else {
+      col = LUT[Math.round(clamp(h, 0, 10) * 10)].map((v) => v * SHD[idx]);
+      if (W.contours && h >= 1) {
+        const f = Math.floor(h);
+        if ((i < GW - 1 && Math.floor(HF[idx + 1]) !== f) || (j < GW - 1 && Math.floor(HF[idx + GW]) !== f)) col = col.map((v) => v * .6);
+      }
+    }
+    if (hl && hl.info.mask[idx]) col = mv(col, [61, 220, 151], .55);
+    const o = idx * 4; px[o] = col[0]; px[o + 1] = col[1]; px[o + 2] = col[2]; px[o + 3] = 255;
+  }
+  octx.putImageData(img, 0, 0);
+}
+let wRect = null;
+function drawWater(c, w, h, dt, top) {
+  const W = S.w;
+  if (W.goal !== null) {
+    const p = clamp((performance.now() - W.t0) / W.dur, 0, 1);
+    W.level = lerp(W.from, W.goal, p);
+    if (p >= 1) finishWater(W.id);
+    $('lvl').value = W.level; lab.setReadout(fmtLevel(W.level), T[lang].w.level, '', '#4ea8ff');
+  }
+  recolor();
+  const side = Math.max(120, Math.min(w - 8, h - top - 8)), mx = (w - side) / 2, my = top + 4;
+  wRect = { x: mx, y: my, s: side };
+  c.save(); c.globalAlpha = 1;
+  c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
+  c.beginPath(); c.roundRect(mx, my, side, side, 12); c.save(); c.clip(); c.drawImage(off, mx, my, side, side); c.restore();
+  c.strokeStyle = 'rgba(190,205,255,.35)'; c.lineWidth = 1.5; c.stroke();
+  const P = (x, y) => [mx + x * side, my + y * side], r = WR[W.r];
+  // the island ring in the last round, so the child follows the same hill while the sea rises
+  if (r.q3) {
+    const [ix, iy] = P(REG.island.x, REG.island.y); c.setLineDash([5, 5]); c.strokeStyle = '#fff'; c.lineWidth = 2;
+    c.beginPath(); c.arc(ix, iy, side * .085, 0, Math.PI * 2); c.stroke(); c.setLineDash([]);
+  }
+  if (W.phase === 'done' && !r.q3 && Math.abs(W.level - 3) < .05) {
+    const reg = REG[r.kind], [lx, ly] = P(reg.x, reg.y);
+    tag(c, cap(T[lang].w.kinds[r.kind]), lx, r.kind === 'bay' ? ly - side * .04 : ly - side * .09, '#3ddc97');
+  }
+  if (W.tap) {
+    const [tx, ty] = P(W.tap.x, W.tap.y); c.lineWidth = 3; c.strokeStyle = W.ok ? '#3ddc97' : '#ff3b30';
+    c.beginPath(); c.arc(tx, ty, 11, 0, Math.PI * 2); c.stroke();
+    if (!W.ok) { c.beginPath(); c.moveTo(tx - 6, ty - 6); c.lineTo(tx + 6, ty + 6); c.moveTo(tx + 6, ty - 6); c.lineTo(tx - 6, ty + 6); c.stroke(); }
+  }
+  c.restore();
+}
+// the sea moves at 2.2 levels a second by the clock, not by frames; a timer lands it exactly on the goal even if frames are throttled
+let waterId = 0;
+function animWater(goal) {
+  const W = S.w;
+  if (goal === W.level) { W.goal = null; return; }
+  const id = ++waterId; W.id = id; W.from = W.level; W.goal = goal; W.t0 = performance.now(); W.dur = Math.abs(goal - W.level) / 2.2 * 1000;
+  setTimeout(() => finishWater(id), W.dur + 60);
+}
+function finishWater(id) {
+  const W = S.w; if (W.id !== id || W.goal === null) return;
+  W.level = W.goal; W.goal = null; wKey = ''; render();
+}
+const fmtLevel = (L) => fmt(String(Math.round(L * 10) / 10));
+function startWater(r) {
+  const W = S.w; W.r = r; W.phase = 'ask'; W.tap = null; W.ok = null; W.hl = null; W.pick = null;
+  animWater(r === 0 ? 0 : 3);
+}
+// a tap counts if it is inside the area or within `rad` grid cells (36 CSS px) of its nearest cell
+function nearArea(mask, x, y, rad) {
+  const cx = clamp(Math.floor(x * GW), 0, GW - 1), cy = clamp(Math.floor(y * GW), 0, GW - 1), R = Math.ceil(rad);
+  for (let j = Math.max(0, cy - R); j <= Math.min(GW - 1, cy + R); j++) for (let i = Math.max(0, cx - R); i <= Math.min(GW - 1, cx + R); i++) {
+    if (mask[j * GW + i] && Math.hypot(i - cx, j - cy) <= rad) return true;
+  }
+  return false;
+}
+function revealWater(pick) { // pick: a tap {x, y} (rounds 1-4) or the option index (round 5)
+  const W = S.w, r = WR[W.r];
+  if (r.q3) { W.ok = pick === 0; W.tap = null; animWater(6); }
+  else {
+    const reg = REG[r.kind];
+    W.tap = pick; W.ok = nearArea(reg.mask, pick.x, pick.y, (36 / wRect.s) * GW); W.hl = { kind: r.kind, info: reg };
+    animWater(3);
+  }
+  W.phase = 'done'; wKey = ''; (W.ok ? sfx.good : sfx.bad)(); render(); showStage();
+}
+$('cv').addEventListener('pointerdown', (ev) => {
+  if (lab.view === 'water') {
+    const W = S.w, r = WR[W.r];
+    if (W.phase !== 'ask' || r.q3 || !wRect || W.goal !== null) return;
+    const b = $('cv').getBoundingClientRect(), x = (ev.clientX - b.left - wRect.x) / wRect.s, y = (ev.clientY - b.top - wRect.y) / wRect.s;
+    if (x < 0 || x > 1 || y < 0 || y > 1) return;
+    revealWater({ x, y });
+  } else if (lab.view === 'above' && S.a.sec === 'scale' && S.a.cam) {
+    const p = snap(worldOf(ev)); S.a.ruler = { a: p, b: { ...p } }; S.a.drag = true; $('cv').setPointerCapture(ev.pointerId); sfx.tick(); askEl.innerHTML = scaleAsk(T[lang]);
+  }
+});
+$('cv').addEventListener('pointermove', (ev) => {
+  if (!S.a.drag) return;
+  S.a.ruler.b = snap(worldOf(ev)); askEl.innerHTML = scaleAsk(T[lang]);
+});
+const endDrag = () => { S.a.drag = false; };
+$('cv').addEventListener('pointerup', endDrag); $('cv').addEventListener('pointercancel', endDrag);
+$('lvl').addEventListener('input', (ev) => {
+  const W = S.w; W.goal = null; waterId++; W.level = +ev.target.value; lab.setReadout(fmtLevel(W.level), T[lang].w.level, '', '#4ea8ff');
+});
+function renderWater(t) {
+  const W = S.w, r = WR[W.r], ask = W.phase === 'ask', unlockedContours = W.r > 0 || !ask;
+  lab.setGlow('rgba(78, 168, 255, .3)');
+  $('lvlLbl').textContent = t.w.level; $('lvl').setAttribute('aria-label', t.w.level);
+  $('lvl').disabled = ask; $('lvl').value = W.level;
+  lab.setReadout(fmtLevel(W.level), t.w.level, '', '#4ea8ff');
+  $('wChips').innerHTML = `<button class="chip ${W.rain ? 'on' : ''}" data-k="rain">${esc(t.w.rain)}</button>`
+    + (unlockedContours ? `<button class="chip ${W.contours ? 'on' : ''}" data-k="contours">${esc(t.w.contours)}</button>` : '');
+  $('wOpts').innerHTML = r.q3 && ask ? t.w.o3.map((o, i) => `<button class="chip" data-o="${i}">${esc(o)}</button>`).join('')
+    : r.q3 ? t.w.o3.map((o, i) => `<button class="chip ${i === 0 ? 'good' : S.w.pick === i ? 'bad' : ''}" disabled>${esc(o)}</button>`).join('') : '';
+  if (ask) askEl.innerHTML = `<div class="q">${esc(W.r === 0 ? t.w.q1 : r.q3 ? t.w.q3 : t.w.q2(t.w.kinds[r.kind]))}</div>`;
+  else askEl.innerHTML = verdictHTML(W.ok, W.ok ? t.right : t.wrong, r.q3 ? t.w.r3 : t.w.def[r.kind]);
+  $('nextBtn').hidden = ask; $('nextBtn').textContent = t.next;
+  if (W.contours) lab.setState({ emo: '🗺️', title: t.w.contours, lead: t.w.contourText, body: '', extra: fineHTML(t) });
+  else if (W.rain) lab.setState({ emo: '🌧️', title: cap(t.w.kinds.lake), lead: t.w.def.lake, body: '', extra: fineHTML(t) });
+  else setCard(t, 'water');
+}
+$('wChips').addEventListener('click', (ev) => {
+  const b = ev.target.closest('.chip'); if (!b) return;
+  S.w[b.dataset.k] = !S.w[b.dataset.k]; sfx.click(); render();
+});
+$('wOpts').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-o]'); if (!b || S.w.phase !== 'ask') return;
+  S.w.pick = +b.dataset.o; revealWater(S.w.pick);
+});
+
+// =============================================================================================================
+// View 3: compass
+// =============================================================================================================
+const PL = { park: [1, 2, '🌳', '#5fae6a'], school: [1, 1, '🏫', '#9b8bd6'], shop: [3, 3, '🏪', '#e0b050'], bakery: [3, 4, '🥐', '#d9825f'],
+  pond: [5, 4, '🦆', '#4f93d6'], bridge: [5, 5, '🌉', '#7f8ea8'], playground: [3, 1, '🎠', '#e07a9a'] };
+const CQ = [
+  { opts: ['playground', 'shop', 'school', 'pond'], ans: 'school', ring: [1, 1] },
+  { opts: ['playground', 'bakery', 'shop'], ans: 'bakery', ring: [3, 4] },
+  { opts: ['left', 'right'], ans: 'left' },
+  { opts: ['same', 'other'], ans: 'other' },
+  { opts: ['N', 'E', 'S', 'W'], ans: 'S' },
+];
+const WALK = [[1, 3], [3, 3], [3, 4]];
+function startCompass(r) {
+  const C = S.c; C.r = r; C.phase = 'ask'; C.pick = null; C.ok = null; C.walk = null;
+  [C.fx, C.fy] = r <= 1 ? [1, 3] : [3, 4];
+  C.ang = C.angGoal = r === 3 ? 90 : -90;
+}
+function drawCompass(c, w, h, dt, top) {
+  const C = S.c, t = T[lang], side = Math.max(120, Math.min(w - 8, h - top - 34)), gx = (w - side) / 2, gy = top + 2, cs = side / 6;
+  if (C.walk) {
+    C.walk.t += dt * 2.2; const d = Math.min(3, C.walk.t);
+    if (d <= 2) { C.fx = 1 + d; C.fy = 3; C.ang = C.angGoal = 0; } else { C.fx = 3; C.fy = 3 + (d - 2); C.ang = C.angGoal = 90; }
+    if (d >= 3) { C.walk = null; }
+  }
+  C.ang += clamp(C.angGoal - C.ang, -dt * 420, dt * 420);
+  c.save(); c.globalAlpha = 1;
+  c.beginPath(); c.roundRect(gx, gy, side, side, 14); c.save(); c.clip();
+  for (let j = 0; j < 6; j++) for (let i = 0; i < 6; i++) { c.fillStyle = (i + j) % 2 ? '#d3e6a8' : '#cadf9e'; c.fillRect(gx + i * cs, gy + j * cs, cs + .5, cs + .5); }
+  c.fillStyle = '#bdbbb0'; c.fillRect(gx + 2 * cs + cs * .34, gy, cs * .32, side); c.fillRect(gx, gy + 5 * cs + cs * .34, 5.5 * cs, cs * .32);
+  c.strokeStyle = 'rgba(60,80,40,.18)'; c.lineWidth = 1; c.beginPath();
+  for (let i = 1; i < 6; i++) { c.moveTo(gx + i * cs, gy); c.lineTo(gx + i * cs, gy + side); c.moveTo(gx, gy + i * cs); c.lineTo(gx + side, gy + i * cs); }
+  c.stroke();
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  for (const [name, [i, j, emo, col]] of Object.entries(PL)) {
+    const x = gx + i * cs, y = gy + j * cs;
+    c.fillStyle = col; c.beginPath(); c.roundRect(x + 3, y + 3, cs - 6, cs - 6, 9); c.fill();
+    c.font = `${(cs * .4) | 0}px ${EMOJI}`; c.fillStyle = '#fff'; c.fillText(emo, x + cs / 2, y + cs * .38);
+    c.font = FONT; c.fillStyle = '#10131f'; c.fillText(t.c.places[name], x + cs / 2, y + cs - 12);
+  }
+  // compass rose in the empty north-east square: a dial with N at the top, E right, S bottom, W left
+  const rx = gx + 5.5 * cs, ry = gy + .5 * cs, rd = cs * .31, sunOn = C.phase === 'done' && C.r === 4;
+  c.fillStyle = 'rgba(16,19,31,.86)'; c.beginPath(); c.arc(rx, ry, cs * .46, 0, Math.PI * 2); c.fill();
+  c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1.5; c.stroke();
+  c.beginPath(); c.moveTo(rx, ry - rd * .55); c.lineTo(rx, ry + rd * .55); c.moveTo(rx - rd * .55, ry); c.lineTo(rx + rd * .55, ry); c.stroke();
+  c.textAlign = 'center'; c.textBaseline = 'middle'; c.font = FONT;
+  for (const [d, dx, dy] of [['N', 0, -1], ['E', 1, 0], ['S', 0, 1], ['W', -1, 0]]) {
+    c.fillStyle = d === 'S' && sunOn ? '#3ddc97' : d === 'N' ? '#ff7a6e' : '#fff';
+    c.fillText(t.c.letters[d], rx + dx * rd, ry + dy * rd + 1);
+  }
+  // highlights after the answer
+  const pulse = .55 + .45 * Math.sin(performance.now() / 220), ring = (i, j, color) => {
+    c.strokeStyle = color; c.lineWidth = 3.5; c.globalAlpha = pulse; c.beginPath(); c.roundRect(gx + i * cs + 1, gy + j * cs + 1, cs - 2, cs - 2, 10); c.stroke(); c.globalAlpha = 1;
+  };
+  if (C.phase === 'done' && !C.walk) {
+    if (C.r <= 1) ring(...CQ[C.r].ring, '#3ddc97');
+    if (C.r === 2 || C.r === 3) ring(PL.pond[0], PL.pond[1], '#fff');
+  }
+  c.restore();
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  // the fox, the way it faces, and its left and right hands
+  const fx = gx + (C.fx + .5) * cs, fy = gy + (C.fy + .5) * cs, a = (C.ang * Math.PI) / 180;
+  c.font = `${(cs * .6) | 0}px ${EMOJI}`; c.fillStyle = '#fff'; c.fillText('🦊', fx, fy + 2);
+  const nose = [fx + Math.cos(a) * cs * .5, fy + Math.sin(a) * cs * .5], nl = cs * .13;
+  c.fillStyle = '#fff'; c.strokeStyle = '#10131f'; c.lineWidth = 1.5;
+  poly(c, [[nose[0] + Math.cos(a) * nl, nose[1] + Math.sin(a) * nl], [nose[0] + Math.cos(a + 2.4) * nl, nose[1] + Math.sin(a + 2.4) * nl], [nose[0] + Math.cos(a - 2.4) * nl, nose[1] + Math.sin(a - 2.4) * nl]]); c.fill(); c.stroke();
+  if (C.phase === 'done' && (C.r === 2 || C.r === 3) && Math.abs(C.ang - C.angGoal) < 1) {
+    const la = a - Math.PI / 2, ra = a + Math.PI / 2;
+    tag(c, t.c.left, fx + Math.cos(la) * cs * 1.05, fy + Math.sin(la) * cs * 1.05, '#8fd0ff');
+    tag(c, t.c.right, fx + Math.cos(ra) * cs * 1.05, fy + Math.sin(ra) * cs * 1.05, '#ffb86b');
+  }
+  if (sunOn) { c.font = `26px ${EMOJI}`; c.fillText('☀️', w / 2, gy + side + 17); }
+  c.restore();
+}
+function renderCompass(t) {
+  const C = S.c, q = CQ[C.r], ask = C.phase === 'ask';
+  lab.setGlow('rgba(224, 176, 80, .26)');
+  lab.setReadout(`${C.r + 1}/5`, '', '', '#e0b050');
+  const label = (o) => (PL[o] ? `${PL[o][2]} ${t.c.places[o]}` : o === 'left' || o === 'right' || o === 'same' || o === 'other' ? t.c[o] : t.c.dirs[o]);
+  $('cOpts').innerHTML = q.opts.map((o) => `<button class="chip ${!ask && o === q.ans ? 'good' : !ask && o === C.pick ? 'bad' : ''}" data-o="${o}"${ask ? '' : ' disabled'}>${esc(label(o))}</button>`).join('');
+  if (ask) askEl.innerHTML = `<div class="q">${esc(t.c[`q${C.r + 1}`])}</div>`;
+  else askEl.innerHTML = verdictHTML(C.ok, C.ok ? t.right : t.wrong, C.r === 2 ? t.c.r3 : C.r === 3 ? t.c.r4 : C.r === 4 ? t.c.r5 : '');
+  $('nextBtn').hidden = ask; $('nextBtn').textContent = t.next;
+  setCard(t, 'compass');
+}
+$('cOpts').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-o]'); if (!b || S.c.phase !== 'ask') return;
+  const C = S.c, q = CQ[C.r]; C.pick = b.dataset.o; C.ok = C.pick === q.ans; C.phase = 'done';
+  if (C.r === 1) C.walk = { t: 0 }; else if (C.r === 2) C.angGoal = 90; else if (C.r === 3) C.angGoal = -90;
+  (C.ok ? sfx.good : sfx.bad)(); render(); showStage();
+});
+
+// --- shared: next button, render and the loop -------------------------------------------------------------------
+$('nextBtn').addEventListener('click', () => {
+  sfx.click();
+  if (lab.view === 'water') startWater((S.w.r + 1) % WR.length);
+  else startCompass((S.c.r + 1) % CQ.length);
+  render();
+});
+function render() {
+  const t = T[lang], v = lab.view;
+  document.body.dataset.v = v === 'above' && S.a.sec ? 'sec' : v;
+  $('secAbove').style.display = v === 'above' ? '' : 'none';
+  $('secWater').style.display = v === 'water' ? '' : 'none';
+  $('secCompass').style.display = v === 'compass' ? '' : 'none';
+  cardsEl.style.display = v === 'above' ? cardsEl.style.display : 'none';
+  if (v === 'above') renderAbove(t); else if (v === 'water') renderWater(t); else renderCompass(t);
+}
+canvasLoop($('cv'), (c, w, h, dt) => {
+  const top = askEl.offsetHeight + 16, v = lab.view;
+  if (v === 'above') drawAbove(c, w, h, dt, top); else if (v === 'water') drawWater(c, w, h, dt, top); else drawCompass(c, w, h, dt, top);
+});
+render();
+</script>
+</body>
+</html>
