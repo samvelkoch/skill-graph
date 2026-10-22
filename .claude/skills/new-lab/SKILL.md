@@ -57,7 +57,7 @@ node -e "const id=process.argv[1];const r=require('./data/teaching-research.json
 
 ## 4. Build
 
-One folder, one page: `labs/<id>/index.html`. Copy the `<head>` pattern of `labs/cubes/index.html` (viewport meta, the Google Fonts link, `../lab.css`), add the lab's own `<style>`, and one `<script type="module">` that imports from `../lab.js`.
+One folder, one page: `labs/<id>/index.html`. Copy the `<head>` pattern of `labs/cubes/index.html` (the Google tag snippet right after `<head>`, viewport meta, the Google Fonts link, `../lab.css`), add the lab's own `<style>`, and one `<script type="module">` that imports from `../lab.js`.
 
 - `shell({ key, T, topics, views, onLang, onView })` draws the chrome; `secretLab(key, getContent, onUnlock)` runs the quiz that unlocks the secrets and marks the lab's topics "Learning" on the map. Details: [shell-api.md](shell-api.md).
 - **All text in one `T` object** with `en`, `ru` and `hu`, chosen by `?lang=`. Children are addressed informally (RU «ты», HU tegező). A right answer's verdict is `Right!` / `Верно!` / `Így van!`.
