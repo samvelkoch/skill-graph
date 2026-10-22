@@ -1,0 +1,801 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Out of a Hundred · Skill Graph</title>
+<meta name="description" content="Colour squares of a hundred grid, compare two half-charged batteries, and build any percentage from 10 % and 5 %. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  @media (min-width: 761px) { #stage { min-height: 540px; } }
+  @media (min-width: 1101px) {
+    .lab { grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); grid-template-areas: 'hero stage' 'state stage' 'state ctrl'; }
+  }
+  .ask { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); width: min(600px, calc(100% - 16px)); padding: 12px 14px; text-align: center; }
+  .ask .q { font: 500 21px/1.2 var(--serif); color: #fff; margin-bottom: 10px; text-wrap: balance; }
+  .ask .opts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .ob { padding: 9px 16px; min-height: 40px; border-radius: 14px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 800; cursor: pointer; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
+  .ob:hover { background: rgba(130, 145, 190, .25); }
+  .ob.pvb { padding: 6px 7px; }
+  #stage .ob canvas { position: static; inset: auto; display: block; border-radius: 8px; } /* lab.css stretches every #stage canvas */
+  .ob small { font-size: 12px; font-weight: 800; color: var(--soft); }
+  .ob.locked { pointer-events: none; opacity: .55; }
+  .ob.good { opacity: 1; border-color: var(--ok); background: rgba(61, 220, 151, .18); }
+  .ob.bad { opacity: 1; border-color: var(--red); background: rgba(255, 59, 48, .16); }
+  .ask .vr { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 10px; flex-wrap: wrap; }
+  .ask .verdict { font-weight: 900; }
+  .btn.sm { padding: 8px 18px; font-size: 13px; }
+  .fine { font-size: 11px; color: var(--faint); }
+  .rv { margin-bottom: 8px; color: var(--soft); }
+  .ends { padding: 0 4px; }
+  .blk { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 16px 0 10px; border-radius: 14px; border: 1px solid var(--c);
+    background: rgba(20, 24, 38, .6); color: #fff; font-weight: 900; font-size: 14px; cursor: pointer; }
+  .blk i { width: 14px; height: 22px; border-radius: 4px; background: var(--c); display: block; }
+  .blk:hover:not(:disabled) { background: rgba(130, 145, 190, .22); }
+  .blk:disabled { opacity: .35; cursor: default; }
+  .btn:disabled { opacity: .35; cursor: default; }
+  .push { margin-left: auto; }
+  #bHint { margin: 10px 0 0; }
+  body[data-v=build] .readout .val { font-size: 21px; line-height: 1.25; letter-spacing: 0; }
+  @media (max-width: 760px) {
+    #stage { height: min(150vw, 640px); }
+    body[data-v=free] #stage { height: min(112vw, 480px); }
+    body[data-v=sec] #stage { height: min(124vw, 520px); }
+    body[data-v=build] #stage { height: min(140vw, 600px); }
+    .ask .q { font-size: 18px; margin-bottom: 8px; } .ask { padding: 10px 10px; }
+    .ob { padding: 8px 12px; font-size: 13px; }
+    body[data-v=build] .readout .val { font-size: 18px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Out of a Hundred', title: 'Per cent means out of 100',
+    lines: [['A grid', 'of 100 squares.'], ['Colour some', 'and count them.'], ['But 50 % of what?', 'It matters!']],
+    views: { grid: '🟩 Out of 100', battery: '🔋 Battery', build: '🧱 Build it' },
+    next: 'Next ▶', right: 'You got it!', wrong: 'Not quite. Look at the grid.', wrongPic: 'Not quite. Look at the picture.', again: '↻ Again',
+    g: { q1: 'Which picture shows 24 %?', labels: ['24 squares', '1/24', '4 squares'],
+         r1: '24 % means 24 out of every 100: 24 squares of the 100-grid. 24 % = 24/100.',
+         q2: '9 % as a decimal is…', o2: ['0.9', '0.09', '9.0'],
+         r2: '9 % is 9 hundredths: 0.09. 0.9 is 9 tenths, which is 90 squares, 90 %.', would: '0.9 would be 90 squares!',
+         q3: 'What is 100 %?', o3: ['the whole grid', 'one square', 'it is impossible'], r3: '100 out of 100: the whole thing.',
+         of100: (n) => `${n} out of 100` },
+    b: { q1: 'Both batteries show 50 %. Which one has more energy left?', o1: ['the same', 'the scooter battery', 'the phone battery'],
+         r1: '50 % is half — but half of a big battery is more than half of a small one. A percentage is always a part of some whole.',
+         q2: 'A plant was 20 cm tall. Now it is 150 % of that height. How tall is it?', o2: ['15 cm', '30 cm', '150 cm'],
+         r2: '100 % is the old height, 20 cm. 50 % more is 10 cm more: 30 cm. More than 100 % means more than the whole you started with.', phone: 'phone', scooter: 'scooter', cm: 'cm' },
+    p: { task: (pct, price) => `Find ${pct} % of ${price}.`, ten: '10 %', five: '5 %', one: '1 %', half: '50 %', quarter: '25 %', undo: '↶ Undo', check: 'Check',
+         hint: '10 % is the whole ÷ 10. 5 % is half of 10 %.', good: (pct, price, v) => `${pct} % of ${price} = ${v}`,
+         retry: (n) => `Not yet: that is ${n} %. Try again.`,
+         q: 'Which sale saves more money: 30 % off 20, or 25 % off 40?', o: ['the 30 % one', 'the 25 % one', 'the same'],
+         r: '30 % of 20 is 6. 25 % of 40 is 10. The smaller percentage saves more here, because the price is bigger.' },
+    secrets: { survey: ['100 people', 'Ask a crowd about fruit.'], century: ['Per centum', 'Where does the word come from?'] },
+    sec: { surveyText: 'With exactly 100 people, each person is 1 %. That’s why surveys love percentages.',
+           centuryText: '“Per centum” is Latin for “for each hundred”. A Roman “century” was a unit of about 100 soldiers.' },
+    st: { grid: { n: ['🟩', 'A hundred squares', 'Each square is 1 out of 100.', ''], f: ['🟩', '% = out of 100', '24 % = 24/100 = 0.24. 9 % = 0.09.', ''] },
+          battery: { n: ['🔋', 'Half full', 'Two batteries, two sizes.', ''], f: ['🔋', 'Percent of WHAT?', 'Always ask what the whole is.', 'More than 100 % is possible.'] },
+          build: ['🧱', 'Building blocks', '10 % = ÷ 10. 5 % = half of 10 %. 1 % = ÷ 100.', ''] },
+    fine: '“Per cent” comes from Latin per centum, “for each hundred”.',
+    quiz: [
+      { q: 'What does 24 % mean?', opts: ['1/24', '24 out of 100', '24 out of 10'], ok: 1 },
+      { q: 'What is 10 % of 360?', opts: ['36', '3.6', '360'], ok: 0 },
+      { q: 'Two batteries both show 50 %. Which has more energy?', opts: ['always the same', 'the bigger battery', 'the smaller battery'], ok: 1 } ],
+  },
+  ru: {
+    name: 'Из сотни', title: 'Процент — это «из ста»',
+    lines: [['Сетка', 'из 100 клеток.'], ['Закрась несколько', 'и сосчитай.'], ['Но 50 % от чего?', 'Это важно!']],
+    views: { grid: '🟩 Из 100', battery: '🔋 Батарейка', build: '🧱 Собери' },
+    next: 'Дальше ▶', right: 'Верно!', wrong: 'Не совсем. Посмотри на сетку.', wrongPic: 'Не совсем. Посмотри на картинку.', again: '↻ Ещё раз',
+    g: { q1: 'На какой картинке 24 %?', labels: ['24 клетки', '1/24', '4 клетки'],
+         r1: '24 % — это 24 из каждых 100: 24 клетки сетки из 100. 24 % = 24/100.',
+         q2: '9 % в виде десятичной дроби — это…', o2: ['0,9', '0,09', '9,0'],
+         r2: '9 % — это 9 сотых: 0,09. А 0,9 — это 9 десятых, то есть 90 клеток, 90 %.', would: '0,9 — это было бы 90 клеток!',
+         q3: 'Что такое 100 %?', o3: ['вся сетка', 'одна клетка', 'так не бывает'], r3: '100 из 100 — это всё целиком.',
+         of100: (n) => `${n} из 100` },
+    b: { q1: 'На обеих батарейках 50 %. В какой осталось больше энергии?', o1: ['поровну', 'в батарейке самоката', 'в батарейке телефона'],
+         r1: '50 % — это половина. Но половина большой батарейки больше половины маленькой. Процент — это всегда часть чего-то целого.',
+         q2: 'Растение было высотой 20 см. Теперь оно 150 % от прежней высоты. Какой оно высоты?', o2: ['15 см', '30 см', '150 см'],
+         r2: '100 % — прежняя высота, 20 см. Ещё 50 % — это ещё 10 см: 30 см. Больше 100 % — значит больше, чем было целое вначале.', phone: 'телефон', scooter: 'самокат', cm: 'см' },
+    p: { task: (pct, price) => `Найди ${pct} % от ${price}.`, ten: '10 %', five: '5 %', one: '1 %', half: '50 %', quarter: '25 %', undo: '↶ Отменить', check: 'Проверить',
+         hint: '10 % — это целое ÷ 10. 5 % — половина от 10 %.', good: (pct, price, v) => `${pct} % от ${price} = ${v}`,
+         retry: (n) => `Пока нет: тут ${n} %. Попробуй ещё.`,
+         q: 'Какая скидка сэкономит больше денег: 30 % от 20 или 25 % от 40?', o: ['30 %', '25 %', 'одинаково'],
+         r: '30 % от 20 — это 6. 25 % от 40 — это 10. Здесь меньший процент экономит больше, потому что цена больше.' },
+    secrets: { survey: ['100 человек', 'Спроси толпу про фрукты.'], century: ['Per centum', 'Откуда взялось слово?'] },
+    sec: { surveyText: 'Если людей ровно 100, каждый человек — это 1 %. Поэтому опросы так любят проценты.',
+           centuryText: '«Per centum» по-латыни значит «на каждую сотню». Римская «центурия» — отряд примерно из 100 воинов.' },
+    st: { grid: { n: ['🟩', 'Сто клеток', 'Каждая клетка — 1 из 100.', ''], f: ['🟩', '% = из 100', '24 % = 24/100 = 0,24. 9 % = 0,09.', ''] },
+          battery: { n: ['🔋', 'Наполовину', 'Две батарейки разного размера.', ''], f: ['🔋', 'Процент ОТ ЧЕГО?', 'Всегда спрашивай, что здесь целое.', 'Больше 100 % — бывает.'] },
+          build: ['🧱', 'Кирпичики', '10 % = ÷ 10. 5 % = половина от 10 %. 1 % = ÷ 100.', ''] },
+    fine: 'Слово «процент» — от латинского pro centum, «на сотню».',
+    quiz: [
+      { q: 'Что значит 24 %?', opts: ['1/24', '24 из 100', '24 из 10'], ok: 1 },
+      { q: 'Сколько будет 10 % от 360?', opts: ['36', '3,6', '360'], ok: 0 },
+      { q: 'На двух батарейках по 50 %. В какой больше энергии?', opts: ['всегда поровну', 'в большей', 'в меньшей'], ok: 1 } ],
+  },
+  hu: {
+    name: 'Százból', title: 'A százalék azt jelenti: százból',
+    lines: [['Egy rács', '100 négyzettel.'], ['Színezz be néhányat,', 'és számold meg.'], ['De minek az 50 %-a?', 'Ez fontos!']],
+    views: { grid: '🟩 Százból', battery: '🔋 Akkumulátor', build: '🧱 Rakd össze' },
+    next: 'Tovább ▶', right: 'Eltaláltad!', wrong: 'Nem egészen. Nézd meg a rácsot.', wrongPic: 'Nem egészen. Nézd meg a képet.', again: '↻ Újra',
+    g: { q1: 'Melyik képen van 24 %?', labels: ['24 négyzet', '1/24', '4 négyzet'],
+         r1: 'A 24 % azt jelenti: minden 100-ból 24. A százas rács 24 négyzete. 24 % = 24/100.',
+         q2: 'A 9 % tizedes törtként…', o2: ['0,9', '0,09', '9,0'],
+         r2: 'A 9 % kilenc század: 0,09. A 0,9 kilenc tized, vagyis 90 négyzet, 90 %.', would: 'A 0,9 90 négyzet lenne!',
+         q3: 'Mi a 100 %?', o3: ['az egész rács', 'egy négyzet', 'ilyen nincs'], r3: '100-ból 100: az egész.',
+         of100: (n) => `100-ból ${n}` },
+    b: { q1: 'Mindkét akkumulátor 50 %-on áll. Melyikben maradt több energia?', o1: ['ugyanannyi', 'a roller akkujában', 'a telefon akkujában'],
+         r1: 'Az 50 % a fele. De egy nagy akku fele több, mint egy kicsié. A százalék mindig valaminek a része.',
+         q2: 'Egy növény 20 cm magas volt. Most a régi magasságának 150 %-a. Milyen magas?', o2: ['15 cm', '30 cm', '150 cm'],
+         r2: 'A 100 % a régi magasság, 20 cm. Még 50 % az még 10 cm: 30 cm. A 100 %-nál több azt jelenti, hogy több, mint a kiinduló egész.', phone: 'telefon', scooter: 'roller', cm: 'cm' },
+    p: { task: (pct, price) => `Mennyi ${price} ${pct} %-a?`, ten: '10 %', five: '5 %', one: '1 %', half: '50 %', quarter: '25 %', undo: '↶ Vissza', check: 'Ellenőrzés',
+         hint: 'A 10 % az egész ÷ 10. Az 5 % a 10 % fele.', good: (pct, price, v) => `${price} ${pct} %-a = ${v}`,
+         retry: (n) => `Még nem: ez ${n} %. Próbáld újra.`,
+         q: 'Melyik leárazással spórolsz többet: 20-ból 30 % vagy 40-ből 25 %?', o: ['a 30 %-os', 'a 25 %-os', 'ugyanannyi'],
+         r: '20 30 %-a 6. 40 25 %-a 10. Itt a kisebb százalék spórol többet, mert nagyobb az ár.' },
+    secrets: { survey: ['100 ember', 'Kérdezz meg egy tömeget a gyümölcsökről.'], century: ['Per centum', 'Honnan jön a szó?'] },
+    sec: { surveyText: 'Ha pontosan 100 ember van, mindenki 1 %. Ezért szeretik a felmérések a százalékot.',
+           centuryText: 'A „per centum” latinul azt jelenti: „minden százra”. A római „centuria” kb. 100 katonából álló egység volt.' },
+    st: { grid: { n: ['🟩', 'Száz négyzet', 'Minden négyzet 1 a 100-ból.', ''], f: ['🟩', '% = 100-ból', '24 % = 24/100 = 0,24. 9 % = 0,09.', ''] },
+          battery: { n: ['🔋', 'Félig', 'Két akkumulátor, két méret.', ''], f: ['🔋', 'MINEK a százaléka?', 'Mindig kérdezd meg, mi az egész.', 'A 100 %-nál több is lehet.'] },
+          build: ['🧱', 'Építőkockák', '10 % = ÷ 10. 5 % = a 10 % fele. 1 % = ÷ 100.', ''] },
+    fine: 'A „százalék” a latin per centum, „minden százra” kifejezés megfelelője.',
+    quiz: [
+      { q: 'Mit jelent a 24 %?', opts: ['1/24', '100-ból 24', '10-ből 24'], ok: 1 },
+      { q: 'Mennyi 360 10 %-a?', opts: ['36', '3,6', '360'], ok: 0 },
+      { q: 'Két akku is 50 %-on áll. Melyikben van több energia?', opts: ['mindig ugyanannyi', 'a nagyobban', 'a kisebben'], ok: 1 } ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_ZM9mhHsyYZ', en: 'Understanding Percentages', ru: 'Понимание процентов', hu: 'A százalék megértése' },
+  { id: 'mt_PNSyfH56eQ', en: 'Calculating Percentages', ru: 'Вычисление процентов', hu: 'Százalékszámítás' },
+];
+
+// --- palette and small helpers -------------------------------------------------------------------------------
+const MINT = '#3FBF86', MINT2 = '#7EE0B0', BLUE = '#5B8DEF', GOLD = '#FFC94A', PINK = '#FF8FB1', ORANGE = '#FF9F5A', PAPER = '#FFF6E6';
+const now = () => performance.now() / 1000;
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+const easeIO = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+const easeOut = (t) => 1 - Math.pow(1 - t, 3);
+const backOut = (t) => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+const nf = (x) => String(Math.round(x * 100) / 100).replace('.', lang === 'en' ? '.' : ',');
+const hex = (h) => { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+const mix = (a, b, t) => { const A = hex(a), B = hex(b); return `rgb(${A.map((v, i) => Math.round(lerp(v, B[i], t))).join(',')})`; };
+// rounded rectangle path; the radius can never go negative (arc/roundRect would throw and freeze the loop)
+const rr = (c, x, y, w, h, r) => { c.beginPath(); c.roundRect(x, y, w, h, Math.max(0, Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2))); };
+function stageBg(c, w, h) {
+  const g = c.createLinearGradient(0, 0, w * 0.4, h);
+  g.addColorStop(0, '#1C2150'); g.addColorStop(1, '#2A3170');
+  rr(c, 0, 0, w, h, 20); c.fillStyle = g; c.fill();
+  rr(c, 0.5, 0.5, w - 1, h - 1, 20); c.strokeStyle = 'rgba(130,145,190,.28)'; c.lineWidth = 1; c.stroke();
+}
+// dark text pill, clamped inside the canvas
+function pill(c, txt, x, y, o = {}) {
+  c.save(); c.globalAlpha = o.a ?? 1;
+  c.font = o.font || '800 13px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  const ph = o.h || 26, pw = c.measureText(txt).width + (o.px ?? 20), x0 = clamp(x - pw / 2, 6, (o.W || 1e9) - pw - 6);
+  rr(c, x0, y - ph / 2, pw, ph, ph / 2); c.fillStyle = o.bg || 'rgba(10,12,30,.82)'; c.fill();
+  if (o.border) { c.strokeStyle = o.border; c.lineWidth = 1.5; c.stroke(); }
+  c.fillStyle = o.fg || '#fff'; c.fillText(txt, x0 + pw / 2, y + 1);
+  c.restore();
+  return { x0, pw };
+}
+function emo(c, s, x, y, size) {
+  c.save(); c.globalAlpha = 1; c.fillStyle = '#fff'; c.font = `${size}px Nunito, "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
+  c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(s, x, y); c.restore();
+}
+
+// --- state -------------------------------------------------------------------------------------------------
+const S = {
+  g: { q: 0, ans: null, any: false }, free: 37, sec: null, secAt: 0, cardH: 0, yo: 0,
+  b: { q: 0, ans: null, rt: 0, any: false },
+  p: { ri: 0, blocks: [], ok: false, bad: null, any: false, ans: null, rt: 0 },
+};
+const RIGHT = { g: [0, 1, 0], b: [1, 1], c: 1 };
+const ROUNDS = [[15, 360], [25, 80], [35, 200]];
+const BLOCKS = { 10: ['ten', BLUE], 5: ['five', GOLD], 1: ['one', PINK], 50: ['half', MINT], 25: ['quarter', ORANGE] };
+
+const lab = shell({ key: 'percent', T, topics: TOPICS, views: ['grid', 'battery', 'build'], onLang: render, onView: render });
+const secret = secretLab('percent', () => ({
+  secrets: [{ emo: '🧑‍🤝‍🧑', title: T[lang].secrets.survey[0], desc: T[lang].secrets.survey[1] }, { emo: '🏛️', title: T[lang].secrets.century[0], desc: T[lang].secrets.century[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="secGrid">
+    <div id="freeBox">
+      <input type="range" class="big" id="sl" min="0" max="100" value="37" aria-label="%" style="--track:linear-gradient(90deg,#3FBF86,#7EE0B0)">
+      <div class="ends"><span>0 %</span><span>100 %</span></div>
+      <button class="chip" data-act="again" id="gAgain"></button>
+    </div>
+    <div class="row2"><div class="chips" id="secChips"></div></div>
+  </div>
+  <div id="secBuild">
+    <div id="buildTools">
+      <div class="chips" id="blocks"></div>
+      <div class="row2"><button class="chip" data-act="undo" id="bUndo"></button><button class="btn push" data-act="main" id="bMain"></button></div>
+      <p class="fine" id="bHint"></p>
+    </div>
+  </div>`;
+const askEl = Object.assign(document.createElement('div'), { className: 'ask card' });
+$('overlay').append(askEl);
+new ResizeObserver(() => { S.cardH = askEl.style.display === 'none' ? 0 : askEl.offsetHeight; }).observe(askEl);
+
+// --- the 100-grid: tiles fill one by one ----------------------------------------------------------------------
+const READ = [...Array(100).keys()];
+const DIAG = [...READ].sort((a, b) => ((a / 10 | 0) + a % 10) - ((b / 10 | 0) + b % 10) || a - b);
+const G = { n: 0, cnt: 0, shown: 0, ord: READ, rank: READ, rate: 40, t: new Array(100).fill(-9), hiT: -1, doneT: 0 };
+const rankOf = (ord) => { const r = new Array(100); ord.forEach((i, k) => { r[i] = k; }); return r; };
+function resetGrid(ord = READ) { Object.assign(G, { n: 0, cnt: 0, shown: 0, ord, rank: rankOf(ord), hiT: -1, doneT: 0 }); }
+function fillTo(n, rate = 40) { G.n = n; G.rate = rate; if (n < G.cnt) { G.cnt = n; G.shown = n; } }
+function stepGrid(dt, time) {
+  if (G.shown < G.n) {
+    G.shown = Math.min(G.n, G.shown + dt * G.rate);
+    const to = G.shown >= G.n ? G.n : Math.floor(G.shown);
+    for (let k = G.cnt; k < to; k++) { G.t[G.ord[k]] = time; if ((k + 1) % 5 === 0) sfx.tick(); }
+    G.cnt = Math.max(G.cnt, to);
+  }
+}
+function drawGrid(c, w, h, time, y0, free) {
+  const t = T[lang], g = S.g, bot = g.q === 1 && !free ? 82 : 56;
+  const gs = Math.max(120, Math.min(w - 32, h - y0 - bot - 10, 440)), gx = (w - gs) / 2, gy = y0 + (h - y0 - bot - gs) / 2 + 2;
+  const p = gs / 10, s = p - 2;
+  const ge = c.createLinearGradient(0, 0, 0, s); ge.addColorStop(0, '#2E3566'); ge.addColorStop(1, '#262C57');
+  const gf = c.createLinearGradient(0, 0, 0, s); gf.addColorStop(0, MINT2); gf.addColorStop(1, MINT);
+  const hi = g.q === 1 && g.ans !== null && G.cnt >= 9 ? easeOut(clamp01((time - G.hiT) / 0.8)) : 0;
+  for (let i = 0; i < 100; i++) {
+    const X = gx + (i % 10) * p + 1, Y = gy + (i / 10 | 0) * p + 1;
+    c.save(); c.translate(X, Y);
+    if (G.rank[i] < G.cnt) {
+      const age = time - G.t[i], sc = 1 + 0.2 * (1 - easeOut(clamp01(age / 0.22)));
+      c.translate(s / 2, s / 2); c.scale(sc, sc); c.translate(-s / 2, -s / 2);
+      rr(c, -4, -4, s + 8, s + 8, 7); c.fillStyle = 'rgba(63,191,134,.09)'; c.fill();
+      rr(c, -2, -2, s + 4, s + 4, 5); c.fillStyle = 'rgba(63,191,134,.18)'; c.fill();
+      rr(c, 0, 0, s, s, 3); c.fillStyle = gf; c.fill();
+      c.strokeStyle = 'rgba(16,90,60,.55)'; c.lineWidth = 1; c.stroke();
+      rr(c, 1.5, 1.5, s - 3, s * 0.34, 2); c.fillStyle = 'rgba(255,255,255,.28)'; c.fill();
+      const fl = 0.45 * (1 - clamp01(age / 0.35));
+      if (fl > 0.01) { rr(c, 0, 0, s, s, 3); c.fillStyle = `rgba(255,255,255,${fl})`; c.fill(); }
+    } else {
+      rr(c, 0, 0, s, s, 3); c.fillStyle = ge; c.fill();
+      c.strokeStyle = 'rgba(130,145,190,.2)'; c.lineWidth = 1; c.stroke();
+      rr(c, 1.5, 1.5, s - 3, s * 0.3, 2); c.fillStyle = 'rgba(255,255,255,.05)'; c.fill();
+      if (hi > 0 && i >= 9 && i < 90) { rr(c, 0, 0, s, s, 3); c.fillStyle = `rgba(255,159,90,${0.24 * hi})`; c.fill(); }
+    }
+    c.restore();
+  }
+  if (hi > 0) { // "0.9 would be 90 squares": nine full rows in orange dashes
+    c.save(); c.globalAlpha = hi; c.setLineDash([9, 6]); c.lineDashOffset = -time * 14; c.strokeStyle = ORANGE; c.lineWidth = 2.5;
+    rr(c, gx - 3, gy - 3, gs + 6, 9 * p + 6, 8); c.stroke(); c.restore();
+  }
+  // captions under the grid: only after the child has answered (or in free mode)
+  const shown = free || g.ans !== null, n = free ? S.free : [24, 9, 100][g.q] ?? 0, done = G.cnt >= G.n && G.n > 0;
+  if (!shown) return;
+  const y1 = gy + gs + 24, y2 = y1 + 30;
+  if (free) pill(c, `${S.free} % = ${S.free}/100`, w / 2, y1, { W: w, font: '900 15px Nunito, sans-serif', border: MINT, h: 30 });
+  else if (!done) pill(c, t.g.of100(G.cnt), w / 2, y1, { W: w, font: '900 15px Nunito, sans-serif', h: 30 });
+  else {
+    const dec = nf(n / 100);
+    pill(c, `${n} % = ${n}/100${g.q === 1 ? ` = ${dec}` : ''}`, w / 2, y1, { W: w, font: '900 15px Nunito, sans-serif', border: MINT, h: 30, a: easeOut(clamp01((time - G.doneT) / 0.4)) });
+    if (g.q === 1) pill(c, t.g.would, w / 2, y2, { W: w, border: ORANGE, fg: '#FFD9B8', a: hi });
+  }
+}
+
+// --- the grid view: the three questions, then free mode ----------------------------------------------------------
+function previewCanvas(cv, kind) {
+  const s = 64, d = 2; cv.width = s * d; cv.height = s * d; cv.style.width = cv.style.height = `${s}px`;
+  const c = cv.getContext('2d'); c.scale(d, d);
+  const bg = c.createLinearGradient(0, 0, 0, s); bg.addColorStop(0, '#232A5C'); bg.addColorStop(1, '#1B2150');
+  rr(c, 0, 0, s, s, 8); c.fillStyle = bg; c.fill();
+  const lit = (x, y, w, hh, r) => { const gg = c.createLinearGradient(0, y, 0, y + hh); gg.addColorStop(0, MINT2); gg.addColorStop(1, MINT); rr(c, x, y, w, hh, r); c.fillStyle = gg; c.fill(); };
+  const off = (x, y, w, hh, r) => { rr(c, x, y, w, hh, r); c.fillStyle = '#2E3566'; c.fill(); };
+  if (kind === 'strip') { // a strip cut into 24 parts, one of them filled
+    const x0 = 4, W = s - 8, sw = W / 24, hh = s * 0.4, y = s / 2 - hh / 2;
+    for (let i = 0; i < 24; i++) (i === 0 ? lit : off)(x0 + i * sw + 0.3, y, sw - 0.6, hh, 1);
+    return;
+  }
+  const n = kind === 'a' ? 24 : 4, pp = (s - 8) / 10;
+  for (let i = 0; i < 100; i++) (i < n ? lit : off)(4 + (i % 10) * pp + 0.7, 4 + (i / 10 | 0) * pp + 0.7, pp - 1.4, pp - 1.4, 1.5);
+}
+function cardHTML({ q, opts, ans, right, verdict, ok, nextLabel, pv }) {
+  const o = opts.map((l, i) => `<button class="ob ${pv ? 'pvb' : ''} ${ans === null ? '' : 'locked'} ${ans !== null && i === right ? 'good' : ''} ${ans === i && i !== right ? 'bad' : ''}" data-i="${i}">${
+    pv ? `<canvas data-pv="${pv[i]}"></canvas><small>${esc(l)}</small>` : esc(l)}</button>`).join('');
+  return `<div class="q">${esc(q)}</div>${o ? `<div class="opts">${o}</div>` : ''}${verdict
+    ? `<div class="vr"><span class="verdict" style="color:${ok ? 'var(--ok)' : 'var(--wip)'}">${esc(verdict)}</span>${nextLabel ? `<button class="btn sm" data-act="next">${esc(nextLabel)}</button>` : ''}</div>` : ''}`;
+}
+function setCard(html) {
+  askEl.style.display = html ? '' : 'none'; if (!html) { S.cardH = 0; return; }
+  askEl.innerHTML = html;
+  askEl.querySelectorAll('canvas[data-pv]').forEach((cv) => previewCanvas(cv, cv.dataset.pv));
+}
+const stateCard = (a, extra) => lab.setState({ emo: a[0], title: a[1], lead: a[2], body: a[3], extra });
+const extraOf = (t, r) => `${r ? `<div class="rv">${esc(r)}</div>` : ''}<div class="fine">${esc(t.fine)}</div>`;
+
+function renderGrid(t, sec, free) {
+  const g = S.g, k = (id, e) => `<button class="chip secret ${secret.unlocked() ? 'open' : ''} ${S.sec === id ? 'on' : ''}" data-act="sec" data-k="${id}">${secret.unlocked() ? `${e} ${esc(t.secrets[id][0])}` : '🔒 ???'}</button>`;
+  $('secChips').innerHTML = k('survey', '🧑‍🤝‍🧑') + k('century', '🏛️');
+  $('freeBox').style.display = free ? '' : 'none';
+  $('gAgain').textContent = t.again;
+  if (sec) {
+    setCard('');
+    lab.setGlow('rgba(255, 201, 74, .2)');
+    if (sec === 'survey') lab.setReadout('100 %', '', '', MINT);
+    else lab.setReadout('10 × 10', '= 100', '', GOLD);
+    lab.setState({ emo: sec === 'survey' ? '🧑‍🤝‍🧑' : '🏛️', title: t.secrets[sec][0], lead: t.sec[`${sec}Text`], body: '', extra: `<div class="fine">${esc(t.fine)}</div>` });
+    return;
+  }
+  lab.setGlow('rgba(63, 191, 134, .24)');
+  if (free) {
+    setCard('');
+    if (+$('sl').value !== S.free) $('sl').value = S.free;
+    lab.setReadout(`${S.free} %`, `${S.free}/100 = ${nf(S.free / 100)}`, '', MINT);
+    stateCard(t.st.grid.f, extraOf(t, ''));
+    return;
+  }
+  const q = g.q, ans = g.ans, ok = ans === RIGHT.g[q];
+  const defs = [
+    { q: t.g.q1, opts: t.g.labels, pv: ['a', 'strip', 'c'], r: t.g.r1, val: ['24 %', `24/100 = ${nf(0.24)}`] },
+    { q: t.g.q2, opts: t.g.o2, r: t.g.r2, val: ['9 %', `9/100 = ${nf(0.09)}`] },
+    { q: t.g.q3, opts: t.g.o3, r: t.g.r3, val: ['100 %', `100/100 = ${nf(1)}`] }][q];
+  setCard(cardHTML({ q: defs.q, opts: defs.opts, pv: defs.pv, ans, right: RIGHT.g[q], ok, verdict: ans === null ? '' : ok ? t.right : t.wrong, nextLabel: t.next }));
+  if (ans === null) lab.setReadout('?', '', '', MINT); else lab.setReadout(defs.val[0], defs.val[1], '', MINT);
+  stateCard(g.any && (g.q >= 2 || (g.q === 1 && ans !== null)) ? t.st.grid.f : t.st.grid.n, extraOf(t, ans === null ? '' : defs.r)); // the full card says 9 % = 0.09, so not before Q2 is answered
+}
+
+// --- secret 1: 100 people, asked about fruit ---------------------------------------------------------------------
+const FR = [{ e: '🍎', n: 38, col: '#FF6B5E' }, { e: '🍌', n: 27, col: GOLD }, { e: '🍓', n: 22, col: PINK }, { e: '🍇', n: 13, col: '#9B7BE0' }];
+const FOFF = [0, 38, 65, 87];
+const SKIN = ['#F6D2B0', '#E8B48A', '#C98E63', '#8D5A3B'], SHIRT = [MINT, BLUE, GOLD, PINK, ORANGE, '#D6DAE6'], HAIR = ['#2B2233', '#6B4A32', '#E2B25A'];
+const rnd = (() => { let s = 11; return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; })();
+const PEOPLE = Array.from({ length: 100 }, (_, i) => ({
+  sx: clamp(((i % 10) + 0.5 + (rnd() - 0.5) * 0.7) / 10, 0.04, 0.96), sy: clamp(((i / 10 | 0) + 0.5 + (rnd() - 0.5) * 0.7) / 10, 0.04, 0.96),
+  skin: SKIN[(rnd() * 4) | 0], shirt: SHIRT[(rnd() * 6) | 0], hair: HAIR[(rnd() * 3) | 0], o1: rnd() * 0.7, o2: rnd() * 0.5, ph: rnd() * 6.28, g: 0, j: 0,
+}));
+{ const idx = [...Array(100).keys()]; for (let i = 99; i > 0; i--) { const j = (rnd() * (i + 1)) | 0; [idx[i], idx[j]] = [idx[j], idx[i]]; }
+  idx.forEach((pi, k) => { const gi = k < 38 ? 0 : k < 65 ? 1 : k < 87 ? 2 : 3; PEOPLE[pi].g = gi; PEOPLE[pi].j = k - FOFF[gi]; }); }
+const PORDER = [...PEOPLE.keys()].sort((a, b) => PEOPLE[a].sy - PEOPLE[b].sy);
+function person(c, x, y, u, p, shirt) {
+  c.fillStyle = 'rgba(0,0,0,.28)'; c.beginPath(); c.ellipse(x, y + 0.7 * u, 0.34 * u, 0.09 * u, 0, 0, 6.3); c.fill();
+  rr(c, x - 0.3 * u, y - 0.1 * u, 0.6 * u, 0.74 * u, 0.3 * u); c.fillStyle = shirt; c.fill(); c.strokeStyle = 'rgba(10,12,30,.45)'; c.lineWidth = 1; c.stroke();
+  c.fillStyle = p.skin; c.beginPath(); c.arc(x, y - 0.4 * u, Math.max(0, 0.27 * u), 0, 6.3); c.fill(); c.stroke();
+  c.fillStyle = p.hair; c.beginPath(); c.arc(x, y - 0.44 * u, Math.max(0, 0.27 * u), Math.PI * 1.02, Math.PI * 1.98); c.closePath(); c.fill();
+}
+function drawSurvey(c, w, h, time) {
+  const t = time - S.secAt, fx = 12, fy = 50, fw = w - 24, fh = h - fy - 56;
+  const sc = clamp(Math.min(fw / 12, fh / 16), 9, 20);
+  // cluster layout
+  const cl = FR.map((f, k) => {
+    const rw = fw / 2, rh = fh / 2, rx = fx + (k % 2) * rw, ry = fy + (k >> 1) * rh;
+    const cols = Math.ceil(Math.sqrt(f.n * 1.3)), rows = Math.ceil(f.n / cols);
+    const u = Math.max(8, Math.min((rw - 14) / (cols * 1.05), (rh - 38) / (rows * 1.5), 18));
+    return { rx, ry, rw, rh, cols, rows, u };
+  });
+  const gs = Math.min(fw, fh) * 0.96, gx0 = (w - gs) / 2, gy0 = fy + (fh - gs) / 2, gp = gs / 10;
+  const T1 = 1.2, T3 = 5.6;
+  for (const i of PORDER) {
+    const p = PEOPLE[i], L = cl[p.g], f = FR[p.g];
+    const crowd = [fx + p.sx * fw + Math.sin(time * 1.6 + p.ph) * 1.5, fy + p.sy * fh - Math.abs(Math.sin(time * 2.2 + p.ph)) * 1.2];
+    const cx = L.rx + L.rw / 2 + ((p.j % L.cols) + 0.5 - L.cols / 2) * L.u * 1.05, cy = L.ry + 34 + ((p.j / L.cols | 0) + 0.5) * L.u * 1.5;
+    const e = easeIO(clamp01((t - T1 - p.o1) / 1.3)), m = easeIO(clamp01((t - T3 - p.o2) / 1.2));
+    const hop = e > 0 && e < 1 ? Math.abs(Math.sin(e * Math.PI * 4)) * 3 : 0;
+    let x = lerp(crowd[0], cx, e), y = lerp(crowd[1], cy, e) - hop, u = lerp(sc, L.u, e);
+    const gi = FOFF[p.g] + p.j, tx = gx0 + (gi % 10) * gp, ty = gy0 + (gi / 10 | 0) * gp;
+    x = lerp(x, tx + gp / 2, m); y = lerp(y, ty + gp / 2, m);
+    const shirt = mix(p.shirt, f.col, clamp01((e - 0.7) / 0.3));
+    if (m < 1) { c.save(); c.globalAlpha = 1 - m; person(c, x, y, u * (1 - 0.4 * m), p, shirt); c.restore(); }
+    if (m > 0) {
+      c.save(); c.globalAlpha = m; const sz = (gp - 2) * (0.5 + 0.5 * m);
+      const gg = c.createLinearGradient(0, y - sz / 2, 0, y + sz / 2); gg.addColorStop(0, mix(f.col, '#FFFFFF', 0.35)); gg.addColorStop(1, f.col);
+      rr(c, x - sz / 2, y - sz / 2, sz, sz, 3); c.fillStyle = gg; c.fill(); c.strokeStyle = 'rgba(10,12,30,.4)'; c.lineWidth = 1; c.stroke(); c.restore();
+    }
+  }
+  if (t < 3.4) pill(c, '🍎 🍌 🍓 🍇 ?', w / 2, 26, { W: w, font: '800 17px Nunito, "Apple Color Emoji", sans-serif', h: 32, a: clamp01(1 - (t - 2.4) / 1) });
+  if (t > 3.4 && t < 6.4) cl.forEach((L, k) => pill(c, `${FR[k].e} ${FR[k].n} → ${FR[k].n} %`, L.rx + L.rw / 2, L.ry + 16, { W: w, font: '900 14px Nunito, "Apple Color Emoji", sans-serif', border: FR[k].col, a: clamp01((t - 3.4) / 0.5) * clamp01(1 - (t - 5.8) / 0.6) }));
+  if (t > 6.6) FR.forEach((f, k) => pill(c, `${f.e} ${f.n} %`, w * (0.14 + 0.24 * k) + 12, h - 28, { W: w, font: '900 13px Nunito, "Apple Color Emoji", sans-serif', border: f.col, px: 14, a: clamp01((t - 6.6) / 0.6) }));
+}
+
+// --- secret 2: per centum, a century of 100 soldiers -------------------------------------------------------------
+function soldier(c, x, y, k, bob, face) {
+  c.fillStyle = 'rgba(0,0,0,.3)'; c.beginPath(); c.ellipse(x, y + 0.36 * k, 0.26 * k, 0.07 * k, 0, 0, 6.3); c.fill();
+  rr(c, x - 0.2 * k, y - 0.02 * k + bob, 0.4 * k, 0.38 * k, 0.1 * k); c.fillStyle = '#D94F5C'; c.fill(); c.strokeStyle = 'rgba(10,12,30,.5)'; c.lineWidth = 1; c.stroke();
+  rr(c, x - 0.36 * k, y + 0.02 * k + bob, 0.2 * k, 0.3 * k, 0.07 * k); c.fillStyle = GOLD; c.fill(); c.stroke();
+  c.fillStyle = face; c.beginPath(); c.arc(x, y - 0.13 * k + bob, Math.max(0, 0.14 * k), 0, 6.3); c.fill();
+  const hg = c.createLinearGradient(0, y - 0.4 * k, 0, y - 0.1 * k); hg.addColorStop(0, '#E8ECF6'); hg.addColorStop(1, '#9AA2B8');
+  c.beginPath(); c.arc(x, y - 0.15 * k + bob, Math.max(0, 0.18 * k), Math.PI, 0); c.closePath(); c.fillStyle = hg; c.fill(); c.stroke();
+  c.beginPath(); c.arc(x, y - 0.15 * k + bob, Math.max(0, 0.18 * k), Math.PI * 1.15, Math.PI * 1.85); c.strokeStyle = '#D94F5C'; c.lineWidth = Math.max(1.5, 0.08 * k); c.stroke();
+}
+function drawCentury(c, w, h, time) {
+  const t = time - S.secAt, bh = Math.min(86, h * 0.2), drop = (1 - backOut(clamp01(t / 0.9))) * (bh + 20);
+  // banner: a gold pole, red cloth with a swallow tail, gold fringe
+  c.save(); c.translate(0, -drop);
+  const bw = Math.min(w - 40, 300), bx = (w - bw) / 2, by = 14, sway = Math.sin(time * 1.4) * 2;
+  const pg = c.createLinearGradient(0, by, 0, by + 8); pg.addColorStop(0, '#FFE08A'); pg.addColorStop(1, '#C99A2E');
+  rr(c, bx - 14, by, bw + 28, 8, 4); c.fillStyle = pg; c.fill();
+  c.fillStyle = GOLD; [bx - 14, bx + bw + 14].forEach((X) => { c.beginPath(); c.arc(X, by + 4, 7, 0, 6.3); c.fill(); });
+  const cg = c.createLinearGradient(0, by + 8, 0, by + bh); cg.addColorStop(0, '#E2626F'); cg.addColorStop(1, '#B83C4B');
+  c.beginPath(); c.moveTo(bx, by + 8); c.lineTo(bx + bw, by + 8); c.lineTo(bx + bw + sway, by + bh); c.lineTo(bx + bw / 2 + sway, by + bh - 14); c.lineTo(bx + sway, by + bh); c.closePath();
+  c.fillStyle = cg; c.fill(); c.strokeStyle = GOLD; c.lineWidth = 2; c.stroke();
+  c.save(); c.fillStyle = GOLD; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.font = `500 ${Math.round(clamp(bw / 11, 18, 30))}px "EB Garamond", Georgia, serif`; if ('letterSpacing' in c) c.letterSpacing = '3px';
+  c.shadowColor = 'rgba(0,0,0,.35)'; c.shadowBlur = 3; c.fillText('PER CENTUM', w / 2 + sway / 2, by + (bh - 6) / 2 + 6); c.restore();
+  c.restore();
+  // the century: 10 × 10 soldiers marching in row by row
+  const top = bh + 34, k = Math.max(16, Math.min((w - 28) / 10, (h - top - 46) / 10, 34)), x0 = (w - 10 * k) / 2, y0 = top + 6;
+  let all = true;
+  for (let r = 0; r < 10; r++) for (let col = 0; col < 10; col++) {
+    const st = 0.9 + r * 0.3 + col * 0.025, e = clamp01((t - st) / 0.55);
+    if (e < 1) all = false;
+    if (e <= 0) continue;
+    const X = x0 + (col + 0.5) * k, Y = y0 + (r + 0.6) * k + (1 - easeOut(e)) * (h - y0 + 30);
+    c.save(); c.globalAlpha = 1; soldier(c, X, Y, k * 0.95, e < 1 ? Math.sin(t * 14 + col) * 1.2 : Math.sin(time * 2.4 + col * 0.7 + r) * 0.5, SKIN[(r * 3 + col) % 4]); c.restore();
+  }
+  if (all) {
+    const a = clamp01((t - (0.9 + 9 * 0.3 + 0.3 + 0.55)) / 0.5);
+    c.save(); c.globalAlpha = a; c.setLineDash([8, 6]); c.lineDashOffset = -time * 10; c.strokeStyle = GOLD; c.lineWidth = 2;
+    rr(c, x0 - 4, y0 - 4, 10 * k + 8, 10 * k + 8, 10); c.stroke(); c.restore();
+    pill(c, '10 × 10 = 100', w / 2, h - 22, { W: w, font: '900 15px Nunito, sans-serif', border: GOLD, h: 30, a });
+  }
+}
+
+// --- view 2: batteries and the plant ------------------------------------------------------------------------------
+const dotSprite = (() => {
+  const s = document.createElement('canvas'); s.width = s.height = 64; const c = s.getContext('2d');
+  const g = c.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(240,255,244,1)'); g.addColorStop(0.2, 'rgba(124,240,160,1)'); g.addColorStop(0.46, 'rgba(47,191,106,1)');
+  g.addColorStop(0.5, 'rgba(47,191,106,.45)'); g.addColorStop(1, 'rgba(47,191,106,0)');
+  c.fillStyle = g; c.fillRect(0, 0, 64, 64); return s;
+})();
+const drawDot = (c, x, y, r) => { if (r > 0.3) c.drawImage(dotSprite, x - r * 2, y - r * 2, r * 4, r * 4); };
+
+function batteryBody(c, x, y, w, h, frac, time) {
+  const capW = h * 0.17, bw = w - capW, rad = h * 0.22;
+  c.fillStyle = 'rgba(0,0,0,.32)'; c.beginPath(); c.ellipse(x + w / 2, y + h + 7, w * 0.46, 6, 0, 0, 6.3); c.fill();
+  const ch = h * 0.4, mg = c.createLinearGradient(0, y, 0, y + h); mg.addColorStop(0, '#E6E9F2'); mg.addColorStop(0.5, '#B9BFD2'); mg.addColorStop(1, '#8F97B0');
+  rr(c, x + bw - 3, y + (h - ch) / 2, capW + 3, ch, capW * 0.45); c.fillStyle = mg; c.fill(); c.strokeStyle = '#6A728C'; c.lineWidth = 1.5; c.stroke();
+  const bg = c.createLinearGradient(0, y, 0, y + h); bg.addColorStop(0, '#D6DAE6'); bg.addColorStop(1, '#9AA2B8');
+  rr(c, x, y, bw, h, rad); c.fillStyle = bg; c.fill(); c.strokeStyle = '#6A728C'; c.lineWidth = 1.5; c.stroke();
+  rr(c, x + 3, y + 2.5, bw - 6, h * 0.22, rad * 0.7); c.fillStyle = 'rgba(255,255,255,.35)'; c.fill();
+  const m = h * 0.14, wx = x + m, wy = y + m, ww = bw - 2 * m, wh = h - 2 * m, wr = rad * 0.55;
+  const wg = c.createLinearGradient(0, wy, 0, wy + wh); wg.addColorStop(0, '#0F1336'); wg.addColorStop(1, '#1D2350');
+  rr(c, wx, wy, ww, wh, wr); c.fillStyle = wg; c.fill(); c.strokeStyle = 'rgba(0,0,0,.55)'; c.lineWidth = 1.5; c.stroke();
+  if (frac > 0.002) {
+    c.save(); rr(c, wx, wy, ww, wh, wr); c.clip();
+    const fx = wx + ww * frac, lg = c.createLinearGradient(0, wy, 0, wy + wh); lg.addColorStop(0, '#7CF0A0'); lg.addColorStop(1, '#2FBF6A');
+    c.beginPath(); c.moveTo(wx - 2, wy - 2); c.lineTo(fx, wy - 2);
+    for (let yy = wy; yy <= wy + wh + 2; yy += 3) c.lineTo(fx + Math.sin(yy * 0.24 + time * 3) * Math.min(3, wh * 0.05), yy);
+    c.lineTo(wx - 2, wy + wh + 2); c.closePath(); c.fillStyle = lg; c.fill();
+    c.beginPath(); for (let yy = wy; yy <= wy + wh; yy += 3) { const X = fx + Math.sin(yy * 0.24 + time * 3) * Math.min(3, wh * 0.05); if (yy === wy) c.moveTo(X, yy); else c.lineTo(X, yy); }
+    c.strokeStyle = 'rgba(225,255,235,.75)'; c.lineWidth = 2; c.stroke();
+    c.fillStyle = 'rgba(255,255,255,.2)'; c.fillRect(wx, wy + 2, Math.max(0, fx - wx), wh * 0.26);
+    c.restore();
+  }
+  c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 1; c.beginPath(); c.moveTo(wx + ww / 2, wy + 1); c.lineTo(wx + ww / 2, wy + wh * 0.16); c.stroke();
+  // the lightning bolt, a path
+  const bx = wx + ww / 2, by = wy + wh / 2, bs = wh * 0.8;
+  c.beginPath(); [[0.12, -0.5], [-0.26, 0.08], [-0.03, 0.08], [-0.13, 0.5], [0.26, -0.1], [0.03, -0.1]].forEach(([a, b], i) => (i ? c.lineTo(bx + a * bs, by + b * bs) : c.moveTo(bx + a * bs, by + b * bs)));
+  c.closePath(); c.fillStyle = 'rgba(255,255,255,.92)'; c.fill(); c.strokeStyle = 'rgba(15,25,60,.55)'; c.lineWidth = 1; c.stroke();
+  return { wx, wy, ww, wh };
+}
+function bLayout(w, h, y0) {
+  const H = h - y0, k = Math.sqrt(3), gap = Math.min(0.07 * w, 28), fitW = (w - 32 - gap) / (1 + k);
+  const bw1 = Math.max(60, Math.min(fitW, 150, (H - 118) / 1.885)), bh1 = bw1 * 0.55;
+  const bw2 = bw1 * k, bh2 = bh1 * k, x1 = (w - (bw1 + bw2 + gap)) / 2, x2 = x1 + bw1 + gap;
+  const yBat = y0 + 54 + bh2, d = Math.min(20, bw1 / 5.6);
+  return { bw1, bh1, bw2, bh2, x1, x2, yBat, d, yFloor: yBat + 42 + 5.4 * d + 6 };
+}
+const G_ACC = 2300;
+function drawBatteries(c, w, h, time, y0) {
+  const t = T[lang], B = S.b, L = bLayout(w, h, y0), rev = B.ans !== null, e = rev ? time - B.rt : -1;
+  const cols = [
+    { x: L.x1, bw: L.bw1, bh: L.bh1, cap: 20, ic: '📱', nm: t.b.phone },
+    { x: L.x2, bw: L.bw2, bh: L.bh2, cap: 60, ic: '🛴', nm: t.b.scooter }];
+  for (const col of cols) {
+    const cx = col.x + col.bw / 2, by = L.yBat - col.bh, nLit = col.cap / 2, rows = col.cap / 10;
+    // pour timeline
+    const stag = 1.5 / nLit, t0 = 0.95;
+    const relF = rev ? clamp((e - t0) / stag, 0, nLit) : 0;
+    const frac = rev ? (nLit - relF) / col.cap : 0.5;
+    emo(c, col.ic, cx - 0.2 * Math.min(col.bw, 80), by - 26, 26);
+    c.save(); c.font = '800 12px Nunito, sans-serif'; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillStyle = '#D3D9E8'; c.fillText(col.nm, cx - 0.2 * Math.min(col.bw, 80) + 20, by - 25); c.restore();
+    const wl = batteryBody(c, col.x, by, col.bw, col.bh, frac, time);
+    // floor tray under the pile
+    rr(c, cx - 3.2 * L.d, L.yFloor, 6.4 * L.d, 4, 2); c.fillStyle = 'rgba(255,255,255,.14)'; c.fill();
+    let landed = 0;
+    if (rev) {
+      const sx = wl.ww / 10, sy = wl.wh / rows, r = Math.min(sx, sy) * 0.32;
+      const slot = (j) => [wl.wx + ((j / rows | 0) + 0.5) * sx, wl.wy + ((j % rows) + 0.5) * sy];
+      const appear = (j) => easeOut(clamp01((e - (j / rows | 0) * 0.05) / 0.3));
+      for (let j = 0; j < col.cap; j++) { // dim slots show the whole capacity
+        const [X, Y] = slot(j), a = appear(j);
+        c.strokeStyle = `rgba(255,255,255,${0.2 * a})`; c.lineWidth = 1; c.beginPath(); c.arc(X, Y, Math.max(0, r * a), 0, 6.3); c.stroke();
+      }
+      for (let k = 0; k < nLit; k++) {
+        const j = nLit - 1 - k, [X, Y] = slot(j), tr = t0 + k * stag;
+        const px = cx + ((k % 5) - 2) * L.d * 1.05 + ((k / 5 | 0) % 2 ? 0.26 : -0.26) * L.d, py = L.yFloor - L.d / 2 - (k / 5 | 0) * L.d * 0.9;
+        if (e < tr) { const a = appear(j); drawDot(c, X, Y, r * a); continue; }
+        const u = e - tr, drop = Math.max(10, py - Y), tf = Math.sqrt(2 * drop / G_ACC);
+        let yy, xx = lerp(X, px, easeIO(clamp01(u / tf)));
+        if (u < tf) yy = Y + 0.5 * G_ACC * u * u;
+        else { const v = (u - tf) / 0.26, hb = L.d * 0.5; yy = py - (v < 1 ? 4 * hb * v * (1 - v) : 0); if (v >= 0) landed++; }
+        drawDot(c, xx, yy, lerp(r, L.d * 0.5, clamp01(u / 0.25)));
+      }
+    }
+    const done = rev && e > t0 + 1.5 + 0.8;
+    const lbl = !rev || e < t0 ? '50 %' : done ? t.p.good(50, col.cap, col.cap / 2) : String(landed);
+    pill(c, lbl, cx, L.yBat + 24, { W: w, font: '900 14px Nunito, sans-serif', border: done ? MINT : undefined, h: 28 });
+  }
+}
+
+function drawPlant(c, w, h, time, y0) {
+  const t = T[lang], B = S.b, rev = B.ans !== null, rv = rev ? clamp01((time - B.rt) / 1.7) : 0;
+  const hcm = 20 + 10 * backOut(rv), yz = h - 62, top = y0 + 30, cm = Math.min(14, (yz - top) / 40), px = w * 0.5;
+  const Y = (v) => yz - v * cm;
+  // ruler, paper with ticks
+  const rx = 14, rw = 34, pg = c.createLinearGradient(rx, 0, rx + rw, 0); pg.addColorStop(0, '#FFF6E6'); pg.addColorStop(1, '#F1E2C6');
+  rr(c, rx, Y(40) - 8, rw, 40 * cm + 16, 6); c.fillStyle = pg; c.fill(); c.strokeStyle = 'rgba(0,0,0,.3)'; c.lineWidth = 1; c.stroke();
+  c.fillStyle = '#5A4A3A'; c.font = '800 12px Nunito, sans-serif'; c.textAlign = 'right'; c.textBaseline = 'middle';
+  for (let v = 0; v <= 40; v++) {
+    const len = v % 10 === 0 ? 14 : v % 5 === 0 ? 10 : 5; c.fillRect(rx + rw - len, Y(v) - 0.5, len, 1);
+    if (v % 10 === 0) c.fillText(String(v), rx + rw - 17, Y(v));
+  }
+  // ground and pot
+  c.fillStyle = 'rgba(0,0,0,.28)'; c.beginPath(); c.ellipse(px, yz + 38, 52, 8, 0, 0, 6.3); c.fill();
+  const pot = c.createLinearGradient(px - 40, 0, px + 40, 0); pot.addColorStop(0, '#FFB27A'); pot.addColorStop(0.5, ORANGE); pot.addColorStop(1, '#D9803A');
+  c.beginPath(); c.moveTo(px - 38, yz + 6); c.lineTo(px + 38, yz + 6); c.lineTo(px + 30, yz + 36); c.lineTo(px - 30, yz + 36); c.closePath(); c.fillStyle = pot; c.fill(); c.strokeStyle = 'rgba(80,35,10,.5)'; c.lineWidth = 1.5; c.stroke();
+  rr(c, px - 42, yz - 4, 84, 14, 6); c.fillStyle = pot; c.fill(); c.stroke();
+  c.fillStyle = '#3A2B58'; c.beginPath(); c.ellipse(px, yz - 3, 38, 5, 0, 0, 6.3); c.fill();
+  // stem and leaves
+  const sw = Math.sin(time * 1.3) * 3 * Math.min(1, hcm / 20), tipX = px + sw, tipY = Y(hcm), cx2 = px - 8 + sw * 0.5, cy2 = (yz + tipY) / 2;
+  const at = (f) => { const a = (1 - f) * (1 - f), b = 2 * (1 - f) * f, d = f * f; return [a * px + b * cx2 + d * tipX, a * yz + b * cy2 + d * tipY]; };
+  const sg = c.createLinearGradient(0, yz, 0, tipY); sg.addColorStop(0, '#2FA070'); sg.addColorStop(1, MINT2);
+  c.lineCap = 'round'; c.strokeStyle = sg; c.lineWidth = 8; c.beginPath(); c.moveTo(px, yz); c.quadraticCurveTo(cx2, cy2, tipX, tipY); c.stroke();
+  [5, 10, 15, 20, 25].forEach((pos, i) => {
+    const k = clamp01((hcm - pos) / 6); if (k <= 0) return;
+    const [lx, ly] = at(pos / hcm), dir = i % 2 ? 1 : -1, len = 34 * easeOut(k), wd = 13 * easeOut(k);
+    c.save(); c.translate(lx, ly); c.rotate(dir === 1 ? -0.5 : Math.PI + 0.5);
+    const lg = c.createLinearGradient(0, 0, len, 0); lg.addColorStop(0, '#3FBF86'); lg.addColorStop(1, MINT2);
+    c.beginPath(); c.moveTo(0, 0); c.bezierCurveTo(len * 0.3, -wd, len * 0.8, -wd * 0.9, len, 0); c.bezierCurveTo(len * 0.8, wd * 0.9, len * 0.3, wd, 0, 0);
+    c.fillStyle = lg; c.fill(); c.strokeStyle = 'rgba(16,90,60,.55)'; c.lineWidth = 1; c.stroke();
+    c.strokeStyle = 'rgba(255,255,255,.35)'; c.beginPath(); c.moveTo(2, 0); c.lineTo(len * 0.85, 0); c.stroke(); c.restore();
+  });
+  c.fillStyle = PINK; c.beginPath(); c.arc(tipX, tipY - 4, 7, 0, 6.3); c.fill(); c.strokeStyle = 'rgba(120,30,60,.5)'; c.lineWidth = 1; c.stroke();
+  // bars: the whole (100 %) and, after the reveal, 150 %
+  const bar = (v, col, lbl, a) => {
+    c.save(); c.globalAlpha = a; c.setLineDash([8, 5]); c.strokeStyle = col; c.lineWidth = 2.5; c.beginPath(); c.moveTo(rx + rw + 4, Y(v)); c.lineTo(w - 12, Y(v)); c.stroke(); c.restore();
+    pill(c, lbl, w - 12 - 4 - 62, Y(v) - 16, { W: w, border: col, a, px: 16 });
+  };
+  bar(20, BLUE, `100 % = 20 ${t.b.cm}`, 1);
+  if (rv > 0.55) {
+    const a = clamp01((rv - 0.55) / 0.3);
+    bar(30, MINT, `150 % = 30 ${t.b.cm}`, a);
+    c.save(); c.globalAlpha = a; c.strokeStyle = GOLD; c.lineWidth = 2.5; const ax = w - 36;
+    c.beginPath(); c.moveTo(ax, Y(20) - 4); c.lineTo(ax, Y(30) + 4); c.stroke();
+    c.fillStyle = GOLD; c.beginPath(); c.moveTo(ax, Y(30)); c.lineTo(ax - 5, Y(30) + 9); c.lineTo(ax + 5, Y(30) + 9); c.closePath(); c.fill(); c.restore();
+    pill(c, `+50 % = 10 ${t.b.cm}`, ax - 52, (Y(20) + Y(30)) / 2, { W: w, border: GOLD, a, px: 16 });
+  }
+}
+
+function renderBattery(t) {
+  const B = S.b, q = B.q, ans = B.ans, ok = ans === RIGHT.b[q];
+  lab.setGlow('rgba(124, 240, 160, .22)');
+  const d = q === 0 ? { q: t.b.q1, opts: t.b.o1, r: t.b.r1, val: ['10 · 30', '📱 · 🛴'], pre: ['50 %', ''] }
+    : { q: t.b.q2, opts: t.b.o2, r: t.b.r2, val: [`30 ${t.b.cm}`, '150 %'], pre: [`20 ${t.b.cm}`, '100 %'] };
+  setCard(cardHTML({ q: d.q, opts: d.opts, ans, right: RIGHT.b[q], ok, verdict: ans === null ? '' : ok ? t.right : t.wrongPic, nextLabel: q === 0 ? t.next : t.again }));
+  const v = ans === null ? d.pre : d.val; lab.setReadout(v[0], v[1], '', '#7CF0A0');
+  stateCard(B.any ? t.st.battery.f : t.st.battery.n, extraOf(t, ans === null ? '' : d.r));
+}
+
+// --- view 3: build a percentage from blocks -----------------------------------------------------------------------
+const pctOf = () => S.p.blocks.reduce((n, b) => n + b.k, 0);
+const runsOf = () => { const out = []; for (const b of S.p.blocks) { const l = out[out.length - 1]; if (l && l.k === b.k) l.n++; else out.push({ k: b.k, n: 1 }); } return out; };
+function priceTag(c, x, y, price) {
+  const tw = 64, th = 38, g = c.createLinearGradient(0, y, 0, y + th); g.addColorStop(0, '#FFF6E6'); g.addColorStop(1, '#F1E2C6');
+  c.fillStyle = 'rgba(0,0,0,.28)'; c.beginPath(); c.ellipse(x + tw / 2, y + th + 3, tw * 0.45, 3, 0, 0, 6.3); c.fill();
+  c.beginPath(); c.moveTo(x + 12, y); c.lineTo(x + tw - 6, y); c.quadraticCurveTo(x + tw, y, x + tw, y + 6); c.lineTo(x + tw, y + th - 6); c.quadraticCurveTo(x + tw, y + th, x + tw - 6, y + th);
+  c.lineTo(x + 12, y + th); c.lineTo(x, y + th / 2); c.closePath(); c.fillStyle = g; c.fill(); c.strokeStyle = 'rgba(80,60,30,.5)'; c.lineWidth = 1.5; c.stroke();
+  c.fillStyle = '#2A3170'; c.beginPath(); c.arc(x + 11, y + th / 2, 3.5, 0, 6.3); c.fill();
+  c.fillStyle = '#2B2233'; c.font = '900 22px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(String(price), x + tw / 2 + 5, y + th / 2 + 1);
+  return tw;
+}
+function paperStrip(c, x, y, w, h, ticks = true) {
+  const g = c.createLinearGradient(0, y, 0, y + h); g.addColorStop(0, PAPER); g.addColorStop(1, '#EFDFC2');
+  c.fillStyle = 'rgba(0,0,0,.3)'; rr(c, x + 1, y + 3, w, h, 6); c.fill();
+  rr(c, x, y, w, h, 6); c.fillStyle = g; c.fill(); c.strokeStyle = 'rgba(80,60,30,.45)'; c.lineWidth = 1; c.stroke();
+  c.strokeStyle = 'rgba(80,60,30,.13)'; c.beginPath(); for (let i = 1; i < 100; i++) if (i % 10) { const X = x + w * i / 100; c.moveTo(X, y + h - 7); c.lineTo(X, y + h - 1); } c.stroke();
+  if (ticks) { c.strokeStyle = 'rgba(80,60,30,.55)'; c.beginPath(); for (let i = 0; i <= 10; i++) { const X = x + w * i / 10; c.moveTo(X, y + h - 14); c.lineTo(X, y + h); } c.stroke(); }
+}
+function block(c, x, y, w, h, col, label, a = 1) {
+  const g = c.createLinearGradient(0, y, 0, y + h); g.addColorStop(0, mix(col, '#FFFFFF', 0.35)); g.addColorStop(1, col);
+  c.save(); c.globalAlpha = a; rr(c, x, y, w, h, Math.min(5, w / 2)); c.fillStyle = g; c.fill(); c.strokeStyle = 'rgba(10,12,30,.5)'; c.lineWidth = 1.5; c.stroke();
+  rr(c, x + 1, y + 1.5, Math.max(0, w - 2), h * 0.28, 3); c.fillStyle = 'rgba(255,255,255,.3)'; c.fill();
+  if (label && w >= 26) { c.fillStyle = '#1B1F44'; c.font = '900 12px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(label, x + w / 2, y + h / 2 - 3); }
+  c.restore();
+}
+function drawBuild(c, w, h, time, y0) {
+  const P = S.p;
+  if (P.ri === 3) return drawCompare(c, w, h, time, y0);
+  const price = ROUNDS[P.ri][1], sw = Math.min(w - 32, 560), sx = (w - sw) / 2, sy = y0 + 70, sh = 46;
+  priceTag(c, sx, y0 + 6, price); pill(c, '= 100 %', sx + 64 + 44, y0 + 25, { W: w, h: 24, px: 16, font: '800 13px Nunito, sans-serif' });
+  paperStrip(c, sx, sy, sw, sh);
+  c.fillStyle = '#6A5A44'; c.font = '700 12px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'top';
+  for (let i = 0; i <= 10; i += 2) c.fillText(String(i * 10), sx + sw * i / 10, sy + sh + 6);
+  let acc = 0;
+  for (const b of P.blocks) {
+    const bw = sw * b.k / 100, X = sx + sw * acc / 100, age = clamp01((time - b.at) / 0.32), e = easeOut(age);
+    const Y = sy + 4 - (1 - e) * 46, sq = age < 1 ? 1 + 0.06 * Math.sin(age * Math.PI) : 1;
+    block(c, X + 1, Y, Math.max(2, bw - 2) * sq, sh - 8, BLOCKS[b.k][1], `${b.k} %`, 0.35 + 0.65 * e);
+    acc += b.k;
+  }
+  const tot = acc, ex = sx + sw * tot / 100;
+  if (tot > 0) {
+    pill(c, `${tot} %`, ex, sy - 15, { W: w, h: 24, px: 14, font: '900 13px Nunito, sans-serif', border: P.ok ? MINT : BLUE });
+    c.fillStyle = P.ok ? MINT : '#fff'; c.beginPath(); c.moveTo(ex, sy - 1); c.lineTo(ex - 5, sy - 5); c.lineTo(ex + 5, sy - 5); c.closePath(); c.fill();
+  }
+  if (P.ok) { c.save(); c.strokeStyle = MINT; c.lineWidth = 3; c.shadowColor = MINT; c.shadowBlur = 12; rr(c, sx - 2, sy - 2, sw + 4, sh + 4, 8); c.stroke(); c.restore(); }
+  // what each run of blocks is worth in money
+  c.font = '800 13px Nunito, sans-serif'; c.textBaseline = 'middle';
+  const runs = runsOf(), labels = runs.map((r) => `${r.n > 1 ? `${r.n} × ` : ''}${r.k} % = ${nf(r.n * price * r.k / 100)}`);
+  const widths = labels.map((l) => c.measureText(l).width + 34); let rx = 0, ry = 0, rowW = [0];
+  const pos = widths.map((wd) => { if (rx + wd > w - 24 && rx > 0) { rx = 0; ry++; rowW[ry] = 0; } const p = [rx, ry]; rx += wd + 8; rowW[ry] = rx - 8; return p; });
+  const cy0 = sy + sh + 44;
+  labels.forEach((l, i) => {
+    const [px, py] = pos[i], X = (w - rowW[py]) / 2 + px;
+    rr(c, X, cy0 + py * 32 - 13, widths[i], 26, 13); c.fillStyle = 'rgba(10,12,30,.8)'; c.fill(); c.strokeStyle = BLOCKS[runs[i].k][1]; c.lineWidth = 1.5; c.stroke();
+    rr(c, X + 7, cy0 + py * 32 - 7, 8, 14, 3); c.fillStyle = BLOCKS[runs[i].k][1]; c.fill();
+    c.fillStyle = '#fff'; c.textAlign = 'left'; c.fillText(l, X + 22, cy0 + py * 32 + 1);
+  });
+}
+function drawCompare(c, w, h, time, y0) {
+  const t = T[lang], P = S.p, rev = P.ans !== null, rv = rev ? easeIO(clamp01((time - P.rt) / 0.9)) : 0, rv2 = rev ? clamp01((time - P.rt - 0.7) / 0.7) : 0;
+  const full = Math.min(w - 32 - 70, 500), sx = (w - full - 70) / 2 + 70, sh = 40;
+  [[30, 20, ORANGE, y0 + 24], [25, 40, PINK, y0 + 24 + 108]].forEach(([pct, price, col, y], i) => {
+    priceTag(c, sx - 70, y, price);
+    const len = full * lerp(1, price / 40, i === 0 ? rv : 0);
+    paperStrip(c, sx, y, len, sh);
+    if (rv2 > 0) { // the saved part of the price
+      const sv = len * pct / 100 * easeOut(rv2);
+      block(c, sx + 2, y + 3, Math.max(2, sv - 2), sh - 6, col, '', 1);
+      pill(c, t.p.good(pct, price, price * pct / 100), sx + len / 2, y + sh + 24, { W: w, font: '900 14px Nunito, sans-serif', border: col, h: 28, a: rv2 });
+    }
+    c.fillStyle = '#fff'; c.font = '900 13px Nunito, sans-serif'; c.textAlign = 'left'; c.textBaseline = 'middle';
+    if (!rev) { c.fillStyle = '#D3D9E8'; c.fillText(`${pct} %`, sx + 4, y - 11); }
+  });
+}
+function renderBuild(t) {
+  const P = S.p, cmp = P.ri === 3, ans = P.ans;
+  lab.setGlow('rgba(91, 141, 239, .24)');
+  stateCard(t.st.build, extraOf(t, cmp && ans !== null ? t.p.r : ''));
+  $('buildTools').style.display = cmp ? 'none' : '';
+  if (cmp) {
+    const ok = ans === RIGHT.c;
+    setCard(cardHTML({ q: t.p.q, opts: t.p.o, ans, right: RIGHT.c, ok, verdict: ans === null ? '' : ok ? t.right : t.wrongPic, nextLabel: t.again }));
+    lab.setReadout(ans === null ? '?' : '6 · 10', '', '', BLUE);
+    return;
+  }
+  const [pct, price] = ROUNDS[P.ri], tot = pctOf(), runs = runsOf();
+  let verdict = '', ok = false;
+  if (P.ok) { verdict = `${t.right} ${t.p.good(pct, price, nf(price * pct / 100))}`; ok = true; } else if (P.bad !== null) verdict = t.p.retry(P.bad);
+  setCard(cardHTML({ q: t.p.task(pct, price), opts: [], verdict, ok }));
+  $('blocks').innerHTML = [10, 5, 1, 50, 25].map((k) => `<button class="blk" data-act="blk" data-k="${k}" style="--c:${BLOCKS[k][1]}"${P.ok ? ' disabled' : ''}><i></i>${esc(t.p[BLOCKS[k][0]])}</button>`).join('');
+  $('bUndo').textContent = t.p.undo; $('bUndo').disabled = P.ok || !P.blocks.length;
+  $('bMain').textContent = P.ok ? t.next : t.p.check; $('bMain').disabled = !P.ok && !P.blocks.length;
+  $('bHint').textContent = t.p.hint;
+  let val = '0 %';
+  if (runs.length) {
+    const mv = (r) => nf(r.n * price * r.k / 100), pp = (r) => `${r.n > 1 ? `${r.n} × ` : ''}${r.k} %`;
+    val = runs.length === 1 && runs[0].n === 1 ? `${pp(runs[0])} → ${mv(runs[0])}`
+      : `${runs.map(pp).join(' + ')} = ${tot} % → ${runs.map((r) => (r.n > 1 ? `${r.n} × ${nf(price * r.k / 100)}` : nf(price * r.k / 100))).join(' + ')} = ${nf(price * tot / 100)}`;
+  }
+  lab.setReadout(val, '', '', BLUE);
+}
+
+// --- drawing: one scene per view ------------------------------------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  const v = lab.view, sec = v === 'grid' ? S.sec : null, free = v === 'grid' && S.g.q === 3 && !sec;
+  c.save(); stageBg(c, w, h); rr(c, 0, 0, w, h, 20); c.clip();
+  c.lineJoin = 'round';
+  const want = (S.cardH ? S.cardH + 18 : 12);
+  S.yo = S.yo ? S.yo + (want - S.yo) * Math.min(1, dt * 10) : want;
+  if (v === 'grid' && !sec) {
+    stepGrid(dt, time);
+    if (G.n > 0 && G.cnt >= G.n && !(G.doneT > 0)) G.doneT = time;
+    if (G.cnt < G.n) G.doneT = 0;
+    if (S.g.q === 1 && S.g.ans !== null && G.cnt >= 9 && G.hiT < 0) G.hiT = time + 0.25;
+    drawGrid(c, w, h, time, S.yo, free);
+  } else if (sec === 'survey') drawSurvey(c, w, h, time);
+  else if (sec === 'century') drawCentury(c, w, h, time);
+  else if (v === 'battery') (S.b.q === 0 ? drawBatteries : drawPlant)(c, w, h, time, S.yo);
+  else if (v === 'build') drawBuild(c, w, h, time, S.yo);
+  c.restore();
+});
+
+// --- controls ------------------------------------------------------------------------------------------------------
+// on a phone the question sits on top of the scene, but the answer may need scrolling: bring the stage into view
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+function startGridQuestion() {
+  const q = S.g.q; resetGrid(q === 2 ? DIAG : READ);
+  if (q === 3) fillTo(S.free, 400);
+}
+function answer(i) {
+  const v = lab.view;
+  if (v === 'grid') {
+    const g = S.g; if (g.ans !== null) return;
+    g.ans = i; g.any = true; G.doneT = 0;
+    if (g.q === 0) fillTo(24); else if (g.q === 1) fillTo(9, 30); else fillTo(100, 80);
+    (i === RIGHT.g[g.q] ? sfx.good : sfx.bad)();
+  } else if (v === 'battery') {
+    const B = S.b; if (B.ans !== null) return;
+    B.ans = i; B.any = true; B.rt = now(); (i === RIGHT.b[B.q] ? sfx.good : sfx.bad)();
+  } else if (v === 'build') {
+    const P = S.p; if (P.ans !== null) return;
+    P.ans = i; P.any = true; P.rt = now(); (i === RIGHT.c ? sfx.good : sfx.bad)();
+  }
+  showStage(); render();
+}
+function next() {
+  const v = lab.view; sfx.click();
+  if (v === 'grid') {
+    const g = S.g; if (g.q === 3) return;
+    g.q++; g.ans = null; startGridQuestion();
+  } else if (v === 'battery') {
+    const B = S.b; B.ans = null; B.q = B.q === 0 ? 1 : 0;
+  } else if (v === 'build') {
+    Object.assign(S.p, { ri: 0, blocks: [], ok: false, bad: null, ans: null });
+  }
+  render();
+}
+askEl.addEventListener('click', (ev) => {
+  const o = ev.target.closest('.ob'); if (o) return answer(+o.dataset.i);
+  if (ev.target.closest('[data-act=next]')) next();
+});
+$('sl').addEventListener('input', () => { S.free = +$('sl').value; fillTo(S.free, 400); render(); });
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b) return;
+  const act = b.dataset.act, P = S.p;
+  if (act === 'again') { S.g = { q: 0, ans: null, any: S.g.any }; startGridQuestion(); sfx.click(); }
+  else if (act === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    const k = b.dataset.k; S.sec = S.sec === k ? null : k; S.secAt = now(); sfx.click();
+  } else if (act === 'blk') {
+    if (P.ok) return;
+    const k = +b.dataset.k;
+    if (pctOf() + k > 100) { sfx.bad(); return; }
+    P.blocks.push({ k, at: now() }); P.bad = null; sfx.snap();
+  } else if (act === 'undo') { if (P.ok || !P.blocks.length) return; P.blocks.pop(); P.bad = null; sfx.click(); }
+  else if (act === 'main') {
+    if (P.ok) { P.ri++; P.blocks = []; P.ok = false; P.bad = null; P.ans = null; sfx.click(); }
+    else if (P.blocks.length) {
+      const tot = pctOf();
+      if (tot === ROUNDS[P.ri][0]) { P.ok = true; P.bad = null; P.any = true; sfx.good(); } else { P.bad = tot; sfx.bad(); }
+    }
+  }
+  render();
+});
+$('cv').addEventListener('pointerdown', () => { if (lab.view === 'grid' && S.sec === 'survey') S.secAt = now(); });
+
+// --- one render per change: controls, readout and the state card ------------------------------------------------------
+function render() {
+  const t = T[lang], v = lab.view, sec = v === 'grid' ? S.sec : null, free = v === 'grid' && S.g.q === 3 && !sec;
+  document.body.dataset.v = sec ? 'sec' : free ? 'free' : v;
+  $('secGrid').style.display = v === 'grid' ? '' : 'none';
+  $('secBuild').style.display = v === 'build' ? '' : 'none';
+  if (v === 'grid') renderGrid(t, sec, free); else if (v === 'battery') renderBattery(t); else renderBuild(t);
+}
+resetGrid();
+render();
+</script>
+</body>
+</html>
