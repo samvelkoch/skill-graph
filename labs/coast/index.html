@@ -1,0 +1,1086 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Where Land Meets Sea · Skill Graph</title>
+<meta name="description" content="Watch waves grind a cliff into sand, find the right shore for a crab, a lugworm and a wading bird, and see the tide wash a sandcastle away. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  #stage { min-height: 400px; }
+  #stage canvas { touch-action: manipulation; } /* only taps here: let the page scroll on phones */
+  .q { font: 500 20px/1.2 var(--serif); color: #fff; margin: 0 0 10px; text-wrap: balance; }
+  .qo { display: grid; gap: 6px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .qb { min-height: 40px; padding: 7px 14px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 800; font-size: 13px; line-height: 1.25; cursor: pointer; text-wrap: balance; display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .qb:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .qb:disabled { cursor: default; opacity: 1; }
+  .qb.ok { border-color: var(--ok); background: rgba(61, 220, 151, .18); }
+  .qb.no { border-color: var(--wip); background: rgba(245, 200, 76, .14); }
+  .verdict { font-weight: 900; font-size: 15px; margin: 12px 0 4px; }
+  .verdict.ok { color: var(--ok); } .verdict.no { color: var(--wip); }
+  .vtext { margin: 0 0 8px; color: var(--soft); font-size: 13px; }
+  .btn:disabled { opacity: .35; cursor: default; }
+  .fine { font-size: 11px; color: var(--faint); }
+  #hrRow { margin-top: 12px; }
+  #hrRow .ends { margin-bottom: 0; }
+  @media (max-width: 760px) {
+    #stage { height: min(112vw, 500px); min-height: 0; }
+    body[data-v=shores] #stage { height: min(150vw, 620px); }
+    body[data-v=tide] #stage { height: min(120vw, 520px); }
+    body[data-v=arch] #stage, body[data-v=grains] #stage { height: min(112vw, 500px); }
+    .q { font-size: 18px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, store, $, esc, clamp, lerp, ruPlural, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Where Land Meets Sea', title: 'The coast',
+    lines: [['Where the land', 'meets the sea.'], ['Sandy, rocky', 'or muddy?'], ['And where does', 'sand come from?']],
+    views: { waves: '🌊 Making sand', shores: '🦀 Three shores', tide: '🌗 Tide' },
+    next: 'Next ▶', right: 'You got it!', wrong: 'Not quite. Watch!', again: 'Again ↻',
+    w: { q1: 'Where does beach sand come from?', o1: ['it is made in factories', 'rock and shells broken up by waves', 'it has always been there'],
+         r1: 'Waves smash the cliff into boulders, then pebbles, then tiny grains. Add broken shells — that’s sand. It takes thousands of years.',
+         q2: 'Does the cliff stay where it is?', o2: ['yes, forever', 'no, it slowly moves back'],
+         r2: 'Bit by bit the waves wear the cliff away, so the coast slowly moves back.', years: (n) => `${n} years` },
+    s: { q: (a) => `Where does the ${a} live best?`, shores: ['sandy beach', 'rocky shore', 'muddy flat'],
+         animals: ['crab', 'starfish', 'lugworm', 'wading bird', 'sand hopper', 'periwinkle'],
+         why: ['Crabs hide under rocks and in rock pools.', 'Starfish cling to rocks in the pools.', 'Lugworms dig burrows in soft mud and leave curly casts.', 'Wading birds walk on long legs and probe the mud for worms.', 'Sand hoppers jump about in the seaweed on sandy beaches.', 'Periwinkles graze on seaweed on the rocks.'],
+         sum: 'Different shores, different homes: rocks for crabs and starfish, mud for worms and waders, sand for sand hoppers.' },
+    t: { q: 'You build a sandcastle close to the water in the morning. What will it look like 6 hours later?', o: ['just the same', 'washed away by the sea', 'bigger'],
+         r: 'The tide came in! The sea rises and falls about twice a day. At high tide it covers the lower beach.', hour: (h) => `${h}:00`, high: 'high tide', low: 'low tide' },
+    secrets: { arch: ['Cave, arch, stack', 'How waves carve a headland.'], grains: ['Look closer', 'What is a grain of sand?'] },
+    sec: { erode: 'Next step', steps: ['crack', 'cave', 'arch', 'stack', 'stump'], archText: 'Waves attack cracks in a headland: a cave becomes an arch, the arch falls and leaves a stack standing in the sea.',
+           grainsText: 'Most sand grains are tiny pieces of rock, like quartz. Some are broken shells or coral.', kinds: ['quartz', 'shell', 'dark mineral', 'coral'] },
+    quiz: [
+      { q: 'What is the coast?', opts: ['the middle of the sea', 'where land meets the sea', 'a big lake'], ok: 1 },
+      { q: 'Where does sand come from?', opts: ['rock and shells broken by waves', 'clouds', 'trees'], ok: 0 },
+      { q: 'Where do wading birds look for worms?', opts: ['on rocky cliffs', 'in muddy flats', 'in the open ocean'], ok: 1 } ],
+    states: {
+      waves: [['🌊', 'A cliff by the sea', 'Waves crash against it, again and again.'], ['🌊', 'Waves make sand', 'Cliff → boulders → pebbles → sand.']],
+      shores: [['🦀', 'Three kinds of shore', 'Sand, rock or mud.'], ['🦀', 'Each shore, its animals', 'A beach isn’t always sandy.']],
+      tide: [['🌗', 'A sandcastle', 'Built close to the water.'], ['🌗', 'Tides', 'High and low about twice a day.']] },
+    fine: 'Most coasts have two high tides a day, about 12 hours 25 minutes apart.',
+  },
+  ru: {
+    name: 'Где земля встречает море', title: 'Побережье',
+    lines: [['Там, где земля', 'встречается с морем.'], ['Песок, скалы', 'или ил?'], ['А откуда', 'берётся песок?']],
+    views: { waves: '🌊 Откуда песок', shores: '🦀 Три берега', tide: '🌗 Прилив' },
+    next: 'Дальше ▶', right: 'Верно!', wrong: 'Не совсем. Смотри!', again: 'Ещё раз ↻',
+    w: { q1: 'Откуда берётся песок на пляже?', o1: ['его делают на заводах', 'это скалы и ракушки, раздробленные волнами', 'он был всегда'],
+         r1: 'Волны разбивают скалу на валуны, потом на гальку, потом на крошечные песчинки. Добавь кусочки ракушек — вот и песок. На это уходят тысячи лет.',
+         q2: 'Скала остаётся на месте?', o2: ['да, навсегда', 'нет, медленно отступает'],
+         r2: 'Понемногу волны стачивают скалу, и берег медленно отступает.', years: (n) => `${n} ${ruPlural(n, 'год', 'года', 'лет')}` },
+    s: { q: (a) => `Где лучше всего живётся: ${a}?`, shores: ['песчаный пляж', 'скалистый берег', 'илистая отмель'],
+         animals: ['краб', 'морская звезда', 'пескожил', 'болотная птица', 'песчаная блоха', 'литорина'],
+         why: ['Крабы прячутся под камнями и в лужах между скал.', 'Морские звёзды цепляются за камни в лужах.', 'Пескожилы роют норки в мягком иле и оставляют кучки-завитки.', 'Болотные птицы ходят на длинных ногах и ищут в иле червей.', 'Песчаные блохи прыгают в водорослях на песчаных пляжах.', 'Литорины — морские улитки — едят водоросли на камнях.'],
+         sum: 'Разные берега — разные дома: скалы для крабов и морских звёзд, ил для червей и болотных птиц, песок для песчаных блох.' },
+    t: { q: 'Утром ты построил песчаный замок у самой воды. Каким он будет через 6 часов?', o: ['таким же', 'его смоет море', 'больше'],
+         r: 'Пришёл прилив! Море поднимается и опускается примерно два раза в сутки. В прилив оно заливает нижнюю часть пляжа.', hour: (h) => `${h}:00`, high: 'прилив', low: 'отлив' },
+    secrets: { arch: ['Пещера, арка, столб', 'Как волны вырезают мыс.'], grains: ['Посмотри поближе', 'Что такое песчинка?'] },
+    sec: { erode: 'Следующий шаг', steps: ['трещина', 'пещера', 'арка', 'столб', 'пенёк'], archText: 'Волны бьют в трещины мыса: пещера становится аркой, арка рушится, и в море остаётся каменный столб.',
+           grainsText: 'Большинство песчинок — крошечные кусочки камня, например кварца. Некоторые — кусочки ракушек или кораллов.', kinds: ['кварц', 'ракушка', 'тёмный минерал', 'коралл'] },
+    quiz: [
+      { q: 'Что такое побережье?', opts: ['середина моря', 'место, где земля встречается с морем', 'большое озеро'], ok: 1 },
+      { q: 'Откуда берётся песок?', opts: ['скалы и ракушки, раздробленные волнами', 'из облаков', 'из деревьев'], ok: 0 },
+      { q: 'Где болотные птицы ищут червей?', opts: ['на скалах', 'на илистых отмелях', 'в открытом океане'], ok: 1 } ],
+    states: {
+      waves: [['🌊', 'Скала у моря', 'Волны бьют в неё снова и снова.'], ['🌊', 'Волны делают песок', 'Скала → валуны → галька → песок.']],
+      shores: [['🦀', 'Три вида берега', 'Песок, скалы или ил.'], ['🦀', 'У каждого берега свои жители', 'Пляж не всегда песчаный.']],
+      tide: [['🌗', 'Песчаный замок', 'Построен у самой воды.'], ['🌗', 'Приливы', 'Прилив и отлив примерно два раза в сутки.']] },
+    fine: 'На большинстве побережий бывает два прилива в сутки, примерно через 12 часов 25 минут.',
+  },
+  hu: {
+    name: 'Ahol a szárazföld a tengerrel találkozik', title: 'A part',
+    lines: [['Ahol a szárazföld', 'a tengerrel találkozik.'], ['Homokos, sziklás', 'vagy iszapos?'], ['És honnan jön', 'a homok?']],
+    views: { waves: '🌊 Honnan a homok?', shores: '🦀 Három part', tide: '🌗 Dagály' },
+    next: 'Tovább ▶', right: 'Eltaláltad!', wrong: 'Nem egészen. Figyeld!', again: 'Újra ↻',
+    w: { q1: 'Honnan van a homok a strandon?', o1: ['gyárban készül', 'a hullámok által összetört sziklákból és kagylókból', 'mindig is ott volt'],
+         r1: 'A hullámok a sziklát kőtömbökre, aztán kavicsokra, végül apró szemcsékre törik. Tegyél hozzá tört kagylót — ez a homok. Ehhez több ezer év kell.',
+         q2: 'A szikla egy helyben marad?', o2: ['igen, örökre', 'nem, lassan hátrál'],
+         r2: 'A hullámok apránként lekoptatják a sziklát, így a part lassan hátrébb húzódik.', years: (n) => `${n} év` },
+    s: { q: (a) => `Hol él a legjobban: ${a}?`, shores: ['homokos strand', 'sziklás part', 'iszapos part'],
+         animals: ['a rák', 'a tengeri csillag', 'a nyílt tengeri féreg', 'a gázlómadár', 'a homoki bolharák', 'a parti csiga'],
+         why: ['A rákok a kövek alatt és a sziklamedencékben bújnak meg.', 'A tengeri csillagok a medencék sziklákba kapaszkodnak.', 'Ezek a férgek a puha iszapba ásnak, és tekeredő kupacokat hagynak.', 'A gázlómadarak hosszú lábukon lépkednek, és férgeket keresnek az iszapban.', 'A homoki bolharákok a homokos strand hínárcsíkjában ugrálnak.', 'A parti csigák a sziklákon legelik a hínárt.'],
+         sum: 'Más part, más otthon: sziklák a rákoknak és tengeri csillagoknak, iszap a férgeknek és gázlómadaraknak, homok a bolharákoknak.' },
+    t: { q: 'Reggel homokvárat építesz közel a vízhez. Milyen lesz 6 óra múlva?', o: ['ugyanilyen', 'elmossa a tenger', 'nagyobb'],
+         r: 'Megjött a dagály! A tenger naponta kb. kétszer emelkedik és süllyed. Dagálykor elönti a strand alsó részét.', hour: (h) => `${h}:00`, high: 'dagály', low: 'apály' },
+    secrets: { arch: ['Barlang, boltív, sziklatorony', 'Hogyan faragják a hullámok a földnyelvet?'], grains: ['Nézd közelebbről', 'Mi egy homokszem?'] },
+    sec: { erode: 'Következő lépés', steps: ['repedés', 'barlang', 'boltív', 'sziklatorony', 'csonk'], archText: 'A hullámok a földnyelv repedéseit ostromolják: a barlangból boltív lesz, a boltív leomlik, és egy sziklatorony marad a tengerben.',
+           grainsText: 'A legtöbb homokszem apró kődarab, például kvarc. Némelyik tört kagyló vagy korall.', kinds: ['kvarc', 'kagyló', 'sötét ásvány', 'korall'] },
+    quiz: [
+      { q: 'Mi a part?', opts: ['a tenger közepe', 'ahol a szárazföld a tengerrel találkozik', 'egy nagy tó'], ok: 1 },
+      { q: 'Honnan jön a homok?', opts: ['hullámok törte sziklákból és kagylókból', 'a felhőkből', 'a fákból'], ok: 0 },
+      { q: 'Hol keresnek férgeket a gázlómadarak?', opts: ['a sziklás partokon', 'az iszapos partokon', 'a nyílt óceánon'], ok: 1 } ],
+    states: {
+      waves: [['🌊', 'Szikla a tengernél', 'A hullámok újra és újra nekicsapódnak.'], ['🌊', 'A hullámok homokot csinálnak', 'Szikla → kőtömbök → kavics → homok.']],
+      shores: [['🦀', 'Háromféle part', 'Homok, szikla vagy iszap.'], ['🦀', 'Minden partnak saját lakói', 'A strand nem mindig homokos.']],
+      tide: [['🌗', 'Homokvár', 'Közel a vízhez építve.'], ['🌗', 'Árapály', 'Dagály és apály naponta kb. kétszer.']] },
+    fine: 'A legtöbb parton naponta két dagály van, kb. 12 óra 25 perc különbséggel.',
+  },
+};
+const TOPICS = [
+  { id: 'mt_4bJiGiMPmy', en: 'Coasts & Beaches', ru: 'Побережья и пляжи', hu: 'Partok és strandok' },
+];
+
+// --- palette and small helpers ---------------------------------------------------------------------------
+const C = { sea1: '#5FB8E8', sea2: '#1F6FA8', foam: '#FFFFFF', sand: '#F2D59A', cl1: '#C9A27A', cl2: '#B08A63', cl3: '#97734F', grass: '#8CCB6A', weed: '#3E7D4E', mud: '#8A7A64' };
+const FONT = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+const sm = (x) => { x = clamp01(x); return x * x * (3 - 2 * x); };
+const easeIO = (x) => { x = clamp01(x); return x < .5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2; };
+const easeOut = (x) => { x = clamp01(x); return 1 - (1 - x) * (1 - x); };
+const backOut = (x) => { x = clamp01(x); const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); };
+const rngOf = (seed) => () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+const hexRgb = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+const mix = (a, b, t) => { const A = hexRgb(a), B = hexRgb(b); return '#' + A.map((v, i) => Math.round(v + (B[i] - v) * t).toString(16).padStart(2, '0')).join(''); };
+const rgba = (h, a) => { const [r, g, b] = hexRgb(h); return `rgba(${r},${g},${b},${a})`; };
+const circ = (c, x, y, r) => { c.beginPath(); c.arc(x, y, Math.max(0, r), 0, Math.PI * 2); };
+const ell = (c, x, y, rx, ry, rot = 0) => { c.beginPath(); c.ellipse(x, y, Math.max(0, rx), Math.max(0, ry), rot, 0, Math.PI * 2); };
+const vgrad = (c, y0, y1, stops) => { const g = c.createLinearGradient(0, y0, 0, y1); stops.forEach(([o, col]) => g.addColorStop(o, col)); return g; };
+const hgrad = (c, x0, x1, stops) => { const g = c.createLinearGradient(x0, 0, x1, 0); stops.forEach(([o, col]) => g.addColorStop(o, col)); return g; };
+const rgrad = (c, x, y, r, stops) => { const g = c.createRadialGradient(x, y, 0, x, y, Math.max(0.01, r)); stops.forEach(([o, col]) => g.addColorStop(o, col)); return g; };
+const now = () => performance.now() / 1000;
+
+// a dark rounded label, clamped inside the canvas
+function pill(c, w, text, x, y, align = 'left', size = 13, fill = 'rgba(10,12,20,.8)', ink = '#fff') {
+  c.save(); c.globalAlpha = 1;
+  c.font = `800 ${size}px Nunito, sans-serif`; c.textBaseline = 'middle'; c.textAlign = 'left';
+  const tw = c.measureText(text).width, bw = tw + 18, bh = size + 12;
+  let l = align === 'right' ? x - bw : align === 'center' ? x - bw / 2 : x;
+  l = Math.min(w - bw - 6, Math.max(6, l));
+  c.fillStyle = fill; c.beginPath(); c.roundRect(l, y - bh / 2, bw, bh, bh / 2); c.fill();
+  c.fillStyle = ink; c.fillText(text, l + 9, y + 1);
+  c.restore();
+  return { x: l, w: bw, h: bh };
+}
+function emoji(c, ch, x, y, size, rot = 0, sx = 1, sy = 1) {
+  c.save(); c.globalAlpha = 1; c.fillStyle = '#000';
+  c.translate(x, y); c.rotate(rot); c.scale(sx, sy);
+  c.font = `${size}px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText(ch, 0, 0);
+  c.restore();
+}
+function shadow(c, x, y, rx, ry, a = .3) { c.save(); c.globalAlpha = 1; ell(c, x, y, rx, ry); c.fillStyle = `rgba(10,12,20,${a})`; c.fill(); c.restore(); }
+
+// --- state -------------------------------------------------------------------------------------------------
+const ROUNDS = [
+  { kind: 'crab', shore: 1, slot: [.2, .62] }, { kind: 'starfish', shore: 1, slot: [.56, .76] }, { kind: 'lugworm', shore: 2, slot: [.3, .72] },
+  { kind: 'bird', shore: 2, slot: [.72, .6] }, { kind: 'hopper', shore: 0, slot: [.5, .68] }, { kind: 'snail', shore: 1, slot: [.4, .86] },
+];
+const S = {
+  w: { stage: 'q1', p: 0, run: 0, dur: 6, a1: null, a2: null, answered: false, lastP: 0, lastPh: 0, mag: 0 },
+  s: { i: 0, stage: 'ask', pick: null, score: 0, placed: [], answered: false, rects: [], cardT0: now(), glow: 0 },
+  t: { stage: 'q', a: null, hour: 9, run: false, answered: false },
+  sec: null,
+  arch: { cur: 0, from: 0, to: 0, t0: -9, chunks: [], pops: 0 },
+  gr: { sel: -1, pop: 0, geo: null },
+  spray: [],
+};
+const lab = shell({ key: 'coast', T, topics: TOPICS, views: ['waves', 'shores', 'tide'], onLang: render, onView: () => { S.sec = null; render(); } });
+const secret = secretLab('coast', () => ({
+  secrets: [{ emo: '🏛️', title: T[lang].secrets.arch[0], desc: T[lang].secrets.arch[1] }, { emo: '🔍', title: T[lang].secrets.grains[0], desc: T[lang].secrets.grains[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="secW">
+    <div id="waQa"></div>
+    <div class="row2"><div class="chips" id="secChips"></div></div>
+    <div class="row2" id="archRow"><button class="btn" data-act="erode" id="erodeB"></button></div>
+  </div>
+  <div id="secS"><div id="shQa"></div></div>
+  <div id="secT">
+    <div id="tdQa"></div>
+    <div id="hrRow"><input type="range" class="big" id="hr" min="0" max="24" step="0.1" value="9" style="--track: linear-gradient(90deg, #1F6FA8, #5FB8E8)">
+      <div class="ends"><span id="hr0"></span><span id="hr1"></span><span id="hr2"></span></div></div>
+  </div>`;
+
+// =====================================================================================================================
+//  shared scenery
+// =====================================================================================================================
+function sky(c, w, yb, time, sunX = .14) {
+  c.fillStyle = vgrad(c, 0, yb, [[0, mix(C.sea1, '#ffffff', .45)], [1, mix(C.sea1, '#ffffff', .85)]]);
+  c.fillRect(0, 0, w, yb + 2);
+  c.fillStyle = rgrad(c, w * sunX, yb * .22, yb * .5, [[0, 'rgba(255,248,214,.95)'], [.25, 'rgba(255,244,200,.45)'], [1, 'rgba(255,244,200,0)']]);
+  c.fillRect(0, 0, w, yb);
+  // clouds drift slowly
+  const clouds = [[.25, .16, 1], [.62, .1, .75], [.9, .22, .6]];
+  c.save(); c.globalAlpha = 1;
+  clouds.forEach(([fx, fy, s], i) => {
+    const span = w + 160, x = ((fx * w + time * (5 + i * 2) + 80) % span) - 80, y = yb * fy, r = yb * .05 * s;
+    c.fillStyle = 'rgba(255,255,255,.9)';
+    [[0, 0, 1], [r * 1.1, -r * .35, 1.2], [r * 2.3, 0, .95], [r * 1.2, r * .25, 1.1]].forEach(([dx, dy, k]) => { ell(c, x + dx, y + dy, r * k * 1.15, r * k * .8); c.fill(); });
+  });
+  c.restore();
+  // two gulls
+  c.save(); c.strokeStyle = 'rgba(255,255,255,.95)'; c.lineWidth = 2; c.lineCap = 'round';
+  [[.32, .3, 0], [.4, .24, 1.3]].forEach(([fx, fy, ph]) => {
+    const x = w * fx + Math.sin(time * .3 + ph) * 12, y = yb * fy + Math.sin(time * .5 + ph) * 4, f = Math.sin(time * 5 + ph * 3) * 3;
+    c.beginPath(); c.moveTo(x - 8, y + f); c.quadraticCurveTo(x - 3, y - 4 - f * .5, x, y); c.quadraticCurveTo(x + 3, y - 4 - f * .5, x + 8, y + f); c.stroke();
+  });
+  c.restore();
+}
+// sandy-grain / strata painters ---------------------------------------------------------------------
+const STRATA = [.055, .045, .07, .05, .06, .08], SCOL = [C.cl1, C.cl2, C.cl3, C.cl2, C.cl1, C.cl3];
+function strata(c, w, h, y0, tilt = -.04) {
+  let y = y0, i = 0;
+  while (y < h + 40) {
+    const th = STRATA[i % 6] * h, col = SCOL[i % 6], cx = w / 2;
+    const a = y + tilt * (0 - cx), b = y + tilt * (w - cx);
+    c.fillStyle = vgrad(c, y - 20, y + th + 20, [[0, mix(col, '#ffffff', .1)], [1, mix(col, '#000000', .1)]]);
+    c.beginPath(); c.moveTo(0, a); c.lineTo(w, b); c.lineTo(w, b + th); c.lineTo(0, a + th); c.closePath(); c.fill();
+    c.strokeStyle = 'rgba(60,35,10,.28)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(0, a + th); c.lineTo(w, b + th); c.stroke();
+    y += th; i++;
+  }
+  const r = rngOf(11);
+  for (let k = 0; k < 150; k++) {
+    const x = r() * w, y1 = y0 + r() * (h - y0), s = 1 + r() * 2.2;
+    c.fillStyle = r() < .5 ? 'rgba(60,35,10,.18)' : 'rgba(255,240,210,.2)';
+    c.fillRect(x, y1, s * 1.6, s);
+  }
+  c.strokeStyle = 'rgba(60,35,10,.22)'; c.lineWidth = 1;
+  for (let k = 0; k < 9; k++) { // short cracks
+    const x = r() * w, y1 = y0 + r() * (h - y0) * .8; c.beginPath(); c.moveTo(x, y1); c.lineTo(x + (r() - .5) * 8, y1 + 8 + r() * 12); c.lineTo(x + (r() - .5) * 10, y1 + 22 + r() * 10); c.stroke();
+  }
+}
+function grassStrip(c, x0, x1, y, th, time) {
+  c.save();
+  c.fillStyle = vgrad(c, y - 3, y + th * 1.4, [[0, mix(C.grass, '#ffffff', .22)], [.45, C.grass], [1, mix(C.grass, '#1c3a10', .3)]]);
+  c.beginPath(); c.moveTo(x0 - 3, y + th * 1.25);
+  c.quadraticCurveTo(x0 - 5, y - 1, x0 + 7, y - 2.5);
+  c.lineTo(x1, y - 2.5); c.lineTo(x1, y + th * .9);
+  for (let x = x1; x >= x0; x -= 6) c.lineTo(x, y + th * (.85 + .3 * Math.sin(x * .17)));
+  c.closePath(); c.fill();
+  c.strokeStyle = 'rgba(30,70,20,.5)'; c.lineWidth = 1.2; c.stroke();
+  c.restore();
+}
+
+// =====================================================================================================================
+//  view 1: making sand (cliff time-lapse)
+// =====================================================================================================================
+const CH = Array.from({ length: 6 }, (_, i) => { const r = rngOf(40 + i * 3); return { p0: .03 + i * .05, yf: .14 + .5 * r(), r: .03 + .014 * r(), spin: (r() - .5) * 7, ox: .02 + i * .033 + r() * .01, col: SCOL[i % 3], jit: Array.from({ length: 10 }, () => r()), ang: Array.from({ length: 10 }, () => r()) }; });
+const PGREY = ['#8f8a86', '#a39a8d', '#76706a', '#b09a82', '#8c7357'];
+const PEB = Array.from({ length: 40 }, (_, j) => { const r = rngOf(900 + j * 5); return { p0: .42 + .4 * j / 40, q: r(), r: .007 + .008 * r(), col: PGREY[(r() * 5) | 0], jit: Array.from({ length: 8 }, () => r()), tilt: r() * 3 }; });
+const FALL = .07;
+
+function geoW(w, h) {
+  const G = { w, h, top: h * .24, sea: h * .6, foot: h * .71, x0: w * .58, x1: w * .76, xf0: w * .55, bh: h * .13, bw: w * .3 };
+  G.sl = (h * .2) / G.xf0;
+  return G;
+}
+const bedY = (G, x) => G.foot + Math.max(0, G.xf0 - x) * G.sl;
+function edgeX(G, y, p) {
+  const e = easeIO(p), f = (y - G.top) / (G.foot - G.top);
+  let x = lerp(G.x0, G.x1, e);
+  x += Math.sin(f * 7 + 1.2) * G.w * .006 + Math.sin(f * 17 + .4) * G.w * .003;
+  x -= G.w * .012 * Math.sin(clamp01(f) * Math.PI);
+  const n = Math.exp(-Math.pow((y - G.sea - G.h * .02) / (G.h * .03), 2));
+  return x + G.w * .02 * n * (1 - .5 * p);
+}
+const beachAmt = (p) => sm((p - .52) / .48);
+function groundAt(G, x, p) {
+  const bed = bedY(G, x), B = beachAmt(p);
+  if (B <= 0) return bed;
+  const xf = edgeX(G, G.foot - G.bh * B, p), bw = Math.max(1, G.bw * B);
+  if (x > xf) return G.foot - G.bh * B;
+  if (x < xf - bw) return bed;
+  const u = (xf - x) / bw;
+  return Math.min(bed, lerp(G.foot - G.bh * B, bedY(G, xf - bw), Math.pow(u, .85)));
+}
+function landPath(c, G, p) {
+  c.beginPath(); c.moveTo(edgeX(G, G.top, p), G.top);
+  for (let y = G.top + 5; y < G.foot; y += 5) c.lineTo(edgeX(G, y, p), y);
+  c.lineTo(edgeX(G, G.foot, p), G.foot); c.lineTo(G.xf0, G.foot); c.lineTo(0, G.foot + G.xf0 * G.sl);
+  c.lineTo(0, G.h + 2); c.lineTo(G.w + 2, G.h + 2); c.lineTo(G.w + 2, G.top); c.closePath();
+}
+// the sea surface at x: gentle sines + a swell that runs to the cliff and breaks
+const surf = (x, t) => Math.sin(x * .03 - t * 1.5) * 3.2 + Math.sin(x * .067 + t * 1.9) * 1.8;
+const CRASH = 4.6;
+function swellAt(G, x, time, xFace) {
+  const ph = (time % CRASH) / CRASH, xs = lerp(-G.w * .1, xFace, ph * ph * .6 + ph * .4);
+  const A = G.h * .035 * sm(ph * 1.3) * (1 - sm((ph - .9) / .1)), sg = G.w * .07 * (1 - .3 * ph);
+  return A * Math.exp(-Math.pow((x - xs) / sg, 2));
+}
+function seaPath(c, G, time, xFace, dx, up, bottom) {
+  c.beginPath();
+  const y0 = (x) => G.sea + surf(x + dx, time) - swellAt(G, x, time, xFace) * (1 + up) - up * G.h * .5 + G.h * .01 * Math.pow(Math.max(0, x / xFace), 3);
+  c.moveTo(0, y0(0));
+  for (let x = 6; x <= G.w + 6; x += 6) c.lineTo(x, y0(x));
+  c.lineTo(G.w + 6, bottom); c.lineTo(0, bottom); c.closePath();
+  return y0;
+}
+function boulder(c, x, y, r, rd, col, jit, ang, rot) {
+  if (r < .8) return;
+  const N = jit.length;
+  c.save(); c.translate(x, y); c.rotate(rot); c.beginPath();
+  for (let k = 0; k < N; k++) {
+    const a = (k / N) * Math.PI * 2 + (ang ? (ang[k] - .5) * (1 - rd) * .5 : 0), rr = r * (1 + (jit[k] - .5) * .7 * (1 - rd));
+    k ? c.lineTo(Math.cos(a) * rr, Math.sin(a) * rr) : c.moveTo(Math.cos(a) * rr, Math.sin(a) * rr);
+  }
+  c.closePath();
+  c.fillStyle = rgrad(c, -r * .35, -r * .4, r * 1.5, [[0, mix(col, '#ffffff', .3)], [.55, col], [1, mix(col, '#000000', .4)]]); c.fill();
+  c.strokeStyle = mix(col, '#000000', .55); c.lineWidth = 1.3; c.lineJoin = 'round'; c.stroke();
+  c.restore();
+}
+// grains for the lens: small irregular polygons in sand colours, plus the four named kinds
+const SANDCOL = ['#F2D59A', '#E4B978', '#C99A63', '#F8E6BD', '#B07C4A', '#8B5E3C', '#D9C7A3', '#6b5a4a'];
+const SPECK = Array.from({ length: 150 }, (_, i) => { const r = rngOf(300 + i * 7), a = r() * Math.PI * 2, d = Math.sqrt(r()) * .95; return { x: Math.cos(a) * d, y: Math.sin(a) * d, r: .028 + .04 * r(), col: SANDCOL[(r() * 8) | 0], jit: Array.from({ length: 6 }, () => r()), rot: r() * 6 }; });
+const GRAINS = (() => {
+  const out = []; const r = rngOf(77); const kinds = [0, 0, 0, 0, 0, 1, 1, 2, 2, 2, 3, 3];
+  for (let tries = 0; out.length < 22 && tries < 1500; tries++) {
+    const a = r() * Math.PI * 2, d = Math.sqrt(r()) * .78, g = { x: Math.cos(a) * d, y: Math.sin(a) * d, r: .09 + .035 * r(), kind: kinds[out.length % kinds.length] };
+    if (out.every((o) => Math.hypot(o.x - g.x, o.y - g.y) > (o.r + g.r) * 1.05)) out.push({ ...g, rot: r() * 6, jit: Array.from({ length: 7 }, () => r()) });
+  }
+  return out;
+})();
+function drawGrain(c, g, x, y, s, hi) {
+  c.save(); c.translate(x, y); c.rotate(g.rot); c.lineJoin = 'round';
+  const poly = (n, rr, jit) => { c.beginPath(); for (let k = 0; k < n; k++) { const a = (k / n) * Math.PI * 2, q = rr * (.72 + jit[k % jit.length] * .5); k ? c.lineTo(Math.cos(a) * q, Math.sin(a) * q) : c.moveTo(Math.cos(a) * q, Math.sin(a) * q); } c.closePath(); };
+  if (g.kind === 0) { // quartz: glassy
+    poly(7, s, g.jit); c.fillStyle = rgrad(c, -s * .3, -s * .35, s * 1.4, [[0, '#FFFDF5'], [.6, '#E8E0CC'], [1, '#BDB398']]); c.fill();
+    c.strokeStyle = 'rgba(110,95,60,.6)'; c.lineWidth = 1.2; c.stroke();
+    ell(c, -s * .3, -s * .32, s * .3, s * .14, -.6); c.fillStyle = 'rgba(255,255,255,.95)'; c.fill();
+  } else if (g.kind === 1) { // shell bit: a pink fan with ridges
+    c.beginPath(); c.moveTo(0, s * .7); c.arc(0, s * .7, s * 1.6, -Math.PI * .95, -Math.PI * .05); c.closePath();
+    c.fillStyle = rgrad(c, 0, 0, s * 1.8, [[0, '#FFFFFF'], [.7, '#F7C6D0'], [1, '#E79BAE']]); c.fill();
+    c.strokeStyle = 'rgba(180,90,115,.75)'; c.lineWidth = 1.2; c.stroke();
+    c.beginPath(); for (let k = 1; k < 6; k++) { const a = -Math.PI * .95 + (Math.PI * .9) * k / 6; c.moveTo(0, s * .7); c.lineTo(Math.cos(a) * s * 1.6, s * .7 + Math.sin(a) * s * 1.6); } c.stroke();
+  } else if (g.kind === 2) { // dark mineral: angular and shiny
+    poly(5, s * .95, g.jit); c.fillStyle = rgrad(c, -s * .3, -s * .3, s * 1.3, [[0, '#6c6a72'], [.5, '#3d3a3f'], [1, '#1e1d22']]); c.fill();
+    c.strokeStyle = '#111'; c.lineWidth = 1.3; c.stroke();
+    c.beginPath(); c.moveTo(-s * .45, -s * .15); c.lineTo(-s * .1, -s * .45); c.strokeStyle = 'rgba(255,255,255,.7)'; c.lineWidth = 1.6; c.stroke();
+  } else { // coral: a branching bit
+    c.strokeStyle = '#E8805F'; c.lineCap = 'round'; c.lineWidth = s * .42;
+    c.beginPath(); c.moveTo(0, s * .8); c.lineTo(0, -s * .1); c.moveTo(0, s * .25); c.lineTo(-s * .6, -s * .5); c.moveTo(0, .0); c.lineTo(s * .6, -s * .6); c.stroke();
+    c.strokeStyle = '#F6B49A'; c.lineWidth = s * .16;
+    c.beginPath(); c.moveTo(-s * .06, s * .7); c.lineTo(-s * .06, -s * .05); c.moveTo(-s * .1, s * .2); c.lineTo(-s * .55, -s * .45); c.moveTo(s * .06, -s * .05); c.lineTo(s * .55, -s * .55); c.stroke();
+  }
+  if (hi) { c.rotate(-g.rot); circ(c, 0, 0, s * 1.55); c.lineWidth = 3; c.strokeStyle = '#fff'; c.stroke(); circ(c, 0, 0, s * 1.55 + 3); c.lineWidth = 1.5; c.strokeStyle = 'rgba(10,12,20,.6)'; c.stroke(); }
+  c.restore();
+}
+// a lens full of sand (used small in the time-lapse, big in the secret)
+function lens(c, cx, cy, R, alpha, grains, hiIndex, time, handleAngle = 2.4) {
+  c.save(); c.globalAlpha = alpha;
+  // handle
+  const hx = Math.cos(handleAngle), hy = Math.sin(handleAngle);
+  c.lineCap = 'round'; c.strokeStyle = '#4a3a2a'; c.lineWidth = R * .17; c.beginPath(); c.moveTo(cx + hx * R * 1.02, cy + hy * R * 1.02); c.lineTo(cx + hx * R * 1.7, cy + hy * R * 1.7); c.stroke();
+  c.strokeStyle = '#7b6246'; c.lineWidth = R * .09; c.beginPath(); c.moveTo(cx + hx * R * 1.04, cy + hy * R * 1.04); c.lineTo(cx + hx * R * 1.68, cy + hy * R * 1.68); c.stroke();
+  // glass
+  c.save(); circ(c, cx, cy, R); c.clip();
+  c.fillStyle = rgrad(c, cx - R * .3, cy - R * .3, R * 1.5, [[0, mix(C.sand, '#ffffff', .25)], [1, mix(C.sand, '#6b4a1f', .3)]]); c.fillRect(cx - R, cy - R, R * 2, R * 2);
+  SPECK.forEach((s) => {
+    c.save(); c.translate(cx + s.x * R, cy + s.y * R); c.rotate(s.rot); c.beginPath();
+    s.jit.forEach((j, k) => { const a = (k / 6) * Math.PI * 2, rr = s.r * R * (.7 + j * .6); k ? c.lineTo(Math.cos(a) * rr, Math.sin(a) * rr) : c.moveTo(Math.cos(a) * rr, Math.sin(a) * rr); });
+    c.closePath(); c.fillStyle = s.col; c.fill(); c.strokeStyle = 'rgba(80,50,20,.35)'; c.lineWidth = .8; c.stroke(); c.restore();
+  });
+  grains.forEach((g, i) => drawGrain(c, g, cx + g.x * R, cy + g.y * R, g.r * R * (hiIndex === i ? 1.12 : 1), false));
+  c.restore();
+  // shine and rim
+  c.save(); circ(c, cx, cy, R); c.clip();
+  c.strokeStyle = 'rgba(255,255,255,.7)'; c.lineWidth = R * .05; c.lineCap = 'round'; c.beginPath(); c.arc(cx, cy, R * .82, Math.PI * 1.12, Math.PI * 1.45); c.stroke();
+  c.restore();
+  circ(c, cx, cy, R); c.lineWidth = Math.max(3, R * .075); c.strokeStyle = '#dfe3ee'; c.stroke();
+  circ(c, cx, cy, R + Math.max(1.5, R * .04)); c.lineWidth = 1.5; c.strokeStyle = 'rgba(10,12,20,.55)'; c.stroke();
+  circ(c, cx, cy, R - Math.max(1.5, R * .04)); c.lineWidth = 1; c.strokeStyle = 'rgba(10,12,20,.25)'; c.stroke();
+  c.restore();
+}
+function splash(x, y, n, scale) {
+  for (let i = 0; i < n; i++) {
+    const a = -Math.PI / 2 + (Math.random() - .5) * 1.6;
+    S.spray.push({ x, y, vx: Math.cos(a) * (40 + Math.random() * 110) * scale - 25 * scale, vy: Math.sin(a) * (90 + Math.random() * 150) * scale, r: 1.4 + Math.random() * 2.4, life: 0, ttl: .7 + Math.random() * .5 });
+  }
+  if (S.spray.length > 120) S.spray.splice(0, S.spray.length - 120);
+}
+
+function drawWaves(c, w, h, dt, time) {
+  const G = geoW(w, h), W = S.w, p = W.p, sc = w / 375;
+  c.save(); c.beginPath(); c.roundRect(0, 0, w, h, 18); c.clip();
+  sky(c, w, G.sea, time);
+  // far sea
+  c.fillStyle = vgrad(c, G.sea - h * .07, G.sea, [[0, mix(C.sea1, '#ffffff', .5)], [1, mix(C.sea1, '#ffffff', .15)]]);
+  c.fillRect(0, G.sea - h * .07, w, h * .07 + 4);
+  c.fillStyle = 'rgba(255,255,255,.7)';
+  for (let i = 0; i < 14; i++) { const x = ((i * 53 + time * (6 + (i % 3) * 3)) % (w + 40)) - 20, y = G.sea - h * .06 + (i % 4) * h * .014; c.fillRect(x, y, 8 + (i % 3) * 5, 1.5); }
+  const xFace = edgeX(G, G.sea, p);
+  // main sea
+  const ysurf = seaPath(c, G, time, xFace, 0, 0, h + 4);
+  c.fillStyle = vgrad(c, G.sea - h * .03, h, [[0, C.sea1], [1, C.sea2]]); c.fill();
+  // land: strata clipped to the cliff outline
+  c.save(); landPath(c, G, p); c.clip();
+  strata(c, w, h, G.top - 8);
+  c.fillStyle = hgrad(c, edgeX(G, (G.top + G.sea) / 2, p) - 4, edgeX(G, (G.top + G.sea) / 2, p) + w * .14, [[0, 'rgba(255,240,210,.22)'], [1, 'rgba(255,240,210,0)']]);
+  c.fillRect(0, G.top, w, G.foot - G.top);
+  c.fillStyle = vgrad(c, G.sea - h * .05, h, [[0, 'rgba(10,12,20,0)'], [1, 'rgba(10,30,60,.5)']]); c.fillRect(0, G.sea - h * .05, w, h);
+  const nx = edgeX(G, G.sea + h * .02, p); // the wave-cut notch
+  c.fillStyle = rgrad(c, nx + 2, G.sea + h * .02, w * .045, [[0, 'rgba(30,15,5,.65)'], [1, 'rgba(30,15,5,0)']]); c.fillRect(nx - w * .05, G.sea - h * .04, w * .1, h * .1);
+  c.restore();
+  landPath(c, G, p); c.lineWidth = 1.6; c.strokeStyle = 'rgba(60,35,10,.7)'; c.lineJoin = 'round'; c.stroke();
+  // grass, houses, lighthouse (far back on the top)
+  const xt = edgeX(G, G.top, p);
+  drawTop(c, G, xt, time);
+  // beach
+  const B = beachAmt(p), xf = edgeX(G, G.foot - G.bh * B, p), bw = G.bw * B;
+  if (B > .01) {
+    c.save(); c.beginPath(); c.moveTo(xf, G.foot - G.bh * B);
+    for (let k = 1; k <= 28; k++) { const x = xf - bw * k / 28; c.lineTo(x, groundAt(G, x, p)); }
+    for (let k = 28; k >= 0; k--) { const x = xf - bw * k / 28; c.lineTo(x, Math.max(groundAt(G, x, p), bedY(G, x))); }
+    c.closePath();
+    c.fillStyle = vgrad(c, G.foot - G.bh * B, G.foot + h * .1, [[0, mix(C.sand, '#ffffff', .25)], [.35, C.sand], [1, mix(C.sand, '#6b4a1f', .3)]]); c.fill();
+    c.clip(); const r = rngOf(5);
+    for (let k = 0; k < 90; k++) { c.fillStyle = r() < .5 ? 'rgba(120,80,30,.22)' : 'rgba(255,255,255,.35)'; c.fillRect(xf - r() * bw, G.foot - G.bh + r() * G.bh * 1.6, 1.5, 1.5); }
+    c.restore();
+    c.save(); c.beginPath(); c.moveTo(xf, G.foot - G.bh * B);
+    for (let k = 1; k <= 28; k++) { const x = xf - bw * k / 28; c.lineTo(x, groundAt(G, x, p)); }
+    c.strokeStyle = mix(C.sand, '#ffffff', .55); c.lineWidth = 2; c.lineJoin = 'round'; c.stroke(); c.restore();
+    // a few shell bits on the new beach
+    [[.18, 1], [.5, 2], [.74, 3]].forEach(([u, k]) => { if (B > .35 + k * .12) { const x = xf - bw * u, y = groundAt(G, x, p) + 3; c.save(); c.globalAlpha = 1; ell(c, x, y, 4.5 * sc, 3 * sc, .3); c.fillStyle = k === 2 ? '#F7C6D0' : '#FFFFFF'; c.fill(); c.strokeStyle = 'rgba(160,90,110,.8)'; c.lineWidth = 1; c.stroke(); c.restore(); } });
+  }
+  // boulders (chunks that fell)
+  CH.forEach((ch) => {
+    const t = (p - ch.p0) / FALL; if (p < ch.p0) return;
+    const sz = ch.r * w * (1 - .9 * sm((p - .3) / .5)), rd = sm((p - .2) / .4);
+    const xl = edgeX(G, G.foot - 2, p) - w * ch.ox - 4, yl = groundAt(G, xl, p) - sz * .7;
+    const y0 = G.top + ch.yf * (G.sea - G.top), xs = edgeX(G, y0, p) - ch.r * w;
+    const f = clamp01(t), x = lerp(xs, xl, easeOut(f)), y = lerp(y0, yl, f * f), rot = ch.spin * (f + (1 - f) * 0) + (f >= 1 ? ch.spin * .05 : 0);
+    boulder(c, x, y, f < 1 ? ch.r * w : sz, f < 1 ? 0 : rd, ch.col, ch.jit, ch.ang, rot * (1 - sm((p - .3) / .5)));
+  });
+  // pebbles
+  PEB.forEach((pb) => {
+    if (p < pb.p0) return;
+    const zone = w * .28 * sm((p - .38) / .5) + w * .02, x = edgeX(G, G.foot - 2, p) - 6 - pb.q * zone, sz = pb.r * w * backOut((p - pb.p0) / .06) * (1 - .35 * sm((p - .85) / .15));
+    if (sz < .8) return;
+    const y = groundAt(G, x, p) - sz * .55;
+    ell(c, x, y, sz * 1.25, sz * .85, pb.tilt * .25);
+    c.fillStyle = rgrad(c, x - sz * .4, y - sz * .4, sz * 1.8, [[0, mix(pb.col, '#ffffff', .3)], [.6, pb.col], [1, mix(pb.col, '#000000', .35)]]); c.fill();
+    c.strokeStyle = mix(pb.col, '#000000', .5); c.lineWidth = 1; c.stroke();
+  });
+  // chunk "scars": a puff of dust where a piece lets go
+  CH.forEach((ch) => { const t = (p - ch.p0) / FALL; if (t > 0 && t < .5) { const y0 = G.top + ch.yf * (G.sea - G.top); c.fillStyle = `rgba(255,240,210,${.5 * (1 - t * 2)})`; circ(c, edgeX(G, y0, p) - 3, y0, 6 + 10 * t); c.fill(); } });
+  // splashes when a chunk lands and when a wave breaks
+  CH.forEach((ch) => { const lp = ch.p0 + FALL; if (W.lastP < lp && p >= lp && W.run > 0) splash(edgeX(G, G.foot - 2, p) - w * ch.ox - 4, G.sea + 4, 10, sc); });
+  const ph = (time % CRASH) / CRASH;
+  if (W.lastPh < .9 && ph >= .9) { splash(xFace - 2, G.sea - 2, 20, sc); sfx.push(); }
+  W.lastPh = ph; W.lastP = p;
+  // front wave layer, lighter, drawn over the foot of the cliff and the beach
+  c.save(); c.beginPath(); c.rect(0, 0, xFace - 1, h); c.clip();
+  const yf = seaPath(c, G, time, xFace, 70, 0, G.sea + h * .13);
+  c.fillStyle = vgrad(c, G.sea - h * .02, G.sea + h * .13, [[0, 'rgba(95,184,232,.6)'], [1, 'rgba(31,111,168,.0)']]); c.fill();
+  c.strokeStyle = 'rgba(255,255,255,.85)'; c.lineWidth = 2.4; c.lineJoin = 'round';
+  c.beginPath(); for (let x = 0; x <= xFace; x += 6) { const y = yf(x); x ? c.lineTo(x, y) : c.moveTo(x, y); } c.stroke();
+  c.fillStyle = '#fff';
+  for (let x = 4; x < xFace; x += 11) { const a = swellAt(G, x, time, xFace); if (a > 1.2) { circ(c, x + (x * 7 % 5), yf(x) - 1, 2 + a * .15); c.fill(); } }
+  c.restore();
+  // foam where the wave hits the cliff
+  const fa = sm((ph - .78) / .14) * (1 - sm((ph - .96) / .1));
+  if (fa > 0) { c.fillStyle = rgrad(c, xFace, G.sea - h * .02, h * .09, [[0, `rgba(255,255,255,${.95 * fa})`], [1, 'rgba(255,255,255,0)']]); c.fillRect(xFace - h * .1, G.sea - h * .12, h * .2, h * .2); }
+  // spray particles
+  for (let i = S.spray.length - 1; i >= 0; i--) {
+    const q = S.spray[i]; q.life += dt; if (q.life > q.ttl) { S.spray.splice(i, 1); continue; }
+    q.vy += 380 * sc * dt; q.x += q.vx * dt; q.y += q.vy * dt;
+    c.fillStyle = `rgba(255,255,255,${1 - q.life / q.ttl})`; circ(c, q.x, q.y, q.r * sc); c.fill();
+  }
+  // the year counter and the sand under the lens
+  const showYears = W.stage !== 'q1';
+  if (showYears || W.answered) pill(c, w, fmtYears(yearsOf(p)), 10 + 0, 22, 'left', 15);
+  if (W.mag > .01) {
+    const R = Math.min(w * .21, h * .2) * (.6 + .4 * easeOut(W.mag)), sx = xf - bw * .45, sy = groundAt(G, sx, p), cx = clamp(sx - R * .15, R + 10, w - R - 14), cy = Math.max(R + 40, G.sea - h * .22);
+    c.save(); c.globalAlpha = W.mag; c.strokeStyle = 'rgba(255,255,255,.85)'; c.setLineDash([4, 4]); c.lineWidth = 1.5;
+    c.beginPath(); c.moveTo(cx - R * .5, cy + R * .86); c.lineTo(sx - 5, sy - 4); c.moveTo(cx + R * .5, cy + R * .86); c.lineTo(sx + 5, sy - 4); c.stroke(); c.setLineDash([]);
+    circ(c, sx, sy - 2, 6); c.lineWidth = 2; c.stroke(); c.restore();
+    lens(c, cx, cy, R, W.mag, GRAINS.filter((g, i) => i % 2 === 0), -1, time, 2.5);
+  }
+  // Q2: before and after outlines of the cliff edge with an arrow
+  if (W.stage === 'tl2' || W.stage === 'r2') {
+    const f = W.stage === 'r2' ? 1 : sm((p - .6) / .35);
+    c.save(); c.lineJoin = 'round';
+    const edge = (pp, dash) => { c.beginPath(); for (let y = G.top; y <= G.foot; y += 5) { const x = edgeX(G, y, pp); y === G.top ? c.moveTo(x, y) : c.lineTo(x, y); } c.setLineDash(dash); c.stroke(); c.setLineDash([]); };
+    c.strokeStyle = 'rgba(10,12,20,.55)'; c.lineWidth = 5; edge(0, [7, 6]);
+    c.strokeStyle = '#fff'; c.lineWidth = 2.6; edge(0, [7, 6]);
+    if (f > .01) {
+      c.globalAlpha = f; c.strokeStyle = 'rgba(10,12,20,.55)'; c.lineWidth = 6; edge(1, []); c.strokeStyle = '#fff'; c.lineWidth = 3; edge(1, []);
+      const ay = lerp(G.top, G.sea, .4), ax0 = edgeX(G, ay, 0) - 2, ax1 = edgeX(G, ay, 1) + 2;
+      c.strokeStyle = 'rgba(10,12,20,.7)'; c.lineWidth = 7; c.lineCap = 'round';
+      c.beginPath(); c.moveTo(ax0, ay); c.lineTo(ax1, ay); c.moveTo(ax1 - 9, ay - 8); c.lineTo(ax1, ay); c.lineTo(ax1 - 9, ay + 8); c.stroke();
+      c.strokeStyle = '#fff'; c.lineWidth = 3.4;
+      c.beginPath(); c.moveTo(ax0, ay); c.lineTo(ax1, ay); c.moveTo(ax1 - 9, ay - 8); c.lineTo(ax1, ay); c.lineTo(ax1 - 9, ay + 8); c.stroke();
+      pill(c, w, fmtYears(0), edgeX(G, G.top - 4, 0) + 4, G.top - 26, 'right', 12);
+      pill(c, w, fmtYears(10000), ax1 - 6, G.top + h * .075, 'left', 12);
+    }
+    c.restore();
+  }
+  c.restore();
+}
+function drawTop(c, G, xt, time) {
+  const { w, h } = G, gt = h * .04;
+  // far back: two small houses and a lighthouse standing on the grass
+  const gy = G.top - 2;
+  const house = (x, s, wall, roof) => {
+    c.save(); c.globalAlpha = 1;
+    c.fillStyle = wall; c.fillRect(x, gy - s * 1.1, s * 1.5, s * 1.1); c.strokeStyle = 'rgba(60,35,10,.6)'; c.lineWidth = 1; c.strokeRect(x, gy - s * 1.1, s * 1.5, s * 1.1);
+    c.fillStyle = roof; c.beginPath(); c.moveTo(x - s * .2, gy - s * 1.1); c.lineTo(x + s * .75, gy - s * 1.85); c.lineTo(x + s * 1.7, gy - s * 1.1); c.closePath(); c.fill(); c.stroke();
+    c.fillStyle = '#5b86a6'; c.fillRect(x + s * .25, gy - s * .8, s * .35, s * .35); c.fillRect(x + s * .95, gy - s * .8, s * .35, s * .35);
+    c.restore();
+  };
+  const u = Math.max(7, w * .03);
+  house(w * .82, u, '#F6EFE0', C.cl3); house(w * .895, u * .8, '#EBDDBF', '#B7584A');
+  // lighthouse
+  const lx = w * .965, lh = h * .15, lw = w * .026;
+  c.save(); c.globalAlpha = 1;
+  c.beginPath(); c.moveTo(lx - lw, gy); c.lineTo(lx - lw * .62, gy - lh); c.lineTo(lx + lw * .62, gy - lh); c.lineTo(lx + lw, gy); c.closePath();
+  c.fillStyle = hgrad(c, lx - lw, lx + lw, [[0, '#FFFFFF'], [1, '#CFD6E2']]); c.fill(); c.strokeStyle = 'rgba(60,35,10,.55)'; c.lineWidth = 1; c.stroke();
+  c.save(); c.clip(); c.fillStyle = '#D8483D'; [.2, .55].forEach((f) => c.fillRect(lx - lw, gy - lh * (f + .17), lw * 2, lh * .17)); c.restore();
+  c.fillStyle = '#3d3a3f'; c.fillRect(lx - lw * .8, gy - lh - 3, lw * 1.6, 4);
+  c.fillStyle = '#F5C84C'; c.fillRect(lx - lw * .5, gy - lh - 3 - lw, lw, lw);
+  c.fillStyle = '#D8483D'; c.beginPath(); c.moveTo(lx - lw * .75, gy - lh - 3 - lw); c.lineTo(lx, gy - lh - 3 - lw * 1.9); c.lineTo(lx + lw * .75, gy - lh - 3 - lw); c.closePath(); c.fill();
+  c.restore();
+  // a bush or two
+  c.fillStyle = mix(C.grass, '#1c3a10', .25); [[.79, .9], [.935, .8]].forEach(([fx, s]) => { ell(c, w * fx, gy, u * .9 * s, u * .6 * s); c.fill(); });
+  grassStrip(c, xt, w + 2, G.top, gt, time);
+}
+// readout for the time-lapse
+const yearsOf = (p) => { const y = 10000 * p * p * p; return y < 1000 ? Math.round(y / 10) * 10 : Math.round(y / 100) * 100; };
+const fmtYears = (n) => T[lang].w.years(n).replace(String(n), n >= 1000 ? `${Math.floor(n / 1000)} ${String(n % 1000).padStart(3, '0')}` : String(n));
+
+// =====================================================================================================================
+//  secret: cave, arch, stack
+// =====================================================================================================================
+function backdrop(c, w, h, yW, time) {
+  sky(c, w, yW, time, .22);
+  c.fillStyle = vgrad(c, yW - h * .06, yW, [[0, mix(C.sea1, '#ffffff', .5)], [1, mix(C.sea1, '#ffffff', .15)]]); c.fillRect(0, yW - h * .06, w, h * .06 + 3);
+  const G = { w, h, sea: yW };
+  c.beginPath(); c.moveTo(0, yW + surf(0, time));
+  for (let x = 6; x <= w + 6; x += 6) c.lineTo(x, yW + surf(x, time) + Math.sin(x * .02 - time * .8) * 2);
+  c.lineTo(w + 6, h + 4); c.lineTo(0, h + 4); c.closePath();
+  c.fillStyle = vgrad(c, yW - 8, h, [[0, C.sea1], [1, C.sea2]]); c.fill();
+}
+function drawArch(c, w, h, dt, time) {
+  const A = S.arch, yW = h * .66, k = A.cur, sc = w / 375;
+  c.save(); c.beginPath(); c.roundRect(0, 0, w, h, 18); c.clip();
+  backdrop(c, w, h, yW, time);
+  const yTop = h * .32, thick = h * .03;
+  const xS0 = w * .14, xS1 = w * .36, xB1 = w * .64;
+  const topB = lerp(yTop, yW + h * .02, sm(k - 2)) , topS = lerp(yTop, yW - h * .08, sm(k - 3));
+  const rock = (x0, x1, yT, rad = 0) => { c.beginPath(); c.moveTo(x0, yW + h * .1); c.lineTo(x0, yT + rad); if (rad) c.quadraticCurveTo(x0, yT, x0 + rad, yT); else c.lineTo(x0, yT); c.lineTo(x1, yT); c.lineTo(x1, yW + h * .1); c.closePath(); };
+  const body = (x0, x1, yT, rad, grassAlpha) => {
+    if (yT > yW + h * .015) return;
+    c.save(); rock(x0, x1, yT, rad); c.clip(); strata(c, w, h, yTop - 6);
+    c.fillStyle = hgrad(c, x0, x0 + (x1 - x0) * .5, [[0, 'rgba(255,240,210,.2)'], [1, 'rgba(255,240,210,0)']]); c.fillRect(x0, yT, x1 - x0, h);
+    c.fillStyle = vgrad(c, yW - h * .06, yW + h * .1, [[0, 'rgba(10,12,20,0)'], [1, 'rgba(10,30,60,.55)']]); c.fillRect(x0, yW - h * .06, x1 - x0, h);
+    c.restore();
+    rock(x0, x1, yT, rad); c.lineWidth = 1.6; c.strokeStyle = 'rgba(60,35,10,.7)'; c.lineJoin = 'round'; c.stroke();
+    if (grassAlpha > .02) { c.save(); c.globalAlpha = grassAlpha; grassStrip(c, x0 + 1, x1 - 1, yT, thick, time); c.restore(); }
+  };
+  // the coast part is on the right, the arm sticks out to the left
+  body(xB1 - 2, w + 2, yTop, 0, 1);
+  if (k < 2) body(xS0, xB1, yTop, w * .03, 1);
+  else {
+    body(xS1, xB1, topB, 0, 1 - sm((k - 2) * 3)); // the roof of the arch falls between steps 2 and 3
+    body(xS0, xS1, topS, w * .03, 1 - sm(k - 3)); // the stack stands on its own, then wears down
+  }
+  // crack, cave, arch
+  const xc = (xS1 + xB1) / 2 + w * .02;
+  if (k < 3) {
+    c.save(); if (k < 2) rock(xS0, xB1, yTop, w * .03); else rock(xS1, xB1, topB, 0); c.clip();
+    const cr = sm(k * 1.2) * (1 - sm(k - 1)); // crack widens, then the cave takes over
+    if (k < 1.8) { c.fillStyle = `rgba(25,12,4,${.35 + .6 * (1 - sm(k - 1.2))})`; c.beginPath(); c.moveTo(xc - 2, yTop + thick); c.lineTo(xc + 3 + 4 * cr, yTop + thick + (yW - yTop) * .35); c.lineTo(xc - 2 - 3 * cr, yTop + (yW - yTop) * .7); c.lineTo(xc + 1, yW); c.lineTo(xc - 3 - 3 * cr, yW); c.lineTo(xc + 2, yTop + (yW - yTop) * .55); c.lineTo(xc - 4, yTop + (yW - yTop) * .3); c.closePath(); c.fill(); }
+    const rx = lerp(w * .035, w * .1, sm(k / 2)), ry = h * (k < 1 ? .09 * sm(k) : lerp(.09, .21, sm(k - 1)));
+    if (k > .02) {
+      c.save(); ell(c, xc, yW + 1, rx, ry); c.clip();
+      c.fillStyle = vgrad(c, yW - ry, yW, [[0, '#3b2b1d'], [1, '#150e08']]); c.fillRect(xc - rx, yW - ry, rx * 2, ry + 4);
+      const thr = sm((k - 1.15) / .8);
+      if (thr > 0) { c.globalAlpha = thr; backdrop(c, w, h, yW, time); }
+      c.restore();
+      ell(c, xc, yW + 1, rx, ry); c.lineWidth = 2; c.strokeStyle = 'rgba(40,22,8,.85)'; c.stroke();
+    }
+    c.restore();
+  }
+  // falling roof blocks between steps 2 and 3, and rubble afterwards
+  if (A.chunks.length) {
+    A.chunks.forEach((q) => {
+      const tt = Math.max(0, time - A.t0 - q.d); if (tt <= 0 && k < 2.2) return;
+      const y = Math.min(yW + h * .03, q.y0 + 520 * sc * tt * tt * .5);
+      if (!q.hit && y >= yW + h * .03 - .1 && tt > 0) { q.hit = true; splash(q.x, yW, 8, sc); }
+      boulder(c, q.x, y, q.r, .2, q.col, q.jit, q.ang, q.rot * tt);
+    });
+  }
+  if (k >= 2.95) [.1, .3, .52, .74].forEach((f, i) => { const x = lerp(xS1 + w * .02, xB1 - w * .02, f); boulder(c, x, yW - 1 + (i % 2) * 3, w * (.025 + (i % 3) * .006), .3, SCOL[i % 3], CH[i].jit, CH[i].ang, i); });
+  // front water, over the foot of everything
+  c.save(); const yf = (x) => yW + surf(x + 60, time) + Math.sin(x * .025 - time * .9) * 2;
+  c.beginPath(); c.moveTo(0, yf(0)); for (let x = 6; x <= w + 6; x += 6) c.lineTo(x, yf(x)); c.lineTo(w + 6, h + 4); c.lineTo(0, h + 4); c.closePath();
+  c.fillStyle = vgrad(c, yW - 6, h, [[0, 'rgba(95,184,232,.62)'], [.4, 'rgba(60,150,205,.72)'], [1, 'rgba(31,111,168,.9)']]); c.fill();
+  c.strokeStyle = 'rgba(255,255,255,.85)'; c.lineWidth = 2.4; c.lineJoin = 'round'; c.beginPath(); for (let x = 0; x <= w; x += 6) x ? c.lineTo(x, yf(x)) : c.moveTo(x, yf(x)); c.stroke();
+  // foam around the feet of the rocks
+  c.fillStyle = 'rgba(255,255,255,.9)';
+  const feet = k < 3 ? [[xS0, xB1]] : [[xS0, xS1]]; feet.push([xB1, w]);
+  feet.forEach(([a, b]) => { for (let x = a - 6; x <= b + 6; x += 13) { const bump = 2 + 1.6 * Math.sin(time * 2 + x); circ(c, x, yf(x) - 1, bump); c.fill(); } });
+  c.restore();
+  // spray from the falling chunks
+  for (let i = S.spray.length - 1; i >= 0; i--) {
+    const q = S.spray[i]; q.life += dt; if (q.life > q.ttl) { S.spray.splice(i, 1); continue; }
+    q.vy += 380 * sc * dt; q.x += q.vx * dt; q.y += q.vy * dt; c.fillStyle = `rgba(255,255,255,${1 - q.life / q.ttl})`; circ(c, q.x, q.y, q.r * sc); c.fill();
+  }
+  // step label and dots
+  const step = Math.round(clamp(k, 0, 4));
+  pill(c, w, T[lang].sec.steps[step], w / 2, 24, 'center', 15);
+  for (let i = 0; i < 5; i++) { circ(c, w / 2 + (i - 2) * 16, h - 18, i === step ? 5.5 : 4); c.fillStyle = i <= step ? '#fff' : 'rgba(255,255,255,.35)'; c.fill(); c.strokeStyle = 'rgba(10,12,20,.6)'; c.lineWidth = 1; c.stroke(); }
+  c.restore();
+}
+function erodeStep() {
+  const A = S.arch, t0 = now();
+  if (A.cur >= 3.99 || A.to >= 4) { A.cur = A.from = A.to = 0; A.chunks = []; sfx.click(); return; }
+  A.from = A.cur; A.to = Math.round(A.to) + 1; A.t0 = t0;
+  if (A.to === 3) {
+    const r = rngOf(Math.floor(t0 * 100)), w = $('cv').getBoundingClientRect().width, h = $('cv').getBoundingClientRect().height;
+    A.chunks = Array.from({ length: 8 }, (_, i) => ({ x: lerp(w * .38, w * .62, r()), y0: h * (.32 + r() * .12), d: i * .06, r: w * (.02 + .014 * r()), col: SCOL[i % 3], jit: CH[i % 6].jit, ang: CH[i % 6].ang, rot: (r() - .5) * 8, hit: false }));
+  }
+  sfx.snap();
+}
+
+// =====================================================================================================================
+//  secret: look closer
+// =====================================================================================================================
+function drawGrains(c, w, h, dt, time) {
+  c.save(); c.beginPath(); c.roundRect(0, 0, w, h, 18); c.clip();
+  c.fillStyle = vgrad(c, 0, h, [[0, mix(C.sand, '#ffffff', .2)], [1, mix(C.sand, '#6b4a1f', .35)]]); c.fillRect(0, 0, w, h);
+  const r = rngOf(8); for (let i = 0; i < 260; i++) { c.fillStyle = r() < .5 ? 'rgba(120,80,30,.2)' : 'rgba(255,255,255,.4)'; c.fillRect(r() * w, r() * h, 1.6, 1.6); }
+  const R = Math.min(w * .36, h * .38), cx = w / 2 - R * .12, cy = h / 2 - R * .06;
+  const G = S.gr; G.geo = { cx, cy, R };
+  G.pop += (1 - G.pop) * Math.min(1, dt * 8);
+  lens(c, cx, cy, R, 1, GRAINS, G.sel, time, .75);
+  if (G.sel >= 0) {
+    const g = GRAINS[G.sel], x = cx + g.x * R, y = cy + g.y * R, s = g.r * R * 1.2;
+    c.save(); circ(c, cx, cy, R); c.clip(); drawGrain(c, g, x, y, s, true); c.restore();
+    const name = T[lang].sec.kinds[g.kind];
+    pill(c, w, name, x, y > cy ? y - s * 1.9 - 18 : y + s * 1.9 + 18, 'center', 14);
+  }
+  c.restore();
+}
+
+// =====================================================================================================================
+//  view 2: three shores
+// =====================================================================================================================
+function shoreLayout(w, h) {
+  const wide = w >= 640, hs = wide ? 92 : 78, gap = 8, rects = [];
+  if (wide) { const pw = (w - gap * 2 - 16) / 3; for (let i = 0; i < 3; i++) rects.push({ x: 8 + i * (pw + gap), y: hs, w: pw, h: h - hs - 8 }); }
+  else { const ph = (h - hs - gap * 2 - 8) / 3; for (let i = 0; i < 3; i++) rects.push({ x: 8, y: hs + i * (ph + gap), w: w - 16, h: ph }); }
+  return { wide, hs, rects, cardR: wide ? 36 : 31, cardX: w / 2, cardY: hs / 2 + 2 };
+}
+function waterBand(c, pw, wb, time, calm) {
+  c.fillStyle = vgrad(c, 0, wb, [[0, mix(C.sea1, '#ffffff', .15)], [1, C.sea2]]); c.fillRect(0, 0, pw, wb + 2);
+  c.strokeStyle = 'rgba(255,255,255,.5)'; c.lineWidth = 1.5;
+  for (let r = 0; r < 3; r++) { c.beginPath(); for (let x = 0; x <= pw; x += 6) { const y = wb * (.3 + r * .22) + Math.sin(x * .05 + time * (1 + r * .4) + r) * (calm ? 1.2 : 2.2); x ? c.lineTo(x, y) : c.moveTo(x, y); } c.stroke(); }
+}
+function foamLine(c, pw, y, time, amp) {
+  c.fillStyle = 'rgba(255,255,255,.95)';
+  for (let x = 0; x <= pw + 8; x += 9) { const yy = y + Math.sin(x * .09 + time * 1.4) * amp; circ(c, x, yy, 3.2 + Math.sin(x * .3 + time) * .8); c.fill(); }
+}
+function panelScene(c, kind, pw, ph, time) {
+  const wb = ph * .3;
+  if (kind === 0) { // sandy beach
+    waterBand(c, pw, wb, time, true);
+    c.fillStyle = vgrad(c, wb, ph, [[0, mix(C.sand, '#6b4a1f', .3)], [.18, mix(C.sand, '#6b4a1f', .12)], [.4, mix(C.sand, '#ffffff', .15)], [1, mix(C.sand, '#ffffff', .3)]]); c.fillRect(0, wb, pw, ph - wb);
+    const r = rngOf(21); for (let i = 0; i < 90; i++) { c.fillStyle = r() < .5 ? 'rgba(120,80,30,.22)' : 'rgba(255,255,255,.45)'; c.fillRect(r() * pw, wb + r() * (ph - wb), 1.6, 1.6); }
+    foamLine(c, pw, wb + 2 + Math.sin(time * .9) * 3, time, 1.6);
+    // line of washed-up seaweed
+    const yl = wb + (ph - wb) * .42;
+    for (let x = 0; x < pw; x += 6) { const y = yl + Math.sin(x * .045) * 4 + ((x * 7) % 5 - 2); ell(c, x, y, 5, 2.2, Math.sin(x) * .4); c.fillStyle = (x / 6) % 2 ? C.weed : mix(C.weed, '#000000', .25); c.fill(); }
+    [[.12, .8, 0], [.34, .66, 1], [.62, .88, 2], [.86, .7, 1], [.76, .52, 0]].forEach(([fx, fy, k]) => { const x = pw * fx, y = wb + (ph - wb) * fy, s = Math.min(8, ph * .05) + 3; // shells
+      ell(c, x, y, s, s * .8, .4); c.fillStyle = k === 1 ? '#F7C6D0' : '#FFFFFF'; c.fill(); c.strokeStyle = 'rgba(160,90,110,.85)'; c.lineWidth = 1; c.stroke();
+      c.beginPath(); c.arc(x, y, s * .45, .2, 3.8); c.stroke(); });
+  } else if (kind === 1) { // rocky shore with a pool
+    waterBand(c, pw, wb, time, false);
+    c.fillStyle = vgrad(c, wb, ph, [[0, mix(C.cl3, '#000000', .35)], [1, mix(C.cl3, '#000000', .6)]]); c.fillRect(0, wb, pw, ph - wb);
+    const r = rngOf(33); const rocks = [];
+    for (let i = 0; i < 9; i++) rocks.push({ x: pw * (.05 + r() * .9), y: wb + (ph - wb) * (.1 + r() * .85), rx: pw * (.07 + r() * .06), ry: (ph - wb) * (.1 + r() * .08), c: SCOL[i % 3] });
+    const px = pw * .62, py = wb + (ph - wb) * .64, prx = pw * .2, pry = (ph - wb) * .2;
+    rocks.sort((a, b) => a.y - b.y).forEach((k) => {
+      if (Math.hypot((k.x - px) / prx, (k.y - py) / pry) < 1.15) return;
+      ell(c, k.x, k.y, k.rx, k.ry); c.fillStyle = rgrad(c, k.x - k.rx * .4, k.y - k.ry * .5, k.rx * 1.5, [[0, mix(k.c, '#ffffff', .15)], [.6, mix(k.c, '#000000', .3)], [1, mix(k.c, '#000000', .6)]]); c.fill();
+      c.strokeStyle = 'rgba(15,8,2,.7)'; c.lineWidth = 1.3; c.stroke();
+      c.strokeStyle = 'rgba(255,255,255,.4)'; c.lineWidth = 1.5; c.beginPath(); c.ellipse(k.x, k.y, k.rx * .75, k.ry * .7, 0, Math.PI * 1.15, Math.PI * 1.6); c.stroke();
+    });
+    // the rock pool: rim, water, glints
+    ell(c, px, py, prx + 4, pry + 3); c.fillStyle = mix(C.cl3, '#000000', .7); c.fill();
+    ell(c, px, py, prx, pry); c.fillStyle = rgrad(c, px - prx * .3, py - pry * .3, prx * 1.2, [[0, mix(C.sea1, '#ffffff', .25)], [1, C.sea2]]); c.fill();
+    c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1.5; ell(c, px, py, prx * (.5 + .1 * Math.sin(time)), pry * (.5 + .1 * Math.sin(time))); c.stroke();
+    c.save(); ell(c, px, py, prx, pry); c.clip();
+    for (let i = 0; i < 3; i++) { const g = Math.max(0, Math.sin(time * 1.6 + i * 2.1)), gx = px + (i - 1) * prx * .5, gy = py - pry * (.2 + .15 * i), s = 5 * g; c.strokeStyle = `rgba(255,255,255,${.4 + .6 * g})`; c.lineWidth = 1.6; c.beginPath(); c.moveTo(gx - s, gy); c.lineTo(gx + s, gy); c.moveTo(gx, gy - s); c.lineTo(gx, gy + s); c.stroke(); }
+    c.restore();
+    // seaweed on the rocks
+    rocks.forEach((k, i) => { if (i % 2) return; for (let j = 0; j < 4; j++) { const bx = k.x + (j - 1.5) * k.rx * .35, by = k.y + k.ry * .55, sw = Math.sin(time * 1.4 + i + j) * 3; c.strokeStyle = j % 2 ? C.weed : mix(C.weed, '#ffffff', .15); c.lineWidth = 3; c.lineCap = 'round'; c.beginPath(); c.moveTo(bx, by); c.quadraticCurveTo(bx - 5 + sw, by - ph * .1, bx + sw * 1.4, by - ph * .17); c.stroke(); } });
+    foamLine(c, pw, wb + 2, time, 2.6);
+  } else { // muddy flat
+    waterBand(c, pw, wb, time, true);
+    c.fillStyle = vgrad(c, wb, ph, [[0, mix(C.mud, '#000000', .25)], [.4, C.mud], [1, mix(C.mud, '#ffffff', .1)]]); c.fillRect(0, wb, pw, ph - wb);
+    c.fillStyle = hgrad(c, 0, pw, [[0, 'rgba(255,255,255,0)'], [.35, 'rgba(255,255,255,.2)'], [.5, 'rgba(255,255,255,0)'], [.8, 'rgba(255,255,255,.13)'], [1, 'rgba(255,255,255,0)']]); c.fillRect(0, wb, pw, ph - wb);
+    // ripples in the mud
+    c.strokeStyle = 'rgba(40,28,16,.32)'; c.lineWidth = 1.3;
+    for (let row = 0; row < 6; row++) { c.beginPath(); const y0 = wb + (ph - wb) * (.14 + row * .15); for (let x = 0; x <= pw; x += 5) { const y = y0 + Math.sin(x * .12 + row * 1.7) * 2.2; x ? c.lineTo(x, y) : c.moveTo(x, y); } c.stroke(); }
+    // channels of water
+    [[.2, .55], [.78, .4]].forEach(([fx, ff], ci) => {
+      c.beginPath(); for (let k = 0; k <= 16; k++) { const f = k / 16, x = pw * fx + Math.sin(f * 5 + ci * 2) * pw * .08, y = wb + (ph - wb) * f; k ? c.lineTo(x, y) : c.moveTo(x, y); }
+      c.lineCap = 'round'; c.lineJoin = 'round'; c.strokeStyle = 'rgba(15,60,100,.55)'; c.lineWidth = Math.min(15, pw * .04) + 3; c.stroke();
+      c.strokeStyle = mix(C.sea1, '#ffffff', .1); c.lineWidth = Math.min(15, pw * .04); c.stroke();
+      c.strokeStyle = 'rgba(255,255,255,.6)'; c.lineWidth = 1.5; c.stroke();
+    });
+    // worm casts: little squiggles
+    const r = rngOf(55);
+    for (let i = 0; i < 9; i++) { const x = pw * (.08 + r() * .84), y = wb + (ph - wb) * (.2 + r() * .72), s = Math.min(9, ph * .05) + 2; c.strokeStyle = '#5d503f'; c.lineWidth = 2.4; c.lineCap = 'round'; c.beginPath(); c.moveTo(x - s, y); c.bezierCurveTo(x - s * .4, y - s * 1.2, x + s * .2, y + s * 1.1, x + s * .6, y - s * .5); c.bezierCurveTo(x + s * .9, y - s * .9, x + s * .4, y + s * .6, x + s, y + s * .2); c.stroke(); c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = .9; c.stroke(); }
+    foamLine(c, pw, wb + 1, time, 1.2);
+  }
+}
+// small animals: emoji where a good one exists, drawn where the spec asks for it
+function animal(c, kind, x, y, s, time, seed) {
+  c.save();
+  if (kind === 'crab') {
+    const m = Math.sin(time * 1.3 + seed), ox = m * s * .5, mv = Math.abs(Math.cos(time * 1.3 + seed));
+    shadow(c, x + ox, y + s * .42, s * .5, s * .12); emoji(c, '🦀', x + ox, y, s, Math.sin(time * 14) * .06 * mv);
+  } else if (kind === 'starfish') {
+    const R = s * .52; c.translate(x, y); c.rotate(Math.sin(time * .7 + seed) * .25);
+    c.beginPath(); for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + (i * Math.PI) / 5, q = i % 2 ? R * .42 : R; i ? c.lineTo(Math.cos(a) * q, Math.sin(a) * q) : c.moveTo(Math.cos(a) * q, Math.sin(a) * q); } c.closePath();
+    c.lineJoin = 'round'; c.fillStyle = rgrad(c, -R * .3, -R * .3, R * 1.4, [[0, '#FFC088'], [.6, '#FF9F5A'], [1, '#D9733A']]); c.fill();
+    c.lineWidth = 3; c.strokeStyle = '#FF9F5A'; c.stroke(); c.lineWidth = 1.2; c.strokeStyle = '#9a4a18'; c.stroke();
+    c.fillStyle = '#FFE0B8'; for (let i = 0; i < 5; i++) { const a = -Math.PI / 2 + i * Math.PI * .4; for (let k = 0; k < 3; k++) { circ(c, Math.cos(a) * R * (.25 + k * .22), Math.sin(a) * R * (.25 + k * .22), Math.max(1, s * .035)); c.fill(); } }
+  } else if (kind === 'lugworm') {
+    shadow(c, x, y + s * .25, s * .55, s * .13, .22);
+    c.strokeStyle = '#5d503f'; c.lineCap = 'round'; c.lineJoin = 'round'; c.lineWidth = Math.max(3, s * .12);
+    c.beginPath(); for (let t = 0; t <= 5.5; t += .2) { const rr = s * (.06 + t * .062), a = t * 1.5, X = x + Math.cos(a) * rr, Y = y + s * .1 + Math.sin(a) * rr * .55; t ? c.lineTo(X, Y) : c.moveTo(X, Y); } c.stroke();
+    c.strokeStyle = 'rgba(255,255,255,.25)'; c.lineWidth = 1; c.stroke();
+    // the worm itself, reaching out of its hole
+    const hx = x + s * .62, hy = y + s * .12, len = s * (.35 + .35 * Math.pow(Math.sin(time * 1.2 + seed), 2));
+    ell(c, hx, hy, s * .12, s * .06); c.fillStyle = '#2d241a'; c.fill();
+    c.strokeStyle = '#F4A3A8'; c.lineWidth = Math.max(4, s * .11);
+    c.beginPath(); for (let k = 0; k <= 8; k++) { const f = k / 8, X = hx + Math.sin(time * 3 + f * 5) * s * .06 * f, Y = hy - len * f; k ? c.lineTo(X, Y) : c.moveTo(X, Y); } c.stroke();
+    c.strokeStyle = 'rgba(160,60,80,.55)'; c.lineWidth = 1;
+    for (let k = 1; k < 8; k++) { const f = k / 8, X = hx + Math.sin(time * 3 + f * 5) * s * .06 * f, Y = hy - len * f, hw = Math.max(2, s * .055); c.beginPath(); c.moveTo(X - hw, Y); c.lineTo(X + hw, Y); c.stroke(); }
+  } else if (kind === 'bird') {
+    const ox = Math.sin(time * .5 + seed) * s * .5, fy = y + s * .75;
+    shadow(c, x + ox, fy + 2, s * .45, s * .1, .25);
+    c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1.4; const rp = (time * 1.1) % 1; ell(c, x + ox, fy, s * (.2 + .5 * rp), s * (.05 + .12 * rp)); c.globalAlpha = 1 - rp; c.stroke(); c.globalAlpha = 1;
+    c.translate(x + ox, fy); c.rotate(.1 + .18 * Math.sin(time * 3.4)); c.translate(-(x + ox), -fy);
+    emoji(c, '🦩', x + ox, y, s * 1.45);
+  } else if (kind === 'hopper') {
+    const ph = time * 1.1 + seed, n = Math.floor(ph), hp = Math.min(1, (ph - n) / .5), ox = Math.sin((n + easeIO(hp)) * 1.3) * s * .7, oy = -s * .8 * 4 * hp * (1 - hp);
+    shadow(c, x + ox, y + s * .35, s * .35 * (1 - oy / (s * 3)), s * .08, .25);
+    emoji(c, '🦐', x + ox, y + oy, s * .85, -.15 + hp * .3, 1 + (hp > .9 || hp === 0 ? .1 : 0), 1);
+  } else if (kind === 'snail') {
+    const ox = Math.sin(time * .4 + seed) * s * .6;
+    shadow(c, x + ox, y + s * .3, s * .38, s * .08, .25); emoji(c, '🐌', x + ox, y, s * .75);
+  }
+  c.restore();
+}
+function drawGlyph(c, kind, x, y, s, time) { // an animal on its round card
+  if (kind === 'starfish' || kind === 'lugworm') animal(c, kind, x, y, s * (kind === 'lugworm' ? .8 : 1), time, 1);
+  else emoji(c, { crab: '🦀', bird: '🦩', hopper: '🦐', snail: '🐌' }[kind], x, y, s * (kind === 'bird' ? 1.1 : kind === 'snail' ? .85 : .95));
+}
+function drawCard(c, x, y, R, kind, time, k = 1) {
+  c.save(); c.globalAlpha = 1; const r = R * k;
+  c.shadowColor = 'rgba(0,0,0,.45)'; c.shadowBlur = 16; c.shadowOffsetY = 4;
+  circ(c, x, y, r); c.fillStyle = rgrad(c, x - r * .35, y - r * .4, r * 1.5, [[0, '#FFFFFF'], [1, '#DCE6F2']]); c.fill();
+  c.shadowColor = 'transparent'; circ(c, x, y, r); c.lineWidth = 3; c.strokeStyle = '#fff'; c.stroke();
+  circ(c, x, y, r + 1.5); c.lineWidth = 1; c.strokeStyle = 'rgba(10,12,20,.5)'; c.stroke();
+  if (r > 6) drawGlyph(c, kind, x, y + (kind === 'bird' ? 3 : 0), R * 1.0 * k, time);
+  c.restore();
+}
+function drawShores(c, w, h, dt, time) {
+  const L = shoreLayout(w, h), Sx = S.s; Sx.rects = L.rects;
+  const round = ROUNDS[Math.min(Sx.i, 5)], target = Sx.stage === 'ask' || Sx.stage === 'sum' ? -1 : round.shore;
+  Sx.glow += ((target >= 0 ? 1 : 0) - Sx.glow) * Math.min(1, dt * 6);
+  const aSize = clamp(Math.min(L.rects[0].w * .16, L.rects[0].h * .3), 24, 42);
+  L.rects.forEach((rc, i) => {
+    c.save(); c.beginPath(); c.roundRect(rc.x, rc.y, rc.w, rc.h, 16); c.clip(); c.translate(rc.x, rc.y);
+    panelScene(c, i, rc.w, rc.h, time);
+    // animals that already found their home
+    Sx.placed.forEach((it) => {
+      if (it.shore !== i) return;
+      const f = clamp01((time - it.t0) / 1.1); if (f < 1) return;
+      animal(c, it.kind, rc.w * it.slot[0], rc.h * it.slot[1], aSize, time, it.seed);
+    });
+    if (target >= 0 && target !== i) { c.fillStyle = `rgba(10,12,20,${.45 * Sx.glow})`; c.fillRect(0, 0, rc.w, rc.h); }
+    c.restore();
+    if (target === i) { // the right shore glows
+      const pulse = .6 + .4 * Math.sin(time * 4);
+      c.save(); c.shadowColor = 'rgba(255,255,255,.9)'; c.shadowBlur = 14 * pulse * Sx.glow; c.beginPath(); c.roundRect(rc.x + 1, rc.y + 1, rc.w - 2, rc.h - 2, 15); c.lineWidth = 3.5; c.strokeStyle = `rgba(255,255,255,${.95 * Sx.glow})`; c.stroke(); c.restore();
+    } else { c.beginPath(); c.roundRect(rc.x + .5, rc.y + .5, rc.w - 1, rc.h - 1, 16); c.lineWidth = 1; c.strokeStyle = 'rgba(255,255,255,.28)'; c.stroke(); }
+    pill(c, w, T[lang].s.shores[i], rc.x + 8, rc.y + 17, 'left', 12);
+  });
+  // the card of the current animal; after the answer it flies to its shore
+  if (Sx.stage === 'sum') return;
+  const it = Sx.placed[Sx.placed.length - 1];
+  if (Sx.stage === 'ask') { drawCard(c, L.cardX, L.cardY, L.cardR, round.kind, time, backOut((time - Sx.cardT0) / .5)); return; }
+  if (!it) return;
+  const f = easeIO((time - it.t0) / 1.1), rc = L.rects[it.shore];
+  if (f < 1) {
+    const tx = rc.x + rc.w * it.slot[0], ty = rc.y + rc.h * it.slot[1], x = lerp(L.cardX, tx, f), y = lerp(L.cardY, ty, f) - Math.sin(f * Math.PI) * 26;
+    drawCard(c, x, y, L.cardR, it.kind, time, 1 - .55 * sm((f - .6) / .4));
+  }
+}
+
+// =====================================================================================================================
+//  view 3: tide
+// =====================================================================================================================
+const lvl = (h) => .5 + .5 * Math.cos(2 * Math.PI * (h - 15.2) / 12.4167); // 1 = high tide; highs at 2:47 and 15:12
+const meltOf = (l) => sm((l - .4) / .35);
+function dmgAt(h) { if (h < 9) return 0; let m = 0; for (let s = 9; s <= h; s += .1) m = Math.max(m, meltOf(lvl(s))); return Math.max(m, meltOf(lvl(h))); }
+function towerPath(c, x, base, hw, ht, m) {
+  const topHW = hw * (1 - .8 * m), baseHW = hw * (1 + .55 * m), top = base - ht * (1 - .86 * m), rc = lerp(2.5, topHW, m);
+  c.beginPath(); c.moveTo(x - baseHW, base); c.lineTo(x - topHW, top + rc); c.quadraticCurveTo(x - topHW, top, x - topHW + rc, top);
+  c.lineTo(x + topHW - rc, top); c.quadraticCurveTo(x + topHW, top, x + topHW, top + rc); c.lineTo(x + baseHW, base); c.closePath();
+  return { top, topHW };
+}
+function drawTide(c, w, h, dt, time) {
+  const gh = clamp(h * .2, 70, 92), sh = h - gh - 8, hr = S.t.hour, l = lvl(hr);
+  const yLow = sh * .74, yHigh = sh * .46, xLow = w * .2, xC = w * .5, yC = lerp(yLow, yHigh, .55), dy = (yC - yLow) / (xC - xLow);
+  const bY = (x) => yLow + (x - xLow) * dy, yw = lerp(yLow, yHigh, l), xw = xLow + (yw - yLow) / dy;
+  c.save(); c.beginPath(); c.roundRect(0, 0, w, sh, 18); c.clip();
+  sky(c, w, sh * .6, time, .84);
+  c.fillStyle = vgrad(c, sh * .55, sh, [[0, mix(C.sea1, '#ffffff', .85)], [1, mix(C.sea1, '#ffffff', .85)]]); c.fillRect(0, sh * .5, w, sh);
+  // deep sea, then the sand slope in front of it
+  const surfY = (x) => yw + Math.sin(x * .05 - time * 1.4) * 2.4 + Math.sin(x * .11 + time * 2) * 1.2;
+  c.fillStyle = vgrad(c, yHigh, sh, [[0, C.sea1], [1, C.sea2]]); c.fillRect(0, yw, w, sh - yw + 2);
+  c.beginPath(); c.moveTo(0, bY(0)); c.lineTo(w, bY(w)); c.lineTo(w, sh + 2); c.lineTo(0, sh + 2); c.closePath();
+  c.fillStyle = vgrad(c, bY(w), sh, [[0, mix(C.sand, '#ffffff', .3)], [.45, C.sand], [1, mix(C.sand, '#6b4a1f', .3)]]); c.fill();
+  c.save(); c.clip(); const rr = rngOf(3); for (let i = 0; i < 160; i++) { const x = rr() * w, y = bY(x) + 3 + rr() * (sh - bY(x)); c.fillStyle = rr() < .5 ? 'rgba(120,80,30,.2)' : 'rgba(255,255,255,.4)'; c.fillRect(x, y, 1.6, 1.6); }
+  c.fillStyle = hgrad(c, xw - 2, xw + w * .08, [[0, 'rgba(70,40,10,.3)'], [1, 'rgba(70,40,10,0)']]); c.fillRect(xw - 2, 0, w * .1, sh); // wet sand
+  c.restore();
+  c.beginPath(); c.moveTo(0, bY(0)); c.lineTo(w, bY(w)); c.strokeStyle = mix(C.sand, '#ffffff', .6); c.lineWidth = 2; c.stroke();
+  // dune grass at the top of the beach
+  c.strokeStyle = C.grass; c.lineWidth = 2.2; c.lineCap = 'round';
+  for (let x = w * .84; x < w; x += 7) { const y = bY(x) + 1, k = 10 + (x * 3 % 7); c.beginPath(); c.moveTo(x, y); c.quadraticCurveTo(x - 2, y - k * .6, x - 5 + Math.sin(time + x) * 1.5, y - k); c.moveTo(x, y); c.quadraticCurveTo(x + 2, y - k * .5, x + 4 + Math.sin(time + x) * 1.5, y - k * .85); c.stroke(); }
+  // the castle (built at 9:00)
+  const m = dmgAt(hr), cx = w * .52, u = Math.min(w, sh * 1.4);
+  if (hr >= 9) drawCastle(c, cx, bY, w, sh, m, time);
+  // the water in front: over the slope, tinting what is under it
+  c.beginPath(); c.moveTo(0, surfY(0)); for (let x = 6; x <= xw; x += 6) c.lineTo(x, surfY(x)); c.lineTo(xw, yw);
+  for (let x = xw; x >= 0; x -= 6) c.lineTo(x, Math.max(yw, bY(x)));
+  c.closePath();
+  c.fillStyle = vgrad(c, yw, Math.min(sh, bY(0)), [[0, 'rgba(95,184,232,.58)'], [1, 'rgba(31,111,168,.78)']]); c.fill();
+  c.beginPath(); for (let x = 0; x <= xw + 4; x += 6) x ? c.lineTo(x, surfY(x)) : c.moveTo(x, surfY(x)); c.strokeStyle = 'rgba(255,255,255,.8)'; c.lineWidth = 2; c.stroke();
+  // foam at the edge, swashing back and forth
+  c.fillStyle = 'rgba(255,255,255,.95)'; const sw = Math.sin(time * 1.1) * 7;
+  for (let i = 0; i < 6; i++) { const x = xw + sw - i * 9 - 2; circ(c, x, surfY(x) - 1, 3.4 - i * .3 + Math.sin(time * 3 + i) * .6); c.fill(); }
+  c.restore();
+  // clock in the corner
+  const hh = ((hr % 24) + 24) % 24, R = 24, kx = 10 + R + 4, ky = 10 + R + 4;
+  c.save(); c.globalAlpha = 1; circ(c, kx, ky, R + 3); c.fillStyle = 'rgba(10,12,20,.82)'; c.fill();
+  circ(c, kx, ky, R); c.fillStyle = '#F4F6FB'; c.fill(); c.lineWidth = 1.5; c.strokeStyle = '#0c0e1a'; c.stroke();
+  c.strokeStyle = '#98A0B8'; c.lineWidth = 1.5; for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6; c.beginPath(); c.moveTo(kx + Math.sin(a) * R * .82, ky - Math.cos(a) * R * .82); c.lineTo(kx + Math.sin(a) * R * .94, ky - Math.cos(a) * R * .94); c.stroke(); }
+  c.lineCap = 'round'; c.strokeStyle = '#0c0e1a';
+  const ah = (hh % 12) / 12 * Math.PI * 2, am = (hh % 1) * Math.PI * 2;
+  c.lineWidth = 3; c.beginPath(); c.moveTo(kx, ky); c.lineTo(kx + Math.sin(ah) * R * .5, ky - Math.cos(ah) * R * .5); c.stroke();
+  c.lineWidth = 2; c.beginPath(); c.moveTo(kx, ky); c.lineTo(kx + Math.sin(am) * R * .78, ky - Math.cos(am) * R * .78); c.stroke();
+  circ(c, kx, ky, 2.5); c.fillStyle = '#E5484D'; c.fill(); c.restore();
+  pill(c, w, T[lang].t.hour(Math.floor(hh)), kx + R + 10, ky, 'left', 14);
+  // the graph strip
+  const gt = S.t.stage === 'q' ? 0 : 1;
+  if (gt) drawGraph(c, w, sh + 8, h - sh - 8, hr, time);
+}
+function drawCastle(c, cx, bY, w, sh, m, time) {
+  const parts = [
+    { dx: -.062, hw: .026, ht: .075, wall: 1 }, { dx: .062, hw: .026, ht: .075, wall: 1 },
+    { dx: -.115, hw: .03, ht: .17 }, { dx: .115, hw: .03, ht: .14 }, { dx: 0, hw: .042, ht: .21, keep: 1 },
+  ];
+  const sand = C.sand, lit = mix(sand, '#ffffff', .35), dark = mix(sand, '#6b4a1f', .3), edge = mix(sand, '#4a3010', .55);
+  shadow(c, cx, bY(cx) + 3, w * .17, 4, .2);
+  parts.forEach((p) => {
+    const x = cx + p.dx * w, base = bY(x) + 2, hw = p.hw * w * (p.wall ? 1 : 1), ht = p.ht * sh * (p.wall ? .8 : 1);
+    const { top, topHW } = towerPath(c, x, base, hw, ht, m);
+    c.fillStyle = hgrad(c, x - hw, x + hw, [[0, lit], [.5, sand], [1, dark]]); c.fill(); c.lineWidth = 1.4; c.lineJoin = 'round'; c.strokeStyle = edge; c.stroke();
+    const k = 1 - clamp01(m * 3);
+    if (k > .02) { // crenellations, door and brick marks fade as the castle slumps
+      c.save(); c.globalAlpha = k; const mw = topHW * .5;
+      [-1, 0, 1].forEach((i) => { const mx = x + i * topHW * .72 - mw * .5; c.fillStyle = sand; c.fillRect(mx, top - 5, mw, 6); c.strokeStyle = edge; c.lineWidth = 1.1; c.strokeRect(mx, top - 5, mw, 6); });
+      if (p.keep) { c.fillStyle = '#4a3010'; c.beginPath(); c.moveTo(x - hw * .3, base); c.lineTo(x - hw * .3, base - ht * .22); c.quadraticCurveTo(x, base - ht * .36, x + hw * .3, base - ht * .22); c.lineTo(x + hw * .3, base); c.closePath(); c.fill(); }
+      c.strokeStyle = 'rgba(100,70,30,.45)'; c.lineWidth = 1; for (let i = 1; i < 4; i++) { const yy = top + (base - top) * i / 4.4; c.beginPath(); c.moveTo(x - hw * .7, yy); c.lineTo(x - hw * .1, yy); c.moveTo(x + hw * .1, yy + 3); c.lineTo(x + hw * .7, yy + 3); c.stroke(); }
+      c.restore();
+    }
+    if (!p.wall && (p.keep || p.dx < 0)) { // the flags 🚩 topple as the sand melts
+      const fall = sm((m - .1) / .5), fs = Math.max(14, w * .045);
+      emoji(c, '🚩', x + fs * .35 + fall * fs * .6, top - fs * .5 + fall * (base - top + fs * .2), fs, fall * 1.5);
+    }
+  });
+}
+function drawGraph(c, w, y0, gh, hr, time) {
+  const x0 = 14, x1 = w - 14, pad = 14, top = y0 + 8, bot = y0 + gh - 22;
+  c.save(); c.globalAlpha = 1;
+  c.beginPath(); c.roundRect(4, y0, w - 8, gh, 14); c.fillStyle = 'rgba(14,17,28,.8)'; c.fill(); c.strokeStyle = 'rgba(130,145,190,.3)'; c.lineWidth = 1; c.stroke();
+  const X = (t) => x0 + pad + (x1 - x0 - pad * 2) * t / 24, Y = (l) => bot - (bot - top - 6) * l;
+  c.beginPath(); for (let t = 0; t <= 24.01; t += .25) t ? c.lineTo(X(t), Y(lvl(t))) : c.moveTo(X(t), Y(lvl(t)));
+  c.lineTo(X(24), bot); c.lineTo(X(0), bot); c.closePath(); c.fillStyle = vgrad(c, top, bot, [[0, 'rgba(95,184,232,.75)'], [1, 'rgba(31,111,168,.25)']]); c.fill();
+  c.beginPath(); for (let t = 0; t <= 24.01; t += .25) t ? c.lineTo(X(t), Y(lvl(t))) : c.moveTo(X(t), Y(lvl(t)));
+  c.strokeStyle = '#fff'; c.lineWidth = 2.4; c.lineJoin = 'round'; c.stroke();
+  // hour labels
+  c.fillStyle = '#98A0B8'; c.font = '700 12px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  [0, 6, 12, 18, 24].forEach((t) => { c.fillText(`${t}`, X(t), y0 + gh - 9); c.strokeStyle = 'rgba(152,160,184,.5)'; c.lineWidth = 1; c.beginPath(); c.moveTo(X(t), bot); c.lineTo(X(t), bot + 3); c.stroke(); });
+  // the two high tides, shown once the reveal is over
+  if (S.t.stage === 'done') {
+    [2 + 47 / 60, 15 + 12 / 60].forEach((t) => {
+      c.strokeStyle = 'rgba(255,255,255,.4)'; c.setLineDash([3, 4]); c.beginPath(); c.moveTo(X(t), Y(1)); c.lineTo(X(t), bot); c.stroke(); c.setLineDash([]);
+      circ(c, X(t), Y(1), 6 + Math.sin(time * 4) * 1); c.fillStyle = '#fff'; c.fill(); c.strokeStyle = '#1F6FA8'; c.lineWidth = 2.5; c.stroke();
+      pill(c, w, T[lang].t.high, X(t), Y(1) + 15, 'center', 12);
+    });
+  }
+  // the marker for the current hour
+  const hx = X(clamp(hr, 0, 24)), hy = Y(lvl(hr));
+  c.strokeStyle = 'rgba(255,255,255,.8)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(hx, top); c.lineTo(hx, bot); c.stroke();
+  circ(c, hx, hy, 6); c.fillStyle = '#FF9F5A'; c.fill(); c.strokeStyle = '#fff'; c.lineWidth = 2; c.stroke();
+  c.restore();
+}
+
+// =====================================================================================================================
+//  loop
+// =====================================================================================================================
+const cvLoop = canvasLoop($('cv'), (c, w, h, dt, time) => {
+  const v = lab.view, W = S.w, Tt = S.t;
+  // time-lapse
+  if (W.run) {
+    W.p = clamp(W.p + W.run * dt / W.dur, 0, 1);
+    if (W.run > 0 && W.p >= 1) { W.run = 0; W.stage = W.stage === 'tl1' ? 'r1' : 'r2'; (W.stage === 'r1' ? sfx.good : sfx.snap)(); render(); }
+    else if (W.run < 0 && W.p <= 0) { W.run = 0; render(); }
+    if (v === 'waves' && !S.sec) drawWavesReadout();
+  }
+  W.mag += clamp((W.stage === 'r1' && !S.sec ? 1 : 0) - W.mag, -dt * 2.5, dt * 2.5);
+  // tide clock
+  if (Tt.run) {
+    Tt.hour = Math.min(24, Tt.hour + dt * 1.5);
+    if (Tt.stage === 'run' && Tt.hour >= 15) { Tt.stage = 'run2'; render(); }
+    if (Tt.hour >= 24) { Tt.run = false; Tt.stage = 'done'; render(); }
+    $('hr').value = Tt.hour;
+    if (v === 'tide') drawTideReadout();
+  }
+  // erosion steps ease towards the target
+  const A = S.arch; if (A.cur !== A.to) { const f = easeIO((time - A.t0) / 1.1); A.cur = lerp(A.from, A.to, f); if (f >= 1) A.cur = A.to; }
+  if (v === 'waves') { if (S.sec === 'arch') drawArch(c, w, h, dt, time); else if (S.sec === 'grains') drawGrains(c, w, h, dt, time); else drawWaves(c, w, h, dt, time); }
+  else if (v === 'shores') drawShores(c, w, h, dt, time);
+  else drawTide(c, w, h, dt, time);
+});
+
+// =====================================================================================================================
+//  input
+// =====================================================================================================================
+const showStage = () => { const r = $('stage').getBoundingClientRect(); if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+$('cv').addEventListener('pointerdown', (ev) => {
+  const r = $('cv').getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top, v = lab.view;
+  if (v === 'shores' && S.s.stage === 'ask') {
+    const i = S.s.rects.findIndex((q) => x >= q.x && x <= q.x + q.w && y >= q.y && y <= q.y + q.h);
+    if (i >= 0) answerShore(i);
+  } else if (v === 'waves' && S.sec === 'grains' && S.gr.geo) {
+    const { cx, cy, R } = S.gr.geo; let best = -1, bd = 1e9;
+    GRAINS.forEach((g, i) => { const d = Math.hypot(x - (cx + g.x * R), y - (cy + g.y * R)) / (g.r * R); if (d < bd) { bd = d; best = i; } });
+    if (bd < 2.2) { S.gr.sel = best; S.gr.pop = 0; sfx.click(); render(); }
+  }
+});
+$('hr').addEventListener('input', () => { S.t.run = false; S.t.hour = +$('hr').value; if (S.t.stage !== 'done') { S.t.stage = 'done'; } render(); });
+function answerShore(i) {
+  const s = S.s, round = ROUNDS[s.i]; if (s.stage !== 'ask') return;
+  s.pick = i; s.stage = 'told'; s.answered = true; if (i === round.shore) s.score++;
+  s.placed.push({ kind: round.kind, shore: round.shore, slot: round.slot, t0: now(), seed: s.i * 1.7 + 1 });
+  (i === round.shore ? sfx.good : sfx.bad)(); showStage(); render();
+}
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b) return;
+  const act = b.dataset.act, i = +b.dataset.i, W = S.w, s = S.s, Tt = S.t;
+  if (act === 'a1' && W.stage === 'q1') { W.a1 = i; W.stage = 'tl1'; W.answered = true; W.run = 1; W.dur = 6; (i === 1 ? sfx.good : sfx.bad)(); showStage(); }
+  else if (act === 'next1') { W.stage = 'q2'; W.run = -1; W.dur = 1; sfx.click(); }
+  else if (act === 'a2' && W.stage === 'q2') { W.a2 = i; W.stage = 'tl2'; W.run = 1; W.dur = 3.6; (i === 1 ? sfx.good : sfx.bad)(); showStage(); }
+  else if (act === 'wagain') { W.stage = 'q1'; W.answered = false; W.a1 = W.a2 = null; W.run = -1; W.dur = 1.2; sfx.click(); }
+  else if (act === 'shore') answerShore(i);
+  else if (act === 'snext') { if (s.i >= 5) s.stage = 'sum'; else { s.i++; s.stage = 'ask'; s.pick = null; s.cardT0 = now(); } sfx.click(); }
+  else if (act === 'sagain') { Object.assign(s, { i: 0, stage: 'ask', pick: null, score: 0, placed: [], cardT0: now() }); sfx.click(); }
+  else if (act === 'ta' && Tt.stage === 'q') { Tt.a = i; Tt.stage = 'run'; Tt.answered = true; Tt.run = true; Tt.hour = 9; (i === 1 ? sfx.good : sfx.bad)(); showStage(); }
+  else if (act === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    const k = b.dataset.k; S.sec = S.sec === k ? null : k; if (S.sec === 'grains') S.gr.sel = -1; sfx.click();
+  } else if (act === 'erode') erodeStep();
+  render();
+});
+
+// =====================================================================================================================
+//  one render per change: controls, readout and the state card
+// =====================================================================================================================
+function qa(q, opts, act, sel, ok, locked) {
+  return `<div class="q">${esc(q)}</div><div class="qo">${opts.map((o, i) => `<button class="qb ${locked ? (i === ok ? 'ok' : i === sel ? 'no' : '') : ''}" data-act="${act}" data-i="${i}"${locked ? ' disabled' : ''}>${esc(o)}</button>`).join('')}</div>`;
+}
+const verdict = (good, text, btn) => `<div class="verdict ${good ? 'ok' : 'no'}">${esc(good ? T[lang].right : T[lang].wrong)}</div><p class="vtext">${esc(text)}</p>${btn ?? ''}`;
+const stateCard = (key, answered, extra = '') => { const [emo, title, lead] = T[lang].states[key][answered ? 1 : 0]; lab.setState({ emo, title, lead, body: '', extra }); };
+
+function drawWavesReadout() { lab.setReadout(esc(fmtYears(yearsOf(S.w.p))), '', '', C.sea1); }
+function drawTideReadout() {
+  const t = T[lang].t, hr = S.t.hour, l = lvl(hr);
+  lab.setReadout(esc(t.hour(Math.floor(hr % 24 + 24) % 24)), '', S.t.answered ? (l > .75 ? t.high : l < .25 ? t.low : '') : '', C.sea2);
+}
+function render() {
+  const t = T[lang], v = lab.view, W = S.w, sx = S.s, Tt = S.t;
+  document.body.dataset.v = v === 'waves' && S.sec ? S.sec : v;
+  $('secW').style.display = v === 'waves' ? '' : 'none';
+  $('secS').style.display = v === 'shores' ? '' : 'none';
+  $('secT').style.display = v === 'tide' ? '' : 'none';
+  if (v === 'waves') {
+    const open = secret.unlocked();
+    const chip = (k, emo) => `<button class="chip secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+    $('secChips').innerHTML = chip('arch', '🏛️') + chip('grains', '🔍');
+    $('archRow').style.display = S.sec === 'arch' ? '' : 'none';
+    $('erodeB').textContent = t.sec.erode;
+    if (S.sec) {
+      $('waQa').innerHTML = '';
+      if (S.sec === 'arch') {
+        const k = Math.round(clamp(S.arch.to, 0, 4));
+        lab.setReadout(esc(t.sec.steps[k]), `${k + 1} / 5`, '', C.cl2);
+        lab.setState({ emo: '🏛️', title: t.secrets.arch[0], lead: t.sec.archText, body: '', extra: '' });
+      } else {
+        const g = S.gr.sel >= 0 ? GRAINS[S.gr.sel] : null;
+        lab.setReadout(g ? esc(t.sec.kinds[g.kind]) : '🔍', '', '', C.sand);
+        lab.setState({ emo: '🔍', title: t.secrets.grains[0], lead: t.sec.grainsText, body: '', extra: '' });
+      }
+      return;
+    }
+    $('archRow').style.display = 'none';
+    const st = W.stage;
+    let html;
+    if (st === 'q1' || st === 'tl1' || st === 'r1') {
+      html = qa(t.w.q1, t.w.o1, 'a1', W.a1, 1, st !== 'q1');
+      if (st === 'r1') html += verdict(W.a1 === 1, t.w.r1, `<button class="btn" data-act="next1">${esc(t.next)}</button>`);
+    } else {
+      html = qa(t.w.q2, t.w.o2, 'a2', W.a2, 1, st !== 'q2');
+      if (st === 'r2') html += verdict(W.a2 === 1, t.w.r2, `<button class="btn" data-act="wagain">${esc(t.again)}</button>`);
+    }
+    $('waQa').innerHTML = html;
+    drawWavesReadout();
+    stateCard('waves', W.answered);
+  } else if (v === 'shores') {
+    const round = ROUNDS[Math.min(sx.i, 5)], told = sx.stage === 'told';
+    let html;
+    if (sx.stage === 'sum') html = `<div class="verdict ok">${sx.score} / 6</div><p class="vtext">${esc(t.s.sum)}</p><button class="btn" data-act="sagain">${esc(t.again)}</button>`;
+    else {
+      html = qa(t.s.q(t.s.animals[sx.i]), t.s.shores, 'shore', sx.pick, round.shore, told);
+      if (told) html += verdict(sx.pick === round.shore, t.s.why[sx.i], `<button class="btn" data-act="snext">${esc(t.next)}</button>`);
+    }
+    $('shQa').innerHTML = html;
+    const done = sx.placed.length;
+    lab.setReadout(`${done}/6`, '', sx.answered ? `✓ ${sx.score}` : '', '#FF9F5A');
+    stateCard('shores', sx.answered);
+  } else {
+    const st = Tt.stage;
+    $('tdQa').innerHTML = qa(t.t.q, t.t.o, 'ta', Tt.a, 1, st !== 'q') + (st === 'run2' || st === 'done' ? verdict(Tt.a === 1, t.t.r) : '');
+    $('hrRow').style.display = st === 'q' ? 'none' : '';
+    $('hr').setAttribute('aria-label', t.views.tide);
+    $('hr').value = Tt.hour;
+    $('hr0').textContent = t.t.hour(0); $('hr1').textContent = t.t.hour(12); $('hr2').textContent = t.t.hour(24);
+    drawTideReadout();
+    stateCard('tide', Tt.answered, Tt.answered ? `<div class="fine">${esc(t.fine)}</div>` : '');
+  }
+}
+render();
+</script>
+</body>
+</html>
