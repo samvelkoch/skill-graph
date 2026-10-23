@@ -251,15 +251,6 @@
     renderBtn();
     new MutationObserver(() => { renderBtn(); if ($('tourCard')) render(); })
       .observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
-    let seen = null;
-    try { seen = localStorage.getItem(KEY); } catch { seen = '1'; } // no storage: don't pop up on every visit
-    if (seen) return;
-    // first visit: wait until the data is in and the loading screen is gone
-    const t0 = Date.now();
-    const wait = setInterval(() => {
-      const loaded = g(() => byId?.size > 0, false) && $('loading').style.display === 'none';
-      if (loaded || Date.now() - t0 > 20000) { clearInterval(wait); if (loaded) setTimeout(open, 600); }
-    }, 250);
   }
 
   init();
