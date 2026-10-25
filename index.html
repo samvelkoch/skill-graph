@@ -434,9 +434,11 @@
     ul.topics .age { flex-basis: 100%; padding-left: 24px; }
     #panel { left: 0; right: 0; bottom: 0; top: auto; width: auto; max-width: none; height: 56dvh; max-height: none; border-radius: 22px 22px 0 0; transition: height .2s; }
     #panel.expanded { height: calc(100dvh - 64px); z-index: 9; }
+    #panel.peek { height: 150px; overflow: hidden; } /* only the title: the graph stays reachable */
+    #panel.dragging { transition: none; }
     .ptabs { gap: 2px; flex-wrap: wrap; border-radius: 18px; }
     .ptabs button { padding: 5px 7px; font-size: 12px; }
-    .phead { border-radius: 22px 22px 0 0; padding-top: 22px; }
+    .phead { border-radius: 22px 22px 0 0; padding-top: 22px; touch-action: none; } /* the whole header drags the sheet */
     .grip { display: block; width: 44px; height: 20px; border: 0; background: none; position: absolute; left: 50%; top: 4px; transform: translateX(-50%); touch-action: none; padding: 0; }
     .grip::before { content: ''; display: block; width: 36px; height: 4px; border-radius: 99px; background: rgba(255, 255, 255, .28); margin: 8px auto 0; }
     body.has-panel #legend { display: none; }
@@ -1606,7 +1608,7 @@ function select(id, fly, fromBack) {
   if (!id || id !== focus) { stuck = null; route = false; routeAll = false; routeOpenKnown = false; routeOpt = false; routeDom = null; routeDomsAll = false; }
   focus = id; chain = id ? ancestors(id) : new Set();
   if (!id) chainOnly = false;
-  if (!id) $('panel').classList.remove('expanded');
+  if (!id) $('panel').classList.remove('expanded', 'peek');
   document.body.classList.toggle('has-panel', !!id);
   if (id) document.body.classList.remove('side-open');
   document.querySelectorAll('ul.topics li.sel').forEach((x) => x.classList.remove('sel'));
@@ -1877,7 +1879,7 @@ async function routeClick(el) {
     chainOnly = true;
     if (f.view !== 'graph') await setView('graph'); else refreshGraph();
     flyTo(focus);
-    $('panel').classList.remove('expanded');
+    sheet('peek'); // the route on the map stays visible
     return renderPanel();
   }
   if (id === 'routeGo' || b.classList.contains('rsb')) { const g = focus; route = false; select(b.dataset.id, true); routeFrom = g; return; }
@@ -1901,25 +1903,41 @@ function stuckClick(el) {
 }
 
 const phone = matchMedia('(max-width: 720px)');
-let gripY = null, gripDrag = false;
+// the phone sheet has three heights: peek (title only), half, full; drag the header to move between them
+let gripY = null, gripH = 0, gripDrag = false;
+const sheet = (st) => { const pn = $('panel'); pn.classList.toggle('peek', st === 'peek'); pn.classList.toggle('expanded', st === 'full'); if (st === 'peek') pn.scrollTop = 0; };
 $('panelBody').addEventListener('pointerdown', (ev) => {
-  if (!ev.target.closest('.grip')) return;
-  gripY = ev.clientY; gripDrag = false; ev.target.setPointerCapture?.(ev.pointerId);
+  gripDrag = false;
+  if (!phone.matches || !ev.target.closest('.phead')) return;
+  gripY = ev.clientY; gripH = $('panel').offsetHeight;
 });
-$('panelBody').addEventListener('pointerup', (ev) => {
+$('panelBody').addEventListener('pointermove', (ev) => {
   if (gripY === null) return;
-  const dy = ev.clientY - gripY; gripY = null;
-  if (Math.abs(dy) <= 30) return;
-  gripDrag = true;
-  if (dy < 0) $('panel').classList.add('expanded');
-  else if ($('panel').classList.contains('expanded')) $('panel').classList.remove('expanded');
-  else select(null);
+  const dy = ev.clientY - gripY;
+  if (!gripDrag && Math.abs(dy) < 8) return;
+  if (!gripDrag) { gripDrag = true; $('panel').classList.add('dragging'); ev.target.setPointerCapture?.(ev.pointerId); }
+  $('panel').style.height = `${Math.max(90, Math.min(innerHeight - 64, gripH - dy))}px`;
 });
-$('panel').addEventListener('scroll', () => { if (phone.matches && $('panel').scrollTop > 24) $('panel').classList.add('expanded'); });
+const gripEnd = (ev) => {
+  if (gripY === null) return;
+  const pn = $('panel'), dy = ev.clientY - gripY, h = pn.offsetHeight; gripY = null;
+  pn.classList.remove('dragging'); pn.style.height = '';
+  if (!gripDrag) return;
+  // snap to the nearest height; a fling of more than 60px goes one step further
+  if (h < 110 && dy > 0) return select(null);
+  const stops = [['peek', 150], ['half', innerHeight * 0.56], ['full', innerHeight - 64]];
+  const target = h + (Math.abs(dy) > 60 ? -Math.sign(dy) * 40 : 0);
+  sheet(stops.reduce((a, b) => (Math.abs(b[1] - target) < Math.abs(a[1] - target) ? b : a))[0]);
+};
+$('panelBody').addEventListener('pointerup', gripEnd);
+$('panelBody').addEventListener('pointercancel', gripEnd);
+$('panel').addEventListener('scroll', () => { if (phone.matches && $('panel').scrollTop > 24 && !$('panel').classList.contains('peek')) sheet('full'); });
 $('panelBody').addEventListener('click', (ev) => {
   const el = ev.target;
   if (el.id === 'close') return select(null);
-  if (el.closest('.grip')) { if (!gripDrag) $('panel').classList.toggle('expanded'); gripDrag = false; return; }
+  if (gripDrag) { gripDrag = false; return; } // the end of a drag is not a tap
+  if (el.closest('.grip')) { const pn = $('panel'); return sheet(pn.classList.contains('peek') ? 'half' : pn.classList.contains('expanded') ? 'peek' : 'full'); }
+  if ($('panel').classList.contains('peek') && el.closest('.phead') && !el.closest('button')) return sheet('half');
   if (stuck) return stuckClick(el);
   if (route) return routeClick(el);
   if (el.id === 'routeOpen') { route = true; $('panel').scrollTop = 0; renderPanel(); return setUrl(); }
