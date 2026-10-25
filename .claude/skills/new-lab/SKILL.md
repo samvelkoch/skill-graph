@@ -39,9 +39,37 @@ For each lab write down, and get it agreed (an issue with the "New lab" template
 3. **The picture**: what the child sees and does that makes the main idea obvious. Then the interaction. Do not clone another lab's mechanic for a different idea.
 4. **The prediction**: what the child answers or builds while the answer is hidden (a curtain over the sky, a fence shown as `? m`, closed layers), before the picture reveals it.
 5. **Views** (tabs), the **two secret experiments**, and the **three quiz questions**.
-6. **Sources** for every fact.
+6. **Fun facts**: 1–3 per view (see "Fun facts" below), with a source each.
+7. **Depth**: the age band from the table below and how the lab meets it.
+8. **Sources** for every fact.
 
 Pitch language, numbers and difficulty to the age range of the lab's topics; the curriculum decides the age. Topics of different ages can be split across views.
+
+### Depth grows with the age and the concept
+
+The lab grows with the idea. A 6-year-old gets one object and one action; a 14-year-old gets a small model to run. Choose the depth by the youngest age of the lab's topics:
+
+| Ages | Variables the child controls | Views | The picture | Numbers |
+|---|---|---|---|---|
+| 5–8 | 1 | 2–3 | one object that changes; tap or drag | counts, "more / less", no units or simple ones |
+| 9–11 | 1–2 | 3 | the object plus one readout or simple chart that moves with it | real units, simple measurements |
+| 12–16 | 2–4 | 3–4 | a running model or simulation with **two linked representations** (e.g. the scene and its graph, the map and its cross-section, the particles and the formula) | real data and formulas; the child changes a parameter and predicts the curve, not only a single value |
+
+For 12+ labs:
+- At least one view is a **simulation** the child can run with several settings, and the readouts show the quantities the curriculum names (pH, net force in N, gradient, density per km²…).
+- Predictions ask for the shape or the trend ("where will the line cross?", "which way will it accelerate?"), not only a single number.
+- One view puts the idea in a **real-world setting** with real numbers (a city, a country, a price list), with the source in the state card or a fun fact.
+- Text can be denser and use the subject's real terms, introduced once in the state card. Still one main idea per lab.
+
+Do not go the other way: a 7-year-old's lab is not made "better" by more sliders.
+
+### Fun facts
+
+Every lab has a few "Did you know?" facts (`lab.setFacts`, see [shell-api.md](shell-api.md)): 1–3 per view, shown under the state card.
+- A fact is **true, checked and sourced** (the source goes in `src` and in the PR). No "experts say", no invented records.
+- Good facts surprise or widen the view: a record, a real place, the history of the idea, a link to everyday life.
+- **Where countries teach the same thing differently, say so in a fact instead of choosing one version silently**: climate belts (5 belts of the ancient Greeks, 7 main + 6 transitional belts after Alisov in Russian schools, 3 zones split into belts in Hungarian schools, Köppen’s 5 groups), the decimal comma or point, the letters in y = kx + b / y = mx + c. The lab keeps one simple model; the fact names the others and why both are right.
+- Facts never answer a question of the lab or its quiz.
 
 ## 3. Research
 
@@ -97,6 +125,7 @@ Then, in a browser, serve the repo (`python3 -m http.server 8000`) and open `htt
 - the picture makes the main idea obvious; nothing overlaps or overflows; text fits in all three languages;
 - the prediction hides the answer completely, and the reveal shows the right answer even after a wrong guess;
 - each view works; the readouts update in every view;
+- the "Did you know?" box shows facts in every view and language, and its "Another fact" button cycles them;
 - the footer's topic links open the right topics on the map (`/?topic=…`);
 - after the quiz, the secrets open and the lab's topics show as "Learning" on the map;
 - the browser console shows no errors.

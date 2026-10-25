@@ -31,6 +31,8 @@ const secret = secretLab('magnets', () => ({
 | `#state` card | `lab.setState({ emo, title, lead, body, extra })` |
 | `#gauge` | `lab.setGauge(frac, ticks, cap)`; hide it with `#gauge { display: none }` if unused |
 
+`lab.setFacts([{ emo, text, src }])` fills the "Did you know?" box under the state card (see "Fun facts" in [SKILL.md](SKILL.md)); `[]` hides it. Call it from `render()` with `T[lang]` text, so it follows the language and the view; a list with more than one fact gets an "Another fact" button.
+
 `lab.setReadout(val, sub, pill, color)` fills the readout; `lab.view` is the current view; `lab.renderChrome()` redraws the chrome.
 
 `T[lang]` must contain `name` (page title), `title` (hero heading), `lines` (hero lines, `[[bold, rest], …]`) and `views` (`{ key: tab label }`). Everything else in `T` is yours.

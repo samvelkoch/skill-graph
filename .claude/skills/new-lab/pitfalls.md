@@ -10,6 +10,7 @@ Collected while building and reviewing 100+ labs. Read before you build and agai
 - State cards must not contain the answer to a puzzle the child is about to solve; use other examples.
 - The lab name, registry `title`, `<title>`, blurb and tab labels must not answer any question in the lab or the quiz ("Five lines…" answered "How many lines?").
 - A right answer's verdict is `Right!` / `Верно!` / `Így van!`, never "Yes!" (it reads wrong after a right "no").
+- Russian text never uses gendered forms like «ты поставил(а)»: rephrase neutrally («Твоя догадка: 28»).
 - If an answer is "left/right" but the layout stacks on phones, label the buttons with their content instead.
 
 ## Code
