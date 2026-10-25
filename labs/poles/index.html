@@ -286,15 +286,20 @@ function decode(s, k) { // Google polyline -> flat [x, y, x, y, ...] divided by 
   while (i < s.length) { x += one(); y += one(); out.push(x / k, y / k); }
   return out;
 }
-function paths(rings) { // group -> one Path2D in unit coordinates
-  const m = {};
+function paths(rings, seam = 0) { // group -> [Path2D to fill, Path2D to outline, Path2D of the seam], in unit coordinates
+  const f = {}, l = {}, z = {};                // seam: the antimeridian cuts land into two rings; its edge is not a coast (-1 north, +1 south)
+  const cut = (x0, y0, x1, y1) => seam && Math.abs(x0) < 1e-6 && Math.abs(x1) < 1e-6 && y0 * seam >= 0 && y1 * seam >= 0;
   for (const [g, s] of rings) {
-    const p = (m[g] ??= new Path2D()), a = decode(s, Q);
-    p.moveTo(a[0], a[1]); for (let i = 2; i < a.length; i += 2) p.lineTo(a[i], a[i + 1]); p.closePath();
+    const p = (f[g] ??= new Path2D()), q = (l[g] ??= new Path2D()), e = (z[g] ??= new Path2D()), a = decode(s, Q), n = a.length;
+    p.moveTo(a[0], a[1]); for (let i = 2; i < n; i += 2) p.lineTo(a[i], a[i + 1]); p.closePath();
+    q.moveTo(a[0], a[1]);
+    for (let i = 2; i <= n; i += 2) { const j = i % n; if (cut(a[i - 2], a[i - 1], a[j], a[j + 1])) { q.moveTo(a[j], a[j + 1]); e.moveTo(a[i - 2], a[i - 1]); e.lineTo(a[j], a[j + 1]); } else q.lineTo(a[j], a[j + 1]); }
   }
-  return m;
+  return [f, l, z];
 }
-const PN = paths(NORTH), PS = paths(SOUTH), PSH = paths(SHELVES.map((s) => ['sh', s])).sh;
+// fill a shape and paint over its seam, so no hairline of sea shows where the two halves meet
+function fillLand(c, P, Z, k, style, R) { c.fillStyle = style; c.fill(P[k]); c.strokeStyle = style; c.lineWidth = 2 / R; c.stroke(Z[k]); }
+const [PN, LN, ZN] = paths(NORTH, -1), [PS, LS, ZS] = paths(SOUTH, 1), [PSH, , ZSH] = paths(SHELVES.map((s) => ['sh', s]), 1);
 const GL = GLOBE.map((s) => { // unit vectors of the globe's land, and whether the ring is an ice sheet
   const a = decode(s, 10), n = a.length / 2, v = new Float32Array(n * 3); let lat = 0, lon = 0;
   for (let i = 0; i < n; i++) {
@@ -364,8 +369,6 @@ function pin(c, x, y, dir, text, t) { // dir -1: the pin stands on top of the Ea
 }
 
 // --- view 1: a pole seen from above ------------------------------------------------------------------------
-const CRACKS = [[[-.8, -.3], [-.4, -.1], [0, -.2], [.5, 0], [.85, -.15]], [[-.2, -.9], [-.1, -.5], [0, -.2], [.15, .3], [.05, .9]],
-  [[-.7, .45], [-.3, .35], [.1, .3], [.6, .5]], [[.35, -.75], [.3, -.4], [.5, 0]], [[-.5, -.7], [-.3, -.4], [-.4, 0]]];
 const ROCKS = [[-.12, -.05, .07], [.1, .02, .08], [0, -.18, .06], [-.22, .12, .06], [.2, -.14, .055], [.06, .2, .06], [-.04, .08, .06], [-.3, -.12, .05], [.28, .1, .05]];
 // winter sea ice: reaches the Bering Strait and Hudson Bay, but the warm Atlantic keeps the Barents Sea open
 const iceEdge = (a) => .58 - .2 * Math.exp(-((angDiff(a, rad(28)) / .55) ** 2)) - .08 * Math.exp(-((angDiff(a, rad(-8)) / .25) ** 2))
@@ -375,9 +378,16 @@ function seaIce(c) { // in unit coordinates, angle measured like the map: lon 0 
   for (let i = 0; i <= 180; i++) { const a = i / 180 * TAU, r = iceEdge(a), x = r * Math.sin(a), y = r * Math.cos(a); i ? c.lineTo(x, y) : c.moveTo(x, y); }
   c.closePath();
 }
-function cracks(c, r, R) {
-  c.save(); c.strokeStyle = 'rgba(150,175,205,.85)'; c.lineWidth = 1.6 / R; c.lineJoin = 'round';
-  for (const line of CRACKS) { c.beginPath(); line.forEach(([x, y], i) => (i ? c.lineTo(x * r, y * r) : c.moveTo(x * r, y * r))); c.stroke(); }
+// pack ice: short, broken leads of open water between floes (no long straight lines: those read as roads)
+const rnd = (i) => { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+const LEADS = Array.from({ length: 70 }, (_, i) => {
+  const a = rnd(i) * TAU, r = Math.sqrt(rnd(i + 99)) * .5, d = rnd(i + 7) * Math.PI, L = .025 + rnd(i + 3) * .05;
+  const x = r * Math.sin(a), y = r * Math.cos(a), k = (rnd(i + 5) - .5) * .02;
+  return [[x - Math.cos(d) * L, y - Math.sin(d) * L], [x + k, y - k], [x + Math.cos(d) * L, y + Math.sin(d) * L]];
+});
+function leads(c, R) {
+  c.save(); c.strokeStyle = 'rgba(120,155,200,.42)'; c.lineWidth = 1 / R; c.lineJoin = 'round'; c.lineCap = 'round';
+  for (const line of LEADS) { c.beginPath(); line.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.stroke(); }
   c.restore();
 }
 function graticule(c, R, edge, arctic) { // latitude rings every 10°, meridians every 30°, the polar circle dashed
@@ -391,7 +401,7 @@ function graticule(c, R, edge, arctic) { // latitude rings every 10°, meridians
 function drawPolar(c, w, h, p, t) {
   const st = S.po[p], g = T[lang].g, lf = ease(st.lift), cutH = 86, north = p === 'N';
   const regionH = h - 16 - lf * (cutH + 8), R = Math.max(50, Math.min(w / 2 - 6, regionH / 2)), cx = w / 2, cy = 8 + regionH / 2;
-  const P = north ? PN : PS, edge = north ? N_EDGE : S_EDGE, px = clamp(R * .085, 12, 15);
+  const P = north ? PN : PS, L = north ? LN : LS, Z = north ? ZN : ZS, edge = north ? N_EDGE : S_EDGE, px = clamp(R * .085, 12, 15);
   const at = ([x, y]) => [cx + x * R, cy + y * R];
   // a soft glow behind the map
   c.save(); const gw = c.createRadialGradient(cx, cy, R * .9, cx, cy, R * 1.12);
@@ -412,14 +422,14 @@ function drawPolar(c, w, h, p, t) {
         c.beginPath(); c.arc(x, y, q, rad(200), rad(340)); c.stroke();
       }
     } else { // bare rock with mountains; under the floating shelves there is only sea
-      c.fillStyle = '#6e6054'; c.fill(P.aq);
+      fillLand(c, P, Z, 'aq', '#6e6054', R);
       c.save(); c.clip(P.aq);
       for (const [x, y, s] of ROCKS) {
         c.fillStyle = '#8c7b6a'; c.beginPath(); c.moveTo(x - s * .9, y + s * .4); c.lineTo(x, y - s); c.lineTo(x + s * .9, y + s * .4); c.closePath(); c.fill();
         c.fillStyle = '#4e443c'; c.beginPath(); c.moveTo(x, y - s); c.lineTo(x + s * .9, y + s * .4); c.lineTo(x + s * .1, y + s * .4); c.closePath(); c.fill();
       }
       c.restore();
-      c.fillStyle = '#1e5a9c'; c.fill(PSH);
+      fillLand(c, PSH, ZSH, 'sh', '#1e5a9c', R);
     }
   }
   // the ice: fades and shrinks a little once the answer is in
@@ -430,19 +440,18 @@ function drawPolar(c, w, h, p, t) {
     c.fillStyle = 'rgba(235,244,252,.9)';
     for (let i = 0; i < 26; i++) { const a = i * 2.4, r = iceEdge(a) + .02 + (i % 3) * .018, s = .011 + (i % 4) * .004; c.beginPath(); c.ellipse(r * Math.sin(a), r * Math.cos(a), s * 1.4, s, a, 0, TAU); c.fill(); }
     seaIce(c); c.fillStyle = ice; c.fill(); c.strokeStyle = 'rgba(170,195,225,.9)'; c.lineWidth = 1.2 / R; c.stroke();
-    c.save(); seaIce(c); c.clip(); cracks(c, .5, R); c.restore();
+    c.save(); seaIce(c); c.clip(); leads(c, R); c.restore();
   } else {
-    c.fillStyle = ice; c.fill(P.aq); c.fillStyle = 'rgba(200,225,250,.85)'; c.fill(PSH);
-    c.strokeStyle = '#a9c2de'; c.lineWidth = 1.5 / R; c.stroke(P.aq);
-    c.save(); c.clip(P.aq); cracks(c, .5, R); c.restore();
+    fillLand(c, P, Z, 'aq', ice, R); fillLand(c, PSH, ZSH, 'sh', '#cde3f8', R);
+    c.strokeStyle = '#a9c2de'; c.lineWidth = 1.5 / R; c.stroke(L.aq);
   }
   c.restore();
   // the land around (in the north on top of the sea ice, which only covers the ocean)
   c.lineWidth = 1 / R; c.lineJoin = 'round';
-  for (const [k2, path] of Object.entries(P)) {
+  for (const k2 of Object.keys(P)) {
     if (k2 === 'aq') continue;
-    c.fillStyle = k2 === 'gl' ? '#eaf2fb' : LAND_FILL[k2]; c.fill(path);
-    c.strokeStyle = k2 === 'gl' ? 'rgba(130,160,200,.9)' : 'rgba(22,48,28,.6)'; c.stroke(path);
+    fillLand(c, P, Z, k2, k2 === 'gl' ? '#eaf2fb' : LAND_FILL[k2], R);
+    c.lineWidth = 1 / R; c.strokeStyle = k2 === 'gl' ? 'rgba(130,160,200,.9)' : 'rgba(22,48,28,.6)'; c.stroke(L[k2]);
   }
   // light from the top left, a darker rim
   const sh = c.createRadialGradient(-.35, -.4, .1, 0, 0, 1.05);
