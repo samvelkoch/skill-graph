@@ -31,21 +31,21 @@ const UI = {
         qn: (i, n) => `Secret lab · question ${i} of ${n}`, wrong: 'Not quite. Look at the lab and try again!',
         doneTitle: 'Unlocked!', doneText: 'Both secret experiments are open. Find them at the ends of the row.', go: 'Let’s go', marked: 'This lab’s topics are now marked “Learning” on the graph.',
         lic: 'Topics from the Marble Skill Taxonomy (ODbL 1.0 / CC BY-SA 4.0), translated. The lab is a simplified model, not a measuring tool.',
-        contrib: 'Skill Graph is open source: help build it' },
+        contrib: 'Skill Graph is open source: help build it', fact: 'Did you know?', nextFact: 'Another fact' },
   ru: { brand: 'Лаборатории', back: 'Назад к графу', topics: 'В графе навыков', sound: 'Звук', views: 'Вид',
         secretKick: 'Секретная лаборатория', secretTitle: 'Два экстремальных опыта под замком.',
         secretAsk: (n) => `Ответь на <b>${n} ${ruPlural(n, 'короткий вопрос', 'коротких вопроса', 'коротких вопросов')}</b>, чтобы открыть оба.`, start: 'Принять вызов', later: 'Не сейчас',
         qn: (i, n) => `Секретная лаборатория · вопрос ${i} из ${n}`, wrong: 'Не совсем. Посмотри на опыт и попробуй ещё раз!',
         doneTitle: 'Открыто!', doneText: 'Оба секретных опыта открыты. Они по краям ряда кнопок.', go: 'Вперёд', marked: 'Темы этой лаборатории отмечены на графе как «Изучаем».',
         lic: 'Темы из Marble Skill Taxonomy (ODbL 1.0 / CC BY-SA 4.0), перевод. Лаборатория — упрощённая модель, а не измерительный прибор.',
-        contrib: 'Skill Graph — открытый проект: его можно дополнить' },
+        contrib: 'Skill Graph — открытый проект: его можно дополнить', fact: 'А знаешь ли ты?', nextFact: 'Ещё факт' },
   hu: { brand: 'Laborok', back: 'Vissza a gráfhoz', topics: 'A készségtérképen', sound: 'Hang', views: 'Nézet',
         secretKick: 'Titkos labor', secretTitle: 'Két extrém kísérlet le van zárva.',
         secretAsk: (n) => `Válaszolj <b>${n} rövid kérdésre</b>, és mindkettő kinyílik.`, start: 'Jöhet a kihívás', later: 'Most nem',
         qn: (i, n) => `Titkos labor · ${i}. kérdés / ${n}`, wrong: 'Nem egészen. Nézd meg a kísérletet, és próbáld újra!',
         doneTitle: 'Kinyílt!', doneText: 'Mindkét titkos kísérlet elérhető. A gombsor két végén találod őket.', go: 'Gyerünk', marked: 'A labor témái a gráfon „Tanulja” jelölést kaptak.',
         lic: 'A témák a Marble Skill Taxonomyból származnak (ODbL 1.0 / CC BY-SA 4.0), fordítás. A labor egyszerűsített modell, nem mérőeszköz.',
-        contrib: 'A Skill Graph nyílt forráskódú: bárki hozzátehet' },
+        contrib: 'A Skill Graph nyílt forráskódú: bárki hozzátehet', fact: 'Tudtad?', nextFact: 'Még egy' },
 };
 
 // --- sound: tiny synthesized blips, off until the visitor turns it on -------------------------------------
@@ -92,6 +92,7 @@ export function shell(cfg) {
     <section id="state" class="card">
       <div class="head"><span class="emo" id="stEmo"></span><h2 id="stTitle"></h2></div>
       <p class="lead" id="stLead"></p><p class="body" id="stBody"></p><div class="extra" id="stExtra"></div>
+      <div class="fact" id="stFact" hidden></div>
     </section>
     <aside id="gauge"><div class="cap" id="gaugeCap"></div><div class="tube"><div class="fill" id="gFill"></div></div><div class="knob" id="gKnob"></div></aside>
   </main>
@@ -147,6 +148,26 @@ export function shell(cfg) {
     $('val').innerHTML = val; $('valSub').textContent = sub ?? ''; $('pill').textContent = pill ?? '';
     $('pill').style.display = pill ? '' : 'none';
     if (color) document.documentElement.style.setProperty('--accent', color);
+  };
+  // "Did you know?" box under the state card: facts = [{ emo, text, src }] in the current language; [] hides it.
+  // The same list keeps its place, a new list starts from its first fact.
+  let facts = [], factAt = 0, factKey = '';
+  const drawFact = () => {
+    const box = $('stFact'), f = facts[factAt];
+    box.hidden = !f;
+    if (!f) return;
+    box.innerHTML = `<div class="fact-head"><span>${f.emo ?? '💡'}</span><b>${esc(UI[lang].fact)}</b>${facts.length > 1
+      ? `<button class="fact-next" type="button">${esc(UI[lang].nextFact)} · ${factAt + 1}/${facts.length}</button>` : ''}</div>
+      <p>${esc(f.text)}</p>${f.src ? `<div class="fact-src">${esc(f.src)}</div>` : ''}`;
+  };
+  $('stFact').addEventListener('click', (ev) => {
+    if (!ev.target.closest('.fact-next')) return;
+    factAt = (factAt + 1) % facts.length; sfx.tick(); drawFact();
+  });
+  lab.setFacts = (list = []) => {
+    const k = JSON.stringify(list.map((f) => f.text));
+    if (k !== factKey) { factKey = k; factAt = 0; }
+    facts = list; drawFact();
   };
   lab.setGlow = (rgba) => document.documentElement.style.setProperty('--glow', rgba);
   // gauge: frac in [0, 1]; ticks [{f, label}]
