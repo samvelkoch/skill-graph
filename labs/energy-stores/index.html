@@ -1,0 +1,848 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Where Does the Energy Go? · Skill Graph</title>
+<meta name="description" content="Release a skater on a half-pipe, watch the energy stores and a time graph, switch friction on, and test how much of a machine's energy is really useful. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  #stage { min-height: 520px; }
+  .es-q { margin: 0 0 10px; font-weight: 800; font-size: 14px; line-height: 1.35; color: #fff; }
+  .es-opts { display: flex; flex-wrap: wrap; gap: 8px; }
+  .es-opt { min-height: 40px; padding: 8px 16px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 800; font-size: 13px; cursor: pointer; }
+  .es-opt:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .es-opt:disabled { cursor: default; }
+  .es-opt.good, .es-th.good { border-color: var(--ok); background: rgba(61, 220, 151, .16); opacity: 1; }
+  .es-opt.bad, .es-th.bad { border-color: var(--red); background: rgba(255, 59, 48, .14); opacity: 1; }
+  .es-opt.dim, .es-th.dim { opacity: .4; }
+  .es-th { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 6px 6px 8px; border-radius: 14px; border: 1px solid var(--stroke2);
+    background: rgba(130, 145, 190, .08); cursor: pointer; font-weight: 800; font-size: 12.5px; min-width: 0; flex: 1 1 0; }
+  .es-th:hover:not(:disabled) { background: rgba(130, 145, 190, .2); }
+  .es-th:disabled { cursor: default; }
+  .es-th svg { width: 100%; max-width: 110px; height: auto; display: block; }
+  .es-ths { display: flex; gap: 8px; }
+  .es-sl { display: grid; grid-template-columns: minmax(70px, auto) 1fr minmax(48px, auto); gap: 10px; align-items: center; margin-top: 12px; }
+  .es-sl label { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); font-weight: 700; }
+  .es-sl b { text-align: right; font-size: 14px; white-space: nowrap; }
+  .es-sl input:disabled { opacity: .45; }
+  .es-ticks { display: flex; justify-content: space-between; margin: -4px 2px 0; font-size: 12px; color: var(--mut); font-weight: 700; }
+  .es-lg { display: inline-flex; align-items: center; gap: 6px; margin: 0 12px 4px 0; font-size: 12.5px; color: var(--soft); }
+  .es-lg i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+  .es-sec { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--stroke); }
+  .es-push { min-height: 40px; }
+  .es-push:disabled { opacity: .45; cursor: default; }
+  .es-dev { min-height: 40px; }
+  .es-main { margin-left: auto; min-height: 40px; }
+  .es-ro { font-size: 18px; font-weight: 900; line-height: 1.2; }
+  @media (max-width: 760px) {
+    #stage { height: min(128vw, 560px); min-height: 0; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, lang } from '../lab.js';
+
+// --- numbers -----------------------------------------------------------------------------------------------
+const M = 40, GE = 9.8, GM = 1.62;              // skater mass (kg), gravity on Earth and the Moon (N/kg)
+const W = 3.1, HTOP = 6.2, K = HTOP / (W * W);   // half-pipe: height h(x) = K x², x in [-W, W] metres
+const FRIC = [0, 0.06, 0.16];                    // friction coefficients: none, a little, a lot
+const hOf = (x) => K * x * x;
+const fmt = (x, d = 1) => (lang === 'en' ? x.toFixed(d) : x.toFixed(d).replace('.', ','));
+const fmtH = (x) => (Number.isInteger(x) ? String(x) : fmt(x, 1));
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Where Does the Energy Go?', title: 'Where does the energy go?',
+    lines: [['Release the skater', 'and watch the energy stores.'], ['Switch friction on', 'and follow the total.'], ['Test a machine:', 'how much of it is useful?']],
+    views: { ramp: '🛹 Ramp', friction: '🔥 Friction', machines: '⚙️ Machines' },
+    uJ: 'J', uM: 'm', uV: 'm/s', ab: ['Ep', 'Ek', 'Eth'],
+    leg: ['Ep: gravitational potential (height)', 'Ek: kinetic (motion)', 'Eth: thermal (heat)'],
+    hL: 'Start height', fL: 'Friction', fo: ['none', 'a little', 'a lot'], re: '↻ Restart', again: '↻ Guess again', show: 'Show me',
+    cTotal: 'total', cLegs: 'legs', cGraph: 'stores over time (J)', cS: 's', cStart: 'start',
+    r: { q: 'Without friction, how high will the skater rise on the other side?', o: ['lower', 'the same height', 'higher'],
+      hold: ['Make your guess first.', 'The right half of the ramp is hidden. The skater starts from the left.'],
+      ok: 'Right!', no: 'Not quite.', lead: 'Without friction it comes back up to exactly the same height.',
+      body: 'Height energy Ep turns into motion energy Ek and back. Ep + Ek never changes.',
+      v: (v) => `At the bottom: v = √(2 × g × h) = ${v} m/s.` },
+    f: { q: 'Which graph shows the TOTAL energy as the skater slows down?', o: ['goes down', 'stays flat', 'goes up'],
+      hold: ['Make your guess first.', 'The graph of the stores is hidden until you choose.'],
+      ok: 'Right!', no: 'Not quite.', lead: 'The skater slows down, but the energy did not vanish: it went into the thermal store.',
+      t0: ['No friction', 'Nothing heats up: the thermal store stays at 0 J.'],
+      t1: ['Friction turns motion into heat', 'Each swing is lower. The red thermal store grows by exactly what the swing loses, and the total never changes.'],
+      stop: (th, e) => `The skater has stopped. ${th} J of the ${e} J became thermal energy: the ramp, wheels and air.`,
+      ro: 'the ramp, wheels and air got warmer' },
+    m: {
+      dev: { bulb: ['Filament bulb', '💡'], petrol: ['Petrol car', '⛽'], electric: ['Electric car', '🔌'] },
+      inn: { bulb: 'electrical energy', petrol: 'fuel energy', electric: 'electrical energy' },
+      use: { bulb: 'light', petrol: 'moves the car', electric: 'reaches the wheels' },
+      q: { bulb: 'A filament bulb gets 100 J. How much of it becomes light?', petrol: 'A petrol car gets 100 J of fuel energy. How much of it moves the car?',
+        electric: 'An electric car gets 100 J of electrical energy. How much of it reaches the wheels?' },
+      note: { bulb: 'Most of the energy warms the glass and the air around the bulb.', petrol: 'Most of it becomes heat in the engine, the exhaust and the brakes.',
+        electric: 'A little warms the motor, the battery and the wires; the rest moves the car.' },
+      guessL: 'Your guess', ok: 'Right!', no: 'Not quite.', more: 'It is more than you thought.', less: 'It is less than you thought.',
+      hold: (n) => ['Where do the 100 J go?', `Slide to guess how much of the 100 J ends up useful (${n}), then press “Show me”.`],
+      st: (n, u) => `${n}: about ${u} J useful`, lead: (u) => `efficiency = useful ÷ total = ${u} ÷ 100 = about ${u} %`,
+      body: (n) => `${n} No machine gives out more useful energy than it gets: the wasted part always ends up as heat.`,
+      ro: (u, w) => `about ${u} J useful + about ${w} J wasted = 100 J`, roq: '100 J in',
+      useful: 'useful', heat: 'heat', about: 'about', guess: 'your guess', sq: '1 square = 1 J', wasted: 'wasted' },
+    sp: { push: (j) => `💪 Push: +${j} J`, tired: '😮‍💨 Legs are tired',
+      t0: ['Can it beat the start height?', 'Watch the marker: it never rises above the dashed line. Then press Push.'],
+      t1: (l) => ['Only the push made it higher.', `The legs gave ${l} J (chemical store → motion). The total rose by exactly that.`],
+      b1: (e, e0, l) => `Total now: ${e} J = ${e0} J + ${l} J.` },
+    mo: { t: 'Same ramp, weaker gravity', l: 'g = 1.62 N/kg: the swings are slower, the height is the same.',
+      b: (e) => `The total is smaller (${e} J at the start) because the skater weighs less, but it still stays constant.` },
+    secrets: { push: ['Higher than the start?', 'Can the skater rise above the start?'], moon: ['Skating on the Moon', 'Same ramp, weaker gravity'] },
+    facts: {
+      joule: { text: 'In the 1840s James Joule showed that a falling weight turning a paddle in water warms the water by a tiny, always-the-same amount: mechanical energy becomes thermal energy.', src: 'Encyclopaedia Britannica: James Prescott Joule' },
+      apple: { text: 'A medium apple has about 95 kilocalories (about 400 kJ) — in theory enough to lift a 40 kg child about 1 km up.', src: 'USDA FoodData Central: apple, raw, medium; 400 000 J ÷ (40 kg × 9.8 N/kg) ≈ 1020 m' },
+      brake: { text: 'Electric and hybrid cars brake partly with their motor, turning kinetic energy back into the battery store instead of only heating the brakes.', src: 'US DOE fueleconomy.gov: where the energy goes' },
+      petrol: { text: 'In a petrol car only about a quarter or less of the fuel’s energy moves the car; most of it becomes heat.', src: 'US DOE fueleconomy.gov: where the energy goes' },
+    },
+    quiz: [
+      { q: 'A dropped ball bounces lower each time. Where did the energy go?', opts: ['It warmed the ball, the floor and the air', 'It was destroyed', 'It turned into nothing at each bounce'], ok: 0 },
+      { q: 'With no friction, a skater starts 3 m high. How high is the highest point on the other side?', opts: ['3 m', 'less than 3 m', 'more than 3 m'], ok: 0 },
+      { q: 'A filament bulb gets 100 J of electrical energy. Which is true?', opts: ['light + heat = 100 J', 'light = 100 J', 'light + heat is less than 100 J'], ok: 0 },
+    ],
+  },
+  ru: {
+    name: 'Куда девается энергия?', title: 'Куда девается энергия?',
+    lines: [['Отпусти скейтера', 'и следи за запасами энергии.'], ['Включи трение', 'и следи за общей суммой.'], ['Проверь машину:', 'сколько энергии полезно?']],
+    views: { ramp: '🛹 Горка', friction: '🔥 Трение', machines: '⚙️ Машины' },
+    uJ: 'Дж', uM: 'м', uV: 'м/с', ab: ['Eп', 'Eк', 'Eт'],
+    leg: ['Eп: потенциальная (высота)', 'Eк: кинетическая (движение)', 'Eт: тепловая (тепло)'],
+    hL: 'Высота старта', fL: 'Трение', fo: ['нет', 'небольшое', 'сильное'], re: '↻ Заново', again: '↻ Угадать снова', show: 'Покажи',
+    cTotal: 'всего', cLegs: 'ноги', cGraph: 'запасы во времени (Дж)', cS: 'с', cStart: 'старт',
+    r: { q: 'Трения нет. Насколько высоко скейтер поднимется на другой стороне?', o: ['ниже', 'так же высоко', 'выше'],
+      hold: ['Сначала загадай.', 'Правая половина горки спрятана. Скейтер стартует слева.'],
+      ok: 'Верно!', no: 'Не совсем.', lead: 'Без трения он поднимается ровно на ту же высоту.',
+      body: 'Энергия высоты Eп превращается в энергию движения Eк и обратно. Сумма Eп + Eк не меняется.',
+      v: (v) => `Внизу: v = √(2 × g × h) = ${v} м/с.` },
+    f: { q: 'Какой график показывает ОБЩУЮ энергию, пока скейтер замедляется?', o: ['уменьшается', 'не меняется', 'растёт'],
+      hold: ['Сначала загадай.', 'График запасов спрятан, пока ты не выберешь.'],
+      ok: 'Верно!', no: 'Не совсем.', lead: 'Скейтер замедляется, но энергия не исчезла: она перешла в тепловой запас.',
+      t0: ['Трения нет', 'Ничего не нагревается: тепловой запас остаётся 0 Дж.'],
+      t1: ['Трение превращает движение в тепло', 'Каждый взмах ниже. Красный тепловой запас растёт ровно на столько, на сколько взмах стал меньше, а общая сумма не меняется.'],
+      stop: (th, e) => `Скейтер остановился. ${th} Дж из ${e} Дж стали тепловой энергией: нагрелись горка, колёса и воздух.`,
+      ro: 'горка, колёса и воздух стали теплее' },
+    m: {
+      dev: { bulb: ['Лампа накаливания', '💡'], petrol: ['Бензиновая машина', '⛽'], electric: ['Электромобиль', '🔌'] },
+      inn: { bulb: 'электрическая энергия', petrol: 'энергия топлива', electric: 'электрическая энергия' },
+      use: { bulb: 'свет', petrol: 'движет машину', electric: 'доходит до колёс' },
+      q: { bulb: 'Лампа накаливания получает 100 Дж. Сколько из них становится светом?', petrol: 'Бензиновая машина получает 100 Дж энергии топлива. Сколько из них движет машину?',
+        electric: 'Электромобиль получает 100 Дж электрической энергии. Сколько из них доходит до колёс?' },
+      note: { bulb: 'Почти вся энергия нагревает стекло и воздух вокруг лампы.', petrol: 'Почти вся она становится теплом в двигателе, выхлопе и тормозах.',
+        electric: 'Немного нагревает мотор, батарею и провода, остальное движет машину.' },
+      guessL: 'Твоя догадка', ok: 'Верно!', no: 'Не совсем.', more: 'Это больше, чем ты думал.', less: 'Это меньше, чем ты думал.',
+      hold: (n) => ['Куда идут 100 Дж?', `Подвинь ползунок: сколько из 100 Дж пойдёт на пользу (${n})? Потом нажми «Покажи».`],
+      st: (n, u) => `${n}: полезно около ${u} Дж`, lead: (u) => `КПД = полезное ÷ всё = ${u} ÷ 100 = около ${u} %`,
+      body: (n) => `${n} Ни одна машина не отдаёт полезной энергии больше, чем получает: потерянная часть всегда становится теплом.`,
+      ro: (u, w) => `около ${u} Дж полезно + около ${w} Дж потеряно = 100 Дж`, roq: 'на входе 100 Дж',
+      useful: 'полезно', heat: 'тепло', about: 'около', guess: 'твоя догадка', sq: '1 клетка = 1 Дж', wasted: 'потеряно' },
+    sp: { push: (j) => `💪 Толчок: +${j} Дж`, tired: '😮‍💨 Ноги устали',
+      t0: ['Можно ли подняться выше старта?', 'Следи за отметкой: она не поднимается выше пунктира. Потом нажми «Толчок».'],
+      t1: (l) => ['Выше поднял только толчок.', `Ноги дали ${l} Дж (химический запас → движение). Общая сумма выросла ровно на столько.`],
+      b1: (e, e0, l) => `Сейчас всего: ${e} Дж = ${e0} Дж + ${l} Дж.` },
+    mo: { t: 'Та же горка, слабее притяжение', l: 'g = 1,62 Н/кг: взмахи медленнее, а высота та же.',
+      b: (e) => `Общая энергия меньше (${e} Дж на старте), потому что скейтер легче, но она по-прежнему не меняется.` },
+    secrets: { push: ['Выше старта?', 'Можно ли подняться выше старта?'], moon: ['Скейт на Луне', 'Та же горка, слабее притяжение'] },
+    facts: {
+      joule: { text: 'В 1840-х годах Джеймс Джоуль показал: падающий груз, который крутит лопасти в воде, нагревает её на крошечную, но всегда одинаковую величину. Механическая энергия становится тепловой.', src: 'Encyclopaedia Britannica: James Prescott Joule' },
+      apple: { text: 'В среднем яблоке около 95 килокалорий (около 400 кДж) — теоретически этого хватит, чтобы поднять ребёнка массой 40 кг примерно на 1 км.', src: 'USDA FoodData Central: apple, raw, medium; 400 000 Дж ÷ (40 кг × 9,8 Н/кг) ≈ 1020 м' },
+      brake: { text: 'Электромобили и гибриды тормозят отчасти мотором: энергия движения возвращается в аккумулятор, а не только нагревает тормоза.', src: 'US DOE fueleconomy.gov: where the energy goes' },
+      petrol: { text: 'В бензиновой машине машину движет лишь около четверти энергии топлива или меньше, а большая часть становится теплом.', src: 'US DOE fueleconomy.gov: where the energy goes' },
+    },
+    quiz: [
+      { q: 'Упавший мяч каждый раз отскакивает ниже. Куда делась энергия?', opts: ['Она нагрела мяч, пол и воздух', 'Она уничтожилась', 'Она превращается в ничто при каждом ударе'], ok: 0 },
+      { q: 'Трения нет, скейтер стартует с высоты 3 м. Какой будет наивысшая точка на другой стороне?', opts: ['3 м', 'меньше 3 м', 'больше 3 м'], ok: 0 },
+      { q: 'Лампа накаливания получает 100 Дж электрической энергии. Что верно?', opts: ['свет + тепло = 100 Дж', 'свет = 100 Дж', 'свет + тепло меньше 100 Дж'], ok: 0 },
+    ],
+  },
+  hu: {
+    name: 'Hová lesz az energia?', title: 'Hová lesz az energia?',
+    lines: [['Engedd el a gördeszkást,', 'és figyeld az energiatárolókat.'], ['Kapcsold be a súrlódást,', 'és kövesd az összeget.'], ['Próbálj ki egy gépet:', 'mennyi belőle a hasznos?']],
+    views: { ramp: '🛹 Rámpa', friction: '🔥 Súrlódás', machines: '⚙️ Gépek' },
+    uJ: 'J', uM: 'm', uV: 'm/s', ab: ['Eh', 'Em', 'Ehő'],
+    leg: ['Eh: helyzeti (magasság)', 'Em: mozgási', 'Ehő: hőenergia'],
+    hL: 'Kezdő magasság', fL: 'Súrlódás', fo: ['nincs', 'kicsi', 'nagy'], re: '↻ Újra', again: '↻ Tippelj újra', show: 'Mutasd',
+    cTotal: 'összes', cLegs: 'láb', cGraph: 'a tárolók az idő során (J)', cS: 's', cStart: 'rajt',
+    r: { q: 'Súrlódás nélkül milyen magasra emelkedik a gördeszkás a túloldalon?', o: ['alacsonyabbra', 'ugyanolyan magasra', 'magasabbra'],
+      hold: ['Előbb tippelj.', 'A rámpa jobb fele el van takarva. A gördeszkás balról indul.'],
+      ok: 'Így van!', no: 'Nem egészen.', lead: 'Súrlódás nélkül pontosan ugyanolyan magasra jut fel.',
+      body: 'A magassági energia (Eh) mozgási energiává (Em) alakul, majd vissza. Az Eh + Em nem változik.',
+      v: (v) => `Alul: v = √(2 × g × h) = ${v} m/s.` },
+    f: { q: 'Melyik grafikon mutatja az ÖSSZES energiát, miközben a gördeszkás lassul?', o: ['csökken', 'állandó marad', 'nő'],
+      hold: ['Előbb tippelj.', 'A tárolók grafikonja el van rejtve, amíg nem választasz.'],
+      ok: 'Így van!', no: 'Nem egészen.', lead: 'A gördeszkás lassul, de az energia nem tűnt el: a hőtárolóba került.',
+      t0: ['Nincs súrlódás', 'Semmi sem melegszik fel: a hőtároló 0 J marad.'],
+      t1: ['A súrlódás a mozgást hővé alakítja', 'Minden lendület alacsonyabb. A piros hőtároló pontosan annyival nő, amennyit a lendület veszít, az összeg pedig nem változik.'],
+      stop: (th, e) => `A gördeszkás megállt. A ${e} J-ból ${th} J hőenergia lett: felmelegedett a rámpa, a kerekek és a levegő.`,
+      ro: 'a rámpa, a kerekek és a levegő felmelegedett' },
+    m: {
+      dev: { bulb: ['Izzólámpa', '💡'], petrol: ['Benzines autó', '⛽'], electric: ['Elektromos autó', '🔌'] },
+      inn: { bulb: 'elektromos energia', petrol: 'üzemanyag-energia', electric: 'elektromos energia' },
+      use: { bulb: 'fény', petrol: 'mozgatja az autót', electric: 'eljut a kerekekhez' },
+      q: { bulb: 'Egy izzólámpa 100 J-t kap. Ebből mennyi lesz fény?', petrol: 'Egy benzines autó 100 J üzemanyag-energiát kap. Ebből mennyi mozgatja az autót?',
+        electric: 'Egy elektromos autó 100 J elektromos energiát kap. Ebből mennyi jut el a kerekekhez?' },
+      note: { bulb: 'Az energia nagy része a burát és a lámpa körüli levegőt melegíti.', petrol: 'Nagy része hővé alakul a motorban, a kipufogóban és a fékekben.',
+        electric: 'Egy kicsi a motort, az akkumulátort és a vezetékeket melegíti, a többi mozgatja az autót.' },
+      guessL: 'A tipped', ok: 'Így van!', no: 'Nem egészen.', more: 'Ez több, mint gondoltad.', less: 'Ez kevesebb, mint gondoltad.',
+      hold: (n) => ['Hová megy a 100 J?', `Told a csúszkát: a 100 J-ból mennyi lesz hasznos (${n})? Aztán nyomd meg a „Mutasd” gombot.`],
+      st: (n, u) => `${n}: kb. ${u} J hasznos`, lead: (u) => `hatásfok = hasznos ÷ összes = ${u} ÷ 100 = kb. ${u} %`,
+      body: (n) => `${n} Egyetlen gép sem ad le több hasznos energiát, mint amennyit kap: a kárba veszett rész mindig hővé alakul.`,
+      ro: (u, w) => `kb. ${u} J hasznos + kb. ${w} J kárba veszett = 100 J`, roq: '100 J megy be',
+      useful: 'hasznos', heat: 'hő', about: 'kb.', guess: 'a tipped', sq: '1 négyzet = 1 J', wasted: 'kárba veszett' },
+    sp: { push: (j) => `💪 Lökés: +${j} J`, tired: '😮‍💨 Elfáradt a láb',
+      t0: ['Feljuthat a kiindulónál magasabbra?', 'Figyeld a jelölőt: sosem megy a szaggatott vonal fölé. Aztán nyomd meg a Lökést.'],
+      t1: (l) => ['Csak a lökés vitte magasabbra.', `A láb ${l} J-t adott (kémiai tároló → mozgás). Az összeg pontosan ennyivel nőtt.`],
+      b1: (e, e0, l) => `Most összesen: ${e} J = ${e0} J + ${l} J.` },
+    mo: { t: 'Ugyanaz a rámpa, gyengébb gravitáció', l: 'g = 1,62 N/kg: a lengések lassabbak, a magasság ugyanaz.',
+      b: (e) => `Az összes energia kisebb (${e} J az indulásnál), mert a gördeszkás könnyebb, de így is állandó marad.` },
+    secrets: { push: ['Magasabbra, mint a rajt?', 'Feljuthat a kiindulónál magasabbra?'], moon: ['Gördeszka a Holdon', 'Ugyanaz a rámpa, gyengébb gravitáció'] },
+    facts: {
+      joule: { text: 'Az 1840-es években James Joule megmutatta, hogy a lehulló súly, amely lapátot forgat a vízben, apró, de mindig ugyanakkora mértékben felmelegíti a vizet: a mechanikai energia hőenergiává alakul.', src: 'Encyclopaedia Britannica: James Prescott Joule' },
+      apple: { text: 'Egy közepes almában kb. 95 kilokalória (kb. 400 kJ) van — elvileg elég ahhoz, hogy egy 40 kg-os gyereket kb. 1 km magasra emeljen.', src: 'USDA FoodData Central: apple, raw, medium; 400 000 J ÷ (40 kg × 9,8 N/kg) ≈ 1020 m' },
+      brake: { text: 'Az elektromos és hibrid autók részben a motorral fékeznek: a mozgási energia visszakerül az akkumulátorba, nem csak a féket melegíti.', src: 'US DOE fueleconomy.gov: where the energy goes' },
+      petrol: { text: 'A benzines autóban az üzemanyag energiájának csak körülbelül negyede vagy annál kevesebb mozgatja az autót; a nagy része hővé alakul.', src: 'US DOE fueleconomy.gov: where the energy goes' },
+    },
+    quiz: [
+      { q: 'Az eldobott labda minden pattanásnál alacsonyabbra pattan. Hová lett az energia?', opts: ['Felmelegítette a labdát, a padlót és a levegőt', 'Megsemmisült', 'Minden pattanásnál semmivé válik'], ok: 0 },
+      { q: 'Súrlódás nincs, a gördeszkás 3 m magasról indul. Milyen magas a legmagasabb pontja a túloldalon?', opts: ['3 m', 'kevesebb mint 3 m', 'több mint 3 m'], ok: 0 },
+      { q: 'Az izzólámpa 100 J elektromos energiát kap. Melyik igaz?', opts: ['fény + hő = 100 J', 'fény = 100 J', 'fény + hő kevesebb mint 100 J'], ok: 0 },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_68pIoiiG4g', en: 'Energy can’t be created or destroyed', ru: 'Энергию нельзя создать или уничтожить', hu: 'Az energia nem keletkezik és nem semmisül meg' },
+];
+
+// --- colours -----------------------------------------------------------------------------------------------
+const SEG = [['#7cc4ff', '#2d6fe0'], ['#ffc25e', '#ee7a14'], ['#ff7a6a', '#c22d33']]; // Ep, Ek, Eth: light, dark
+const COL = ['#4ea8ff', '#ff9f2e', '#ff5a4d'];
+const GOLD = '#ffd84a';
+
+// --- state -------------------------------------------------------------------------------------------------
+const S = {
+  h0: 4, fric: 1, rAns: null, fAns: null, cur: 0, tot: 0, wait: -1, sec: null, axis: 2000,
+  mdev: 'bulb', m: { bulb: { g: 50, done: false, p: 0 }, petrol: { g: 50, done: false, p: 0 }, electric: { g: 50, done: false, p: 0 } },
+};
+const MACH = { bulb: 10, petrol: 20, electric: 80 };
+const lab = shell({ key: 'energy-stores', T, topics: TOPICS, views: ['ramp', 'friction', 'machines'], onLang: render, onView });
+const secret = secretLab('energy-stores', () => ({
+  secrets: [{ emo: '🚀', title: T[lang].secrets.push[0], desc: T[lang].secrets.push[1] }, { emo: '🌙', title: T[lang].secrets.moon[0], desc: T[lang].secrets.moon[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+// --- the physics: a skater on y = K x², energy-exact ----------------------------------------------------------
+const sim = { x: 0, u: 0, E: 0, E0: 0, Eth: 0, t: 0, g: GE, c: 0, run: false, dir: 1, lastSign: 0, start: 4, bins: new Float32Array(40), peaks: [], hist: [], hAcc: 0, legs: 0, rest: false };
+function simReset() {
+  const sec = S.sec, v = lab.view;
+  sim.g = sec === 'moon' ? GM : GE;
+  sim.c = v === 'friction' && !sec ? FRIC[S.fric] : 0;
+  sim.start = S.h0; sim.x = -Math.sqrt(S.h0 / K); sim.u = 0; sim.E = sim.E0 = M * sim.g * S.h0; sim.Eth = 0; sim.t = 0;
+  sim.run = false; sim.dir = 1; sim.lastSign = 0; sim.bins.fill(0); sim.peaks = []; sim.hist = []; sim.hAcc = 0; sim.legs = 0; sim.rest = false;
+}
+function simStep(dt) {
+  if (!sim.rest) {
+    const n = Math.max(1, Math.ceil(dt / 0.002)), h = dt / n;
+    for (let i = 0; i < n && !sim.rest; i++) {
+      const sl = 2 * K * sim.x, q = Math.sqrt(1 + sl * sl), sin = sl / q, cos = 1 / q, kap = 2 * K / (q * q * q);
+      const aG = -sim.g * sin, fr = sim.c * (sim.g * cos + sim.u * sim.u * kap);
+      let u1;
+      if (sim.c > 0 && Math.abs(sim.u) < 1e-9) u1 = Math.abs(aG) <= fr ? 0 : (aG - fr * Math.sign(aG)) * h;
+      else if (sim.c > 0) { u1 = sim.u + (aG - fr * Math.sign(sim.u)) * h; if (u1 * sim.u < 0 && Math.abs(aG) <= fr) u1 = 0; }
+      else u1 = sim.u + aG * h;
+      sim.u = u1;
+      const dx = sim.u * cos * h;
+      sim.x = clamp(sim.x + dx, -W, W);
+      const ds = Math.abs(sim.u) * h;
+      if (fr > 0 && ds > 0) {
+        const d = M * fr * ds; sim.Eth += d;
+        sim.bins[clamp(Math.floor((sim.x + W) / (2 * W) * 40), 0, 39)] += d;
+      }
+      const Ep = M * sim.g * hOf(sim.x), Ekt = sim.E - Ep - sim.Eth;
+      if (Math.abs(sim.u) > 1e-9) { sim.u = Ekt <= 0 ? 0 : Math.sign(sim.u) * Math.sqrt(2 * Ekt / M); }
+      if (Math.abs(sim.u) > 0.02) sim.dir = Math.sign(sim.u);
+      const s = Math.abs(sim.u) > 0.05 ? Math.sign(sim.u) : 0;
+      if (s !== 0) { if (sim.lastSign !== 0 && s !== sim.lastSign) { sim.peaks.push({ x: sim.x, h: hOf(sim.x) }); if (sim.peaks.length > 14) sim.peaks.shift(); } sim.lastSign = s; }
+      if (sim.c > 0 && sim.u === 0 && Math.abs(aG) <= fr && sim.t > 0.3) { sim.rest = true; sim.Eth = Math.max(sim.Eth, sim.E - Ep); }
+    }
+  }
+  sim.t += dt; sim.hAcc += dt;
+  while (sim.hAcc >= 1 / 30) {
+    sim.hAcc -= 1 / 30; const v = vals();
+    sim.hist.push([sim.t, v.Ep, v.Ek, v.Eth]); if (sim.hist.length > 4000) sim.hist.shift();
+  }
+}
+function vals() {
+  const Epr = M * sim.g * hOf(sim.x), Eth = Math.min(sim.Eth, sim.E), Ep = Math.min(Epr, sim.E - Eth);
+  return { Ep, Ek: Math.max(0, sim.E - Eth - Ep), Eth, E: sim.E };
+}
+const startRun = (d) => { sim.run = false; S.wait = d; };
+const answered = () => (lab.view === 'ramp' ? S.rAns !== null : lab.view === 'friction' ? S.fAns !== null : true);
+
+// --- layout ------------------------------------------------------------------------------------------------
+let CW = 0;
+function layout(w, h) {
+  const pad = 8, gh = clamp(h * 0.25, 96, 132), sceneH = h - gh - pad * 3, barW = clamp(w * 0.37, 112, 190), gy = pad + sceneH - 22;
+  const rampL = pad + 24, rampR = w - pad - barW - 2;
+  const sc = Math.max(8, Math.min((rampR - rampL - 8) / (2 * W + 0.9), (sceneH - 44) / (HTOP + 0.6)));
+  return { w, h, pad, gh, sceneH, barW, gy, rampL, rampR, sc, cx: (rampL + rampR) / 2, gT: pad * 2 + sceneH };
+}
+function pill(c, txt, x, y, o = {}) {
+  c.save();
+  c.font = `800 ${o.fs || 12}px Nunito, sans-serif`; c.textBaseline = 'middle';
+  const dot = o.dot ? 14 : 0, tw = c.measureText(txt).width + 14 + dot, th = 20;
+  let px = o.align === 'c' ? x - tw / 2 : o.align === 'r' ? x - tw : x;
+  px = clamp(px, 4, Math.max(4, CW - tw - 4));
+  const py = Math.max(4, y - th / 2);
+  c.globalAlpha = (o.alpha ?? 1);
+  c.fillStyle = 'rgba(9,11,24,.82)'; c.beginPath(); c.roundRect(px, py, tw, th, 10); c.fill();
+  if (o.stroke) { c.strokeStyle = o.stroke; c.lineWidth = 1; c.stroke(); }
+  if (o.dot) { c.fillStyle = o.dot; c.beginPath(); c.arc(px + 10, py + th / 2, 4, 0, 7); c.fill(); }
+  c.fillStyle = o.color || '#fff'; c.textAlign = 'left'; c.fillText(txt, px + 7 + dot, py + th / 2 + 0.5);
+  c.restore();
+  return py + th / 2;
+}
+const frac = (x) => x - Math.floor(x);
+const STARS = Array.from({ length: 44 }, (_, i) => [frac(Math.sin(i * 12.9898) * 43758.5453), frac(Math.sin(i * 78.233) * 12345.6789), 0.6 + (i % 3) * 0.45]);
+const CITY = Array.from({ length: 16 }, (_, i) => [i / 16, 0.045 + frac(Math.sin(i * 3.7) * 99) * 0.03, 30 + frac(Math.sin(i * 9.1) * 77) * 70]);
+const CURVE = []; for (let x = -W; x <= W + 1e-6; x += 0.1) CURVE.push([x, hOf(x)]);
+
+// --- scene -------------------------------------------------------------------------------------------------
+function drawSky(c, L, moon, time) {
+  const { pad, sceneH, w, gy } = L, sw = w - 2 * pad;
+  const g = c.createLinearGradient(0, pad, 0, gy);
+  if (moon) { g.addColorStop(0, '#04050d'); g.addColorStop(1, '#141935'); } else { g.addColorStop(0, '#1a1f4d'); g.addColorStop(0.45, '#4f3a78'); g.addColorStop(0.8, '#c4617f'); g.addColorStop(1, '#f2a46b'); }
+  c.fillStyle = g; c.fillRect(pad, pad, sw, sceneH);
+  const ns = moon ? 44 : 20;
+  for (let i = 0; i < ns; i++) {
+    const [fx, fy, r] = STARS[i], tw = 0.6 + 0.4 * Math.sin(time * 1.5 + i);
+    c.fillStyle = `rgba(255,255,255,${(moon ? 0.85 : 0.6) * tw})`; c.beginPath(); c.arc(pad + fx * sw, pad + fy * (gy - pad) * (moon ? 0.9 : 0.5), r * 0.8, 0, 7); c.fill();
+  }
+  if (moon) { // the Earth in the sky
+    const ex = pad + sw * 0.17, ey = pad + 48, er = 20, eg = c.createRadialGradient(ex - 6, ey - 6, 2, ex, ey, er);
+    eg.addColorStop(0, '#9be0ff'); eg.addColorStop(0.55, '#3d86d8'); eg.addColorStop(1, '#16335f');
+    c.fillStyle = eg; c.beginPath(); c.arc(ex, ey, er, 0, 7); c.fill();
+    c.fillStyle = 'rgba(90,200,120,.8)'; c.beginPath(); c.ellipse(ex - 5, ey - 2, 7, 5, 0.4, 0, 7); c.ellipse(ex + 7, ey + 7, 4, 3, 0, 0, 7); c.fill();
+  } else { // skyline at dusk
+    for (const [fx, fw, bh] of CITY) {
+      const bx = pad + fx * sw, bw = fw * sw;
+      c.fillStyle = '#1b1636'; c.fillRect(bx, gy - bh, bw, bh);
+      c.fillStyle = 'rgba(255,214,130,.55)';
+      for (let yy = gy - bh + 8; yy < gy - 8; yy += 12) for (let xx = bx + 4; xx < bx + bw - 5; xx += 8) if (frac(Math.sin(xx * 7.3 + yy * 3.1) * 999) > 0.55) c.fillRect(xx, yy, 3, 4);
+    }
+  }
+  const gg = c.createLinearGradient(0, gy, 0, pad + sceneH);
+  if (moon) { gg.addColorStop(0, '#8a8ea0'); gg.addColorStop(1, '#4b4e60'); } else { gg.addColorStop(0, '#2c2640'); gg.addColorStop(1, '#17132a'); }
+  c.fillStyle = gg; c.fillRect(pad, gy, sw, pad + sceneH - gy);
+  c.fillStyle = moon ? 'rgba(255,255,255,.22)' : 'rgba(255,190,140,.3)'; c.fillRect(pad, gy, sw, 1.5);
+  if (moon) { c.fillStyle = 'rgba(0,0,0,.18)'; for (let i = 0; i < 5; i++) { c.beginPath(); c.ellipse(pad + sw * (0.1 + i * 0.2), gy + 11, 18, 4, 0, 0, 7); c.fill(); } }
+}
+function drawRamp(c, L, v, F) {
+  const X = (x) => L.cx + x * L.sc, Y = (hh) => L.gy - hh * L.sc, sc = L.sc;
+  const path = () => {
+    c.beginPath(); CURVE.forEach(([x, hh], i) => (i ? c.lineTo(X(x), Y(hh)) : c.moveTo(X(x), Y(hh))));
+    c.lineTo(X(W + 0.5), Y(HTOP)); c.lineTo(X(W + 0.5), Y(0)); c.lineTo(X(-W - 0.5), Y(0)); c.lineTo(X(-W - 0.5), Y(HTOP)); c.closePath();
+  };
+  // soft shadow on the ground
+  c.fillStyle = 'rgba(0,0,0,.32)'; c.beginPath(); c.ellipse(L.cx + sc * 0.5, L.gy + 6, (W + 1.2) * sc, 7, 0, 0, 7); c.fill();
+  path(); const wg = c.createLinearGradient(0, Y(HTOP), 0, Y(0)); wg.addColorStop(0, '#d49a60'); wg.addColorStop(1, '#6e4527'); c.fillStyle = wg; c.fill();
+  c.save(); path(); c.clip();
+  const lg = c.createLinearGradient(X(-W - 0.5), 0, X(W + 0.5), 0); lg.addColorStop(0, 'rgba(255,235,200,.22)'); lg.addColorStop(0.5, 'rgba(255,235,200,0)'); lg.addColorStop(1, 'rgba(0,0,0,.25)');
+  c.fillStyle = lg; c.fillRect(X(-W - 0.6), Y(HTOP + 0.2), (2 * W + 1.2) * sc, (HTOP + 0.4) * sc);
+  c.strokeStyle = 'rgba(45,22,6,.28)'; c.lineWidth = 1; c.beginPath();
+  for (let xx = -4.0; xx <= 4.01; xx += 0.5) { const top = Math.abs(xx) <= W ? hOf(xx) : HTOP; c.moveTo(X(xx), Y(top)); c.lineTo(X(xx), Y(0)); }
+  c.stroke();
+  c.fillStyle = 'rgba(30,14,4,.3)'; c.fillRect(X(-W - 0.6), Y(0.35), (2 * W + 1.2) * sc, 0.35 * sc);
+  if (F > 0.01) { c.fillStyle = `rgba(255,100,30,${0.2 * F})`; c.fillRect(X(-W - 0.6), Y(HTOP + 0.2), (2 * W + 1.2) * sc, (HTOP + 0.4) * sc); }
+  c.restore();
+  path(); c.lineWidth = 1.5; c.strokeStyle = '#3a210e'; c.stroke();
+  // the riding surface
+  const curve = (dy) => { c.beginPath(); CURVE.forEach(([x, hh], i) => (i ? c.lineTo(X(x), Y(hh) + dy) : c.moveTo(X(x), Y(hh) + dy))); };
+  c.lineCap = 'round'; c.lineJoin = 'round';
+  curve(3); c.lineWidth = 8; c.strokeStyle = '#3a210e'; c.stroke();
+  const dg = c.createLinearGradient(X(-W), 0, X(W), 0); dg.addColorStop(0, '#f8d6a4'); dg.addColorStop(1, '#c98c52');
+  curve(3); c.lineWidth = 6; c.strokeStyle = dg; c.stroke();
+  // warm glow where friction heats the wood
+  if (v === 'friction' || sim.Eth > 0.5) {
+    let mx = 1; for (const b of sim.bins) mx = Math.max(mx, b);
+    c.save(); c.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 40; i++) {
+      const a = Math.pow(sim.bins[i] / mx, 0.7) * (0.25 + 0.75 * F);
+      if (a < 0.03) continue;
+      const x0 = -W + (i / 40) * 2 * W, x1 = -W + ((i + 1.4) / 40) * 2 * W;
+      c.beginPath(); for (let k = 0; k <= 4; k++) { const x = lerp(x0, Math.min(x1, W), k / 4); c.lineTo(X(x), Y(hOf(x)) + 3); }
+      c.lineWidth = 15; c.strokeStyle = `rgba(255,90,30,${0.22 * a})`; c.stroke();
+      c.lineWidth = 6; c.strokeStyle = `rgba(255,170,70,${0.5 * a})`; c.stroke();
+    }
+    c.restore();
+  }
+  // coping tubes on the two lips
+  for (const sx of [-W, W]) {
+    const cg = c.createRadialGradient(X(sx) - 2, Y(HTOP) - 2, 1, X(sx), Y(HTOP), 0.17 * sc);
+    cg.addColorStop(0, '#f2f4f8'); cg.addColorStop(1, '#7c8296'); c.fillStyle = cg; c.beginPath(); c.arc(X(sx), Y(HTOP) + 1, Math.max(0, 0.15 * sc), 0, 7); c.fill();
+  }
+}
+function drawSkater(c, px, py, ang, dir, fs, lean) {
+  c.save(); c.translate(px, py); c.rotate(ang); c.scale(dir * fs, fs); c.lineJoin = 'round'; c.lineCap = 'round';
+  const lw = 1.5 / fs, ol = '#171a33';
+  const limb = (pts, wd, col) => { c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.lineWidth = wd + 2.6 / fs; c.strokeStyle = ol; c.stroke(); c.lineWidth = wd; c.strokeStyle = col; c.stroke(); };
+  // wheels and board
+  for (const wx of [-0.27, 0.27]) {
+    const g = c.createRadialGradient(wx - 0.02, -0.1, 0.01, wx, -0.075, 0.085); g.addColorStop(0, '#9aa0b8'); g.addColorStop(1, '#23253a');
+    c.beginPath(); c.arc(wx, -0.075, 0.075, 0, 7); c.fillStyle = g; c.fill(); c.lineWidth = lw; c.strokeStyle = ol; c.stroke();
+  }
+  c.beginPath(); c.moveTo(-0.47, -0.27); c.quadraticCurveTo(-0.44, -0.15, -0.32, -0.15); c.lineTo(0.32, -0.15); c.quadraticCurveTo(0.44, -0.15, 0.47, -0.27);
+  c.lineTo(0.42, -0.26); c.quadraticCurveTo(0.4, -0.2, 0.32, -0.2); c.lineTo(-0.32, -0.2); c.quadraticCurveTo(-0.4, -0.2, -0.42, -0.26); c.closePath();
+  const bg = c.createLinearGradient(0, -0.27, 0, -0.15); bg.addColorStop(0, '#7af0cf'); bg.addColorStop(1, '#1fa88a'); c.fillStyle = bg; c.fill(); c.lineWidth = lw; c.strokeStyle = ol; c.stroke();
+  // legs
+  limb([[-0.14, -0.23], [-0.13, -0.45], [-0.04, -0.66]], 0.15, '#2f3f86');
+  limb([[0.17, -0.23], [0.2, -0.46], [0.06, -0.66]], 0.15, '#3a4c9c');
+  for (const sx of [-0.15, 0.19]) { c.beginPath(); c.ellipse(sx, -0.235, 0.095, 0.05, 0, 0, 7); c.fillStyle = '#f4f5fa'; c.fill(); c.lineWidth = lw; c.strokeStyle = ol; c.stroke(); }
+  // upper body leans forward with speed
+  c.save(); c.translate(0, -0.64); c.rotate(lean); c.translate(0, 0.64);
+  limb([[-0.04, -1.0], [-0.22, -0.9], [-0.35, -0.78]], 0.1, '#7a62ee');
+  c.beginPath(); c.roundRect(-0.18, -1.1, 0.36, 0.5, 0.13);
+  const tg = c.createLinearGradient(-0.18, 0, 0.18, 0); tg.addColorStop(0, '#b3a2ff'); tg.addColorStop(1, '#6a52e0'); c.fillStyle = tg; c.fill(); c.lineWidth = lw; c.strokeStyle = ol; c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.22)'; c.beginPath(); c.roundRect(-0.13, -1.06, 0.07, 0.34, 0.035); c.fill();
+  limb([[0.05, -1.0], [0.24, -0.98], [0.36, -0.86]], 0.1, '#8d78ff');
+  for (const [hx, hy] of [[-0.36, -0.77], [0.37, -0.85]]) { c.beginPath(); c.arc(hx, hy, 0.058, 0, 7); c.fillStyle = '#f2bc92'; c.fill(); c.lineWidth = lw; c.strokeStyle = ol; c.stroke(); }
+  // head, helmet, face
+  const hg = c.createRadialGradient(0, -1.32, 0.02, 0.03, -1.28, 0.2); hg.addColorStop(0, '#ffe3c4'); hg.addColorStop(1, '#e6a678');
+  c.beginPath(); c.arc(0.03, -1.28, 0.17, 0, 7); c.fillStyle = hg; c.fill(); c.lineWidth = lw; c.strokeStyle = ol; c.stroke();
+  c.beginPath(); c.arc(0.03, -1.3, 0.2, Math.PI * 1.02, Math.PI * 1.99); c.closePath();
+  const hm = c.createLinearGradient(-0.1, -1.5, 0.1, -1.3); hm.addColorStop(0, '#fff0a0'); hm.addColorStop(1, '#ffb81f'); c.fillStyle = hm; c.fill(); c.lineWidth = lw; c.strokeStyle = ol; c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.55)'; c.beginPath(); c.ellipse(-0.04, -1.45, 0.05, 0.025, -0.5, 0, 7); c.fill();
+  c.fillStyle = '#1b1d33'; c.beginPath(); c.arc(0.11, -1.265, 0.027, 0, 7); c.fill();
+  c.fillStyle = '#fff'; c.beginPath(); c.arc(0.118, -1.274, 0.01, 0, 7); c.fill();
+  c.strokeStyle = '#b5604a'; c.lineWidth = lw; c.beginPath(); c.arc(0.1, -1.22, 0.05, 0.3, 1.7); c.stroke();
+  c.restore();
+  c.restore();
+}
+function drawCurtain(c, L) {
+  const e = clamp(S.cur, 0, 1), k = e * e * (3 - 2 * e);
+  if (k >= 0.999) return;
+  const x0 = L.cx, x1 = L.rampR + 2, top = L.pad, bot = L.gy + 8, off = -k * (bot - top + 24);
+  c.save(); c.beginPath(); c.roundRect(L.pad, L.pad, L.w - 2 * L.pad, L.sceneH, 18); c.clip();
+  c.translate(0, off);
+  const g = c.createLinearGradient(x0, 0, x1, 0); g.addColorStop(0, '#6d1626'); g.addColorStop(0.5, '#b83348'); g.addColorStop(1, '#6d1626');
+  c.fillStyle = g; c.fillRect(x0, top, x1 - x0, bot - top);
+  const fold = Math.max(4, Math.round((x1 - x0) / 16));
+  for (let i = 0; i <= fold; i++) {
+    const fx = x0 + (i / fold) * (x1 - x0);
+    c.strokeStyle = i % 2 ? 'rgba(0,0,0,.22)' : 'rgba(255,200,200,.15)'; c.lineWidth = 3; c.beginPath(); c.moveTo(fx, top); c.lineTo(fx, bot); c.stroke();
+  }
+  c.fillStyle = '#e8b948'; c.fillRect(x0, top, x1 - x0, 12);
+  c.fillStyle = '#b98a1f'; c.fillRect(x0, top + 12, x1 - x0, 3);
+  for (let fx = x0 + 4; fx < x1; fx += 8) { c.fillStyle = '#e8b948'; c.fillRect(fx, bot - 12, 2, 12); }
+  c.fillStyle = '#e8b948'; c.fillRect(x0, bot - 14, x1 - x0, 3);
+  const mx = (x0 + x1) / 2, my = (top + bot) / 2;
+  c.fillStyle = 'rgba(9,11,24,.55)'; c.beginPath(); c.arc(mx, my, 27, 0, 7); c.fill();
+  c.fillStyle = '#fff'; c.font = '900 38px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('?', mx, my + 2);
+  c.fillStyle = 'rgba(0,0,0,.35)'; c.fillRect(x0 - 1.5, top, 3, bot - top);
+  c.restore();
+}
+function drawBars(c, L, v, tA) {
+  const A = T[lang].ab, uJ = T[lang].uJ, V = vals();
+  const barsL = L.w - L.pad - L.barW, colX = barsL + 8, colW = 26, top = L.pad + 54, scale = (L.gy - top) / S.axis;
+  c.fillStyle = 'rgba(8,10,24,.6)'; c.beginPath(); c.roundRect(barsL, L.pad + 6, L.barW - 6, L.gy - L.pad - 6 + 14, 14); c.fill();
+  c.fillStyle = 'rgba(255,255,255,.07)'; c.beginPath(); c.roundRect(colX, top, colW, L.gy - top, 7); c.fill();
+  c.save(); c.beginPath(); c.roundRect(colX, top, colW, L.gy - top, 7); c.clip();
+  let y = L.gy; const vs = [V.Ep, V.Ek, V.Eth], ys = [];
+  vs.forEach((val, i) => {
+    const hp = Math.max(0, val * scale), g = c.createLinearGradient(colX, 0, colX + colW, 0);
+    g.addColorStop(0, SEG[i][0]); g.addColorStop(1, SEG[i][1]); c.fillStyle = g; c.fillRect(colX, y - hp, colW, hp);
+    if (hp > 1) { c.fillStyle = 'rgba(0,0,0,.35)'; c.fillRect(colX, y - hp, colW, 1.5); }
+    ys.push(y - hp / 2); y -= hp;
+  });
+  c.fillStyle = 'rgba(255,255,255,.16)'; c.fillRect(colX + 4, top, 5, L.gy - top);
+  c.restore();
+  // value labels, spread so they never overlap
+  const show = [true, true, v === 'friction' || V.Eth > 0.5];
+  let last = L.gy + 20; const tot = Math.round(V.E), r0 = Math.round(V.Ep), r2 = Math.round(V.Eth), r1 = tot - r0 - r2, rv = [r0, r1, r2];
+  for (let i = 0; i < 3; i++) {
+    if (!show[i]) continue;
+    const yy = Math.min(ys[i], last - 21, L.gy - 8); last = yy;
+    pill(c, `${A[i]} ${rv[i]} ${uJ}`, colX + colW + 4, yy, { color: COL[i] });
+  }
+  // the fixed total line
+  if (tA > 0.01) {
+    const yT = L.gy - V.E * scale;
+    c.save(); c.globalAlpha = tA; c.setLineDash([5, 4]); c.strokeStyle = '#fff'; c.lineWidth = 2; c.beginPath(); c.moveTo(colX - 7, yT); c.lineTo(colX + colW + 7, yT); c.stroke(); c.setLineDash([]); c.restore();
+    pill(c, `${T[lang].cTotal} ${tot} ${uJ}`, colX - 4, Math.max(L.pad + 18, yT - 17), { alpha: tA, stroke: 'rgba(255,255,255,.5)' });
+    if (sim.legs > 0) {
+      const yO = L.gy - sim.E0 * scale;
+      c.save(); c.setLineDash([3, 4]); c.strokeStyle = 'rgba(61,220,151,.9)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(colX - 7, yO); c.lineTo(colX + colW + 7, yO); c.stroke(); c.setLineDash([]);
+      c.fillStyle = '#3ddc97'; c.fillRect(colX - 7, yT, 3, yO - yT); c.restore();
+      pill(c, `${T[lang].cLegs} +${Math.round(sim.legs)} ${uJ}`, colX - 4, Math.max(L.pad + 38, yT - 37), { alpha: tA, stroke: '#3ddc97', color: '#8ef0c0' });
+    }
+  }
+}
+function drawGraph(c, L, covered, tA) {
+  const gx = L.pad, gyy = L.gT, gw = L.w - 2 * L.pad, gh = L.gh, uJ = T[lang].uJ;
+  c.fillStyle = 'rgba(10,12,26,.88)'; c.beginPath(); c.roundRect(gx, gyy, gw, gh, 16); c.fill(); c.strokeStyle = 'rgba(130,145,190,.25)'; c.lineWidth = 1; c.stroke();
+  const px0 = gx + 14, px1 = gx + gw - 12, py0 = gyy + 32, py1 = gyy + gh - 24, sy = (py1 - py0) / S.axis;
+  if (covered) {
+    c.fillStyle = '#141830'; c.beginPath(); c.roundRect(gx, gyy, gw, gh, 16); c.fill(); c.strokeStyle = 'rgba(130,145,190,.25)'; c.stroke();
+    c.fillStyle = '#fff'; c.font = '900 40px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('?', gx + gw / 2, gyy + gh / 2 + 1);
+    return;
+  }
+  const Tw = 14 * Math.sqrt(GE / sim.g), t0 = Math.max(0, sim.t - Tw), sx = (px1 - px0) / Tw;
+  const step = Tw > 20 ? 10 : 5;
+  c.font = '700 12px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.strokeStyle = 'rgba(255,255,255,.08)'; c.fillStyle = '#98A0B8';
+  for (let tk = Math.ceil(t0 / step) * step; tk <= t0 + Tw + 1e-6; tk += step) {
+    const x = px0 + (tk - t0) * sx; c.beginPath(); c.moveTo(x, py0); c.lineTo(x, py1); c.stroke(); c.fillText(`${tk} ${T[lang].cS}`, x, py1 + 12);
+  }
+  c.strokeStyle = 'rgba(255,255,255,.3)'; c.beginPath(); c.moveTo(px0, py1); c.lineTo(px1, py1); c.stroke();
+  const pts = sim.hist.filter((p) => p[0] >= t0 - 0.05);
+  if (pts.length > 1) {
+    const X = (p) => px0 + (p[0] - t0) * sx;
+    const layer = (lo, hi, i) => {
+      c.beginPath();
+      pts.forEach((p, k) => { const y = py1 - hi(p) * sy; k ? c.lineTo(X(p), y) : c.moveTo(X(p), y); });
+      for (let k = pts.length - 1; k >= 0; k--) c.lineTo(X(pts[k]), py1 - lo(pts[k]) * sy);
+      c.closePath(); const g = c.createLinearGradient(0, py0, 0, py1); g.addColorStop(0, SEG[i][0]); g.addColorStop(1, SEG[i][1]); c.fillStyle = g; c.fill();
+    };
+    layer(() => 0, (p) => p[1], 0); layer((p) => p[1], (p) => p[1] + p[2], 1); layer((p) => p[1] + p[2], (p) => p[1] + p[2] + p[3], 2);
+  }
+  if (tA > 0.01) {
+    c.save(); c.globalAlpha = tA; c.setLineDash([5, 4]); c.strokeStyle = '#fff'; c.lineWidth = 2; const yT = py1 - sim.E * sy; c.beginPath(); c.moveTo(px0, yT); c.lineTo(px1, yT); c.stroke(); c.restore();
+  }
+  pill(c, T[lang].cGraph, gx + 10, gyy + 16, { color: '#d3d9e8' });
+}
+function sceneRamp(c, w, h, time) {
+  const v = lab.view, L = layout(w, h), moon = S.sec === 'moon', V = vals(), F = clamp(V.Eth / Math.max(1, sim.E0), 0, 1);
+  c.save(); c.beginPath(); c.roundRect(L.pad, L.pad, w - 2 * L.pad, L.sceneH, 18); c.clip();
+  drawSky(c, L, moon, time);
+  const X = (x) => L.cx + x * L.sc, Y = (hh) => L.gy - hh * L.sc;
+  // metre ruler
+  c.font = '800 12px Nunito, sans-serif'; c.textAlign = 'left'; c.textBaseline = 'middle';
+  for (let m = 1; m <= 6; m++) {
+    c.fillStyle = 'rgba(255,255,255,.07)'; c.fillRect(L.pad + 26, Y(m), L.rampR - L.pad - 26, 1);
+    c.fillStyle = 'rgba(255,255,255,.7)'; c.fillText(`${m} ${T[lang].uM}`, L.pad + 4, Y(m));
+  }
+  drawRamp(c, L, v, F);
+  const tA = S.tot;
+  if (tA > 0.01 && S.cur > 0.01 || (v === 'friction' && tA > 0.01)) { // start height
+    c.save(); c.globalAlpha = Math.max(tA, v === 'ramp' ? S.cur : 0); c.setLineDash([6, 5]); c.strokeStyle = 'rgba(255,255,255,.8)'; c.lineWidth = 1.5;
+    c.beginPath(); c.moveTo(L.rampL, Y(sim.start)); c.lineTo(L.rampR, Y(sim.start)); c.stroke(); c.restore();
+    pill(c, `${T[lang].cStart} ${fmtH(sim.start)} ${T[lang].uM}`, L.cx, Y(sim.start) - 12, { align: 'c', alpha: Math.max(tA, v === 'ramp' ? S.cur : 0) });
+  }
+  if (answered()) {
+    sim.peaks.forEach((p, i) => {
+      const last = i === sim.peaks.length - 1;
+      c.beginPath(); c.arc(X(p.x), Y(p.h) - 2, last ? 5 : 3.5, 0, 7); c.fillStyle = last ? '#fff' : 'rgba(255,255,255,.55)'; c.fill(); c.lineWidth = 1.5; c.strokeStyle = '#171a33'; c.stroke();
+    });
+    const lp = sim.peaks[sim.peaks.length - 1];
+    if (lp) pill(c, `${fmt(lp.h)} ${T[lang].uM}`, X(lp.x), Y(lp.h) - 20, { align: 'c' });
+  }
+  // the skater
+  const fs = L.sc * 1.5, ang = -Math.atan(2 * K * sim.x), lean = clamp(Math.abs(sim.u) / 12, 0, 1) * 0.28;
+  c.fillStyle = 'rgba(0,0,0,.3)'; c.beginPath(); c.ellipse(X(sim.x), Y(hOf(sim.x)) + 5, 0.5 * fs, 2.5, ang, 0, 7); c.fill();
+  drawSkater(c, X(sim.x), Y(hOf(sim.x)), ang, sim.dir, fs, lean);
+  if (v === 'ramp' && S.rAns !== 'skip') drawCurtain(c, L);
+  c.restore();
+  drawBars(c, L, v, tA);
+  drawGraph(c, L, v === 'friction' && S.fAns === null, tA);
+}
+
+// --- machines: a Sankey arrow and 100 squares ---------------------------------------------------------------
+const band = (c, x0, t0, b0, x1, t1, b1) => { const xm = (x0 + x1) / 2; c.beginPath(); c.moveTo(x0, t0); c.bezierCurveTo(xm, t0, xm, t1, x1, t1); c.lineTo(x1, b1); c.bezierCurveTo(xm, b1, xm, b0, x0, b0); c.closePath(); };
+function drawDevice(c, id, cx, cy, time, p) {
+  c.save(); c.lineJoin = 'round'; c.lineCap = 'round';
+  if (id === 'bulb') {
+    const halo = c.createRadialGradient(cx, cy - 6, 4, cx, cy - 6, 44); halo.addColorStop(0, 'rgba(255,225,120,.55)'); halo.addColorStop(1, 'rgba(255,225,120,0)');
+    c.fillStyle = halo; c.beginPath(); c.arc(cx, cy - 6, 44, 0, 7); c.fill();
+    c.beginPath(); c.moveTo(cx - 9, cy + 12); c.quadraticCurveTo(cx - 12, cy + 4, cx - 21, cy - 4); c.arc(cx, cy - 12, 22, Math.PI * 0.86, Math.PI * 0.14, false); c.quadraticCurveTo(cx + 12, cy + 4, cx + 9, cy + 12); c.closePath();
+    const g = c.createRadialGradient(cx - 8, cy - 20, 2, cx, cy - 10, 26); g.addColorStop(0, '#fffbe0'); g.addColorStop(0.5, '#ffe27a'); g.addColorStop(1, '#e0a22a');
+    c.fillStyle = g; c.fill(); c.lineWidth = 1.5; c.strokeStyle = '#6b4a10'; c.stroke();
+    c.strokeStyle = '#8a4a10'; c.lineWidth = 1.6; c.beginPath(); c.moveTo(cx - 5, cy + 10); c.lineTo(cx - 5, cy - 2); c.lineTo(cx - 2, cy - 8); c.lineTo(cx + 2, cy - 2); c.lineTo(cx + 5, cy - 8); c.lineTo(cx + 5, cy + 10); c.stroke();
+    c.fillStyle = '#a6adc2'; c.beginPath(); c.roundRect(cx - 10, cy + 12, 20, 14, 3); c.fill(); c.lineWidth = 1.2; c.strokeStyle = '#4a5068'; c.stroke();
+    c.strokeStyle = '#4a5068'; c.beginPath(); c.moveTo(cx - 10, cy + 17); c.lineTo(cx + 10, cy + 17); c.moveTo(cx - 10, cy + 22); c.lineTo(cx + 10, cy + 22); c.stroke();
+    if (p > 0.3) { c.strokeStyle = `rgba(255,120,80,${0.5 * p})`; c.lineWidth = 2; for (let i = -1; i <= 1; i++) { c.beginPath(); for (let k = 0; k <= 8; k++) { const yy = cy - 36 - k * 3, xx = cx + i * 12 + Math.sin(time * 4 + k * 0.9 + i) * 3; k ? c.lineTo(xx, yy) : c.moveTo(xx, yy); } c.stroke(); } }
+  } else {
+    const body = id === 'petrol' ? ['#f06a58', '#b52a22'] : ['#4fe0b8', '#14906f'];
+    if (id === 'petrol') { c.fillStyle = 'rgba(190,195,210,.35)'; for (let i = 0; i < 3; i++) { const ph = frac(time * 0.8 + i / 3); c.beginPath(); c.arc(cx - 40 - ph * 12, cy + 6 - ph * 14, 3 + ph * 5, 0, 7); c.globalAlpha = 1 - ph; c.fill(); } c.globalAlpha = 1; }
+    c.fillStyle = 'rgba(0,0,0,.3)'; c.beginPath(); c.ellipse(cx, cy + 24, 36, 4, 0, 0, 7); c.fill();
+    const bg = c.createLinearGradient(0, cy - 20, 0, cy + 14); bg.addColorStop(0, body[0]); bg.addColorStop(1, body[1]);
+    c.beginPath(); c.roundRect(cx - 36, cy - 2, 72, 20, 8); c.fillStyle = bg; c.fill(); c.lineWidth = 1.5; c.strokeStyle = '#171a33'; c.stroke();
+    c.beginPath(); c.moveTo(cx - 20, cy - 2); c.lineTo(cx - 13, cy - 18); c.lineTo(cx + 12, cy - 18); c.lineTo(cx + 24, cy - 2); c.closePath(); c.fillStyle = bg; c.fill(); c.stroke();
+    c.beginPath(); c.moveTo(cx - 16, cy - 4); c.lineTo(cx - 11, cy - 15); c.lineTo(cx - 1, cy - 15); c.lineTo(cx - 1, cy - 4); c.closePath(); c.moveTo(cx + 2, cy - 4); c.lineTo(cx + 2, cy - 15); c.lineTo(cx + 11, cy - 15); c.lineTo(cx + 19, cy - 4); c.closePath();
+    c.fillStyle = '#bfe6ff'; c.fill(); c.lineWidth = 1; c.stroke();
+    c.fillStyle = '#ffe9a0'; c.beginPath(); c.roundRect(cx + 31, cy + 3, 5, 5, 2); c.fill();
+    for (const wx of [-21, 21]) { c.beginPath(); c.arc(cx + wx, cy + 18, 8, 0, 7); c.fillStyle = '#1c1c2a'; c.fill(); c.lineWidth = 1.2; c.strokeStyle = '#000'; c.stroke(); c.beginPath(); c.arc(cx + wx, cy + 18, 3.2, 0, 7); c.fillStyle = '#b7bdd0'; c.fill(); }
+    c.fillStyle = 'rgba(9,11,24,.9)'; c.beginPath(); c.arc(cx + 30, cy - 26, 11, 0, 7); c.fill();
+    c.font = '14px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.globalAlpha = 1; c.fillStyle = '#fff'; c.fillText(id === 'petrol' ? '⛽' : '⚡', cx + 30, cy - 25);
+  }
+  c.restore();
+}
+function sceneMachines(c, w, h, dt, time) {
+  const t = T[lang], id = S.mdev, md = S.m[id], pad = 8, real = MACH[id], TH = 0.8;
+  if (md.done) md.p = Math.min(1, md.p + dt / 1.1);
+  const p = md.p * md.p * (3 - 2 * md.p);
+  c.save(); c.beginPath(); c.roundRect(pad, pad, w - 2 * pad, h - 2 * pad, 18); c.clip();
+  const bg = c.createLinearGradient(0, 0, 0, h); bg.addColorStop(0, '#1a1f4a'); bg.addColorStop(1, '#0c0f24'); c.fillStyle = bg; c.fillRect(pad, pad, w - 2 * pad, h - 2 * pad);
+  c.strokeStyle = 'rgba(255,255,255,.04)'; c.lineWidth = 1; for (let x = pad + 20; x < w; x += 24) { c.beginPath(); c.moveTo(x, pad); c.lineTo(x, h); c.stroke(); }
+  const mid = pad + 28 + 100, nodeL = pad + (w - 2 * pad) * 0.3, nodeR = nodeL + 88, inX = pad + 6, x1 = w - pad - 58;
+  const tu = (u) => u * TH, uShow = real, wShow = 100 - real;
+  // input band
+  const ig = c.createLinearGradient(inX, 0, nodeL, 0); ig.addColorStop(0, '#5a8fff'); ig.addColorStop(1, '#8fc2ff');
+  c.fillStyle = ig; c.beginPath(); c.roundRect(inX, mid - 40, nodeL - inX + 4, 80, [12, 0, 0, 12]); c.fill();
+  c.save(); c.setLineDash([6, 10]); c.lineDashOffset = -time * 40; c.strokeStyle = 'rgba(255,255,255,.4)'; c.lineWidth = 2; c.beginPath(); c.moveTo(inX + 8, mid); c.lineTo(nodeL, mid); c.stroke(); c.restore();
+  const outs = (u, alpha, ghost) => {
+    const a = tu(u), b = tu(100 - u);
+    // useful: top branch
+    band(c, nodeR - 4, mid - 40, mid - 40 + a, x1, mid - 66, mid - 66 + a);
+    if (ghost) { c.setLineDash([5, 4]); c.strokeStyle = 'rgba(255,255,255,.75)'; c.lineWidth = 1.5; c.stroke(); c.setLineDash([]); c.fillStyle = 'rgba(255,216,74,.12)'; c.fill(); }
+    else { c.globalAlpha = alpha; const g = c.createLinearGradient(nodeR, 0, x1, 0); g.addColorStop(0, '#ffe58a'); g.addColorStop(1, '#ffc22e'); c.fillStyle = g; c.fill(); c.globalAlpha = 1; }
+    band(c, nodeR - 4, mid - 40 + a, mid + 40, x1, mid + 14, mid + 14 + b);
+    if (ghost) { c.setLineDash([5, 4]); c.strokeStyle = 'rgba(255,255,255,.75)'; c.lineWidth = 1.5; c.stroke(); c.setLineDash([]); c.fillStyle = 'rgba(255,90,77,.1)'; c.fill(); }
+    else { c.globalAlpha = alpha; const g = c.createLinearGradient(nodeR, 0, x1, 0); g.addColorStop(0, '#ff8a7a'); g.addColorStop(1, '#e0392f'); c.fillStyle = g; c.fill(); c.globalAlpha = 1; }
+    if (!ghost && alpha > 0.5) { // arrow heads
+      c.globalAlpha = alpha; c.fillStyle = '#ffc22e'; c.beginPath(); c.moveTo(x1 - 1, mid - 66 - 6); c.lineTo(x1 + 16, mid - 66 + a / 2); c.lineTo(x1 - 1, mid - 66 + a + 6); c.closePath(); c.fill();
+      c.fillStyle = '#e0392f'; c.beginPath(); c.moveTo(x1 - 1, mid + 14 - 6); c.lineTo(x1 + 16, mid + 14 + b / 2); c.lineTo(x1 - 1, mid + 14 + b + 6); c.closePath(); c.fill();
+      c.save(); c.setLineDash([6, 10]); c.lineDashOffset = -time * 40; c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 2;
+      c.beginPath(); c.moveTo(nodeR, mid - 40 + a / 2); c.bezierCurveTo((nodeR + x1) / 2, mid - 40 + a / 2, (nodeR + x1) / 2, mid - 66 + a / 2, x1, mid - 66 + a / 2); c.stroke();
+      c.beginPath(); c.moveTo(nodeR, mid - 40 + a + b / 2); c.bezierCurveTo((nodeR + x1) / 2, mid - 40 + a + b / 2, (nodeR + x1) / 2, mid + 14 + b / 2, x1, mid + 14 + b / 2); c.stroke(); c.restore();
+      c.globalAlpha = 1;
+    }
+  };
+  // the machine node
+  const ng = c.createLinearGradient(0, mid - 53, 0, mid + 53); ng.addColorStop(0, '#2a3160'); ng.addColorStop(1, '#171b3a');
+  const g0 = md.g;
+  if (!md.done || p < 1) outs(g0, 1, true);
+  if (md.done) outs(real, p, false);
+  c.fillStyle = ng; c.beginPath(); c.roundRect(nodeL, mid - 53, 88, 106, 16); c.fill(); c.strokeStyle = 'rgba(160,175,230,.45)'; c.lineWidth = 1.5; c.stroke();
+  drawDevice(c, id, nodeL + 44, mid + 2, time, md.done ? p : 0);
+  // labels
+  pill(c, `${t.m.inn[id]} · 100 ${t.uJ}`, inX, mid + 40 + 18, { fs: 12 });
+  if (!md.done) pill(c, `${t.m.guess}: ${g0} ${t.uJ}`, w - pad - 4, mid - 66 - 16 + (g0 > 50 ? 0 : 0), { align: 'r', stroke: 'rgba(255,255,255,.5)' });
+  if (md.done && p > 0.6) {
+    pill(c, `${t.m.useful}: ${t.m.about} ${uShow} ${t.uJ}`, w - pad - 4, mid - 66 - 16, { align: 'r', alpha: p, color: '#ffe58a' });
+    pill(c, `${t.m.heat}: ${t.m.about} ${wShow} ${t.uJ}`, w - pad - 4, mid + 14 + tu(wShow) + 20, { align: 'r', alpha: p, color: '#ff9d90' });
+  }
+  // the 100 squares
+  const cs = Math.min(15, Math.floor((w - 2 * pad - 24) / 10)), gx = pad + 14, gy0 = h - pad - 10 * cs - 14;
+  const shown = md.done ? Math.floor(p * 100 + 0.001) : 0;
+  for (let i = 0; i < 100; i++) {
+    const col = i % 10, row = Math.floor(i / 10), X = gx + col * cs, Y = gy0 + row * cs;
+    let fill = 'rgba(30,36,74,.9)', line = 'rgba(130,145,190,.28)';
+    if (!md.done && i < g0) { fill = 'rgba(255,216,74,.3)'; line = 'rgba(255,216,74,.8)'; }
+    if (md.done && i < shown) { fill = i < real ? GOLD : '#e8503f'; line = 'rgba(0,0,0,.35)'; }
+    c.fillStyle = fill; c.beginPath(); c.roundRect(X + 1, Y + 1, cs - 2, cs - 2, 3); c.fill(); c.strokeStyle = line; c.lineWidth = 1; c.stroke();
+    if (md.done && p > 0.99 && i < g0) { c.fillStyle = '#fff'; c.beginPath(); c.arc(X + cs / 2, Y + cs / 2, 2, 0, 7); c.fill(); }
+  }
+  const lx = gx + 10 * cs + 14;
+  const rows = md.done && p > 0.99 ? [[GOLD, t.m.useful], ['#e8503f', t.m.wasted], ['#fff', t.m.guess]] : [[GOLD, md.done ? t.m.useful : t.m.guess]];
+  rows.forEach(([col, tx], i) => pill(c, tx, lx, gy0 + 12 + i * 24, { dot: col }));
+  pill(c, t.m.sq, lx, gy0 + 10 * cs - 10, { color: '#c6cde0' });
+  c.restore();
+}
+
+// --- the loop ----------------------------------------------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  const v = lab.view; CW = w;
+  if (v === 'machines') { sceneMachines(c, w, h, dt, time); readout(); return; }
+  if (S.wait > 0) { S.wait -= dt; if (S.wait <= 0) { sim.run = true; S.wait = -1; } }
+  if (sim.run) simStep(dt);
+  const secOn = S.sec !== null;
+  const curT = v === 'ramp' && (S.rAns !== null || secOn) ? 1 : 0;
+  S.cur = clamp(S.cur + (curT ? 1 : -1) * dt / 0.9, 0, 1);
+  S.tot = clamp(S.tot + (answered() ? 1 : -1) * dt / 0.5, 0, 1);
+  S.axis += (Math.max(2000, sim.E * 1.04) - S.axis) * Math.min(1, dt * 6);
+  sceneRamp(c, w, h, time);
+  readout();
+});
+
+// --- controls ----------------------------------------------------------------------------------------------
+$('ctrlBody').innerHTML = `
+  <div id="esRamp">
+    <div id="rQBox"><p class="es-q" id="rQ"></p><div class="es-opts" id="rOpts"></div></div>
+    <div class="es-sl"><label id="rHL" for="rH"></label><input type="range" class="big" id="rH" min="1" max="5" step="0.5" style="--track:linear-gradient(90deg,#2d6fe0,#7cc4ff)"><b id="rHV"></b></div>
+    <div class="row2"><button class="chip" data-act="restart" id="rRe"></button><button class="chip es-push" data-act="push" id="esPush"></button></div>
+  </div>
+  <div id="esFric">
+    <div id="fQBox"><p class="es-q" id="fQ"></p><div class="es-ths" id="fOpts"></div></div>
+    <div class="es-sl"><label id="fHL" for="fH"></label><input type="range" class="big" id="fH" min="1" max="5" step="0.5" style="--track:linear-gradient(90deg,#2d6fe0,#7cc4ff)"><b id="fHV"></b></div>
+    <div class="es-sl"><label id="fFL" for="fF"></label><div><input type="range" class="big" id="fF" min="0" max="2" step="1" style="--track:linear-gradient(90deg,#4ea8ff,#ffb347,#ff5a4d)"><div class="es-ticks" id="fTicks"></div></div><b id="fFV"></b></div>
+    <div class="row2"><button class="chip" data-act="restart" id="fRe"></button></div>
+  </div>
+  <div id="esMach">
+    <div class="chips" id="mDevs"></div>
+    <p class="es-q" id="mQ" style="margin-top:12px"></p>
+    <div class="es-sl"><label id="mGL" for="mG"></label><input type="range" class="big" id="mG" min="0" max="100" step="1" style="--track:linear-gradient(90deg,#ff5a4d,#ffd84a)"><b id="mGV"></b></div>
+    <div class="row2"><button class="btn es-main" data-act="mshow" id="mMain"></button></div>
+  </div>
+  <div class="es-sec"><div class="chips" id="esSecs"></div></div>`;
+
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+function onView() {
+  if (S.sec && lab.view !== 'ramp') S.sec = null;
+  simReset();
+  if (lab.view !== 'machines' && answered()) startRun(0.5);
+  render();
+}
+function restart() { simReset(); if (answered()) startRun(0.35); }
+function toggleSecret(k) {
+  if (!secret.unlocked()) return secret.open();
+  if (S.sec === k) { S.sec = null; simReset(); startRun(0.35); sfx.click(); render(); return; }
+  S.sec = k;
+  if (lab.view !== 'ramp') { lab.view = 'ramp'; lab.renderChrome(); }
+  if (S.rAns === null) S.rAns = 'skip';
+  if (k === 'push') S.h0 = 3;
+  simReset(); startRun(0.4); sfx.click(); render(); showStage();
+}
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act], [data-dev], [data-sec]'); if (!b || b.disabled) return;
+  if (b.dataset.dev) { S.mdev = b.dataset.dev; sfx.click(); render(); return; }
+  if (b.dataset.sec) { toggleSecret(b.dataset.sec); return; }
+  const act = b.dataset.act, k = b.dataset.k;
+  if (act === 'rpick' && S.rAns === null) { S.rAns = k; (k === 'same' ? sfx.good : sfx.bad)(); startRun(0.7); showStage(); }
+  else if (act === 'fpick' && S.fAns === null) { S.fAns = k; (k === 'flat' ? sfx.good : sfx.bad)(); startRun(0.5); showStage(); }
+  else if (act === 'restart') { restart(); sfx.click(); }
+  else if (act === 'push') {
+    const j = M * sim.g;
+    if (sim.E / j + 1 > 6.01 || sim.rest) return;
+    sim.E += j; sim.legs += j; if (Math.abs(sim.u) < 1e-9) sim.u = sim.dir * 0.001; sfx.push();
+  } else if (act === 'mshow') {
+    const md = S.m[S.mdev];
+    if (md.done) { md.done = false; md.p = 0; sfx.click(); }
+    else { md.done = true; (Math.abs(md.g - MACH[S.mdev]) <= 10 ? sfx.good : sfx.bad)(); showStage(); }
+  }
+  render();
+});
+$('ctrlBody').addEventListener('input', (ev) => {
+  const id = ev.target.id, val = +ev.target.value;
+  if (id === 'rH' || id === 'fH') { S.h0 = val; restart(); }
+  else if (id === 'fF') { S.fric = val; restart(); }
+  else if (id === 'mG') { const md = S.m[S.mdev]; if (!md.done) md.g = val; }
+  else return;
+  sfx.tick(); render();
+});
+
+// --- the readout, called from the loop and from render() -----------------------------------------------------
+let roKey = '';
+function readout() {
+  const t = T[lang], v = lab.view, A = t.ab, uJ = t.uJ;
+  let val, sub = '', pill = '', color;
+  if (v === 'machines') {
+    const id = S.mdev, md = S.m[id];
+    color = '#ffd84a';
+    if (!md.done) { val = `<span class="es-ro">${t.m.roq}</span>`; sub = t.m.inn[id]; pill = `${t.m.guess}: ${md.g} ${uJ}`; }
+    else { const u = MACH[id]; val = `<span class="es-ro">${esc(t.m.ro(u, 100 - u))}</span>`; sub = ''; pill = `${t.m.about} ${u} %`; }
+  } else {
+    const V = vals(), tot = Math.round(V.E), r0 = Math.round(V.Ep), r2 = Math.round(V.Eth), r1 = tot - r0 - r2;
+    if (v === 'ramp') {
+      color = '#4ea8ff';
+      val = `<span class="es-ro">${A[0]} ${r0} ${uJ} + ${A[1]} ${r1} ${uJ} = ${tot} ${uJ}</span>`;
+      pill = answered() ? `v = ${fmt(Math.abs(sim.u))} ${t.uV}` : '';
+    } else {
+      color = '#ff5a4d';
+      if (S.fAns === null) val = `<span class="es-ro">${A[0]} ${r0} ${uJ}</span>`;
+      else { val = `<span class="es-ro">${A[2]} ${r2} ${uJ}</span>`; sub = t.f.ro; pill = `${t.cTotal} ${tot} ${uJ}`; }
+    }
+    if (S.sec === 'push' || S.sec === 'moon') { pill = `v = ${fmt(Math.abs(sim.u))} ${t.uV}`; }
+  }
+  const key = [val, sub, pill, lang].join('|');
+  if (key === roKey) return;
+  roKey = key; lab.setReadout(val, sub, pill, color);
+}
+
+// --- one render per change: controls, state card, facts ----------------------------------------------------
+const THUMB = { down: 'M12 24 L90 44', flat: 'M12 24 L90 24', up: 'M12 24 L90 4' };
+const thumb = (k) => `<svg viewBox="0 0 102 52" aria-hidden="true"><rect x=".5" y=".5" width="101" height="51" rx="9" fill="#0c0f1e" stroke="rgba(130,145,190,.35)"/>
+  <path d="M10 6V46H96" fill="none" stroke="#646C84" stroke-width="1.5"/><path d="${THUMB[k]}" transform="translate(0 1)" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/></svg>`;
+const legend = (n) => `<div>${T[lang].leg.slice(0, n).map((x, i) => `<span class="es-lg"><i style="background:${COL[i]}"></i>${esc(x)}</span>`).join('')}</div>`;
+function render() {
+  const t = T[lang], v = lab.view;
+  document.body.dataset.v = v;
+  $('esRamp').hidden = v !== 'ramp'; $('esFric').hidden = v !== 'friction'; $('esMach').hidden = v !== 'machines';
+  // secrets row (always visible; locked until the quiz is passed)
+  const open = secret.unlocked();
+  $('esSecs').innerHTML = [['push', '🚀'], ['moon', '🌙']].map(([k, e]) => `<button class="chip secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-sec="${k}">${open ? `${e} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`).join('');
+  const setRange = (id, val) => { const el = $(id); if (el && el.value !== String(val)) el.value = val; };
+  if (v === 'ramp') {
+    lab.setGlow(S.sec === 'moon' ? 'rgba(150,160,200,.22)' : 'rgba(78,168,255,.28)');
+    const skip = S.rAns === 'skip';
+    $('rQBox').hidden = skip;
+    $('rQ').textContent = t.r.q;
+    $('rOpts').innerHTML = ['lower', 'same', 'higher'].map((k, i) => `<button class="es-opt ${S.rAns !== null ? (k === 'same' ? 'good' : k === S.rAns ? 'bad' : 'dim') : ''}" data-act="rpick" data-k="${k}"${S.rAns !== null ? ' disabled' : ''}>${esc(t.r.o[i])}</button>`).join('');
+    $('rHL').textContent = t.hL; $('rHV').textContent = `${fmtH(S.h0)} ${t.uM}`; setRange('rH', S.h0);
+    $('rRe').textContent = t.re;
+    const pushOn = S.sec === 'push', j = Math.round(M * sim.g);
+    $('esPush').hidden = !pushOn;
+    $('esPush').textContent = sim.E / (M * sim.g) + 1 > 6.01 ? t.sp.tired : t.sp.push(j);
+    $('esPush').disabled = sim.E / (M * sim.g) + 1 > 6.01;
+    let st;
+    const g = sim.g, vb = Math.sqrt(2 * g * S.h0);
+    if (S.sec === 'push') {
+      st = sim.legs > 0 ? { emo: '🚀', title: t.sp.t1(0)[0], lead: t.sp.t1(Math.round(sim.legs))[1], body: t.sp.b1(Math.round(sim.E), Math.round(sim.E0), Math.round(sim.legs)) }
+        : { emo: '🚀', title: t.sp.t0[0], lead: t.sp.t0[1], body: '' };
+      st.extra = legend(2);
+    } else if (S.sec === 'moon') st = { emo: '🌙', title: t.mo.t, lead: t.mo.l, body: t.mo.b(Math.round(sim.E0)), extra: legend(2) };
+    else if (S.rAns === null) st = { emo: '🤔', title: t.r.q, lead: t.r.hold[1], body: '', extra: '' };
+    else st = { emo: S.rAns === 'same' ? '✅' : '🛹', title: S.rAns === 'same' ? t.r.ok : t.r.no, lead: t.r.lead, body: `${t.r.body} ${t.r.v(fmt(vb))}`, extra: legend(2) };
+    lab.setState(st);
+    lab.setFacts(S.sec ? [] : [{ emo: '💡', ...t.facts.apple }]);
+  } else if (v === 'friction') {
+    lab.setGlow('rgba(255,110,70,.26)');
+    $('fQ').textContent = t.f.q;
+    $('fOpts').innerHTML = ['down', 'flat', 'up'].map((k, i) => `<button class="es-th ${S.fAns !== null ? (k === 'flat' ? 'good' : k === S.fAns ? 'bad' : 'dim') : ''}" data-act="fpick" data-k="${k}"${S.fAns !== null ? ' disabled' : ''}>${thumb(k)}<span>${esc(t.f.o[i])}</span></button>`).join('');
+    $('fHL').textContent = t.hL; $('fHV').textContent = `${fmtH(S.h0)} ${t.uM}`; setRange('fH', S.h0);
+    $('fFL').textContent = t.fL; $('fFV').textContent = t.fo[S.fric]; setRange('fF', S.fric);
+    $('fTicks').innerHTML = t.fo.map((x) => `<span>${esc(x)}</span>`).join('');
+    $('fRe').textContent = t.re;
+    let st;
+    if (S.fAns === null) st = { emo: '🤔', title: t.f.q, lead: t.f.hold[1], body: '', extra: '' };
+    else {
+      const th = Math.round(vals().Eth), e = Math.round(sim.E0), c0 = S.fric === 0;
+      st = { emo: S.fAns === 'flat' ? '✅' : '🔥', title: S.fAns === 'flat' ? t.f.ok : t.f.no, lead: t.f.lead,
+        body: c0 ? t.f.t0[1] : sim.rest ? t.f.stop(th, e) : t.f.t1[1], extra: legend(3) };
+    }
+    lab.setState(st);
+    lab.setFacts((S.fAns === null ? [t.facts.brake] : [t.facts.joule, t.facts.brake]).map((f) => ({ emo: '💡', ...f })));
+  } else {
+    lab.setGlow('rgba(255,216,74,.22)');
+    const id = S.mdev, md = S.m[id], nm = t.m.dev[id][0];
+    $('mDevs').innerHTML = Object.keys(MACH).map((k) => `<button class="chip es-dev ${k === id ? 'on' : ''}" data-dev="${k}">${t.m.dev[k][1]} ${esc(t.m.dev[k][0])}</button>`).join('');
+    $('mQ').textContent = t.m.q[id];
+    $('mGL').textContent = t.m.guessL; $('mGV').textContent = `${md.g} %`; setRange('mG', md.g); $('mG').disabled = md.done;
+    $('mMain').textContent = md.done ? t.again : t.show;
+    let st;
+    if (!md.done) { const h = t.m.hold(t.m.use[id]); st = { emo: '🤔', title: h[0], lead: h[1], body: '', extra: '' }; }
+    else {
+      const u = MACH[id], d = Math.abs(md.g - u), verdict = d <= 10 ? t.m.ok : t.m.no;
+      st = { emo: d <= 10 ? '✅' : '🤔', title: `${verdict} ${t.m.st(nm, u)}`, lead: t.m.lead(u), body: t.m.body(t.m.note[id]), extra: '' };
+    }
+    lab.setState(st);
+    const fl = [t.facts.brake]; if (S.m.petrol.done) fl.unshift(t.facts.petrol);
+    lab.setFacts(fl.map((f) => ({ emo: '💡', ...f })));
+  }
+  roKey = ''; readout();
+}
+simReset();
+render();
+</script>
+</body>
+</html>
