@@ -1,0 +1,931 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Scale It · Skill Graph</title>
+<meta name="description" content="Make copies of a door, find missing sides of similar shapes and read a park plan with a ruler. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  .sm-ask { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); width: min(560px, calc(100% - 28px)); padding: 12px 14px; text-align: center; z-index: 2; }
+  .sm-ask .q { font: 500 21px/1.2 var(--serif); color: #fff; margin-bottom: 6px; text-wrap: balance; }
+  .sm-ask p { margin: 0 0 10px; color: var(--soft); font-size: 12.5px; line-height: 1.45; }
+  .sm-ask .opts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .sm-ask button { min-height: 40px; padding: 9px 20px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .12); font-weight: 800; cursor: pointer; }
+  .sm-ask button:hover { background: rgba(130, 145, 190, .28); }
+  .sm-fine { font-size: 12px; color: var(--mut); line-height: 1.5; }
+  .sm-lbl { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-weight: 700; margin-bottom: 2px; }
+  .sm-c { min-height: 38px; }
+  #gR { height: 40px; }
+  .sm-cnt { display: flex; align-items: center; justify-content: center; gap: 6px; }
+  .sm-cnt input { width: 112px; height: 44px; border-radius: 14px; border: 1px solid var(--stroke2); background: rgba(10, 12, 20, .6); text-align: center; font-size: 22px; font-weight: 900; }
+  .sm-cnt .sm-sb { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .12); font-size: 22px; font-weight: 800; line-height: 1; padding: 0; cursor: pointer; }
+  .sm-cnt .sm-sb:hover:not(:disabled) { background: rgba(130, 145, 190, .28); }
+  .sm-cnt .sm-sb:disabled, .btn:disabled { opacity: .35; cursor: default; }
+  .sm-unit { font-weight: 800; color: var(--mut); min-width: 24px; }
+  .sm-go { margin-left: auto; min-height: 40px; }
+  @media (max-width: 760px) {
+    #stage { height: min(112vw, 480px); }
+    body[data-v=ask] #stage { height: min(132vw, 580px); }
+    body[data-v=missing] #stage { height: min(118vw, 500px); }
+    body[data-v=plan] #stage { height: min(114vw, 480px); }
+    body[data-v=sec] #stage { height: min(104vw, 460px); }
+    .sm-ask .q { font-size: 18px; } .sm-ask { padding: 10px 12px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, lang } from '../lab.js';
+
+// --- numbers: decimal comma in RU and HU, decimal point in EN -------------------------------------------------
+const fmt = (n) => { const s = String(Math.round(n * 100) / 100); return lang === 'en' ? s : s.replace('.', ','); };
+const parseNum = (s) => { const v = parseFloat(String(s).trim().replace(',', '.')); return Number.isFinite(v) ? v : null; };
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Scale It', title: 'Bigger, but the same shape',
+    lines: [['Enlarge a door', 'and compare the copies.'], ['Find the missing side', 'of a similar shape.'], ['Read a park plan', 'with a ruler.']],
+    views: { grow: '🔍 Enlarge', missing: '❓ Missing side', plan: '🗺️ Plan' },
+    g: {
+      askQ: 'Which copy keeps the same shape?',
+      askB: 'The door is 2 × 3. The × 2 machine multiplies every length by 2. The + 2 machine adds 2 to every length. Both copies are hidden.',
+      optX: '× 2 copy', optP: '+ 2 copy', door: 'door',
+      stT: 'Two machines, two copies', stL: 'Decide which copy keeps the door’s shape. Then the covers come off.',
+      right: 'Right!', wrong: 'Not quite.',
+      resL: 'The × 2 copy is 4 × 6: both lengths doubled, so the shape stays the same.',
+      resB: 'The + 2 copy is 4 × 5: the same amount was added to both sides, so the door looks squarer.',
+      note: 'Dashed: the old door in the corner and its diagonal. On the × 2 copy the diagonal ends exactly in the corner. On the + 2 copy it misses it.',
+      okX: '× 2 ✓', noP: '+ 2 ✗',
+      f: 'Scale factor', e1: '× ½', e2: '× 3', cmp: '⚖️ Compare both copies', again: '↺ Predict again',
+      sT: (f) => `Scale factor × ${fmt(f)}`, sL: (f) => `Every length × ${fmt(f)}: 2 → ${fmt(2 * f)}, 3 → ${fmt(3 * f)}.`,
+      sB: (f) => (f < 1 ? 'The copy is smaller, but it has the same shape.' : f === 1 ? 'Factor 1 gives an exact copy.' : 'Bigger, but the shape stays the same.'),
+      rdPill: 'scale factor', rdCmp: 'only × 2 keeps the shape',
+    },
+    m: {
+      t: 'Find the missing side', l: (i) => `Task ${i} of 5. The two shapes are similar. Find the side marked ? cm.`,
+      hint: 'Use the pair of sides you know to find the factor.',
+      chk: '✓ Check', nxt: '→ Next', again: '↻ Again', right: 'Right!',
+      wrong: (g, n) => `Not ${fmt(g)}: it is ${fmt(n)} cm.`,
+      fac: (a, b, k) => `factor = ${fmt(b)} ÷ ${fmt(a)} = ${fmt(k)}`, calc: (s, k, n) => `${fmt(s)} × ${fmt(k)} = ${fmt(n)} cm`,
+      end: (k) => `${k} of 5 right.`, endL: 'Find the factor from the pair of sides you know, then use it on the other side. It works for smaller copies too.',
+      unk: '? cm', cm: 'cm', ans: 'cm',
+    },
+    p: {
+      t: 'Read the plan', l: (i, n) => `Task ${i} of 4. How long is path ${n} in real life?`,
+      hint: 'Drag the ruler onto the path and read its length in cm. Then use the scale and type the metres.',
+      scale: (m) => `1 cm : ${m} m`, turn: '↻ Turn ruler', chk: '✓ Check', nxt: '→ Next', again: '↻ Again', right: 'Right!',
+      wrong: (g, n) => `Not ${fmt(g)} m: it is ${fmt(n)} m.`, calc: (cm, m, n) => `${fmt(cm)} cm × ${m} m = ${fmt(n)} m`,
+      end: (k) => `${k} of 4 right.`, endL: 'Length on the plan times the scale gives the real length. Change the scale and the answers change.',
+      pond: 'Pond', play: 'Playground', gate: 'Gate', path: (n) => `Path ${n}`, m: 'm', mapScale: 'plan scale',
+    },
+    s: { area: ['Area grows faster', 'Copies of a small square fill a big one'], photo: ['Stretched photo', 'Stretch a picture only one way'], back: '← Back to the lab' },
+    ar: { t: (k) => `Lengths × ${k}, area × ${k * k}`, l: (k) => `${k * k} small squares fill the big square: ${k} × ${k}.`,
+      sub: (k) => `${k} × ${k} = ${k * k} small squares`, pill: (k) => `area × ${k * k}`, tiles: (n, k) => `${n} of ${k * k} squares`, one: '1 × 1', press: 'Press the button again for the other size.' },
+    ph: { t0: 'Stretched only sideways', l0: 'Width × 2, height × 1. The face looks fat: the shape changed, so it is not similar.',
+      t1: '× 2 both ways', l1: 'Width × 2 and height × 2: the same shape, only bigger. These are similar.',
+      pill0: 'not similar', pill1: 'similar', sub: 'width · height', press: 'Press the button again to switch.' },
+    fact: {
+      grow: ['“Gulliver’s Travels” (1726): Gulliver is 12 times taller than the Lilliputians, and their mathematicians work out that he needs the food of 1724 of them — very close to 12 × 12 × 12 = 1728.', 'J. Swift, Gulliver’s Travels (1726), Part I, ch. 3'],
+      missing: ['About 2600 years ago Thales is said to have measured the height of an Egyptian pyramid by comparing its shadow with the shadow of a stick: two similar triangles.', 'Diogenes Laertius, Lives of the Eminent Philosophers; MacTutor: Thales'],
+      plan: ['Model railways in “H0” gauge are built at 1 : 87, so a 20 m carriage becomes about 23 cm long.', 'NEM 010 / NMRA S-1.2 scale standards'],
+    },
+    quiz: [
+      { q: 'A 3 × 5 photo is enlarged by scale factor 2. What is the new size?', opts: ['6 × 10', '5 × 7', '6 × 5'], ok: 0 },
+      { q: 'On a plan 1 cm means 5 m. A path is 3 cm long on the plan. How long is it really?', opts: ['15 m', '8 m', '3 m'], ok: 0 },
+      { q: 'Every side of a square is made 3 times longer. How many of the old squares fit inside the new one?', opts: ['9', '3', '6'], ok: 0 },
+    ],
+  },
+  ru: {
+    name: 'Масштаб', title: 'Больше, но та же форма',
+    lines: [['Увеличь дверь', 'и сравни копии.'], ['Найди неизвестную сторону', 'подобной фигуры.'], ['Читай план парка', 'с помощью линейки.']],
+    views: { grow: '🔍 Увеличь', missing: '❓ Сторона', plan: '🗺️ План' },
+    g: {
+      askQ: 'Какая копия сохраняет форму?',
+      askB: 'Дверь 2 × 3. Машина «× 2» умножает каждую длину на 2. Машина «+ 2» прибавляет 2 к каждой длине. Обе копии спрятаны.',
+      optX: 'Копия × 2', optP: 'Копия + 2', door: 'дверь',
+      stT: 'Две машины, две копии', stL: 'Реши, какая копия сохранит форму двери. Потом снимем крышки.',
+      right: 'Верно!', wrong: 'Не совсем.',
+      resL: 'Копия × 2 — это 4 × 6: обе длины удвоились, поэтому форма осталась прежней.',
+      resB: 'Копия + 2 — это 4 × 5: к обеим сторонам прибавили одно и то же, и дверь стала квадратнее.',
+      note: 'Пунктир: старая дверь в углу и её диагональ. У копии × 2 диагональ заканчивается точно в углу. У копии + 2 она проходит мимо угла.',
+      okX: '× 2 ✓', noP: '+ 2 ✗',
+      f: 'Коэффициент', e1: '× ½', e2: '× 3', cmp: '⚖️ Сравнить обе копии', again: '↺ Предскажи снова',
+      sT: (f) => `Коэффициент × ${fmt(f)}`, sL: (f) => `Каждая длина × ${fmt(f)}: 2 → ${fmt(2 * f)}, 3 → ${fmt(3 * f)}.`,
+      sB: (f) => (f < 1 ? 'Копия меньше, но форма та же.' : f === 1 ? 'Коэффициент 1 даёт точную копию.' : 'Больше, но форма остаётся прежней.'),
+      rdPill: 'коэффициент', rdCmp: 'форму сохраняет только × 2',
+    },
+    m: {
+      t: 'Найди неизвестную сторону', l: (i) => `Задача ${i} из 5. Эти две фигуры подобны. Найди сторону со знаком ? см.`,
+      hint: 'По известной паре сторон найди коэффициент.',
+      chk: '✓ Проверить', nxt: '→ Дальше', again: '↻ Ещё раз', right: 'Верно!',
+      wrong: (g, n) => `Не ${fmt(g)}, а ${fmt(n)} см.`,
+      fac: (a, b, k) => `коэффициент = ${fmt(b)} ÷ ${fmt(a)} = ${fmt(k)}`, calc: (s, k, n) => `${fmt(s)} × ${fmt(k)} = ${fmt(n)} см`,
+      end: (k) => `${k} из 5 верно.`, endL: 'Коэффициент находят по известной паре сторон, а потом применяют к другой стороне. Это работает и для уменьшения.',
+      unk: '? см', cm: 'см', ans: 'см',
+    },
+    p: {
+      t: 'Читай план', l: (i, n) => `Задача ${i} из 4. Какой длины на самом деле дорожка ${n}?`,
+      hint: 'Перетащи линейку на дорожку и прочитай её длину в см. Потом используй масштаб и введи метры.',
+      scale: (m) => `1 см : ${m} м`, turn: '↻ Повернуть линейку', chk: '✓ Проверить', nxt: '→ Дальше', again: '↻ Ещё раз', right: 'Верно!',
+      wrong: (g, n) => `Не ${fmt(g)} м, а ${fmt(n)} м.`, calc: (cm, m, n) => `${fmt(cm)} см × ${m} м = ${fmt(n)} м`,
+      end: (k) => `${k} из 4 верно.`, endL: 'Длина на плане, умноженная на масштаб, даёт настоящую длину. Смени масштаб — и ответы изменятся.',
+      pond: 'Пруд', play: 'Площадка', gate: 'Вход', path: (n) => `Дорожка ${n}`, m: 'м', mapScale: 'масштаб плана',
+    },
+    s: { area: ['Площадь растёт быстрее', 'Копии маленького квадрата заполняют большой'], photo: ['Растянутое фото', 'Растяни картинку только в одну сторону'], back: '← Назад в лабораторию' },
+    ar: { t: (k) => `Длины × ${k}, площадь × ${k * k}`, l: (k) => `${k * k} ${k === 2 ? 'маленьких квадрата' : 'маленьких квадратов'} заполняют большой квадрат: ${k} × ${k}.`,
+      sub: (k) => `${k} × ${k} = ${k * k}`, pill: (k) => `площадь × ${k * k}`, tiles: (n, k) => `${n} из ${k * k}`, one: '1 × 1', press: 'Нажми кнопку ещё раз — другой размер.' },
+    ph: { t0: 'Растянуто только вбок', l0: 'Ширина × 2, высота × 1. Лицо стало толстым: форма изменилась, значит, фигуры не подобны.',
+      t1: '× 2 в обе стороны', l1: 'Ширина × 2 и высота × 2: форма та же, только больше. Эти фигуры подобны.',
+      pill0: 'не подобны', pill1: 'подобны', sub: 'ширина · высота', press: 'Нажми кнопку ещё раз, чтобы переключить.' },
+    fact: {
+      grow: ['В «Путешествиях Гулливера» (1726) Гулливер в 12 раз выше лилипутов, и их математики подсчитали, что ему нужно столько еды, сколько хватило бы на 1724 лилипута — очень близко к 12 × 12 × 12 = 1728.', 'J. Swift, Gulliver’s Travels (1726), Part I, ch. 3'],
+      missing: ['Около 2600 лет назад Фалес, как рассказывают, измерил высоту египетской пирамиды, сравнив её тень с тенью палки: так получились два подобных треугольника.', 'Diogenes Laertius, Lives of the Eminent Philosophers; MacTutor: Thales'],
+      plan: ['Модели железных дорог типоразмера «H0» делают в масштабе 1 : 87, поэтому вагон длиной 20 м получается около 23 см длиной.', 'NEM 010 / NMRA S-1.2 scale standards'],
+    },
+    quiz: [
+      { q: 'Фотография 3 × 5 увеличена с коэффициентом 2. Каков новый размер?', opts: ['6 × 10', '5 × 7', '6 × 5'], ok: 0 },
+      { q: 'На плане 1 см означает 5 м. Дорожка на плане длиной 3 см. Какова её настоящая длина?', opts: ['15 м', '8 м', '3 м'], ok: 0 },
+      { q: 'Каждую сторону квадрата сделали в 3 раза длиннее. Сколько старых квадратов поместится в новый?', opts: ['9', '3', '6'], ok: 0 },
+    ],
+  },
+  hu: {
+    name: 'Nagyítsd!', title: 'Nagyobb, de ugyanolyan alakú',
+    lines: [['Nagyítsd fel az ajtót,', 'és hasonlítsd össze a másolatokat.'], ['Keresd meg a hiányzó oldalt', 'egy hasonló alakzaton.'], ['Olvass le egy parktervet', 'vonalzóval.']],
+    views: { grow: '🔍 Nagyítás', missing: '❓ Hiányzó oldal', plan: '🗺️ Terv' },
+    g: {
+      askQ: 'Melyik másolat őrzi meg az alakot?',
+      askB: 'Az ajtó 2 × 3-as. A „× 2” gép minden hosszt megszoroz 2-vel. A „+ 2” gép minden hosszhoz hozzáad 2-t. Mindkét másolat el van rejtve.',
+      optX: '× 2 másolat', optP: '+ 2 másolat', door: 'ajtó',
+      stT: 'Két gép, két másolat', stL: 'Döntsd el, melyik másolat őrzi meg az ajtó alakját. Utána lekerülnek a takarók.',
+      right: 'Így van!', wrong: 'Nem egészen.',
+      resL: 'A × 2 másolat 4 × 6-os: mindkét hossz megduplázódott, ezért az alak ugyanaz maradt.',
+      resB: 'A + 2 másolat 4 × 5-ös: mindkét oldalhoz ugyanannyit adtunk, ezért az ajtó négyzetesebb lett.',
+      note: 'Szaggatott vonal: a régi ajtó a sarokban és az átlója. A × 2 másolaton az átló pontosan a sarokban ér véget. A + 2 másolaton elkerüli a sarkot.',
+      okX: '× 2 ✓', noP: '+ 2 ✗',
+      f: 'Nagyítási tényező', e1: '× ½', e2: '× 3', cmp: '⚖️ Két másolat összevetése', again: '↺ Tippelj újra',
+      sT: (f) => `Nagyítási tényező × ${fmt(f)}`, sL: (f) => `Minden hossz × ${fmt(f)}: 2 → ${fmt(2 * f)}, 3 → ${fmt(3 * f)}.`,
+      sB: (f) => (f < 1 ? 'A másolat kisebb, de az alakja ugyanaz.' : f === 1 ? 'Az 1-es tényező pontos másolatot ad.' : 'Nagyobb, de az alak ugyanaz marad.'),
+      rdPill: 'nagyítási tényező', rdCmp: 'csak a × 2 őrzi meg az alakot',
+    },
+    m: {
+      t: 'Keresd meg a hiányzó oldalt', l: (i) => `${i}. feladat az 5-ből. A két alakzat hasonló. Keresd meg a ? cm-rel jelölt oldalt.`,
+      hint: 'Az ismert oldalpárból számold ki a tényezőt.',
+      chk: '✓ Ellenőrzés', nxt: '→ Tovább', again: '↻ Újra', right: 'Így van!',
+      wrong: (g, n) => `Nem ${fmt(g)}, hanem ${fmt(n)} cm.`,
+      fac: (a, b, k) => `tényező = ${fmt(b)} ÷ ${fmt(a)} = ${fmt(k)}`, calc: (s, k, n) => `${fmt(s)} × ${fmt(k)} = ${fmt(n)} cm`,
+      end: (k) => `5-ből ${k} jó.`, endL: 'Az ismert oldalpárból számold ki a tényezőt, aztán használd a másik oldalon. Kicsinyítésnél is működik.',
+      unk: '? cm', cm: 'cm', ans: 'cm',
+    },
+    p: {
+      t: 'Olvasd le a tervet', l: (i, n) => `${i}. feladat a 4-ből. Milyen hosszú valójában ez az ösvény: ${n}?`,
+      hint: 'Húzd a vonalzót az ösvényre, és olvasd le a hosszát cm-ben. Aztán használd a méretarányt, és írd be a métereket.',
+      scale: (m) => `1 cm : ${m} m`, turn: '↻ Vonalzó forgatása', chk: '✓ Ellenőrzés', nxt: '→ Tovább', again: '↻ Újra', right: 'Így van!',
+      wrong: (g, n) => `Nem ${fmt(g)} m, hanem ${fmt(n)} m.`, calc: (cm, m, n) => `${fmt(cm)} cm × ${m} m = ${fmt(n)} m`,
+      end: (k) => `4-ből ${k} jó.`, endL: 'A tervrajzon mért hossz szorozva a méretaránnyal adja a valódi hosszt. Változtasd meg a méretarányt, és a válaszok is változnak.',
+      pond: 'Tó', play: 'Játszótér', gate: 'Kapu', path: (n) => `${n} ösvény`, m: 'm', mapScale: 'terv méretaránya',
+    },
+    s: { area: ['A terület gyorsabban nő', 'Egy kis négyzet másolatai kitöltenek egy nagyot'], photo: ['Megnyújtott fotó', 'Nyújts meg egy képet csak egy irányban'], back: '← Vissza a laborba' },
+    ar: { t: (k) => `Hosszak × ${k}, terület × ${k * k}`, l: (k) => `${k * k} kis négyzet tölti ki a nagy négyzetet: ${k} × ${k}.`,
+      sub: (k) => `${k} × ${k} = ${k * k}`, pill: (k) => `terület × ${k * k}`, tiles: (n, k) => `${n} / ${k * k}`, one: '1 × 1', press: 'Nyomd meg újra a gombot a másik mérethez.' },
+    ph: { t0: 'Csak oldalra nyújtva', l0: 'Szélesség × 2, magasság × 1. Az arc kövérnek látszik: az alak megváltozott, tehát nem hasonló.',
+      t1: '× 2 mindkét irányban', l1: 'Szélesség × 2 és magasság × 2: ugyanaz az alak, csak nagyobb. Ezek hasonlók.',
+      pill0: 'nem hasonló', pill1: 'hasonló', sub: 'szélesség · magasság', press: 'Nyomd meg újra a gombot a váltáshoz.' },
+    fact: {
+      grow: ['Swift Gulliver utazásai (1726) című regényében Gulliver 12-szer magasabb a liliputiaknál, és matematikusaik kiszámolják, hogy annyi étel kell neki, mint 1724 liliputinak — ez nagyon közel van a 12 × 12 × 12 = 1728-hoz.', 'J. Swift, Gulliver’s Travels (1726), Part I, ch. 3'],
+      missing: ['Mintegy 2600 éve Thalész állítólag úgy mérte meg egy egyiptomi piramis magasságát, hogy az árnyékát egy bot árnyékához hasonlította: két hasonló háromszög.', 'Diogenes Laertius, Lives of the Eminent Philosophers; MacTutor: Thales'],
+      plan: ['A „H0” méretű modellvasutak 1 : 87 arányúak, ezért egy 20 m-es vasúti kocsi nagyjából 23 cm hosszú lesz.', 'NEM 010 / NMRA S-1.2 scale standards'],
+    },
+    quiz: [
+      { q: 'Egy 3 × 5-ös fényképet 2-es nagyítási tényezővel nagyítunk. Mekkora lesz az új méret?', opts: ['6 × 10', '5 × 7', '6 × 5'], ok: 0 },
+      { q: 'A tervrajzon 1 cm 5 m-t jelent. Egy ösvény 3 cm hosszú a tervrajzon. Milyen hosszú valójában?', opts: ['15 m', '8 m', '3 m'], ok: 0 },
+      { q: 'Egy négyzet minden oldalát 3-szor hosszabbra csináljuk. Hány régi négyzet fér el az újban?', opts: ['9', '3', '6'], ok: 0 },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_2OtRUM_0zW', en: 'Scale and similar shapes', ru: 'Масштаб и подобные фигуры', hu: 'Méretarány és hasonló alakzatok' },
+];
+
+// --- data ---------------------------------------------------------------------------------------------------
+const CW = '#e8833a', CH = '#17a398'; // matching colours: widths orange, heights teal
+const MT = [ // similar pairs; one side of the copy is unknown
+  { kind: 'rect', w: 3, h: 5, k: 3, unk: 'h' },
+  { kind: 'tri', w: 4, h: 6, k: 1.5, unk: 'h' },
+  { kind: 'L', w: 4, h: 6, k: 1.5, unk: 'w' },
+  { kind: 'rect', w: 8, h: 6, k: 0.5, unk: 'h' },
+  { kind: 'tri', w: 6, h: 10, k: 0.5, unk: 'h' },
+];
+const mAns = (t) => (t.unk === 'h' ? t.h * t.k : t.w * t.k);
+const mPair = (t) => (t.unk === 'h' ? [t.w, t.w * t.k] : [t.h, t.h * t.k]);
+const SHAPECOL = { rect: ['#74b9f5', '#2f6cbd'], tri: ['#ff9f8b', '#d4503f'], L: ['#94da8e', '#3d9553'] };
+const PW = 8, PH = 6, RL = 6; // plan size in cm, ruler length in cm
+const PT = [ // paths of the park plan, in cm (y up)
+  { n: 'A', a: [1, 1], b: [4.5, 1], cm: 3.5 },
+  { n: 'B', a: [4.5, 1], b: [4.5, 3], cm: 2 },
+  { n: 'C', a: [4.5, 3], b: [7, 3], cm: 2.5 },
+  { n: 'D', a: [1, 1], b: [1, 5.5], cm: 4.5 },
+];
+
+// --- state -------------------------------------------------------------------------------------------------
+const S = {
+  sec: null, aK: 2, aT: 0, phStep: 0, phH: 2.5,
+  gPick: null, gMode: 'compare', gF: 1.5, gT: 0,
+  mi: 0, mRaw: '', mChecked: false, mRight: [], mT: 0,
+  pi: 0, pScale: 5, pRaw: '', pChecked: false, pRight: [], pT: 0, rul: { x: null, y: 0, vert: false }, pg: null, drag: null,
+};
+const mGuess = () => parseNum(S.mRaw), pGuess = () => parseNum(S.pRaw);
+const lab = shell({ key: 'similar', T, topics: TOPICS, views: ['grow', 'missing', 'plan'], onLang: render, onView: () => { S.sec = null; render(); } });
+const secret = secretLab('similar', () => ({
+  secrets: [{ emo: '🟦', title: T[lang].s.area[0], desc: T[lang].s.area[1] }, { emo: '🖼️', title: T[lang].s.photo[0], desc: T[lang].s.photo[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="secGrow">
+    <div id="gSlideBox">
+      <div class="sm-lbl" id="gLbl"></div>
+      <input type="range" class="big" id="gR" min="0.5" max="3" step="0.5" value="1.5" style="--track:linear-gradient(90deg,#e8833a,#17a398)">
+      <div class="ends"><span id="gE1"></span><span id="gE2"></span></div>
+      <div class="row2" style="margin-top:0"><button class="chip sm-c" data-act="cmp" id="gCmp"></button><button class="chip sm-c" data-act="again" id="gAgain"></button></div>
+    </div>
+  </div>
+  <div id="secMiss">
+    <div class="sm-cnt"><button class="sm-sb" data-act="mdec" aria-label="−">−</button><input id="mI" type="text" inputmode="decimal" autocomplete="off"><span class="sm-unit" id="mU"></span><button class="sm-sb" data-act="minc" aria-label="+">+</button></div>
+    <div class="row2"><button class="btn sm-go" data-act="mmain" id="mMain"></button></div>
+  </div>
+  <div id="secPlan">
+    <div class="row2" style="margin-top:0"><div class="card seg small" id="pSeg"></div><button class="chip sm-c" data-act="turn" id="pTurn"></button></div>
+    <div class="sm-cnt" style="margin-top:12px"><button class="sm-sb" data-act="pdec" aria-label="−">−</button><input id="pI" type="text" inputmode="decimal" autocomplete="off"><span class="sm-unit" id="pU"></span><button class="sm-sb" data-act="pinc" aria-label="+">+</button></div>
+    <div class="row2"><button class="btn sm-go" data-act="pmain" id="pMain"></button></div>
+  </div>
+  <div class="row2" id="secRow"></div>`;
+const askEl = Object.assign(document.createElement('div'), { className: 'sm-ask card' });
+$('overlay').append(askEl);
+
+// --- helpers -----------------------------------------------------------------------------------------------
+const ease = (t) => t * t * (3 - 2 * t);
+const easeBack = (t) => { const c1 = 1.5, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+const FONT = '800 13px Nunito, sans-serif';
+function poly(c, pts) { c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.closePath(); }
+// text on a dark rounded pill, clamped inside the canvas
+function pill(c, w, h, text, x, y, o = {}) {
+  c.save(); c.font = o.font || FONT; c.textAlign = 'center'; c.textBaseline = 'middle';
+  const tw = c.measureText(text).width + 16, ph = o.h || 22;
+  const px = clamp(x, 4 + tw / 2, w - 4 - tw / 2), py = clamp(y, 4 + ph / 2, h - 4 - ph / 2);
+  c.globalAlpha = o.a ?? 1;
+  c.shadowColor = 'rgba(0,0,0,.3)'; c.shadowBlur = 4; c.shadowOffsetY = 1;
+  c.fillStyle = 'rgba(14,17,28,.82)'; c.beginPath(); c.roundRect(px - tw / 2, py - ph / 2, tw, ph, ph / 2); c.fill();
+  c.shadowColor = 'transparent';
+  if (o.edge) { c.strokeStyle = o.edge; c.lineWidth = 2; c.stroke(); }
+  c.fillStyle = o.fg || '#fff'; c.fillText(text, px, py + 1);
+  c.restore();
+}
+// squared paper with a faint blue grid, aligned to (ox, oy), cell g
+function board(c, w, h, ox, oy, g, grid = true) {
+  const m = 6;
+  c.save();
+  c.shadowColor = 'rgba(0,0,0,.5)'; c.shadowBlur = 16; c.shadowOffsetY = 4;
+  const gr = c.createLinearGradient(m, m, w, h); gr.addColorStop(0, '#fbf5e0'); gr.addColorStop(1, '#eadfbd');
+  c.fillStyle = gr; c.beginPath(); c.roundRect(m, m, w - 2 * m, h - 2 * m, 14); c.fill();
+  c.shadowColor = 'transparent';
+  c.beginPath(); c.roundRect(m, m, w - 2 * m, h - 2 * m, 14); c.clip();
+  if (grid && g > 4) {
+    c.strokeStyle = 'rgba(70,115,190,.2)'; c.lineWidth = 1; c.beginPath();
+    for (let x = ((ox % g) + g) % g; x < w; x += g) { c.moveTo(Math.round(x) + 0.5, 0); c.lineTo(Math.round(x) + 0.5, h); }
+    for (let y = ((oy % g) + g) % g; y < h; y += g) { c.moveTo(0, Math.round(y) + 0.5); c.lineTo(w, Math.round(y) + 0.5); }
+    c.stroke();
+  }
+  const v = c.createRadialGradient(w * 0.25, h * 0.15, 10, w * 0.5, h * 0.5, Math.max(w, h) * 0.8);
+  v.addColorStop(0, 'rgba(255,255,255,.35)'); v.addColorStop(1, 'rgba(120,90,30,.12)');
+  c.fillStyle = v; c.fillRect(0, 0, w, h);
+  c.restore();
+}
+// dimension lines with a pill on top
+function dimH(c, w, h, x0, x1, y, col, label, o = {}) {
+  c.save(); c.globalAlpha = o.a ?? 1; c.strokeStyle = col; c.lineWidth = 2.5; c.lineCap = 'round';
+  if (o.glow) { c.strokeStyle = 'rgba(255,214,10,.55)'; c.lineWidth = 9; c.beginPath(); c.moveTo(x0, y); c.lineTo(x1, y); c.stroke(); c.strokeStyle = col; c.lineWidth = 2.5; }
+  if (o.dash) c.setLineDash([5, 4]);
+  c.beginPath(); c.moveTo(x0, y); c.lineTo(x1, y); c.moveTo(x0, y - 5); c.lineTo(x0, y + 5); c.moveTo(x1, y - 5); c.lineTo(x1, y + 5); c.stroke();
+  c.restore();
+  if (label != null) pill(c, w, h, label, (x0 + x1) / 2, y, { edge: col, a: o.a });
+}
+function dimV(c, w, h, x, y0, y1, col, label, o = {}) {
+  c.save(); c.globalAlpha = o.a ?? 1; c.strokeStyle = col; c.lineWidth = 2.5; c.lineCap = 'round';
+  if (o.glow) { c.strokeStyle = 'rgba(255,214,10,.55)'; c.lineWidth = 9; c.beginPath(); c.moveTo(x, y0); c.lineTo(x, y1); c.stroke(); c.strokeStyle = col; c.lineWidth = 2.5; }
+  if (o.dash) c.setLineDash([5, 4]);
+  c.beginPath(); c.moveTo(x, y0); c.lineTo(x, y1); c.moveTo(x - 5, y0); c.lineTo(x + 5, y0); c.moveTo(x - 5, y1); c.lineTo(x + 5, y1); c.stroke();
+  c.restore();
+  if (label != null) pill(c, w, h, label, x, (y0 + y1) / 2, { edge: col, a: o.a });
+}
+
+// --- the door ----------------------------------------------------------------------------------------------
+// every part is placed by fractions of the door's width and height, so a stretched copy really looks stretched
+function drawDoor(c, x, base, wp, hp, a = 1) {
+  if (wp < 2 || hp < 2) return;
+  const y = base - hp, r = Math.min(wp, hp) * 0.05;
+  c.save(); c.globalAlpha = a; c.lineJoin = 'round';
+  c.fillStyle = 'rgba(60,40,10,.16)'; c.beginPath(); c.ellipse(x + wp / 2, base + 2, Math.max(0, wp * 0.56), 4, 0, 0, Math.PI * 2); c.fill();
+  c.shadowColor = 'rgba(60,35,10,.4)'; c.shadowBlur = 10; c.shadowOffsetX = 2; c.shadowOffsetY = 4;
+  let g = c.createLinearGradient(x, y, x + wp, y + hp); g.addColorStop(0, '#e3aa6c'); g.addColorStop(1, '#a56c37');
+  c.fillStyle = g; c.beginPath(); c.roundRect(x, y, wp, hp, r); c.fill();
+  c.shadowColor = 'transparent'; c.lineWidth = 2; c.strokeStyle = '#573619'; c.stroke();
+  // window
+  const wx = x + wp * 0.18, ww = wp * 0.64, wy = y + hp * 0.1, wh = hp * 0.34;
+  g = c.createLinearGradient(wx, wy, wx + ww, wy + wh); g.addColorStop(0, '#d9efff'); g.addColorStop(1, '#7db7e6');
+  c.fillStyle = g; c.beginPath(); c.roundRect(wx, wy, ww, wh, r * 0.5); c.fill(); c.lineWidth = 1.8; c.stroke();
+  c.beginPath(); c.moveTo(wx + ww / 2, wy); c.lineTo(wx + ww / 2, wy + wh); c.moveTo(wx, wy + wh / 2); c.lineTo(wx + ww, wy + wh / 2); c.lineWidth = 1.4; c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.5)'; poly(c, [[wx + ww * 0.08, wy + wh * 0.08], [wx + ww * 0.3, wy + wh * 0.08], [wx + ww * 0.08, wy + wh * 0.4]]); c.fill();
+  // lower panel
+  const py = y + hp * 0.54, ph = hp * 0.34;
+  g = c.createLinearGradient(wx, py, wx + ww, py + ph); g.addColorStop(0, '#c48a52'); g.addColorStop(1, '#8c5629');
+  c.fillStyle = g; c.beginPath(); c.roundRect(wx, py, ww, ph, r * 0.5); c.fill(); c.lineWidth = 1.8; c.stroke();
+  c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(wx + 2, py + ph - 2); c.lineTo(wx + 2, py + 2); c.lineTo(wx + ww - 2, py + 2); c.stroke();
+  // knob
+  const kx = x + wp * 0.9, ky = y + hp * 0.5, kr = Math.max(2.5, wp * 0.05);
+  g = c.createRadialGradient(kx - kr * 0.3, ky - kr * 0.3, 0, kx, ky, kr * 1.2); g.addColorStop(0, '#fff3b0'); g.addColorStop(1, '#d9a21b');
+  c.fillStyle = g; c.beginPath(); c.arc(kx, ky, kr, 0, Math.PI * 2); c.fill(); c.lineWidth = 1; c.strokeStyle = '#7a5410'; c.stroke();
+  c.restore();
+}
+// a cardboard cover over a hidden copy: opaque while it is down
+function drawCover(c, x, base, wp, hp, a, lift) {
+  c.save(); c.globalAlpha = a; c.translate(0, lift);
+  const y = base - hp;
+  c.shadowColor = 'rgba(40,25,5,.4)'; c.shadowBlur = 12; c.shadowOffsetY = 5;
+  const g = c.createLinearGradient(x, y, x + wp, y + hp); g.addColorStop(0, '#d9bf8c'); g.addColorStop(1, '#a98a57');
+  c.fillStyle = g; c.beginPath(); c.roundRect(x, y, wp, hp, 10); c.fill();
+  c.shadowColor = 'transparent'; c.lineWidth = 2; c.strokeStyle = '#6e5430'; c.stroke();
+  c.fillStyle = 'rgba(200,60,50,.85)'; c.fillRect(x + wp / 2 - 6, y, 12, hp); c.fillRect(x, y + hp / 2 - 6, wp, 12);
+  c.font = `900 ${Math.round(clamp(wp * 0.5, 20, 52))}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillStyle = 'rgba(255,255,255,.55)'; c.fillText('?', x + wp / 2 + 1.5, y + hp * 0.3 + 1.5);
+  c.fillStyle = '#5b4220'; c.fillText('?', x + wp / 2, y + hp * 0.3);
+  c.restore();
+}
+
+// --- grow view ---------------------------------------------------------------------------------------------
+function growGeo(w, h, mode, asking) {
+  const dimL = 32, base = h - 46, top = asking ? (askEl.offsetHeight || 130) + 26 : 44;
+  const hh = Math.max(40, base - top);
+  if (mode === 'compare') {
+    const u = Math.max(6, Math.min((w - 24 - 3 * dimL - 16) / 10, hh / 6.2, 40));
+    const total = 10 * u + 3 * dimL + 16, x0 = (w - total) / 2, xo = x0 + dimL;
+    const xa = xo + 2 * u + 8 + dimL, xb = xa + 4 * u + 8 + dimL;
+    return { u, base, xo, xa, xb };
+  }
+  const u = Math.max(6, Math.min((w - 24 - 2 * dimL - 12) / 8, hh / 9.4, 40));
+  const total = 8 * u + 2 * dimL + 12, x0 = (w - total) / 2, xo = x0 + dimL;
+  return { u, base, xo, xc: xo + 2 * u + 12 + dimL };
+}
+function doorDims(c, w, h, x, base, u, cw, ch, a = 1) {
+  dimH(c, w, h, x, x + cw * u, base + 17, CW, fmt(cw), { a });
+  dimV(c, w, h, x - 17, base, base - ch * u, CH, fmt(ch), { a });
+}
+function drawGrow(c, w, h, dt) {
+  const asking = S.gPick === null, mode = asking ? 'compare' : S.gMode, t = T[lang].g;
+  const G = growGeo(w, h, mode, asking), { u, base } = G;
+  board(c, w, h, G.xo, base, u);
+  drawDoor(c, G.xo, base, 2 * u, 3 * u);
+  doorDims(c, w, h, G.xo, base, u, 2, 3);
+  pill(c, w, h, t.door, G.xo + u, base - 3 * u - 16, { fg: '#ffe9a8' });
+  if (mode === 'compare') {
+    S.gT = asking ? 0 : S.gT + dt;
+    const rv = clamp(S.gT / 0.9, 0, 1), ray = clamp((S.gT - 0.9) / 1, 0, 1);
+    const items = [[G.xa, 4, 6, '× 2', t.okX, '#1f9d55'], [G.xb, 4, 5, '+ 2', t.noP, '#d6453d']];
+    for (const [x, cw, ch, mach, res, col] of items) {
+      const cx = x + cw * u / 2;
+      if (rv > 0) {
+        const e = Math.max(0.001, easeBack(rv));
+        c.save(); c.translate(cx, base); c.scale(e, e); c.translate(-cx, -base);
+        drawDoor(c, x, base, cw * u, ch * u, rv); c.restore();
+        if (rv > 0.6) doorDims(c, w, h, x, base, u, cw, ch, (rv - 0.6) / 0.4);
+      }
+      if (rv < 1) drawCover(c, x, base, cw * u, 6 * u, 1 - rv, -rv * 26);
+      if (ray > 0) {
+        const hit = ch === 6;
+        c.save(); c.setLineDash([6, 4]); c.lineWidth = 2;
+        // the old door in the corner
+        c.strokeStyle = 'rgba(30,37,64,.7)'; c.fillStyle = 'rgba(255,255,255,.25)';
+        c.beginPath(); c.rect(x, base - 3 * u, 2 * u, 3 * u); c.fill(); c.stroke();
+        // its diagonal, drawn on to the right edge of the copy
+        const ex = x + 2 * u + (cw - 2) * u * ease(ray), ey = base - 1.5 * (ex - x);
+        c.strokeStyle = col; c.lineWidth = 2.5; c.beginPath(); c.moveTo(x, base); c.lineTo(ex, ey); c.stroke();
+        c.setLineDash([]);
+        if (ray >= 1) {
+          c.lineWidth = 2.5; c.beginPath(); c.arc(x + cw * u, base - ch * u, 7, 0, Math.PI * 2); c.strokeStyle = '#1f9d55'; c.stroke();
+          if (!hit) { c.beginPath(); c.arc(ex, ey, 5, 0, Math.PI * 2); c.fillStyle = col; c.fill(); }
+        }
+        c.restore();
+      }
+      pill(c, w, h, ray > 0.5 ? res : mach, cx, base - 6 * u - 16, { font: '900 14px Nunito, sans-serif', edge: ray > 0.5 ? col : null });
+    }
+  } else {
+    const f = S.gF, cw = 2 * f, ch = 3 * f;
+    drawDoor(c, G.xc, base, cw * u, ch * u);
+    doorDims(c, w, h, G.xc, base, u, cw, ch);
+    pill(c, w, h, `× ${fmt(f)}`, G.xc + cw * u / 2, base - ch * u - 16, { font: '900 14px Nunito, sans-serif' });
+  }
+}
+
+// --- missing side view -------------------------------------------------------------------------------------
+function shapePts(kind, w, h) {
+  if (kind === 'rect') return [[0, 0], [w, 0], [w, h], [0, h]];
+  if (kind === 'tri') return [[0, 0], [w, 0], [0, h]];
+  const t = w / 2;
+  return [[0, 0], [w, 0], [w, t], [t, t], [t, h], [0, h]];
+}
+function drawShape(c, kind, ax, ay, s, w, h, a = 1) {
+  const P = shapePts(kind, w, h).map(([x, y]) => [ax + x * s, ay - y * s]), col = SHAPECOL[kind];
+  const X = (x) => ax + x * s, Y = (y) => ay - y * s;
+  const xs = P.map((p) => p[0]), ys = P.map((p) => p[1]);
+  c.save(); c.globalAlpha = a; c.lineJoin = 'round';
+  const g = c.createLinearGradient(Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys));
+  g.addColorStop(0, col[0]); g.addColorStop(1, col[1]);
+  c.shadowColor = 'rgba(60,40,10,.35)'; c.shadowBlur = 10; c.shadowOffsetX = 2; c.shadowOffsetY = 4;
+  c.fillStyle = g; poly(c, P); c.fill();
+  c.shadowColor = 'transparent';
+  c.save(); poly(c, P); c.clip();
+  if (kind === 'rect') {
+    c.fillStyle = 'rgba(30,110,90,.5)'; c.beginPath(); c.ellipse(X(0.3 * w), Y(0), Math.max(0, 0.8 * w * s), Math.max(0, 0.3 * h * s), 0, 0, Math.PI * 2); c.fill();
+    c.fillStyle = 'rgba(30,110,90,.4)'; c.beginPath(); c.ellipse(X(0.85 * w), Y(0), Math.max(0, 0.5 * w * s), Math.max(0, 0.22 * h * s), 0, 0, Math.PI * 2); c.fill();
+    const sg = c.createRadialGradient(X(0.74 * w), Y(0.74 * h), 0, X(0.74 * w), Y(0.74 * h), Math.max(1, 0.13 * Math.min(w, h) * s));
+    sg.addColorStop(0, '#fffbd0'); sg.addColorStop(1, '#ffd24a');
+    c.fillStyle = sg; c.beginPath(); c.arc(X(0.74 * w), Y(0.74 * h), Math.max(0, 0.12 * Math.min(w, h) * s), 0, Math.PI * 2); c.fill();
+  } else if (kind === 'tri') {
+    c.strokeStyle = 'rgba(255,255,255,.4)'; c.lineWidth = 2.5;
+    for (const f of [0.34, 0.67]) { c.beginPath(); c.moveTo(X(f * w), Y(0)); c.lineTo(X(0), Y(f * h)); c.stroke(); }
+  } else {
+    for (const [fx, fy] of [[0.25 * w, 0.25 * w], [0.75 * w, 0.25 * w], [0.25 * w, 0.75 * w], [0.25 * w, h - 0.25 * w]]) {
+      c.fillStyle = '#fff'; c.beginPath(); c.arc(X(fx), Y(fy), Math.max(0, 0.09 * w * s), 0, Math.PI * 2); c.fill();
+      c.fillStyle = '#ffd24a'; c.beginPath(); c.arc(X(fx), Y(fy), Math.max(0, 0.04 * w * s), 0, Math.PI * 2); c.fill();
+    }
+  }
+  const hl = c.createLinearGradient(Math.min(...xs), Math.min(...ys), Math.min(...xs) + (Math.max(...xs) - Math.min(...xs)) * 0.6, Math.min(...ys) + (Math.max(...ys) - Math.min(...ys)) * 0.6);
+  hl.addColorStop(0, 'rgba(255,255,255,.35)'); hl.addColorStop(1, 'rgba(255,255,255,0)');
+  c.fillStyle = hl; poly(c, P); c.fill();
+  c.restore();
+  c.lineWidth = 2; c.strokeStyle = 'rgba(25,30,55,.8)'; poly(c, P); c.stroke();
+  if (kind === 'tri') { const q = Math.min(w, h) * s * 0.14; c.lineWidth = 1.5; c.beginPath(); c.moveTo(X(0) + q, Y(0)); c.lineTo(X(0) + q, Y(0) - q); c.lineTo(X(0), Y(0) - q); c.stroke(); }
+  c.restore();
+}
+function drawMissing(c, w, h, dt) {
+  const t = T[lang].m;
+  if (S.mi >= 5) {
+    board(c, w, h, 0, 0, 0, false);
+    const k = S.mRight.filter(Boolean).length;
+    c.save(); c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#fff'; c.globalAlpha = 1;
+    c.font = '60px sans-serif'; c.fillText('🏆', w / 2, h / 2 - 34);
+    c.restore();
+    pill(c, w, h, t.end(k), w / 2, h / 2 + 30, { font: '900 18px Nunito, sans-serif', h: 32 });
+    return;
+  }
+  const m = MT[S.mi], cw = m.w * m.k, ch = m.h * m.k, dimL = 44, gap = 34, bottom = 44, top = 40;
+  const u = Math.max(5, Math.min((w - 24 - 2 * dimL - gap) / (m.w + cw), (h - top - bottom) / Math.max(m.h, ch), 34));
+  const total = (m.w + cw) * u + 2 * dimL + gap, x0 = (w - total) / 2 + dimL, x1 = x0 + m.w * u + gap + dimL, base = h - bottom;
+  board(c, w, h, x0, base, u);
+  S.mT = S.mChecked ? S.mT + dt : 0;
+  const fl = ease(clamp(S.mT / 1.1, 0, 1)), done = fl >= 1, ans = mAns(m);
+  // the known shape
+  drawShape(c, m.kind, x0, base, u, m.w, m.h);
+  dimH(c, w, h, x0, x0 + m.w * u, base + 17, CW, fmt(m.w));
+  dimV(c, w, h, x0 - 17, base, base - m.h * u, CH, fmt(m.h));
+  if (!S.mChecked) {
+    // the copy: only the known side is shown; the rest is a fading "?" column
+    const topLim = 34, xLim = w - 18;
+    c.save();
+    if (m.unk === 'h') {
+      const gx = x1, gw = cw * u, g = c.createLinearGradient(0, base, 0, topLim);
+      g.addColorStop(0, 'rgba(110,120,170,.4)'); g.addColorStop(1, 'rgba(110,120,170,0)');
+      c.fillStyle = g; c.fillRect(gx, topLim, gw, base - topLim);
+      c.strokeStyle = g; c.lineWidth = 2; c.setLineDash([6, 5]); c.beginPath(); c.moveTo(gx, base); c.lineTo(gx, topLim); c.moveTo(gx + gw, base); c.lineTo(gx + gw, topLim); c.stroke();
+      c.setLineDash([]); c.font = '900 44px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = 'rgba(80,90,140,.65)';
+      c.fillText('?', gx + gw / 2, base - (base - topLim) * 0.45);
+      c.restore();
+      dimH(c, w, h, gx, gx + gw, base + 17, CW, fmt(cw));
+      dimV(c, w, h, gx - 17, base, base - (base - topLim) * 0.62, CH, t.unk, { dash: true });
+    } else {
+      const gy = base - ch * u, gh = ch * u, g = c.createLinearGradient(x1, 0, xLim, 0);
+      g.addColorStop(0, 'rgba(110,120,170,.4)'); g.addColorStop(1, 'rgba(110,120,170,0)');
+      c.fillStyle = g; c.fillRect(x1, gy, xLim - x1, gh);
+      c.strokeStyle = g; c.lineWidth = 2; c.setLineDash([6, 5]); c.beginPath(); c.moveTo(x1, gy); c.lineTo(xLim, gy); c.moveTo(x1, base); c.lineTo(xLim, base); c.stroke();
+      c.setLineDash([]); c.font = '900 44px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = 'rgba(80,90,140,.65)';
+      c.fillText('?', x1 + (xLim - x1) * 0.4, gy + gh / 2);
+      c.restore();
+      dimV(c, w, h, x1 - 17, base, gy, CH, fmt(ch));
+      dimH(c, w, h, x1, x1 + (xLim - x1) * 0.62, base + 17, CW, t.unk, { dash: true });
+    }
+  } else {
+    const sc = lerp(1 / m.k, 1, fl) * u, ax = lerp(x0, x1, fl);
+    drawShape(c, m.kind, ax, base, sc, cw, ch);
+    if (done) {
+      const a = clamp((S.mT - 1.1) / 0.4, 0, 1);
+      const glowW = m.unk === 'w', glowH = m.unk === 'h';
+      dimH(c, w, h, x1, x1 + cw * u, base + 17, CW, fmt(cw), { a, glow: glowW });
+      dimV(c, w, h, x1 - 17, base, base - ch * u, CH, fmt(ch), { a, glow: glowH });
+    }
+    if (S.mT > 0.2) pill(c, w, h, `× ${fmt(m.k)}`, (x0 + m.w * u + x1) / 2, 22, { font: '900 15px Nunito, sans-serif', edge: '#ffd60a', a: clamp((S.mT - 0.2) / 0.4, 0, 1) });
+  }
+}
+
+// --- plan view ---------------------------------------------------------------------------------------------
+function rulerBox() {
+  const g = S.pg, bw = g.pc * 0.85, L = RL * g.pc, r = S.rul;
+  return r.vert ? { x0: r.x - bw / 2, x1: r.x + bw / 2, y0: r.y - L, y1: r.y } : { x0: r.x, x1: r.x + L, y0: r.y - bw / 2, y1: r.y + bw / 2 };
+}
+function clampRuler(w, h) {
+  const g = S.pg, bw = g.pc * 0.85, L = RL * g.pc, r = S.rul;
+  if (r.vert) { r.x = clamp(r.x, bw / 2 + 4, w - bw / 2 - 4); r.y = clamp(r.y, L + 4, h - 4); }
+  else { r.x = clamp(r.x, 4, w - L - 4); r.y = clamp(r.y, bw / 2 + 4, h - bw / 2 - 4); }
+}
+function drawWalker(c, x, y, ph) {
+  c.save(); c.globalAlpha = 1; c.lineCap = 'round';
+  c.fillStyle = 'rgba(0,0,0,.22)'; c.beginPath(); c.ellipse(x, y + 12, 8, 3, 0, 0, Math.PI * 2); c.fill();
+  c.strokeStyle = '#2a3560'; c.lineWidth = 3;
+  c.beginPath(); c.moveTo(x, y + 3); c.lineTo(x + Math.sin(ph) * 4, y + 12); c.moveTo(x, y + 3); c.lineTo(x - Math.sin(ph) * 4, y + 12); c.stroke();
+  const g = c.createLinearGradient(x - 6, y - 10, x + 6, y + 4); g.addColorStop(0, '#ff8a6b'); g.addColorStop(1, '#d9503a');
+  c.fillStyle = g; c.beginPath(); c.roundRect(x - 6, y - 9, 12, 14, 5); c.fill(); c.lineWidth = 1.2; c.strokeStyle = '#7d2a1c'; c.stroke();
+  const hg = c.createRadialGradient(x - 2, y - 17, 1, x, y - 15, 7); hg.addColorStop(0, '#ffe6c9'); hg.addColorStop(1, '#f0b98c');
+  c.fillStyle = hg; c.beginPath(); c.arc(x, y - 15, 6, 0, Math.PI * 2); c.fill(); c.strokeStyle = '#8a5a3a'; c.stroke();
+  c.fillStyle = '#5a3a22'; c.beginPath(); c.arc(x, y - 17, 6, Math.PI, Math.PI * 2); c.fill();
+  c.restore();
+}
+function drawPlan(c, w, h, dt) {
+  const t = T[lang].p, pc = Math.max(14, Math.min((w - 28) / PW, (h - 28 - 66) / PH, 60));
+  const ox = (w - PW * pc) / 2, oy = 16;
+  S.pg = { ox, oy, pc };
+  const X = (x) => ox + x * pc, Y = (y) => oy + (PH - y) * pc;
+  board(c, w, h, ox, oy, pc, false);
+  if (S.rul.x === null) { S.rul.x = ox; S.rul.y = oy + PH * pc + 36; clampRuler(w, h); }
+  // grass with a cm grid
+  c.save();
+  c.shadowColor = 'rgba(40,60,20,.4)'; c.shadowBlur = 10; c.shadowOffsetY = 3;
+  let g = c.createLinearGradient(ox, oy, ox + PW * pc, oy + PH * pc); g.addColorStop(0, '#9ad57a'); g.addColorStop(1, '#5fae62');
+  c.fillStyle = g; c.beginPath(); c.roundRect(ox, oy, PW * pc, PH * pc, 10); c.fill();
+  c.shadowColor = 'transparent'; c.beginPath(); c.roundRect(ox, oy, PW * pc, PH * pc, 10); c.clip();
+  c.strokeStyle = 'rgba(255,255,255,.22)'; c.lineWidth = 1; c.beginPath();
+  for (let i = 1; i < PW; i++) { c.moveTo(Math.round(X(i)) + 0.5, oy); c.lineTo(Math.round(X(i)) + 0.5, oy + PH * pc); }
+  for (let j = 1; j < PH; j++) { c.moveTo(ox, Math.round(Y(j)) + 0.5); c.lineTo(ox + PW * pc, Math.round(Y(j)) + 0.5); }
+  c.stroke();
+  // pond
+  const pcx = X(6.3), pcy = Y(4.7);
+  g = c.createRadialGradient(pcx - pc * 0.3, pcy - pc * 0.3, 2, pcx, pcy, pc * 1.3); g.addColorStop(0, '#9fdcff'); g.addColorStop(1, '#3f8fd0');
+  c.fillStyle = g; c.strokeStyle = '#2d6aa0'; c.lineWidth = 2.5; c.beginPath(); c.ellipse(pcx, pcy, pc * 1.15, pc * 0.82, -0.2, 0, Math.PI * 2); c.fill(); c.stroke();
+  for (const [lx, ly] of [[-0.35, 0.1], [0.4, -0.2]]) { c.fillStyle = '#4fa857'; c.beginPath(); c.ellipse(pcx + lx * pc, pcy + ly * pc, pc * 0.2, pc * 0.13, 0, 0, Math.PI * 2); c.fill(); }
+  // playground
+  const gx = X(1.8), gy = Y(5.3), gw = 2.1 * pc, gh = 2 * pc;
+  g = c.createLinearGradient(gx, gy, gx + gw, gy + gh); g.addColorStop(0, '#f6e2ae'); g.addColorStop(1, '#dcbd7c');
+  c.fillStyle = g; c.strokeStyle = '#8a6a34'; c.lineWidth = 2.5; c.beginPath(); c.roundRect(gx, gy, gw, gh, 8); c.fill(); c.stroke();
+  c.strokeStyle = '#d9503a'; c.lineWidth = 3; c.lineCap = 'round'; // swing frame
+  c.beginPath(); c.moveTo(gx + gw * 0.12, gy + gh * 0.8); c.lineTo(gx + gw * 0.27, gy + gh * 0.2); c.lineTo(gx + gw * 0.42, gy + gh * 0.8); c.stroke();
+  c.strokeStyle = '#444'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(gx + gw * 0.22, gy + gh * 0.2); c.lineTo(gx + gw * 0.22, gy + gh * 0.55); c.moveTo(gx + gw * 0.32, gy + gh * 0.2); c.lineTo(gx + gw * 0.32, gy + gh * 0.55); c.stroke();
+  c.fillStyle = '#3a6fc0'; c.fillRect(gx + gw * 0.2, gy + gh * 0.55, gw * 0.14, 4);
+  c.fillStyle = '#f2b632'; c.strokeStyle = '#8a5c10'; c.lineWidth = 1.5; // slide
+  poly(c, [[gx + gw * 0.6, gy + gh * 0.75], [gx + gw * 0.62, gy + gh * 0.25], [gx + gw * 0.72, gy + gh * 0.25], [gx + gw * 0.9, gy + gh * 0.75]]); c.fill(); c.stroke();
+  // trees
+  for (const [tx, ty, tr] of [[0.45, 5.6, 0.34], [3.2, 2.2, 0.3], [6.7, 1.3, 0.38], [7.4, 2.2, 0.28], [2.6, 0.5, 0.3], [5.8, 5.7, 0.26]]) {
+    const q = c.createRadialGradient(X(tx) - tr * pc * 0.3, Y(ty) - tr * pc * 0.3, 1, X(tx), Y(ty), tr * pc * 1.2); q.addColorStop(0, '#6fcf6a'); q.addColorStop(1, '#2d7a3b');
+    c.fillStyle = 'rgba(0,0,0,.18)'; c.beginPath(); c.ellipse(X(tx) + 3, Y(ty) + 4, tr * pc, tr * pc * 0.8, 0, 0, Math.PI * 2); c.fill();
+    c.fillStyle = q; c.strokeStyle = '#1f5a2a'; c.lineWidth = 1.5; c.beginPath(); c.arc(X(tx), Y(ty), Math.max(0, tr * pc), 0, Math.PI * 2); c.fill(); c.stroke();
+  }
+  // paths
+  const act = S.pi < PT.length ? PT[S.pi] : null;
+  c.lineCap = 'round'; c.lineJoin = 'round';
+  for (const p of PT) {
+    if (p === act) { c.strokeStyle = 'rgba(255,214,10,.6)'; c.lineWidth = pc * 0.62; c.beginPath(); c.moveTo(X(p.a[0]), Y(p.a[1])); c.lineTo(X(p.b[0]), Y(p.b[1])); c.stroke(); }
+    c.strokeStyle = '#a98a52'; c.lineWidth = pc * 0.38; c.beginPath(); c.moveTo(X(p.a[0]), Y(p.a[1])); c.lineTo(X(p.b[0]), Y(p.b[1])); c.stroke();
+    c.strokeStyle = '#ecd7a4'; c.lineWidth = pc * 0.3; c.stroke();
+  }
+  c.restore();
+  // gate and labels
+  c.save(); c.fillStyle = '#7a4a22'; c.fillRect(X(1) - pc * 0.28, Y(1) + pc * 0.2, pc * 0.56, pc * 0.12); c.restore();
+  pill(c, w, h, t.gate, X(1) - pc * 0.1, Y(1) + pc * 0.62, { font: '800 12px Nunito, sans-serif', h: 20 });
+  pill(c, w, h, t.pond, pcx, pcy + pc * 1.1, { font: '800 12px Nunito, sans-serif', h: 20 });
+  pill(c, w, h, t.play, gx + gw / 2, gy - 12, { font: '800 12px Nunito, sans-serif', h: 20 });
+  // path letters, end points of the asked path
+  for (const p of PT) {
+    const mx = (p.a[0] + p.b[0]) / 2, my = (p.a[1] + p.b[1]) / 2, hor = p.a[1] === p.b[1];
+    const bx = X(mx) + (hor ? 0 : pc * 0.42), by = Y(my) + (hor ? pc * 0.42 : 0);
+    c.save(); c.fillStyle = 'rgba(14,17,28,.85)'; c.strokeStyle = p === act ? '#ffd60a' : 'rgba(255,255,255,.4)'; c.lineWidth = 2;
+    c.beginPath(); c.arc(bx, by, 11, 0, Math.PI * 2); c.fill(); c.stroke();
+    c.font = '900 13px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#fff'; c.fillText(p.n, bx, by + 1); c.restore();
+  }
+  if (act) for (const e of [act.a, act.b]) {
+    c.save(); c.fillStyle = '#fff'; c.strokeStyle = '#1d2540'; c.lineWidth = 2.5; c.beginPath(); c.arc(X(e[0]), Y(e[1]), 5, 0, Math.PI * 2); c.fill(); c.stroke(); c.restore();
+  }
+  // scale label
+  pill(c, w, h, `${t.mapScale}: ${t.scale(S.pScale)}`, ox + PW * pc - 6 - 70, oy + PH * pc - 16, { font: '800 12px Nunito, sans-serif', h: 22 });
+  // the answer: a walker along the path
+  S.pT = S.pChecked ? S.pT + dt : 0;
+  if (S.pChecked && act) {
+    const f = ease(clamp(S.pT / 1.6, 0, 1)), wx = lerp(X(act.a[0]), X(act.b[0]), f), wy = lerp(Y(act.a[1]), Y(act.b[1]), f);
+    drawWalker(c, wx, wy - 6, S.pT * 9);
+    if (f >= 1) {
+      const hor = act.a[1] === act.b[1], mx = (X(act.a[0]) + X(act.b[0])) / 2, my = (Y(act.a[1]) + Y(act.b[1])) / 2;
+      pill(c, w, h, `${fmt(act.cm * S.pScale)} ${t.m}`, hor ? mx : mx - pc * 1, hor ? my - pc * 0.6 : my, { font: '900 15px Nunito, sans-serif', edge: '#ffd60a', h: 26 });
+    }
+  }
+  // the ruler
+  const r = S.rul, bw = pc * 0.85, L = RL * pc;
+  c.save(); c.translate(r.x, r.y); if (r.vert) c.rotate(-Math.PI / 2);
+  c.shadowColor = 'rgba(0,0,0,.35)'; c.shadowBlur = 8; c.shadowOffsetY = 3;
+  g = c.createLinearGradient(0, -bw / 2, 0, bw / 2); g.addColorStop(0, 'rgba(255,238,178,.92)'); g.addColorStop(1, 'rgba(240,198,100,.92)');
+  c.fillStyle = g; c.beginPath(); c.roundRect(0, -bw / 2, L, bw, 4); c.fill();
+  c.shadowColor = 'transparent'; c.strokeStyle = '#9a7418'; c.lineWidth = 1.5; c.stroke();
+  c.strokeStyle = '#5a3a08'; c.lineWidth = 1.2; c.beginPath();
+  for (let i = 0; i <= RL * 2; i++) { const xx = i * pc / 2, len = i % 2 ? bw * 0.18 : bw * 0.34; c.moveTo(xx, -bw / 2); c.lineTo(xx, -bw / 2 + len); }
+  c.stroke();
+  c.strokeStyle = '#d6453d'; c.lineWidth = 2; c.beginPath(); c.moveTo(0, -bw / 2); c.lineTo(0, bw / 2); c.stroke();
+  c.restore();
+  c.save(); c.font = '800 12px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#4a3008';
+  for (let i = 0; i <= RL; i++) {
+    const lx = r.vert ? r.x - bw / 2 + bw * 0.68 : r.x + i * pc, ly = r.vert ? r.y - i * pc : r.y - bw / 2 + bw * 0.68;
+    c.fillText(String(i), i === 0 && !r.vert ? lx + 7 : lx, i === 0 && r.vert ? ly - 6 : ly);
+  }
+  c.restore();
+}
+$('cv').addEventListener('pointerdown', (ev) => {
+  if (lab.view !== 'plan' || S.sec || !S.pg) return;
+  const rc = $('cv').getBoundingClientRect(), px = ev.clientX - rc.left, py = ev.clientY - rc.top, b = rulerBox(), pad = 8;
+  if (px < b.x0 - pad || px > b.x1 + pad || py < b.y0 - pad || py > b.y1 + pad) return;
+  S.drag = { dx: px - S.rul.x, dy: py - S.rul.y, id: ev.pointerId };
+  try { $('cv').setPointerCapture(ev.pointerId); } catch { /* no capture */ }
+  ev.preventDefault();
+});
+$('cv').addEventListener('pointermove', (ev) => {
+  if (!S.drag || S.drag.id !== ev.pointerId) return;
+  const rc = $('cv').getBoundingClientRect();
+  S.rul.x = ev.clientX - rc.left - S.drag.dx; S.rul.y = ev.clientY - rc.top - S.drag.dy; clampRuler(rc.width, rc.height);
+});
+const endDrag = (ev) => { if (S.drag && S.drag.id === ev.pointerId) S.drag = null; };
+$('cv').addEventListener('pointerup', endDrag); $('cv').addEventListener('pointercancel', endDrag);
+
+// --- secrets -----------------------------------------------------------------------------------------------
+function drawArea(c, w, h, dt) {
+  const k = S.aK, t = T[lang].ar, dimL = 34, gap = 44, base = h - 46;
+  const u = Math.max(8, Math.min((w - 24 - 2 * dimL - gap) / 4, (base - 54) / 3, 56));
+  const total = (1 + k) * u + 2 * dimL + gap, xo = (w - total) / 2 + dimL, x1 = xo + u + gap + dimL;
+  S.aT += dt;
+  board(c, w, h, xo, base, u);
+  const tile = (x, y, s, a = 1) => {
+    c.save(); c.globalAlpha = a;
+    const g = c.createLinearGradient(x, y, x + s, y + s); g.addColorStop(0, '#78bdf7'); g.addColorStop(1, '#2f6fc0');
+    c.shadowColor = 'rgba(30,50,100,.35)'; c.shadowBlur = 5; c.shadowOffsetY = 2;
+    c.fillStyle = g; c.beginPath(); c.roundRect(x, y, s, s, Math.max(1, s * 0.07)); c.fill();
+    c.shadowColor = 'transparent'; c.lineWidth = 1.5; c.strokeStyle = 'rgba(20,35,80,.7)'; c.stroke();
+    c.fillStyle = 'rgba(255,255,255,.3)'; c.fillRect(x + s * 0.08, y + s * 0.08, s * 0.5, s * 0.08);
+    c.restore();
+  };
+  tile(xo, base - u, u);
+  dimH(c, w, h, xo, xo + u, base + 17, CW, '1');
+  dimV(c, w, h, xo - 17, base, base - u, CH, '1');
+  // the big square, tiled one by one
+  c.save(); c.setLineDash([6, 4]); c.strokeStyle = '#d98f1f'; c.lineWidth = 2.5; c.strokeRect(x1, base - k * u, k * u, k * u); c.restore();
+  let shown = 0;
+  for (let i = 0; i < k * k; i++) {
+    const p = clamp((S.aT - 0.4 - i * 0.4) / 0.3, 0, 1);
+    if (p <= 0) continue;
+    if (p >= 1) shown++;
+    const e = Math.max(0.01, easeBack(p)), cx = x1 + (i % k + 0.5) * u, cy = base - (Math.floor(i / k) + 0.5) * u, s = (u - 3) * e;
+    tile(cx - s / 2, cy - s / 2, s, p);
+  }
+  dimH(c, w, h, x1, x1 + k * u, base + 17, CW, String(k));
+  dimV(c, w, h, x1 - 17, base, base - k * u, CH, String(k));
+  pill(c, w, h, `× ${k}`, (xo + u + x1) / 2, base - u * 0.5 - 4, { font: '900 15px Nunito, sans-serif', edge: '#ffd60a' });
+  pill(c, w, h, t.tiles(shown, k), x1 + k * u / 2, base - k * u - 18, {});
+}
+function drawFace(c, x, base, wp, hp) {
+  c.save(); c.lineJoin = 'round';
+  const y = base - hp, fr = Math.min(wp, hp) * 0.06;
+  c.shadowColor = 'rgba(40,25,5,.45)'; c.shadowBlur = 10; c.shadowOffsetX = 2; c.shadowOffsetY = 4;
+  let g = c.createLinearGradient(x, y, x + wp, y + hp); g.addColorStop(0, '#b97f44'); g.addColorStop(1, '#774a22');
+  c.fillStyle = g; c.beginPath(); c.roundRect(x, y, wp, hp, 6); c.fill();
+  c.shadowColor = 'transparent'; c.lineWidth = 1.5; c.strokeStyle = '#4a2c12'; c.stroke();
+  c.beginPath(); c.roundRect(x + fr, y + fr, wp - 2 * fr, hp - 2 * fr, 3); c.clip();
+  c.translate(x + fr, y + fr); c.scale(wp - 2 * fr, hp - 2 * fr);
+  g = c.createLinearGradient(0, 0, 0, 1); g.addColorStop(0, '#b9defa'); g.addColorStop(1, '#eaf6fd');
+  c.fillStyle = g; c.fillRect(0, 0, 1, 1);
+  c.fillStyle = '#86c97f'; c.beginPath(); c.ellipse(0.25, 1.02, 0.7, 0.2, 0, 0, Math.PI * 2); c.fill();
+  c.fillStyle = '#e8695a'; c.beginPath(); c.ellipse(0.5, 1.0, 0.36, 0.22, 0, 0, Math.PI * 2); c.fill();
+  c.fillStyle = '#f0b98c'; c.fillRect(0.45, 0.68, 0.1, 0.12);
+  c.fillStyle = '#5a3a22'; c.beginPath(); c.ellipse(0.5, 0.46, 0.29, 0.3, 0, 0, Math.PI * 2); c.fill();
+  c.fillStyle = '#f0b98c'; for (const ex of [0.25, 0.75]) { c.beginPath(); c.ellipse(ex, 0.5, 0.035, 0.05, 0, 0, Math.PI * 2); c.fill(); }
+  g = c.createRadialGradient(0.43, 0.42, 0.02, 0.5, 0.5, 0.3); g.addColorStop(0, '#ffe3c8'); g.addColorStop(1, '#eeb386');
+  c.fillStyle = g; c.beginPath(); c.ellipse(0.5, 0.5, 0.235, 0.27, 0, 0, Math.PI * 2); c.fill();
+  c.fillStyle = '#5a3a22'; c.beginPath(); c.ellipse(0.5, 0.34, 0.25, 0.13, 0, Math.PI, Math.PI * 2); c.fill();
+  for (const ex of [0.4, 0.6]) {
+    c.fillStyle = '#fff'; c.beginPath(); c.ellipse(ex, 0.49, 0.045, 0.032, 0, 0, Math.PI * 2); c.fill();
+    c.fillStyle = '#2b2b3a'; c.beginPath(); c.ellipse(ex, 0.492, 0.022, 0.025, 0, 0, Math.PI * 2); c.fill();
+    c.fillStyle = '#fff'; c.beginPath(); c.ellipse(ex - 0.007, 0.484, 0.007, 0.008, 0, 0, Math.PI * 2); c.fill();
+  }
+  c.fillStyle = 'rgba(255,120,120,.35)'; for (const ex of [0.34, 0.66]) { c.beginPath(); c.ellipse(ex, 0.57, 0.04, 0.03, 0, 0, Math.PI * 2); c.fill(); }
+  c.fillStyle = '#e9a67c'; c.beginPath(); c.ellipse(0.5, 0.555, 0.025, 0.02, 0, 0, Math.PI * 2); c.fill();
+  c.strokeStyle = '#a33d3d'; c.lineWidth = 0.014; c.lineCap = 'round'; c.beginPath(); c.ellipse(0.5, 0.58, 0.08, 0.05, 0, 0.15 * Math.PI, 0.85 * Math.PI); c.stroke();
+  c.restore();
+}
+function drawPhoto(c, w, h, dt) {
+  const t = T[lang].ph, dimL = 34, gap = 30, base = h - 46;
+  const u = Math.max(8, Math.min((w - 24 - 2 * dimL - gap) / 6, (base - 52) / 5, 54));
+  const total = 6 * u + 2 * dimL + gap, xo = (w - total) / 2 + dimL, x1 = xo + 2 * u + gap + dimL;
+  const tgt = S.phStep ? 5 : 2.5;
+  S.phH += (tgt - S.phH) * Math.min(1, dt * 5);
+  if (Math.abs(tgt - S.phH) < 0.005) S.phH = tgt;
+  board(c, w, h, xo, base, u);
+  drawFace(c, xo, base, 2 * u, 2.5 * u);
+  dimH(c, w, h, xo, xo + 2 * u, base + 17, CW, '2');
+  dimV(c, w, h, xo - 17, base, base - 2.5 * u, CH, fmt(2.5));
+  drawFace(c, x1, base, 4 * u, S.phH * u);
+  dimH(c, w, h, x1, x1 + 4 * u, base + 17, CW, '4');
+  dimV(c, w, h, x1 - 17, base, base - S.phH * u, CH, fmt(Math.round(S.phH * 10) / 10));
+  const ok = S.phStep === 1;
+  pill(c, w, h, ok ? t.pill1 : t.pill0, x1 + 2 * u, base - Math.max(S.phH, 2.5) * u - 16, { font: '900 14px Nunito, sans-serif', edge: ok ? '#1f9d55' : '#d6453d' });
+}
+
+// --- controls ------------------------------------------------------------------------------------------------
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+function mMain() {
+  if (S.mi >= 5) { S.mi = 0; S.mRight = []; S.mRaw = ''; S.mChecked = false; sfx.click(); return; }
+  if (!S.mChecked) {
+    const g = mGuess(); if (g === null) return;
+    const ok = Math.abs(g - mAns(MT[S.mi])) < 1e-6;
+    S.mRight[S.mi] = ok; S.mChecked = true; S.mT = 0; (ok ? sfx.good : sfx.bad)(); showStage();
+  } else { S.mi++; S.mRaw = ''; S.mChecked = false; S.mT = 0; sfx.click(); }
+}
+function pMain() {
+  if (S.pi >= PT.length) { S.pi = 0; S.pRight = []; S.pRaw = ''; S.pChecked = false; sfx.click(); return; }
+  if (!S.pChecked) {
+    const g = pGuess(); if (g === null) return;
+    const ok = Math.abs(g - PT[S.pi].cm * S.pScale) < 1e-6;
+    S.pRight[S.pi] = ok; S.pChecked = true; S.pT = 0; (ok ? sfx.good : sfx.bad)(); showStage();
+  } else { S.pi++; S.pRaw = ''; S.pChecked = false; S.pT = 0; sfx.click(); }
+}
+const step = (raw, d) => { const g = parseNum(raw) ?? 0; return String(clamp(Math.round((g + d) * 10) / 10, 0, 999)).replace('.', lang === 'en' ? '.' : ','); };
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b) return;
+  const a = b.dataset.act;
+  if (a === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    const k = b.dataset.k;
+    if (k === 'area') { S.aK = S.sec === 'area' ? (S.aK === 2 ? 3 : 2) : 2; S.aT = 0; }
+    else { S.phStep = S.sec === 'photo' ? 1 - S.phStep : 0; if (S.sec !== 'photo') S.phH = 2.5; }
+    S.sec = k; sfx.click();
+  } else if (a === 'back') { S.sec = null; sfx.click(); }
+  else if (a === 'cmp') { S.gMode = 'compare'; S.gT = 5; sfx.click(); }
+  else if (a === 'again') { S.gPick = null; S.gMode = 'compare'; S.gT = 0; sfx.click(); }
+  else if (a === 'mdec' || a === 'minc') { if (S.mChecked) return; S.mRaw = step(S.mRaw, a === 'minc' ? 1 : -1); sfx.tick(); }
+  else if (a === 'pdec' || a === 'pinc') { if (S.pChecked) return; S.pRaw = step(S.pRaw, a === 'pinc' ? 0.5 : -0.5); sfx.tick(); }
+  else if (a === 'mmain') mMain();
+  else if (a === 'pmain') pMain();
+  else if (a === 'turn') { S.rul.vert = !S.rul.vert; if (S.pg) { const r = $('cv').getBoundingClientRect(); clampRuler(r.width, r.height); } sfx.click(); }
+  else if (a === 'scale') {
+    const m = +b.dataset.m; if (m === S.pScale) return;
+    S.pScale = m; S.pRaw = ''; S.pChecked = false; S.pT = 0; delete S.pRight[S.pi]; if (S.pi >= PT.length) { S.pi = 0; S.pRight = []; } sfx.click();
+  }
+  render();
+});
+$('ctrlBody').addEventListener('input', (ev) => {
+  if (ev.target.id === 'mI') S.mRaw = ev.target.value;
+  else if (ev.target.id === 'pI') S.pRaw = ev.target.value;
+  else if (ev.target.id === 'gR') { S.gF = +ev.target.value; S.gMode = 'slide'; sfx.tick(); }
+  else return;
+  render();
+});
+$('ctrlBody').addEventListener('keydown', (ev) => {
+  if (ev.key !== 'Enter') return;
+  if (ev.target.id === 'mI') { ev.preventDefault(); mMain(); render(); }
+  else if (ev.target.id === 'pI') { ev.preventDefault(); pMain(); render(); }
+});
+askEl.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button[data-pick]'); if (!b) return;
+  S.gPick = b.dataset.pick; S.gT = 0; S.gMode = 'compare';
+  (S.gPick === 'x' ? sfx.good : sfx.bad)(); showStage(); render();
+});
+
+// --- render: controls, readout and the state card ----------------------------------------------------------
+function render() {
+  const t = T[lang], v = lab.view, asking = v === 'grow' && !S.sec && S.gPick === null;
+  document.body.dataset.v = S.sec ? 'sec' : asking ? 'ask' : v;
+  $('secGrow').style.display = v === 'grow' && !S.sec && !asking ? '' : 'none';
+  $('secMiss').style.display = v === 'missing' && !S.sec ? '' : 'none';
+  $('secPlan').style.display = v === 'plan' && !S.sec ? '' : 'none';
+  askEl.style.display = asking ? '' : 'none';
+  const open = secret.unlocked();
+  const sc = (k, emo) => `<button class="chip sm-c secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.s[k][0])}` : '🔒 ???'}</button>`;
+  $('secRow').innerHTML = sc('area', '🟦') + sc('photo', '🖼️') + (S.sec ? `<button class="chip sm-c" data-act="back">${esc(t.s.back)}</button>` : '');
+  if (S.sec) renderSec(t);
+  else if (v === 'grow') renderGrow(t, asking);
+  else if (v === 'missing') renderMiss(t);
+  else renderPlan(t);
+  const f = t.fact[v];
+  lab.setFacts([{ emo: '💡', text: f[0], src: f[1] }]);
+}
+function renderSec(t) {
+  if (S.sec === 'area') {
+    const k = S.aK, a = t.ar;
+    lab.setGlow('rgba(80,150,230,.28)'); lab.setReadout(k * k, a.sub(k), a.pill(k), '#2f6cbd');
+    lab.setState({ emo: '🟦', title: a.t(k), lead: a.l(k), body: a.press, extra: '' });
+  } else {
+    const p = t.ph, ok = S.phStep === 1;
+    lab.setGlow(ok ? 'rgba(61,220,151,.22)' : 'rgba(255,90,70,.22)');
+    lab.setReadout(ok ? '× 2 · × 2' : '× 2 · × 1', p.sub, ok ? p.pill1 : p.pill0, ok ? '#1f9d55' : '#d6453d');
+    lab.setState({ emo: '🖼️', title: ok ? p.t1 : p.t0, lead: ok ? p.l1 : p.l0, body: p.press, extra: '' });
+  }
+}
+function renderGrow(t, asking) {
+  const g = t.g;
+  lab.setGlow('rgba(232, 131, 58, .26)');
+  askEl.innerHTML = asking
+    ? `<div class="q">${esc(g.askQ)}</div><p>${esc(g.askB)}</p><div class="opts"><button data-pick="x">${esc(g.optX)}</button><button data-pick="p">${esc(g.optP)}</button></div>` : '';
+  $('gLbl').textContent = g.f; $('gE1').textContent = g.e1; $('gE2').textContent = g.e2;
+  $('gR').value = S.gF; $('gR').setAttribute('aria-label', g.f);
+  $('gCmp').textContent = g.cmp; $('gAgain').textContent = g.again;
+  $('gCmp').classList.toggle('on', S.gMode === 'compare');
+  if (asking) {
+    lab.setReadout('2 × 3', g.door, '', '#e8833a');
+    lab.setState({ emo: '🚪', title: g.stT, lead: g.stL, body: '', extra: '' });
+  } else if (S.gMode === 'compare') {
+    lab.setReadout('× 2: 4 × 6', '+ 2: 4 × 5', g.rdCmp, '#e8833a');
+    lab.setState({ emo: S.gPick === 'x' ? '✅' : '🤔', title: S.gPick === 'x' ? g.right : g.wrong, lead: g.resL, body: g.resB, extra: `<div class="sm-fine">${esc(g.note)}</div>` });
+  } else {
+    const f = S.gF;
+    lab.setReadout(`× ${fmt(f)}`, `2 → ${fmt(2 * f)}, 3 → ${fmt(3 * f)}`, g.rdPill, '#e8833a');
+    lab.setState({ emo: '🔍', title: g.sT(f), lead: g.sL(f), body: g.sB(f), extra: '' });
+  }
+}
+function renderMiss(t) {
+  const m = t.m, end = S.mi >= 5, k5 = S.mRight.filter(Boolean).length, task = MT[Math.min(S.mi, 4)];
+  lab.setGlow('rgba(47, 108, 189, .26)');
+  const mi = $('mI'); if (mi.value !== S.mRaw) mi.value = S.mRaw;
+  mi.disabled = S.mChecked; mi.setAttribute('aria-label', m.unk);
+  $('mU').textContent = m.cm;
+  document.querySelectorAll('#secMiss .sm-sb').forEach((b) => { b.disabled = S.mChecked; });
+  document.querySelector('#secMiss .sm-cnt').style.display = end ? 'none' : '';
+  $('mMain').textContent = end ? m.again : S.mChecked ? m.nxt : m.chk;
+  $('mMain').disabled = !end && !S.mChecked && mGuess() === null;
+  const dots = [0, 1, 2, 3, 4].map((i) => (i < S.mi ? '●' : i === S.mi ? '◉' : '○')).join(' ');
+  if (end) {
+    lab.setReadout(`${k5}/5`, dots, '', '#2f6cbd');
+    lab.setState({ emo: '🏆', title: m.end(k5), lead: m.endL, body: '', extra: '' });
+  } else if (!S.mChecked) {
+    lab.setReadout('× ?', dots, '', '#2f6cbd');
+    lab.setState({ emo: '📐', title: m.t, lead: m.l(S.mi + 1), body: m.hint, extra: '' });
+  } else {
+    const [a, b] = mPair(task), ans = mAns(task), g = mGuess();
+    lab.setReadout(`× ${fmt(task.k)}`, m.fac(a, b, task.k), '', '#2f6cbd');
+    const ok = Math.abs(g - ans) < 1e-6;
+    lab.setState({ emo: ok ? '✅' : '🤔', title: ok ? m.right : m.wrong(g, ans), lead: m.calc(task.unk === 'h' ? task.h : task.w, task.k, ans), body: m.fac(a, b, task.k), extra: '' });
+  }
+}
+function renderPlan(t) {
+  const p = t.p, end = S.pi >= PT.length, k = S.pRight.filter(Boolean).length, task = PT[Math.min(S.pi, PT.length - 1)];
+  lab.setGlow('rgba(95, 174, 98, .26)');
+  $('pSeg').innerHTML = [5, 10].map((m) => `<button data-act="scale" data-m="${m}" class="${m === S.pScale ? 'on' : ''}">${esc(p.scale(m))}</button>`).join('');
+  $('pTurn').textContent = p.turn;
+  const pi = $('pI'); if (pi.value !== S.pRaw) pi.value = S.pRaw;
+  pi.disabled = S.pChecked; pi.setAttribute('aria-label', p.m);
+  $('pU').textContent = p.m;
+  document.querySelectorAll('#secPlan .sm-sb').forEach((b) => { b.disabled = S.pChecked; });
+  document.querySelector('#secPlan .sm-cnt').style.display = end ? 'none' : '';
+  $('pTurn').style.display = end ? 'none' : '';
+  $('pMain').textContent = end ? p.again : S.pChecked ? p.nxt : p.chk;
+  $('pMain').disabled = !end && !S.pChecked && pGuess() === null;
+  const dots = PT.map((_, i) => (i < S.pi ? '●' : i === S.pi ? '◉' : '○')).join(' ');
+  if (end) {
+    lab.setReadout(`${k}/${PT.length}`, dots, '', '#5fae62');
+    lab.setState({ emo: '🏆', title: p.end(k), lead: p.endL, body: '', extra: '' });
+  } else if (!S.pChecked) {
+    lab.setReadout(`? ${p.m}`, p.scale(S.pScale), '', '#5fae62');
+    lab.setState({ emo: '🗺️', title: p.t, lead: p.l(S.pi + 1, task.n), body: p.hint, extra: '' });
+  } else {
+    const ans = task.cm * S.pScale, g = pGuess(), ok = Math.abs(g - ans) < 1e-6;
+    lab.setReadout(`${fmt(ans)} ${p.m}`, `${fmt(task.cm)} ${t.m.cm} × ${S.pScale} ${p.m}`, p.scale(S.pScale), '#5fae62');
+    lab.setState({ emo: ok ? '✅' : '🤔', title: ok ? p.right : p.wrong(g, ans), lead: p.calc(task.cm, S.pScale, ans), body: '', extra: '' });
+  }
+}
+
+canvasLoop($('cv'), (c, w, h, dt) => {
+  if (S.sec === 'area') drawArea(c, w, h, dt);
+  else if (S.sec === 'photo') drawPhoto(c, w, h, dt);
+  else if (lab.view === 'grow') drawGrow(c, w, h, dt);
+  else if (lab.view === 'missing') drawMissing(c, w, h, dt);
+  else drawPlan(c, w, h, dt);
+});
+render();
+</script>
+</body>
+</html>
