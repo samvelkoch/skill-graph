@@ -1,10 +1,14 @@
 # Skill Graph
 
-An open map of **what children learn** from about age 4 to 16, and a set of interactive **labs** that explain one idea each. A parent uses the map to see where a child is and what comes next; a child uses the labs to play with an idea until it makes sense. Everything is in English, Russian and Hungarian.
+**A map of knowledge, and the paths through it.**
+
+Skill Graph is an open model of knowledge: concepts, the prerequisites that link them, the signs that a concept has been understood, routes towards a goal, and interactive labs that explain one idea each. It shows how concepts connect, what builds on what, and how a learner can find the next step from what they already understand.
+
+School learning from about age 4 to 16 is where it is used first. A parent uses the map to see where a child is and what comes next; a child uses the labs to play with an idea until it makes sense. Topics are checked against ten national school curricula and the International Baccalaureate, and everything is in English, Russian and Hungarian.
 
 **Open it:** [samvelkoch.github.io/skill-graph](https://samvelkoch.github.io/skill-graph/) · **Labs:** [samvelkoch.github.io/skill-graph/labs/](https://samvelkoch.github.io/skill-graph/labs/) · **Help build it:** [CONTRIBUTING.md](CONTRIBUTING.md)
 
-Skill Graph started as a fork of the [Marble Skill Taxonomy](https://withmarble.com/curriculum) and keeps its data and licenses (see [License](#license)). On top of it, this project adds the viewer, the labs, translations, ten national school curricula and about 500 topics the taxonomy lacked.
+Skill Graph grew out of the [Marble Skill Taxonomy](https://withmarble.com/curriculum), and Marble's topics, prerequisite graph and teaching research remain its foundation; their data and licenses are kept as published (see [License](#license)). It has since become a project of its own: about 500 added topics and 800 added prerequisites, national school curricula mapped onto the graph, ready-made learning routes, 165 labs with sourced "Did you know?" facts, the map viewer, and full Russian and Hungarian translations.
 
 ![The graph as a rotating 3D map: every dot a topic, colored by subject, wired by prerequisites](media/curriculum-viz.gif)
 
@@ -20,7 +24,7 @@ Skill Graph started as a fork of the [Marble Skill Taxonomy](https://withmarble.
 
 **For children: the labs** ([`labs/`](labs/))
 
-- 100+ small interactive pages, each built around **one idea and one picture** that makes it obvious: magnets, seasons, fractions, the heart, food webs and more.
+- 165 small interactive pages, each built around **one idea and one picture** that makes it obvious: magnets, seasons, fractions, the heart, food webs and more.
 - Each lab links back to its topics on the map. A three-question quiz unlocks two “secret” experiments and marks the lab’s topics as “Learning” on the map.
 - Phone first; no sign-up, no points, no ads.
 
