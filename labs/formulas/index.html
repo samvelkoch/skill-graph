@@ -1,0 +1,885 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Formula Machine · Skill Graph</title>
+<meta name="description" content="Dial numbers into a machine of gears, follow the steps in order, and build the machine that runs backwards. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  #stage { min-height: 560px; }
+  .fm-ask { margin-bottom: 4px; }
+  .fm-q { font: 700 15px/1.3 var(--sans); color: #fff; margin-bottom: 8px; text-wrap: balance; }
+  .fm-opts { display: flex; gap: 8px; flex-wrap: wrap; }
+  .fm-opt { flex: 1 1 88px; min-height: 44px; padding: 8px 10px; border-radius: 14px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    color: var(--ink); font: 800 16px var(--sans); cursor: pointer; }
+  .fm-opt:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .fm-opt:disabled { cursor: default; opacity: .75; }
+  .fm-opt.good { border-color: var(--ok); background: rgba(61, 220, 151, .2); opacity: 1; }
+  .fm-opt.bad { border-color: var(--red); background: rgba(255, 59, 48, .16); opacity: 1; }
+  .fm-dial { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .fm-dial .fm-dl { flex: 1 0 100%; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-weight: 700; }
+  .fm-dial input { flex: 1 1 120px; min-width: 0; }
+  .fm-dial input:disabled { opacity: .35; }
+  .fm-sb { width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1); color: var(--ink);
+    font: 800 20px/1 var(--sans); padding: 0; cursor: pointer; }
+  .fm-sb:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .fm-sb:disabled { opacity: .3; cursor: default; }
+  .fm-hint { margin: 0; font-size: 12.5px; color: var(--mut); }
+  .fm-main { margin-left: auto; }
+  .fm-main:disabled { opacity: .35; cursor: default; }
+  .fm-sec { margin-top: 12px; }
+  @media (max-width: 760px) {
+    #stage { height: min(128vw, 520px); min-height: 0; }
+    body[data-v=turn] #stage { height: min(152vw, 620px); }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const HU_TURN = {
+  q: 'Ismered a d távolságot és a v sebességet. Építs gépet, amely megtalálja a t időt.',
+  lead: 'Előrefelé a gép ezt számolja: v = d ÷ t. Koppints egy csempére, vagy húzd az üres fogaskerékbe, aztán nyomd meg az Ellenőrzés gombot.',
+  fwd: 'Előre: v = d ÷ t', rev: 'Visszafelé: t megkeresése d-ből és v-ből', hint: 'Koppints egy csempére, vagy húzd az üres fogaskerékbe',
+  ex: [{ emo: '🚆', name: 'Vonat', txt: 'Példa: egy vonat 400 km-t tesz meg 160 km/h sebességgel. Mennyi ideig tart?' },
+       { emo: '🚲', name: 'Biciklis', txt: 'Példa: egy biciklis 30 km-t tesz meg 15 km/h sebességgel. Mennyi ideig tart?' }],
+  km: 'km', kmh: 'km/h', h: 'ó', check: '✓ Ellenőrzés', again: '↻ Újra',
+  okLead: (d, v, t) => `${fmt(d)} ÷ ${fmt(v)} = ${fmt(t)} ó, és ${fmt(d)} ÷ ${fmt(t)} megint ${fmt(v)} km/h: a két gép visszacsinálja egymást.`,
+  noLead: (d, v, op, x, y) => `A géped: ${fmt(d)} ${op} ${fmt(v)} = ${fmt(x)}. Tedd ezt az előrefelé működő gépbe: ${fmt(d)} ÷ ${fmt(x)} = ${fmt(y)}, nem ${fmt(v)}.`,
+  noBody: (d, v, t) => `A működő gép: ${fmt(d)} ÷ ${fmt(v)} = ${fmt(t)} ó. Előrefelé: ${fmt(d)} ÷ ${fmt(t)} = ${fmt(v)}.`,
+  
+};
+const HU_SC = {
+  title: 'Érd el, hogy a °C és a °F ugyanazt a számot mutassa', lead: 'Told a tárcsát, és figyeld az F − C különbséget. Hol lesz a különbség 0?',
+  found: '−40 °C = −40 °F', foundLead: 'Itt találkozik a két skála. Az F = 1,8C + 32 egyenes ebben a pontban metszi az F = C egyenest. Melegebb időben a °F-szám nagyobb.',
+  gap: (g) => `F − C = ${fmt(g)}`, same: 'F = C',
+};
+const HU_PD = {
+  title: (L, T) => `${fmt(L, 2)} m → ${fmt(T, 2)} s`, lead: 'T = 2π√(L ÷ g), ahol g = 9,81. A fogaskerekek: ÷ g, aztán √, aztán × 2π.',
+  one: 'Egy 1 m-es inga kb. 2 s alatt leng oda-vissza.', pill: 'oda-vissza', m: 'm', s: 's', try1: 'Próbáld 1 m-rel', model: 'Modell: kis kilengések, g = 9,81 m/s²',
+};
+const T = {
+  en: {
+    name: 'Formula Machine', title: 'Feed the formula machine',
+    lines: [['Turn the dial', 'and watch the gears work.'], ['Letters stand for numbers,', 'and the gears go one step at a time.'], ['Then build the machine', 'that runs backwards.']],
+    views: { plug: '🔌 Plug in', order: '🧮 Expressions', turn: '🔄 Turn it round' },
+    dial: { C: 'Dial: temperature in °C', a: 'Dial: the number a', L: 'String length L, in metres' },
+    pick: 'Your answer', ok: 'Right!', no: 'Not quite.',
+    plug: {
+      q: 'Body temperature is 37 °C. How many °F is that?',
+      rule: 'The rule is F = 1.8C + 32, where 1.8C means 1.8 × C. The °F side of the machine is covered until you answer.',
+      why: [() => `You added 32 first: (37 + 32) × 1.8 = ${fmt(124.2)}. The gears multiply first, then add.`,
+        () => `The gears: 37 × 1.8 = ${fmt(66.6)}, then ${fmt(66.6)} + 32 = ${fmt(98.6)}.`,
+        () => 'You added 37 + 32 and skipped the × 1.8 gear.'],
+      title: (C, F) => `${fmt(C)} °C = ${fmt(F)} °F`,
+      lead: 'Two thermometers, one temperature: the red level is at the same height on both. On the graph the dot slides along a straight line.',
+      body: 'In the USA the weather forecast is still given in °F.',
+    },
+    order: {
+      q: 'If a = −2, what is 2a²?',
+      rule: 'The number a is set to −2. The gears and the tape are covered until you answer.',
+      why: [() => `a² goes first: (−2)² = 4, then × 2 = 8.`,
+        () => 'That is (2a)²: you multiplied by 2 before squaring. In 2a² only a is squared.',
+        () => 'The brackets matter: (−2)² = 4, not −4. Then × 2 = 8.'],
+      lead: 'Each gear does one step, and the tape writes it down. Powers come before multiplying, and multiplying before adding.',
+      body: 'A negative number goes in brackets: (−2)² = 4.',
+      note: ['Only a is squared, then × 2.', 'Brackets: 2a is worked out first, then squared.', 'Multiply first, then add.', 'Two products in one: a² and 3a, then subtract.'],
+      tape: 'Tape', bars: 'Same a, four answers',
+    },
+    turn: {
+      q: 'You know the distance d and the speed v. Build the machine that finds the time t.',
+      lead: 'Forwards the machine does v = d ÷ t. Tap or drag a tile into the empty gear, then press Check.',
+      fwd: 'Forwards: v = d ÷ t', rev: 'Backwards: find t from d and v', hint: 'Tap or drag a tile into the empty gear',
+      ex: [{ emo: '🚆', name: 'Train', txt: 'Example: a train covers 400 km at 160 km/h. How long does it take?' },
+           { emo: '🚲', name: 'Cyclist', txt: 'Example: a cyclist covers 30 km at 15 km/h. How long does it take?' }],
+      km: 'km', kmh: 'km/h', h: 'h', check: '✓ Check', again: '↻ Try again',
+      okLead: (d, v, t) => `${fmt(d)} ÷ ${fmt(v)} = ${fmt(t)} h, and ${fmt(d)} ÷ ${fmt(t)} = ${fmt(v)} km/h again: the two machines undo each other.`,
+      noLead: (d, v, op, x, y) => `Your machine: ${fmt(d)} ${op} ${fmt(v)} = ${fmt(x)}. Put that in the forward machine: ${fmt(d)} ÷ ${fmt(x)} = ${fmt(y)}, not ${fmt(v)}.`,
+      noBody: (d, v, t) => `The machine that works: ${fmt(d)} ÷ ${fmt(v)} = ${fmt(t)} h. Forwards: ${fmt(d)} ÷ ${fmt(t)} = ${fmt(v)}.`,
+      
+    },
+    sec: { scales: ['Where the scales meet', 'Find the temperature where °C and °F show the same number'], pend: ['The pendulum', 'Set the string length and time the swing'] },
+    sc: {
+      title: 'Make °C and °F show the same number', lead: 'Move the dial and watch the gap F − C. Where does the gap become 0?',
+      found: '−40 °C = −40 °F', foundLead: 'Here the two scales meet. The line F = 1.8C + 32 crosses the line F = C at this point. At warmer temperatures the °F number is bigger.',
+      gap: (g) => `F − C = ${fmt(g)}`, same: 'F = C',
+    },
+    pd: {
+      title: (L, T) => `${fmt(L, 2)} m → ${fmt(T, 2)} s`, lead: 'T = 2π√(L ÷ g), with g = 9.81. The gears: ÷ g, then √, then × 2π.',
+      one: 'A 1 m pendulum swings there and back in about 2 s.', pill: 'there and back', m: 'm', s: 's', try1: 'Try 1 m', model: 'Model: small swings, g = 9.81 m/s²',
+    },
+    facts: {
+      viete: 'In the 1590s François Viète was one of the first to use letters for numbers in algebra: vowels for unknowns, consonants for known numbers.',
+      fahr: 'Daniel Gabriel Fahrenheit proposed his temperature scale in 1724.',
+      ein: 'Einstein’s E = mc² (1905) is one of the most famous formulas: a little mass holds a huge amount of energy.',
+      comma: 'Countries write formulas differently: in Russian and Hungarian schools the decimal comma is used (1,8C + 32), in English books the decimal point (1.8C + 32).',
+    },
+    quiz: [
+      { q: 'If a = 3, what is 2a²?', opts: ['18', '36', '12'], ok: 0 },
+      { q: 'F = 1.8C + 32. What is F when C = 10?', opts: ['50', '75.6', '42'], ok: 0 },
+      { q: 'A = l × w. Which formula gives w?', opts: ['w = A ÷ l', 'w = A − l', 'w = l ÷ A'], ok: 0 },
+    ],
+  },
+  ru: {
+    name: 'Машина формул', title: 'Накорми машину формул',
+    lines: [['Покрути ручку', 'и смотри, как работают шестерёнки.'], ['Буквы — это числа,', 'а шестерёнки делают шаги по одному.'], ['А потом собери машину,', 'которая работает наоборот.']],
+    views: { plug: '🔌 Подставь', order: '🧮 Выражения', turn: '🔄 Наоборот' },
+    dial: { C: 'Ручка: температура в °C', a: 'Ручка: число a', L: 'Длина нити L, в метрах' },
+    pick: 'Твой ответ', ok: 'Верно!', no: 'Не совсем.',
+    plug: {
+      q: 'Температура тела 37 °C. Сколько это в °F?',
+      rule: 'Правило: F = 1,8C + 32, где 1,8C — это 1,8 × C. Сторона °F закрыта, пока ты не ответишь.',
+      why: [() => `Здесь сначала прибавили 32: (37 + 32) × 1,8 = ${fmt(124.2)}. Шестерёнки сначала умножают, потом прибавляют.`,
+        () => `Шестерёнки: 37 × 1,8 = ${fmt(66.6)}, потом ${fmt(66.6)} + 32 = ${fmt(98.6)}.`,
+        () => 'Здесь сложили 37 + 32 и пропустили шестерёнку × 1,8.'],
+      title: (C, F) => `${fmt(C)} °C = ${fmt(F)} °F`,
+      lead: 'Два термометра, одна температура: красный столбик на одной высоте. На графике точка скользит по прямой.',
+      body: 'В США прогноз погоды до сих пор дают в °F.',
+    },
+    order: {
+      q: 'Если a = −2, чему равно 2a²?',
+      rule: 'Число a равно −2. Шестерёнки и лента закрыты, пока ты не ответишь.',
+      why: [() => 'Сначала a²: (−2)² = 4, потом × 2 = 8.',
+        () => 'Это (2a)²: здесь умножили на 2 до возведения в квадрат. В 2a² в квадрат возводится только a.',
+        () => 'Скобки важны: (−2)² = 4, а не −4. Потом × 2 = 8.'],
+      lead: 'Каждая шестерёнка делает один шаг, а лента его записывает. Сначала степени, потом умножение, потом сложение.',
+      body: 'Отрицательное число берут в скобки: (−2)² = 4.',
+      note: ['В квадрат возводится только a, потом × 2.', 'Скобки: сначала считаем 2a, потом возводим в квадрат.', 'Сначала умножаем, потом прибавляем.', 'Два шага сразу: a² и 3a, потом вычитаем.'],
+      tape: 'Лента', bars: 'Одно a — четыре ответа',
+    },
+    turn: {
+      q: 'Ты знаешь расстояние d и скорость v. Собери машину, которая находит время t.',
+      lead: 'Вперёд машина считает v = d ÷ t. Нажми на плитку или перетащи её в пустую шестерёнку, потом нажми «Проверить».',
+      fwd: 'Вперёд: v = d ÷ t', rev: 'Наоборот: найти t по d и v', hint: 'Нажми на плитку или перетащи её в пустую шестерёнку',
+      ex: [{ emo: '🚆', name: 'Поезд', txt: 'Пример: поезд проезжает 400 км со скоростью 160 км/ч. Сколько он едет?' },
+           { emo: '🚲', name: 'Велосипедист', txt: 'Пример: велосипедист проезжает 30 км со скоростью 15 км/ч. Сколько он едет?' }],
+      km: 'км', kmh: 'км/ч', h: 'ч', check: '✓ Проверить', again: '↻ Ещё раз',
+      okLead: (d, v, t) => `${fmt(d)} ÷ ${fmt(v)} = ${fmt(t)} ч, а ${fmt(d)} ÷ ${fmt(t)} снова даёт ${fmt(v)} км/ч: две машины отменяют друг друга.`,
+      noLead: (d, v, op, x, y) => `Твоя машина: ${fmt(d)} ${op} ${fmt(v)} = ${fmt(x)}. Подставь это в машину вперёд: ${fmt(d)} ÷ ${fmt(x)} = ${fmt(y)}, а не ${fmt(v)}.`,
+      noBody: (d, v, t) => `Машина, которая работает: ${fmt(d)} ÷ ${fmt(v)} = ${fmt(t)} ч. Вперёд: ${fmt(d)} ÷ ${fmt(t)} = ${fmt(v)}.`,
+      
+    },
+    sec: { scales: ['Где шкалы встречаются', 'Найди температуру, при которой °C и °F показывают одно и то же число'], pend: ['Маятник', 'Задай длину нити и засеки качание'] },
+    sc: {
+      title: 'Сделай так, чтобы °C и °F показывали одно число', lead: 'Двигай ручку и следи за разницей F − C. Где она станет равна 0?',
+      found: '−40 °C = −40 °F', foundLead: 'Здесь две шкалы встречаются. Прямая F = 1,8C + 32 пересекает прямую F = C в этой точке. При температуре выше число в °F больше.',
+      gap: (g) => `F − C = ${fmt(g)}`, same: 'F = C',
+    },
+    pd: {
+      title: (L, T) => `${fmt(L, 2)} м → ${fmt(T, 2)} с`, lead: 'T = 2π√(L ÷ g), где g = 9,81. Шестерёнки: ÷ g, потом √, потом × 2π.',
+      one: 'Маятник длиной 1 м качается туда и обратно примерно 2 с.', pill: 'туда и обратно', m: 'м', s: 'с', try1: 'Попробуй 1 м', model: 'Модель: малые качания, g = 9,81 м/с²',
+    },
+    facts: {
+      viete: 'В 1590-х годах Франсуа Виет одним из первых стал обозначать числа буквами в алгебре: гласными — неизвестные, согласными — известные числа.',
+      fahr: 'Даниэль Габриэль Фаренгейт предложил свою шкалу температуры в 1724 году.',
+      ein: 'Формула Эйнштейна E = mc² (1905) — одна из самых известных: в малой массе скрыта огромная энергия.',
+      comma: 'В разных странах формулы пишут по-разному: в российских и венгерских школах ставят десятичную запятую (1,8C + 32), в английских книгах — точку (1.8C + 32).',
+    },
+    quiz: [
+      { q: 'Если a = 3, чему равно 2a²?', opts: ['18', '36', '12'], ok: 0 },
+      { q: 'F = 1,8C + 32. Чему равно F, если C = 10?', opts: ['50', '75,6', '42'], ok: 0 },
+      { q: 'A = l × w. Какая формула даёт w?', opts: ['w = A ÷ l', 'w = A − l', 'w = l ÷ A'], ok: 0 },
+    ],
+  },
+  hu: {
+    name: 'Képletgép', title: 'Etesd a képletgépet',
+    lines: [['Tekerd a tárcsát,', 'és nézd, hogyan dolgoznak a fogaskerekek.'], ['A betűk számokat jelentenek,', 'a fogaskerekek lépésenként dolgoznak.'], ['Aztán építsd meg a gépet,', 'amely visszafelé működik.']],
+    views: { plug: '🔌 Helyettesíts', order: '🧮 Kifejezések', turn: '🔄 Fordítsd meg' },
+    dial: { C: 'Tárcsa: hőmérséklet °C-ban', a: 'Tárcsa: az a szám', L: 'A fonal hossza (L), méterben' },
+    pick: 'A válaszod', ok: 'Így van!', no: 'Nem egészen.',
+    plug: {
+      q: 'A testhőmérséklet 37 °C. Hány °F ez?',
+      rule: 'A szabály: F = 1,8C + 32, ahol az 1,8C jelentése 1,8 × C. A gép °F-oldala le van takarva, amíg nem válaszolsz.',
+      why: [() => `Itt előbb hozzáadtak 32-t: (37 + 32) × 1,8 = ${fmt(124.2)}. A fogaskerekek előbb szoroznak, aztán összeadnak.`,
+        () => `A fogaskerekek: 37 × 1,8 = ${fmt(66.6)}, aztán ${fmt(66.6)} + 32 = ${fmt(98.6)}.`,
+        () => 'Itt összeadták 37 + 32-t, és kihagyták az × 1,8 fogaskereket.'],
+      title: (C, F) => `${fmt(C)} °C = ${fmt(F)} °F`,
+      lead: 'Két hőmérő, egy hőmérséklet: a piros szint mindkettőn ugyanolyan magasan áll. A grafikonon a pont egy egyenesen csúszik.',
+      body: 'Az USA-ban az időjárás-jelentést ma is °F-ban adják meg.',
+    },
+    order: {
+      q: 'Ha a = −2, mennyi 2a²?',
+      rule: 'Az a szám értéke −2. A fogaskerekek és a szalag le vannak takarva, amíg nem válaszolsz.',
+      why: [() => 'Előbb az a²: (−2)² = 4, aztán × 2 = 8.',
+        () => 'Ez a (2a)²: itt a négyzetre emelés előtt szoroztak 2-vel. A 2a²-ben csak az a kerül négyzetre.',
+        () => 'A zárójel számít: (−2)² = 4, nem −4. Aztán × 2 = 8.'],
+      lead: 'Minden fogaskerék egy lépést tesz, a szalag pedig leírja. Előbb a hatványok jönnek, aztán a szorzás, aztán az összeadás.',
+      body: 'A negatív számot zárójelbe tesszük: (−2)² = 4.',
+      note: ['Csak az a kerül négyzetre, aztán × 2.', 'Zárójel: előbb a 2a-t számoljuk ki, aztán azt emeljük négyzetre.', 'Előbb szorzunk, aztán összeadunk.', 'Két lépés egyszerre: a² és 3a, aztán kivonunk.'],
+      tape: 'Szalag', bars: 'Ugyanaz az a, négy válasz',
+    },
+    turn: HU_TURN,
+    sec: { scales: ['Ahol a skálák találkoznak', 'Keresd meg azt a hőmérsékletet, ahol a °C és a °F ugyanazt a számot mutatja'], pend: ['Az inga', 'Állítsd be a fonal hosszát, és mérd a lengést'] },
+    sc: HU_SC,
+    pd: HU_PD,
+    facts: {
+      viete: 'Az 1590-es években François Viète az elsők között jelölt számokat betűkkel az algebrában: a magánhangzókkal az ismeretleneket, a mássalhangzókkal az ismert számokat.',
+      fahr: 'Daniel Gabriel Fahrenheit 1724-ben javasolta a hőmérsékleti skáláját.',
+      ein: 'Einstein E = mc² képlete (1905) az egyik leghíresebb: egy kis tömegben óriási energia rejtőzik.',
+      comma: 'Az országok másképp írják a képleteket: az orosz és a magyar iskolákban tizedesvesszőt használnak (1,8C + 32), az angol könyvekben tizedesponttal (1.8C + 32).',
+    },
+    quiz: [
+      { q: 'Ha a = 3, mennyi 2a²?', opts: ['18', '36', '12'], ok: 0 },
+      { q: 'F = 1,8C + 32. Mennyi F, ha C = 10?', opts: ['50', '75,6', '42'], ok: 0 },
+      { q: 'A = l × w. Melyik képlet adja meg w-t?', opts: ['w = A ÷ l', 'w = A − l', 'w = l ÷ A'], ok: 0 },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_vHzVa3SURC', en: 'Substituting into Formulae', ru: 'Подстановка в формулы', hu: 'Behelyettesítés képletekbe' },
+  { id: 'mt_3qrCtdoVAU', en: 'Simple formulae', ru: 'Простые формулы', hu: 'Egyszerű képletek' },
+];
+
+// --- number formatting: minus sign, decimal comma in RU and HU ---------------------------------------------
+function fmt(n, dp = 1) {
+  const k = 10 ** dp;
+  let s = (Math.round(n * k) / k).toFixed(dp);
+  if (s.includes('.')) s = s.replace(/0+$/, '').replace(/\.$/, '');
+  if (s === '-0') s = '0';
+  s = s.replace('-', '−');
+  return lang === 'en' ? s : s.replace('.', ',');
+}
+const br = (n, dp = 1) => (n < 0 ? `(${fmt(n, dp)})` : fmt(n, dp));
+
+// --- the maths ---------------------------------------------------------------------------------------------
+const EXPR = [
+  { lab: '2a²', f: (a) => 2 * a * a, steps: (a) => [
+    { op: 'a²', val: a * a, line: `a² = ${br(a)}² = ${fmt(a * a)}` },
+    { op: '× 2', val: 2 * a * a, line: `2 × ${fmt(a * a)} = ${fmt(2 * a * a)}` }] },
+  { lab: '(2a)²', f: (a) => 4 * a * a, steps: (a) => [
+    { op: '× 2', val: 2 * a, line: `2a = 2 × ${br(a)} = ${fmt(2 * a)}` },
+    { op: '( )²', val: 4 * a * a, line: `(2a)² = ${br(2 * a)}² = ${fmt(4 * a * a)}` }] },
+  { lab: '3a + 4', f: (a) => 3 * a + 4, steps: (a) => [
+    { op: '× 3', val: 3 * a, line: `3a = 3 × ${br(a)} = ${fmt(3 * a)}` },
+    { op: '+ 4', val: 3 * a + 4, line: `${fmt(3 * a)} + 4 = ${fmt(3 * a + 4)}` }] },
+  { lab: 'a² − 3a', f: (a) => a * a - 3 * a, steps: (a) => [
+    { op: 'a²', val: a * a, line: `a² = ${br(a)}² = ${fmt(a * a)}` },
+    { op: '× 3', val: 3 * a, line: `3a = 3 × ${br(a)} = ${fmt(3 * a)}` },
+    { op: '−', val: a * a - 3 * a, line: `${fmt(a * a)} − ${br(3 * a)} = ${fmt(a * a - 3 * a)}` }] },
+];
+const C2F = (C) => C * 1.8 + 32;
+const G = 9.81;
+const pendT = (L) => 2 * Math.PI * Math.sqrt(L / G);
+const EXS = [{ d: 400, v: 160, t: 2.5 }, { d: 30, v: 15, t: 2 }];
+const TILES = ['mul', 'div', 'add', 'sub'];
+const TILE = { mul: { lab: '× v', op: '×', f: (d, v) => d * v }, div: { lab: '÷ v', op: '÷', f: (d, v) => d / v },
+  add: { lab: '+ v', op: '+', f: (d, v) => d + v }, sub: { lab: '− v', op: '−', f: (d, v) => d - v } };
+const sig3 = (x) => Number(x.toPrecision(3));
+
+// --- state -------------------------------------------------------------------------------------------------
+const S = {
+  C: 37, dC: 37, a: -2, ex: 0, L: 1, ph: 0, sec: null, ex3: 0, tile: null, checked: false, drag: null, geo: null,
+  free: { plug: false, order: false }, ans: { plug: null, order: null }, run: { plug: 0, order: 0, turn: 0 }, spin: 0,
+};
+const lab = shell({ key: 'formulas', T, topics: TOPICS, views: ['plug', 'order', 'turn'], onLang: render,
+  onView: () => { exitSec(); render(); } });
+const secret = secretLab('formulas', () => ({
+  secrets: [{ emo: '🌡️', title: T[lang].sec.scales[0], desc: T[lang].sec.scales[1] }, { emo: '⏱️', title: T[lang].sec.pend[0], desc: T[lang].sec.pend[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+function exitSec() {
+  if (!S.sec) return;
+  S.sec = null;
+  if (S.ans.plug === null) S.C = 37;
+}
+
+$('ctrlBody').innerHTML = `
+  <div id="fmAsk" class="fm-ask"></div>
+  <div id="fmDial" class="fm-dial"><span class="fm-dl" id="dLbl"></span><button class="fm-sb" data-act="dec" aria-label="−">−</button>
+    <input class="big" type="range" id="dSl"><button class="fm-sb" data-act="inc" aria-label="+">+</button></div>
+  <div class="row2" id="fmExpr"></div>
+  <div id="fmTurn">
+    <div class="row2" id="fmEx" style="margin-top:0"></div>
+    <p class="fm-q" id="fmTq" style="margin:12px 0 0"></p>
+    <div class="row2"><button class="btn fm-main" id="fmCheck" data-act="check"></button></div>
+  </div>
+  <div class="row2" id="fmPend"><button class="chip" data-act="one" id="fmOne"></button></div>
+  <div class="row2 fm-sec" id="fmSec"></div>`;
+
+// --- canvas helpers ----------------------------------------------------------------------------------------
+let cw = 0;
+const rr = (c, x, y, w, h, r) => { c.beginPath(); c.roundRect(x, y, Math.max(0, w), Math.max(0, h), Math.max(0, Math.min(r, w / 2, h / 2))); };
+const ease = (t) => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
+const FONT = (s, w = 800) => `${w} ${s}px Nunito, sans-serif`;
+
+// a dark rounded label that wraps to the canvas width and stays inside it; y is the top
+function pill(c, text, x, y, o = {}) {
+  const size = o.size || 12, maxW = Math.min(o.maxW || cw - 12, cw - 12), lh = size + 3;
+  c.font = FONT(size);
+  const lines = []; let cur = '';
+  for (const word of String(text).split(' ')) {
+    const t = cur ? `${cur} ${word}` : word;
+    if (c.measureText(t).width > maxW - 14 && cur) { lines.push(cur); cur = word; } else cur = t;
+  }
+  lines.push(cur);
+  const tw = Math.max(...lines.map((l) => c.measureText(l).width)), pw = tw + 14, ph = lines.length * lh + 7;
+  const px = clamp(o.left ? x : x - pw / 2, 4, Math.max(4, cw - 4 - pw));
+  c.fillStyle = o.bg || 'rgba(10,12,22,.82)'; rr(c, px, y, pw, ph, Math.min(12, ph / 2)); c.fill();
+  if (o.border) { c.strokeStyle = o.border; c.lineWidth = 1.2; c.stroke(); }
+  c.fillStyle = o.color || '#fff'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  lines.forEach((l, i) => c.fillText(l, px + pw / 2, y + 3.5 + lh * (i + .5) + 1));
+  return ph;
+}
+function backdrop(c, w, h) {
+  const g = c.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#1d1728'); g.addColorStop(1, '#0e1020');
+  c.fillStyle = g; rr(c, 0, 0, w, h, 18); c.fill();
+  c.fillStyle = 'rgba(255,220,160,.06)';
+  for (let x = 14; x < w; x += 22) for (let y = 14; y < h; y += 22) c.fillRect(x, y, 1.5, 1.5);
+}
+// an opaque veil over what must stay hidden while the child predicts
+function veil(c, x, y, w, h, alpha, label) {
+  if (alpha <= 0.01) return;
+  c.save(); c.globalAlpha = alpha;
+  c.fillStyle = '#171a2e'; rr(c, x, y, w, h, 14); c.fill();
+  c.save(); rr(c, x, y, w, h, 14); c.clip(); c.strokeStyle = 'rgba(130,145,190,.12)'; c.lineWidth = 2; c.beginPath();
+  for (let k = -h; k < w; k += 14) { c.moveTo(x + k, y + h); c.lineTo(x + k + h, y); }
+  c.stroke(); c.restore();
+  c.strokeStyle = '#3a4266'; c.lineWidth = 1.5; rr(c, x, y, w, h, 14); c.stroke();
+  c.fillStyle = '#7d88b8'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.font = FONT(44, 900); c.fillText('?', x + w / 2, y + h / 2 - 8);
+  if (label) { c.font = FONT(14); c.fillText(label, x + w / 2, y + h / 2 + 28); }
+  c.restore();
+}
+function gear(c, cx, cy, r, ang, glow, label, tint) {
+  const teeth = 12, ro = r, ri = r * 0.82, st = 2 * Math.PI / teeth;
+  c.save();
+  if (glow > 0) { c.shadowColor = `rgba(255,214,107,${glow})`; c.shadowBlur = 22; }
+  c.beginPath();
+  for (let i = 0; i < teeth; i++) {
+    const a0 = ang + i * st, P = (rad, k) => [cx + Math.cos(a0 + k * st) * rad, cy + Math.sin(a0 + k * st) * rad];
+    const pts = [P(ri, 0), P(ro, .1), P(ro, .4), P(ri, .5)];
+    pts.forEach(([x, y], j) => (i === 0 && j === 0 ? c.moveTo(x, y) : c.lineTo(x, y)));
+  }
+  c.closePath();
+  const g = c.createRadialGradient(cx - r * .35, cy - r * .35, r * .1, cx, cy, r * 1.05);
+  if (tint === 'good') { g.addColorStop(0, '#b5f0c6'); g.addColorStop(.6, '#3fae6f'); g.addColorStop(1, '#1f6b43'); } else { g.addColorStop(0, '#f8e1a2'); g.addColorStop(.55, '#c99a45'); g.addColorStop(1, '#85591f'); }
+  c.fillStyle = g; c.fill(); c.shadowColor = 'transparent';
+  c.lineWidth = 1.5; c.strokeStyle = tint === 'good' ? '#14482c' : '#4e3412'; c.stroke();
+  c.restore();
+  const ig = c.createRadialGradient(cx - r * .2, cy - r * .2, 1, cx, cy, r * .66);
+  ig.addColorStop(0, '#5a4020'); ig.addColorStop(1, '#2a1b09');
+  c.fillStyle = ig; c.beginPath(); c.arc(cx, cy, Math.max(0, r * .66), 0, 7); c.fill();
+  c.strokeStyle = 'rgba(255,225,160,.55)'; c.lineWidth = 1.2; c.stroke();
+  let size = 17; c.font = FONT(size, 900);
+  while (size > 11 && c.measureText(label).width > r * 1.2) { size--; c.font = FONT(size, 900); }
+  c.fillStyle = '#ffeab8'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(label, cx, cy + 1);
+}
+
+// the brass-and-glass machine: input slots on top, a row of gears, an output window.
+// m: { inputs: [{k, v, frac}], gears: [{op, val, socket, label, good}], out: {k, v, show, ok}, cover, hideOps, rot }
+// p: how far the run has got (0 … 1); the token passes one gear after the other
+function machine(c, X, Y, W, H, m, p, time) {
+  const n = m.gears.length, by = Y + 22, bh = H - 22, EPS = 1e-6;
+  c.save(); c.shadowColor = 'rgba(0,0,0,.5)'; c.shadowBlur = 16; c.shadowOffsetY = 6;
+  let g = c.createLinearGradient(0, by, 0, by + bh); g.addColorStop(0, '#f1d28e'); g.addColorStop(.5, '#c99a45'); g.addColorStop(1, '#8d6128');
+  c.fillStyle = g; rr(c, X, by, W, bh, 16); c.fill(); c.restore();
+  c.lineWidth = 1.5; c.strokeStyle = '#4e3412'; rr(c, X, by, W, bh, 16); c.stroke();
+  c.strokeStyle = 'rgba(255,255,255,.45)'; c.lineWidth = 1; c.beginPath(); c.moveTo(X + 16, by + 2); c.lineTo(X + W - 16, by + 2); c.stroke();
+  for (const [rx, ry] of [[X + 7, by + 7], [X + W - 7, by + 7], [X + 7, by + bh - 7], [X + W - 7, by + bh - 7]]) {
+    const rg = c.createRadialGradient(rx - 1, ry - 1, 0, rx, ry, 4); rg.addColorStop(0, '#fff3cf'); rg.addColorStop(1, '#7a5420');
+    c.fillStyle = rg; c.beginPath(); c.arc(rx, ry, 3.5, 0, 7); c.fill();
+  }
+  const outW = 78, wx = X + 12, wy = by + 12, wh = bh - 24, ww = W - 24 - outW - 8, ox = X + W - 12 - outW;
+  // the glass window with the gears behind it
+  g = c.createLinearGradient(0, wy, 0, wy + wh); g.addColorStop(0, '#32231a'); g.addColorStop(1, '#120b06');
+  c.fillStyle = g; rr(c, wx, wy, ww, wh, 10); c.fill(); c.strokeStyle = '#4e3412'; c.lineWidth = 1.5; c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.06)'; rr(c, wx + 2, wy + 2, ww - 4, wh * .38, 8); c.fill();
+  const r = clamp((wh - 30) / 2, 14, 28), gy = wy + (wh - (2 * r + 26)) / 2 + r + 3;
+  const geo = { gears: [] };
+  for (let i = 0; i < n; i++) {
+    const Gi = m.gears[i], cx = wx + ww * (i + .5) / n;
+    const vis = !m.cover && p >= (i + 1) / (n + 1) - EPS;
+    const act = !m.cover && p > 0 && p < 1 && p >= i / (n + 1) - EPS && p < (i + 1) / (n + 1);
+    const dir = i % 2 ? -1 : 1, ang = dir * ((m.rot || 0) + (act ? time * 4 : 0));
+    geo.gears.push({ cx, cy: gy, r });
+    if (Gi.socket && !Gi.label) {
+      c.save(); c.setLineDash([5, 4]); c.lineWidth = 2; c.strokeStyle = `rgba(255,225,160,${.55 + .3 * Math.sin(time * 3)})`;
+      c.fillStyle = 'rgba(255,225,160,.07)'; c.beginPath(); c.arc(cx, gy, r, 0, 7); c.fill(); c.stroke(); c.restore();
+      c.fillStyle = 'rgba(255,225,160,.8)'; c.font = FONT(20, 900); c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('?', cx, gy + 1);
+    } else gear(c, cx, gy, r, ang, act ? 1 : 0, Gi.socket ? Gi.label : (m.hideOps ? '?' : Gi.op), Gi.good ? 'good' : '');
+    if (vis && Gi.val !== undefined) pill(c, Gi.val, cx, gy + r + 5, { size: 12, color: '#ffe9b0', maxW: ww / n });
+    // a small arrow towards the next gear (or the output window)
+    const ax = i < n - 1 ? (cx + wx + ww * (i + 1.5) / n) / 2 : (cx + r + ox) / 2;
+    c.fillStyle = 'rgba(255,220,150,.55)'; c.beginPath(); c.moveTo(ax - 4, gy - 6); c.lineTo(ax + 4, gy); c.lineTo(ax - 4, gy + 6); c.closePath(); c.fill();
+  }
+  // output window
+  const showOut = m.out.show || (!m.cover && p >= 1 - EPS);
+  g = c.createLinearGradient(0, wy, 0, wy + wh); g.addColorStop(0, '#12382a'); g.addColorStop(1, '#06150f');
+  c.fillStyle = g; rr(c, ox, wy, outW, wh, 10); c.fill();
+  c.strokeStyle = m.out.ok ? '#8dffb5' : '#e8c47a'; c.lineWidth = 2.5; c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.08)'; rr(c, ox + 3, wy + 3, outW - 6, wh * .35, 8); c.fill();
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.font = FONT(12); c.fillStyle = '#8fcfa5'; c.fillText(m.out.k, ox + outW / 2, wy + 14);
+  if (showOut) {
+    let size = 20; c.font = FONT(size, 900);
+    while (size > 12 && c.measureText(m.out.v).width > outW - 10) { size--; c.font = FONT(size, 900); }
+    c.save(); c.shadowColor = '#5dffa0'; c.shadowBlur = 10; c.fillStyle = '#9dffb6'; c.fillText(m.out.v, ox + outW / 2, wy + wh / 2 + 8); c.restore();
+  } else { c.font = FONT(26, 900); c.fillStyle = '#3d6b50'; c.fillText('?', ox + outW / 2, wy + wh / 2 + 8); }
+  // the glowing token that travels through the gears
+  if (!m.cover && p > 0 && p < 1) {
+    const tx = lerp(wx + 8, ox - 6, ease(p)), og = c.createRadialGradient(tx, gy, 0, tx, gy, 14);
+    og.addColorStop(0, 'rgba(255,250,210,1)'); og.addColorStop(.4, 'rgba(255,214,107,.7)'); og.addColorStop(1, 'rgba(255,214,107,0)');
+    c.fillStyle = og; c.beginPath(); c.arc(tx, gy, 14, 0, 7); c.fill();
+  }
+  // input slots on top: each a little dial with its letter and number
+  c.font = FONT(13, 900);
+  const items = m.inputs.map((q) => ({ q, text: `${q.k} = ${q.v}`, w: 0 }));
+  items.forEach((it) => { it.w = c.measureText(it.text).width + (it.q.frac !== undefined ? 36 : 20); });
+  let px = X + 14;
+  for (const it of items) {
+    const pw = it.w, sx = px + pw / 2;
+    c.fillStyle = '#1a1208'; rr(c, sx - 14, by - 2, 28, 7, 3); c.fill();
+    const pg = c.createLinearGradient(0, Y, 0, Y + 20); pg.addColorStop(0, '#8fc8ff'); pg.addColorStop(1, '#3d78c7');
+    c.save(); c.shadowColor = 'rgba(0,0,0,.4)'; c.shadowBlur = 6; c.shadowOffsetY = 2;
+    c.fillStyle = pg; rr(c, px, Y + 1, pw, 21, 10.5); c.fill(); c.restore();
+    c.strokeStyle = '#1d4a85'; c.lineWidth = 1.2; rr(c, px, Y + 1, pw, 21, 10.5); c.stroke();
+    let tx0 = px + pw / 2;
+    if (it.q.frac !== undefined) {
+      const kx = px + 13, ky = Y + 11.5, a = (-135 + 270 * clamp(it.q.frac, 0, 1)) * Math.PI / 180 - Math.PI / 2;
+      const kg = c.createRadialGradient(kx - 2, ky - 2, 0, kx, ky, 8); kg.addColorStop(0, '#fff1c4'); kg.addColorStop(1, '#a8782e');
+      c.fillStyle = kg; c.beginPath(); c.arc(kx, ky, 7.5, 0, 7); c.fill(); c.strokeStyle = '#4e3412'; c.lineWidth = 1; c.stroke();
+      c.strokeStyle = '#3a2813'; c.lineWidth = 2; c.beginPath(); c.moveTo(kx, ky); c.lineTo(kx + Math.cos(a) * 6, ky + Math.sin(a) * 6); c.stroke();
+      tx0 = px + 22 + (pw - 22) / 2;
+    }
+    c.fillStyle = '#fff'; c.font = FONT(13, 900); c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(it.text, tx0, Y + 12.5);
+    px += pw + 8;
+  }
+  return geo;
+}
+
+// --- scenes ------------------------------------------------------------------------------------------------
+const mgeo = (w) => { const mw = Math.min(w - 20, 560); return { mx: (w - mw) / 2, mw }; };
+
+function drawPlug(c, w, h, time, sec) {
+  const pred = !sec && S.ans.plug === null, C = pred ? 37 : S.C, F = C2F(C);
+  const p = sec ? 1 : pred ? 0 : S.run.plug, { mx, mw } = mgeo(w);
+  machine(c, mx, 6, mw, 150, { inputs: [{ k: 'C', v: `${fmt(C)} °C`, frac: (C + 40) / 140 }],
+    gears: [{ op: '× 1.8', val: fmt(1.8 * C) }, { op: '+ 32', val: fmt(F) }], out: { k: 'F', v: `${fmt(F)} °F` }, cover: pred, rot: S.dC * .09 }, p, time);
+  const veilA = pred ? 1 : 1 - ease((p - .62) / .15);
+  // second representation: two linked thermometers and the straight-line graph
+  const ty = 172, graphW = clamp(w - 20 - 170, 120, 260), groupW = 170 + graphW, gx0 = (w - groupW) / 2;
+  const tt = ty + 34, bcy = h - 26, tb = bcy - 8, cxC = gx0 + 50, cxF = gx0 + 112;
+  const frac = clamp((S.dC + 40) / 140, 0, 1), ly = tb - frac * (tb - tt);
+  const ticks = (cx, list, mn, mx2, side) => {
+    c.font = FONT(12, 700); c.textBaseline = 'middle'; c.textAlign = side < 0 ? 'right' : 'left';
+    for (const v of list) {
+      const y = tb - (v - mn) / (mx2 - mn) * (tb - tt);
+      c.strokeStyle = 'rgba(200,215,255,.55)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(cx + side * 8, y); c.lineTo(cx + side * 13, y); c.stroke();
+      c.fillStyle = '#c3cbe6'; c.fillText(fmt(v, 0), cx + side * 17, y + 1);
+    }
+  };
+  const tube = (cx) => {
+    const gl = c.createLinearGradient(cx - 9, 0, cx + 9, 0); gl.addColorStop(0, 'rgba(255,255,255,.22)'); gl.addColorStop(.5, 'rgba(255,255,255,.06)'); gl.addColorStop(1, 'rgba(255,255,255,.14)');
+    c.fillStyle = gl; rr(c, cx - 9, tt - 6, 18, bcy - tt + 6, 9); c.fill(); c.beginPath(); c.arc(cx, bcy, 15, 0, 7); c.fill();
+    c.strokeStyle = 'rgba(200,215,255,.5)'; c.lineWidth = 1.5; rr(c, cx - 9, tt - 6, 18, bcy - tt + 6, 9); c.stroke(); c.beginPath(); c.arc(cx, bcy, 15, 0, 7); c.stroke();
+    const mg = c.createLinearGradient(cx - 4, 0, cx + 4, 0); mg.addColorStop(0, '#ff9a8a'); mg.addColorStop(.5, '#e5383b'); mg.addColorStop(1, '#a31d20');
+    c.fillStyle = mg; rr(c, cx - 4, ly, 8, bcy - ly, 3); c.fill();
+    const bg = c.createRadialGradient(cx - 4, bcy - 4, 1, cx, bcy, 12); bg.addColorStop(0, '#ff9a8a'); bg.addColorStop(1, '#b3262a');
+    c.fillStyle = bg; c.beginPath(); c.arc(cx, bcy, 11, 0, 7); c.fill();
+    c.fillStyle = 'rgba(255,255,255,.55)'; c.beginPath(); c.arc(cx - 4, ly + 3 > tb ? tb : ly + 3, 1.8, 0, 7); c.fill();
+  };
+  tube(cxC); tube(cxF); ticks(cxC, [-40, -20, 0, 20, 40, 60, 80, 100], -40, 100, -1); ticks(cxF, [-40, 32, 100, 150, 212], -40, 212, 1);
+  c.save(); c.setLineDash([3, 4]); c.strokeStyle = 'rgba(255,200,150,.7)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(cxC + 9, ly); c.lineTo(cxF - 9, ly); c.stroke(); c.restore();
+  pill(c, `${fmt(C)} °C`, cxC, ty + 2, { size: 13, color: '#ffd0c8' });
+  // graph F against C
+  const gx = gx0 + 170, gy = tt - 6, gw = graphW, gh = bcy + 14 - gy;
+  c.fillStyle = 'rgba(12,14,26,.85)'; rr(c, gx, gy, gw, gh, 12); c.fill(); c.strokeStyle = 'rgba(130,145,190,.35)'; c.lineWidth = 1; c.stroke();
+  const GX = (v) => gx + 14 + (v + 40) / 140 * (gw - 28), GY = (v) => gy + gh - 16 - (v + 40) / 252 * (gh - 34);
+  c.strokeStyle = 'rgba(130,145,190,.16)'; c.lineWidth = 1; c.beginPath();
+  for (const v of [-40, 0, 40, 80]) { c.moveTo(GX(v), GY(-40)); c.lineTo(GX(v), GY(212)); }
+  for (const v of [-40, 0, 50, 100, 150, 200]) { c.moveTo(GX(-40), GY(v)); c.lineTo(GX(100), GY(v)); }
+  c.stroke();
+  c.strokeStyle = 'rgba(200,215,255,.45)'; c.lineWidth = 1.4; c.beginPath(); c.moveTo(GX(0), GY(-40)); c.lineTo(GX(0), GY(212)); c.moveTo(GX(-40), GY(0)); c.lineTo(GX(100), GY(0)); c.stroke();
+  if (sec) { c.save(); c.setLineDash([5, 4]); c.strokeStyle = 'rgba(255,224,130,.85)'; c.lineWidth = 2; c.beginPath(); c.moveTo(GX(-40), GY(-40)); c.lineTo(GX(100), GY(100)); c.stroke(); c.restore(); }
+  const lg = c.createLinearGradient(GX(-40), 0, GX(100), 0); lg.addColorStop(0, '#4ea8ff'); lg.addColorStop(1, '#ff5a4d');
+  c.strokeStyle = lg; c.lineWidth = 3.2; c.lineCap = 'round'; c.beginPath(); c.moveTo(GX(-40), GY(-40)); c.lineTo(GX(100), GY(212)); c.stroke();
+  const dF = C2F(S.dC), px = GX(S.dC), py = GY(dF);
+  if (sec) {
+    const found = Math.round(S.C) === -40;
+    c.save(); c.strokeStyle = found ? '#9dffb6' : 'rgba(255,224,130,.7)'; c.lineWidth = 2; c.setLineDash(found ? [] : [3, 3]);
+    c.beginPath(); c.arc(GX(-40) + 2, GY(-40) - 2, Math.max(0, 9 + (found ? 2 * Math.sin(time * 5) : 0)), 0, 7); c.stroke(); c.restore();
+    c.strokeStyle = '#ffd36b'; c.lineWidth = 3; c.beginPath(); c.moveTo(px, GY(S.dC)); c.lineTo(px, py); c.stroke();
+    c.fillStyle = '#ffd36b'; c.beginPath(); c.arc(px, GY(S.dC), 3.5, 0, 7); c.fill();
+  } else {
+    c.save(); c.setLineDash([3, 4]); c.strokeStyle = 'rgba(255,255,255,.4)'; c.lineWidth = 1; c.beginPath(); c.moveTo(px, py); c.lineTo(px, GY(-40)); c.moveTo(px, py); c.lineTo(GX(-40), py); c.stroke(); c.restore();
+  }
+  c.save(); c.shadowColor = 'rgba(255,90,77,.8)'; c.shadowBlur = 12; c.fillStyle = '#fff'; c.beginPath(); c.arc(px, py, 6.5, 0, 7); c.fill(); c.restore();
+  c.fillStyle = '#e5383b'; c.beginPath(); c.arc(px, py, 4, 0, 7); c.fill();
+  c.fillStyle = '#c3cbe6'; c.font = FONT(12, 800); c.textBaseline = 'middle'; c.textAlign = 'right'; c.fillText('°C →', gx + gw - 8, gy + gh - 8); c.textAlign = 'left'; c.fillText('↑ °F', gx + 8, gy + 10);
+  // the °F side stays covered while the child predicts
+  const vx = cxF - 24, vw = gx + gw - vx + 4;
+  veil(c, vx, ty - 2, vw, bcy + 20 - ty, veilA, '°F');
+  if (veilA < .99) pill(c, `${fmt(F)} °F`, cxF + 8, ty + 2, { size: 13, color: '#ffd0c8', bg: `rgba(10,12,22,${.82 * (1 - veilA)})` });
+}
+
+function drawOrder(c, w, h, time) {
+  const pred = S.ans.order === null, a = pred ? -2 : S.a, E = EXPR[pred ? 0 : S.ex], steps = E.steps(a), n = steps.length;
+  const p = pred ? 0 : S.run.order, { mx, mw } = mgeo(w);
+  machine(c, mx, 6, mw, 150, { inputs: [{ k: 'a', v: fmt(a), frac: (a + 5) / 10 }], gears: steps.map((s) => ({ op: s.op, val: fmt(s.val) })),
+    out: { k: E.lab, v: fmt(E.f(a)) }, cover: pred, hideOps: pred, rot: a * .35 }, p, time);
+  const t = T[lang].order, ty = 172, th = h - ty - 12, ph = Math.min(th, 280), py = ty + (th - ph) / 2;
+  const groupW = Math.min(w - 20, 560), gx0 = (w - groupW) / 2, tw = Math.round(groupW * .56), bx = gx0 + tw + 10, bw = groupW - tw - 10;
+  const veilA = pred ? 1 : 1 - ease(p / .08);
+  // the tape: every step the gears took, written down
+  const tg = c.createLinearGradient(gx0, 0, gx0 + tw, 0); tg.addColorStop(0, '#fbf3dc'); tg.addColorStop(1, '#eadcb4');
+  c.save(); c.shadowColor = 'rgba(0,0,0,.4)'; c.shadowBlur = 10; c.shadowOffsetY = 4; c.fillStyle = tg;
+  c.beginPath(); c.moveTo(gx0, py);
+  c.lineTo(gx0 + tw, py); c.lineTo(gx0 + tw, py + ph - 6);
+  const zz = 12, zn = Math.round(tw / zz);
+  for (let i = zn; i >= 0; i--) c.lineTo(gx0 + (i * tw) / zn, py + ph - (i % 2 ? 0 : 6));
+  c.closePath(); c.fill(); c.restore();
+  c.fillStyle = '#a2917a'; c.font = FONT(12, 800); c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(t.tape.toUpperCase(), gx0 + 12, py + 16);
+  const lines = [{ s: `a = ${fmt(a)}`, v: true }, ...steps.map((s, i) => ({ s: s.line, v: p >= (i + 1) / (n + 1) - 1e-6 })), { s: `${E.lab} = ${fmt(E.f(a))}`, v: p >= 1 - 1e-6, big: true }];
+  const lh = Math.min(30, (ph - 50) / lines.length);
+  lines.forEach((L, i) => {
+    if (!L.v) return;
+    let size = L.big ? 16 : 14; c.font = FONT(size, L.big ? 900 : 800);
+    while (size > 11 && c.measureText(L.s).width > tw - 22) { size--; c.font = FONT(size, L.big ? 900 : 800); }
+    c.fillStyle = L.big ? '#1f6b43' : '#4a3a22'; c.textAlign = 'left'; c.fillText(L.s, gx0 + 12, py + 40 + lh * i + lh / 2);
+    if (L.big) { c.strokeStyle = '#1f6b43'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(gx0 + 12, py + 40 + lh * i + 1); c.lineTo(gx0 + tw - 12, py + 40 + lh * i + 1); c.stroke(); }
+  });
+  // four bars: the same a gives four different answers
+  c.fillStyle = 'rgba(12,14,26,.85)'; rr(c, bx, py, bw, ph - 4, 12); c.fill(); c.strokeStyle = 'rgba(130,145,190,.35)'; c.lineWidth = 1; c.stroke();
+  const vals = EXPR.map((e) => e.f(a)), lo = -12, hi = 100, top = py + 34, bot = py + ph - 34, Y = (v) => bot - (v - lo) / (hi - lo) * (bot - top);
+  c.fillStyle = '#c3cbe6'; c.font = FONT(12, 800); c.textAlign = 'center'; c.fillText(`a = ${fmt(a)}`, bx + bw / 2, py + 16);
+  c.strokeStyle = 'rgba(200,215,255,.45)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(bx + 6, Y(0)); c.lineTo(bx + bw - 6, Y(0)); c.stroke();
+  const colW = (bw - 8) / 4, PALB = ['#5fa8a0', '#e0b050', '#d9825f', '#8f7fd0'];
+  vals.forEach((v, i) => {
+    const cx = bx + 4 + colW * (i + .5), y0 = Y(0), y1 = Y(v), sel = i === (pred ? 0 : S.ex);
+    const bg = c.createLinearGradient(cx - colW * .3, 0, cx + colW * .3, 0); bg.addColorStop(0, PALB[i]); bg.addColorStop(1, '#2a2f4a');
+    c.fillStyle = bg; rr(c, cx - colW * .3, Math.min(y0, y1), colW * .6, Math.max(2, Math.abs(y1 - y0)), 4); c.fill();
+    if (sel) { c.strokeStyle = '#fff'; c.lineWidth = 2; c.stroke(); }
+    c.fillStyle = '#fff'; c.font = FONT(12, 900); c.textAlign = 'center'; c.fillText(fmt(v), cx, v >= 0 ? y1 - 9 : y1 + 10);
+    c.fillStyle = sel ? '#fff' : '#98A0B8'; c.font = FONT(12, 800); c.fillText(EXPR[i].lab, cx, py + ph - 18);
+  });
+  veil(c, gx0, py - 2, groupW, ph + 2, veilA, '');
+}
+
+function balance(c, x0, y0, w, h, bp, d, v, t) {
+  const cx = x0 + w / 2, half = Math.min(w - 40, 250) / 2, pivY = y0 + 20, ang = lerp(-.16, 0, ease(bp / .8));
+  const hd = clamp(h * .3, 40, 60), kk = hd / d, strLen = hd + 36;
+  // post and base
+  const pg = c.createLinearGradient(cx - 5, 0, cx + 5, 0); pg.addColorStop(0, '#f1d28e'); pg.addColorStop(1, '#8d6128');
+  c.fillStyle = pg; rr(c, cx - 4, pivY, 8, h - 28, 3); c.fill();
+  c.fillStyle = '#8d6128'; rr(c, cx - 36, y0 + h - 12, 72, 10, 5); c.fill(); c.strokeStyle = '#4e3412'; c.lineWidth = 1.2; c.stroke();
+  // a negative angle lowers the left end (d is heavier while the right pan is still empty)
+  const L = { x: cx - half * Math.cos(ang), y: pivY - half * Math.sin(ang) }, R = { x: cx + half * Math.cos(ang), y: pivY + half * Math.sin(ang) };
+  const pan = (E) => {
+    const py = E.y + strLen, pw = 76;
+    c.strokeStyle = 'rgba(255,225,160,.6)'; c.lineWidth = 1.2; c.beginPath();
+    c.moveTo(E.x, E.y); c.lineTo(E.x - pw / 2, py); c.moveTo(E.x, E.y); c.lineTo(E.x + pw / 2, py); c.stroke();
+    return { x: E.x, y: py, pw };
+  };
+  const pl = pan(L), pr = pan(R);
+  const block = (x, bot, bw, bh, col, label, alpha = 1) => {
+    if (bh < 1) return;
+    c.save(); c.globalAlpha = alpha;
+    const bg = c.createLinearGradient(x - bw / 2, bot - bh, x + bw / 2, bot); bg.addColorStop(0, col[0]); bg.addColorStop(1, col[1]);
+    c.fillStyle = bg; rr(c, x - bw / 2, bot - bh, bw, bh, 5); c.fill(); c.strokeStyle = col[2]; c.lineWidth = 1.5; c.stroke();
+    c.fillStyle = 'rgba(255,255,255,.3)'; c.fillRect(x - bw / 2 + 3, bot - bh + 2, bw - 6, 2);
+    if (bh >= 15) { c.fillStyle = '#1b1408'; c.font = FONT(12, 900); c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(label, x, bot - bh / 2 + 1); }
+    c.restore();
+  };
+  block(pl.x, pl.y, 52, d * kk, ['#f6d27a', '#c9892f', '#7a4f14'], fmt(d));
+  if (bp <= 0) {
+    c.save(); c.setLineDash([5, 4]); c.strokeStyle = 'rgba(160,230,215,.7)'; c.lineWidth = 2; rr(c, pr.x - 26, pr.y - 36, 52, 36, 5); c.stroke(); c.restore();
+    c.fillStyle = 'rgba(160,230,215,.9)'; c.font = FONT(14, 900); c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('? × v', pr.x, pr.y - 18);
+  } else {
+    const nb = Math.ceil(t - 1e-9); let acc = 0;
+    for (let i = 0; i < nb; i++) {
+      const part = Math.min(1, t - i);
+      const qq = clamp((bp / .8) * nb - i, 0, 1), drop = (1 - ease(qq)) * 40;
+      block(pr.x, pr.y - acc - drop, 52, v * kk * part, ['#8fe0cf', '#3aa392', '#1c5e53'], fmt(v * part), qq);
+      acc += v * kk * part;
+    }
+  }
+  for (const pp of [pl, pr]) {
+    const pg2 = c.createLinearGradient(0, pp.y, 0, pp.y + 9); pg2.addColorStop(0, '#f1d28e'); pg2.addColorStop(1, '#8d6128');
+    c.fillStyle = pg2; rr(c, pp.x - pp.pw / 2 - 2, pp.y, pp.pw + 4, 9, 4.5); c.fill(); c.strokeStyle = '#4e3412'; c.lineWidth = 1.2; c.stroke();
+  }
+  // beam
+  c.save(); c.translate(cx, pivY); c.rotate(ang);
+  const bgm = c.createLinearGradient(0, -6, 0, 6); bgm.addColorStop(0, '#f6dc9b'); bgm.addColorStop(1, '#8d6128');
+  c.fillStyle = bgm; rr(c, -half - 8, -5, 2 * half + 16, 10, 5); c.fill(); c.strokeStyle = '#4e3412'; c.lineWidth = 1.2; c.stroke(); c.restore();
+  const hg = c.createRadialGradient(cx - 2, pivY - 2, 0, cx, pivY, 9); hg.addColorStop(0, '#fff3cf'); hg.addColorStop(1, '#8d6128');
+  c.fillStyle = hg; c.beginPath(); c.arc(cx, pivY, 8, 0, 7); c.fill(); c.strokeStyle = '#4e3412'; c.stroke();
+  c.fillStyle = '#c3cbe6'; c.font = FONT(13, 900); c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText('d', pl.x, pl.y + 22); c.fillText('v', pr.x, pr.y + 22);
+}
+
+function drawTurn(c, w, h, time) {
+  const t = T[lang].turn, X = EXS[S.ex3], { d, v, t: tt } = X, chk = S.checked;
+  const run = chk ? S.run.turn : 0, pr = clamp(run / .45, 0, 1), pf = clamp((run - .5) / .4, 0, 1), bp = clamp((run - .2) / .75, 0, 1);
+  const { mx, mw } = mgeo(w), u = t;
+  // forward machine: d ÷ t = v
+  machine(c, mx, 4, mw, 114, { inputs: [{ k: 'd', v: `${fmt(d)} ${u.km}` }, { k: 't', v: pr >= 1 ? `${fmt(tt)} ${u.h}` : '?' }],
+    gears: [{ op: '÷', val: fmt(v) }], out: { k: 'v', v: `${fmt(v)} ${u.kmh}`, show: true, ok: pf >= 1 }, cover: pf <= 0, rot: pf * 3 }, pf, time);
+  c.fillStyle = '#98A0B8'; c.font = FONT(12, 800); c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(u.fwd, mx + 6, 128);
+  // backward machine with the empty gear
+  const slotTile = S.drag && S.drag.from === 'slot' ? null : S.tile, shownTile = chk ? 'div' : slotTile;
+  const rg = machine(c, mx, 140, mw, 114, { inputs: [{ k: 'd', v: `${fmt(d)} ${u.km}` }, { k: 'v', v: `${fmt(v)} ${u.kmh}` }],
+    gears: [{ socket: true, label: shownTile ? TILE[shownTile].lab : null, good: chk, val: fmt(tt) }], out: { k: 't', v: `${fmt(tt)} ${u.h}`, ok: pr >= 1 }, cover: !chk, rot: pr * 3 }, pr, time);
+  c.fillStyle = '#98A0B8'; c.font = FONT(12, 800); c.textAlign = 'left'; c.fillText(u.rev, mx + 6, 264);
+  const sg = rg.gears[0], trayH = 70, trayY = h - trayH - 6;
+  // the balance: d on one side, t blocks of v on the other
+  balance(c, 0, 276, w, trayY - 276 - 22, bp, d, v, tt);
+  if (chk && bp > .9) pill(c, `${fmt(d)} = ${fmt(v)} × ${fmt(tt)}`, w / 2, trayY - 24, { size: 13, color: '#9dffb6' });
+  // the tile tray
+  const tw = Math.min(70, (w - 40 - 24) / 4), gap = 8, total = 4 * tw + 3 * gap, tx0 = (w - total) / 2, tileY = trayY + 14, th2 = 46;
+  c.fillStyle = 'rgba(255,255,255,.045)'; rr(c, 8, trayY, w - 16, trayH, 14); c.fill();
+  S.geo = { tiles: {}, socket: { cx: sg.cx, cy: sg.cy, r: sg.r } };
+  TILES.forEach((id, i) => {
+    const x = tx0 + i * (tw + gap), used = S.tile === id || (S.drag && S.drag.id === id && S.drag.from === 'tray');
+    S.geo.tiles[id] = { x, y: tileY, w: tw, h: th2 };
+    const wrong = chk && S.tile !== 'div' && S.tile === id;
+    if (used && !wrong) { c.save(); c.setLineDash([4, 4]); c.strokeStyle = 'rgba(160,175,215,.35)'; c.lineWidth = 1.5; rr(c, x, tileY, tw, th2, 12); c.stroke(); c.restore(); return; }
+    tile(c, x + tw / 2, tileY + th2 / 2, tw, th2, TILE[id].lab, wrong ? 'bad' : '', 1);
+  });
+  if (!chk) pill(c, u.hint, w / 2, trayY - 24, { size: 12, color: '#c3cbe6' });
+  if (S.drag && S.drag.moved) tile(c, S.drag.x, S.drag.y, tw, th2, TILE[S.drag.id].lab, '', 1.12);
+}
+function tile(c, cx, cy, w, h, label, mode, k) {
+  c.save(); c.translate(cx, cy); c.scale(k, k);
+  c.shadowColor = 'rgba(0,0,0,.45)'; c.shadowBlur = 8 * k; c.shadowOffsetY = 3;
+  const g = c.createLinearGradient(0, -h / 2, 0, h / 2); g.addColorStop(0, mode === 'bad' ? '#f0b3ad' : '#e4ebfa'); g.addColorStop(1, mode === 'bad' ? '#c0524b' : '#8d9fcc');
+  c.fillStyle = g; rr(c, -w / 2, -h / 2, w, h, 12); c.fill(); c.shadowColor = 'transparent';
+  c.strokeStyle = mode === 'bad' ? '#7a231e' : '#3d4a78'; c.lineWidth = 1.5; c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.5)'; c.fillRect(-w / 2 + 8, -h / 2 + 3, w - 16, 2);
+  c.fillStyle = '#1c2340'; c.font = FONT(19, 900); c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(label, 0, 1);
+  if (mode === 'bad') { c.strokeStyle = '#7a231e'; c.lineWidth = 2.5; c.beginPath(); c.moveTo(w / 2 - 16, -h / 2 + 6); c.lineTo(w / 2 - 6, -h / 2 + 16); c.moveTo(w / 2 - 6, -h / 2 + 6); c.lineTo(w / 2 - 16, -h / 2 + 16); c.stroke(); }
+  c.restore();
+}
+
+function drawPend(c, w, h, time, dt) {
+  const t = T[lang].pd, L = S.L, Tm = pendT(L), { mx, mw } = mgeo(w);
+  S.ph += dt * 2 * Math.PI / Tm;
+  machine(c, mx, 6, mw, 150, { inputs: [{ k: 'L', v: `${fmt(L, 2)} ${t.m}`, frac: (L - .25) / 2.75 }],
+    gears: [{ op: '÷ g', val: fmt(L / G, 3) }, { op: '√', val: fmt(Math.sqrt(L / G), 3) }, { op: '× 2π', val: fmt(Tm, 2) }], out: { k: 'T', v: `${fmt(Tm, 2)} ${t.s}` }, cover: false, rot: S.ph * .5 }, 1, time);
+  const top = 190, scale = (h - top - 46) / 3.1, px = w / 2, th = .3 * Math.cos(S.ph), len = L * scale;
+  // bracket and ruler
+  const bg = c.createLinearGradient(0, top - 10, 0, top); bg.addColorStop(0, '#f1d28e'); bg.addColorStop(1, '#8d6128');
+  c.fillStyle = bg; rr(c, px - 52, top - 12, 104, 12, 6); c.fill(); c.strokeStyle = '#4e3412'; c.lineWidth = 1.2; c.stroke();
+  c.fillStyle = '#98A0B8'; c.font = FONT(12, 800); c.textAlign = 'left'; c.textBaseline = 'middle';
+  for (const m of [1, 2, 3]) {
+    const y = top + m * scale; c.strokeStyle = 'rgba(200,215,255,.3)'; c.lineWidth = 1; c.beginPath(); c.moveTo(12, y); c.lineTo(34, y); c.stroke();
+    c.fillText(`${m} ${t.m}`, 38, y);
+  }
+  c.strokeStyle = 'rgba(255,255,255,.1)'; c.lineWidth = 1; c.setLineDash([3, 4]); c.beginPath(); c.moveTo(px, top); c.lineTo(px, top + len + 20); c.stroke(); c.setLineDash([]);
+  // faint arc of the swing
+  c.strokeStyle = 'rgba(255,255,255,.14)'; c.beginPath(); c.arc(px, top, Math.max(0, len), Math.PI / 2 - .3, Math.PI / 2 + .3); c.stroke();
+  const bx = px + Math.sin(th) * len, by = top + Math.cos(th) * len;
+  c.strokeStyle = '#d9dff0'; c.lineWidth = 2; c.beginPath(); c.moveTo(px, top); c.lineTo(bx, by); c.stroke();
+  c.save(); c.shadowColor = 'rgba(0,0,0,.5)'; c.shadowBlur = 10; c.shadowOffsetY = 4;
+  const og = c.createRadialGradient(bx - 5, by - 5, 1, bx, by, 17); og.addColorStop(0, '#fff3cf'); og.addColorStop(.5, '#d6a94e'); og.addColorStop(1, '#7a5420');
+  c.fillStyle = og; c.beginPath(); c.arc(bx, by, 15, 0, 7); c.fill(); c.restore();
+  c.strokeStyle = '#4e3412'; c.lineWidth = 1.2; c.beginPath(); c.arc(bx, by, 15, 0, 7); c.stroke();
+  pill(c, t.model, w / 2, h - 28, { size: 12, color: '#c3cbe6' });
+}
+
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  cw = w;
+  S.dC += (S.C - S.dC) * Math.min(1, dt * 10);
+  if (Math.abs(S.dC - S.C) < .005) S.dC = S.C;
+  const v = lab.view;
+  if (S.ans.plug !== null) S.run.plug = Math.min(1, S.run.plug + dt / 3.3);
+  if (S.ans.order !== null) S.run.order = Math.min(1, S.run.order + dt / ((EXPR[S.ex].steps(S.a).length + 1) * 1.2));
+  if (S.checked) S.run.turn = Math.min(1, S.run.turn + dt / 4.2);
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  backdrop(c, w, h);
+  if (S.sec === 'pend') drawPend(c, w, h, time, dt);
+  else if (S.sec === 'scales' || v === 'plug') drawPlug(c, w, h, time, S.sec === 'scales');
+  else if (v === 'order') drawOrder(c, w, h, time);
+  else drawTurn(c, w, h, time);
+});
+
+// --- input -------------------------------------------------------------------------------------------------
+const cv = $('cv');
+const pos = (ev) => { const r = cv.getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; };
+cv.addEventListener('pointerdown', (ev) => {
+  if (S.sec || lab.view !== 'turn' || S.checked || !S.geo) return;
+  const [x, y] = pos(ev); let hit = null;
+  for (const id of TILES) {
+    const r = S.geo.tiles[id];
+    if (S.tile !== id && r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) { hit = { id, from: 'tray' }; break; }
+  }
+  if (!hit && S.tile) { const s = S.geo.socket; if (Math.hypot(x - s.cx, y - s.cy) <= s.r + 6) hit = { id: S.tile, from: 'slot' }; }
+  if (!hit) return;
+  S.drag = { ...hit, x, y, sx: x, sy: y, moved: false };
+  try { cv.setPointerCapture(ev.pointerId); } catch { /* not capturable */ }
+  sfx.tick();
+});
+cv.addEventListener('pointermove', (ev) => {
+  if (!S.drag) return;
+  const [x, y] = pos(ev); S.drag.x = x; S.drag.y = y;
+  if (Math.hypot(x - S.drag.sx, y - S.drag.sy) > 6) S.drag.moved = true;
+});
+const endDrag = () => {
+  const d = S.drag; if (!d) return; S.drag = null;
+  const s = S.geo?.socket, over = s && Math.hypot(d.x - s.cx, d.y - s.cy) <= s.r + 24;
+  if (d.from === 'tray') { if (over || !d.moved) { S.tile = d.id; sfx.snap(); } }
+  else if (!d.moved || !over) { S.tile = null; sfx.click(); }
+  render();
+};
+cv.addEventListener('pointerup', endDrag);
+cv.addEventListener('pointercancel', () => { S.drag = null; });
+
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+function dialRange() {
+  const m = S.sec === 'pend' ? 'pend' : S.sec === 'scales' ? 'plug' : lab.view;
+  return m === 'pend' ? { k: 'L', min: .25, max: 3, step: .05 } : m === 'order' ? { k: 'a', min: -5, max: 5, step: 1 } : { k: 'C', min: -40, max: 100, step: 1 };
+}
+function setDial(val) {
+  const r = dialRange(); S[r.k] = clamp(Math.round(val / r.step) * r.step, r.min, r.max);
+  if (r.k === 'C') { S.run.plug = 1; S.free.plug = true; }
+  if (r.k === 'a') { S.run.order = 1; S.free.order = true; }
+  if (r.k === 'C' && S.sec !== 'scales' && S.ans.plug === null) S.C = 37;
+  sfx.tick(); render();
+}
+$('ctrlBody').addEventListener('input', (ev) => { if (ev.target.id === 'dSl') setDial(+ev.target.value); });
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  const v = lab.view, act = b.dataset.act;
+  if (b.dataset.pick !== undefined) {
+    const k = v === 'plug' ? 'plug' : 'order', i = +b.dataset.pick;
+    if (S.ans[k] !== null) return;
+    S.ans[k] = i; S.run[k] = 0; S.free[k] = false;
+    const ok = k === 'plug' ? i === 1 : i === 0; (ok ? sfx.good : sfx.bad)(); showStage();
+  } else if (act === 'dec' || act === 'inc') { const r = dialRange(); setDial(S[r.k] + (act === 'inc' ? r.step : -r.step)); return; }
+  else if (b.dataset.expr !== undefined) { S.ex = +b.dataset.expr; S.run.order = 1; S.free.order = true; sfx.click(); }
+  else if (b.dataset.ex !== undefined) { S.ex3 = +b.dataset.ex; S.tile = null; S.checked = false; S.run.turn = 0; sfx.click(); }
+  else if (act === 'check') {
+    if (S.checked) { S.checked = false; S.tile = null; S.run.turn = 0; sfx.click(); }
+    else if (S.tile) { S.checked = true; S.run.turn = 0; (S.tile === 'div' ? sfx.good : sfx.bad)(); showStage(); }
+  } else if (act === 'one') { S.L = 1; sfx.click(); }
+  else if (act === 'sec') {
+    const k = b.dataset.k;
+    if (!secret.unlocked()) return secret.open();
+    if (S.sec === k) exitSec();
+    else if (k === 'scales') { S.sec = 'scales'; S.C = 0; S.dC = 0; lab.view = 'plug'; lab.renderChrome(); }
+    else { S.sec = 'pend'; S.L = 1; }
+    sfx.click();
+  }
+  render();
+});
+
+// --- one render per change: controls, readout and the state card -------------------------------------------
+function render() {
+  const t = T[lang], v = lab.view, sec = S.sec, mode = sec || v;
+  document.body.dataset.v = mode === 'scales' ? 'plug' : mode;
+  const predView = !sec && (v === 'plug' || v === 'order');
+  $('fmAsk').style.display = predView ? '' : 'none';
+  $('fmDial').style.display = mode === 'turn' ? 'none' : '';
+  $('fmExpr').style.display = !sec && v === 'order' ? '' : 'none';
+  $('fmTurn').style.display = mode === 'turn' ? '' : 'none';
+  $('fmPend').style.display = sec === 'pend' ? '' : 'none';
+  const open = secret.unlocked();
+  const sc = (k, emo) => `<button class="chip secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.sec[k][0])}` : '🔒 ???'}</button>`;
+  $('fmSec').innerHTML = sc('scales', '🌡️') + sc('pend', '⏱️');
+  if (mode === 'plug' || mode === 'scales') renderPlug(t, sec === 'scales');
+  else if (mode === 'order') renderOrder(t);
+  else if (mode === 'turn') renderTurn(t);
+  else renderPend(t);
+}
+function setDialUi(label, val, locked) {
+  const r = dialRange(), sl = $('dSl');
+  sl.min = r.min; sl.max = r.max; sl.step = r.step; if (+sl.value !== val) sl.value = val;
+  sl.disabled = locked; $('dLbl').textContent = label;
+  document.querySelectorAll('#fmDial .fm-sb').forEach((b) => { b.disabled = locked; });
+}
+function predUi(q, opts, ok, ans) {
+  $('fmAsk').innerHTML = `<div class="fm-q">${esc(q)}</div><div class="fm-opts">${opts.map((o, i) => `<button class="fm-opt ${ans === null ? '' : i === ok ? 'good' : i === ans ? 'bad' : ''}" data-pick="${i}"${ans !== null ? ' disabled' : ''}>${esc(o)}</button>`).join('')}</div>`;
+}
+function renderPlug(t, sec) {
+  const pl = t.plug, ans = S.ans.plug, pred = !sec && ans === null, C = pred ? 37 : S.C, F = C2F(C);
+  lab.setGlow('rgba(255, 110, 80, .26)');
+  const opts = [124.2, 98.6, 69].map((x) => `${fmt(x)} °F`);
+  predUi(pl.q, opts, 1, ans);
+  setDialUi(t.dial.C, C, pred);
+  const facts = [{ emo: '🌡️', text: t.facts.fahr, src: 'Encyclopaedia Britannica: Fahrenheit temperature scale' }];
+  if (!sec) facts.push({ emo: '✏️', text: t.facts.comma, src: 'school usage' });
+  lab.setFacts(facts);
+  if (sec) {
+    const gap = F - C, found = Math.round(C) === -40;
+    lab.setReadout(`${fmt(F)} °F`, `${fmt(C)} °C`, found ? t.sc.same : t.sc.gap(gap), '#4ea8ff');
+    lab.setState(found ? { emo: '🎯', title: t.sc.found, lead: t.sc.foundLead, body: '', extra: '' } : { emo: '🌡️', title: t.sc.title, lead: t.sc.lead, body: '', extra: '' });
+    return;
+  }
+  if (pred) {
+    lab.setReadout('?', '', `${fmt(37)} °C`, '#ff7a59');
+    lab.setState({ emo: '🤔', title: pl.q, lead: pl.rule, body: '', extra: '' });
+  } else {
+    lab.setReadout(S.run.plug < .62 && !S.free.plug ? '?' : `${fmt(F)} °F`, S.run.plug < .62 && !S.free.plug ? '' : `1.8 × ${br(C)} + 32`, `${fmt(C)} °C`, '#ff7a59');
+    if (!S.free.plug) lab.setState({ emo: ans === 1 ? '✅' : '🤔', title: ans === 1 ? t.ok : t.no, lead: pl.why[ans](), body: ans === 1 ? '' : pl.why[1](), extra: '' });
+    else lab.setState({ emo: '🌡️', title: pl.title(C, F), lead: pl.lead, body: pl.body, extra: '' });
+  }
+}
+function renderOrder(t) {
+  const od = t.order, ans = S.ans.order, pred = ans === null, a = pred ? -2 : S.a, E = EXPR[pred ? 0 : S.ex];
+  lab.setGlow('rgba(224, 176, 80, .26)');
+  predUi(od.q, ['8', '16', '−8'], 0, ans);
+  setDialUi(t.dial.a, a, pred);
+  $('fmExpr').innerHTML = EXPR.map((e, i) => `<button class="chip ${i === S.ex ? 'on' : ''}" data-expr="${i}"${pred ? ' disabled' : ''}>${esc(e.lab)}</button>`).join('');
+  lab.setFacts([{ emo: '🔤', text: t.facts.viete, src: 'MacTutor History of Mathematics: François Viète' }, { emo: '⚡', text: t.facts.ein, src: 'Encyclopaedia Britannica: E = mc²' }]);
+  if (pred) {
+    lab.setReadout('?', '', `a = ${fmt(-2)}`, '#e0b050');
+    lab.setState({ emo: '🤔', title: od.q, lead: od.rule, body: '', extra: '' });
+  } else if (!S.free.order) {
+    const done = S.run.order >= .67;
+    lab.setReadout(done ? fmt(E.f(a)) : '?', done ? E.lab : '', `a = ${fmt(a)}`, '#e0b050');
+    lab.setState({ emo: ans === 0 ? '✅' : '🤔', title: ans === 0 ? t.ok : t.no, lead: od.why[ans](), body: ans === 0 ? '' : od.why[0](), extra: '' });
+  } else {
+    lab.setReadout(fmt(E.f(a)), E.lab, `a = ${fmt(a)}`, '#e0b050');
+    lab.setState({ emo: '🧮', title: `${E.lab} = ${fmt(E.f(a))}`, lead: `${od.note[S.ex]} ${od.lead}`, body: od.body, extra: '' });
+  }
+}
+function renderTurn(t) {
+  const tr = t.turn, X = EXS[S.ex3], chk = S.checked, done = chk && S.run.turn >= .45;
+  lab.setGlow('rgba(95, 184, 168, .26)');
+  lab.setFacts([{ emo: '⚡', text: t.facts.ein, src: 'Encyclopaedia Britannica: E = mc²' }, { emo: '✏️', text: t.facts.comma, src: 'school usage' }]);
+  $('fmEx').innerHTML = tr.ex.map((e, i) => `<button class="chip ${i === S.ex3 ? 'on' : ''}" data-ex="${i}">${e.emo} ${esc(e.name)}</button>`).join('');
+  $('fmTq').textContent = `${tr.ex[S.ex3].txt} ${tr.q}`;
+  $('fmCheck').textContent = chk ? tr.again : tr.check; $('fmCheck').disabled = !chk && !S.tile;
+  if (!chk) {
+    lab.setReadout('?', 't', `d = ${fmt(X.d)} ${tr.km} · v = ${fmt(X.v)} ${tr.kmh}`, '#5fb8a8');
+    lab.setState({ emo: '🔄', title: tr.q, lead: tr.ex[S.ex3].txt, body: tr.lead, extra: '' });
+    return;
+  }
+  const ok = S.tile === 'div';
+  lab.setReadout(done ? `${fmt(X.t)} ${tr.h}` : '?', done ? `${fmt(X.d)} ÷ ${fmt(X.v)}` : 't', '', '#5fb8a8');
+  if (ok) lab.setState({ emo: '✅', title: T[lang].ok, lead: tr.okLead(X.d, X.v, X.t), body: '', extra: '' });
+  else {
+    const x = TILE[S.tile].f(X.d, X.v), y = sig3(X.d / x);
+    lab.setState({ emo: '🤔', title: T[lang].no, lead: tr.noLead(X.d, X.v, TILE[S.tile].op, x, y), body: tr.noBody(X.d, X.v, X.t), extra: '' });
+  }
+}
+function renderPend(t) {
+  const pd = t.pd, L = S.L, Tm = pendT(L);
+  lab.setGlow('rgba(150, 130, 230, .26)');
+  lab.setFacts([]);
+  setDialUi(t.dial.L, L, false);
+  $('fmOne').textContent = pd.try1;
+  lab.setReadout(`${fmt(Tm, 2)} ${pd.s}`, `2π × √(${fmt(L, 2)} ÷ ${fmt(G, 2)})`, pd.pill, '#b3a1ff');
+  lab.setState({ emo: '⏱️', title: pd.title(L, Tm), lead: Math.abs(L - 1) < .001 ? pd.one : pd.lead, body: Math.abs(L - 1) < .001 ? pd.lead : '', extra: '' });
+}
+render();
+</script>
+</body>
+</html>
