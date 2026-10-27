@@ -55,7 +55,7 @@ Improving an existing lab follows the same rules: say which idea is unclear toda
 
 ## Add a country’s school curriculum
 
-Ten national curricula are mapped onto the topics today (Hungary, Russia, Serbia, Germany/Bavaria, USA, England, Singapore, Sweden, Japan, Estonia). A parent picks a country and grade on the map and sees the topics that grade covers. Estonia is the most recent example: see [pull request #32](https://github.com/samvelkoch/skill-graph/pull/32).
+Eleven national curricula are mapped onto the topics today (Hungary, Russia, Serbia, Germany/Bavaria, USA, England, Singapore, Sweden, Japan, Estonia, Australia; Australia comes mapped from upstream Marble). A parent picks a country and grade on the map and sees the topics that grade covers. Estonia is the most recent example: see [pull request #32](https://github.com/samvelkoch/skill-graph/pull/32).
 
 **Start with an issue** (template “New school curriculum”): the country, the official source (URL, version, year), the grades and subjects, and the terms under which the document is published. Official documents are often under their own license, and we need to know we may store item titles.
 

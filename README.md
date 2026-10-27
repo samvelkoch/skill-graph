@@ -4,7 +4,7 @@
 
 Skill Graph is an open model of knowledge: concepts, the prerequisites that link them, the signs that a concept has been understood, routes towards a goal, and interactive labs that explain one idea each. It shows how concepts connect, what builds on what, and how a learner can find the next step from what they already understand.
 
-School learning from about age 4 to 16 is where it is used first. A parent uses the map to see where a child is and what comes next; a child uses the labs to play with an idea until it makes sense. Topics are checked against ten national school curricula and the International Baccalaureate, and everything is in English, Russian and Hungarian.
+School learning from about age 4 to 16 is where it is used first. A parent uses the map to see where a child is and what comes next; a child uses the labs to play with an idea until it makes sense. Topics are checked against eleven national school curricula and the International Baccalaureate, and everything is in English, Russian and Hungarian.
 
 **Open it:** [samvelkoch.github.io/skill-graph](https://samvelkoch.github.io/skill-graph/) · **Labs:** [samvelkoch.github.io/skill-graph/labs/](https://samvelkoch.github.io/skill-graph/labs/) · **Help build it:** [CONTRIBUTING.md](CONTRIBUTING.md)
 
@@ -16,9 +16,9 @@ Skill Graph grew out of the [Marble Skill Taxonomy](https://withmarble.com/curri
 
 **For parents: the map** ([`index.html`](index.html))
 
-- About **2,080 topics** in 13 subjects, each with a plain description, an age range and the signs that a child has got it.
-- About **4,000 prerequisite links**: open any topic to see what it builds on and what it unlocks.
-- Browse as a topic list or as a rotating graph; filter by age, school grade, subject, or by a **national school curriculum** (10 countries, grades 1–8 or 1–9).
+- About **2,340 topics** in 13 subjects, each with a plain description, an age range and the signs that a child has got it.
+- About **4,750 prerequisite links**: open any topic to see what it builds on and what it unlocks.
+- Browse as a topic list or as a rotating graph; filter by age, school grade, subject, or by a **national school curriculum** (11 countries, grades 1–8 or 1–9; Australia Foundation–6).
 - Mark what a child already knows (“Known”, “Learning”); **Ready to learn** then shows the topics whose prerequisites are all known.
 - Progress stays in the browser. A file or a link moves it to another device. The site can be installed as a home-screen app.
 
@@ -41,7 +41,7 @@ It is a **static site**: plain HTML, CSS and JavaScript plus JSON data. There is
 | [`curricula/index.html`](curricula/index.html) | The curricula page: each national curriculum, its issuer, grades and how much of it is linked. |
 | [`data/`](data/) | The Marble taxonomy as published upstream: topics, prerequisites, curriculum standards, domain summaries, teaching research. |
 | [`data/extra/`](data/extra/) | Topics and prerequisites added by this project to cover school-curriculum content the taxonomy lacks (arts, music, geography, history, literature and more). |
-| [`data/school-curricula.json`](data/school-curricula.json) | Ten national curricula, item by item, linked to topics. |
+| [`data/school-curricula.json`](data/school-curricula.json) | Eleven national curricula, item by item, linked to topics. |
 | [`data/i18n/`](data/i18n/), [`data/extra/i18n/`](data/extra/i18n/) | Russian and Hungarian translations of all topic text. |
 | [`scripts/`](scripts/) | Checks and generators (Node, no dependencies) and the curriculum pipeline ([`scripts/curricula/`](scripts/curricula/), Python). |
 | [`manifest.webmanifest`](manifest.webmanifest), [`sw.js`](sw.js) | The home-screen app and offline cache. |
@@ -79,13 +79,13 @@ All data is UTF-8 JSON. JSON Schemas for the upstream files are in [`schema/`](s
 
 | File | What it holds |
 |---|---|
-| [`data/topics.json`](data/topics.json) | 1,590 Marble micro-topics (graph **nodes**). |
-| [`data/dependencies.json`](data/dependencies.json) | 3,221 prerequisite **edges** (`topicId` depends on `prerequisiteId`). |
-| [`data/curriculum-standards.json`](data/curriculum-standards.json) | The source curriculum standards the Marble topics were distilled from (NGSS, Common Core, the UK National Curriculum and more), grouped by curriculum. |
-| [`data/clusters.json`](data/clusters.json) | 183 parent-friendly domain summaries. |
-| [`data/teaching-research.json`](data/teaching-research.json) | Marble’s teaching research for 1,049 Mathematics and Science topics: pedagogy, misconceptions, activities, assessment and sources. Copied unchanged from upstream; one record (`mt_HlNSurPVDp`) has no topic in this fork. Agent-authored guidance, not empirically validated. |
-| [`data/extra/topics.json`](data/extra/topics.json), [`dependencies.json`](data/extra/dependencies.json) | 490 added topics and 791 edges, same shape as the upstream files. Each added topic lists the `curricula` (countries) it covers. |
-| [`data/school-curricula.json`](data/school-curricula.json) | `curricula` (country → name, source URL, grades), `items` (`[country, subject, grade, title]`, 5,401 items) and `links` (topic → items it covers). |
+| [`data/topics.json`](data/topics.json) | 1,845 Marble micro-topics (graph **nodes**). |
+| [`data/dependencies.json`](data/dependencies.json) | 3,941 prerequisite **edges** (`topicId` depends on `prerequisiteId`). |
+| [`data/curriculum-standards.json`](data/curriculum-standards.json) | The source curriculum standards the Marble topics were distilled from (NGSS, Common Core, the UK National Curriculum, the Australian Curriculum v9 and more; Ontario as codes only), grouped by curriculum. |
+| [`data/clusters.json`](data/clusters.json) | 176 parent-friendly domain summaries. |
+| [`data/teaching-research.json`](data/teaching-research.json) | Marble’s teaching research for 1,049 Mathematics and Science topics: pedagogy, misconceptions, activities, assessment and sources. Copied unchanged from upstream, like [`archived-teaching-research.json`](data/archived-teaching-research.json) for merged topics. Agent-authored guidance, not empirically validated. |
+| [`data/extra/topics.json`](data/extra/topics.json), [`dependencies.json`](data/extra/dependencies.json) | 495 added topics and 813 edges, same shape as the upstream files. Each added topic lists the `curricula` (countries) it covers. |
+| [`data/school-curricula.json`](data/school-curricula.json) | `curricula` (country → name, source URL, grades), `items` (`[country, subject, grade, title]`, 6,140 items) and `links` (topic → items it covers). |
 | [`data/i18n/<lang>/`](data/i18n/) | `strings.json` holds the translation; the localized datasets next to it are generated. See [`data/i18n/README.md`](data/i18n/README.md). |
 
 The catalogue contains **17 sources / 7,743 expectations**. It includes 620 Australian Curriculum v9 content descriptions and 3,862 Ontario expectations from nine elementary documents. Ontario is exported as codes and official source links only; ingestion of source expectations is separate from authoring topic coverage. Ontario Grades 1–5 Mathematics have received focused taxonomy authoring passes. The [Grade 2 report](reports/ontario-grade2-mathematics-2026-10-23.md) distinguishes reused claims, extracted elementary claims and the concurrency gap; mappings do not certify learner mastery of every linked topic. The [Grade 3 report](reports/ontario-grade3-mathematics-2026-10-23.md) records reuse of 114 existing topics, the congruence extension and prerequisite repairs; no topics were added. The [Grade 4 report](reports/ontario-grade4-mathematics-2026-10-24.md) records reuse of 126 existing topics, two missing skills, two focused extractions and prerequisite repairs. The [Grade 5 report](reports/ontario-grade5-mathematics-2026-10-24.md) records reuse of 145 existing topics, one missing mathematical representation, one financial/civic concept and one focused extraction.
