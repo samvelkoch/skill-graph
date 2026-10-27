@@ -27,6 +27,7 @@ CURRICULA = {
     'se': {'name': 'Lgr22 (grundskolan)', 'url': 'https://www.skolverket.se/undervisning/grundskolan/laroplan-och-kursplaner-for-grundskolan', 'grades': list(range(1, 10))},
     'jp': {'name': '学習指導要領 (2017)', 'url': 'https://www.mext.go.jp/a_menu/shotou/new-cs/index.htm', 'grades': list(range(1, 10))},
     'ee': {'name': 'Põhikooli riiklik õppekava', 'url': 'https://www.riigiteataja.ee/akt/114012011001', 'grades': list(range(1, 10))},
+    'fr': {'name': 'Programmes de l’école élémentaire (2024–2026)', 'url': 'https://www.education.gouv.fr/bo/2024/Hebdo41/MENE2415135A', 'grades': list(range(1, 6))},
     'au': {'name': 'Australian Curriculum v9 (Foundation–Year 6)', 'url': 'https://v9.australiancurriculum.edu.au/', 'grades': list(range(0, 7))},
 }
 KS = {'1': '1-2', '2': '3-6', '3': '7-9'}  # England: key stage -> years
