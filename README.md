@@ -88,6 +88,33 @@ All data is UTF-8 JSON. JSON Schemas for the upstream files are in [`schema/`](s
 | [`data/school-curricula.json`](data/school-curricula.json) | `curricula` (country → name, source URL, grades), `items` (`[country, subject, grade, title]`, 5,401 items) and `links` (topic → items it covers). |
 | [`data/i18n/<lang>/`](data/i18n/) | `strings.json` holds the translation; the localized datasets next to it are generated. See [`data/i18n/README.md`](data/i18n/README.md). |
 
+The catalogue contains **17 sources / 7,743 expectations**. It includes 620 Australian Curriculum v9 content descriptions and 3,862 Ontario expectations from nine elementary documents. Ontario is exported as codes and official source links only; ingestion of source expectations is separate from authoring topic coverage. Ontario Grades 1–5 Mathematics have received focused taxonomy authoring passes. The [Grade 2 report](reports/ontario-grade2-mathematics-2026-10-23.md) distinguishes reused claims, extracted elementary claims and the concurrency gap; mappings do not certify learner mastery of every linked topic. The [Grade 3 report](reports/ontario-grade3-mathematics-2026-10-23.md) records reuse of 114 existing topics, the congruence extension and prerequisite repairs; no topics were added. The [Grade 4 report](reports/ontario-grade4-mathematics-2026-10-24.md) records reuse of 126 existing topics, two missing skills, two focused extractions and prerequisite repairs. The [Grade 5 report](reports/ontario-grade5-mathematics-2026-10-24.md) records reuse of 145 existing topics, one missing mathematical representation, one financial/civic concept and one focused extraction.
+
+The Australian cleanup reviewed all 314 additions and 14 later edited IDs, consolidated repeated skills and redistributed bundled requirements. All 593 selected expectation codes remain linked. Those links do not certify whole-standard coverage: 572 previous Full claims have not been independently recertified. The 27 PE/movement descriptions remain excluded. Read the [cleanup report](reports/acara-v9-cleanup-2026-10-23.md) and [current area-by-area mapping counts](reports/acara-v9-scope-coverage.md).
+
+See [PROVENANCE.md](PROVENANCE.md) for sources and attribution.
+
+### Adding curricula
+
+Curricula map onto one shared taxonomy. Keep subjects and domains consistent
+across countries; a curriculum's learning-area labels do not create separate
+subject trees.
+
+- Reuse a topic when it assesses the same concept or operation. Add local
+  examples without changing what mastery means.
+- Review affected assessment guidance and learner estimates before changing a
+  mastery claim. Assess independent procedures separately; topics do not track
+  multiple difficulty levels.
+- Record whole-expectation, component and prerequisite contributions explicitly.
+  A topic–code link alone does not establish Full coverage.
+- Reuse existing domains before adding a distinct new domain. Keep names
+  consistent and avoid parallel country-specific domain trees.
+- Keep each topic focused on a teachable concept or skill. A standard can link
+  to several topics; its bundled requirements need not become one topic.
+- Add country-specific topics where the knowledge genuinely differs, such as a
+  country's history or constitutional arrangements. Use shared topics for common
+  concepts and skills, with local examples where useful.
+
 ### A topic
 
 ```json

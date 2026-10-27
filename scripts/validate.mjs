@@ -13,6 +13,8 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { checkTeachingResearch } from './check-teaching-research.mjs';
+import { findDependencyCycle } from './check-dependency-cycles.mjs';
 
 const DATA = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 const load = (name) => JSON.parse(readFileSync(resolve(DATA, name), 'utf8'));
@@ -71,6 +73,10 @@ for (const d of deps.dependencies) {
   check(d.strength === 'hard' || d.strength === 'soft', `bad strength ${d.strength}`);
 }
 
+// --- prerequisite graph must be acyclic (hard and soft edges) ---------------
+const cycle = findDependencyCycle(deps.dependencies);
+check(cycle === null, `dependency cycle: ${cycle?.join(' -> ')}`);
+
 // --- referential integrity: topic → standard -------------------------------
 let danglingRefs = 0;
 for (const t of topics.topics) {
@@ -83,22 +89,25 @@ for (const t of topics.topics) {
 }
 if (danglingRefs > 5) errors.push(`…and ${danglingRefs - 5} more unknown standard references`);
 
+// --- referential integrity: cluster → topic subject/domain ------------------
+const topicDomains = new Set(topics.topics.map(t => JSON.stringify([t.subject, t.domain])));
+for (const c of clusters.clusters) {
+  check(topicDomains.has(JSON.stringify([c.subject, c.domain])),
+    `cluster ${c.subject} / ${c.domain} (age ${c.ageRangeStart}): no topics in this subject/domain`);
+}
+
+// --- teaching research: schema, coverage and exact evidence links -----------
+const research = load('teaching-research.json');
+const researchSchema = JSON.parse(readFileSync(resolve(DATA, '..', 'schema', 'teaching-research.schema.json'), 'utf8'));
+errors.push(...checkTeachingResearch(research, { topics, topicsBytes: bytesOf('topics.json'), manifest, schema: researchSchema }));
+check(Boolean(manifest.files?.['teaching-research.json']), 'manifest missing teaching-research.json checksum');
+
 // --- manifest checksums -----------------------------------------------------
 for (const [name, meta] of Object.entries(manifest.files ?? {})) {
   const actual = createHash('sha256').update(bytesOf(name)).digest('hex');
   check(actual === meta.sha256, `checksum mismatch for ${name}`);
+  check(bytesOf(name).length === meta.bytes, `byte count mismatch for ${name}`);
 }
-
-// --- teaching research (copied from upstream; joins to our topics by topicId) ---
-const research = load('teaching-research.json');
-check(research.recordCount === research.records.length, `teaching research: recordCount != length`);
-check(manifest.counts.teachingResearch === research.records.length, `teaching research: manifest count != records`);
-const orphans = research.records.map((r) => r.topicId).filter((id) => !topicIds.has(id));
-const expectedOrphans = manifest.teachingResearch?.orphanTopicIds ?? [];
-check(
-  orphans.length === expectedOrphans.length && orphans.every((id) => expectedOrphans.includes(id)),
-  `teaching research: topicIds not in topics.json [${orphans}] != manifest orphanTopicIds [${expectedOrphans}]`,
-);
 
 // --- map layout (data/layout.json, generated): a warning only, the viewer places missing topics itself ---
 const warnings = [];
@@ -118,7 +127,6 @@ if (errors.length) {
 }
 console.log(
   `✓ valid — ${topics.topics.length} topics, ${deps.dependencies.length} dependencies, ` +
-    `${standardKeys.size} standards, ${clusters.clusters.length} clusters, ` +
-    `${research.records.length} research records (${orphans.length} for topics not in this fork). ` +
+    `${standardKeys.size} standards, ${clusters.clusters.length} clusters, ${research.recordCount} research records. ` +
     `Referential integrity + checksums OK.`,
 );
