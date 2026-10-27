@@ -2,7 +2,7 @@
 
 Usage: python3 scripts/curricula/merge.py <batch dir> <mapped dir> <out json> [<gap out dir>]
 
-US and England items come from the standards the Marble topics carry (data/curriculum-standards.json).
+US, England and Australia items come from the standards the Marble topics carry (data/curriculum-standards.json).
 The optional gap dir holds the links of items no Marble topic covered to the topics in data/extra/; a gap file
 may also carry its own `items` (e.g. art and music lessons that never went through the batches).
 
@@ -27,6 +27,7 @@ CURRICULA = {
     'se': {'name': 'Lgr22 (grundskolan)', 'url': 'https://www.skolverket.se/undervisning/grundskolan/laroplan-och-kursplaner-for-grundskolan', 'grades': list(range(1, 10))},
     'jp': {'name': '学習指導要領 (2017)', 'url': 'https://www.mext.go.jp/a_menu/shotou/new-cs/index.htm', 'grades': list(range(1, 10))},
     'ee': {'name': 'Põhikooli riiklik õppekava', 'url': 'https://www.riigiteataja.ee/akt/114012011001', 'grades': list(range(1, 10))},
+    'au': {'name': 'Australian Curriculum v9 (Foundation–Year 6)', 'url': 'https://v9.australiancurriculum.edu.au/', 'grades': list(range(0, 7))},
 }
 KS = {'1': '1-2', '2': '3-6', '3': '7-9'}  # England: key stage -> years
 
@@ -56,6 +57,10 @@ def standard_item(src, code, data):
     if src in ('ngss-k5', 'ngss-ms'):
         grade = '6-8' if code.startswith('MS') else us_grade(code.split('-')[0])
         return grade and ('us', 'Science (NGSS)', grade, code)
+    if src == 'acara-v9':  # Foundation -> grade 0
+        ys = ['0' if y.upper().startswith('F') else y for y in data.get('yearLevels') or []]
+        grade = '-'.join(dict.fromkeys(ys[:1] + ys[-1:])) if ys and all(y.isdigit() for y in ys) else None
+        return grade and ('au', data.get('learningArea') or data.get('subject') or '', grade, f"{code} · {data.get('title') or ''}".rstrip(' ·'))
     if src == 'c3-social-studies':
         grade = us_grade(code.rsplit('.', 1)[-1])
         return grade and ('us', 'Social Studies (C3)', grade, code)
@@ -100,7 +105,7 @@ def main(batch_dir, mapped_dir, out, gap_dir=None):
             meta.update({it['key']: it for it in g.get('items', [])})
             for key, pairs in g['links'].items():
                 add(key, [(t, kind) for t, kind in pairs if t in known], len(pairs))
-    # US and England: the standards Marble's own topics already carry
+    # US, England and Australia: the standards Marble's own topics already carry
     data = Path(__file__).resolve().parents[2] / 'data'
     std = {t['key']: t.get('data', {}) for c in json.load(open(data / 'curriculum-standards.json'))['curricula'] for t in c['topics']}
     for t in json.load(open(data / 'topics.json'))['topics']:
