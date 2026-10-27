@@ -859,11 +859,67 @@ function setCostume() {
   CX.a = costume(); CX.b = COST[k]; CX.key = k; CX.u = 0;
 }
 
+// --- music: a little piano plays the class music, a waltz in 3/4 or a polka in 2/4. No files, a tiny synth ---------
+// The shell keeps sound off until the visitor turns it on; the first tap that starts a dance turns it on,
+// unless the visitor switched it off before. iPhone: the ring/silent switch mutes Web Audio unless the page asks
+// for the "playback" audio session (Safari 17+) or, on older iOS, keeps a silent media element playing.
+let AC = null, master = null, keepAlive = null;
+function silentWav() { // 0.5 s of silence, 8 kHz mono 8-bit
+  const n = 4000, b = new Uint8Array(44 + n), v = new DataView(b.buffer), w = (o, t) => [...t].forEach((c, i) => { b[o + i] = c.charCodeAt(0); });
+  w(0, 'RIFF'); v.setUint32(4, 36 + n, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 8000, true); v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true); w(36, 'data'); v.setUint32(40, n, true);
+  b.fill(128, 44);
+  return 'data:audio/wav;base64,' + btoa(String.fromCharCode(...b));
+}
+function unmuteIOS() {
+  try { if (navigator.audioSession) { navigator.audioSession.type = 'playback'; return; } } catch { /* fall through */ }
+  if (!/iP(hone|ad|od)|Macintosh/.test(navigator.userAgent) || !('ontouchend' in document)) return;
+  if (!keepAlive) { keepAlive = new Audio(silentWav()); keepAlive.loop = true; keepAlive.setAttribute('playsinline', ''); }
+  if (keepAlive.paused && !document.hidden) keepAlive.play().catch(() => {});
+}
+function actx() {
+  try {
+    if (!AC) {
+      AC = new (window.AudioContext || window.webkitAudioContext)();
+      const lp = AC.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3200;
+      master = AC.createGain(); master.gain.value = 0.55; master.connect(lp).connect(AC.destination);
+    }
+    if (AC.state !== 'running') AC.resume().catch(() => {});
+    return AC;
+  } catch { return null; }
+}
+['pointerdown', 'pointerup', 'touchend', 'keydown', 'click'].forEach((e) => addEventListener(e, () => { if (store.get('sound', false)) { unmuteIOS(); actx(); } }, { passive: true }));
+document.addEventListener('visibilitychange', () => { if (document.hidden) keepAlive?.pause(); });
+function wantSound() { if (store.get('sound', null) === null) $('sound').click(); if (store.get('sound', false)) { unmuteIOS(); actx(); } }
+const midi = (m) => 440 * 2 ** ((m - 69) / 12);
+function key(m, t, dur, vol) {   // one piano-like note: a bright attack that dies away
+  const f = midi(m), g = AC.createGain();
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + 0.006); g.gain.exponentialRampToValueAtTime(vol * 0.35, t + 0.18);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  g.connect(master);
+  for (const [type, mul, v] of [['triangle', 1, 1], ['sine', 2, 0.35], ['sine', 3, 0.12]]) {
+    const o = AC.createOscillator(), og = AC.createGain(); o.type = type; o.frequency.value = f * mul; og.gain.value = v;
+    o.connect(og).connect(g); o.start(t); o.stop(t + dur + 0.05);
+  }
+}
+// four bars, C – F – G7 – C: a bass note on the strong beat, a chord on the weak ones, a tune on top
+const HARM = [[36, [60, 64, 67]], [41, [60, 65, 69]], [43, [59, 62, 65]], [36, [60, 64, 67]]];
+const TUNE = { 3: [[76, 79, 76], [77, 81, 77], [79, 74, 77], [76, 72, 72]], 2: [[76, 79], [77, 81], [79, 74], [72, 72]] };
+function musicBeat(beat, metre, spb) {
+  if (!store.get('sound', false)) return;
+  const x = actx(); if (!x) return;
+  const bar = Math.floor(beat / metre) % 4, pos = beat % metre, t = x.currentTime + 0.02, [bass, chord] = HARM[bar];
+  if (pos === 0) { key(bass, t, spb * metre * 0.9, 0.2); key(bass + 12, t, spb * 1.2, 0.08); }
+  else for (const m of chord) key(m, t, spb * 0.8, 0.055);
+  key((TUNE[metre] ?? TUNE[2])[bar][pos % (metre === 3 ? 3 : 2)], t, spb * (pos === 0 ? 1.6 : 1), pos === 0 ? 0.11 : 0.08);
+}
+
 // --- the player: blends poses beat by beat ---------------------------------------------------------------------
 let CUR = resolve(P(f1), COST[S.dress]);
 const PL = { on: false, seq: [], i: 0, t: 0, dur: 1, spb: 0.45, metre: 3, loop: false, onEnd: null, onSeg: null, beat: 0, clock: 0, R0: null, R1: null };
 function play(seq, { spb = 0.45, metre = 3, loop = false, onEnd = null, onSeg = null } = {}) {
   Object.assign(PL, { on: true, seq, spb, metre, loop, onEnd, onSeg, beat: 0, clock: 0 });
+  if (seq.length > 1) musicBeat(0, metre, spb);
   S.airOn = false; startSeg(0);
 }
 function startSeg(i) {
@@ -879,7 +935,7 @@ function startSeg(i) {
 function tickPlayer(dt) {
   if (!PL.on) return;
   PL.t += dt; PL.clock += dt;
-  while (PL.clock >= PL.spb) { PL.clock -= PL.spb; PL.beat++; (PL.beat % PL.metre === 0 ? sfx.click : sfx.tick)(); }
+  while (PL.clock >= PL.spb) { PL.clock -= PL.spb; PL.beat++; if (PL.seq.length > 1) musicBeat(PL.beat, PL.metre, PL.spb); }
   const s = PL.seq[PL.i], u = clamp(PL.t / PL.dur, 0, 1);
   const e = s.e === 'lin' ? u : s.e === 'out' ? 1 - (1 - u) ** 3 : s.e === 'in' ? u * u * u : ease(u);
   const R = lerpR(PL.R0, PL.R1, e);
@@ -1253,6 +1309,7 @@ function drawThumb(cv, p) {
 $('ctrlBody').addEventListener('click', (ev) => {
   const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
   const act = b.dataset.act, v = b.dataset.v, t = T[lang], c = S.cls;
+  if (['mode', 'next', 'step', 'again', 'sec', 'era', 'watch', 'retry', 'cnext', 'ct'].includes(act)) wantSound();
   if (act === 'mode') {
     const k = lab.view === 'pos' ? 'pmode' : lab.view === 'steps' ? 'smode' : 'hmode';
     if (S[k] === v) return; S[k] = v; S.sec = null; sfx.click(); enterView();
