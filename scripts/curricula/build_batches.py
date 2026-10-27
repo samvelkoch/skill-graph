@@ -54,8 +54,10 @@ SUBJECTS = {
            'Bioloogia': SCIENCE, 'Füüsika': SCIENCE, 'Keemia': SCIENCE, 'Geograafia': GEO + SCIENCE,
            'Inimeseõpetus': SOCIAL, 'Ajalugu': HISTORY, 'Ühiskonnaõpetus': SOCIAL + CIVICS, 'Informaatika': COMPUTING,
            'Tööõpetus ja tehnoloogia': ['Life Skills', 'Personal & Social Development'] + SCIENCE},
+    'fr': {'Français': ENGLISH + LANG, 'Mathématiques': COMPUTING, 'Sciences et technologie': SCIENCE + COMPUTING,
+           'Histoire-géographie': HISTORY + GEO + CIVICS},
 }
-COUNTRIES = ('ru', 'hu', 'rs', 'de', 'us', 'gb', 'sg', 'se', 'jp', 'ee')
+COUNTRIES = ('ru', 'hu', 'rs', 'de', 'us', 'gb', 'sg', 'se', 'jp', 'ee', 'fr')
 TEXT_CAP = 1200
 RU_MERGE = 700  # RU paragraphs are short; merge neighbours of the same section up to this size
 
