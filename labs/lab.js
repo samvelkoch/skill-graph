@@ -31,21 +31,21 @@ const UI = {
         qn: (i, n) => `Secret lab · question ${i} of ${n}`, wrong: 'Not quite. Look at the lab and try again!',
         doneTitle: 'Unlocked!', doneText: 'Both secret experiments are open. Find them at the ends of the row.', go: 'Let’s go', marked: 'This lab’s topics are now marked “Learning” on the graph.',
         lic: 'Topics from the Marble Skill Taxonomy (ODbL 1.0 / CC BY-SA 4.0), translated. The lab is a simplified model, not a measuring tool.',
-        contrib: 'Skill Graph is open source: help build it', fact: 'Did you know?', nextFact: 'Another fact' },
+        contrib: 'Skill Graph is open source: help build it', fact: 'Did you know?', nextFact: 'Another fact', why: 'Why' },
   ru: { brand: 'Лаборатории', back: 'Назад к графу', topics: 'В графе навыков', sound: 'Звук', views: 'Вид',
         secretKick: 'Секретная лаборатория', secretTitle: 'Два экстремальных опыта под замком.',
         secretAsk: (n) => `Ответь на <b>${n} ${ruPlural(n, 'короткий вопрос', 'коротких вопроса', 'коротких вопросов')}</b>, чтобы открыть оба.`, start: 'Принять вызов', later: 'Не сейчас',
         qn: (i, n) => `Секретная лаборатория · вопрос ${i} из ${n}`, wrong: 'Не совсем. Посмотри на опыт и попробуй ещё раз!',
         doneTitle: 'Открыто!', doneText: 'Оба секретных опыта открыты. Они по краям ряда кнопок.', go: 'Вперёд', marked: 'Темы этой лаборатории отмечены на графе как «Изучаем».',
         lic: 'Темы из Marble Skill Taxonomy (ODbL 1.0 / CC BY-SA 4.0), перевод. Лаборатория — упрощённая модель, а не измерительный прибор.',
-        contrib: 'Skill Graph — открытый проект: его можно дополнить', fact: 'А знаешь ли ты?', nextFact: 'Ещё факт' },
+        contrib: 'Skill Graph — открытый проект: его можно дополнить', fact: 'А знаешь ли ты?', nextFact: 'Ещё факт', why: 'Почему' },
   hu: { brand: 'Laborok', back: 'Vissza a gráfhoz', topics: 'A készségtérképen', sound: 'Hang', views: 'Nézet',
         secretKick: 'Titkos labor', secretTitle: 'Két extrém kísérlet le van zárva.',
         secretAsk: (n) => `Válaszolj <b>${n} rövid kérdésre</b>, és mindkettő kinyílik.`, start: 'Jöhet a kihívás', later: 'Most nem',
         qn: (i, n) => `Titkos labor · ${i}. kérdés / ${n}`, wrong: 'Nem egészen. Nézd meg a kísérletet, és próbáld újra!',
         doneTitle: 'Kinyílt!', doneText: 'Mindkét titkos kísérlet elérhető. A gombsor két végén találod őket.', go: 'Gyerünk', marked: 'A labor témái a gráfon „Tanulja” jelölést kaptak.',
         lic: 'A témák a Marble Skill Taxonomyból származnak (ODbL 1.0 / CC BY-SA 4.0), fordítás. A labor egyszerűsített modell, nem mérőeszköz.',
-        contrib: 'A Skill Graph nyílt forráskódú: bárki hozzátehet', fact: 'Tudtad?', nextFact: 'Még egy' },
+        contrib: 'A Skill Graph nyílt forráskódú: bárki hozzátehet', fact: 'Tudtad?', nextFact: 'Még egy', why: 'Miért' },
 };
 
 // --- sound: tiny synthesized blips, off until the visitor turns it on -------------------------------------
@@ -84,7 +84,7 @@ export function shell(cfg) {
   </nav>
   <main class="lab">
     <header id="hero"></header>
-    <section id="stage"><canvas id="cv"></canvas><div id="overlay"></div></section>
+    <section id="stage"><canvas id="cv"></canvas><div id="overlay"></div><button id="cue" type="button" hidden aria-live="polite"><span class="e" id="cueEmo"></span><span class="t" id="cueTitle"></span><span class="w" id="cueWhy"></span></button></section>
     <section id="ctrl" class="card">
       <div class="readout"><span class="val" id="val"></span><span class="sub" id="valSub"></span><span class="pill" id="pill"></span></div>
       <div id="ctrlBody"></div>
@@ -116,6 +116,7 @@ export function shell(cfg) {
     $('langs').innerHTML = Object.entries(LANGS).map(([k, v]) => `<button data-lang="${k}" class="${k === lang ? 'on' : ''}">${v}</button>`).join('');
     $('views').innerHTML = (cfg.views ?? []).map((v) => `<button role="tab" data-view="${v}" class="${v === lab.view ? 'on' : ''}">${T.views[v]}</button>`).join('');
     $('views').style.display = cfg.views?.length > 1 ? '' : 'none';
+    $('cueWhy').textContent = u.why;
     $('sound').textContent = soundOn ? '🔊' : '🔈';
     $('sound').title = `${u.sound}: ${soundOn ? 'on' : 'off'}`;
     $('hero').innerHTML = `<h1>${T.title}${/[?!.…]$/.test(T.title) ? '' : '<i>.</i>'}</h1>${T.lines.map(([b, r]) => `<p><b>${esc(b)}</b> ${esc(r)}</p>`).join('')}`;
@@ -140,9 +141,27 @@ export function shell(cfg) {
   $('sound').onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); renderChrome(); sfx.click(); };
 
   lab.renderChrome = renderChrome;
+  // stage caption: echoes the state card's emoji + title under the picture; pops when they change, glows the card
+  let cueKey = null, cueLang = lang, cuedTimer = 0;
+  const cued = () => { const st = $('state'); st.classList.add('cued'); clearTimeout(cuedTimer); cuedTimer = setTimeout(() => st.classList.remove('cued'), 1600); };
+  const cueFlash = () => {
+    const el = $('cue');
+    el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
+    cued();
+  };
+  $('cue').addEventListener('click', () => {
+    sfx.tick();
+    const r = $('state').getBoundingClientRect();
+    if (r.top < 0 || r.bottom > innerHeight) $('state').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+    cued();
+  });
   lab.setState = ({ emo, title, lead, body, extra = '' }) => {
     $('stEmo').textContent = emo; $('stTitle').textContent = title; $('stLead').textContent = lead;
     $('stBody').textContent = body; $('stExtra').innerHTML = extra;
+    $('cue').hidden = !title; $('cueEmo').textContent = emo ?? ''; $('cueTitle').textContent = title ?? '';
+    const key = `${emo}|${title}`;
+    if (cueKey !== null && key !== cueKey && lang === cueLang) cueFlash();
+    cueKey = key; cueLang = lang;
   };
   lab.setReadout = (val, sub, pill, color) => {
     $('val').innerHTML = val; $('valSub').textContent = sub ?? ''; $('pill').textContent = pill ?? '';
