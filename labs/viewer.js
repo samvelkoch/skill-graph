@@ -32,6 +32,7 @@
   let labs = [];
   const labDone = (l) => { try { return localStorage.getItem('sg-lab:unlocked:' + l.id) === 'true'; } catch { return false; } };
   const byTopic = new Map();
+  window.labFor = (id) => { const l = byTopic.get(id); return l && { href: href(l), emoji: l.emoji, title: tx(l.title), done: labDone(l) }; }; // the path screen links its steps to labs
 
   const css = `
     #labsBtn { position: relative; }
