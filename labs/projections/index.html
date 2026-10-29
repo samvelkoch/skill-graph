@@ -1,0 +1,938 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Peel the Globe · Skill Graph</title>
+<meta name="description" content="Peel a globe like an orange, move Greenland across a map and compare the shortest flight on a ball and on paper. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  #stage { min-height: 460px; }
+  .pj-ask { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); width: min(560px, calc(100% - 16px)); padding: 12px 14px; text-align: center; z-index: 2; }
+  .pj-ask .q { font: 500 21px/1.2 var(--serif); color: #fff; margin-bottom: 10px; text-wrap: balance; }
+  .pj-ask .q.small { font-size: 17px; margin-bottom: 8px; }
+  .pj-ask .opts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .pj-ask button { min-height: 40px; padding: 8px 18px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1); font-weight: 800; cursor: pointer; }
+  .pj-ask button:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .pj-ask button:disabled { opacity: 1; cursor: default; }
+  .pj-ask button.ok { border-color: var(--ok); background: rgba(61, 220, 151, .2); }
+  .pj-ask button.bad { border-color: var(--red); background: rgba(255, 59, 48, .16); }
+  .pj-ask button.go { background: #fff; color: var(--bg); border-color: #fff; }
+  .pj-ask .verdict { font-weight: 900; margin: 10px 0 2px; }
+  .pj-ask p { margin: 0 0 10px; color: var(--soft); font-size: 13px; }
+  .pj-c { min-height: 38px; }
+  .pj-sec { display: none; }
+  .pj-sec.on { display: block; }
+  #pjU { margin-top: 2px; }
+  .pj-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  @media (max-width: 760px) {
+    #stage { height: min(150vw, 640px); min-height: 0; }
+    .pj-ask .q { font-size: 18px; } .pj-ask .q.small { font-size: 15px; }
+    .pj-ask { padding: 10px 12px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { GLOBE } from '../poles/geo.js';
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Peel the Globe', title: 'Can a ball lie flat?',
+    lines: [['Flatten a globe', 'like an orange peel.'], ['Move a country', 'and watch its size change.'], ['Find the shortest flight', 'on a ball and on paper.']],
+    views: { peel: '🍊 Peel', size: '📐 True size', route: '✈️ Shortest route' },
+    secrets: { dymaxion: ['A map of triangles', 'Another way to unfold the Earth'], upside: ['Which way is up?', 'South at the top'] },
+    right: 'Right!', wrong: 'Not quite.', go: 'Try it →',
+    ask: {
+      peel: { q: 'Can you flatten the globe without gaps and without stretching?', opts: [['yes', 'Yes'], ['no', 'No']], ok: 'no',
+        why: 'No. A ball can’t lie flat without tearing or stretching. Slide to flatten it and see what happens.' },
+      size: { q: 'Which is bigger: Greenland or Africa?', opts: [['g', 'Greenland'], ['a', 'Africa'], ['s', 'About the same']], ok: 'a',
+        why: 'Africa is 14 times bigger: 30.4 million km² against 2.17 million km². This map stretches the north.' },
+      route: { q: 'On the flat map, which line is the shorter flight?', opts: [['s', 'The straight one'], ['c', 'The curved one']], ok: 'c',
+        why: 'The curved one. On a ball the shortest way is a great circle, and on this map it bends towards the pole.' },
+    },
+    peel: {
+      lead: 'Make a guess first, then the globe peels.', ends: ['Globe', 'Flat map'], replay: '↻ Again',
+      gaps: (x) => `gaps: ${x} %`, stretch: (k) => `stretch at 60° N: ×${k}`,
+      st: { globe: ['🌍', 'A globe', 'Slide to the right and it opens up.'],
+        gores: ['🍊', 'The peel splits into strips', 'Each strip is a piece of the globe. They touch only along the equator; towards the poles the gaps open up.'],
+        stretch: ['↔️', 'Stretching closes the gaps', 'Every strip is stretched sideways, the more the closer to a pole. At 60° N it is already twice as wide.'],
+        full: ['🗺️', 'No gaps, but stretched', 'This is the idea behind the Mercator map. Close the gaps and something must be stretched.'] },
+    },
+    size: {
+      proj: { merc: 'Mercator', eq: 'equal-area', globe: 'Globe' }, tissot: '⭕ Equal circles', drag: 'Drag Greenland down',
+      ctry: { greenland: 'Greenland', africa: 'Africa', brazil: 'Brazil', russia: 'Russia', australia: 'Australia', antarctica: 'Antarctica' },
+      area: (n) => `${n} M km²`, real: (k) => `real: ×${k}`, sub: 'Africa : Greenland in the picture', realArea: (n, a) => `${n}: real area ${a} million km²`,
+      tis: 'All these circles are the same size on the globe (500 km radius). On the map they grow and stretch.',
+      st: { merc: ['📐', 'Mercator stretches the north', 'Drag Greenland down to the equator. It shrinks, because this map stretches things more the farther they are from the equator.'],
+        eq: ['⚖️', 'Real areas, squashed shapes', 'Here every country keeps its true area, but the shapes lean over towards the edges.'],
+        globe: ['🌍', 'The globe is not distorted', 'Shapes, areas and distances are right. But you only ever see one side.'] },
+    },
+    route: {
+      pairs: ['Budapest – Tokyo', 'London – Los Angeles'], city: { bud: 'Budapest', tok: 'Tokyo', lon: 'London', lax: 'Los Angeles' },
+      gc: 'great circle', rh: 'rhumb line', km: 'km', lead: 'Make a guess, then watch two planes fly.',
+      title: 'The curve is the shorter way',
+      lead2: 'On a ball the shortest way is a great circle. A straight line on a Mercator map keeps one compass direction: handy for a ship, longer for a plane.',
+      body: (g, r, d) => `Great circle ${g} km · rhumb line ${r} km: the straight line is ${d} km longer.`,
+    },
+    sec: { dymaxion: ['🧩', 'Twenty triangles', 'Each triangle of the Earth is almost flat, so little is stretched. This is a simplified unfolding in the spirit of Buckminster Fuller’s Dymaxion map.', '20', 'triangles'],
+      upside: ['🙃', 'South at the top', 'Nothing in space says north must be on top. Maps put it there out of habit, not because of a law of nature.', '180°', 'map turned'] },
+    quiz: [
+      { q: 'On a Mercator map Greenland looks about as big as Africa. In reality Africa is…', opts: ['about the same size', 'about 14 times bigger', 'smaller'], ok: 1 },
+      { q: 'Which is true?', opts: ['A good enough flat map has no distortion', 'Every flat world map distorts something', 'Only old maps are distorted'], ok: 1 },
+      { q: 'On a Mercator map the shortest flight from Budapest to Tokyo looks…', opts: ['like a straight line', 'like a curve bending towards the North Pole', 'like a zigzag'], ok: 1 },
+    ],
+    facts: {
+      peel: [{ emo: '🧭', text: 'Gerardus Mercator made his famous map in 1569 for sailors: a straight line on it is a route with a constant compass direction.', src: 'Britannica, “Gerardus Mercator”' }],
+      size: [{ emo: '🇷🇺', text: 'Russia is the largest country, 17.1 million km², but on a Mercator map it looks even bigger because it lies so far north.', src: 'Britannica, “Russia”' },
+        { emo: '🌍', text: 'In 2018 Google Maps switched its zoomed-out view on computers from the flat Mercator map to a 3D globe.', src: 'Google Maps (2018 announcement)' }],
+      route: [{ emo: '🛫', text: 'Flights from Europe to Japan have often flown over Siberia: on the globe that is the short way.', src: 'Great-circle navigation' }],
+    },
+  },
+  ru: {
+    name: 'Очисти глобус', title: 'Можно ли расплющить шар?',
+    lines: [['Разверни глобус,', 'как апельсиновую кожуру.'], ['Передвинь страну', 'и следи за её размером.'], ['Найди самый короткий перелёт', 'на шаре и на бумаге.']],
+    views: { peel: '🍊 Кожура', size: '📐 Настоящий размер', route: '✈️ Кратчайший путь' },
+    secrets: { dymaxion: ['Карта из треугольников', 'Другой способ развернуть Землю'], upside: ['Где верх?', 'Юг наверху'] },
+    right: 'Верно!', wrong: 'Не совсем.', go: 'Попробуй →',
+    ask: {
+      peel: { q: 'Можно ли расплющить глобус без разрывов и без растяжения?', opts: [['yes', 'Да'], ['no', 'Нет']], ok: 'no',
+        why: 'Нет. Шар нельзя положить плашмя, не разорвав и не растянув его. Двигай ползунок и смотри, что получится.' },
+      size: { q: 'Что больше: Гренландия или Африка?', opts: [['g', 'Гренландия'], ['a', 'Африка'], ['s', 'Примерно одинаково']], ok: 'a',
+        why: 'Африка больше в 14 раз: 30,4 млн км² против 2,17 млн км². Эта карта растягивает север.' },
+      route: { q: 'Какая линия на плоской карте — более короткий перелёт?', opts: [['s', 'Прямая'], ['c', 'Изогнутая']], ok: 'c',
+        why: 'Изогнутая. На шаре самый короткий путь — дуга большого круга, а на этой карте она выгибается к полюсу.' },
+    },
+    peel: {
+      lead: 'Сначала загадай ответ, потом глобус раскроется.', ends: ['Глобус', 'Плоская карта'], replay: '↻ Ещё раз',
+      gaps: (x) => `щели: ${x} %`, stretch: (k) => `растяжение на 60° с. ш.: ×${k}`,
+      st: { globe: ['🌍', 'Глобус', 'Двигай ползунок вправо — он раскроется.'],
+        gores: ['🍊', 'Кожура распадается на дольки', 'Каждая долька — кусок глобуса. Они касаются друг друга только на экваторе, а ближе к полюсам между ними растут щели.'],
+        stretch: ['↔️', 'Растяжение закрывает щели', 'Каждую дольку растягивают вбок, тем сильнее, чем ближе к полюсу. На 60° с. ш. она уже вдвое шире.'],
+        full: ['🗺️', 'Щелей нет, но всё растянуто', 'Так устроена карта Меркатора. Закрой щели — и что-то обязательно растянется.'] },
+    },
+    size: {
+      proj: { merc: 'Меркатор', eq: 'равновеликая', globe: 'Глобус' }, tissot: '⭕ Одинаковые круги', drag: 'Потяни Гренландию вниз',
+      ctry: { greenland: 'Гренландия', africa: 'Африка', brazil: 'Бразилия', russia: 'Россия', australia: 'Австралия', antarctica: 'Антарктида' },
+      area: (n) => `${n} млн км²`, real: (k) => `на деле: ×${k}`, sub: 'Африка : Гренландия на карте', realArea: (n, a) => `${n}: настоящая площадь ${a} млн км²`,
+      tis: 'На глобусе все эти круги одинаковые (радиус 500 км). На карте они растут и вытягиваются.',
+      st: { merc: ['📐', 'Меркатор растягивает север', 'Перетащи Гренландию к экватору. Она уменьшится: эта карта растягивает всё сильнее, чем дальше от экватора.'],
+        eq: ['⚖️', 'Площади верны, формы сплющены', 'Здесь у каждой страны настоящая площадь, но у краёв формы наклонены.'],
+        globe: ['🌍', 'Глобус ничего не искажает', 'Формы, площади и расстояния верны. Но видна всегда только одна сторона.'] },
+    },
+    route: {
+      pairs: ['Будапешт – Токио', 'Лондон – Лос-Анджелес'], city: { bud: 'Будапешт', tok: 'Токио', lon: 'Лондон', lax: 'Лос-Анджелес' },
+      gc: 'ортодромия', rh: 'локсодромия', km: 'км', lead: 'Сделай догадку, потом посмотри, как летят два самолёта.',
+      title: 'Дуга — путь короче',
+      lead2: 'На шаре кратчайший путь — дуга большого круга (ортодромия). Прямая на карте Меркатора держит одно направление по компасу (локсодромия): удобно кораблю, но для самолёта дольше.',
+      body: (g, r, d) => `Ортодромия ${g} км · локсодромия ${r} км: прямая длиннее на ${d} км.`,
+    },
+    sec: { dymaxion: ['🧩', 'Двадцать треугольников', 'Каждый треугольник Земли почти плоский, поэтому почти ничего не растянуто. Это упрощённая развёртка в духе карты «Дымаксион» Бакминстера Фуллера.', '20', 'треугольников'],
+      upside: ['🙃', 'Юг наверху', 'В космосе нет «верха». Север наверху на картах — привычка, а не закон природы.', '180°', 'карта повёрнута'] },
+    quiz: [
+      { q: 'На карте Меркатора Гренландия выглядит почти как Африка. На самом деле Африка…', opts: ['примерно такая же', 'примерно в 14 раз больше', 'меньше'], ok: 1 },
+      { q: 'Что верно?', opts: ['Хорошая плоская карта ничего не искажает', 'Любая плоская карта мира что-то искажает', 'Искажены только старые карты'], ok: 1 },
+      { q: 'На карте Меркатора кратчайший перелёт из Будапешта в Токио выглядит…', opts: ['как прямая линия', 'как дуга, выгнутая к Северному полюсу', 'как зигзаг'], ok: 1 },
+    ],
+    facts: {
+      peel: [{ emo: '🧭', text: 'Герард Меркатор составил свою знаменитую карту в 1569 году для моряков: прямая линия на ней — это курс с постоянным направлением по компасу.', src: 'Britannica, «Gerardus Mercator»' }],
+      size: [{ emo: '🇷🇺', text: 'Россия — самая большая страна, 17,1 млн км², но на карте Меркатора она выглядит ещё больше, потому что лежит далеко на севере.', src: 'Britannica, «Russia»' },
+        { emo: '🌍', text: 'В 2018 году Google Maps в отдалённом виде на компьютерах заменил плоскую карту Меркатора на объёмный глобус.', src: 'Google Maps (анонс 2018 года)' }],
+      route: [{ emo: '🛫', text: 'Рейсы из Европы в Японию часто шли над Сибирью: на глобусе это короткий путь.', src: 'Навигация по дуге большого круга' }],
+    },
+  },
+  hu: {
+    name: 'Hámozd meg a földgömböt', title: 'Kiteríthető egy gömb?',
+    lines: [['Terítsd ki a földgömböt,', 'mint egy narancshéjat.'], ['Mozgass el egy országot,', 'és figyeld a méretét.'], ['Keresd a legrövidebb repülőutat', 'gömbön és papíron.']],
+    views: { peel: '🍊 Héj', size: '📐 Valódi méret', route: '✈️ Legrövidebb út' },
+    secrets: { dymaxion: ['Háromszögekből álló térkép', 'A Föld másféle kiterítése'], upside: ['Merre van a fent?', 'Dél felül'] },
+    right: 'Így van!', wrong: 'Nem egészen.', go: 'Próbáld ki →',
+    ask: {
+      peel: { q: 'Ki lehet teríteni a földgömböt hézag és nyújtás nélkül?', opts: [['yes', 'Igen'], ['no', 'Nem']], ok: 'no',
+        why: 'Nem. A gömb nem fekhet laposan szakadás vagy nyújtás nélkül. Told el a csúszkát, és nézd meg.' },
+      size: { q: 'Melyik nagyobb: Grönland vagy Afrika?', opts: [['g', 'Grönland'], ['a', 'Afrika'], ['s', 'Körülbelül egyforma']], ok: 'a',
+        why: 'Afrika 14-szer nagyobb: 30,4 millió km² a 2,17 millió km²-rel szemben. Ez a térkép megnyújtja az északot.' },
+      route: { q: 'A síktérképen melyik vonal a rövidebb repülőút?', opts: [['s', 'Az egyenes'], ['c', 'Az íves']], ok: 'c',
+        why: 'Az íves. A gömbön a legrövidebb út a főkör, ezen a térképen pedig a sark felé hajlik.' },
+    },
+    peel: {
+      lead: 'Előbb tippelj, aztán a földgömb kinyílik.', ends: ['Földgömb', 'Síktérkép'], replay: '↻ Újra',
+      gaps: (x) => `rések: ${x} %`, stretch: (k) => `nyúlás 60° északon: ×${k}`,
+      st: { globe: ['🌍', 'Földgömb', 'Told jobbra a csúszkát, hogy kinyíljon.'],
+        gores: ['🍊', 'A héj cikkekre válik', 'Minden cikk a földgömb egy darabja. Csak az Egyenlítőnél érnek össze, a sarkok felé egyre nagyobb rések nyílnak köztük.'],
+        stretch: ['↔️', 'A nyújtás bezárja a réseket', 'Minden cikket oldalra megnyújtanak, annál jobban, minél közelebb van a sarkhoz. 60° északon már kétszer olyan széles.'],
+        full: ['🗺️', 'Nincs rés, de minden megnyúlt', 'Ez a Mercator-térkép ötlete. Zárd be a réseket, és valaminek meg kell nyúlnia.'] },
+    },
+    size: {
+      proj: { merc: 'Mercator', eq: 'területtartó', globe: 'Földgömb' }, tissot: '⭕ Egyforma körök', drag: 'Húzd lefelé Grönlandot',
+      ctry: { greenland: 'Grönland', africa: 'Afrika', brazil: 'Brazília', russia: 'Oroszország', australia: 'Ausztrália', antarctica: 'Antarktisz' },
+      area: (n) => `${n} millió km²`, real: (k) => `valójában: ×${k}`, sub: 'Afrika : Grönland a képen', realArea: (n, a) => `${n}: valódi terület ${a} millió km²`,
+      tis: 'A földgömbön ezek a körök mind egyformák (500 km sugarúak). A térképen megnőnek és megnyúlnak.',
+      st: { merc: ['📐', 'A Mercator megnyújtja az északot', 'Húzd Grönlandot az Egyenlítő felé. Összezsugorodik, mert ez a térkép annál jobban nyújt, minél messzebb van valami az Egyenlítőtől.'],
+        eq: ['⚖️', 'Valódi területek, torz alakok', 'Itt minden ország valódi területű, de a szélek felé az alakok megdőlnek.'],
+        globe: ['🌍', 'A földgömb nem torzít', 'Az alakok, területek és távolságok helyesek. De mindig csak az egyik oldalát látod.'] },
+    },
+    route: {
+      pairs: ['Budapest – Tokió', 'London – Los Angeles'], city: { bud: 'Budapest', tok: 'Tokió', lon: 'London', lax: 'Los Angeles' },
+      gc: 'főkör', rh: 'loxodroma', km: 'km', lead: 'Tippelj, aztán nézd meg, hogyan repül két gép.',
+      title: 'Az ív a rövidebb út',
+      lead2: 'A gömbön a legrövidebb út a főkör (ortodroma). A Mercator-térkép egyenes vonala (loxodroma) állandó iránytűirányt tart: hajónak jó, repülőnek hosszabb.',
+      body: (g, r, d) => `Főkör ${g} km · loxodroma ${r} km: az egyenes ${d} km-rel hosszabb.`,
+    },
+    sec: { dymaxion: ['🧩', 'Húsz háromszög', 'A Föld minden háromszöge majdnem lapos, ezért alig nyúlik meg. Ez egyszerűsített kiterítés Buckminster Fuller Dymaxion-térképének szellemében.', '20', 'háromszög'],
+      upside: ['🙃', 'Dél felül', 'A világűrben nincs „fent”. Az északot a térképeken megszokásból tesszük felülre, nem természeti törvény miatt.', '180°', 'a térkép elfordítva'] },
+    quiz: [
+      { q: 'A Mercator-térképen Grönland majdnem akkorának látszik, mint Afrika. Valójában Afrika…', opts: ['körülbelül ugyanakkora', 'körülbelül 14-szer nagyobb', 'kisebb'], ok: 1 },
+      { q: 'Melyik igaz?', opts: ['Egy elég jó síktérkép semmit sem torzít', 'Minden sík világtérkép torzít valamit', 'Csak a régi térképek torzítanak'], ok: 1 },
+      { q: 'A Mercator-térképen a legrövidebb repülőút Budapestről Tokióba…', opts: ['egyenes vonalnak látszik', 'az Északi-sark felé hajló ívnek látszik', 'cikcakknak látszik'], ok: 1 },
+    ],
+    facts: {
+      peel: [{ emo: '🧭', text: 'Gerardus Mercator 1569-ben készítette híres térképét a tengerészeknek: rajta az egyenes vonal állandó iránytűirányú útvonal.', src: 'Britannica, „Gerardus Mercator”' }],
+      size: [{ emo: '🇷🇺', text: 'Oroszország a legnagyobb ország, 17,1 millió km², de a Mercator-térképen még nagyobbnak látszik, mert olyan messze északon fekszik.', src: 'Britannica, „Russia”' },
+        { emo: '🌍', text: '2018-ban a Google Maps számítógépen a kicsinyített nézetben a lapos Mercator-térképet 3D-s földgömbre cserélte.', src: 'Google Maps (2018-as bejelentés)' }],
+      route: [{ emo: '🛫', text: 'Az Európából Japánba tartó járatok gyakran Szibéria felett repültek: a földgömbön ez a rövid út.', src: 'Főkör menti navigáció' }],
+    },
+  },
+};
+const TOPICS = [
+  { id: 'sg_geo_04', en: 'Globe and Map Projections', ru: 'Глобус и картографические проекции', hu: 'Földgömb és térképvetületek' },
+];
+
+// --- geometry helpers --------------------------------------------------------------------------------------
+const D2R = Math.PI / 180, TAU = Math.PI * 2, R_EARTH = 6371;
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+const ease = (t) => t * t * (3 - 2 * t);
+const wrapAng = (d) => (d > Math.PI ? d - TAU : d < -Math.PI ? d + TAU : d);
+const mercY = (latDeg) => Math.log(Math.tan(Math.PI / 4 + clamp(latDeg, -85, 85) * D2R / 2));
+const MERC_MAX = mercY(80);
+const latFromNy = (ny) => (2 * Math.atan(Math.exp(ny * MERC_MAX)) - Math.PI / 2) / D2R;
+const nf = (x, d = 0) => x.toLocaleString({ en: 'en-US', ru: 'ru-RU', hu: 'hu-HU' }[lang], { minimumFractionDigits: d, maximumFractionDigits: d });
+
+// Equal Earth (Šavrič, Patterson, Jenny 2018)
+const A1 = 1.340264, A2 = -0.081106, A3 = 0.000893, A4 = 0.003796, SQ3 = Math.sqrt(3);
+function eeRaw(lonDeg, latDeg) {
+  const th = Math.asin(SQ3 / 2 * Math.sin(latDeg * D2R)), t2 = th * th, t6 = t2 * t2 * t2;
+  return [2 * SQ3 * lonDeg * D2R * Math.cos(th) / (3 * (A1 + 3 * A2 * t2 + t6 * (7 * A3 + 9 * A4 * t2))), th * (A1 + A2 * t2 + t6 * (A3 + A4 * t2))];
+}
+const EE_X = eeRaw(180, 0)[0], EE_Y = eeRaw(0, 90)[1];
+const FLAT_ASP = { merc: MERC_MAX / Math.PI, eq: EE_Y / EE_X }; // height / width
+// a point on a flat map, in -1..1 box coordinates (y up)
+function nproj(kind, lon, lat) {
+  if (kind === 'merc') return [lon / 180, mercY(clamp(lat, -80, 80)) / MERC_MAX];
+  const [x, y] = eeRaw(lon, lat); return [x / EE_X, y / EE_Y];
+}
+
+// --- the outlines: Natural Earth rings, decoded once (decoder as in labs/poles) ----------------------------
+function decode(s, k) {
+  const out = []; let i = 0, x = 0, y = 0;
+  const one = () => { let r = 0, sh = 0, b; do { b = s.charCodeAt(i++) - 63; r |= (b & 31) << sh; sh += 5; } while (b >= 32); return r & 1 ? ~(r >> 1) : r >> 1; };
+  while (i < s.length) { x += one(); y += one(); out.push(x / k, y / k); }
+  return out;
+}
+function mkRing(lonA, latA, id = -1) {
+  const n = lonA.length, r = { id, n, lon: Float32Array.from(lonA), lat: Float32Array.from(latA), v: new Float32Array(n * 3),
+    sl: new Float32Array(n), cl: new Float32Array(n), cph: new Float32Array(n), sph: new Float32Array(n), mer: new Float32Array(n), x0: 1e9, x1: -1e9, y0: 1e9, y1: -1e9, ice: false };
+  for (let i = 0; i < n; i++) {
+    const lo = lonA[i] * D2R, la = latA[i] * D2R, c = Math.cos(la);
+    r.v[3 * i] = c * Math.cos(lo); r.v[3 * i + 1] = c * Math.sin(lo); r.v[3 * i + 2] = Math.sin(la);
+    r.sl[i] = Math.sin(lo); r.cl[i] = Math.cos(lo); r.cph[i] = c; r.sph[i] = Math.sin(la); r.mer[i] = mercY(clamp(latA[i], -80, 80));
+    r.x0 = Math.min(r.x0, lonA[i]); r.x1 = Math.max(r.x1, lonA[i]); r.y0 = Math.min(r.y0, latA[i]); r.y1 = Math.max(r.y1, latA[i]);
+  }
+  return r;
+}
+const RINGS = GLOBE.map((s, id) => { const a = decode(s, 10), lo = [], la = []; for (let i = 0; i < a.length; i += 2) { lo.push(a[i]); la.push(a[i + 1]); } return mkRing(lo, la, id); });
+// no country names in the data: find a ring by the smallest outline box that holds a point
+const ringAt = (lon, lat) => RINGS.filter((r) => lon >= r.x0 && lon <= r.x1 && lat >= r.y0 && lat <= r.y1)
+  .sort((p, q) => (p.x1 - p.x0) * (p.y1 - p.y0) - (q.x1 - q.x0) * (q.y1 - q.y0))[0];
+const R_GREEN = ringAt(-40, 74), R_AUS = ringAt(134, -25), R_ANT = ringAt(0, -80), R_AFEU = ringAt(20, 10);
+R_GREEN.ice = R_ANT.ice = true;
+const BUF = { x: new Float32Array(2048), y: new Float32Array(2048), z: new Float32Array(2048) };
+
+// countries without their own ring: a hand-drawn border polygon clips the land (lon, lat)
+const dense = (poly) => { const lo = [], la = []; poly.forEach((a, i) => { const b = poly[(i + 1) % poly.length], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 2)); for (let k = 0; k < n; k++) { lo.push(a[0] + (b[0] - a[0]) * k / n); la.push(a[1] + (b[1] - a[1]) * k / n); } }); return mkRing(lo, la); };
+const CTRY = {
+  greenland: { ring: R_GREEN, area: 2.17, d: 2 },
+  africa: { d: 1, area: 30.4, region: dense([[-30, -45], [60, -45], [60, 12], [43.5, 12], [43.5, 12.6], [41, 15], [38.5, 18.5], [36, 23], [34, 27], [32.6, 30], [32.4, 31.6], [32.4, 34.5], [16, 34.5], [12, 37.6], [3, 37.4], [-2, 36.2], [-6, 36.1], [-30, 36.1]]) },
+  brazil: { d: 1, area: 8.5, region: dense([[-51.5, 4.5], [-54.6, 2.3], [-57, 1.9], [-59.8, 1.5], [-60.2, 4.5], [-60.7, 5.2], [-63.9, 4], [-67, 2], [-69.9, 1], [-69.6, -1.2], [-70, -4.2], [-72.5, -5], [-73.9, -7.2], [-72.8, -9.5], [-70.6, -11], [-68.7, -11.1], [-65.3, -9.8], [-60.5, -13.5], [-58.2, -16.3], [-58.5, -20], [-55.8, -22.1], [-54.6, -25.6], [-53.8, -27.3], [-57.6, -30.2], [-53.4, -33.8], [-30, -40], [-25, -10], [-30, 10], [-45, 10], [-51.5, 6]]) },
+  russia: { d: 1, area: 17.1, region: dense([[28, 71], [29.8, 69.6], [30.5, 67.8], [28.9, 66], [30, 64.5], [29.9, 62.5], [28.5, 60.6], [27.7, 59.5], [27.3, 58], [28.2, 56.2], [31, 56], [32, 53.7], [34, 52.2], [36, 50.3], [39.5, 49.7], [40.2, 48.5], [38.5, 47.1], [39.7, 45.5], [37.5, 44.5], [39.5, 43.4], [41.8, 43.4], [47, 41.5], [48.6, 41.9], [47.5, 43.5], [47.2, 46], [49.5, 46.5], [48.5, 48.5], [50.5, 51.5], [55.5, 50.7], [61.5, 50.8], [61, 52.8], [65, 53.5], [69.5, 55.3], [75, 54], [77.8, 53], [81.5, 50.8], [84, 50.8], [87.3, 49.2], [91.8, 50.7], [98, 50.3], [103, 51.3], [107.5, 50.2], [116, 49.8], [118.5, 49.9], [119.8, 52.7], [122.5, 53.4], [125, 53.2], [127.5, 49.7], [131, 47.7], [134.8, 48.3], [135, 46.5], [142, 46], [146, 44], [158, 48], [180, 52], [180, 75], [100, 82], [60, 82], [28, 75]]) },
+  australia: { ring: R_AUS, area: 7.69, d: 2 },
+  antarctica: { ring: R_ANT, area: 14.2, d: 1 },
+};
+const CKEYS = Object.keys(CTRY);
+const pip = (x, y, p) => { let ins = false; for (let i = 0, j = p.n - 1; i < p.n; j = i++) { const xi = p.lon[i], yi = p.lat[i], xj = p.lon[j], yj = p.lat[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) ins = !ins; } return ins; };
+// sampled shares of Greenland and Africa: true (sphere) and as drawn by Mercator (every cell is stretched by 1/cos² of its latitude)
+let AREAS = null;
+function areas() {
+  if (AREAS) return AREAS;
+  const run = (ring, region, x0, x1, y0, y1) => {
+    let tru = 0, mer = 0;
+    for (let la = y0 + 0.25; la < y1; la += 0.5) { const w = Math.cos(la * D2R); for (let lo = x0 + 0.25; lo < x1; lo += 0.5) { if (region && !pip(lo, la, region)) continue; if (!pip(lo, la, ring)) continue; tru += w; mer += w / (w * w); } }
+    return { tru, mer };
+  };
+  AREAS = { g: run(R_GREEN, null, -75, -10, 58, 84), a: run(R_AFEU, CTRY.africa.region, -20, 52, -36, 38) };
+  return AREAS;
+}
+
+// a graticule every 30 degrees
+const GRAT = [];
+for (let lo = -180; lo < 180; lo += 30) { const p = []; for (let la = -90; la <= 90; la += 5) p.push([lo, la]); GRAT.push(p); }
+for (let la = -60; la <= 60; la += 30) { const p = []; for (let lo = -180; lo <= 180; lo += 5) p.push([lo, la]); GRAT.push(p); }
+const GRAT_V = GRAT.map((p) => p.map(([lo, la]) => [Math.cos(la * D2R) * Math.cos(lo * D2R), Math.cos(la * D2R) * Math.sin(lo * D2R), Math.sin(la * D2R)]));
+
+// Tissot circles: the same 500 km circle at a grid of places
+const TIS = [];
+for (const la0 of [-60, -30, 0, 30, 60, 75]) for (const lo0 of [-150, -90, -30, 30, 90, 150]) {
+  const lo = [], la = [], rho = 500 / R_EARTH, p0 = la0 * D2R;
+  for (let k = 0; k < 25; k++) {
+    const th = k / 25 * TAU, p2 = Math.asin(Math.sin(p0) * Math.cos(rho) + Math.cos(p0) * Math.sin(rho) * Math.cos(th));
+    lo.push(lo0 + Math.atan2(Math.sin(th) * Math.sin(rho) * Math.cos(p0), Math.cos(rho) - Math.sin(p0) * Math.sin(p2)) / D2R); la.push(p2 / D2R);
+  }
+  TIS.push(mkRing(lo, la));
+}
+
+// the flat maps, normalised to a -1..1 box once per projection
+const FB = {};
+function ringNorm(kind, ring) {
+  const p = new Path2D(); let open = false;
+  // a ring around the South Pole (Antarctica) wraps all the way round: unwrap its longitudes, close it along the
+  // bottom edge and draw it three times (shifted by 360°) so the frame clip shows one clean band
+  let lon = ring.lon[0], minLa = 90;
+  const un = [lon];
+  for (let i = 1; i < ring.n; i++) { let d = ring.lon[i] - ring.lon[i - 1]; if (d > 180) d -= 360; if (d < -180) d += 360; lon += d; un.push(lon); minLa = Math.min(minLa, ring.lat[i]); }
+  if (minLa < -60 && Math.abs(un[un.length - 1] - un[0]) > 300) {
+    for (const sh of [-360, 0, 360]) {
+      for (let i = 0; i < ring.n; i++) { const [x, y] = nproj(kind, un[i] + sh, ring.lat[i]); if (i) p.lineTo(x, y); else p.moveTo(x, y); }
+      const [xa, ya] = nproj(kind, un[ring.n - 1] + sh, -90), [xb] = nproj(kind, un[0] + sh, -90);
+      p.lineTo(xa, ya); p.lineTo(xb, ya); p.closePath();
+    }
+    return p;
+  }
+  for (let i = 0; i < ring.n; i++) {
+    const [x, y] = nproj(kind, ring.lon[i], ring.lat[i]);
+    if (i === 0 || Math.abs(ring.lon[i] - ring.lon[i - 1]) > 180) { if (open) p.closePath(); p.moveTo(x, y); open = true; } else p.lineTo(x, y);
+  }
+  if (open) p.closePath();
+  return p;
+}
+function flatBase(kind) {
+  if (FB[kind]) return FB[kind];
+  const B = FB[kind] = { rings: {}, land: new Path2D(), ice: new Path2D(), grat: new Path2D(), outline: new Path2D(), tis: new Path2D() };
+  for (const r of RINGS) { const p = ringNorm(kind, r); B.rings[r.id] = p; (r.ice ? B.ice : B.land).addPath(p); }
+  GRAT.forEach((pts) => pts.forEach(([lo, la], i) => { const [x, y] = nproj(kind, lo, la); if (i) B.grat.lineTo(x, y); else B.grat.moveTo(x, y); }));
+  if (kind === 'merc') B.outline.rect(-1, -1, 2, 2);
+  else { for (let la = -90; la <= 90; la += 5) { const [x, y] = nproj(kind, 180, la); if (la === -90) B.outline.moveTo(x, y); else B.outline.lineTo(x, y); } for (let la = 90; la >= -90; la -= 5) { const [x, y] = nproj(kind, -180, la); B.outline.lineTo(x, y); } B.outline.closePath(); }
+  for (const r of TIS) B.tis.addPath(ringNorm(kind, r));
+  return B;
+}
+
+// --- cities and routes ---------------------------------------------------------------------------------------
+const CITIES = { bud: [47.5, 19.04], tok: [35.68, 139.69], lon: [51.51, -0.13], lax: [34.05, -118.24] };
+const PAIRS = [['bud', 'tok'], ['lon', 'lax']];
+const hav = (a, b) => { const p1 = a[0] * D2R, p2 = b[0] * D2R, dp = p2 - p1, dl = (b[1] - a[1]) * D2R, h = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2; return 2 * R_EARTH * Math.asin(Math.sqrt(h)); };
+const ROUTES = PAIRS.map(([ka, kb]) => {
+  const a = CITIES[ka], b = CITIES[kb], N = 80, va = [Math.cos(a[0] * D2R) * Math.cos(a[1] * D2R), Math.cos(a[0] * D2R) * Math.sin(a[1] * D2R), Math.sin(a[0] * D2R)];
+  const vb = [Math.cos(b[0] * D2R) * Math.cos(b[1] * D2R), Math.cos(b[0] * D2R) * Math.sin(b[1] * D2R), Math.sin(b[0] * D2R)];
+  const om = Math.acos(clamp(va[0] * vb[0] + va[1] * vb[1] + va[2] * vb[2], -1, 1)), gc = [];
+  for (let i = 0; i <= N; i++) {
+    const f = i / N, s1 = Math.sin((1 - f) * om) / Math.sin(om), s2 = Math.sin(f * om) / Math.sin(om);
+    const x = s1 * va[0] + s2 * vb[0], y = s1 * va[1] + s2 * vb[1], z = s1 * va[2] + s2 * vb[2];
+    gc.push([Math.atan2(z, Math.hypot(x, y)) / D2R, Math.atan2(y, x) / D2R]);
+  }
+  let dl = b[1] - a[1]; dl = dl > 180 ? dl - 360 : dl < -180 ? dl + 360 : dl;
+  const p1 = a[0] * D2R, p2 = b[0] * D2R, dpsi = Math.log(Math.tan(Math.PI / 4 + p2 / 2) / Math.tan(Math.PI / 4 + p1 / 2)), q = Math.abs(dpsi) > 1e-9 ? (p2 - p1) / dpsi : Math.cos(p1);
+  const rhKm = Math.sqrt((p2 - p1) ** 2 + (q * dl * D2R) ** 2) * R_EARTH, rh = [], psi1 = Math.log(Math.tan(Math.PI / 4 + p1 / 2));
+  for (let i = 0; i <= N; i++) { const f = i / N; rh.push([(2 * Math.atan(Math.exp(psi1 + f * dpsi)) - Math.PI / 2) / D2R, a[1] + f * dl]); }
+  const cum = (pts) => { const c = [0]; for (let i = 1; i < pts.length; i++) c.push(c[i - 1] + hav(pts[i - 1], pts[i])); return c; };
+  const mid = gc[N >> 1];
+  return { ka, kb, a, b, gc, rh, gcKm: om * R_EARTH, rhKm, gcCum: cum(gc), rhCum: cum(rh), view: { lon: mid[1], lat: mid[0] * 0.8 } };
+});
+function onRoute(pts, cum, d) { // lat, lon and heading step at distance d
+  d = clamp(d, 0, cum[cum.length - 1]);
+  let i = 1; while (i < cum.length - 1 && cum[i] < d) i++;
+  const f = clamp((d - cum[i - 1]) / Math.max(1e-6, cum[i] - cum[i - 1]), 0, 1), p = pts[i - 1], q = pts[i];
+  return { lat: lerp(p[0], q[0], f), lon: lerp(p[1], q[1], f), nlat: q[0], nlon: q[1], plat: p[0], plon: p[1] };
+}
+
+// --- icosahedron net for the Dymaxion-style secret --------------------------------------------------------
+const ICO = (() => {
+  const U = [], L = [], ll = (lon, lat) => [Math.cos(lat * D2R) * Math.cos(lon * D2R), Math.cos(lat * D2R) * Math.sin(lon * D2R), Math.sin(lat * D2R)];
+  for (let i = 0; i < 5; i++) { U.push(ll(72 * i, Math.atan(0.5) / D2R)); L.push(ll(72 * i + 36, -Math.atan(0.5) / D2R)); }
+  const N = [0, 0, 1], S = [0, 0, -1], h = Math.sqrt(3) / 2, F = [];
+  for (let i = 0; i < 5; i++) {
+    const j = (i + 1) % 5;
+    F.push({ v: [N, U[i], U[j]], p: [[i + 0.5, 0], [i, h], [i + 1, h]] });
+    F.push({ v: [U[i], U[j], L[i]], p: [[i, h], [i + 1, h], [i + 0.5, 2 * h]] });
+    F.push({ v: [L[i], L[j], U[j]], p: [[i + 0.5, 2 * h], [i + 1.5, 2 * h], [i + 1, h]] });
+    F.push({ v: [L[i], L[j], S], p: [[i + 0.5, 2 * h], [i + 1.5, 2 * h], [i + 1, 3 * h]] });
+  }
+  const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  for (const f of F) {
+    const [A, B, C] = f.v, c = [A[0] + B[0] + C[0], A[1] + B[1] + C[1], A[2] + B[2] + C[2]], l = Math.hypot(...c);
+    f.n = c.map((x) => x / l); f.k = dot(f.n, A); f.e1 = sub(B, A); f.e2 = sub(C, A);
+    f.d00 = dot(f.e1, f.e1); f.d01 = dot(f.e1, f.e2); f.d11 = dot(f.e2, f.e2);
+  }
+  const edges = new Set(), key = (a, b) => [a, b].map((v) => v.map((x) => x.toFixed(3)).join()).sort().join('|'), E = [];
+  for (const f of F) for (let i = 0; i < 3; i++) { const a = f.v[i], b = f.v[(i + 1) % 3], k = key(a, b); if (!edges.has(k)) { edges.add(k); E.push([a, b]); } }
+  const arcs = E.map(([a, b]) => { const om = Math.acos(clamp(dot(a, b), -1, 1)), pts = []; for (let i = 0; i <= 14; i++) { const f = i / 14, s1 = Math.sin((1 - f) * om) / Math.sin(om), s2 = Math.sin(f * om) / Math.sin(om); pts.push([s1 * a[0] + s2 * b[0], s1 * a[1] + s2 * b[1], s1 * a[2] + s2 * b[2]]); } return pts; });
+  return { F, arcs, W: 5.5, H: 3 * h };
+})();
+let NET = { key: '', cv: null };
+function buildNet(nw, nh, dpr) {
+  const key = `${nw}|${nh}|${dpr}`;
+  if (NET.key === key) return NET.cv;
+  const cv = document.createElement('canvas'); cv.width = Math.round(nw * dpr); cv.height = Math.round(nh * dpr);
+  const c = cv.getContext('2d'); c.scale(dpr, dpr); c.lineJoin = 'round';
+  const e = nw / ICO.W, ox = 0, oy = (nh - ICO.H * e) / 2;
+  ICO.F.forEach((f, fi) => {
+    const P = f.p.map(([x, y]) => [ox + x * e, oy + y * e]);
+    c.save(); c.beginPath(); P.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.closePath(); c.clip();
+    const g = c.createLinearGradient(P[0][0] - e / 2, P[0][1] - e / 2, P[2][0] + e / 2, P[2][1] + e / 2);
+    g.addColorStop(0, '#4a97dc'); g.addColorStop(1, fi % 2 ? '#1f5a9e' : '#2468ad'); c.fillStyle = g; c.fillRect(0, 0, nw, nh);
+    const [A] = f.v, { e1, e2 } = f;
+    const proj = (ring) => {
+      let mx = -1; for (let i = 0; i < ring.n; i++) mx = Math.max(mx, ring.v[3 * i] * f.n[0] + ring.v[3 * i + 1] * f.n[1] + ring.v[3 * i + 2] * f.n[2]);
+      if (mx < 0.55) return false;
+      for (let i = 0; i < ring.n; i++) {
+        const px = ring.v[3 * i], py = ring.v[3 * i + 1], pz = ring.v[3 * i + 2], d = Math.max(0.1, px * f.n[0] + py * f.n[1] + pz * f.n[2]), s = f.k / d;
+        const wx = px * s - A[0], wy = py * s - A[1], wz = pz * s - A[2];
+        const d20 = wx * e1[0] + wy * e1[1] + wz * e1[2], d21 = wx * e2[0] + wy * e2[1] + wz * e2[2], den = f.d00 * f.d11 - f.d01 * f.d01;
+        const be = (f.d11 * d20 - f.d01 * d21) / den, ga = (f.d00 * d21 - f.d01 * d20) / den, al = 1 - be - ga;
+        const X = ox + (al * f.p[0][0] + be * f.p[1][0] + ga * f.p[2][0]) * e, Y = oy + (al * f.p[0][1] + be * f.p[1][1] + ga * f.p[2][1]) * e;
+        if (i) c.lineTo(X, Y); else c.moveTo(X, Y);
+      }
+      c.closePath(); return true;
+    };
+    for (const pass of [false, true]) {
+      c.beginPath(); let any = false; for (const r of RINGS) if (r.ice === pass) any = proj(r) || any;
+      if (!any) continue;
+      c.fillStyle = pass ? '#e6eff7' : '#7fc678'; c.fill(); c.strokeStyle = pass ? 'rgba(90,120,150,.8)' : 'rgba(18,70,45,.85)'; c.lineWidth = 1; c.stroke();
+    }
+    c.restore();
+    c.beginPath(); P.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.closePath(); c.strokeStyle = 'rgba(8,28,58,.95)'; c.lineWidth = 1.6; c.stroke();
+  });
+  NET = { key, cv };
+  return cv;
+}
+
+// --- state ---------------------------------------------------------------------------------------------------
+const S = {
+  rot: { lon: 20, lat: 18 }, rotT: null, drag: null, sec: null, up: 0, spin: 0, pt: 0, sig: '', kind: 'merc', y0: 0,
+  peel: { ans: null, closed: false, u: 0, auto: false },
+  size: { ans: null, closed: false, proj: 'merc', tissot: false, sel: null, moved: false },
+  route: { ans: null, closed: false, pair: 0 },
+  cut: { nx: nproj('merc', -41.5, 72.5)[0], ny: nproj('merc', -41.5, 72.5)[1] }, cutBox: null,
+  L: { init: false, g: { x: 0, y: 0, r: 0, a: 0 }, m: { x: 0, y: 0, w: 0, h: 0, a: 0 } },
+};
+const phase = (v) => (S[v].ans === null ? 'ask' : S[v].closed ? 'play' : 'verdict');
+const lab = shell({ key: 'projections', T, topics: TOPICS, views: ['peel', 'size', 'route'],
+  onLang: () => render(), onView: (v) => { S.sec = null; if (v === 'route') focusRoute(); render(); } });
+const secret = secretLab('projections', () => ({
+  secrets: [{ emo: '🧩', title: T[lang].secrets.dymaxion[0], desc: T[lang].secrets.dymaxion[1] }, { emo: '🙃', title: T[lang].secrets.upside[0], desc: T[lang].secrets.upside[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+const focusRoute = () => { const rt = ROUTES[S.route.pair]; S.rotT = { lon: rt.view.lon, lat: rt.view.lat }; };
+
+$('ctrlBody').innerHTML = `
+  <div class="pj-sec" id="pjPeel">
+    <input id="pjU" class="big" type="range" min="0" max="1000" value="0" style="--track:linear-gradient(90deg,#4ea8ff,#f0983c)">
+    <div class="ends"><span id="pjE0"></span><span id="pjE1"></span></div>
+    <div class="pj-row"><button class="chip pj-c" data-act="replay" id="pjReplay"></button></div>
+  </div>
+  <div class="pj-sec" id="pjSize">
+    <div class="chips" id="pjProj"></div>
+    <div class="pj-row" id="pjCtry"></div>
+  </div>
+  <div class="pj-sec" id="pjRoute"><div class="chips" id="pjPairs"></div></div>
+  <div class="pj-row" id="pjSecs"></div>`;
+const askEl = Object.assign(document.createElement('div'), { className: 'pj-ask card' });
+$('overlay').append(askEl);
+const cv = $('cv');
+let CW = 0, CH = 0;
+
+// --- canvas helpers ------------------------------------------------------------------------------------------
+function pill(c, txt, x, y, o = {}) {
+  c.save(); c.font = '800 12px Nunito, sans-serif';
+  const tw = c.measureText(txt).width + 16, ph = 22;
+  let px = o.align === 'left' ? x : o.align === 'right' ? x - tw : x - tw / 2;
+  px = clamp(px, 4, Math.max(4, CW - tw - 4)); const py = clamp(y - ph / 2, 4, Math.max(4, CH - ph - 4));
+  c.globalAlpha = 1; c.fillStyle = o.bg || 'rgba(12,16,32,.84)'; c.strokeStyle = o.line || 'rgba(255,255,255,.18)'; c.lineWidth = 1;
+  c.beginPath(); c.roundRect(px, py, tw, ph, 11); c.fill(); c.stroke();
+  c.fillStyle = o.fg || '#fff'; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(txt, px + 8, py + ph / 2 + 0.5); c.restore();
+}
+function plane(c, x, y, ang, col, s) {
+  c.save(); c.translate(x, y); c.rotate(ang); c.scale(s, s);
+  const top = [[10, 0], [3, -1.6], [-2, -8.5], [-4.6, -8.5], [-2.8, -1.8], [-7, -1.5], [-9, -4.2], [-10.8, -4.2], [-9.6, -0.8]];
+  c.beginPath(); top.forEach(([px, py], i) => (i ? c.lineTo(px, py) : c.moveTo(px, py))); for (let i = top.length - 1; i >= 0; i--) c.lineTo(top[i][0], -top[i][1]);
+  c.closePath(); c.shadowColor = 'rgba(0,0,0,.5)'; c.shadowBlur = 5; c.fillStyle = col; c.fill(); c.shadowBlur = 0;
+  c.strokeStyle = '#0c1426'; c.lineWidth = 1.3 / s; c.stroke(); c.restore();
+}
+function city(c, p, label, r) { // dot with a white ring
+  c.save(); c.fillStyle = '#fff'; c.strokeStyle = '#0c1426'; c.lineWidth = 1.5; c.beginPath(); c.arc(p[0], p[1], r, 0, TAU); c.fill(); c.stroke();
+  c.fillStyle = '#e5484d'; c.beginPath(); c.arc(p[0], p[1], Math.max(0, r - 2.2), 0, TAU); c.fill(); c.restore();
+  if (label) pill(c, label, p[0], p[1] - 17);
+}
+
+// --- the globe: orthographic, lit from the top left -----------------------------------------------------------
+const gMat = (view) => ({ m: [Math.sin(view.lon * D2R), Math.cos(view.lon * D2R), Math.sin(view.lat * D2R), Math.cos(view.lat * D2R)], cr: Math.cos(view.roll || 0), sr: Math.sin(view.roll || 0) });
+function gProjV(G, vx, vy, vz) {
+  const [sa, ca, sb, cb] = G.m, t = ca * vx + sa * vy; let x = -sa * vx + ca * vy, y = cb * vz - sb * t; const z = sb * vz + cb * t;
+  if (G.sr) { const xx = x * G.cr - y * G.sr; y = x * G.sr + y * G.cr; x = xx; }
+  return [G.cx + G.R * x, G.cy - G.R * y, z];
+}
+function gProj(G, lon, lat) { const c = Math.cos(lat * D2R); return gProjV(G, c * Math.cos(lon * D2R), c * Math.sin(lon * D2R), Math.sin(lat * D2R)); }
+// append a ring to the current path; points behind the globe are pushed to its edge
+function globePath(c, ring, G) {
+  const { v, n } = ring, [sa, ca, sb, cb] = G.m; let any = false;
+  for (let i = 0; i < n; i++) {
+    const vx = v[3 * i], vy = v[3 * i + 1], vz = v[3 * i + 2], t = ca * vx + sa * vy; let x = -sa * vx + ca * vy, y = cb * vz - sb * t; const z = sb * vz + cb * t;
+    if (G.sr) { const xx = x * G.cr - y * G.sr; y = x * G.sr + y * G.cr; x = xx; }
+    BUF.x[i] = x; BUF.y[i] = y; BUF.z[i] = z; if (z > 0) any = true;
+  }
+  if (!any) return false;
+  let pa = 0, hidPrev = false;
+  for (let i = 0; i <= n; i++) {
+    const k = i % n, hid = BUF.z[k] < 0; let x = BUF.x[k], y = BUF.y[k];
+    if (hid) { const l = Math.hypot(x, y); if (l > 1e-4) { x /= l; y /= l; } else { x = Math.cos(pa); y = Math.sin(pa); } }
+    const ang = Math.atan2(y, x);
+    if (i === 0) c.moveTo(G.cx + G.R * x, G.cy - G.R * y);
+    else {
+      if (hid && hidPrev) { const d = wrapAng(ang - pa), st = Math.ceil(Math.abs(d) / 0.12); for (let s = 1; s < st; s++) { const a2 = pa + d * s / st; c.lineTo(G.cx + G.R * Math.cos(a2), G.cy - G.R * Math.sin(a2)); } }
+      c.lineTo(G.cx + G.R * x, G.cy - G.R * y);
+    }
+    pa = ang; hidPrev = hid;
+  }
+  c.closePath(); return true;
+}
+function polyG(c, G, pts) { // a line on the globe, only where it faces us
+  let pen = false;
+  for (const [la, lo] of pts) { const p = gProj(G, lo, la); if (p[2] < 0.02) { pen = false; continue; } if (pen) c.lineTo(p[0], p[1]); else { c.moveTo(p[0], p[1]); pen = true; } }
+}
+const HL = { fill: '#f6a53c', line: '#8a4b08' };
+function drawGlobe(c, g, view, o = {}) {
+  if (g.a < 0.01 || g.r < 8) return;
+  const G = { ...gMat(view), cx: g.x, cy: g.y, R: g.r };
+  c.save(); c.globalAlpha = g.a; c.lineJoin = 'round';
+  const sh = c.createRadialGradient(g.x + g.r * 0.1, g.y + g.r * 1.12, 0, g.x + g.r * 0.1, g.y + g.r * 1.12, g.r * 0.9);
+  sh.addColorStop(0, 'rgba(0,0,0,.34)'); sh.addColorStop(1, 'rgba(0,0,0,0)');
+  c.fillStyle = sh; c.beginPath(); c.ellipse(g.x + g.r * 0.1, g.y + g.r * 1.12, g.r * 0.85, g.r * 0.17, 0, 0, TAU); c.fill();
+  const sea = c.createRadialGradient(g.x - g.r * 0.35, g.y - g.r * 0.4, g.r * 0.05, g.x - g.r * 0.2, g.y - g.r * 0.2, g.r * 1.5);
+  sea.addColorStop(0, '#58a4e6'); sea.addColorStop(0.45, '#2c78c0'); sea.addColorStop(1, '#123c78');
+  c.fillStyle = sea; c.beginPath(); c.arc(g.x, g.y, Math.max(0, g.r), 0, TAU); c.fill();
+  c.save(); c.beginPath(); c.arc(g.x, g.y, Math.max(0, g.r), 0, TAU); c.clip();
+  c.strokeStyle = 'rgba(255,255,255,.2)'; c.lineWidth = 1; c.beginPath();
+  for (const pl of GRAT_V) { let pen = false; for (const [vx, vy, vz] of pl) { const p = gProjV(G, vx, vy, vz); if (p[2] < 0.02) { pen = false; continue; } if (pen) c.lineTo(p[0], p[1]); else { c.moveTo(p[0], p[1]); pen = true; } } }
+  c.stroke();
+  const lg = c.createLinearGradient(g.x - g.r, g.y - g.r, g.x + g.r, g.y + g.r); lg.addColorStop(0, '#94d889'); lg.addColorStop(1, '#4c9a5c');
+  for (const ice of [false, true]) {
+    c.beginPath(); for (const r of RINGS) if (r.ice === ice) globePath(c, r, G);
+    c.fillStyle = ice ? '#e4eef6' : lg; c.fill(); c.strokeStyle = ice ? 'rgba(80,110,140,.85)' : 'rgba(16,66,44,.9)'; c.lineWidth = 1; c.stroke();
+  }
+  if (o.sel) { // highlighted country
+    const ct = CTRY[o.sel]; c.save();
+    if (ct.region) { c.beginPath(); globePath(c, ct.region, G); c.clip(); }
+    c.beginPath(); if (ct.ring) globePath(c, ct.ring, G); else for (const r of RINGS) globePath(c, r, G);
+    c.fillStyle = HL.fill; c.fill(); c.strokeStyle = HL.line; c.lineWidth = 1.2; c.stroke(); c.restore();
+  }
+  if (o.tissot) {
+    c.fillStyle = 'rgba(255,120,40,.62)'; c.strokeStyle = '#7a3200'; c.lineWidth = 1.1;
+    for (const r of TIS) { const p = gProjV(G, r.v[0], r.v[1], r.v[2]); if (p[2] < -0.2) continue; c.beginPath(); globePath(c, r, G); c.fill(); c.stroke(); }
+  }
+  if (o.over) o.over(c, G);
+  const sd = c.createRadialGradient(g.x - g.r * 0.4, g.y - g.r * 0.45, g.r * 0.05, g.x - g.r * 0.15, g.y - g.r * 0.2, g.r * 1.35);
+  sd.addColorStop(0, 'rgba(255,255,255,.2)'); sd.addColorStop(0.4, 'rgba(255,255,255,0)'); sd.addColorStop(0.72, 'rgba(0,10,40,.2)'); sd.addColorStop(1, 'rgba(0,10,40,.6)');
+  c.fillStyle = sd; c.fillRect(g.x - g.r, g.y - g.r, g.r * 2, g.r * 2);
+  const sp = c.createRadialGradient(g.x - g.r * 0.45, g.y - g.r * 0.5, 0, g.x - g.r * 0.45, g.y - g.r * 0.5, g.r * 0.28);
+  sp.addColorStop(0, 'rgba(255,255,255,.55)'); sp.addColorStop(1, 'rgba(255,255,255,0)');
+  c.fillStyle = sp; c.beginPath(); c.arc(g.x - g.r * 0.45, g.y - g.r * 0.5, Math.max(0, g.r * 0.28), 0, TAU); c.fill();
+  c.restore();
+  c.strokeStyle = 'rgba(130,190,255,.3)'; c.lineWidth = 3; c.beginPath(); c.arc(g.x, g.y, Math.max(0, g.r + 1.5), 0, TAU); c.stroke();
+  c.strokeStyle = '#0b2146'; c.lineWidth = 1.5; c.beginPath(); c.arc(g.x, g.y, Math.max(0, g.r), 0, TAU); c.stroke();
+  c.restore();
+}
+
+// --- a flat map in the chosen projection ----------------------------------------------------------------------
+function drawFlat(c, kind, r, o = {}) {
+  if (r.a < 0.01 || r.w < 20) return;
+  const B = flatBase(kind), mat = new DOMMatrix([r.w / 2, 0, 0, -r.h / 2, r.x + r.w / 2, r.y + r.h / 2]), cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+  const tr = (p) => { const q = new Path2D(); q.addPath(p, mat); return q; };
+  const pf = (lon, lat) => { const [nx, ny] = nproj(kind, lon, lat); return [cx + nx * r.w / 2, cy - ny * r.h / 2]; };
+  c.save(); c.globalAlpha = r.a; c.lineJoin = 'round';
+  if (o.rot) { c.translate(cx, cy); c.rotate(o.rot); c.translate(-cx, -cy); }
+  const frame = tr(B.outline), sea = c.createLinearGradient(r.x, r.y, r.x + r.w * 0.5, r.y + r.h);
+  sea.addColorStop(0, '#3f8fd6'); sea.addColorStop(1, '#1d559a');
+  c.shadowColor = 'rgba(0,0,0,.45)'; c.shadowBlur = 16; c.shadowOffsetY = 5; c.fillStyle = sea; c.fill(frame); c.shadowColor = 'transparent'; c.shadowBlur = 0; c.shadowOffsetY = 0;
+  c.save(); c.clip(frame);
+  c.strokeStyle = 'rgba(255,255,255,.2)'; c.lineWidth = 1; c.stroke(tr(B.grat));
+  const lg = c.createLinearGradient(0, r.y, 0, r.y + r.h); lg.addColorStop(0, '#94d889'); lg.addColorStop(1, '#4c9a5c');
+  c.fillStyle = lg; c.strokeStyle = 'rgba(16,66,44,.9)'; c.lineWidth = 1;
+  const land = tr(B.land), ice = tr(B.ice); c.fill(land); c.stroke(land);
+  c.fillStyle = '#e4eef6'; c.strokeStyle = 'rgba(80,110,140,.85)'; c.fill(ice); c.stroke(ice);
+  if (o.sel) {
+    const ct = CTRY[o.sel]; c.save();
+    if (ct.region) { const rp = new Path2D(); for (let i = 0; i < ct.region.n; i++) { const [x, y] = pf(ct.region.lon[i], ct.region.lat[i]); if (i) rp.lineTo(x, y); else rp.moveTo(x, y); } rp.closePath(); c.clip(rp); }
+    const hp = ct.ring ? tr(B.rings[ct.ring.id]) : land;
+    c.fillStyle = HL.fill; c.strokeStyle = HL.line; c.lineWidth = 1.2; c.fill(hp); c.stroke(hp); c.restore();
+  }
+  if (o.tissot) { const tp = tr(B.tis); c.fillStyle = 'rgba(255,120,40,.62)'; c.strokeStyle = '#7a3200'; c.lineWidth = 1.1; c.fill(tp); c.stroke(tp); }
+  if (o.over) o.over(c, pf);
+  const sheen = c.createLinearGradient(r.x, r.y, r.x + r.w * 0.6, r.y + r.h * 0.9); sheen.addColorStop(0, 'rgba(255,255,255,.16)'); sheen.addColorStop(0.5, 'rgba(255,255,255,0)');
+  c.fillStyle = sheen; c.fillRect(r.x, r.y, r.w, r.h);
+  c.restore();
+  c.strokeStyle = '#0b2146'; c.lineWidth = 1.5; c.stroke(frame);
+  if (o.rotOver) o.rotOver(c, r);
+  c.restore();
+}
+
+// --- the peel: globe -> strips -> flat map ---------------------------------------------------------------------
+const OUT = [0, 0, 0];
+function mp(M, gc, lonDeg, latDeg, sL, cL, cph, sph, mer) {
+  const X = cph * (sL * M.cv - cL * M.sv), Z = cph * (cL * M.cv + sL * M.sv);
+  let cf = cph, mf = mer, pf = latDeg * D2R;
+  if (Math.abs(latDeg) > M.pm) { const lc = latDeg > 0 ? M.pm : -M.pm; pf = lc * D2R; cf = Math.cos(pf); mf = mercY(lc); }
+  const dl = clamp(((lonDeg - gc + 540) % 360) - 180, -60, 60) * D2R;
+  const fx = gc * D2R + dl * (cf + M.s * (1 - cf)), fy = pf + (mf - pf) * M.s;
+  OUT[0] = M.cx + lerp(M.Rg * X, M.Rf * fx, M.a); OUT[1] = M.cy - lerp(M.Rg * sph, M.Rf * fy, M.a); OUT[2] = M.Rg * Z * (1 - M.a);
+}
+const overlaps = (r, gc) => [-360, 0, 360].some((sh) => r.x0 + sh <= gc + 17 && r.x1 + sh >= gc - 17);
+const mpv = (M, gc, lo, la) => { const l = lo * D2R, p = la * D2R; mp(M, gc, lo, la, Math.sin(l), Math.cos(l), Math.cos(p), Math.sin(p), mercY(clamp(la, -80, 80))); };
+function gapFrac(s) {
+  const pm = (90 - 10 * s) * D2R, N = 160; let cov = 0, tot = 0;
+  for (let i = 0; i < N; i++) { const ph = -pm + (i + 0.5) * 2 * pm / N, cf = Math.cos(ph), yd = (1 - s) + s / cf; cov += (cf + s * (1 - cf)) * yd; tot += yd; }
+  return 1 - cov / tot;
+}
+function drawMorph(c, w, h, y0, u) {
+  const ah = h - y0, cx = w / 2, cy = y0 + ah / 2, Rg = Math.min(w, ah) * 0.34, Rf = Math.min((w - 24) / TAU, (ah - 24) / (2 * MERC_MAX));
+  const a = ease(clamp01(u / 0.5)), s = ease(clamp01((u - 0.5) / 0.5)), lv = 30 * D2R;
+  const M = { cx, cy, Rg, Rf, a, s, pm: 90 - 10 * s, sv: Math.sin(lv), cv: Math.cos(lv) };
+  c.save(); c.lineJoin = 'round';
+  const fa = clamp01((a - 0.4) / 0.6) * 0.9; // the frame the flat map should fill: gaps show against it
+  if (fa > 0.01) {
+    const fh = lerp(Math.PI / 2, MERC_MAX, s) * Rf; c.globalAlpha = fa; c.fillStyle = 'rgba(160,185,235,.07)'; c.strokeStyle = 'rgba(190,205,255,.5)'; c.setLineDash([6, 5]); c.lineWidth = 1.2;
+    c.beginPath(); c.roundRect(cx - Math.PI * Rf, cy - fh, 2 * Math.PI * Rf, 2 * fh, 6); c.fill(); c.stroke(); c.setLineDash([]); c.globalAlpha = 1;
+  }
+  if (a < 0.5) { // soft shadow of the ball
+    const k = 1 - a * 2, sh = c.createRadialGradient(cx + Rg * 0.1, cy + Rg * 1.12, 0, cx + Rg * 0.1, cy + Rg * 1.12, Rg * 0.9);
+    sh.addColorStop(0, `rgba(0,0,0,${0.34 * k})`); sh.addColorStop(1, 'rgba(0,0,0,0)'); c.fillStyle = sh; c.beginPath(); c.ellipse(cx + Rg * 0.1, cy + Rg * 1.12, Rg * 0.85, Rg * 0.17, 0, 0, TAU); c.fill();
+  }
+  const sea = c.createRadialGradient(cx - Rg * 0.35, cy - Rg * 0.4, Rg * 0.05, cx - Rg * 0.2, cy - Rg * 0.2, Rg * 1.5);
+  sea.addColorStop(0, '#58a4e6'); sea.addColorStop(0.45, '#2c78c0'); sea.addColorStop(1, '#123c78');
+  const lg = c.createLinearGradient(cx - Rg, cy - Rg, cx + Rg, cy + Rg); lg.addColorStop(0, '#94d889'); lg.addColorStop(1, '#4c9a5c');
+  const gores = [];
+  for (let g = 0; g < 12; g++) { const gc = -165 + 30 * g; mpv(M, gc, gc, 0); gores.push({ gc, z: OUT[2] }); }
+  gores.sort((p, q) => p.z - q.z);
+  for (const { gc } of gores) {
+    const op = new Path2D(); let first = true;
+    for (let la = M.pm; la >= -M.pm - 0.01; la -= 5) { mpv(M, gc, gc - 15, Math.max(-M.pm, la)); if (first) op.moveTo(OUT[0], OUT[1]); else op.lineTo(OUT[0], OUT[1]); first = false; }
+    for (let la = -M.pm; la <= M.pm + 0.01; la += 5) { mpv(M, gc, gc + 15, Math.min(M.pm, la)); op.lineTo(OUT[0], OUT[1]); }
+    op.closePath();
+    c.save(); c.fillStyle = sea; c.fill(op); c.clip(op);
+    for (const ice of [false, true]) {
+      c.beginPath();
+      for (const r of RINGS) {
+        if (r.ice !== ice || !overlaps(r, gc)) continue;
+        for (let i = 0; i < r.n; i++) { mp(M, gc, r.lon[i], r.lat[i], r.sl[i], r.cl[i], r.cph[i], r.sph[i], r.mer[i]); if (i) c.lineTo(OUT[0], OUT[1]); else c.moveTo(OUT[0], OUT[1]); }
+        c.closePath();
+      }
+      c.fillStyle = ice ? '#e4eef6' : lg; c.fill(); c.strokeStyle = ice ? 'rgba(80,110,140,.85)' : 'rgba(16,66,44,.9)'; c.lineWidth = 1; c.stroke();
+    }
+    c.restore();
+    c.strokeStyle = `rgba(9,26,58,${0.55 + 0.35 * a})`; c.lineWidth = 1.2; c.stroke(op);
+  }
+  const k = clamp01(1 - a * 3);
+  if (k > 0.01) {
+    c.globalAlpha = k; const sd = c.createRadialGradient(cx - Rg * 0.4, cy - Rg * 0.45, Rg * 0.05, cx - Rg * 0.15, cy - Rg * 0.2, Rg * 1.35);
+    sd.addColorStop(0, 'rgba(255,255,255,.2)'); sd.addColorStop(0.4, 'rgba(255,255,255,0)'); sd.addColorStop(0.72, 'rgba(0,10,40,.2)'); sd.addColorStop(1, 'rgba(0,10,40,.6)');
+    c.fillStyle = sd; c.beginPath(); c.arc(cx, cy, Math.max(0, Rg), 0, TAU); c.fill();
+    const sp = c.createRadialGradient(cx - Rg * 0.45, cy - Rg * 0.5, 0, cx - Rg * 0.45, cy - Rg * 0.5, Rg * 0.28);
+    sp.addColorStop(0, 'rgba(255,255,255,.55)'); sp.addColorStop(1, 'rgba(255,255,255,0)'); c.fillStyle = sp; c.beginPath(); c.arc(cx - Rg * 0.45, cy - Rg * 0.5, Math.max(0, Rg * 0.28), 0, TAU); c.fill();
+  }
+  c.restore();
+}
+
+// --- layout: globe above (or beside) the flat map -------------------------------------------------------------
+function layout(w, h, y0, kind) {
+  const pad = 12, aw = w, ah = h - y0, asp = FLAT_ASP[kind];
+  const gOnly = { x: aw / 2, y: y0 + ah / 2, r: Math.min(aw, ah) * 0.33 };
+  const mw = Math.min(aw - 2 * pad, (ah - 2 * pad) / asp), mOnly = { x: (aw - mw) / 2, y: y0 + (ah - mw * asp) / 2, w: mw, h: mw * asp };
+  let both;
+  if (aw < 640) {
+    let mw2 = aw - 2 * pad, mh2 = mw2 * asp, gap = 18, gr = Math.min((ah - mh2 - 2 * pad - gap) / 2, aw * 0.31);
+    if (gr < 66) { gr = 66; mh2 = Math.max(60, ah - 2 * pad - gap - 2 * gr); mw2 = mh2 / asp; }
+    const top = y0 + (ah - (2 * gr + gap + mh2)) / 2;
+    both = { g: { x: aw / 2, y: top + gr, r: gr }, m: { x: (aw - mw2) / 2, y: top + 2 * gr + gap, w: mw2, h: mh2 } };
+  } else {
+    const gr = Math.min(ah * 0.42, aw * 0.17), gap = 28; let mw2 = aw - 2 * gr - gap - 3 * pad, mh2 = mw2 * asp;
+    if (mh2 > ah - 2 * pad) { mh2 = ah - 2 * pad; mw2 = mh2 / asp; }
+    const x0 = (aw - (2 * gr + gap + mw2)) / 2;
+    both = { g: { x: x0 + gr, y: y0 + ah / 2, r: gr }, m: { x: x0 + 2 * gr + gap, y: y0 + (ah - mh2) / 2, w: mw2, h: mh2 } };
+  }
+  return { gOnly, mOnly, both };
+}
+const approach = (o, t, k) => { for (const key in t) o[key] += (t[key] - o[key]) * k; };
+
+// --- the scene -------------------------------------------------------------------------------------------------
+canvasLoop(cv, (c, w, h, dt, time) => {
+  CW = w; CH = h; const t = T[lang], v = lab.view, ph = phase(v), sec = S.sec;
+  S.pt += dt;
+  // the question card sits on top of the picture: the picture moves down to make room
+  const askOn = !sec && ph !== 'play', ty0 = askOn ? (askEl.offsetHeight || 120) + 14 : 0;
+  S.y0 += (ty0 - S.y0) * (S.L.init ? Math.min(1, dt * 8) : 1);
+  const y0 = S.y0;
+  // peel slider animation after the reveal
+  const P = S.peel;
+  if (P.auto) { P.u = Math.min(1, P.u + dt / 6.5); if (P.u >= 1) P.auto = false; $('pjU').value = Math.round(P.u * 1000); }
+  S.up += ((sec === 'upside' ? 1 : 0) - S.up) * Math.min(1, dt * 4);
+  if (S.rotT) {
+    const k = Math.min(1, dt * 4), dl = ((S.rotT.lon - S.rot.lon + 540) % 360) - 180;
+    S.rot.lon += dl * k; S.rot.lat += (S.rotT.lat - S.rot.lat) * k;
+    if (Math.abs(dl) < 0.05 && Math.abs(S.rotT.lat - S.rot.lat) < 0.05) S.rotT = null;
+  }
+  // which parts show
+  let mode = 'both', kind = 'merc';
+  if (sec === 'dymaxion') mode = 'dym';
+  else if (sec === 'upside') { mode = 'both'; kind = 'eq'; }
+  else if (v === 'peel') mode = 'morph';
+  else if (v === 'size') { if (ph === 'ask') mode = 'map'; else { kind = S.size.proj === 'eq' ? 'eq' : 'merc'; mode = S.size.proj === 'globe' ? 'globe' : 'both'; } }
+  else if (ph === 'ask') mode = 'map';
+  const Lt = layout(w, h, y0, kind), L = S.L, kk = L.init ? Math.min(1, dt * 9) : 1;
+  const showG = mode === 'both' || mode === 'globe' || mode === 'dym', showM = mode === 'both' || mode === 'map';
+  const gt = mode === 'globe' ? Lt.gOnly : Lt.both.g, mt = mode === 'map' ? Lt.mOnly : Lt.both.m;
+  if (S.kind !== kind) { S.kind = kind; L.m.a = 0; }
+  if (mode === 'dym') { const gr = Math.min(w * 0.3, (h - y0) * 0.27); approach(L.g, { x: w / 2, y: y0 + 14 + gr, r: gr }, kk); }
+  else if (showG) approach(L.g, gt, kk); else Object.assign(L.g, { x: gt.x, y: gt.y, r: gt.r });
+  if (showM) approach(L.m, mt, kk); else Object.assign(L.m, mt);
+  L.g.a += ((showG ? 1 : 0) - L.g.a) * Math.min(1, dt * 7); L.m.a += ((showM ? 1 : 0) - L.m.a) * Math.min(1, dt * 7);
+  if (!L.init) { L.init = true; L.g.a = showG ? 1 : 0; L.m.a = showM ? 1 : 0; }
+  const view = { lon: S.rot.lon, lat: S.rot.lat, roll: S.up * Math.PI };
+  const sel = v === 'size' && ph !== 'ask' && !sec ? S.size.sel : null;
+
+  if (mode === 'morph') drawMorph(c, w, h, y0, P.u);
+  else if (mode === 'dym') drawDym(c, w, h, view);
+  else {
+    const rt = ROUTES[S.route.pair], isRoute = v === 'route' && !sec;
+    const globeOver = isRoute ? (cc, G) => routeGlobe(cc, G, rt, ph) : null;
+    drawGlobe(c, L.g, view, { sel, tissot: v === 'size' && S.size.tissot && !sec && ph !== 'ask', over: globeOver });
+    const roundOver = isRoute ? (cc, pf) => routeFlat(cc, pf, rt, ph, t) : v === 'size' && !sec && ph !== 'ask' ? (cc, pf) => sizeFlat(cc, pf, L.m, t) : null;
+    drawFlat(c, kind, L.m, { sel, tissot: v === 'size' && S.size.tissot && !sec && ph !== 'ask', over: roundOver, rot: S.up * Math.PI, rotOver: sec === 'upside' || S.up > 0.02 ? compass : null });
+    if (isRoute && ph !== 'ask') routePlanes(c, rt, L);
+    if (isRoute) routeLabels(c, rt, L, kind, ph, t);
+    if (v === 'size' && !sec && ph !== 'ask' && S.size.proj !== 'globe') sizeLabels(c, L, kind, t);
+  }
+  // readouts that move with the picture
+  const sig = `${v}|${ph}|${sec}|${Math.round(P.u * 400)}|${Math.round(S.cut.ny * 200)}`;
+  if (sig !== S.sig) { S.sig = sig; update(); }
+});
+
+function compass(c, r) { // an arrow that turns with the map
+  const x = r.x + 24, y = r.y + 26; c.save(); c.fillStyle = 'rgba(12,16,32,.82)'; c.strokeStyle = 'rgba(255,255,255,.25)'; c.beginPath(); c.arc(x, y, 18, 0, TAU); c.fill(); c.stroke();
+  c.fillStyle = '#ff5a4f'; c.beginPath(); c.moveTo(x, y - 14); c.lineTo(x + 6, y + 2); c.lineTo(x - 6, y + 2); c.closePath(); c.fill();
+  c.fillStyle = '#fff'; c.font = '900 12px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('N', x, y + 10); c.restore();
+}
+
+// Greenland cut-out: its true shape (Lambert equal-area, centred on Greenland) at Mercator's local scale for the latitude where it sits
+function cutOutline(r) {
+  const cx = r.x + r.w / 2 + S.cut.nx * r.w / 2, cy = r.y + r.h / 2 - S.cut.ny * r.h / 2, lat = latFromNy(S.cut.ny), sc = (r.w / TAU) / Math.cos(lat * D2R);
+  const l0 = -41.5 * D2R, p0 = 72.5 * D2R, pts = []; let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+  for (let i = 0; i < R_GREEN.n; i++) {
+    const lo = R_GREEN.lon[i] * D2R, la = R_GREEN.lat[i] * D2R, k = Math.sqrt(2 / (1 + Math.sin(p0) * Math.sin(la) + Math.cos(p0) * Math.cos(la) * Math.cos(lo - l0)));
+    const x = cx + sc * k * Math.cos(la) * Math.sin(lo - l0), y = cy - sc * k * (Math.cos(p0) * Math.sin(la) - Math.sin(p0) * Math.cos(la) * Math.cos(lo - l0));
+    pts.push([x, y]); x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+  }
+  return { pts, cx, cy, lat, bx: (x0 + x1) / 2, by: (y0 + y1) / 2, rx: (x1 - x0) / 2, ry: (y1 - y0) / 2 };
+}
+function sizeFlat(c, pf, r, t) {
+  if (S.size.proj !== 'merc') { S.cutBox = null; return; }
+  const o = cutOutline(r); S.cutBox = { x: o.bx, y: o.by, rx: Math.max(o.rx, 16) + 8, ry: Math.max(o.ry, 16) + 8 };
+  const gr = c.createLinearGradient(o.bx - o.rx, o.by - o.ry, o.bx + o.rx, o.by + o.ry); gr.addColorStop(0, '#ffc266'); gr.addColorStop(1, '#e8862a');
+  c.save(); c.beginPath(); o.pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.closePath();
+  c.shadowColor = 'rgba(0,0,0,.55)'; c.shadowBlur = 8; c.shadowOffsetY = 3; c.fillStyle = gr; c.fill(); c.shadowColor = 'transparent'; c.shadowBlur = 0; c.shadowOffsetY = 0;
+  c.strokeStyle = '#6a3406'; c.lineWidth = 1.8; c.stroke(); c.restore();
+}
+function sizeLabels(c, L, kind, t) { // tags drawn above the map (not turned with it)
+  const r = L.m; if (r.a < 0.5) return;
+  const pf = (lon, lat) => { const [nx, ny] = nproj(kind, lon, lat); return [r.x + r.w / 2 + nx * r.w / 2, r.y + r.h / 2 - ny * r.h / 2]; };
+  const ap = pf(20, 3); pill(c, `${t.size.ctry.africa} · ${t.size.area(nf(CTRY.africa.area, 1))}`, ap[0], ap[1] + 4, { bg: 'rgba(12,16,32,.86)' });
+  if (kind === 'merc') {
+    const o = cutOutline(r); pill(c, `${t.size.ctry.greenland} · ${t.size.area(nf(CTRY.greenland.area, 2))}`, o.bx, o.by + o.ry + 16, { bg: 'rgba(120,60,6,.9)' });
+    if (!S.size.moved) pill(c, `⇅ ${t.size.drag}`, o.bx, Math.max(o.by - o.ry - 14, r.y + 16), { bg: 'rgba(255,255,255,.92)', fg: '#10131f' });
+  } else { const gp = pf(-42, 72); pill(c, `${t.size.ctry.greenland} · ${t.size.area(nf(CTRY.greenland.area, 2))}`, gp[0], gp[1] + 16); }
+}
+
+// route drawing -------------------------------------------------------------------------------------------------
+const RCOL = { gc: '#3ddc97', rh: '#ff7a59', neutral: '#fff3c4' };
+function routeGlobe(c, G, rt, ph) {
+  c.lineCap = 'round';
+  for (const [pts, col] of [[rt.rh, RCOL.rh], [rt.gc, RCOL.gc]]) {
+    c.beginPath(); polyG(c, G, pts); c.strokeStyle = '#0c1426'; c.lineWidth = 5.5; c.stroke(); c.strokeStyle = col; c.lineWidth = 3; c.stroke();
+  }
+  for (const p of [rt.a, rt.b]) { const q = gProj(G, p[1], p[0]); if (q[2] > 0.02) city(c, q, null, 5); }
+}
+function routeFlat(c, pf, rt, ph, t) {
+  c.lineCap = 'round'; c.lineJoin = 'round';
+  const draw = (pts, col) => { c.beginPath(); let prev = null; pts.forEach(([la, lo], i) => { const p = pf(lo, la); if (i === 0 || (prev !== null && Math.abs(lo - prev) > 180)) c.moveTo(p[0], p[1]); else c.lineTo(p[0], p[1]); prev = lo; }); c.strokeStyle = '#0c1426'; c.lineWidth = 5.5; c.stroke(); c.strokeStyle = col; c.lineWidth = 3; c.stroke(); };
+  draw(rt.rh, ph === 'ask' ? RCOL.neutral : RCOL.rh); draw(rt.gc, ph === 'ask' ? RCOL.neutral : RCOL.gc);
+}
+function routeLabels(c, rt, L, kind, ph, t) {
+  const r = L.m; if (r.a < 0.5) return;
+  const pf = (lon, lat) => { const [nx, ny] = nproj(kind, lon, lat); return [r.x + r.w / 2 + nx * r.w / 2, r.y + r.h / 2 - ny * r.h / 2]; };
+  [[rt.a, rt.ka], [rt.b, rt.kb]].forEach(([p, k]) => city(c, pf(p[1], p[0]), t.route.city[k], 5.5));
+  if (ph === 'ask') return;
+  const mg = rt.gc[Math.round(rt.gc.length * 0.5)], mr = rt.rh[Math.round(rt.rh.length * 0.5)], pg = pf(mg[1], mg[0]), prr = pf(mr[1], mr[0]);
+  pill(c, t.route.gc, pg[0], pg[1] - (pg[1] < prr[1] ? 18 : -18), { bg: 'rgba(8,70,48,.9)', line: RCOL.gc });
+  pill(c, t.route.rh, prr[0], prr[1] - (pg[1] < prr[1] ? -18 : 18), { bg: 'rgba(110,40,20,.9)', line: RCOL.rh });
+}
+function routePlanes(c, rt, L) {
+  const speed = rt.rhKm / 6.5, cyc = rt.rhKm / speed + 1.4, d = (S.pt % cyc) * speed, kind = S.kind;
+  const r = L.m, pf = (lon, lat) => { const [nx, ny] = nproj(kind, lon, lat); return [r.x + r.w / 2 + nx * r.w / 2, r.y + r.h / 2 - ny * r.h / 2]; };
+  const G = { ...gMat({ lon: S.rot.lon, lat: S.rot.lat, roll: 0 }), cx: L.g.x, cy: L.g.y, R: L.g.r };
+  for (const [pts, cum, col] of [[rt.rh, rt.rhCum, RCOL.rh], [rt.gc, rt.gcCum, RCOL.gc]]) {
+    const q = onRoute(pts, cum, d);
+    if (L.m.a > 0.5) { const p = pf(q.lon, q.lat), n = pf(q.nlon, q.nlat), p0 = pf(q.plon, q.plat); plane(c, p[0], p[1], Math.atan2(n[1] - p0[1], n[0] - p0[0]), col, 1.1); }
+    if (L.g.a > 0.5) { const p = gProj(G, q.lon, q.lat); if (p[2] > 0.05) { const n = gProj(G, q.nlon, q.nlat), p0 = gProj(G, q.plon, q.plat); plane(c, p[0], p[1], Math.atan2(n[1] - p0[1], n[0] - p0[0]), col, 1.1); } }
+  }
+}
+
+// the secret net of 20 triangles, with the cuts drawn on the globe above it
+function drawDym(c, w, h, view) {
+  const g = S.L.g;
+  drawGlobe(c, g, view, { over: (cc, G) => { cc.lineCap = 'round'; cc.strokeStyle = '#f5c84c'; cc.lineWidth = 2.2; cc.beginPath(); for (const arc of ICO.arcs) { let pen = false; for (const [vx, vy, vz] of arc) { const p = gProjV(G, vx, vy, vz); if (p[2] < 0.02) { pen = false; continue; } if (pen) cc.lineTo(p[0], p[1]); else { cc.moveTo(p[0], p[1]); pen = true; } } } cc.stroke(); } });
+  const top = g.y + g.r + 22, nw = Math.min(w - 24, (h - top - 12) / (ICO.H / ICO.W) * 1), nh = nw * ICO.H / ICO.W, dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const net = buildNet(Math.round(nw), Math.round(nh), dpr);
+  c.save(); c.shadowColor = 'rgba(0,0,0,.45)'; c.shadowBlur = 14; c.shadowOffsetY = 5; c.drawImage(net, (w - nw) / 2, top + Math.max(0, (h - top - nh - 12) / 2), nw, nh); c.restore();
+}
+
+// --- pointer: turn the globe, drag the cut-out ----------------------------------------------------------------
+const pos = (ev) => { const r = cv.getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; };
+cv.addEventListener('pointerdown', (ev) => {
+  const [x, y] = pos(ev), v = lab.view, L = S.L;
+  if (S.sec === 'upside' || S.sec === 'dymaxion' && v === 'peel') return;
+  if (v === 'size' && !S.sec && phase('size') !== 'ask' && S.size.proj === 'merc' && S.cutBox && L.m.a > 0.5 && Math.abs(x - S.cutBox.x) < S.cutBox.rx && Math.abs(y - S.cutBox.y) < S.cutBox.ry) {
+    const o = cutOutline(L.m); S.drag = { kind: 'cut', dx: x - o.cx, dy: y - o.cy }; cv.setPointerCapture(ev.pointerId); sfx.tick(); return;
+  }
+  if ((v !== 'peel' || S.sec) && L.g.a > 0.5 && Math.hypot(x - L.g.x, y - L.g.y) < L.g.r + 8) { S.drag = { kind: 'globe', x, y }; S.rotT = null; cv.setPointerCapture(ev.pointerId); }
+});
+cv.addEventListener('pointermove', (ev) => {
+  if (!S.drag) return;
+  const [x, y] = pos(ev), L = S.L;
+  if (S.drag.kind === 'globe') {
+    const k = 57.3 / Math.max(40, L.g.r);
+    S.rot.lon -= (x - S.drag.x) * k; S.rot.lat = clamp(S.rot.lat + (y - S.drag.y) * k, -85, 85); S.drag.x = x; S.drag.y = y;
+  } else {
+    const r = L.m;
+    S.cut.nx = clamp((x - S.drag.dx - r.x - r.w / 2) / (r.w / 2), -0.98, 0.98); S.cut.ny = clamp(-(y - S.drag.dy - r.y - r.h / 2) / (r.h / 2), -0.97, 0.97); S.size.moved = true;
+  }
+});
+const endDrag = () => { S.drag = null; };
+cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
+
+// --- controls --------------------------------------------------------------------------------------------------
+const showStage = () => { const r = $('stage').getBoundingClientRect(); if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+askEl.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  const v = lab.view, st = S[v];
+  if (b.dataset.a) {
+    st.ans = b.dataset.a; (st.ans === T[lang].ask[v].ok ? sfx.good : sfx.bad)();
+    if (v === 'peel') { st.u = 0; st.auto = true; }
+    if (v === 'route') focusRoute();
+    showStage();
+  } else if (b.dataset.go) { st.closed = true; sfx.click(); }
+  render();
+});
+$('pjU').addEventListener('input', (ev) => { S.peel.u = +ev.target.value / 1000; S.peel.auto = false; });
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b) return;
+  const act = b.dataset.act, k = b.dataset.k;
+  if (act === 'replay') { S.peel.u = 0; S.peel.auto = true; $('pjU').value = 0; sfx.click(); }
+  else if (act === 'proj') { S.size.proj = k; sfx.click(); }
+  else if (act === 'tissot') { S.size.tissot = !S.size.tissot; sfx.click(); }
+  else if (act === 'ctry') { S.size.sel = S.size.sel === k ? null : k; sfx.click(); }
+  else if (act === 'pair') { S.route.pair = +k; focusRoute(); S.pt = 0; sfx.click(); }
+  else if (act === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    S.sec = S.sec === k ? null : k; if (S.sec) S.rotT = { lon: 15, lat: 20 }; sfx.click();
+  }
+  render();
+});
+
+// --- one render per change: controls, the question card; update() refreshes the readout and the state card ----
+function render() {
+  const t = T[lang], v = lab.view, ph = phase(v), sec = S.sec;
+  $('pjPeel').classList.toggle('on', !sec && v === 'peel' && ph !== 'ask');
+  $('pjSize').classList.toggle('on', !sec && v === 'size' && ph !== 'ask');
+  $('pjRoute').classList.toggle('on', !sec && v === 'route');
+  $('pjE0').textContent = t.peel.ends[0]; $('pjE1').textContent = t.peel.ends[1]; $('pjReplay').textContent = t.peel.replay; $('pjU').setAttribute('aria-label', `${t.peel.ends[0]} → ${t.peel.ends[1]}`);
+  const chip = (act, k, label, on, extra = '') => `<button class="chip pj-c${on ? ' on' : ''}${extra}" data-act="${act}" data-k="${k}">${esc(label)}</button>`;
+  $('pjProj').innerHTML = ['merc', 'eq', 'globe'].map((k) => chip('proj', k, t.size.proj[k], S.size.proj === k)).join('') + chip('tissot', 'x', t.size.tissot, S.size.tissot);
+  $('pjCtry').innerHTML = CKEYS.map((k) => chip('ctry', k, t.size.ctry[k], S.size.sel === k)).join('');
+  $('pjPairs').innerHTML = t.route.pairs.map((l, i) => chip('pair', i, l, S.route.pair === i)).join('');
+  const open = secret.unlocked(), sc = (k, emo) => `<button class="chip pj-c secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  $('pjSecs').innerHTML = sc('dymaxion', '🧩') + sc('upside', '🙃');
+  document.body.dataset.v = v;
+  askEl.style.display = !sec && ph !== 'play' ? '' : 'none';
+  if (!sec && ph !== 'play') {
+    const A = t.ask[v], st = S[v];
+    const opts = A.opts.map(([id, label]) => `<button data-a="${id}" class="${ph === 'verdict' ? (id === A.ok ? 'ok' : id === st.ans ? 'bad' : '') : ''}"${ph === 'verdict' ? ' disabled' : ''}>${esc(label)}</button>`).join('');
+    const good = st.ans === A.ok;
+    askEl.innerHTML = ph === 'ask' ? `<div class="q">${esc(A.q)}</div><div class="opts">${opts}</div>`
+      : `<div class="q small">${esc(A.q)}</div><div class="opts">${opts}</div><div class="verdict" style="color:${good ? 'var(--ok)' : 'var(--wip)'}">${esc(good ? t.right : t.wrong)}</div><p>${esc(A.why)}</p><div class="opts"><button class="go" data-go="1">${esc(t.go)}</button></div>`;
+  }
+  S.sig = ''; update();
+}
+
+function update() {
+  const t = T[lang], v = lab.view, ph = phase(v), sec = S.sec;
+  let st, ro, facts = [];
+  if (sec) {
+    const s = t.sec[sec]; lab.setGlow(sec === 'dymaxion' ? 'rgba(245,200,76,.22)' : 'rgba(255,90,79,.2)');
+    ro = [s[3], s[4], '', sec === 'dymaxion' ? '#f5c84c' : '#ff5a4f']; st = { emo: s[0], title: s[1], lead: s[2], body: '', extra: '' };
+  } else if (v === 'peel') {
+    lab.setGlow('rgba(240,150,60,.26)'); facts = t.facts.peel;
+    if (ph === 'ask') { ro = ['?', '', '', '#f0983c']; st = { emo: '🤔', title: t.ask.peel.q, lead: t.peel.lead, body: '', extra: '' }; }
+    else {
+      const u = S.peel.u, a = ease(clamp01(u / 0.5)), s = ease(clamp01((u - 0.5) / 0.5)), gap = Math.round(gapFrac(s) * a * 100);
+      const key = u < 0.02 ? 'globe' : s < 0.02 ? 'gores' : s < 0.98 ? 'stretch' : 'full', k = s < 0.005 ? nf(1) : s > 0.995 ? nf(2) : nf(1 + s, 1);
+      ro = [t.peel.gaps(gap), '', t.peel.stretch(k), '#f0983c']; const q = t.peel.st[key]; st = { emo: q[0], title: q[1], lead: q[2], body: '', extra: '' };
+    }
+  } else if (v === 'size') {
+    lab.setGlow('rgba(78,168,255,.26)');
+    if (ph === 'ask') { ro = ['?', '', '', '#4ea8ff']; st = { emo: '🤔', title: t.ask.size.q, lead: '', body: '', extra: '' }; }
+    else {
+      facts = t.facts.size;
+      const A = areas(), pr = S.size.proj; let ratio = A.a.tru / A.g.tru;
+      if (pr === 'merc') ratio = A.a.mer / (A.g.tru / Math.cos(latFromNy(S.cut.ny) * D2R) ** 2);
+      ro = [`×${nf(ratio, ratio < 10 ? 1 : 0)}`, t.size.sub, t.size.real(14), '#4ea8ff'];
+      const q = t.size.st[pr], sel = S.size.sel, ex = [];
+      if (S.size.tissot) ex.push(t.size.tis);
+      if (sel) ex.push(t.size.realArea(t.size.ctry[sel], nf(CTRY[sel].area, CTRY[sel].d)));
+      st = { emo: q[0], title: q[1], lead: q[2], body: '', extra: ex.map((x) => `<div>${esc(x)}</div>`).join('') };
+    }
+  } else {
+    lab.setGlow('rgba(61,220,151,.24)'); const rt = ROUTES[S.route.pair], r = t.route;
+    if (ph === 'ask') { ro = ['?', '', '', '#3ddc97']; st = { emo: '🤔', title: t.ask.route.q, lead: r.lead, body: '', extra: '' }; }
+    else {
+      facts = t.facts.route; const g = Math.round(rt.gcKm / 10) * 10, rh = Math.round(rt.rhKm / 10) * 10;
+      ro = [`${nf(g)} ${r.km}`, r.gc, `${r.rh}: ${nf(rh)} ${r.km}`, '#3ddc97']; st = { emo: '✈️', title: r.title, lead: r.lead2, body: r.body(nf(g), nf(rh), nf(rh - g)), extra: '' };
+    }
+  }
+  lab.setReadout(ro[0], ro[1], ro[2], ro[3]); lab.setState(st); lab.setFacts(facts);
+}
+render();
+</script>
+</body>
+</html>
