@@ -1,0 +1,914 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Line Up the Point · Skill Graph</title>
+<meta name="description" content="Add and take away decimals on a long-jump tape: line up the decimal point, zoom into tenths and hundredths, and exchange across the point. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  #stage canvas { touch-action: pan-y; }
+  .dp-ask { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); width: min(520px, calc(100% - 16px)); padding: 10px 12px; text-align: center; z-index: 2; }
+  .dp-ask .q { font: 500 20px/1.15 var(--serif); color: #fff; margin-bottom: 8px; text-wrap: balance; }
+  .dp-ask .v { font-weight: 900; font-size: 15px; margin-bottom: 6px; }
+  .dp-ask .v.ok { color: var(--ok); }
+  .dp-ask .v.no { color: var(--wip); }
+  .dp-ask .opts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .dp-ask button { min-height: 38px; padding: 7px 16px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .12); font-weight: 800; cursor: pointer; }
+  .dp-ask button:hover:not(:disabled) { background: rgba(130, 145, 190, .26); }
+  .dp-ask button:disabled { cursor: default; opacity: .5; }
+  .dp-ask button.good { opacity: 1; border-color: var(--ok); background: rgba(61, 220, 151, .22); }
+  .dp-ask button.bad { opacity: 1; border-color: var(--wip); background: rgba(245, 200, 76, .16); }
+  .dp-sl { margin: 0 0 2px; }
+  .dp-note { font-size: 11px; color: var(--faint); }
+  .dp-chip { min-height: 36px; }
+  .btn:disabled { opacity: .35; cursor: default; }
+  @media (max-width: 760px) {
+    #stage { height: min(152vw, 640px); }
+    .dp-ask .q { font-size: 17px; }
+    .dp-ask { padding: 8px 10px; }
+  }
+  @media (min-width: 761px) { #stage { min-height: 620px; } }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, ruPlural, lang } from '../lab.js';
+
+// --- number formatting: a point in English, a comma in Russian and Hungarian ---------------------------------
+const fmt = (x, p = 2) => { const s = (Math.round(x * 1000) / 1000).toFixed(p); return lang === 'en' ? s : s.replace('.', ','); };
+const loc = (s) => (lang === 'en' ? s : String(s).replace('.', ','));
+
+// --- texts ---------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Line Up the Point', title: 'Where do the tenths go?',
+    lines: [['Add two ribbons', 'on a long-jump tape.'], ['Line up the point,', 'then add.'], ['Zoom into a metre', 'to see tenths and hundredths.']],
+    views: { add: '➕ Add', places: '🔍 Places', take: '➖ Take away' },
+    keyLead: 'Line up the decimal point: tenths go under tenths, hundredths under hundredths.',
+    secrets: { jump: ['World-record jump', 'How big is a hundredth?'], thousandths: ['Thousandths', 'One more zoom'] },
+    cols: ['Ones', 'Tenths', 'Hundredths', 'Thousandths'], m: 'm', ok: 'Right!',
+    a: {
+      q: (x, y) => `What is ${x} + ${y}?`,
+      hint: 'Set up the sum on the board: slide the shorter number, or tap a button. Then choose an answer.',
+      edge: 'Line up by the right edge', point: 'Line up by the point', next: 'Next sum →',
+      no: (g, r) => `Not ${g}: it is ${r}.`,
+      mTitle: 'The points do not line up.',
+      mLead: (w, r) => `The board adds up to ${w}, but the tape says ${r}. Slide the shorter number until its point is under the red one.`,
+      tape: 'Tape', board: 'Board',
+    },
+    p: {
+      q: (x, y) => `Which is longer: ${x} m or ${y} m?`, opts: (x, y) => [`${x} m`, `${y} m`, 'The same'],
+      hint: 'The ribbons are behind the curtain. Which one is longer?',
+      no: (r) => `Not quite: ${r} m is longer.`,
+      cmp: (x, y) => `${y} is 5 tenths. ${x} is 2 tenths and 5 hundredths. More digits does not mean a bigger number.`,
+      go: 'Zoom in →', zoom: 'Zoom', zz: ['×1', '×10', '×100'], zeroAdd: 'Add a zero at the end', zeroDel: 'Remove the zero',
+      sub: (o, t, h, th, four) => `${o} ones · ${t} tenths · ${h} hundredths${four ? ` · ${th} thousandths` : ''}`,
+      lv: (k) => [['The whole tape', 'Metres, with tenths between them.'],
+        ['Inside one metre', `10 tenths make 1 m. One tenth is ${fmt(0.1, 1)} m.`],
+        ['Inside one tenth', `10 hundredths make 1 tenth. One hundredth is ${fmt(0.01, 2)} m.`],
+        ['Inside one hundredth', `10 thousandths make 1 hundredth. One thousandth is ${fmt(0.001, 3)} m: 1 mm.`]][k],
+      zero: (a, b) => [`${a} = ${b}`, 'A zero at the end changes nothing. The ribbon stays the same length.'],
+      slider: 'Number',
+    },
+    k: {
+      q: (x, y) => `What is ${x} − ${y}?`, hint: 'Choose first. Then use the pieces to check.',
+      brk: ['Break 1 one into 10 tenths', 'Break 1 tenth into 10 hundredths'],
+      take: [(n) => `Take away ${n} ${n === 1 ? 'one' : 'ones'}`, (n) => `Take away ${n} ${n === 1 ? 'tenth' : 'tenths'}`, (n) => `Take away ${n} ${n === 1 ? 'hundredth' : 'hundredths'}`],
+      need: ['Not enough ones to take away.', 'Not enough tenths to take away.', 'Not enough hundredths to take away.'],
+      needEnd: ' Break a bigger piece into 10 smaller ones.', takeT: 'There are enough pieces. Take them away.',
+      done: (r) => `The answer is ${r}`, doneLead: 'Breaking a piece into 10 smaller ones never changes the total: 1 = 10 tenths = 100 hundredths.',
+      again: '↺ Again', no: (g, r) => `Not ${g}: it is ${r}.`, away: 'taken away',
+    },
+    j: {
+      steps: ['+0.01 m', '+0.1 m', '+1 m'], reset: '↺ Reset', record: 'Record', your: 'Your sum',
+      lead: (n, gap) => `${gap} m to the record: ${n} ${n === 1 ? 'step' : 'steps'} of ${fmt(0.01, 2)} m. One step is 1 cm.`,
+      beat: 'That is past the world record!', equal: 'Exactly the world record!', cm: (x) => `${x} m = 1 cm`,
+    },
+    quiz: [
+      { q: '0.5 + 0.25 = ?', opts: ['0.30', '0.75', '0.7'], ok: 1 },
+      { q: 'Which number is bigger?', opts: ['0.25', '0.5', 'They are equal'], ok: 1 },
+      { q: 'Is 0.50 the same as 0.5?', opts: ['Yes', 'No, 0.50 is bigger', 'No, 0.50 is smaller'], ok: 0 },
+    ],
+    facts: {
+      add: [{ emo: '🌍', text: 'England writes 0.5 with a point; Russia, Hungary and most of Europe write 0,5 with a comma. Both mean five tenths, and both are allowed by the international standard.', src: 'BIPM, SI Brochure (2019), 5.4.3' }],
+      places: [{ emo: '📘', text: 'Decimal fractions became popular in Europe after Simon Stevin’s little book “The Tenth” in 1585.', src: 'Britannica, “Simon Stevin”' }],
+      take: [{ emo: '⏱️', text: 'Usain Bolt ran 100 metres in 9.58 seconds in 2009. Sprints are timed to hundredths of a second.', src: 'World Athletics' }],
+      jump: [{ emo: '🏅', text: 'The long-jump world record, 8.95 m, was set by Mike Powell in Tokyo in 1991.', src: 'World Athletics' }],
+    },
+  },
+  ru: {
+    name: 'Запятая под запятой', title: 'Куда встают десятые?',
+    lines: [['Сложи две ленты', 'на рулетке прыжковой ямы.'], ['Поставь запятую под запятой', 'и складывай.'], ['Загляни внутрь метра:', 'десятые и сотые.']],
+    views: { add: '➕ Сложение', places: '🔍 Разряды', take: '➖ Вычитание' },
+    keyLead: 'Запятая под запятой: десятые под десятыми, сотые под сотыми.',
+    secrets: { jump: ['Мировой рекорд', 'Какая она, сотая?'], thousandths: ['Тысячные', 'Ещё одно увеличение'] },
+    cols: ['Единицы', 'Десятые', 'Сотые', 'Тысячные'], m: 'м', ok: 'Верно!',
+    a: {
+      q: (x, y) => `Сколько будет ${x} + ${y}?`,
+      hint: 'Составь пример на доске: сдвинь короткое число или нажми кнопку. Потом выбери ответ.',
+      edge: 'Выровнять по правому краю', point: 'Запятая под запятой', next: 'Следующий пример →',
+      no: (g, r) => `Не ${g}: получается ${r}.`,
+      mTitle: 'Запятые стоят не друг под другом.',
+      mLead: (w, r) => `Доска насчитала ${w}, а рулетка показывает ${r}. Сдвинь короткое число, чтобы его запятая встала под красной.`,
+      tape: 'Рулетка', board: 'Доска',
+    },
+    p: {
+      q: (x, y) => `Что длиннее: ${x} м или ${y} м?`, opts: (x, y) => [`${x} м`, `${y} м`, 'Одинаково'],
+      hint: 'Ленты спрятаны за шторкой. Какая из них длиннее?',
+      no: (r) => `Не совсем: длиннее ${r} м.`,
+      cmp: (x, y) => `${y} — это 5 десятых. ${x} — это 2 десятых и 5 сотых. Больше цифр не значит больше число.`,
+      go: 'Приблизить →', zoom: 'Увеличение', zz: ['×1', '×10', '×100'], zeroAdd: 'Дописать ноль в конце', zeroDel: 'Убрать ноль',
+      sub: (o, t, h, th, four) => `${o} ед. · ${t} дес. · ${h} сот.${four ? ` · ${th} тыс.` : ''}`,
+      lv: (k) => [['Вся рулетка', 'Метры, а между ними десятые.'],
+        ['Внутри метра', `В метре 10 десятых. Одна десятая — это ${fmt(0.1, 1)} м.`],
+        ['Внутри десятой', `В десятой 10 сотых. Одна сотая — это ${fmt(0.01, 2)} м.`],
+        ['Внутри сотой', `В сотой 10 тысячных. Одна тысячная — это ${fmt(0.001, 3)} м, то есть 1 мм.`]][k],
+      zero: (a, b) => [`${a} = ${b}`, 'Ноль в конце ничего не меняет. Лента остаётся такой же длины.'],
+      slider: 'Число',
+    },
+    k: {
+      q: (x, y) => `Сколько будет ${x} − ${y}?`, hint: 'Сначала выбери ответ. Потом проверь его кусочками.',
+      brk: ['Разбей 1 единицу на 10 десятых', 'Разбей 1 десятую на 10 сотых'],
+      take: [(n) => `Убери ${n} ${ruPlural(n, 'единицу', 'единицы', 'единиц')}`, (n) => `Убери ${n} ${ruPlural(n, 'десятую', 'десятые', 'десятых')}`, (n) => `Убери ${n} ${ruPlural(n, 'сотую', 'сотые', 'сотых')}`],
+      need: ['Единиц не хватает.', 'Десятых не хватает.', 'Сотых не хватает.'],
+      needEnd: ' Разбей крупный кусочек на 10 мелких.', takeT: 'Кусочков хватает. Убери их.',
+      done: (r) => `Получилось ${r}`, doneLead: 'Если разбить кусочек на 10 мелких, общая сумма не меняется: 1 = 10 десятых = 100 сотых.',
+      again: '↺ Заново', no: (g, r) => `Не ${g}: получается ${r}.`, away: 'убрано',
+    },
+    j: {
+      steps: ['+0,01 м', '+0,1 м', '+1 м'], reset: '↺ Сначала', record: 'Рекорд', your: 'Твоя сумма',
+      lead: (n, gap) => `До рекорда ${gap} м — это ${n} ${ruPlural(n, 'шаг', 'шага', 'шагов')} по ${fmt(0.01, 2)} м. Один шаг — 1 см.`,
+      beat: 'Это дальше мирового рекорда!', equal: 'Ровно мировой рекорд!', cm: (x) => `${x} м = 1 см`,
+    },
+    quiz: [
+      { q: '0,5 + 0,25 = ?', opts: ['0,30', '0,75', '0,7'], ok: 1 },
+      { q: 'Какое число больше?', opts: ['0,25', '0,5', 'Они равны'], ok: 1 },
+      { q: 'Равны ли 0,50 и 0,5?', opts: ['Да', 'Нет, 0,50 больше', 'Нет, 0,50 меньше'], ok: 0 },
+    ],
+    facts: {
+      add: [{ emo: '🌍', text: 'В Англии пишут 0.5 с точкой; в России, Венгрии и большей части Европы — 0,5 с запятой. Оба знака значат «пять десятых», и международный стандарт разрешает оба.', src: 'BIPM, SI Brochure (2019), 5.4.3' }],
+      places: [{ emo: '📘', text: 'Десятичные дроби стали популярны в Европе после маленькой книги Симона Стевина «Десятая» (1585).', src: 'Britannica, “Simon Stevin”' }],
+      take: [{ emo: '⏱️', text: 'Усэйн Болт пробежал 100 метров за 9,58 секунды в 2009 году. Спринт засекают с точностью до сотых долей секунды.', src: 'World Athletics' }],
+      jump: [{ emo: '🏅', text: 'Мировой рекорд в прыжках в длину — 8,95 м — установил Майк Пауэлл в Токио в 1991 году.', src: 'World Athletics' }],
+    },
+  },
+  hu: {
+    name: 'Vessző a vessző alá', title: 'Hová kerülnek a tizedek?',
+    lines: [['Adj össze két szalagot', 'a távolugrógödör mérőszalagján.'], ['Tedd a vesszőt a vessző alá,', 'aztán add össze.'], ['Nagyíts bele egy méterbe:', 'tizedek és századok.']],
+    views: { add: '➕ Összeadás', places: '🔍 Helyiértékek', take: '➖ Kivonás' },
+    keyLead: 'Vessző a vessző alá: tized a tized alá, század a század alá.',
+    secrets: { jump: ['Világrekord', 'Mekkora egy század?'], thousandths: ['Ezredek', 'Még egy nagyítás'] },
+    cols: ['Egyesek', 'Tizedek', 'Századok', 'Ezredek'], m: 'm', ok: 'Így van!',
+    a: {
+      q: (x, y) => `Mennyi ${x} + ${y}?`,
+      hint: 'Állítsd össze az összeadást a táblán: told el a rövidebb számot, vagy koppints egy gombra. Aztán válaszd ki az eredményt.',
+      edge: 'Igazítás a jobb széléhez', point: 'Vessző a vessző alá', next: 'Következő →',
+      no: (g, r) => `Nem ${g}, hanem ${r}.`,
+      mTitle: 'A vesszők nem egymás alatt vannak.',
+      mLead: (w, r) => `A tábla szerint ${w}, a mérőszalag szerint ${r}. Told el a rövidebb számot, hogy a vesszője a piros alá kerüljön.`,
+      tape: 'Mérőszalag', board: 'Tábla',
+    },
+    p: {
+      q: (x, y) => `Melyik hosszabb: ${x} m vagy ${y} m?`, opts: (x, y) => [`${x} m`, `${y} m`, 'Egyforma'],
+      hint: 'A szalagok függöny mögött vannak. Melyik a hosszabb?',
+      no: (r) => `Nem egészen. Hosszabb: ${r} m.`,
+      cmp: (x, y) => `A ${y} öt tized. A ${x} két tized és öt század. Több számjegy nem jelent nagyobb számot.`,
+      go: 'Nagyítsunk →', zoom: 'Nagyítás', zz: ['×1', '×10', '×100'], zeroAdd: 'Nulla a végére', zeroDel: 'Nulla törlése',
+      sub: (o, t, h, th, four) => `${o} egyes · ${t} tized · ${h} század${four ? ` · ${th} ezred` : ''}`,
+      lv: (k) => [['A teljes mérőszalag', 'Méterek, köztük a tizedek.'],
+        ['Egy méteren belül', `Az 1 m 10 tizedből áll. Egy tized ${fmt(0.1, 1)} m.`],
+        ['Egy tizeden belül', `Egy tized 10 századból áll. Egy század ${fmt(0.01, 2)} m.`],
+        ['Egy századon belül', `Egy század 10 ezredből áll. Egy ezred ${fmt(0.001, 3)} m, vagyis 1 mm.`]][k],
+      zero: (a, b) => [`${a} = ${b}`, 'A végére írt nulla nem változtat semmin. A szalag ugyanolyan hosszú marad.'],
+      slider: 'Szám',
+    },
+    k: {
+      q: (x, y) => `Mennyi ${x} − ${y}?`, hint: 'Előbb válassz. Aztán a darabokkal ellenőrizd.',
+      brk: ['Bontsd fel az 1 egyest 10 tizedre', 'Bontsd fel az 1 tizedet 10 századra'],
+      take: [(n) => `Végy el ${n} egyest`, (n) => `Végy el ${n} tizedet`, (n) => `Végy el ${n} századot`],
+      need: ['Nincs elég egyes.', 'Nincs elég tized.', 'Nincs elég század.'],
+      needEnd: ' Bonts fel egy nagyobb darabot 10 kisebbre.', takeT: 'Elég darab van. Vedd el őket.',
+      done: (r) => `Az eredmény ${r}`, doneLead: 'Ha egy darabot 10 kisebbre bontasz, az összeg nem változik: 1 = 10 tized = 100 század.',
+      again: '↺ Újra', no: (g, r) => `Nem ${g}, hanem ${r}.`, away: 'elvéve',
+    },
+    j: {
+      steps: ['+0,01 m', '+0,1 m', '+1 m'], reset: '↺ Újra', record: 'Rekord', your: 'A te összeged',
+      lead: (n, gap) => `A rekordig ${gap} m van: ${n} lépés ${fmt(0.01, 2)} m-esével. Egy lépés 1 cm.`,
+      beat: 'Ez messzebb van a világrekordnál!', equal: 'Pontosan a világrekord!', cm: (x) => `${x} m = 1 cm`,
+    },
+    quiz: [
+      { q: '0,5 + 0,25 = ?', opts: ['0,30', '0,75', '0,7'], ok: 1 },
+      { q: 'Melyik szám nagyobb?', opts: ['0,25', '0,5', 'Egyenlőek'], ok: 1 },
+      { q: 'Ugyanannyi a 0,50 és a 0,5?', opts: ['Igen', 'Nem, a 0,50 nagyobb', 'Nem, a 0,50 kisebb'], ok: 0 },
+    ],
+    facts: {
+      add: [{ emo: '🌍', text: 'Angliában a 0.5-et ponttal írják; Oroszországban, Magyarországon és Európa nagy részén vesszővel: 0,5. Mindkettő öt tizedet jelent, és a nemzetközi szabvány mindkettőt megengedi.', src: 'BIPM, SI Brochure (2019), 5.4.3' }],
+      places: [{ emo: '📘', text: 'A tizedes törtek Simon Stevin „A tized” című kis könyve (1585) után terjedtek el Európában.', src: 'Britannica, “Simon Stevin”' }],
+      take: [{ emo: '⏱️', text: 'Usain Bolt 2009-ben 9,58 másodperc alatt futotta le a 100 métert. A sprintfutásokat századmásodpercre pontosan mérik.', src: 'World Athletics' }],
+      jump: [{ emo: '🏅', text: 'A távolugrás világrekordját, a 8,95 métert Mike Powell ugrotta Tokióban, 1991-ben.', src: 'World Athletics' }],
+    },
+  },
+};
+const TOPICS = [
+  { id: 'mt__casygEB85', en: 'Decimal place value', ru: 'Разряды десятичных дробей', hu: 'Tizedes törtek helyiértéke' },
+  { id: 'mt_JH_6RpNWjr', en: 'Adding and subtracting decimals', ru: 'Сложение и вычитание десятичных дробей', hu: 'Tizedes törtek összeadása és kivonása' },
+];
+
+// --- data ----------------------------------------------------------------------------------------------------
+const EX = [
+  { a: '0.5', b: '0.25', tm: 1, opts: ['0.75', '0.30', '0.7'] },
+  { a: '3.4', b: '2.78', tm: 8, opts: ['5.82', '6.18', '3.12'] },
+  { a: '1.05', b: '0.6', tm: 3, opts: ['1.11', '1.15', '1.65'] },
+  { a: '2.9', b: '0.15', tm: 4, opts: ['2.24', '3.05', '0.44'] },
+];
+const digs = (s) => s.replace('.', '').split('').map(Number);
+const v100 = (s) => Math.round(parseFloat(s) * 100);
+EX.forEach((e) => { e.tot = v100(e.a) + v100(e.b); });
+const PV = [100, 10, 1];
+const TKO = ['3.44', '2.36', '2.46'], TK_CUR = [5, 0, 3], TK_SUB = [2, 6, 7];
+const C = { blue: '#4e8cf0', violet: '#9b7bf0', green: '#34c58a', orange: '#ff8a3d', red: '#ff3b30', yellow: '#f4cf4a' };
+const FONT = "'Nunito', system-ui, sans-serif";
+const now = () => performance.now() / 1000;
+
+const S = {
+  sec: null,
+  add: { ex: 0, sh: 1, vis: 1, pick: null, rv: 0 },
+  jump: { d: 75, dv: 75 },
+  pl: { phase: 'ask', pick: null, v: 250, zero: false, zeroAt: -9, zoom: 0, wLo: 0, wLg: Math.log(2), cur: 0 },
+  tk: { cur: TK_CUR.slice(), done: [false, false, false], res: [null, null, null], pick: null, fx: null, rv: 0 },
+};
+
+const lab = shell({ key: 'decimal-point', T, topics: TOPICS, views: ['add', 'places', 'take'], onLang: render, onView: () => { if (S.sec === 'thousandths') { S.pl.zoom = 2; S.pl.v = Math.round(S.pl.v / 10) * 10; } S.sec = null; render(); } });
+const secret = secretLab('decimal-point', () => ({
+  secrets: [{ emo: '🏅', title: T[lang].secrets.jump[0], desc: T[lang].secrets.jump[1] }, { emo: '🔍', title: T[lang].secrets.thousandths[0], desc: T[lang].secrets.thousandths[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="secAdd">
+    <div class="row2" style="margin-top:0"><button class="chip dp-chip" data-act="edge"></button><button class="chip dp-chip" data-act="point"></button></div>
+    <div class="row2" id="nextRow"><button class="btn" data-act="next"></button></div>
+  </div>
+  <div id="secJump"><div class="row2" style="margin-top:0" id="jumpRow"></div></div>
+  <div id="secPl">
+    <div id="plPlay">
+      <div class="dp-sl"><input type="range" class="big" id="plS" min="0" max="2000" step="10" style="--track:linear-gradient(90deg,#f4cf4a,#4e8cf0)" aria-label="slider"></div>
+      <div class="row2"><span class="lbl" id="zl"></span><div class="chips" id="zChips"></div><button class="chip dp-chip" data-act="zero" id="zeroB"></button></div>
+    </div>
+    <div class="row2" id="goRow" style="margin-top:0"><button class="btn" data-act="go"></button></div>
+  </div>
+  <div id="secTk"><div class="row2" style="margin-top:0"><button class="btn" data-act="tk" id="tkB"></button></div></div>
+  <div class="row2" id="secChips"></div>`;
+const askEl = Object.assign(document.createElement('div'), { className: 'dp-ask card' });
+$('overlay').append(askEl);
+
+// --- canvas helpers ------------------------------------------------------------------------------------------
+let CW = 0, CH = 0, LAST = null;
+const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+const shade = (h, a) => { const f = (v) => Math.round(clamp(a >= 0 ? v + (255 - v) * a : v * (1 + a), 0, 255)); const [r, g, b] = hex(h); return `rgb(${f(r)},${f(g)},${f(b)})`; };
+const rr = (c, x, y, w, h, r) => {
+  r = Math.max(0, Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2));
+  c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+};
+const eo = (t) => 1 - Math.pow(1 - clamp(t, 0, 1), 3);
+const eob = (t) => { t = clamp(t, 0, 1); const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+const kk = (dt, s) => 1 - Math.exp(-dt * s);
+
+function pill(c, txt, cx, cy, o = {}) {
+  c.save();
+  const s = o.size ?? 12; c.font = `800 ${s}px ${FONT}`;
+  const w = c.measureText(txt).width + 14, h = s + 9;
+  const x = clamp(cx - w / 2, 4, Math.max(4, CW - w - 4)), y = clamp(cy - h / 2, 2, Math.max(2, CH - h - 2));
+  rr(c, x, y, w, h, h / 2); c.fillStyle = o.bg ?? 'rgba(12,15,28,.84)'; c.fill();
+  if (o.stroke) { c.strokeStyle = o.stroke; c.lineWidth = 1.5; c.stroke(); }
+  c.fillStyle = o.fg ?? '#fff'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(txt, x + w / 2, y + h / 2 + 0.5);
+  c.restore();
+  return { x, y, w, h };
+}
+
+const SPECK = []; const CROWD = [];
+{ let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let i = 0; i < 170; i++) SPECK.push({ x: rnd(), y: rnd(), r: 0.6 + rnd() * 1.5, a: 0.12 + rnd() * 0.22, d: rnd() < 0.5 });
+  for (let i = 0; i < 90; i++) CROWD.push({ x: rnd(), y: rnd(), c: ['#e85d75', '#f4cf4a', '#4e8cf0', '#ffffff', '#34c58a'][Math.floor(rnd() * 5)] }); }
+
+// sky, stands, running track and the sand pit (side view); returns where the sand starts
+function scene(c, w, H, t) {
+  const y1 = Math.max(58, H * 0.27), th = clamp(H * 0.095, 22, 34), y2 = y1 + th;
+  let g = c.createLinearGradient(0, 0, 0, y1); g.addColorStop(0, '#69b6ee'); g.addColorStop(1, '#cdeaf8'); c.fillStyle = g; c.fillRect(0, 0, w, y1);
+  g = c.createRadialGradient(44, 32, 2, 44, 32, 46); g.addColorStop(0, 'rgba(255,250,210,1)'); g.addColorStop(0.3, 'rgba(255,240,170,.85)'); g.addColorStop(1, 'rgba(255,240,170,0)');
+  c.fillStyle = g; c.beginPath(); c.arc(44, 32, 46, 0, 7); c.fill();
+  const cloud = (x, y, s) => { c.fillStyle = 'rgba(255,255,255,.93)'; [[0, 0, 16], [14, -6, 13], [28, 0, 15], [14, 4, 14]].forEach(([dx, dy, r]) => { c.beginPath(); c.arc(x + dx * s, y + dy * s, Math.max(0, r * s), 0, 7); c.fill(); }); };
+  cloud(((t * 5 + w * 0.2) % (w + 150)) - 75, 24, 0.8); cloud(((t * 3.2 + w * 0.65) % (w + 150)) - 75, 46, 0.6);
+  g = c.createLinearGradient(0, y1 - 26, 0, y1); g.addColorStop(0, '#46527d'); g.addColorStop(1, '#2b3354'); c.fillStyle = g; c.fillRect(0, y1 - 26, w, 26);
+  CROWD.forEach((p) => { c.fillStyle = p.c; c.beginPath(); c.arc(p.x * w, y1 - 23 + p.y * 18, 1.7, 0, 7); c.fill(); });
+  g = c.createLinearGradient(0, y1, 0, y2); g.addColorStop(0, '#e0604f'); g.addColorStop(1, '#b23a31'); c.fillStyle = g; c.fillRect(0, y1, w, th);
+  c.strokeStyle = 'rgba(255,255,255,.7)'; c.lineWidth = 2; c.beginPath(); c.moveTo(0, y1 + th * 0.5); c.lineTo(w, y1 + th * 0.5); c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.2)'; c.fillRect(0, y1, w, 2);
+  const fx = 6, px = fx, pw = w - fx * 2, pb = H - 6;
+  c.save(); c.shadowColor = 'rgba(30,20,5,.5)'; c.shadowBlur = 10; c.shadowOffsetY = 3;
+  rr(c, px - 4, y2 - 4, pw + 8, pb - y2 + 8, 12); c.fillStyle = '#8a5a34'; c.fill(); c.restore();
+  rr(c, px, y2, pw, pb - y2, 9); c.save(); c.clip();
+  g = c.createLinearGradient(0, y2, 0, pb); g.addColorStop(0, '#f3dda8'); g.addColorStop(1, '#d6b36f'); c.fillStyle = g; c.fillRect(px, y2, pw, pb - y2);
+  SPECK.forEach((p) => { c.fillStyle = p.d ? `rgba(120,85,30,${p.a})` : `rgba(255,250,225,${p.a + 0.1})`; c.beginPath(); c.arc(px + p.x * pw, y2 + p.y * (pb - y2), Math.max(0, p.r), 0, 7); c.fill(); });
+  g = c.createLinearGradient(0, y2, 0, y2 + 24); g.addColorStop(0, 'rgba(90,60,20,.38)'); g.addColorStop(1, 'rgba(90,60,20,0)'); c.fillStyle = g; c.fillRect(px, y2, pw, 24);
+  g = c.createRadialGradient(px, y2, 4, px, y2, pw * 0.7); g.addColorStop(0, 'rgba(255,255,255,.28)'); g.addColorStop(1, 'rgba(255,255,255,0)'); c.fillStyle = g; c.fillRect(px, y2, pw, pb - y2);
+  c.restore();
+  rr(c, px, y2, pw, pb - y2, 9); c.strokeStyle = '#5e3c20'; c.lineWidth = 1.5; c.stroke();
+  return { y1, y2 };
+}
+
+// a yellow measuring tape showing [lo, hi] metres between x0 and x1; ticks and labels appear as there is room
+function tape(c, x0, x1, y, h, lo, hi) {
+  const span = x1 - x0, ppu = span / (hi - lo);
+  c.save();
+  c.shadowColor = 'rgba(60,40,10,.45)'; c.shadowBlur = 6; c.shadowOffsetY = 2;
+  const g = c.createLinearGradient(0, y, 0, y + h); g.addColorStop(0, '#fbe688'); g.addColorStop(1, '#e6b52c');
+  rr(c, x0, y, span, h, 4); c.fillStyle = g; c.fill(); c.shadowColor = 'transparent';
+  c.lineWidth = 1.5; c.strokeStyle = '#8a6b12'; c.stroke();
+  rr(c, x0, y, span, h, 4); c.clip();
+  const steps = [[10, 0], [1, 0], [0.1, 1], [0.01, 2], [0.001, 3]], lens = [0.5, 0.45, 0.36, 0.28, 0.2];
+  c.font = `800 12px ${FONT}`; c.textBaseline = 'alphabetic';
+  steps.forEach(([s, dec], i) => {
+    const px = s * ppu; if (px < 3.5) return;
+    const al = clamp((px - 3.5) / 8, 0, 1), k0 = Math.ceil(lo / s - 1e-9), k1 = Math.floor(hi / s + 1e-9);
+    if (k1 - k0 > 500) return;
+    for (let k = k0; k <= k1; k++) {
+      if (i > 0 && k % 10 === 0) continue;
+      const x = x0 + (k * s - lo) * ppu;
+      c.strokeStyle = `rgba(74,53,8,${0.85 * al})`; c.lineWidth = i < 2 ? 2 : 1.4;
+      c.beginPath(); c.moveTo(x, y + 1); c.lineTo(x, y + h * lens[i]); c.stroke();
+      const txt = fmt(k * s, dec), tw = c.measureText(txt).width;
+      if (k === 0 && lo <= 0 && px >= 20) { c.fillStyle = `rgba(74,53,8,${al})`; c.textAlign = 'left'; c.fillText(txt, x + 4, y + h - 5); }
+      else if (px >= tw + 8 && x - tw / 2 >= x0 + 2 && x + tw / 2 <= x1 - 2) { c.fillStyle = `rgba(74,53,8,${al})`; c.textAlign = 'center'; c.fillText(txt, x, y + h - 5); }
+    }
+  });
+  c.restore();
+}
+
+function reel(c, x, y, h) {
+  c.save(); const cx = x - 14, cy = y + h / 2;
+  c.shadowColor = 'rgba(0,0,0,.35)'; c.shadowBlur = 5; c.shadowOffsetY = 2;
+  const g = c.createRadialGradient(cx - 4, cy - 4, 2, cx, cy, 16); g.addColorStop(0, '#ffe27a'); g.addColorStop(1, '#d99a1a');
+  c.fillStyle = g; c.beginPath(); c.arc(cx, cy, 15, 0, 7); c.fill(); c.shadowColor = 'transparent';
+  c.strokeStyle = '#8a6b12'; c.lineWidth = 1.5; c.stroke();
+  c.fillStyle = '#8a6b12'; c.beginPath(); c.arc(cx, cy, 5, 0, 7); c.fill();
+  c.fillStyle = '#fff3b0'; c.beginPath(); c.arc(cx - 1, cy - 1, 2, 0, 7); c.fill();
+  c.restore();
+}
+
+function ribbon(c, xa, xb, y, h, col, o = {}) {
+  const w = xb - xa; if (w < 1) return;
+  c.save(); if (o.alpha !== undefined) c.globalAlpha = o.alpha;
+  c.shadowColor = 'rgba(40,25,5,.4)'; c.shadowBlur = 6; c.shadowOffsetY = 3;
+  const g = c.createLinearGradient(0, y, 0, y + h); g.addColorStop(0, shade(col, 0.32)); g.addColorStop(1, shade(col, -0.2));
+  rr(c, xa, y, w, h, h * 0.35); c.fillStyle = g; c.fill(); c.shadowColor = 'transparent';
+  c.lineWidth = o.glow ? 2.5 : 1.5; c.strokeStyle = o.glow ?? shade(col, -0.45); c.stroke();
+  if (o.stripe) { c.save(); rr(c, xa, y, w, h, h * 0.35); c.clip(); c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 3; for (let x = xa - h; x < xb + h; x += 10) { c.beginPath(); c.moveTo(x, y + h); c.lineTo(x + h, y); c.stroke(); } c.restore(); }
+  rr(c, xa + 3, y + 2, Math.max(0, w - 6), h * 0.34, h * 0.17); c.fillStyle = 'rgba(255,255,255,.3)'; c.fill();
+  c.restore();
+}
+
+function flag(c, x, yTop, yBot, col, label, labelY) {
+  c.save();
+  c.strokeStyle = shade(col, -0.35); c.lineWidth = 3; c.beginPath(); c.moveTo(x, yTop); c.lineTo(x, yBot); c.stroke();
+  c.strokeStyle = col; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x, yTop); c.lineTo(x, yBot); c.stroke();
+  c.fillStyle = col; c.beginPath(); c.arc(x, yBot, 4.5, 0, 7); c.fill();
+  c.restore();
+  if (label) pill(c, label, x, labelY ?? yTop - 10, { bg: shade(col, -0.45), stroke: col });
+}
+
+function tile(c, x, y, w, h, txt, col, o = {}) {
+  c.save(); if (o.alpha !== undefined) c.globalAlpha = o.alpha;
+  if (o.ghost) {
+    c.setLineDash([5, 4]); c.lineWidth = 1.5; c.strokeStyle = 'rgba(160,172,210,.42)'; rr(c, x, y, w, h, h * 0.24); c.stroke(); c.setLineDash([]);
+    if (txt) { c.fillStyle = 'rgba(190,200,230,.6)'; c.font = `900 ${h * 0.5}px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(txt, x + w / 2, y + h / 2 + 1); }
+    c.restore(); return;
+  }
+  c.shadowColor = 'rgba(0,0,0,.5)'; c.shadowBlur = 8; c.shadowOffsetY = 3;
+  const g = c.createLinearGradient(x, y, x + w * 0.5, y + h); g.addColorStop(0, shade(col, 0.3)); g.addColorStop(1, shade(col, -0.2));
+  rr(c, x, y, w, h, h * 0.24); c.fillStyle = g; c.fill(); c.shadowColor = 'transparent';
+  c.lineWidth = o.ring ? 2.6 : 1.8; c.strokeStyle = o.ring ?? shade(col, -0.45); c.stroke();
+  const g2 = c.createLinearGradient(0, y, 0, y + h * 0.5); g2.addColorStop(0, 'rgba(255,255,255,.42)'); g2.addColorStop(1, 'rgba(255,255,255,0)');
+  rr(c, x + 3, y + 3, Math.max(0, w - 6), h * 0.44, h * 0.2); c.fillStyle = g2; c.fill();
+  c.shadowColor = 'rgba(0,0,0,.35)'; c.shadowBlur = 3; c.shadowOffsetY = 1;
+  c.fillStyle = '#fff'; c.font = `900 ${h * 0.56}px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(txt, x + w / 2, y + h / 2 + 1);
+  c.restore();
+}
+
+// --- the place-value board: Ones | point | Tenths | Hundredths -----------------------------------------------
+function lay(w, h, o) {
+  if (o.none) return { none: true, sceneH: h, ncol: 3, cw: 90, rowH: 48, s: 40, pillW: 12 };
+  const ncol = o.ncol ?? 3, rowH = clamp(h * 0.092, 40, 54), hh = 44, gut = 22;
+  const bw = Math.min(w - 14, 470), bx = (w - bw) / 2, signW = 26, pillW = 12;
+  const cw = (bw - signW - pillW - 20 - gut) / ncol;
+  const bh = hh + (o.mul ?? o.rows) * rowH + 22, bt = h - bh - 8;
+  const L = { bx, bw, bt, bh, cw, pillW, ncol, rowH, hh, ry0: bt + hh + 10, left0: bx + 10 + signW, sceneH: bt - 8 };
+  L.colX = (k) => (k <= 0 ? L.left0 + k * cw : L.left0 + cw + pillW + (k - 1) * cw);
+  L.colXf = (p) => { const k = Math.floor(p), f = p - k; return lerp(L.colX(k), L.colX(k + 1), f); };
+  L.s = Math.min(cw - 12, rowH - 8);
+  return L;
+}
+
+function drawBoard(c, L) {
+  c.save();
+  const g = c.createLinearGradient(0, L.bt, 0, L.bt + L.bh); g.addColorStop(0, '#1b2240'); g.addColorStop(1, '#11162b');
+  c.shadowColor = 'rgba(0,0,0,.5)'; c.shadowBlur = 14; c.shadowOffsetY = 5;
+  rr(c, L.bx, L.bt, L.bw, L.bh, 18); c.fillStyle = g; c.fill(); c.shadowColor = 'transparent';
+  c.strokeStyle = 'rgba(130,145,190,.4)'; c.lineWidth = 1.5; c.stroke();
+  const names = T[lang].cols, vals = [fmt(1, 0), fmt(0.1, 1), fmt(0.01, 2), fmt(0.001, 3)];
+  c.textAlign = 'center'; c.textBaseline = 'alphabetic'; c.font = `800 12px ${FONT}`;
+  for (let k = 0; k < L.ncol; k++) {
+    const x = L.colX(k);
+    rr(c, x + 2, L.bt + 8, L.cw - 4, L.bh - 16, 12); c.fillStyle = k % 2 ? 'rgba(130,145,190,.06)' : 'rgba(130,145,190,.12)'; c.fill();
+    c.fillStyle = '#e2e8f8'; c.fillText(names[k], x + L.cw / 2, L.bt + 22, L.cw - 4);
+    c.fillStyle = '#9ba5c2'; c.fillText(vals[k], x + L.cw / 2, L.bt + 38);
+  }
+  const px = L.left0 + L.cw, pcx = px + L.pillW / 2;
+  c.shadowColor = 'rgba(255,59,48,.6)'; c.shadowBlur = 12;
+  const pg = c.createLinearGradient(px, 0, px + L.pillW, 0); pg.addColorStop(0, '#ff7a6e'); pg.addColorStop(1, '#cf2118');
+  rr(c, px + 1, L.bt + 10, L.pillW - 2, L.bh - 20, 5); c.fillStyle = pg; c.fill(); c.shadowColor = 'transparent';
+  c.strokeStyle = '#8f120b'; c.lineWidth = 1.5; c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.35)'; rr(c, px + 3, L.bt + 14, 2.5, L.bh - 28, 1.2); c.fill();
+  const hg = c.createRadialGradient(pcx - 4, L.bt + 24, 2, pcx, L.bt + 28, 15); hg.addColorStop(0, '#ff8a80'); hg.addColorStop(1, '#d4281d');
+  c.fillStyle = hg; c.beginPath(); c.arc(pcx, L.bt + 28, 14, 0, 7); c.fill(); c.strokeStyle = '#8f120b'; c.lineWidth = 1.5; c.stroke();
+  c.fillStyle = '#fff'; c.font = `900 28px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'alphabetic'; c.fillText(lang === 'en' ? '.' : ',', pcx, L.bt + 36);
+  c.restore();
+}
+
+// one row of digit tiles: digit j sits in column j + sh (sh can be fractional while dragging)
+function rowDigits(c, L, rowY, d, sh, col, o = {}) {
+  const s = L.s, ty = rowY + (L.rowH - s) / 2, occ = new Set(d.map((_, j) => Math.round(j + sh)));
+  for (let k = 0; k < L.ncol; k++) if (!occ.has(k)) tile(c, L.colX(k) + (L.cw - s) / 2, ty, s, s, '', col, { ghost: true });
+  d.forEach((x, j) => tile(c, L.colXf(j + sh) + (L.cw - s) / 2, ty, s, s, String(x), col, o.ring && o.ringAt === j ? { ring: o.ring } : {}));
+  if (o.dot) { // the number's own point
+    const xa = L.colXf(0 + sh) + L.cw / 2, xb = L.colXf(1 + sh) + L.cw / 2, dx = (xa + xb) / 2, dy = ty + s + 2;
+    c.save(); c.fillStyle = '#fff'; c.strokeStyle = C.red; c.lineWidth = 3; c.beginPath(); c.arc(dx, dy, 4.5, 0, 7); c.fill(); c.stroke(); c.restore();
+  }
+}
+function sign(c, L, rowY, txt) {
+  c.save(); c.fillStyle = '#cfd6ea'; c.font = `900 22px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(txt, L.bx + 10 + 13, rowY + L.rowH / 2); c.restore();
+}
+
+// --- ADD -----------------------------------------------------------------------------------------------------
+function calc() {
+  const A = S.add, e = EX[A.ex], rows = [digs(e.a), digs(e.b)];
+  const mv = rows[0].length < rows[1].length ? 0 : rows[1].length < rows[0].length ? 1 : -1;
+  const shs = [0, 0]; if (mv >= 0) shs[mv] = A.sh;
+  const col = [0, 0, 0];
+  rows.forEach((d, r) => d.forEach((x, j) => { const k = j + shs[r]; if (k >= 0 && k < 3) col[k] += x; }));
+  const res = [0, 0, 0], car = [0, 0, 0]; let carry = 0;
+  for (let k = 2; k >= 0; k--) {
+    const s = col[k] + carry; res[k] = k === 0 ? s : s % 10; carry = k === 0 ? 0 : Math.floor(s / 10); if (k > 0) car[k - 1] = carry;
+  }
+  return { e, rows, mv, shs, res, car, sum: res[0] * 100 + res[1] * 10 + res[2], tot: e.tot, aligned: mv < 0 || A.sh === 0 };
+}
+function setEx(i) { S.add = { ex: i, sh: 1, vis: 1, pick: null, rv: 0 }; }
+
+function frameAdd(c, w, h, dt, t) {
+  if (S.sec === 'jump') return frameJump(c, w, h, dt, t);
+  const A = S.add, K = calc(), L = lay(w, h, { rows: 3 }); LAST = L;
+  const H = L.sceneH, sc = scene(c, w, H, t), x0 = 34, x1 = w - 20, tm = K.e.tm, X = (m) => x0 + (x1 - x0) * m / tm;
+  const tapeY = H - 44, lane1 = sc.y2 + 14, lane2 = lane1 + 28, lh = 22, revealed = A.pick !== null;
+  A.rv = clamp(A.rv + ((revealed ? 1 : 0) - A.rv) * kk(dt, 3.2) + (revealed ? dt * 0.25 : 0), 0, 1);
+  A.vis += (A.sh - A.vis) * (S.drag ? 0 : kk(dt, 14));
+  c.fillStyle = '#fff'; c.fillRect(x0 - 3, sc.y2 - 8, 6, 10); // take-off board
+  reel(c, x0, tapeY, 34); tape(c, x0, x1, tapeY, 34, 0, tm);
+  const la = K.e.a ? v100(K.e.a) / 100 : 0, lb = v100(K.e.b) / 100, e = eob(A.rv);
+  ribbon(c, X(0), X(la), lane1, lh, C.blue);
+  const bx = lerp(0, la, e), by = lerp(lane2, lane1, clamp(e, 0, 1));
+  ribbon(c, X(bx), X(bx + lb), by, lh, C.violet);
+  pill(c, `${loc(K.e.a)} ${T[lang].m}`, X(la / 2), lane1 + lh / 2, { size: 12 });
+  pill(c, `${loc(K.e.b)} ${T[lang].m}`, X(bx + lb / 2), by + lh / 2, { size: 12 });
+  if (A.rv > 0.05) {
+    const tx = X(K.tot / 100), okc = C.green;
+    c.save(); c.globalAlpha = clamp(A.rv * 1.5, 0, 1);
+    flag(c, tx, lane1 + lh + 6, tapeY, okc, `${fmt(K.tot / 100, 2)} ${T[lang].m}`, tapeY - 26);
+    if (!K.aligned) {
+      const wx = X(K.sum / 100), close = Math.abs(wx - tx) < 70;
+      ribbon(c, X(0), X(K.sum / 100), lane2, lh, C.orange, { stripe: true, alpha: 0.95 });
+      flag(c, wx, lane2 + lh + 4, tapeY, C.orange, `${fmt(K.sum / 100, 2)} ${T[lang].m} ✗`, tapeY - (close ? 52 : 26));
+    }
+    c.restore();
+  }
+  // board
+  drawBoard(c, L);
+  const rA = L.ry0, rB = L.ry0 + L.rowH, rS = L.ry0 + 2 * L.rowH + 6;
+  const cols = [C.blue, C.violet];
+  [0, 1].forEach((r) => {
+    const sh = r === K.mv ? A.vis : 0, y = L.ry0 + r * L.rowH;
+    if (r === K.mv) { c.save(); c.globalAlpha = 0.5 + 0.3 * Math.sin(t * 3); rr(c, L.bx + 6, y - 1, L.bw - 12, L.rowH + 2, 14); c.strokeStyle = '#fff'; c.lineWidth = 1.2; c.setLineDash([4, 4]); c.stroke(); c.restore(); }
+    rowDigits(c, L, y, K.rows[r], sh, cols[r], { dot: true });
+    if (r === K.mv) pill(c, '↔', L.bx + L.bw - 22, y + L.rowH / 2, { size: 14, bg: 'rgba(255,255,255,.16)', stroke: 'rgba(255,255,255,.5)' });
+  });
+  sign(c, L, rB, '+');
+  c.save(); c.strokeStyle = 'rgba(255,255,255,.75)'; c.lineWidth = 3; c.lineCap = 'round'; c.beginPath(); c.moveTo(L.bx + 14, rS - 4); c.lineTo(L.bx + L.bw - 14, rS - 4); c.stroke(); c.restore();
+  sign(c, L, rS, '=');
+  const s = L.s, ty = rS + (L.rowH - s) / 2;
+  for (let k = 0; k < 3; k++) {
+    const x = L.colX(k) + (L.cw - s) / 2;
+    if (!revealed) tile(c, x, ty, s, s, '?', C.blue, { ghost: true });
+    else { const pop = eob((A.rv - k * 0.1) * 2.2); c.save(); c.translate(x + s / 2, ty + s / 2); c.scale(Math.max(0.01, pop), Math.max(0.01, pop)); tile(c, -s / 2, -s / 2, s, s, String(K.res[k]), K.aligned ? C.green : C.orange); c.restore(); }
+  }
+  if (revealed) for (let k = 0; k < 2; k++) if (K.car[k] > 0) { // carries
+    const x = L.colX(k) + (L.cw + s) / 2 - 2, y = rA + (L.rowH - s) / 2 + 1;
+    c.save(); c.fillStyle = C.orange; c.strokeStyle = '#7a3a10'; c.lineWidth = 1.5; c.beginPath(); c.arc(x, y, 9, 0, 7); c.fill(); c.stroke();
+    c.fillStyle = '#fff'; c.font = `900 12px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(String(K.car[k]), x, y + 0.5); c.restore();
+  }
+}
+
+// --- secret: the world-record jump ---------------------------------------------------------------------------
+function frameJump(c, w, h, dt, t) {
+  const J = S.jump, L = lay(w, h, { rows: 1 }); LAST = L;
+  const H = L.sceneH, sc = scene(c, w, H, t), x0 = 34, x1 = w - 20, tm = 9.5, X = (m) => x0 + (x1 - x0) * m / tm, tapeY = H - 44;
+  J.dv += (J.d - J.dv) * kk(dt, 12);
+  const m = J.dv / 100, lane = sc.y2 + 12, lh = 22;
+  c.fillStyle = '#fff'; c.fillRect(x0 - 3, sc.y2 - 8, 6, 10);
+  reel(c, x0, tapeY, 34); tape(c, x0, x1, tapeY, 34, 0, tm);
+  if (m < 8.95) ribbon(c, X(m), X(8.95), lane, lh, C.yellow, { stripe: true, alpha: 0.55 });
+  ribbon(c, X(0), X(Math.min(m, 9.5)), lane, lh, C.blue);
+  flag(c, X(8.95), lane + lh + 2, tapeY, '#e0b030', `${T[lang].j.record} ${fmt(8.95, 2)} ${T[lang].m}`, lane + lh + 20);
+  pill(c, `${fmt(m, 2)} ${T[lang].m}`, X(m / 2), lane + lh / 2, { size: 12 });
+  // the lens: one hundredth is only 1 cm
+  const R = 50, cx = clamp(X(m), R + 8, w - R - 8), cy = lane + lh + 30 + R + 8;
+  c.save(); c.strokeStyle = 'rgba(255,255,255,.7)'; c.lineWidth = 1.5; c.setLineDash([3, 4]); c.beginPath(); c.moveTo(X(m), lane + lh); c.lineTo(cx, cy - R); c.stroke(); c.restore();
+  c.save(); c.strokeStyle = '#6b6f7c'; c.lineWidth = 9; c.lineCap = 'round'; c.beginPath(); c.moveTo(cx + R * 0.72, cy + R * 0.72); c.lineTo(cx + R * 0.72 + 26, cy + R * 0.72 + 26); c.stroke();
+  c.strokeStyle = '#a7abb8'; c.lineWidth = 5; c.stroke(); c.restore();
+  c.save(); c.beginPath(); c.arc(cx, cy, R, 0, 7); c.clip();
+  c.fillStyle = '#f6e6bb'; c.fillRect(cx - R, cy - R, 2 * R, 2 * R);
+  const win = 0.025, lo = m - win / 2, hi = m + win / 2, ppu = (2 * R) / win;
+  const tyL = cy - 8;
+  ribbon(c, cx - R - 4, cx, tyL - 32, 24, C.blue);
+  tape(c, cx - R, cx + R, tyL, 34, lo, hi);
+  c.fillStyle = 'rgba(255,138,61,.45)'; c.fillRect(cx, tyL, ppu * 0.01, 34);
+  c.strokeStyle = C.orange; c.lineWidth = 2; c.strokeRect(cx, tyL, ppu * 0.01, 34);
+  c.restore();
+  pill(c, T[lang].j.cm(fmt(0.01, 2)), cx, cy + R - 14, { size: 12, bg: 'rgba(12,15,28,.9)', stroke: C.orange });
+  c.save(); const rg = c.createLinearGradient(cx - R, cy - R, cx + R, cy + R); rg.addColorStop(0, '#f2f4fa'); rg.addColorStop(1, '#8d93a6');
+  c.strokeStyle = rg; c.lineWidth = 6; c.beginPath(); c.arc(cx, cy, R, 0, 7); c.stroke();
+  c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 3; c.beginPath(); c.arc(cx, cy, R - 8, Math.PI * 1.15, Math.PI * 1.6); c.stroke(); c.restore();
+  drawBoard(c, L);
+  const d = Math.round(J.d), dig = [Math.floor(d / 100), Math.floor(d / 10) % 10, d % 10];
+  rowDigits(c, L, L.ry0, dig, 0, C.blue, { dot: false });
+}
+
+// --- PLACES --------------------------------------------------------------------------------------------------
+const plBase = (n) => (n % 10 ? 3 : Math.floor(n / 10) % 10 ? 2 : Math.floor(n / 100) % 10 ? 1 : 0);
+function plShown() { const P = S.pl, b = plBase(P.v), zeroEff = P.zero && b < 3; return { base: b, shown: Math.min(3, b + (zeroEff ? 1 : 0)), zeroEff }; }
+function plNcol() { const { shown } = plShown(); return S.sec === 'thousandths' || shown >= 3 ? 4 : 3; }
+
+function framePl(c, w, h, dt, t) {
+  const P = S.pl, ph = P.phase, play = ph === 'play';
+  const L = lay(w, h, ph === 'ask' ? { none: true } : { rows: play ? 1 : 2, ncol: play ? plNcol() : 3 }); LAST = L;
+  const H = L.sceneH, sc = scene(c, w, H, t), x0 = 34, x1 = w - 20, m = T[lang].m;
+  if (!play) { // two ribbons behind a curtain
+    const sandH = H - sc.y2, lh = 28, l1 = sc.y2 + sandH * 0.1, l2 = l1 + lh + sandH * 0.1, tY = sc.y2 + sandH * 0.66, X = (v) => x0 + (x1 - x0) * v;
+    c.fillStyle = '#fff'; c.fillRect(x0 - 3, sc.y2 - 8, 6, 10);
+    reel(c, x0, tY, 38); tape(c, x0, x1, tY, 38, 0, 1);
+    P.cur += ((P.pick !== null ? 1 : 0) - P.cur) * kk(dt, 3.5);
+    const e = eo(P.cur), pick = P.pick, longer = 1;
+    const rib = [[0.25, C.blue, l1], [0.5, C.violet, l2]];
+    rib.forEach(([len, col, y], i) => {
+      ribbon(c, X(0), X(len), y, lh, col, e > 0.9 && i === longer ? { glow: C.green } : {});
+      const lx = lerp(x0 + 40, X(len) - 30, e);
+      if (pick !== null) pill(c, `${fmt(len, len === 0.5 ? 1 : 2)} ${m}`, Math.max(x0 + 34, lx), y + lh / 2, i === longer ? { bg: '#1c6a4a', stroke: C.green } : {});
+    });
+    if (P.cur > 0.6) { c.save(); c.setLineDash([4, 4]); c.strokeStyle = 'rgba(255,255,255,.8)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(X(0.5), l1 - 4); c.lineTo(X(0.5), tY); c.stroke(); c.restore(); }
+    const ch = (l2 + lh + 12) - (l1 - 12), vis = ch * (1 - e);
+    if (vis > 1) { // the curtain
+      const cx0 = x0 - 8, cw = x1 - x0 + 16, cy0 = l1 - 12;
+      c.save(); rr(c, cx0, cy0, cw, vis, 8); c.clip();
+      const g = c.createLinearGradient(cx0, 0, cx0 + cw, 0); g.addColorStop(0, '#7e1a2e'); g.addColorStop(0.5, '#b0324a'); g.addColorStop(1, '#7e1a2e'); c.fillStyle = g; c.fillRect(cx0, cy0, cw, vis);
+      for (let x = cx0 + 8; x < cx0 + cw; x += 18) { const fg = c.createLinearGradient(x - 6, 0, x + 6, 0); fg.addColorStop(0, 'rgba(0,0,0,0)'); fg.addColorStop(0.5, 'rgba(0,0,0,.26)'); fg.addColorStop(1, 'rgba(255,255,255,.1)'); c.fillStyle = fg; c.fillRect(x - 6, cy0, 12, vis); }
+      c.restore();
+      rr(c, cx0, cy0, cw, vis, 8); c.strokeStyle = '#4a0b18'; c.lineWidth = 1.5; c.stroke();
+      c.save(); c.globalAlpha = 1 - e; c.fillStyle = '#ffe9a8'; c.font = `900 40px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.shadowColor = 'rgba(0,0,0,.5)'; c.shadowBlur = 6; c.fillText('?', (x0 + x1) / 2, cy0 + ch / 2 + 2); c.restore();
+      if (pick === null) { pill(c, `${fmt(0.25, 2)} ${m}`, x0 + 40, l1 + lh / 2); pill(c, `${fmt(0.5, 1)} ${m}`, x0 + 40, l2 + lh / 2); }
+    }
+    const rg = c.createLinearGradient(0, l1 - 18, 0, l1 - 8); rg.addColorStop(0, '#f2d37a'); rg.addColorStop(1, '#a8801f');
+    rr(c, x0 - 14, l1 - 18, x1 - x0 + 28, 9, 4); c.fillStyle = rg; c.fill(); c.strokeStyle = '#6b4f0e'; c.lineWidth = 1.2; c.stroke();
+    if (!L.none) {
+      drawBoard(c, L);
+      rowDigits(c, L, L.ry0, [0, 2, 5], 0, C.blue, { dot: false });
+      rowDigits(c, L, L.ry0 + L.rowH, [0, 5], 0, C.violet, { dot: false });
+    }
+    return;
+  }
+  // play: the overview tape (0 to 2 m), the zoomed tape and the trapezoid between them
+  const v = P.v / 1000, sec = S.sec === 'thousandths', z = sec ? 3 : P.zoom, u = [null, 1000, 100, 10][z];
+  const tLo = z === 0 ? 0 : Math.floor(Math.max(0, P.v - 1) / u) * u / 1000, tW = z === 0 ? 2 : u / 1000;
+  const k = kk(dt, 6); P.wLo += (tLo - P.wLo) * k; P.wLg += (Math.log(tW) - P.wLg) * k;
+  const wLo = P.wLo, wHi = wLo + Math.exp(P.wLg), oX = (q) => x0 + (x1 - x0) * q / 2;
+  const sy = sc.y2, oy = sy + 30, oh = 26, bigY = Math.max(H - 78, sy + 110);
+  c.fillStyle = '#fff'; c.fillRect(x0 - 3, sy - 8, 6, 10);
+  ribbon(c, oX(0), oX(v), sy + 8, 14, C.blue);
+  tape(c, x0, x1, oy, oh, 0, 2);
+  const b0 = clamp(oX(wLo), x0, x1), b1 = clamp(oX(wHi), x0, x1), bw = Math.max(4, b1 - b0), bb0 = clamp(b0, x0, x1 - bw);
+  c.save(); c.beginPath(); c.moveTo(bb0, oy + oh); c.lineTo(bb0 + bw, oy + oh); c.lineTo(x1, bigY); c.lineTo(x0, bigY); c.closePath();
+  const tg = c.createLinearGradient(0, oy + oh, 0, bigY); tg.addColorStop(0, 'rgba(255,255,255,.34)'); tg.addColorStop(1, 'rgba(255,255,255,.1)'); c.fillStyle = tg; c.fill();
+  c.strokeStyle = 'rgba(255,255,255,.7)'; c.lineWidth = 1.5; c.stroke(); c.restore();
+  c.save(); c.strokeStyle = '#fff'; c.lineWidth = 2.5; rr(c, bb0, oy - 3, bw, oh + 6, 4); c.stroke(); c.restore();
+  if (bw < 80) { // the magnifier glass over the zoomed part
+    const gx = bb0 + bw / 2, gy = oy + oh / 2, gr = Math.max(18, bw / 2 + 8);
+    c.save(); c.strokeStyle = '#6b6f7c'; c.lineWidth = 8; c.lineCap = 'round'; c.beginPath(); c.moveTo(gx + gr * 0.7, gy + gr * 0.7); c.lineTo(gx + gr * 0.7 + 22, gy + gr * 0.7 + 22); c.stroke();
+    c.strokeStyle = '#b3b7c4'; c.lineWidth = 4; c.stroke();
+    c.fillStyle = 'rgba(180,220,255,.2)'; c.beginPath(); c.arc(gx, gy, gr, 0, 7); c.fill();
+    c.strokeStyle = '#e6e9f2'; c.lineWidth = 4; c.stroke(); c.restore();
+  }
+  const bX = (q) => x0 + (x1 - x0) * (q - wLo) / Math.max(1e-9, wHi - wLo);
+  tape(c, x0, x1, bigY, 44, wLo, wHi);
+  const rY = bigY - 32, xb = clamp(bX(v), x0 - 6, x1 + 6);
+  ribbon(c, x0 - 8, xb, rY, 22, C.blue);
+  const { base, shown, zeroEff } = plShown();
+  if (bX(v) >= x0 - 1 && bX(v) <= x1 + 1) {
+    flag(c, xb, rY - 8, bigY + 44, C.green, null);
+    pill(c, `${fmt(v, shown)} ${m}`, xb, rY - 22, { bg: '#1c6a4a', stroke: C.green });
+  }
+  if (zeroEff) pill(c, `${fmt(v, base)} = ${fmt(v, shown)}`, w / 2, bigY + 44 + 17, { bg: 'rgba(120,70,10,.9)', stroke: C.orange });
+  // board
+  drawBoard(c, L);
+  const o = Math.floor(P.v / 1000), dd = [o, Math.floor(P.v / 100) % 10, Math.floor(P.v / 10) % 10, P.v % 10].slice(0, shown + 1);
+  const s = L.s, ty = L.ry0 + (L.rowH - s) / 2;
+  for (let q = shown + 1; q < L.ncol; q++) tile(c, L.colX(q) + (L.cw - s) / 2, ty, s, s, '', C.blue, { ghost: true });
+  dd.forEach((x, q) => {
+    const isZ = zeroEff && q === shown, bob = isZ ? Math.sin((t - P.zeroAt) * 5) * 0.5 + 0.5 : 0, pop = isZ ? eob((t - P.zeroAt) * 3) : 1;
+    c.save(); c.translate(L.colX(q) + L.cw / 2, ty + s / 2 - bob * 2); c.scale(Math.max(0.01, pop), Math.max(0.01, pop));
+    tile(c, -s / 2, -s / 2, s, s, String(x), isZ ? C.orange : C.blue, isZ ? { ring: '#ffd9b0' } : {}); c.restore();
+  });
+}
+
+// --- TAKE AWAY: 5.03 - 2.67 with pieces ----------------------------------------------------------------------
+function tkNext() {
+  const K = S.tk;
+  for (let c = 2; c >= 0; c--) {
+    if (K.done[c]) continue;
+    if (K.cur[c] >= TK_SUB[c]) return { type: 'take', c };
+    let j = c - 1; while (j >= 0 && K.cur[j] === 0) j--;
+    return { type: 'break', j: Math.max(0, j), c };
+  }
+  return null;
+}
+function tkAct() {
+  const K = S.tk;
+  if (K.fx) return;
+  const nx = tkNext();
+  if (!nx) { S.tk = { ...S.tk, cur: TK_CUR.slice(), done: [false, false, false], res: [null, null, null], fx: null }; sfx.click(); return; }
+  K.fx = { ...nx, t0: now(), dur: nx.type === 'break' ? 1.1 : 0.7 };
+  (nx.type === 'break' ? sfx.push : sfx.snap)();
+}
+function slotPos(c, k, N, r) {
+  if (c === 0) { const bh = clamp(r.h / Math.max(1, N) - 3, 6, 14), bw = Math.min(r.w, 62); return { x: r.x + (r.w - bw) / 2, y: r.y + r.h - (k + 1) * (bh + 3) + 3, w: bw, h: bh }; }
+  if (c === 1) { const step = Math.min(11, r.w / Math.max(1, N)), rw = Math.max(4, step - 3), tot = N * step, rh = Math.min(r.h - 4, 58); return { x: r.x + r.w / 2 - tot / 2 + k * step + (step - rw) / 2, y: r.y + r.h - rh, w: rw, h: rh }; }
+  const cs = 12, g = 3, cols = 5, gw = cols * (cs + g) - g;
+  return { x: r.x + r.w / 2 - gw / 2 + (k % cols) * (cs + g), y: r.y + r.h - (Math.floor(k / cols) + 1) * (cs + g) + g, w: cs, h: cs };
+}
+function block(c, p, col, alpha = 1) {
+  if (p.w < 1 || p.h < 1) return;
+  c.save(); c.globalAlpha = clamp(alpha, 0, 1);
+  const g = c.createLinearGradient(p.x, p.y, p.x + p.w, p.y + p.h); g.addColorStop(0, shade(col, 0.35)); g.addColorStop(1, shade(col, -0.22));
+  c.shadowColor = 'rgba(0,0,0,.4)'; c.shadowBlur = 4; c.shadowOffsetY = 2;
+  rr(c, p.x, p.y, p.w, p.h, Math.min(3.5, p.h / 2, p.w / 2)); c.fillStyle = g; c.fill(); c.shadowColor = 'transparent';
+  c.lineWidth = 1.3; c.strokeStyle = shade(col, -0.5); c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.34)'; rr(c, p.x + 1.5, p.y + 1.5, Math.max(0, p.w - 3), Math.max(0, Math.min(4, p.h * 0.3)), 1.5); c.fill();
+  c.restore();
+}
+
+function frameTk(c, w, h, dt, t) {
+  const K = S.tk, L = lay(w, h, { mul: 4.25 }); LAST = L;
+  const H = L.sceneH, sc = scene(c, w, H, t), x0 = 34, x1 = w - 20, X = (m) => x0 + (x1 - x0) * m / 6, tapeY = H - 44, lane = sc.y2 + 14, lh = 24, m = T[lang].m;
+  K.rv = clamp(K.rv + ((K.pick !== null ? 1 : 0) - K.rv) * kk(dt, 2.6) + (K.pick !== null ? dt * 0.3 : 0), 0, 1);
+  c.fillStyle = '#fff'; c.fillRect(x0 - 3, sc.y2 - 8, 6, 10);
+  reel(c, x0, tapeY, 34); tape(c, x0, x1, tapeY, 34, 0, 6);
+  const sp = lerp(5.03, 2.36, eo(K.rv));
+  if (K.rv < 0.01) { ribbon(c, X(0), X(5.03), lane, lh, C.blue); pill(c, `${fmt(5.03, 2)} ${m}`, X(2.5), lane + lh / 2); }
+  else {
+    ribbon(c, X(0), X(sp), lane, lh, C.green); ribbon(c, X(sp) + 3, X(5.03), lane, lh, C.violet, { alpha: 0.95 });
+    if (K.rv > 0.5) { c.save(); c.globalAlpha = clamp((K.rv - 0.5) * 3, 0, 1); pill(c, `${fmt(2.36, 2)} ${m}`, X(sp / 2), lane + lh / 2, { bg: '#1c6a4a', stroke: C.green }); pill(c, `${fmt(2.67, 2)} ${m} · ${T[lang].k.away}`, X((sp + 5.03) / 2) + 6, lane + lh / 2 + 28); c.restore(); }
+    c.save(); c.font = '20px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('✂️', X(sp) + 1, lane - 8); c.restore();
+  }
+  if (K.rv > 0.6) flag(c, X(5.03), lane + lh + 4, tapeY, C.blue, null);
+  // board
+  drawBoard(c, L);
+  const stockH = L.rowH * 2.25, stockY = L.ry0, subY = stockY + stockH, resY = subY + L.rowH + 6, s2 = Math.min(L.s, 40), f = K.fx, nowT = now();
+  const prog = f ? clamp((nowT - f.t0) / f.dur, 0, 1) : 0;
+  if (f && prog >= 1) {
+    if (f.type === 'break') { K.cur[f.j] -= 1; K.cur[f.j + 1] += 10; }
+    else { K.res[f.c] = K.cur[f.c] - TK_SUB[f.c]; K.cur[f.c] = K.res[f.c]; K.done[f.c] = true; }
+    K.fx = null; render();
+  }
+  const fx = K.fx, p = prog;
+  for (let q = 0; q < 3; q++) {
+    const cx = L.colX(q) + L.cw / 2, n = K.cur[q];
+    const rect = { x: L.colX(q) + 6, y: stockY + s2 + 12, w: L.cw - 12, h: stockH - s2 - 18 };
+    rr(c, L.colX(q) + 5, rect.y - 2, L.cw - 10, rect.h + 4, 10); c.fillStyle = 'rgba(0,0,0,.2)'; c.fill();
+    const isSrc = fx && fx.type === 'break' && fx.j === q, isDst = fx && fx.type === 'break' && fx.j + 1 === q, isTake = fx && fx.type === 'take' && fx.c === q;
+    const N = isDst ? n + 10 : n;
+    const cnt = isSrc && p > 0.4 ? n - 1 : n;
+    tile(c, cx - (n >= 10 ? s2 * 0.75 : s2 / 2), stockY + 4, n >= 10 ? s2 * 1.5 : s2, s2, String(n), K.done[q] ? C.green : C.blue);
+    for (let i = 0; i < cnt; i++) {
+      const sl = slotPos(q, i, N, rect); let a = 1, pos = sl;
+      if (isSrc && i === n - 1) { // the cracking piece
+        const sh = p < 0.4 ? Math.sin(p * 90) * 2 : 0; pos = { ...sl, x: sl.x + sh };
+        block(c, pos, C.blue, 1);
+        c.save(); c.strokeStyle = '#fff'; c.lineWidth = 1.8; c.beginPath();
+        const cr = clamp(p / 0.4, 0, 1), px0 = pos.x + pos.w * 0.5, py0 = pos.y;
+        c.moveTo(px0, py0); c.lineTo(px0 - pos.w * 0.12 * cr, py0 + pos.h * 0.3 * cr); c.lineTo(px0 + pos.w * 0.14 * cr, py0 + pos.h * 0.6 * cr); c.lineTo(px0 - pos.w * 0.08 * cr, py0 + pos.h * cr); c.stroke(); c.restore();
+        continue;
+      }
+      if (isTake && i >= n - TK_SUB[q]) { const e = eo(p); pos = { ...sl, y: lerp(sl.y, subY + 4, e) }; a = 1 - p; }
+      block(c, pos, C.blue, a);
+    }
+    if (isSrc && p >= 0.4 && p < 1) { // the broken piece's 10 parts fly to the next column
+      const dstRect = { x: L.colX(q + 1) + 6, y: rect.y, w: L.cw - 12, h: rect.h }, e = eo((p - 0.4) / 0.6), src = slotPos(q, n - 1, n, rect);
+      for (let i = 0; i < 10; i++) {
+        const d = slotPos(q + 1, K.cur[q + 1] + i, K.cur[q + 1] + 10, dstRect);
+        block(c, { x: lerp(src.x, d.x, e), y: lerp(src.y, d.y, e) - Math.sin(e * Math.PI) * 16, w: d.w, h: d.h }, C.blue, 1);
+      }
+    }
+  }
+  sign(c, L, subY, '−'); sign(c, L, resY, '=');
+  c.save(); c.strokeStyle = 'rgba(255,255,255,.75)'; c.lineWidth = 3; c.lineCap = 'round'; c.beginPath(); c.moveTo(L.bx + 14, resY - 4); c.lineTo(L.bx + L.bw - 14, resY - 4); c.stroke(); c.restore();
+  for (let q = 0; q < 3; q++) {
+    const x = L.colX(q) + (L.cw - L.s) / 2;
+    tile(c, x, subY + (L.rowH - L.s) / 2, L.s, L.s, String(TK_SUB[q]), C.violet, { alpha: K.done[q] ? 0.4 : 1 });
+    const ty = resY + (L.rowH - L.s) / 2;
+    if (K.done[q]) tile(c, x, ty, L.s, L.s, String(K.res[q]), C.green); else tile(c, x, ty, L.s, L.s, '?', C.green, { ghost: true });
+  }
+}
+
+// --- one canvas, three views ---------------------------------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt, t) => {
+  CW = w; CH = h;
+  if (lab.view === 'add') frameAdd(c, w, h, dt, t); else if (lab.view === 'places') framePl(c, w, h, dt, t); else frameTk(c, w, h, dt, t);
+});
+
+// --- input ---------------------------------------------------------------------------------------------------
+const cv = $('cv');
+cv.addEventListener('pointerdown', (ev) => {
+  if (lab.view !== 'add' || S.sec || !LAST || LAST.none) return;
+  const K = calc(); if (K.mv < 0) return;
+  const r = cv.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top, yy = LAST.ry0 + K.mv * LAST.rowH;
+  if (y < yy - 6 || y > yy + LAST.rowH + 6 || x < LAST.bx || x > LAST.bx + LAST.bw) return;
+  S.drag = { x0: x, v0: S.add.vis }; cv.setPointerCapture(ev.pointerId); sfx.tick();
+});
+cv.addEventListener('pointermove', (ev) => {
+  if (!S.drag) return;
+  const r = cv.getBoundingClientRect(), x = ev.clientX - r.left;
+  S.add.vis = clamp(S.drag.v0 + (x - S.drag.x0) / (LAST.cw + LAST.pillW / 2), 0, 1);
+  const sh = Math.round(S.add.vis); if (sh !== S.add.sh) { S.add.sh = sh; sfx.tick(); render(); }
+});
+const endDrag = () => { if (!S.drag) return; S.drag = null; S.add.sh = Math.round(S.add.vis); sfx.snap(); render(); };
+cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
+
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+function toggleSec(k) {
+  const P = S.pl;
+  if (S.sec === k) { S.sec = null; if (k === 'thousandths') { P.zoom = 2; P.v = Math.round(P.v / 10) * 10; } sfx.click(); return; }
+  S.sec = k;
+  if (k === 'jump') { lab.view = 'add'; S.jump.d = EX[S.add.ex].tot; S.jump.dv = S.jump.d; }
+  else { lab.view = 'places'; P.phase = 'play'; P.zoom = 3; if (P.v % 10 === 0) P.v += P.v > 1990 ? -3 : 7; }
+  lab.renderChrome(); sfx.click();
+}
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b) return;
+  const act = b.dataset.act, P = S.pl;
+  if (act === 'edge') { S.add.sh = 1; sfx.snap(); }
+  else if (act === 'point') { S.add.sh = 0; sfx.snap(); }
+  else if (act === 'next') { setEx((S.add.ex + 1) % EX.length); sfx.click(); }
+  else if (act === 'sec') { if (!secret.unlocked()) return secret.open(); toggleSec(b.dataset.k); }
+  else if (act === 'z') { if (S.sec === 'thousandths') { P.v = Math.round(P.v / 10) * 10; S.sec = null; } P.zoom = +b.dataset.z; sfx.tick(); }
+  else if (act === 'zero') { P.zero = !P.zero; P.zeroAt = now(); sfx.click(); }
+  else if (act === 'go') { P.phase = 'play'; sfx.click(); }
+  else if (act === 'tk') tkAct();
+  else if (act === 'jump') { const d = +b.dataset.d; S.jump.d = d === 0 ? EX[S.add.ex].tot : Math.min(999, S.jump.d + d); sfx.tick(); }
+  render();
+});
+$('plS').addEventListener('input', (ev) => { S.pl.v = clamp(Math.round(+ev.target.value), 0, 2000); render(); });
+askEl.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button[data-a]'); if (!b) return;
+  const i = +b.dataset.a, v = lab.view;
+  if (v === 'add') { if (S.add.pick !== null) return; S.add.pick = i; (EX[S.add.ex].opts[i] && v100(EX[S.add.ex].opts[i]) === EX[S.add.ex].tot ? sfx.good : sfx.bad)(); }
+  else if (v === 'places') { if (S.pl.pick !== null) return; S.pl.pick = i; S.pl.phase = 'cmp'; (i === 1 ? sfx.good : sfx.bad)(); }
+  else { if (S.tk.pick !== null) return; S.tk.pick = i; (i === 1 ? sfx.good : sfx.bad)(); }
+  showStage(); render();
+});
+
+// --- one render per change: controls, readout, state card and facts ------------------------------------------
+function askCard(q, opts, pick, okIdx, verdict) {
+  if (pick === null) return `<div class="q">${esc(q)}</div><div class="opts">${opts.map((o, i) => `<button data-a="${i}">${esc(o)}</button>`).join('')}</div>`;
+  return `<div class="v ${pick === okIdx ? 'ok' : 'no'}">${esc(verdict)}</div><div class="opts">${opts.map((o, i) => `<button disabled class="${i === okIdx ? 'good' : i === pick ? 'bad' : ''}">${esc(o)}</button>`).join('')}</div>`;
+}
+function render() {
+  const t = T[lang], v = lab.view, sec = S.sec;
+  document.body.dataset.v = v;
+  $('secAdd').style.display = v === 'add' && sec !== 'jump' ? '' : 'none';
+  $('secJump').style.display = v === 'add' && sec === 'jump' ? '' : 'none';
+  $('secPl').style.display = v === 'places' && S.pl.phase !== 'ask' ? '' : 'none';
+  $('secTk').style.display = v === 'take' && S.tk.pick !== null ? '' : 'none';
+  const open = secret.unlocked(), chip = (k, emo) => `<button class="chip dp-chip secret ${open ? 'open' : ''} ${sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  $('secChips').innerHTML = chip('jump', '🏅') + chip('thousandths', '🔍');
+  askEl.style.display = 'none';
+  if (v === 'add') (sec === 'jump' ? rJump : rAdd)(t); else if (v === 'places') rPl(t); else rTk(t);
+}
+function rAdd(t) {
+  const A = S.add, K = calc(), e = K.e, ask = A.pick === null, okIdx = e.opts.findIndex((o) => v100(o) === e.tot);
+  lab.setGlow('rgba(78,140,240,.28)');
+  document.querySelector('[data-act=edge]').textContent = t.a.edge; document.querySelector('[data-act=point]').textContent = t.a.point;
+  document.querySelector('[data-act=edge]').classList.toggle('on', A.sh === 1); document.querySelector('[data-act=point]').classList.toggle('on', A.sh === 0);
+  $('nextRow').style.display = ask ? 'none' : ''; document.querySelector('[data-act=next]').textContent = t.a.next;
+  askEl.style.display = '';
+  const tot = fmt(e.tot / 100, 2);
+  askEl.innerHTML = askCard(t.a.q(loc(e.a), loc(e.b)), e.opts.map(loc), A.pick, okIdx, A.pick === okIdx ? t.ok : t.a.no(loc(e.opts[A.pick] ?? ''), tot));
+  if (ask) {
+    lab.setReadout(`${loc(e.a)} + ${loc(e.b)}`, '', '', C.blue);
+    lab.setState({ emo: '🤔', title: t.a.q(loc(e.a), loc(e.b)), lead: t.a.hint, body: '', extra: '' });
+  } else {
+    lab.setReadout(`${tot} ${t.m}`, '', K.aligned ? '✓' : `${fmt(K.sum / 100, 2)} ≠ ${tot}`, K.aligned ? C.green : C.orange);
+    if (K.aligned) lab.setState({ emo: '✅', title: A.pick === okIdx ? t.ok : t.a.no(loc(e.opts[A.pick]), tot), lead: t.keyLead, body: '', extra: '' });
+    else lab.setState({ emo: '⚠️', title: t.a.mTitle, lead: t.a.mLead(fmt(K.sum / 100, 2), tot), body: '', extra: '' });
+  }
+  lab.setFacts(t.facts.add);
+}
+function rJump(t) {
+  const d = S.jump.d, gapC = 895 - d;
+  lab.setGlow('rgba(224,176,48,.26)');
+  $('jumpRow').innerHTML = t.j.steps.map((s, i) => `<button class="chip dp-chip" data-act="jump" data-d="${[1, 10, 100][i]}">${esc(s)}</button>`).join('') + `<button class="chip dp-chip" data-act="jump" data-d="0">${esc(t.j.reset)}</button>`;
+  lab.setReadout(`${fmt(d / 100, 2)} ${t.m}`, t.j.your, '', '#e0b030');
+  const lead = gapC > 0 ? t.j.lead(gapC, fmt(gapC / 100, 2)) : gapC === 0 ? t.j.equal : t.j.beat;
+  lab.setState({ emo: '🏅', title: t.secrets.jump[0], lead, body: '', extra: '' });
+  lab.setFacts(t.facts.jump);
+}
+function rPl(t) {
+  const P = S.pl, sec = S.sec === 'thousandths';
+  lab.setGlow('rgba(155,123,240,.26)');
+  if (P.phase === 'ask' || P.phase === 'cmp') {
+    askEl.style.display = '';
+    const opts = t.p.opts(fmt(0.25, 2), fmt(0.5, 1)), ask = P.phase === 'ask';
+    askEl.innerHTML = askCard(t.p.q(fmt(0.25, 2), fmt(0.5, 1)), opts, P.pick, 1, P.pick === 1 ? t.ok : t.p.no(fmt(0.5, 1)));
+    $('plPlay').style.display = 'none'; $('goRow').style.display = ask ? 'none' : ''; document.querySelector('[data-act=go]').textContent = t.p.go;
+    $('secPl').style.display = ask ? 'none' : '';
+    if (ask) {
+      lab.setReadout(`${fmt(0.25, 2)} ${t.m} · ${fmt(0.5, 1)} ${t.m}`, '', '', C.violet);
+      lab.setState({ emo: '🤔', title: t.p.q(fmt(0.25, 2), fmt(0.5, 1)), lead: t.p.hint, body: '', extra: '' });
+    } else {
+      lab.setReadout(`${fmt(0.5, 1)} ${t.m}`, '>', `${fmt(0.25, 2)} ${t.m}`, C.green);
+      lab.setState({ emo: '📏', title: P.pick === 1 ? t.ok : t.p.no(fmt(0.5, 1)), lead: t.p.cmp(fmt(0.25, 2), fmt(0.5, 1)), body: '', extra: '' });
+    }
+    lab.setFacts(t.facts.places); return;
+  }
+  $('plPlay').style.display = ''; $('goRow').style.display = 'none';
+  const sl = $('plS'); sl.step = sec ? '1' : '10'; if (+sl.value !== P.v) sl.value = P.v;
+  $('zl').textContent = t.p.zoom;
+  $('zChips').innerHTML = [0, 1, 2].map((z) => `<button class="chip dp-chip ${P.zoom === z && !sec ? 'on' : ''}" data-act="z" data-z="${z}">🔍 ${esc(t.p.zz[z])}</button>`).join('');
+  const { base, shown, zeroEff } = plShown();
+  $('zeroB').hidden = base >= 3; $('zeroB').textContent = P.zero ? t.p.zeroDel : t.p.zeroAdd; $('zeroB').classList.toggle('on', P.zero);
+  const n = P.v, o = Math.floor(n / 1000), tt = Math.floor(n / 100) % 10, hh = Math.floor(n / 10) % 10, th = n % 10;
+  lab.setReadout(`${fmt(n / 1000, shown)} ${t.m}`, t.p.sub(o, tt, hh, th, sec || shown >= 3), zeroEff ? `${fmt(n / 1000, base)} = ${fmt(n / 1000, shown)}` : '', C.violet);
+  if (zeroEff) { const z = t.p.zero(fmt(n / 1000, base), fmt(n / 1000, shown)); lab.setState({ emo: '0️⃣', title: z[0], lead: z[1], body: '', extra: '' }); }
+  else { const lv = t.p.lv(sec ? 3 : P.zoom); lab.setState({ emo: sec ? '🔍' : '🔎', title: lv[0], lead: lv[1], body: '', extra: '' }); }
+  lab.setFacts(t.facts.places);
+}
+function rTk(t) {
+  const K = S.tk, ask = K.pick === null, nx = tkNext(), fin = !nx && !K.fx, a = fmt(5.03, 2), b = fmt(2.67, 2), r = fmt(2.36, 2);
+  lab.setGlow('rgba(52,197,138,.24)');
+  askEl.style.display = '';
+  askEl.innerHTML = askCard(t.k.q(a, b), TKO.map(loc), K.pick, 1, K.pick === 1 ? t.ok : t.k.no(loc(TKO[K.pick] ?? ''), r));
+  if (ask) {
+    lab.setReadout(`${a} − ${b}`, '', '', C.green);
+    lab.setState({ emo: '🤔', title: t.k.q(a, b), lead: t.k.hint, body: '', extra: '' });
+  } else {
+    lab.setReadout(`${r} ${t.m}`, '', '', C.green);
+    const btn = $('tkB'); btn.disabled = !!K.fx;
+    if (fin) {
+      btn.textContent = t.k.again;
+      lab.setState({ emo: '✅', title: t.k.done(r), lead: t.k.doneLead, body: '', extra: '' });
+    } else if (nx.type === 'break') {
+      btn.textContent = t.k.brk[nx.j === 0 && nx.c === 2 ? 0 : nx.j];
+      lab.setState({ emo: '🧩', title: t.k.brk[nx.j], lead: t.k.need[nx.c] + t.k.needEnd, body: '', extra: '' });
+    } else {
+      btn.textContent = t.k.take[nx.c](TK_SUB[nx.c]);
+      lab.setState({ emo: '✂️', title: t.k.take[nx.c](TK_SUB[nx.c]), lead: t.k.takeT, body: '', extra: '' });
+    }
+  }
+  lab.setFacts(t.facts.take);
+}
+render();
+</script>
+</body>
+</html>
