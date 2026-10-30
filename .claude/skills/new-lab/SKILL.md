@@ -37,7 +37,7 @@ For each lab write down, and get it agreed (an issue with the "New lab" template
 1. **Main idea**: one sentence the child should walk away with.
 2. **Supporting ideas**: as many as the topic needs; they live in further views and the two secret experiments.
 3. **The picture**: what the child sees and does that makes the main idea obvious. Then the interaction. Do not clone another lab's mechanic for a different idea.
-4. **The prediction**: what the child answers or builds while the answer is hidden (a curtain over the sky, a fence shown as `? m`, closed layers), before the picture reveals it.
+4. **The prediction**: what the child answers or builds while the answer is hidden (a curtain over the sky, a fence shown as `? m`, closed layers), before the picture reveals it. When the main idea is a **rule** (a pattern, a function, a sorting rule, a cause and its effect), prefer **find the rule**: the child tries inputs and watches the outputs while the rule stays hidden, predicts the next output, and the rule is named only after a right prediction or a "Show the rule" tap. Discovering a rule teaches more than being told it; the Formula Machine (`labs/formulas`) works this way.
 5. **Views** (tabs), the **two secret experiments**, and the **three quiz questions**.
 6. **Fun facts**: 1–3 per view (see "Fun facts" below), with a source each.
 7. **Depth**: the age band from the table below and how the lab meets it.
@@ -90,7 +90,7 @@ One folder, one page: `labs/<id>/index.html`. Copy the `<head>` pattern of `labs
 - `shell({ key, T, topics, views, onLang, onView })` draws the chrome; `secretLab(key, getContent, onUnlock)` runs the quiz that unlocks the secrets and marks the lab's topics "Learning" on the map. Details: [shell-api.md](shell-api.md).
 - **All text in one `T` object** with `en`, `ru` and `hu`, chosen by `?lang=`. Children are addressed informally (RU «ты», HU tegező). A right answer's verdict is `Right!` / `Верно!` / `Így van!`.
 - **Predict, then reveal.** While the child predicts, the answer is fully hidden: covered by an opaque element or not drawn. Feedback is visual first: the scene shows what really happens, then a short verdict.
-- **Quiz questions target typical misconceptions**, not recall of numbers shown on the page.
+- **Quiz questions target typical misconceptions**, not recall of numbers shown on the page. Give each one a `hint`: one short sentence that points at what to look at in the lab, never the answer. The shell shows it after the second wrong tap (the first wrong tap only crosses the option out).
 - **Phone first:** 375 px wide, no horizontal scroll, tap targets ≥ 36 px, canvas text ≥ 12 px.
 - **The main picture must look crafted**: gradients, light and shadow, a small palette, eased motion. See "Visual quality" in [pitfalls.md](pitfalls.md).
 - No new dependencies, no build step, no test harnesses.
@@ -128,6 +128,7 @@ Then, in a browser, serve the repo (`python3 -m http.server 8000`) and open `htt
 - the "Did you know?" box shows facts in every view and language, and its "Another fact" button cycles them;
 - the footer's topic links open the right topics on the map (`/?topic=…`);
 - after the quiz, the secrets open and the lab's topics show as "Learning" on the map;
+- a wrong quiz answer is crossed out, and the second wrong tap shows the question's `hint`;
 - the browser console shows no errors.
 
 ## 7. Pull request

@@ -29,6 +29,14 @@ const UI = {
         secretKick: 'Secret lab', secretTitle: 'Two extreme experiments are locked.',
         secretAsk: (n) => `Answer <b>${n} quick questions</b> to unlock both.`, start: 'Start the challenge', later: 'Not now',
         qn: (i, n) => `Secret lab · question ${i} of ${n}`, wrong: 'Not quite. Look at the lab and try again!',
+        wrong2: 'Still not it. Fewer choices now: look at the lab once more.',
+        revKick: 'Check again', revTitle: 'What stuck?',
+        revAsk: (d, n) => `Last time here: ${d} ${d === 1 ? 'day' : 'days'} ago. ${n} quick questions: what do you still remember?`,
+        revAskNoDate: (n) => `${n} quick questions: what do you still remember?`,
+        revQn: (i, n) => `Check again · question ${i} of ${n}`,
+        revAllTitle: 'It stuck!', revAllText: 'Every answer right on the first try.',
+        revKnown: 'This lab’s topics are now marked “Known” on the graph.',
+        revSomeTitle: 'Some of it slipped', revSomeText: 'That’s normal: memory needs a second visit. Play with the lab again and try the questions in a week.',
         doneTitle: 'Unlocked!', doneText: 'Both secret experiments are open. Find them at the ends of the row.', go: 'Let’s go', marked: 'This lab’s topics are now marked “Learning” on the graph.',
         lic: 'Topics from the Marble Skill Taxonomy (ODbL 1.0 / CC BY-SA 4.0), translated. The lab is a simplified model, not a measuring tool.',
         contrib: 'Skill Graph is open source: help build it', fact: 'Did you know?', nextFact: 'Another fact', why: 'Why' },
@@ -36,6 +44,14 @@ const UI = {
         secretKick: 'Секретная лаборатория', secretTitle: 'Два экстремальных опыта под замком.',
         secretAsk: (n) => `Ответь на <b>${n} ${ruPlural(n, 'короткий вопрос', 'коротких вопроса', 'коротких вопросов')}</b>, чтобы открыть оба.`, start: 'Принять вызов', later: 'Не сейчас',
         qn: (i, n) => `Секретная лаборатория · вопрос ${i} из ${n}`, wrong: 'Не совсем. Посмотри на опыт и попробуй ещё раз!',
+        wrong2: 'Опять не то. Вариантов стало меньше: посмотри на опыт ещё раз.',
+        revKick: 'Проверка через время', revTitle: 'Что запомнилось?',
+        revAsk: (d, n) => `С прошлого раза прошло ${d} ${ruPlural(d, 'день', 'дня', 'дней')}. ${n} ${ruPlural(n, 'короткий вопрос', 'коротких вопроса', 'коротких вопросов')}: что помнишь?`,
+        revAskNoDate: (n) => `${n} ${ruPlural(n, 'короткий вопрос', 'коротких вопроса', 'коротких вопросов')}: что помнишь?`,
+        revQn: (i, n) => `Проверка · вопрос ${i} из ${n}`,
+        revAllTitle: 'Всё запомнилось!', revAllText: 'Все ответы верные с первой попытки.',
+        revKnown: 'Темы этой лаборатории отмечены на графе как «Знает».',
+        revSomeTitle: 'Кое-что забылось', revSomeText: 'Это нормально: памяти нужен второй заход. Поиграй с лабораторией ещё раз и вернись к вопросам через неделю.',
         doneTitle: 'Открыто!', doneText: 'Оба секретных опыта открыты. Они по краям ряда кнопок.', go: 'Вперёд', marked: 'Темы этой лаборатории отмечены на графе как «Изучаем».',
         lic: 'Темы из Marble Skill Taxonomy (ODbL 1.0 / CC BY-SA 4.0), перевод. Лаборатория — упрощённая модель, а не измерительный прибор.',
         contrib: 'Skill Graph — открытый проект: его можно дополнить', fact: 'А знаешь ли ты?', nextFact: 'Ещё факт', why: 'Почему' },
@@ -43,6 +59,14 @@ const UI = {
         secretKick: 'Titkos labor', secretTitle: 'Két extrém kísérlet le van zárva.',
         secretAsk: (n) => `Válaszolj <b>${n} rövid kérdésre</b>, és mindkettő kinyílik.`, start: 'Jöhet a kihívás', later: 'Most nem',
         qn: (i, n) => `Titkos labor · ${i}. kérdés / ${n}`, wrong: 'Nem egészen. Nézd meg a kísérletet, és próbáld újra!',
+        wrong2: 'Még mindig nem. Már kevesebb közül választhatsz: nézd meg újra a kísérletet.',
+        revKick: 'Újra ellenőrzés', revTitle: 'Mi maradt meg?',
+        revAsk: (d, n) => `Legutóbb ${d} napja jártál itt. ${n} rövid kérdés: mire emlékszel?`,
+        revAskNoDate: (n) => `${n} rövid kérdés: mire emlékszel?`,
+        revQn: (i, n) => `Ellenőrzés · ${i}. kérdés / ${n}`,
+        revAllTitle: 'Megmaradt!', revAllText: 'Minden válasz elsőre jó.',
+        revKnown: 'A labor témái a gráfon „Tudja” jelölést kaptak.',
+        revSomeTitle: 'Valami elfelejtődött', revSomeText: 'Ez természetes: az emlékezetnek kell egy második kör. Játssz még a laborral, és egy hét múlva próbáld újra a kérdéseket.',
         doneTitle: 'Kinyílt!', doneText: 'Mindkét titkos kísérlet elérhető. A gombsor két végén találod őket.', go: 'Gyerünk', marked: 'A labor témái a gráfon „Tanulja” jelölést kaptak.',
         lic: 'A témák a Marble Skill Taxonomyból származnak (ODbL 1.0 / CC BY-SA 4.0), fordítás. A labor egyszerűsített modell, nem mérőeszköz.',
         contrib: 'A Skill Graph nyílt forráskódú: bárki hozzátehet', fact: 'Tudtad?', nextFact: 'Még egy', why: 'Miért' },
@@ -237,9 +261,24 @@ function markLearning() {
   } catch { return 0; }
   return n;
 }
+// revisit: topics still at 'learning' become 'known' (never sets missing ones, never touches 'known'); returns how many
+function markKnown() {
+  let n = 0;
+  try {
+    const p = JSON.parse(localStorage.getItem('skillgraph.progress') || '{}') || {};
+    for (const t of current?.topics ?? []) if (p[t.id] === 'learning') { p[t.id] = 'known'; n++; }
+    if (n) localStorage.setItem('skillgraph.progress', JSON.stringify(p));
+  } catch { return 0; }
+  return n;
+}
+const ymd = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; // local date
 export function secretLab(key, getContent, onUnlock) {
   const box = $('secretBox'), wrap = $('secret');
-  const close = () => wrap.classList.remove('open');
+  let wrong = 0, revisit = false; // wrong taps in this run; revisit = the second-look quiz (no unlock)
+  const close = () => {
+    wrap.classList.remove('open');
+    if (revisit) { revisit = false; const p = new URLSearchParams(location.search); if (p.has('revisit')) { p.delete('revisit'); history.replaceState(null, '', `${location.pathname}${p.size ? `?${p}` : ''}${location.hash}`); } }
+  };
   wrap.addEventListener('click', (ev) => { if (ev.target === wrap) close(); });
   addEventListener('keydown', (ev) => { if (ev.key === 'Escape') close(); });
   const intro = () => {
@@ -248,32 +287,60 @@ export function secretLab(key, getContent, onUnlock) {
       <div class="locks">${secrets.map((s) => `<div class="lock"><div class="e">${s.emo}</div><div class="t">${esc(s.title)}</div><div class="d">${esc(s.desc)}</div></div>`).join('')}</div>
       <p>${u.secretAsk(questions.length)}</p>
       <button class="btn" id="qStart">${esc(u.start)}</button> <button class="btn ghost" id="qLater">${esc(u.later)}</button>`;
-    $('qStart').onclick = () => ask(0); $('qLater').onclick = close;
+    $('qStart').onclick = () => { wrong = 0; ask(0); }; $('qLater').onclick = close;
+  };
+  const revIntro = () => {
+    const u = UI[lang], n = getContent().questions.length, d = store.get('done:' + key)?.d;
+    const days = d ? Math.max(0, Math.round((new Date(ymd()) - new Date(d)) / 864e5)) : null; // both parsed as UTC midnight: whole days
+    box.innerHTML = `<div class="kick">🔁 ${esc(u.revKick)}</div><h3>${esc(u.revTitle)}</h3>
+      <p>${esc(days === null || isNaN(days) ? u.revAskNoDate(n) : u.revAsk(days, n))}</p>
+      <button class="btn" id="qStart">${esc(u.start)}</button> <button class="btn ghost" id="qLater">${esc(u.later)}</button>`;
+    $('qStart').onclick = () => { wrong = 0; ask(0); }; $('qLater').onclick = close;
   };
   const ask = (i) => {
     const u = UI[lang], { questions } = getContent(), q = questions[i];
-    if (!q) return done();
-    box.innerHTML = `<div class="kick">🔬 ${esc(u.qn(i + 1, questions.length))}</div><h3>${esc(q.q)}</h3>
+    if (!q) return revisit ? revDone() : done();
+    let m = 0; // misses on this question
+    box.innerHTML = `<div class="kick">${revisit ? `🔁 ${esc(u.revQn(i + 1, questions.length))}` : `🔬 ${esc(u.qn(i + 1, questions.length))}`}</div><h3>${esc(q.q)}</h3>
       <div class="opts">${q.opts.map((o, j) => `<button class="opt" data-j="${j}">${esc(o)}</button>`).join('')}</div>
       <div class="hint" id="qHint"></div>
       <div class="dots">${questions.map((_, j) => `<i class="${j <= i ? 'on' : ''}"></i>`).join('')}</div>`;
     box.querySelector('.opts').onclick = (ev) => {
-      const b = ev.target.closest('.opt'); if (!b) return;
+      const b = ev.target.closest('.opt'); if (!b || b.disabled) return;
       if (+b.dataset.j === q.ok) { b.classList.add('good'); sfx.good(); setTimeout(() => ask(i + 1), 550); }
-      else { b.classList.remove('bad'); void b.offsetWidth; b.classList.add('bad'); sfx.bad(); $('qHint').textContent = u.wrong; }
+      else {
+        b.classList.remove('bad'); void b.offsetWidth; b.classList.add('bad'); b.disabled = true; sfx.bad(); // crossed out: elimination is the nudge
+        m++; wrong++;
+        $('qHint').textContent = m === 1 ? u.wrong : q.hint ? '💡 ' + q.hint : u.wrong2;
+      }
     };
   };
   const done = () => {
     const u = UI[lang];
     store.set('unlocked:' + key, true);
+    store.set('done:' + key, { d: ymd(), w: wrong });
     const marked = markLearning();
     box.innerHTML = `<div class="kick">🔓 ${esc(u.secretKick)}</div><h3>${esc(u.doneTitle)}</h3><p>${esc(u.doneText)}</p>${marked ? `<p>${esc(u.marked)}</p>` : ''}
       <button class="btn" id="qGo">${esc(u.go)}</button>`;
     $('qGo').onclick = () => { close(); onUnlock(); };
     onUnlock();
   };
-  return {
-    unlocked: () => store.get('unlocked:' + key, false),
-    open: () => { intro(); wrap.classList.add('open'); sfx.click(); },
+  const revDone = () => {
+    const u = UI[lang];
+    store.set('done:' + key, { d: ymd(), w: wrong });
+    const known = wrong === 0 ? markKnown() : 0;
+    box.innerHTML = wrong === 0
+      ? `<div class="kick">🔁 ${esc(u.revKick)}</div><h3>${esc(u.revAllTitle)}</h3><p>${esc(u.revAllText)}</p>${known ? `<p>${esc(u.revKnown)}</p>` : ''}<button class="btn" id="qGo">${esc(u.go)}</button>`
+      : `<div class="kick">🔁 ${esc(u.revKick)}</div><h3>${esc(u.revSomeTitle)}</h3><p>${esc(u.revSomeText)}</p><button class="btn" id="qGo">${esc(u.go)}</button>`;
+    $('qGo').onclick = close;
   };
+  const api = {
+    unlocked: () => store.get('unlocked:' + key, false),
+    open: () => { revisit = false; intro(); wrap.classList.add('open'); sfx.click(); },
+  };
+  // ?revisit=1 on an already unlocked lab: the map's "second look" card opens the check-again quiz
+  if (new URLSearchParams(location.search).get('revisit') === '1' && api.unlocked()) {
+    setTimeout(() => { revisit = true; revIntro(); wrap.classList.add('open'); }, 400);
+  }
+  return api;
 }

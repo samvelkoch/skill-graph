@@ -4,20 +4,21 @@
 // It reads the viewer's globals (lang, focus), fills labTopics and decorates what the viewer renders.
 (() => {
   const UI = {
-    en: { done: 'Done ✓', labs: 'Labs', title: 'Interactive explainers', sub: 'Learn a topic by playing with it.', open: 'Open the explorer',
+    en: { done: 'Done ✓', easy: 'easily', hinted: 'with hints', revisit: 'Time for a second look', revisitSub: 'a few questions: what stuck?', labs: 'Labs', title: 'Interactive explainers', sub: 'Learn a topic by playing with it.', open: 'Open the explorer',
           topics: (n) => `${n} ${n === 1 ? 'topic' : 'topics'}`, allN: (n) => `All ${n} labs →`, show: (n) => `Show the ${n} topics that have a lab`, subj: { Science: 'Science', Mathematics: 'Mathematics', Computing: 'Computing', Geography: 'Geography', History: 'History', Music: 'Music', 'Visual Arts': 'Art', English: 'Reading', Hungarian: 'Hungarian language', 'Life Skills': 'Life skills', Other: 'Other' },
           localTitle: { hu: (n) => `🇭🇺 For Hungarian schools · ${n}` }, localNote: { hu: 'Labs about the Hungarian language for children in Hungarian schools. Explanations are in your language.' }, more: 'More explainers are on the way.', has: 'Has an interactive explainer', find: 'Find a lab…', none: 'No labs found.', moreIn: (n) => `${n} more →` },
-    ru: { done: 'Пройдена ✓', labs: 'Лаборатории', title: 'Интерактивные объяснения', sub: 'Разберись в теме, играя с ней.', open: 'Открыть лабораторию',
+    ru: { done: 'Пройдена ✓', easy: 'легко', hinted: 'с подсказками', revisit: 'Пора повторить', revisitSub: 'пара вопросов: что запомнилось?', labs: 'Лаборатории', title: 'Интерактивные объяснения', sub: 'Разберись в теме, играя с ней.', open: 'Открыть лабораторию',
           topics: (n) => `${n} ${n % 10 === 1 && n % 100 !== 11 ? 'тема' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'темы' : 'тем'}`,
           allN: (n) => `Все лаборатории (${n}) →`, show: (n) => `Показать темы с лабораториями (${n})`, subj: { Science: 'Естествознание', Mathematics: 'Математика', Computing: 'Информатика', Geography: 'География', History: 'История', Music: 'Музыка', 'Visual Arts': 'Изобразительное искусство', English: 'Чтение', Hungarian: 'Венгерский язык', 'Life Skills': 'Жизненные навыки', Other: 'Другое' },
           localTitle: { hu: (n) => `🇭🇺 Для венгерской школы · ${n}` }, localNote: { hu: 'Лаборатории о венгерском языке для детей, которые учатся в венгерской школе. Объяснения — на вашем языке.' }, more: 'Скоро будут и другие.', has: 'Есть интерактивное объяснение', find: 'Найти лабораторию…', none: 'Ничего не нашлось.', moreIn: (n) => `ещё ${n} →` },
-    hu: { done: 'Kész ✓', labs: 'Laborok', title: 'Interaktív magyarázók', sub: 'Értsd meg a témát játék közben.', open: 'A labor megnyitása',
+    hu: { done: 'Kész ✓', easy: 'könnyedén', hinted: 'segítséggel', revisit: 'Ideje átismételni', revisitSub: 'pár kérdés: mi maradt meg?', labs: 'Laborok', title: 'Interaktív magyarázók', sub: 'Értsd meg a témát játék közben.', open: 'A labor megnyitása',
           topics: (n) => `${n} téma`, allN: (n) => `Mind a ${n} labor →`, show: (n) => `Mind a ${n} laboros téma mutatása`, subj: { Science: 'Természettudomány', Mathematics: 'Matematika', Computing: 'Informatika', Geography: 'Földrajz', History: 'Történelem', Music: 'Ének-zene', 'Visual Arts': 'Vizuális kultúra', English: 'Olvasás', Hungarian: 'Magyar nyelv', 'Life Skills': 'Életvitel', Other: 'Egyéb' },
           localTitle: {}, localNote: {}, more: 'Hamarosan jönnek az újak.', has: 'Interaktív magyarázó tartozik hozzá', find: 'Labor keresése…', none: 'Nincs találat.', moreIn: (n) => `még ${n} →` },
   };
   const SUBJ_ORDER = ['Science', 'Mathematics', 'Computing', 'Geography', 'History', 'Music', 'Visual Arts', 'English', 'Hungarian', 'Life Skills', 'Other'];
   // a lab made for speakers of one language (registry "lang") is "local" in every other UI language: own collapsed section, not the subject lists
   const FLAG = { hu: '🇭🇺' };
+  const REVISIT_DAYS = 7; // spacing effect: a second look after about a week
   const ALL_UP_TO = 16, PER_SUBJ = 5, HITS = 12;
   const fold = (s) => String(s ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const $ = (id) => document.getElementById(id);
@@ -31,6 +32,16 @@
   const localOpen = new Set(); // language codes of the local sections the reader opened
   let labs = [];
   const labDone = (l) => { try { return localStorage.getItem('sg-lab:unlocked:' + l.id) === 'true'; } catch { return false; } };
+  const labRec = (l) => { try { return JSON.parse(localStorage.getItem('sg-lab:done:' + l.id)) || null; } catch { return null; } };
+  // due for a second look: done, last visit >= REVISIT_DAYS ago, and a topic of the lab is still only "learning"
+  const labDue = (l) => {
+    const rec = labRec(l);
+    if (!labDone(l) || !rec || !rec.d) return false;
+    const [y, m, d] = String(rec.d).split('-').map(Number), t = new Date();
+    if (!y) return false;
+    if (Math.round((new Date(t.getFullYear(), t.getMonth(), t.getDate()) - new Date(y, m - 1, d)) / 864e5) < REVISIT_DAYS) return false;
+    try { const p = JSON.parse(localStorage.getItem('skillgraph.progress') || '{}') || {}; return l.topics.some((id) => p[id] === 'learning'); } catch { return false; }
+  };
   const byTopic = new Map();
   window.labFor = (id) => { const l = byTopic.get(id); return l && { href: href(l), emoji: l.emoji, title: tx(l.title), done: labDone(l) }; }; // the path screen links its steps to labs
 
@@ -67,6 +78,7 @@
     .labcta b { display: block; font-size: 13.5px; }
     .labcta small { display: block; color: var(--soft); font-size: 12px; }
     .labcta .go { margin-left: auto; font-size: 18px; color: var(--red); }
+    .labcta.due { border-color: rgba(255, 59, 48, .45); }
     .labcta.done { border-color: rgba(61, 220, 151, .5); }
     .labcta .go.ok, .labcard .ok { color: var(--ok, #3ddc97); }
     #labsMenu details.local > summary { list-style: none; cursor: pointer; user-select: none; }
@@ -119,9 +131,13 @@
     const slot = $('labSlot');
     const anchor = slot || body.querySelector('#markAll') || body.querySelector('.status') || body.querySelector('h2');
     if (!anchor) return;
-    const u = UI[cur()], ok = labDone(l);
-    const html = `<a class="labcta${ok ? ' done' : ''}" href="${href(l)}"><span class="e">${l.emoji}</span>
-      <span><b>${esc(u.open)}</b><small>${esc(tx(l.title))}${ok ? ` · ${esc(u.done)}` : ''}</small></span>${ok ? '<span class="go ok">✓</span>' : '<span class="go">→</span>'}</a>`;
+    const u = UI[cur()], ok = labDone(l), rec = ok ? labRec(l) : null, due = labDue(l);
+    const how = rec && rec.w === 0 ? ` · ${esc(u.easy)}` : rec && rec.w > 0 ? ` · ${esc(u.hinted)}` : '';
+    const html = due
+      ? `<a class="labcta due" href="${l.path}?lang=${cur()}&revisit=1"><span class="e">${l.emoji}</span>
+      <span><b>${esc(u.revisit)}</b><small>${esc(tx(l.title))} · ${esc(u.revisitSub)}</small></span><span class="go">↻</span></a>`
+      : `<a class="labcta${ok ? ' done' : ''}" href="${href(l)}"><span class="e">${l.emoji}</span>
+      <span><b>${esc(u.open)}</b><small>${esc(tx(l.title))}${ok ? ` · ${esc(u.done)}${how}` : ''}</small></span>${ok ? '<span class="go ok">✓</span>' : '<span class="go">→</span>'}</a>`;
     if (slot) slot.innerHTML = html; else anchor.insertAdjacentHTML('afterend', html);
   }
   function decorateList() {
