@@ -41,7 +41,9 @@ const secret = secretLab('magnets', () => ({
 
 ## `secretLab(key, getContent, onUnlock)`
 
-Runs the intro, the quiz and the unlock. `getContent()` returns `{ secrets: [two × {emo, title, desc}], questions }` with `questions = [three × { q, opts: [...], ok: index }]`. On unlock it stores the flag and marks the lab's topics as "learning" in the map's progress (`localStorage['skillgraph.progress']`); do not reimplement that.
+Runs the intro, the quiz and the unlock. `getContent()` returns `{ secrets: [two × {emo, title, desc}], questions }` with `questions = [three × { q, opts: [...], ok: index, hint }]`. `hint` is one sentence pointing at what to look at in the lab, never the answer. A wrong tap crosses the option out; the first one says "Not quite…", the second shows `💡 hint` (a generic nudge if there is none). On unlock it stores the flag, records the date and the number of wrong taps (`sg-lab:done:<key>`, shown on the map as "easily" / "with hints"), and marks the lab's topics as "learning" in the map's progress (`localStorage['skillgraph.progress']`); do not reimplement that.
+
+A week later the map's lab card turns into "Time for a second look" and opens the lab with `?revisit=1`: the shell asks the same questions again; all right on the first try turns the lab's "learning" topics into "known". This needs nothing from the lab.
 
 It returns `{ unlocked(), open() }`. The two secret experiments are always-visible buttons that show 🔒 until unlocked; pressing a locked one calls `secret.open()`.
 
