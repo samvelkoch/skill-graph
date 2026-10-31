@@ -73,11 +73,28 @@ const UI = {
 };
 
 // --- sound: tiny synthesized blips, off until the visitor turns it on -------------------------------------
-let audio = null, soundOn = store.get('sound', false);
+// iPhone: Web Audio is silenced by the ring/silent switch unless the page asks for the "playback" audio session
+// (Safari 17+), or, on older iOS, a media element is playing. iOS also leaves the context "interrupted" after a call
+// or a trip to the background, so we resume on every tap that is not "running".
+let audio = null, soundOn = store.get('sound', false), keepAlive = null;
+function silentWav() { // 0.5 s of silence, 8 kHz mono 8-bit
+  const n = 4000, b = new Uint8Array(44 + n), v = new DataView(b.buffer), w = (o, t) => [...t].forEach((c, i) => { b[o + i] = c.charCodeAt(0); });
+  w(0, 'RIFF'); v.setUint32(4, 36 + n, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 8000, true); v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true); w(36, 'data'); v.setUint32(40, n, true);
+  b.fill(128, 44);
+  return 'data:audio/wav;base64,' + btoa(String.fromCharCode(...b));
+}
+export function unmuteIOS() {
+  try { if (navigator.audioSession) { navigator.audioSession.type = 'playback'; return; } } catch { /* fall through */ }
+  if (!/iP(hone|ad|od)|Macintosh/.test(navigator.userAgent) || !('ontouchend' in document)) return;
+  if (!keepAlive) { keepAlive = new Audio(silentWav()); keepAlive.loop = true; keepAlive.setAttribute('playsinline', ''); }
+  if (keepAlive.paused && !document.hidden) keepAlive.play().catch(() => {});
+}
 function tone(freq, dur = 0.08, type = 'sine', vol = 0.08, slide = 0) {
   if (!soundOn) return;
   try {
     audio ??= new (window.AudioContext || window.webkitAudioContext)();
+    unmuteIOS(); if (audio.state !== 'running') audio.resume().catch(() => {});
     const o = audio.createOscillator(), g = audio.createGain(), t = audio.currentTime;
     o.type = type; o.frequency.setValueAtTime(freq, t);
     if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(40, freq + slide), t + dur);
@@ -93,6 +110,8 @@ export const sfx = {
   good: () => { tone(660, 0.09); setTimeout(() => tone(880, 0.09), 90); setTimeout(() => tone(1320, 0.16), 180); },
   bad: () => tone(200, 0.2, 'triangle', 0.07, -60),
 };
+['pointerdown', 'pointerup', 'touchend', 'keydown', 'click'].forEach((e) => addEventListener(e, () => { if (soundOn) { unmuteIOS(); if (audio && audio.state !== 'running') audio.resume().catch(() => {}); } }, { passive: true }));
+document.addEventListener('visibilitychange', () => { if (document.hidden) keepAlive?.pause(); });
 
 // --- shell ------------------------------------------------------------------------------------------------
 // cfg: { key, T (per-language strings of the lab), topics: [{id, en, ru, hu}], views: [keys], onLang, onView }
