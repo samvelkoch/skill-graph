@@ -508,11 +508,28 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
 // ---- sound ----
-let actx = null;
+// iPhone: Web Audio is silenced by the ring/silent switch unless the page asks for the "playback" audio session
+// (Safari 17+), or, on older iOS, a media element is playing. iOS also leaves the context "interrupted" after a call
+// or a trip to the background, so we resume on every tap that is not "running".
+let actx = null, keepAlive = null;
+function silentWav() { // 0.5 s of silence, 8 kHz mono 8-bit
+  const n = 4000, b = new Uint8Array(44 + n), v = new DataView(b.buffer), w = (o, t) => [...t].forEach((c, i) => { b[o + i] = c.charCodeAt(0); });
+  w(0, 'RIFF'); v.setUint32(4, 36 + n, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 8000, true); v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true); w(36, 'data'); v.setUint32(40, n, true);
+  b.fill(128, 44);
+  return 'data:audio/wav;base64,' + btoa(String.fromCharCode(...b));
+}
+function unmuteIOS() {
+  try { if (navigator.audioSession) { navigator.audioSession.type = 'playback'; return; } } catch { /* fall through */ }
+  if (!/iP(hone|ad|od)|Macintosh/.test(navigator.userAgent) || !('ontouchend' in document)) return;
+  if (!keepAlive) { keepAlive = new Audio(silentWav()); keepAlive.loop = true; keepAlive.setAttribute('playsinline', ''); }
+  if (keepAlive.paused && !document.hidden) keepAlive.play().catch(() => {});
+}
 function beep(f, dur = 0.08, type = 'square', vol = 0.04) {
   if (!sound) return;
   try {
     actx ??= new (window.AudioContext || window.webkitAudioContext)();
+    unmuteIOS(); if (actx.state !== 'running') actx.resume().catch(() => {});
     const o = actx.createOscillator(), g = actx.createGain();
     o.type = type; o.frequency.value = f; g.gain.value = vol;
     g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + dur);
@@ -520,6 +537,7 @@ function beep(f, dur = 0.08, type = 'square', vol = 0.04) {
   } catch { /* no audio */ }
 }
 const tune = (notes) => notes.forEach((f, i) => setTimeout(() => beep(f, 0.12, 'triangle', 0.06), i * 110));
+document.addEventListener('visibilitychange', () => { if (document.hidden) keepAlive?.pause(); });
 
 // ---- level ----
 function level() { return LEVELS[lvlIdx]; }
@@ -822,7 +840,7 @@ function findNode(id, body = program) {
 $('run').onclick = play;
 $('step').onclick = () => { if (timer) return; if (begin()) stepOnce(); };
 $('reset').onclick = () => { resetRobot(); say(u.msg.ready); };
-$('snd').onclick = () => { sound = !sound; store.set('sound', sound); $('snd').textContent = sound ? '🔊' : '🔇'; };
+$('snd').onclick = () => { sound = !sound; store.set('sound', sound); if (sound) unmuteIOS(); $('snd').textContent = sound ? '🔊' : '🔇'; };
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('modal').classList.remove('open'); });
 
 if (level().secret && !unlocked) lvlIdx = 0;
