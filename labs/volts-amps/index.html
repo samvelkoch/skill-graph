@@ -1,0 +1,784 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Push and Flow · Skill Graph</title>
+<meta name="description" content="Place an ammeter and a voltmeter on a circuit, add cells and follow the flow around the loop. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  .va-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+  .va-row:first-child { margin-top: 0; }
+  .va-b[disabled] { opacity: .4; cursor: default; }
+  .va-q { font: 500 21px/1.2 var(--serif); color: #fff; margin-bottom: 8px; text-wrap: balance; }
+  .va-note { font-size: 13px; color: var(--soft); min-height: 18px; }
+  .va-ask { margin-top: 10px; padding: 12px; border: 1px solid var(--stroke2); border-radius: 14px; background: rgba(130, 145, 190, .07); }
+  .va-ask:first-child { margin-top: 0; }
+  .va-opts { display: flex; flex-wrap: wrap; gap: 8px; }
+  .va-opt { min-height: 40px; padding: 8px 15px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 800; cursor: pointer; }
+  .va-opt:hover { background: rgba(130, 145, 190, .22); }
+  .va-opt:disabled { cursor: default; color: var(--soft); }
+  .va-opt:disabled:hover { background: rgba(130, 145, 190, .1); }
+  .va-opt.good { border-color: var(--ok); background: rgba(61, 220, 151, .18); color: #fff; }
+  .va-opt.bad { border-color: var(--red); background: rgba(255, 59, 48, .16); color: #fff; }
+  .va-v { margin-top: 8px; font-weight: 900; }
+  .va-step { display: inline-flex; align-items: center; gap: 4px; }
+  .va-step button { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-size: 20px; font-weight: 900; cursor: pointer; line-height: 1; padding: 0; }
+  .va-step button:disabled { opacity: .35; cursor: default; }
+  .va-step b { min-width: 26px; text-align: center; font-size: 20px; }
+  .va-lbl { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-weight: 700; }
+  #va-g { width: 100%; height: 176px; display: block; margin-top: 12px; border-radius: 12px; }
+  #va-s { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--stroke); }
+  @media (max-width: 760px) {
+    body[data-v="meters"] #stage { height: min(108vw, 520px); }
+    body[data-v="cells"] #stage { height: min(92vw, 460px); }
+    body[data-v="loop"] #stage { height: min(100vw, 480px); }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, store, $, esc, clamp, lerp, ruPlural, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Push and Flow', title: 'Push and Flow',
+    lines: [['One meter counts the flow,', 'one measures the push.'], ['Where does each one go?', 'And does the flow get used up?']],
+    views: { meters: 'Place the meters', cells: 'More cells', loop: 'Is it used up?' },
+    uA: 'A', uV: 'V', div: '÷', amm: 'ammeter', vol: 'voltmeter', letA: 'A', letV: 'V',
+    on: 'Switch on', again: 'Try again', show: 'Show the right way', zl: 'in the loop', zx: 'across the resistor', shortC: 'short circuit!', max: 'MAX',
+    right: 'Right!', wrong: 'Not quite.', cellsL: 'Cells', resL: 'Resistor', sw: 'Switch on', swOff: 'Switch off',
+    q1: 'Where does each meter go?',
+    note0: 'Drag each meter onto the circuit, or tap a meter and then a place. Then switch on.', note1: 'Both meters are placed. Switch on!',
+    m: {
+      start: ['🔋', 'Two meters, two jobs', 'Place both meters, then switch on.',
+        'The ammeter reads the current in amperes (A). The voltmeter reads the voltage in volts (V). The cell pushes charge through the resistor, a heater wire that glows.',
+        '<b>Current</b> (A, ammeter): how much charge flows past a point each second. <b>Voltage</b> (V, voltmeter): how hard the cell pushes. Also: <b>cell</b>, <b>resistor</b>.'],
+      ok: (I, V) => ['✅', 'Both in the right place', 'Right!', `The ammeter is in the loop, so all the flow passes through it: ${I} A. The voltmeter is across the resistor, one lead on each end: ${V} V, the push of the cell.`],
+      short: () => ['⚡', 'Short circuit!', 'Not quite.', 'The ammeter across the resistor is a shortcut: the current is huge and skips the resistor, and the voltmeter reads 0 V. An ammeter goes in the loop, so the flow passes through it.'],
+      ll: (V) => ['🛑', 'The flow stopped', 'Not quite.', `A voltmeter in the loop lets almost no charge through, so the ammeter reads 0 and the voltmeter shows the whole push of the cell: ${V} V. A voltmeter goes across the part.`],
+      xl: (V) => ['🛑', 'The flow stopped', 'Not quite.', `The voltmeter in the loop lets almost no charge through, so the current stops. The ammeter across the resistor reads 0, though without the voltmeter it would be a short circuit! The voltmeter shows the whole push of the cell: ${V} V. Swap them: the ammeter goes in the loop, the voltmeter across the part.`],
+    },
+    c: {
+      idle: ['🔋', 'Cells in a row', 'Add a cell and watch the dials.', 'Each cell pushes with 1.5 V. A resistor of 3 Ω or 6 Ω holds the flow back.'],
+      pend: ['🙈', 'Dials covered', 'Make your guess first.', 'The cells just changed. The dials stay covered until you answer.'],
+      free: (n, R, V, I) => ['📈', `${n} ${n === 1 ? 'cell' : 'cells'} · ${R} Ω`, `${V} V ÷ ${R} Ω = ${I} A`,
+        'Every setting adds a point to the graph. Each resistor draws its own straight line: more push, more current. A bigger resistor makes the line flatter.'],
+    },
+    l: {
+      pre: ['🔦', 'Three ammeters', 'Two resistors, one after the other.', 'One ammeter sits before the first resistor, one between the two and one after the second. Guess what the last one will read.'],
+      post: (ok, I, V, V2) => [ok ? '✅' : '💡', 'The flow is not used up', ok ? 'Right!' : 'Not quite.',
+        `All three ammeters read ${I} A: the same flow passes every point of the loop. The push is shared: ${V} V across each resistor, ${V2} V in all.`],
+    },
+    ask: {
+      c: { q: 'Two cells instead of one. The current will…', opts: ['double', 'stay the same', 'halve'], ok: 0 },
+      l: { q: 'The ammeter after both resistors reads…', opts: ['less than the first', 'the same as the first', 'zero'], ok: 1 },
+    },
+    secrets: { a: ['Slow beads, fast light', 'The charges themselves crawl, slower than a snail — but the bulb lights at once, because the whole loop starts moving together.'],
+               b: ['Side by side', 'Two resistors side by side: the cells have two paths, and the total current doubles.'] },
+    secBody: { a: 'Press Switch on: every bead starts moving in the same moment and the bulb lights at once, yet the beads crawl slower than the snail. The golden bead is there for comparison.',
+               b: 'Each branch has its own ammeter. The branches read 0.5 A each, the main ammeter 1.0 A, with 1.5 V across both.' },
+    facts: {
+      meters: [
+        { emo: '🔋', src: 'Wikipedia: Voltaic pile', text: 'In 1800 Alessandro Volta stacked zinc, copper and salty cardboard into the first battery. The volt is named after him.' },
+        { emo: '🧑‍🔬', src: 'Wikipedia: André-Marie Ampère', text: 'The ampere is named after the French physicist André-Marie Ampère, who studied electric currents in the 1820s.' },
+      ],
+      cells: [{ emo: '🔌', src: 'Wikipedia: Mains electricity by country', text: 'Wall sockets differ by country: about 230 V in Europe and Russia, about 120 V in the USA. An AA battery gives 1.5 V.' }],
+      loop: [{ emo: '🐌', src: 'Wikipedia: Drift velocity', text: 'In a copper wire, the charges drift at only a fraction of a millimetre per second.' }],
+    },
+    quiz: [
+      { q: 'In a simple loop, the current before and after a resistor is…', opts: ['smaller after it, it gets used up', 'the same on both sides', 'bigger after it'], ok: 1, hint: 'Read the three ammeters in Is it used up?' },
+      { q: 'How do you connect a voltmeter?', opts: ['in the loop, like an ammeter', 'to just one end of the part', 'across the part, one lead on each side'], ok: 2, hint: 'Try both places in Place the meters.' },
+      { q: 'Two cells instead of one push through the same resistor. The current…', opts: ['doubles', 'stays the same', 'halves'], ok: 0, hint: 'Add a cell in More cells and watch the ammeter.' },
+    ],
+  },
+  ru: {
+    name: 'Напор и поток', title: 'Напор и поток',
+    lines: [['Один прибор считает поток,', 'другой меряет напор.'], ['Куда ставить каждый?', 'И расходуется ли поток?']],
+    views: { meters: 'Поставь приборы', cells: 'Больше батареек', loop: 'Расходуется ли?' },
+    uA: 'А', uV: 'В', div: ':', amm: 'амперметр', vol: 'вольтметр', letA: 'А', letV: 'В',
+    on: 'Включить', again: 'Ещё раз', show: 'Показать, как правильно', zl: 'в разрыв цепи', zx: 'параллельно резистору', shortC: 'короткое замыкание!', max: 'МАКС',
+    right: 'Верно!', wrong: 'Не совсем.', cellsL: 'Батарейки', resL: 'Резистор', sw: 'Включить', swOff: 'Выключить',
+    q1: 'Куда поставить каждый прибор?',
+    note0: 'Перетащи каждый прибор на цепь или коснись прибора, а потом места. Затем включи.', note1: 'Оба прибора на месте. Включай!',
+    m: {
+      start: ['🔋', 'Два прибора, две задачи', 'Поставь оба прибора и включи цепь.',
+        'Амперметр показывает силу тока в амперах (А). Вольтметр показывает напряжение в вольтах (В). Батарейка гонит заряды через резистор — проволочку-нагреватель, которая светится.',
+        '<b>Сила тока</b> (А, амперметр): сколько заряда проходит через точку за секунду. <b>Напряжение</b> (В, вольтметр): с какой силой толкает батарейка. Ещё: <b>батарейка</b> (элемент), <b>резистор</b>.'],
+      ok: (I, V) => ['✅', 'Оба на своих местах', 'Верно!', `Амперметр стоит в разрыве цепи, поэтому через него проходит весь поток: ${I} А. Вольтметр стоит параллельно резистору, по проводу с каждого конца: ${V} В — напор батарейки.`],
+      short: () => ['⚡', 'Короткое замыкание!', 'Не совсем.', 'Амперметр параллельно резистору — это обходной путь: ток огромный и минует резистор, а вольтметр показывает 0 В. Амперметр ставят в разрыв цепи, чтобы через него шёл весь поток.'],
+      ll: (V) => ['🛑', 'Поток остановился', 'Не совсем.', `Вольтметр в разрыве цепи почти не пропускает заряды, поэтому амперметр показывает 0, а вольтметр — весь напор батарейки: ${V} В. Вольтметр подключают параллельно детали.`],
+      xl: (V) => ['🛑', 'Поток остановился', 'Не совсем.', `Вольтметр в разрыве цепи почти не пропускает заряды, и ток останавливается. Амперметр рядом с резистором показывает 0, хотя без вольтметра это было бы короткое замыкание! Вольтметр показывает весь напор батарейки: ${V} В. Поменяй их местами: амперметр в разрыв цепи, вольтметр параллельно детали.`],
+    },
+    c: {
+      idle: ['🔋', 'Батарейки по цепочке', 'Добавь батарейку и следи за стрелками.', 'Каждая батарейка толкает с напряжением 1,5 В. Резистор в 3 Ω или 6 Ω сдерживает поток.'],
+      pend: ['🙈', 'Приборы закрыты', 'Сначала сделай догадку.', 'Батарейки только что изменились. Приборы закрыты, пока ты не ответишь.'],
+      free: (n, R, V, I) => ['📈', `${n} ${ruPlural(n, 'батарейка', 'батарейки', 'батареек')} · ${R} Ω`, `${V} В : ${R} Ω = ${I} А`,
+        'Каждая настройка добавляет точку на график. Каждый резистор рисует свою прямую: больше напор — больше ток. Чем больше резистор, тем положе прямая.'],
+    },
+    l: {
+      pre: ['🔦', 'Три амперметра', 'Два резистора, один за другим.', 'Один амперметр стоит перед первым резистором, один между ними и один после второго. Угадай, что покажет последний.'],
+      post: (ok, I, V, V2) => [ok ? '✅' : '💡', 'Поток не расходуется', ok ? 'Верно!' : 'Не совсем.',
+        `Все три амперметра показывают ${I} А: через каждую точку цепи проходит один и тот же поток. А напор делится: ${V} В на каждом резисторе, ${V2} В на обоих.`],
+    },
+    ask: {
+      c: { q: 'Две батарейки вместо одной. Сила тока…', opts: ['удвоится', 'не изменится', 'уменьшится вдвое'], ok: 0 },
+      l: { q: 'Амперметр после обоих резисторов покажет…', opts: ['меньше, чем первый', 'столько же, сколько первый', 'ноль'], ok: 1 },
+    },
+    secrets: { a: ['Медленные бусины, быстрый свет', 'Сами заряды ползут медленнее улитки — но лампа загорается сразу, потому что трогается вся цепочка разом.'],
+               b: ['Рядом друг с другом', 'Два резистора рядом: у тока два пути, и общий ток удваивается.'] },
+    secBody: { a: 'Нажми «Включить»: все бусины трогаются в один миг, и лампа вспыхивает сразу — а бусины движутся медленнее улитки. Золотая бусина — для сравнения.',
+               b: 'У каждой ветки свой амперметр: ветки показывают по 0,5 А, главный амперметр — 1,0 А, при напряжении 1,5 В.' },
+    facts: {
+      meters: [
+        { emo: '🔋', src: 'Wikipedia: Voltaic pile', text: 'В 1800 году Алессандро Вольта сложил столбик из цинка, меди и солёного картона — первую батарею. В его честь назван вольт.' },
+        { emo: '🧑‍🔬', src: 'Wikipedia: André-Marie Ampère', text: 'Ампер назван в честь французского физика Андре-Мари Ампера, который изучал электрический ток в 1820-х годах.' },
+      ],
+      cells: [{ emo: '🔌', src: 'Wikipedia: Mains electricity by country', text: 'Напряжение в розетке зависит от страны: около 230 В в Европе и России, около 120 В в США. Пальчиковая батарейка даёт 1,5 В.' }],
+      loop: [{ emo: '🐌', src: 'Wikipedia: Drift velocity', text: 'В медном проводе заряды дрейфуют со скоростью лишь доли миллиметра в секунду.' }],
+    },
+    quiz: [
+      { q: 'В простой цепи сила тока до резистора и после него…', opts: ['после меньше — ток расходуется', 'одинаковая', 'после больше'], ok: 1, hint: 'Посмотри на три амперметра во вкладке «Расходуется ли?».' },
+      { q: 'Как подключают вольтметр?', opts: ['в разрыв цепи, как амперметр', 'только к одному концу детали', 'параллельно детали: по проводу с каждой стороны'], ok: 2, hint: 'Попробуй оба места во вкладке «Поставь приборы».' },
+      { q: 'Две батарейки вместо одной гонят ток через тот же резистор. Сила тока…', opts: ['удваивается', 'не меняется', 'уменьшается вдвое'], ok: 0, hint: 'Добавь батарейку во вкладке «Больше батареек» и следи за амперметром.' },
+    ],
+  },
+  hu: {
+    name: 'Tolás és áramlás', title: 'Tolás és áramlás',
+    lines: [['Az egyik műszer az áramlást számolja,', 'a másik a tolóerőt méri.'], ['Hová kerül melyik?', 'És elfogy-e útközben az áram?']],
+    views: { meters: 'Helyezd el a műszereket', cells: 'Több elem', loop: 'Elfogy?' },
+    uA: 'A', uV: 'V', div: ':', amm: 'ampermérő', vol: 'voltmérő', letA: 'A', letV: 'V',
+    on: 'Bekapcsolás', again: 'Újra', show: 'Mutasd a helyes megoldást', zl: 'a körben', zx: 'párhuzamosan az ellenállással', shortC: 'rövidzár!', max: 'MAX',
+    right: 'Így van!', wrong: 'Nem egészen.', cellsL: 'Elemek', resL: 'Ellenállás', sw: 'Bekapcsolás', swOff: 'Kikapcsolás',
+    q1: 'Hová kerül az egyes műszer?',
+    note0: 'Húzd mindkét műszert az áramkörre, vagy koppints a műszerre, majd a helyére. Utána kapcsold be.', note1: 'Mindkét műszer a helyén van. Kapcsold be!',
+    m: {
+      start: ['🔋', 'Két műszer, két feladat', 'Helyezd el mindkét műszert, aztán kapcsold be.',
+        'Az ampermérő az áramerősséget méri amperben (A). A voltmérő a feszültséget méri voltban (V). Az elem az ellenálláson át hajtja a töltéseket; az ellenállás egy izzó fűtőszál.',
+        '<b>Áramerősség</b> (A, ampermérő): mennyi töltés halad át egy ponton másodpercenként. <b>Feszültség</b> (V, voltmérő): mekkora erővel tol az elem. Még: <b>elem</b>, <b>ellenállás</b>.'],
+      ok: (I, V) => ['✅', 'Mindkettő a helyén', 'Így van!', `Az ampermérő a körben van, ezért az egész áramlás áthalad rajta: ${I} A. A voltmérő az ellenállással párhuzamosan van, mindkét végére egy-egy vezetékkel: ${V} V, az elem tolóereje.`],
+      short: () => ['⚡', 'Rövidzár!', 'Nem egészen.', 'Az ampermérő az ellenállással párhuzamosan kerülőút: az áram óriási, és elkerüli az ellenállást, a voltmérő pedig 0 V-ot mutat. Az ampermérőt a körbe kötjük, hogy rajta haladjon át az egész áramlás.'],
+      ll: (V) => ['🛑', 'Megállt az áramlás', 'Nem egészen.', `A körbe kötött voltmérő szinte semennyi töltést nem enged át, ezért az ampermérő 0-t mutat, a voltmérő pedig az elem teljes tolóerejét: ${V} V. A voltmérőt az alkatrésszel párhuzamosan kötjük.`],
+      xl: (V) => ['🛑', 'Megállt az áramlás', 'Nem egészen.', `A körbe kötött voltmérő szinte semennyi töltést nem enged át, ezért az áram megáll. Az ellenállással párhuzamos ampermérő 0-t mutat, pedig a voltmérő nélkül rövidzár lenne! A voltmérő az elem teljes tolóerejét mutatja: ${V} V. Cseréld meg őket: az ampermérő a körbe, a voltmérő az alkatrészre párhuzamosan.`],
+    },
+    c: {
+      idle: ['🔋', 'Elemek sorban', 'Adj hozzá egy elemet, és figyeld a műszereket.', 'Minden elem 1,5 V-tal tol. A 3 Ω-os vagy 6 Ω-os ellenállás visszatartja az áramlást.'],
+      pend: ['🙈', 'Letakart műszerek', 'Előbb tippelj!', 'Az elemek éppen megváltoztak. A műszerek letakarva maradnak, amíg nem válaszolsz.'],
+      free: (n, R, V, I) => ['📈', `${n} elem · ${R} Ω`, `${V} V : ${R} Ω = ${I} A`,
+        'Minden beállítás egy új pontot ad a grafikonhoz. Minden ellenállás a saját egyenesét rajzolja: nagyobb tolóerő, nagyobb áram. Minél nagyobb az ellenállás, annál laposabb az egyenes.'],
+    },
+    l: {
+      pre: ['🔦', 'Három ampermérő', 'Két ellenállás egymás után.', 'Egy ampermérő az első ellenállás előtt áll, egy a kettő között, egy a második után. Találd ki, mit mutat az utolsó.'],
+      post: (ok, I, V, V2) => [ok ? '✅' : '💡', 'Az áramlás nem fogy el', ok ? 'Így van!' : 'Nem egészen.',
+        `Mindhárom ampermérő ${I} A-t mutat: a kör minden pontján ugyanaz az áramlás halad át. A tolóerő viszont megoszlik: ${V} V jut mindkét ellenállásra, ${V2} V együtt.`],
+    },
+    ask: {
+      c: { q: 'Egy elem helyett kettő. Az áramerősség…', opts: ['megduplázódik', 'nem változik', 'a felére csökken'], ok: 0 },
+      l: { q: 'A két ellenállás utáni ampermérő…', opts: ['kevesebbet mutat, mint az első', 'ugyanannyit mutat, mint az első', 'nullát mutat'], ok: 1 },
+    },
+    secrets: { a: ['Lassú gyöngyök, gyors fény', 'Maguk a töltések lassabban másznak, mint egy csiga – mégis azonnal világít a lámpa, mert az egész kör egyszerre indul el.'],
+               b: ['Egymás mellett', 'Két ellenállás egymás mellett: két útja van az áramnak, és a teljes áram megduplázódik.'] },
+    secBody: { a: 'Nyomd meg a „Bekapcsolás” gombot: az összes gyöngy egyszerre indul el, a lámpa azonnal világít – a gyöngyök mégis lassabban haladnak a csigánál. Az arany gyöngy az összehasonlításhoz van.',
+               b: 'Mindkét ágnak külön ampermérője van: az ágak 0,5 A-t mutatnak, a főág ampermérője 1,0 A-t, 1,5 V feszültségnél.' },
+    facts: {
+      meters: [
+        { emo: '🔋', src: 'Wikipedia: Voltaic pile', text: '1800-ban Alessandro Volta cinkből, rézből és sós kartonból rakta össze az első elemoszlopot. Róla nevezték el a voltot.' },
+        { emo: '🧑‍🔬', src: 'Wikipedia: André-Marie Ampère', text: 'Az ampert André-Marie Ampère francia fizikusról nevezték el, aki az 1820-as években az elektromos áramot kutatta.' },
+      ],
+      cells: [{ emo: '🔌', src: 'Wikipedia: Mains electricity by country', text: 'A konnektor feszültsége országonként más: Európában és Oroszországban kb. 230 V, az USA-ban kb. 120 V. Egy ceruzaelem 1,5 V-ot ad.' }],
+      loop: [{ emo: '🐌', src: 'Wikipedia: Drift velocity', text: 'Egy rézvezetékben a töltések csak a milliméter töredékével sodródnak másodpercenként.' }],
+    },
+    quiz: [
+      { q: 'Egy egyszerű áramkörben az áramerősség az ellenállás előtt és után…', opts: ['utána kisebb, mert elfogy', 'mindkét oldalon ugyanannyi', 'utána nagyobb'], ok: 1, hint: 'Olvasd le a három ampermérőt az Elfogy? fülön.' },
+      { q: 'Hogyan kötjük be a voltmérőt?', opts: ['a körbe, mint az ampermérőt', 'az alkatrésznek csak az egyik végére', 'az alkatrésszel párhuzamosan, egy-egy vezetékkel a két végére'], ok: 2, hint: 'Próbáld ki mindkét helyet a Helyezd el a műszereket fülön.' },
+      { q: 'Egy elem helyett kettő hajtja az áramot ugyanazon az ellenálláson át. Az áramerősség…', opts: ['megduplázódik', 'nem változik', 'a felére csökken'], ok: 0, hint: 'Adj hozzá egy elemet a Több elem fülön, és figyeld az ampermérőt.' },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_2bnXrfS4Iq', en: 'Current, voltage, and what they measure', ru: 'Ток, напряжение и что они измеряют', hu: 'Áramerősség, feszültség, és mit mérnek' },
+];
+
+// --- state -------------------------------------------------------------------------------------------------
+const now = () => performance.now() / 1000;
+const S = {
+  sec: null,
+  m: { A: null, V: null, on: false, sel: null, drag: null },                 // place the meters
+  c: { n: 1, R: 3, pend: false, answered: false, ans: null, askOpen: false, pts: new Set(['1|3']), popAt: -9 }, // more cells
+  l: { ans: null },                                                          // is it used up
+  slow: { on: false }, snail: 20,
+  sw: 0, cur: 0, curR: 0, ph: [0, 9],
+};
+const lab = shell({ key: 'volts-amps', T, topics: TOPICS, views: ['meters', 'cells', 'loop'], onLang: render,
+  onView: () => { S.sec = null; S.m.drag = null; S.m.sel = null; render(); } });
+const secret = secretLab('volts-amps', () => ({
+  secrets: [{ emo: '🐌', title: T[lang].secrets.a[0], desc: T[lang].secrets.a[1] }, { emo: '⚡', title: T[lang].secrets.b[0], desc: T[lang].secrets.b[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+const num = (x, d) => { const s = x.toFixed(d); return lang === 'en' ? s : s.replace('.', ','); };
+
+// --- model: what the meters read ---------------------------------------------------------------------------
+const plc = (id) => (S.m.drag?.id === id ? null : S.m[id]);
+function m1() { // view 1: one cell (1.5 V), one 3 ohm resistor
+  const A = plc('A'), V = plc('V');
+  if (!S.m.on || !A || !V) return { kind: 'idle', A: 0, V: 0, flow: 0, curR: 0 };
+  if (V === 'loop') return { kind: 'open', key: A === 'loop' ? 'll' : 'xl', A: 0, V: 1.5, flow: 0, curR: 0 };
+  if (A === 'across') return { kind: 'short', key: 'short', A: 99, V: 0, flow: 4, curR: 0 };
+  return { kind: 'ok', key: 'ok', A: 0.5, V: 1.5, flow: 0.5, curR: 0.5 };
+}
+function c1() { // view 2: n cells, R ohms, I = V / R
+  const c = S.c, V = 1.5 * c.n, I = V / c.R;
+  if (c.pend) return { kind: 'pend', A: 0, V: 0, flow: 0, curR: 0 };
+  return { kind: 'ok', A: I, V, flow: I, curR: I };
+}
+function targets() {
+  const v = lab.view;
+  if (S.sec === 'slow') return { sw: S.slow.on ? 1 : 0, cur: 1, curR: 0, out: { kind: 'ok' } };
+  if (S.sec === 'par') return { sw: 1, cur: 0.5, curR: 0.5, out: { kind: 'ok' } };
+  if (v === 'meters') { const o = m1(); return { sw: S.m.on ? 1 : 0, cur: o.flow, curR: o.curR, out: o }; }
+  if (v === 'cells') { const o = c1(); return { sw: S.c.pend ? 0 : 1, cur: o.flow, curR: o.curR, out: o }; }
+  const run = S.l.ans !== null;
+  return { sw: run ? 1 : 0, cur: 0.5, curR: 0.5, out: { kind: 'ok' } };
+}
+
+// --- drawing helpers -----------------------------------------------------------------------------------------
+const TAU = Math.PI * 2;
+let W = 0, H = 0, K = 1, GEO = null, errLogged = false;
+const NE = {}, DP = {};                 // needle springs, glided dial positions
+const lg = (c, x0, y0, x1, y1, st) => { const g = c.createLinearGradient(x0, y0, x1, y1); for (const [o, col] of st) g.addColorStop(o, col); return g; };
+const rg = (c, x0, y0, r0, x1, y1, r1, st) => { const g = c.createRadialGradient(x0, y0, Math.max(0, r0), x1, y1, Math.max(0, r1)); for (const [o, col] of st) g.addColorStop(o, col); return g; };
+const hx = (s) => [1, 3, 5].map((i) => parseInt(s.slice(i, i + 2), 16));
+const mix = (a, b, t) => { const A = hx(a), B = hx(b); return `rgb(${A.map((v, i) => Math.round(v + (B[i] - v) * t)).join(',')})`; };
+function rr(c, x, y, w, h, r) {
+  r = Math.max(0, Math.min(r, w / 2, h / 2));
+  c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+}
+function pill(c, text, x, y, o = {}) {
+  c.save();
+  c.font = '800 12px Nunito, sans-serif';
+  const tw = c.measureText(text).width + 16, ph = 20, px = clamp(x - tw / 2, 4, Math.max(4, W - tw - 4)), py = clamp(y - ph / 2, 4, Math.max(4, H - ph - 4));
+  rr(c, px, py, tw, ph, 10); c.fillStyle = o.bg || 'rgba(8,12,22,.84)'; c.fill();
+  if (o.line) { c.lineWidth = 1.2; c.strokeStyle = o.line; c.stroke(); }
+  c.fillStyle = o.fg || '#fff'; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(text, px + 8, py + ph / 2 + 0.5);
+  c.restore();
+}
+// paths: polylines with cumulative length; closed ones wrap
+function mkPath(pts, closed, side) {
+  if (closed) pts.push({ x: pts[0].x, y: pts[0].y });
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+  return { pts, cum, len: cum[cum.length - 1], closed, side };
+}
+function at(p, u) {
+  const L = p.len; u = p.closed ? ((u % L) + L) % L : clamp(u, 0, L);
+  let lo = 0, hi = p.cum.length - 1;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (p.cum[m] <= u) lo = m; else hi = m; }
+  const a = p.pts[lo], b = p.pts[hi], seg = p.cum[hi] - p.cum[lo] || 1, t = (u - p.cum[lo]) / seg;
+  return { x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t), a: Math.atan2(b.y - a.y, b.x - a.x) };
+}
+function rectPath(lx, ty, rx, by, rc) { // clockwise: up the left side, right along the top, down the right side, left along the bottom
+  const pts = [], side = {}; let s = 0;
+  const line = (name, x0, y0, x1, y1) => {
+    const L = Math.hypot(x1 - x0, y1 - y0), n = Math.max(1, Math.ceil(L / 2));
+    for (let i = 0; i < n; i++) pts.push({ x: lerp(x0, x1, i / n), y: lerp(y0, y1, i / n) });
+    side[name] = [s, s + L]; s += L;
+  };
+  const arc = (cx, cy, a0) => { const n = 10; for (let i = 0; i < n; i++) { const a = a0 + (i / n) * Math.PI / 2; pts.push({ x: cx + rc * Math.cos(a), y: cy + rc * Math.sin(a) }); } s += rc * Math.PI / 2; };
+  line('left', lx, by - rc, lx, ty + rc); arc(lx + rc, ty + rc, Math.PI);
+  line('top', lx + rc, ty, rx - rc, ty); arc(rx - rc, ty + rc, -Math.PI / 2);
+  line('right', rx, ty + rc, rx, by - rc); arc(rx - rc, by - rc, 0);
+  line('bottom', rx - rc, by, lx + rc, by); arc(lx + rc, by - rc, Math.PI / 2);
+  return mkPath(pts, true, side);
+}
+const on = (P, name, f) => P.side[name][0] + f * (P.side[name][1] - P.side[name][0]);
+const mid = (P, name) => on(P, name, 0.5);
+function uNear(p, x, y) { let b = 0, bd = 1e9; p.pts.forEach((q, i) => { const d = Math.hypot(q.x - x, q.y - y); if (d < bd) { bd = d; b = i; } }); return p.cum[b]; }
+function trace(c, p, a, b) {
+  const s = at(p, a); c.moveTo(s.x, s.y);
+  for (let i = 0; i < p.pts.length; i++) if (p.cum[i] > a && p.cum[i] < b) c.lineTo(p.pts[i].x, p.pts[i].y);
+  const e = at(p, b); c.lineTo(e.x, e.y);
+}
+function wires(c, P, gaps, k) { // thick copper wire, cut where a part sits
+  const g = [...gaps].sort((a, b) => a[0] - b[0]), segs = []; let cur = 0;
+  for (const [a, b] of g) { if (a > cur) segs.push([cur, a]); cur = Math.max(cur, b); }
+  if (cur < P.len) segs.push([cur, P.len]);
+  const pass = (w, col, dx = 0, dy = 0) => { c.save(); c.translate(dx, dy); c.beginPath(); for (const [a, b] of segs) trace(c, P, a, b); c.lineWidth = w; c.strokeStyle = col; c.stroke(); c.restore(); };
+  c.lineCap = 'round'; c.lineJoin = 'round';
+  pass(10 * k, 'rgba(0,0,0,.35)', 2 * k, 3 * k); pass(9 * k, '#4a2410'); pass(6.5 * k, '#c9793f'); pass(2 * k, '#f0b27a', -1 * k, -1.4 * k);
+}
+function dots(c, p, ph, k, skip = [], gold = -1) { // charge beads: speed = current
+  const n = Math.max(4, Math.round(p.len / (23 * k))), sp = p.len / n;
+  for (let i = 0; i < n; i++) {
+    const u = (((i * sp + ph) % p.len) + p.len) % p.len;
+    if (skip.some(([a, b]) => u > a && u < b)) continue;
+    const q = at(p, u), g = i === gold, r = (g ? 4.8 : 3.3) * k;
+    c.beginPath(); c.arc(q.x, q.y, r, 0, TAU); c.fillStyle = g ? '#ffd54a' : '#9ad7ff'; c.fill();
+    c.lineWidth = 1; c.strokeStyle = g ? '#9a6b00' : '#2a78b8'; c.stroke();
+    c.beginPath(); c.arc(q.x - r * 0.3, q.y - r * 0.35, r * 0.35, 0, TAU); c.fillStyle = '#ffffff'; c.fill();
+  }
+}
+let boardC = null, boardKey = '';
+function board(c, w, h) {
+  const key = `${Math.round(w)}x${Math.round(h)}`;
+  if (key !== boardKey) {
+    boardKey = key; boardC = document.createElement('canvas');
+    const d = Math.min(window.devicePixelRatio || 1, 2); boardC.width = Math.round(w * d); boardC.height = Math.round(h * d);
+    const b = boardC.getContext('2d'); b.scale(d, d);
+    rr(b, 2, 2, w - 4, h - 4, 18); b.fillStyle = lg(b, 0, 0, w, h, [[0, '#17403a'], [1, '#0b1f1c']]); b.fill();
+    b.save(); rr(b, 2, 2, w - 4, h - 4, 18); b.clip();
+    b.fillStyle = 'rgba(120,200,170,.13)';
+    for (let x = 14; x < w; x += 18) for (let y = 14; y < h; y += 18) b.fillRect(x, y, 1.6, 1.6);
+    b.restore();
+    rr(b, 2, 2, w - 4, h - 4, 18); b.lineWidth = 2; b.strokeStyle = '#2c5c52'; b.stroke();
+  }
+  c.drawImage(boardC, 0, 0, w, h);
+}
+function cell(c, x, y, k, cw, txt, sc = 1) { // a chunky 1.5 V cell, + nub on the left
+  c.save(); c.translate(x, y); c.scale(sc, sc);
+  const h = 24 * k, b = cw - 6;
+  c.fillStyle = 'rgba(0,0,0,.35)'; rr(c, -cw / 2 + 7, -h / 2 + 4 * k, b, h, 7 * k); c.fill();
+  rr(c, -cw / 2, -5 * k, 8, 10 * k, 2); c.fillStyle = lg(c, 0, -5 * k, 0, 5 * k, [[0, '#ffe9a3'], [1, '#b9892a']]); c.fill(); c.lineWidth = 1; c.strokeStyle = '#6d4f12'; c.stroke();
+  rr(c, -cw / 2 + 5, -h / 2, b, h, 7 * k); c.fillStyle = lg(c, 0, -h / 2, 0, h / 2, [[0, '#7a90b6'], [0.45, '#40506f'], [1, '#222b40']]); c.fill();
+  c.lineWidth = 1.4; c.strokeStyle = '#10162a'; c.stroke();
+  rr(c, cw / 2 - 5, -h / 2 + 3 * k, 4, h - 6 * k, 1.5); c.fillStyle = lg(c, 0, 0, 4, 0, [[0, '#e8edf6'], [1, '#8d97aa']]); c.fill();
+  rr(c, -cw / 2 + 8, -h / 2 + 2.5 * k, b - 10, 3 * k, 1.5 * k); c.fillStyle = '#9fb3d6'; c.fill();
+  c.font = '800 12px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#ffffff'; c.fillText(txt, -cw / 2 + 5 + b / 2, 2);
+  c.restore();
+}
+function resistor(c, x, y, ang, k, g) { // coil in a glass tube, glows orange with power
+  if (g > 0.02) { c.fillStyle = rg(c, x, y, 0, x, y, 54 * k, [[0, `rgba(255,150,40,${(0.62 * g).toFixed(3)})`], [1, 'rgba(255,150,40,0)']]); c.beginPath(); c.arc(x, y, 54 * k, 0, TAU); c.fill(); }
+  c.save(); c.translate(x, y); c.rotate(ang);
+  for (const s of [-1, 1]) {
+    rr(c, s < 0 ? -34 * k : 26 * k, -7 * k, 8 * k, 14 * k, 2 * k); c.fillStyle = lg(c, 0, -7 * k, 0, 7 * k, [[0, '#f2b985'], [1, '#8a4a22']]); c.fill();
+    c.lineWidth = 1.2; c.strokeStyle = '#4a2410'; c.stroke();
+  }
+  c.beginPath();
+  for (let i = 0; i <= 70; i++) { const t = i / 70, px = lerp(-24 * k, 24 * k, t), py = Math.sin(t * TAU * 5.5) * 6.5 * k; if (i) c.lineTo(px, py); else c.moveTo(px, py); }
+  c.lineJoin = 'round';
+  if (g > 0.05) { c.lineWidth = 5 * k; c.strokeStyle = `rgba(255,190,90,${(0.45 * g).toFixed(3)})`; c.stroke(); }
+  c.lineWidth = 2.2 * k; c.strokeStyle = mix('#8d909c', '#ffb347', clamp(g * 1.15, 0, 1)); c.stroke();
+  rr(c, -27 * k, -10.5 * k, 54 * k, 21 * k, 10 * k); c.fillStyle = lg(c, 0, -10 * k, 0, 10 * k, [[0, 'rgba(220,240,255,.30)'], [0.5, 'rgba(150,190,230,.08)'], [1, 'rgba(220,240,255,.22)']]); c.fill();
+  c.lineWidth = 1.3; c.strokeStyle = 'rgba(225,242,255,.6)'; c.stroke();
+  c.beginPath(); c.moveTo(-21 * k, -6.5 * k); c.lineTo(21 * k, -6.5 * k); c.lineWidth = 1.6 * k; c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineCap = 'round'; c.stroke();
+  c.restore();
+}
+function knife(c, x, y, k, sw, hl) { // vertical knife switch on a side wire; sw 0 open .. 1 closed
+  const top = y - hl, bot = y + hl, phi = (1 - clamp(sw, 0, 1)) * 0.7, L = 2 * hl;
+  rr(c, x - 10 * k, top - 8 * k, 20 * k, L + 16 * k, 6 * k); c.fillStyle = 'rgba(8,24,20,.7)'; c.fill();
+  for (const py of [top, bot]) { c.beginPath(); c.arc(x, py, 5.5 * k, 0, TAU); c.fillStyle = rg(c, x - 2 * k, py - 2 * k, 0, x, py, 6 * k, [[0, '#f6c796'], [1, '#8a4a22']]); c.fill(); c.lineWidth = 1.2; c.strokeStyle = '#4a2410'; c.stroke(); }
+  const tx = x - Math.sin(phi) * L, ty = bot - Math.cos(phi) * L;
+  c.lineCap = 'round';
+  c.beginPath(); c.moveTo(x, bot); c.lineTo(tx, ty); c.lineWidth = 7 * k; c.strokeStyle = '#1c2230'; c.stroke();
+  c.beginPath(); c.moveTo(x, bot); c.lineTo(tx, ty); c.lineWidth = 4.4 * k; c.strokeStyle = '#cfd6e4'; c.stroke();
+  c.beginPath(); c.moveTo(x - 1 * k, bot - 1 * k); c.lineTo(tx - 1 * k, ty); c.lineWidth = 1.3 * k; c.strokeStyle = '#ffffff'; c.stroke();
+  c.beginPath(); c.arc(tx, ty, 5.2 * k, 0, TAU); c.fillStyle = rg(c, tx - 1.5 * k, ty - 2 * k, 0, tx, ty, 6 * k, [[0, '#ff9a90'], [1, '#c42a22']]); c.fill(); c.lineWidth = 1.2; c.strokeStyle = '#5a0f0b'; c.stroke();
+}
+function bulb(c, x, y, k, lit) {
+  if (lit > 0.02) { c.fillStyle = rg(c, x, y, 0, x, y, 78 * k, [[0, `rgba(255,222,120,${(0.62 * lit).toFixed(3)})`], [1, 'rgba(255,222,120,0)']]); c.beginPath(); c.arc(x, y, 78 * k, 0, TAU); c.fill(); }
+  for (const s of [-1, 1]) { rr(c, x + s * 17 * k - 4 * k, y - 5 * k, 8 * k, 10 * k, 2 * k); c.fillStyle = '#c9793f'; c.fill(); c.lineWidth = 1; c.strokeStyle = '#4a2410'; c.stroke(); }
+  c.beginPath(); c.arc(x, y, 17 * k, 0, TAU);
+  c.fillStyle = rg(c, x - 5 * k, y - 6 * k, 1, x, y, 18 * k, [[0, mix('#e4edf8', '#fffbe0', lit)], [0.6, mix('#b9c8dc', '#ffe27a', lit)], [1, mix('#8ea3bb', '#ffb52e', lit)]]); c.fill();
+  c.lineWidth = 1.4; c.strokeStyle = '#3a4a64'; c.stroke();
+  c.beginPath(); c.moveTo(x - 9 * k, y + 5 * k); c.quadraticCurveTo(x - 4 * k, y - 11 * k, x, y - 3 * k); c.quadraticCurveTo(x + 4 * k, y - 11 * k, x + 9 * k, y + 5 * k);
+  c.lineWidth = 2 * k; c.strokeStyle = mix('#5d6677', '#ffffff', lit); c.lineCap = 'round'; c.stroke();
+  c.beginPath(); c.ellipse(x - 6 * k, y - 8 * k, Math.max(0, 4 * k), Math.max(0, 2.4 * k), -0.6, 0, TAU); c.fillStyle = 'rgba(255,255,255,.55)'; c.fill();
+}
+function lead(a, b, k, bow = 0) { // a curly cord from a meter jack (a) to a wire point (b)
+  const dy = b.y - a.y, c1 = { x: a.x + bow, y: a.y + dy * 0.55 }, c2 = { x: b.x + bow, y: b.y - dy * 0.55 };
+  const L = Math.hypot(b.x - a.x, dy) * 1.15, loops = Math.max(3, Math.round(L / (9 * k))), n = Math.max(40, loops * 8), pts = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, m = 1 - t;
+    const x = m * m * m * a.x + 3 * m * m * t * c1.x + 3 * m * t * t * c2.x + t * t * t * b.x;
+    const y = m * m * m * a.y + 3 * m * m * t * c1.y + 3 * m * t * t * c2.y + t * t * t * b.y;
+    const env = Math.min(1, t * 6, (1 - t) * 6), ph = t * loops * TAU;
+    pts.push({ x: x + env * 2.8 * k * Math.cos(ph), y: y + env * 2.8 * k * Math.sin(ph) });
+  }
+  return mkPath(pts, false);
+}
+function drawLead(c, p, kind, k) {
+  c.save(); c.lineCap = 'round'; c.lineJoin = 'round';
+  c.beginPath(); c.moveTo(p.pts[0].x, p.pts[0].y); for (const q of p.pts) c.lineTo(q.x, q.y); c.lineWidth = 5 * k; c.strokeStyle = '#0d1018'; c.stroke();
+  c.beginPath(); c.moveTo(p.pts[0].x, p.pts[0].y); for (const q of p.pts) c.lineTo(q.x, q.y); c.lineWidth = 3 * k; c.strokeStyle = kind === 'A' ? '#e8574f' : '#4d91f2'; c.stroke();
+  const e = p.pts[p.pts.length - 1];
+  c.beginPath(); c.arc(e.x, e.y, 4 * k, 0, TAU); c.fillStyle = rg(c, e.x - k, e.y - k, 0, e.x, e.y, 4.5 * k, [[0, '#f6c796'], [1, '#8a4a22']]); c.fill(); c.lineWidth = 1; c.strokeStyle = '#4a2410'; c.stroke();
+  c.restore();
+}
+function jacks(x, y, r, up) { const s = Math.sin(0.7) * r, h = Math.cos(0.7) * r, d = up ? -h : h; return [{ x: x - s, y: y + d }, { x: x + s, y: y + d }]; }
+function dial(c, d, dt) { // round analogue meter: needle on a spring, reading on a pill
+  const { id, x, y, r, kind, full, val, cover, txt, below = true, hot, ring } = d, k = K;
+  const ne = (NE[id] ??= { x: 0, v: 0 });
+  const tgt = clamp(val / full, 0, 1.07);
+  ne.v += ((tgt - ne.x) * 80 - ne.v * 11) * dt; ne.x = clamp(ne.x + ne.v * dt, -0.04, 1.1);
+  if (hot) { const a = 0.35 + 0.25 * Math.sin(performance.now() / 90); c.fillStyle = rg(c, x, y, r * 0.6, x, y, r * 2.2, [[0, `rgba(255,60,50,${a.toFixed(2)})`], [1, 'rgba(255,60,50,0)']]); c.beginPath(); c.arc(x, y, r * 2.2, 0, TAU); c.fill(); }
+  c.fillStyle = 'rgba(0,0,0,.38)'; c.beginPath(); c.ellipse(x + 2 * k, y + 4 * k, Math.max(0, r), Math.max(0, r * 0.94), 0, 0, TAU); c.fill();
+  const [b0, b1] = kind === 'A' ? ['#ff9d96', '#8a2420'] : ['#9cc6ff', '#1f4a94'];
+  c.beginPath(); c.arc(x, y, r, 0, TAU); c.fillStyle = lg(c, x - r, y - r, x + r, y + r, [[0, b0], [1, b1]]); c.fill(); c.lineWidth = 1.4; c.strokeStyle = '#0d1018'; c.stroke();
+  const fr = r * 0.8;
+  c.beginPath(); c.arc(x, y, fr, 0, TAU); c.fillStyle = rg(c, x - 0.3 * fr, y - 0.35 * fr, 0, x, y, fr, [[0, '#fffdf5'], [1, '#d8cdb0']]); c.fill(); c.lineWidth = 1; c.strokeStyle = 'rgba(0,0,0,.45)'; c.stroke();
+  if (cover) {
+    c.beginPath(); c.arc(x, y, r * 0.86, 0, TAU); c.fillStyle = rg(c, x - 0.3 * r, y - 0.35 * r, 0, x, y, r * 0.9, [[0, '#46526e'], [1, '#1b2234']]); c.fill(); c.lineWidth = 1.2; c.strokeStyle = b1; c.stroke();
+    c.font = `900 ${Math.round(r * 0.95)}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#ffffff'; c.fillText('?', x, y + 1);
+  } else {
+    const px = x, py = y + 0.3 * r, a0 = -2.62, a1 = -0.52;
+    c.lineCap = 'round'; c.strokeStyle = '#3b3b3b';
+    for (let i = 0; i <= 10; i++) { const a = lerp(a0, a1, i / 10), r1 = (i % 5 === 0 ? 0.5 : 0.56) * r, r2 = 0.64 * r; c.lineWidth = Math.max(1, (i % 5 === 0 ? 1.5 : 1) * k); c.beginPath(); c.moveTo(px + Math.cos(a) * r1, py + Math.sin(a) * r1); c.lineTo(px + Math.cos(a) * r2, py + Math.sin(a) * r2); c.stroke(); }
+    c.font = `800 ${Math.max(12, Math.round(r * 0.5))}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = kind === 'A' ? '#b3261e' : '#1f4fae'; c.fillText(kind === 'A' ? T[lang].letA : T[lang].letV, x, y + 0.02 * r);
+    const a = lerp(a0, a1, ne.x);
+    c.beginPath(); c.moveTo(px - Math.cos(a) * 0.1 * r, py - Math.sin(a) * 0.1 * r); c.lineTo(px + Math.cos(a) * 0.72 * r, py + Math.sin(a) * 0.72 * r); c.lineWidth = Math.max(1.6, 1.8 * k); c.strokeStyle = '#1d1d1d'; c.stroke();
+    c.beginPath(); c.arc(px, py, Math.max(2, 0.09 * r), 0, TAU); c.fillStyle = '#4a4a4a'; c.fill();
+  }
+  c.beginPath(); c.ellipse(x - 0.28 * r, y - 0.42 * r, Math.max(0, 0.42 * r), Math.max(0, 0.2 * r), -0.5, 0, TAU); c.fillStyle = 'rgba(255,255,255,.2)'; c.fill();
+  if (ring) { c.save(); c.setLineDash([5, 4]); c.lineWidth = 2.2; c.strokeStyle = ring; c.beginPath(); c.arc(x, y, r + 8 * k, 0, TAU); c.stroke(); c.restore(); }
+  if (txt) pill(c, txt, x, below ? y + r + 12 : y - r - 12);
+}
+function ghostMark(c, x, y, r, letter) { // green dashed ring + letter badge: "this one belongs here"
+  const R = r + 9 * K;
+  c.save(); c.setLineDash([6, 4]); c.lineWidth = 2.4; c.strokeStyle = '#3ddc97'; c.beginPath(); c.arc(x, y, R, 0, TAU); c.stroke(); c.restore();
+  const bx = x + R * 0.72, by = y - R * 0.72;
+  c.beginPath(); c.arc(bx, by, 10, 0, TAU); c.fillStyle = '#16a36b'; c.fill(); c.lineWidth = 1.2; c.strokeStyle = '#0b4d33'; c.stroke();
+  c.font = '900 12px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#ffffff'; c.fillText(letter, bx, by + 0.5);
+}
+
+// --- scene: one loop with a resistor on top (views 1 and 2) --------------------------------------------------
+function drawRect(c, w, h, dt, mode, tg) {
+  const k = K, lx = w * 0.15, rx = w * 0.85, ty = h * (mode === 'm' ? 0.17 : 0.2), by = h * (mode === 'm' ? 0.64 : 0.8), rc = 14 * k, cx = (lx + rx) / 2, hl = 34 * k, hs = 22 * k;
+  const P = rectPath(lx, ty, rx, by, rc), t = T[lang];
+  const n = mode === 'c' ? S.c.n : 1, R = mode === 'c' ? S.c.R : 3, cw = Math.max(40 * k, 44), hw = n * cw / 2 + 2;
+  const uB = mid(P, 'bottom'), uT = mid(P, 'top'), uS = on(P, 'left', 0.5), out = tg.out, r = clamp(22 * k, 20, 40);
+  const short = out.kind === 'short' && S.sw > 0.5;
+  GEO = { P, lx, rx, ty, by, cx, hl, k, r, sy: at(P, uS).y };
+  board(c, w, h);
+  wires(c, P, [[uB - hw, uB + hw], [uT - hl, uT + hl], [uS - hs, uS + hs]], k);
+  dots(c, P, S.ph[0], k, out.kind === 'short' ? [[uT - hl, uT + hl]] : []);
+  // placements
+  const dr = mode === 'm' ? S.m.drag : null, pl = mode === 'm' ? { A: plc('A'), V: plc('V') } : { A: 'loop', V: 'across' };
+  const loopIds = ['A', 'V'].filter((i) => pl[i] === 'loop'), accIds = ['A', 'V'].filter((i) => pl[i] === 'across'), TP = {};
+  loopIds.forEach((id, i) => { TP[id] = at(P, on(P, 'right', loopIds.length === 1 ? 0.5 : (i ? 0.72 : 0.28))); });
+  accIds.forEach((id, i) => { TP[id] = { x: cx + (accIds.length === 1 ? 0 : (i ? 1 : -1) * (r + 9 * k)), y: ty + (by - ty) * 0.5 }; });
+  ['A', 'V'].forEach((id, i) => { if (!TP[id]) TP[id] = { x: w * (i ? 0.73 : 0.27), y: h * 0.855 }; });
+  if (dr) TP[dr.id] = { x: dr.x, y: dr.y };
+  for (const id of ['A', 'V']) {
+    const p = (DP[id] ??= { x: TP[id].x, y: TP[id].y });
+    if (dr?.id === id) { p.x = TP[id].x; p.y = TP[id].y; } else { const e = 1 - Math.exp(-dt * 14); p.x += (TP[id].x - p.x) * e; p.y += (TP[id].y - p.y) * e; }
+  }
+  // tray
+  if (mode === 'm') {
+    rr(c, 10, h * 0.74, w - 20, h * 0.24, 14); c.fillStyle = 'rgba(0,0,0,.28)'; c.fill(); c.lineWidth = 1.2; c.setLineDash([6, 5]); c.strokeStyle = 'rgba(160,220,200,.35)'; c.stroke(); c.setLineDash([]);
+  }
+  // leads of across meters
+  const EL = { x: cx - hl - 8 * k, y: ty }, ER = { x: cx + hl + 8 * k, y: ty }, lds = [];
+  accIds.forEach((id, i) => {
+    if (dr?.id === id) return;
+    const p = DP[id], [jl, jr] = jacks(p.x, p.y, r, true), bow = (i - (accIds.length - 1) / 2) * 16 * k;
+    const a = lead(jl, EL, k, bow), b = lead(jr, ER, k, bow); lds.push({ id, a, b });
+    drawLead(c, a, id, k); drawLead(c, b, id, k);
+  });
+  if (short) for (const l of lds) if (l.id === 'A') { dots(c, l.a, -S.ph[0], k); dots(c, l.b, S.ph[0], k); }
+  // parts
+  for (let i = 0; i < n; i++) {
+    const last = i === n - 1, p = clamp((now() - S.c.popAt) / 0.35, 0, 1), sc = mode === 'c' && last ? 1 + 2.7 * Math.pow(p - 1, 3) + 1.7 * Math.pow(p - 1, 2) : 1;
+    cell(c, cx + (i - (n - 1) / 2) * cw, by, k, cw, lang === 'en' ? '1.5 V' : `1,5 ${t.uV}`, sc);
+  }
+  const g = Math.sqrt(clamp(S.curR * S.curR * R / 12, 0, 1));
+  resistor(c, cx, ty, 0, k, g);
+  knife(c, lx, GEO.sy, k, S.sw, hs);
+  pill(c, `${R} Ω`, cx, ty - 24 * k);
+  // zone hints while a meter is held
+  if (mode === 'm' && (S.m.drag || S.m.sel)) {
+    c.save(); c.lineCap = 'round'; c.beginPath(); trace(c, P, 0, P.len); c.lineWidth = 24 * k; c.strokeStyle = 'rgba(125,220,255,.14)'; c.stroke(); c.restore();
+    pill(c, t.zl, rx - 8 * k - 40, at(P, on(P, 'right', 0.5)).y + 38 * k, { line: '#7ddcff' });
+    c.save(); rr(c, lx + 34 * k, ty + 34 * k, rx - lx - 68 * k, by - ty - 90 * k, 14); c.fillStyle = 'rgba(255,200,100,.07)'; c.fill(); c.setLineDash([7, 5]); c.lineWidth = 1.6; c.strokeStyle = 'rgba(255,200,100,.7)'; c.stroke(); c.restore();
+    pill(c, t.zx, cx, ty + (by - ty) * 0.82, { line: '#ffc864' });
+  }
+  // meters
+  const placedIds = ['A', 'V'].filter((i) => pl[i] && dr?.id !== i);
+  const draw1 = (id) => {
+    const p = DP[id], kind = id, isPlaced = placedIds.includes(id), cover = mode === 'c' && S.c.pend;
+    const full = mode === 'm' ? (id === 'A' ? 1 : 3) : (id === 'A' ? 2.5 : 6), v = (id === 'A' ? out.A : out.V) * S.sw;
+    let txt = id === 'A' ? t.amm : t.vol;
+    if (isPlaced) txt = cover ? '?' : (id === 'A' && out.kind === 'short' && S.sw > 0.5 ? t.max : `${num(id === 'A' ? Math.min(v, 99) : v, id === 'A' ? 2 : 1)} ${id === 'A' ? t.uA : t.uV}`);
+    dial(c, { id, x: p.x, y: p.y, r, kind, full, val: v, cover: cover && isPlaced, txt, hot: id === 'A' && short && isPlaced, ring: S.m.sel === id && mode === 'm' ? '#ffffff' : null }, dt);
+  };
+  ['A', 'V'].filter((i) => dr?.id !== i).forEach(draw1);
+  if (dr) draw1(dr.id);
+  // the right places, shown in green after a wrong try
+  if (mode === 'm' && S.m.on && out.kind !== 'ok' && S.sw > 0.9) {
+    if (pl.A !== 'loop') { const q = at(P, on(P, 'right', pl.V === 'loop' ? 0.2 : 0.5)); ghostMark(c, q.x, q.y, r, t.letA); }
+    if (pl.V !== 'across') ghostMark(c, cx, ty + (by - ty) * 0.5, r, t.letV);
+  }
+  if (short) pill(c, t.shortC, cx, by - 36 * k, { bg: 'rgba(200,30,40,.94)', line: '#ffb0a8' });
+}
+
+// --- scene: two resistors in series, three ammeters, two voltmeters (view 3) ----------------------------------
+function drawLoop3(c, w, h, dt, tg) {
+  const k = K, lx = w * 0.14, rx = w * 0.86, ty = h * 0.31, by = h * 0.86, rc = 14 * k, kk = k * 0.94, hl = 32 * k, hs = 22 * k, t = T[lang];
+  const P = rectPath(lx, ty, rx, by, rc), cw = Math.max(40 * k, 44), hw = cw + 2, r = clamp(21 * k, 19, 36);
+  const uB = mid(P, 'bottom'), uS = on(P, 'left', 0.22), u1 = on(P, 'top', 0.17), u2 = on(P, 'top', 0.83);
+  board(c, w, h);
+  wires(c, P, [[uB - hw, uB + hw], [uS - hs, uS + hs], [u1 - hl, u1 + hl], [u2 - hl, u2 + hl]], k);
+  dots(c, P, S.ph[0], k);
+  const p1 = at(P, u1), p2 = at(P, u2), done = S.l.ans !== null, A = 0.5 * S.sw, V = 1.5 * S.sw;
+  const vy = ty - 56 * k, ends = [p1, p2].map((p) => [{ x: p.x - hl - 6 * k, y: ty }, { x: p.x + hl + 6 * k, y: ty }]);
+  [p1, p2].forEach((p, i) => { const [jl, jr] = jacks(p.x, vy, r, false); drawLead(c, lead(jl, ends[i][0], k), 'V', k); drawLead(c, lead(jr, ends[i][1], k), 'V', k); });
+  cell(c, mid(P, 'bottom') - cw / 2, by, k, cw, lang === 'en' ? '1.5 V' : `1,5 ${t.uV}`);
+  cell(c, mid(P, 'bottom') + cw / 2, by, k, cw, lang === 'en' ? '1.5 V' : `1,5 ${t.uV}`);
+  const g = Math.sqrt(clamp(S.curR * S.curR * 3 / 12, 0, 1));
+  resistor(c, p1.x, ty, 0, kk, g); resistor(c, p2.x, ty, 0, kk, g);
+  knife(c, lx, at(P, uS).y, k, S.sw, hs);
+  pill(c, '3 Ω', p1.x, ty + 25 * k); pill(c, '3 Ω', p2.x, ty + 25 * k);
+  const a1 = at(P, on(P, 'left', 0.68)), a2 = at(P, mid(P, 'top')), a3 = at(P, on(P, 'right', 0.5));
+  [[a1, 'A1'], [a2, 'A2'], [a3, 'A3']].forEach(([q, id]) => dial(c, { id, x: q.x, y: q.y, r, kind: 'A', full: 1, val: A, cover: !done, txt: done ? `${num(A, 2)} ${t.uA}` : '?' }, dt));
+  [[p1, 'V1'], [p2, 'V2']].forEach(([q, id]) => dial(c, { id, x: q.x, y: vy, r, kind: 'V', full: 3, val: V, cover: false, txt: `${num(V, 1)} ${t.uV}`, below: false }, dt));
+}
+
+// --- secret scenes ---------------------------------------------------------------------------------------------
+function drawSlow(c, w, h, dt) {
+  const k = K, lx = w * 0.08, rx = w * 0.92, ty = h * 0.22, by = h * 0.62, rc = 16 * k, cw = Math.max(40 * k, 44), t = T[lang];
+  const P = rectPath(lx, ty, rx, by, rc), uB = mid(P, 'bottom'), uS = on(P, 'left', 0.5), uL = on(P, 'top', 0.74);
+  board(c, w, h);
+  wires(c, P, [[uB - cw / 2 - 2, uB + cw / 2 + 2], [uS - 22 * k, uS + 22 * k], [uL - 22 * k, uL + 22 * k]], k);
+  dots(c, P, S.ph[0], k, [], 0);
+  cell(c, lerp(lx, rx, 0.5), by, k, cw, lang === 'en' ? '1.5 V' : `1,5 ${t.uV}`);
+  knife(c, lx, at(P, uS).y, k, S.sw, 22 * k);
+  const q = at(P, uL); bulb(c, q.x, q.y, k, S.sw);
+  const gy = h * 0.86;
+  c.save(); c.setLineDash([4, 6]); c.lineWidth = 1.5; c.strokeStyle = 'rgba(160,220,200,.35)'; c.beginPath(); c.moveTo(14, gy); c.lineTo(w - 14, gy); c.stroke(); c.restore();
+  if (S.slow.on) S.snail += 30 * k * dt;
+  if (S.snail > w - 20) S.snail = 20;
+  c.save(); c.globalAlpha = 1; c.font = `${Math.round(30 * k)}px sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#ffffff'; c.fillText('🐌', S.snail, gy - 14 * k); c.restore();
+}
+function drawPar(c, w, h, dt) {
+  const k = K, lx = w * 0.13, rx2 = w * 0.87, x1 = lx + (rx2 - lx) * 0.48, ty = h * 0.2, by = h * 0.82, rc = 12 * k, hl = 32 * k, cw = Math.max(40 * k, 44), t = T[lang], r = clamp(19 * k, 18, 34);
+  const P1 = rectPath(lx, ty, x1, by, rc), P2 = rectPath(lx, ty, rx2, by, rc), xc = (lx + x1) / 2;
+  const uc1 = mid(P1, 'bottom'), uc2 = uNear(P2, xc, by), r1 = on(P1, 'right', 0.3), r2 = on(P2, 'right', 0.3);
+  board(c, w, h);
+  wires(c, P1, [[uc1 - cw / 2 - 2, uc1 + cw / 2 + 2], [r1 - hl, r1 + hl]], k);
+  wires(c, P2, [[uc2 - cw / 2 - 2, uc2 + cw / 2 + 2], [r2 - hl, r2 + hl]], k);
+  dots(c, P1, S.ph[0], k); dots(c, P2, S.ph[1], k);
+  for (const x of [x1]) for (const y of [ty, by]) { c.beginPath(); c.arc(x, y, 5.5 * k, 0, TAU); c.fillStyle = rg(c, x - 2, y - 2, 0, x, y, 6 * k, [[0, '#f6c796'], [1, '#8a4a22']]); c.fill(); c.lineWidth = 1.2; c.strokeStyle = '#4a2410'; c.stroke(); }
+  cell(c, xc, by, k, cw, lang === 'en' ? '1.5 V' : `1,5 ${t.uV}`);
+  const g = Math.sqrt(clamp(S.curR * S.curR * 3 / 12, 0, 1)), q1 = at(P1, r1), q2 = at(P2, r2);
+  resistor(c, q1.x, q1.y, Math.PI / 2, k, g); resistor(c, q2.x, q2.y, Math.PI / 2, k, g);
+  pill(c, '3 Ω', q1.x - 32 * k, q1.y); pill(c, '3 Ω', q2.x - 32 * k, q2.y);
+  const m = at(P1, on(P1, 'left', 0.62)), b1 = at(P1, on(P1, 'right', 0.68)), b2 = at(P2, on(P2, 'right', 0.68));
+  const f = S.sw;
+  dial(c, { id: 'P0', x: m.x, y: m.y, r: r + 2 * k, kind: 'A', full: 2, val: 1.0 * f, cover: false, txt: `${num(1 * f, 2)} ${t.uA}` }, dt);
+  dial(c, { id: 'P1', x: b1.x, y: b1.y, r, kind: 'A', full: 2, val: 0.5 * f, cover: false, txt: `${num(0.5 * f, 2)} ${t.uA}` }, dt);
+  dial(c, { id: 'P2', x: b2.x, y: b2.y, r, kind: 'A', full: 2, val: 0.5 * f, cover: false, txt: `${num(0.5 * f, 2)} ${t.uA}` }, dt);
+}
+
+// --- frame -------------------------------------------------------------------------------------------------------
+function step(dt, tg) {
+  const e = (rate) => 1 - Math.exp(-dt * rate);
+  S.sw += (tg.sw - S.sw) * e(tg.sw > S.sw ? 10 : 8);
+  S.cur += ((S.sw > 0.8 ? tg.cur : 0) - S.cur) * e(3.2);
+  S.curR += ((S.sw > 0.8 ? tg.curR : 0) - S.curR) * e(3.2);
+  const sp = (S.sec === 'slow' ? 12 : 70) * K * S.cur * dt;
+  S.ph[0] += sp; S.ph[1] += sp;
+}
+canvasLoop($('cv'), (c, w, h, dt) => {
+  try {
+    W = w; H = h; K = clamp(Math.min(w / 343, h / 330), 0.8, 1.7);
+    const tg = targets(); step(dt, tg);
+    c.lineCap = 'butt'; c.lineJoin = 'miter';
+    if (S.sec === 'slow') drawSlow(c, w, h, dt);
+    else if (S.sec === 'par') drawPar(c, w, h, dt);
+    else if (lab.view === 'loop') drawLoop3(c, w, h, dt, tg);
+    else drawRect(c, w, h, dt, lab.view === 'meters' ? 'm' : 'c', tg);
+  } catch (e) { if (!errLogged) { errLogged = true; console.error(e); } }
+});
+
+// --- dragging the meters (view 1) ------------------------------------------------------------------------------
+const cvEl = $('cv');
+let ptr = null;
+const pt = (ev) => { const r = cvEl.getBoundingClientRect(); return { x: ev.clientX - r.left, y: ev.clientY - r.top }; };
+const dialAt = (q) => {
+  if (!GEO) return null;
+  let best = null, bd = 1e9;
+  for (const id of ['A', 'V']) { const p = DP[id]; if (!p) continue; const d = Math.hypot(q.x - p.x, q.y - p.y); if (d < GEO.r + 10 && d < bd) { best = id; bd = d; } }
+  return best;
+};
+const zoneAt = (q) => {
+  const g = GEO; if (!g) return null;
+  if (Math.abs(q.x - g.cx) < g.hl + 26 * g.k && Math.abs(q.y - g.ty) < 30 * g.k) return 'across';
+  let d = 1e9; for (const p of g.P.pts) { const dd = Math.hypot(p.x - q.x, p.y - q.y); if (dd < d) d = dd; }
+  if (d < 30 * g.k) return 'loop';
+  if (q.x > g.lx && q.x < g.rx && q.y > g.ty && q.y < g.by) return 'across';
+  return null;
+};
+const bothPlaced = () => !!(plc('A') && plc('V'));
+cvEl.addEventListener('pointerdown', (ev) => {
+  if (lab.view !== 'meters' || S.sec) return;
+  const q = pt(ev), id = dialAt(q);
+  ptr = { q0: q, id, moved: false };
+  if (id) { try { cvEl.setPointerCapture(ev.pointerId); } catch { /* fine without capture */ } }
+});
+cvEl.addEventListener('pointermove', (ev) => {
+  if (!ptr || !ptr.id) return;
+  const q = pt(ev);
+  if (!ptr.moved && Math.hypot(q.x - ptr.q0.x, q.y - ptr.q0.y) > 6) { ptr.moved = true; S.m.on = false; S.m.sel = null; S.m.drag = { id: ptr.id, x: q.x, y: q.y - 20 }; sfx.tick(); render(); }
+  else if (ptr.moved) { S.m.drag.x = q.x; S.m.drag.y = q.y - 20; }
+});
+cvEl.addEventListener('pointerup', (ev) => {
+  if (!ptr) return;
+  const q = pt(ev), p = ptr; ptr = null;
+  if (p.id && p.moved) { const z = zoneAt(q); S.m.drag = null; S.m[p.id] = z; (z ? sfx.snap : sfx.click)(); render(); }
+  else if (p.id) { S.m.on = false; S.m.sel = S.m.sel === p.id ? null : p.id; sfx.tick(); render(); }
+  else if (S.m.sel) { const z = zoneAt(q); if (z) { S.m[S.m.sel] = z; S.m.on = false; sfx.snap(); } S.m.sel = null; render(); }
+  else if (GEO && Math.abs(q.x - GEO.lx) < 26 * GEO.k && Math.abs(q.y - GEO.sy) < 34 * GEO.k && bothPlaced() && !S.m.on) { S.m.on = true; sfx.click(); showStage(); render(); }
+});
+cvEl.addEventListener('pointercancel', () => { if (ptr?.moved) { S.m.drag = null; render(); } ptr = null; });
+
+// --- controls ----------------------------------------------------------------------------------------------------
+$('ctrlBody').innerHTML = `
+  <div id="va-m">
+    <div class="va-q" id="va-mq"></div><div class="va-note" id="va-mnote"></div>
+    <div class="va-row"><button class="btn va-b" id="va-on" data-act="on"></button><button class="btn ghost va-b" id="va-show" data-act="show"></button><button class="btn ghost va-b" id="va-reset" data-act="reset"></button></div>
+  </div>
+  <div id="va-c">
+    <div class="va-row"><span class="va-lbl" id="va-cl"></span><div class="va-step"><button data-act="cm" id="va-cm">−</button><b id="va-cn"></b><button data-act="cp" id="va-cp">+</button></div>
+      <span class="va-lbl" id="va-rl"></span><div class="chips"><button class="chip" data-r="3">3 Ω</button><button class="chip" data-r="6">6 Ω</button></div></div>
+    <div class="va-ask" id="va-ask-c"></div>
+    <canvas id="va-g"></canvas>
+  </div>
+  <div id="va-l"><div class="va-ask" id="va-ask-l"></div><div class="va-row"><button class="btn va-b" id="va-again" data-act="again"></button></div></div>
+  <div id="va-s"><div class="chips" id="va-chips"></div><div class="va-row"><button class="btn va-b" id="va-swsec" data-act="swsec"></button></div></div>`;
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act], [data-o], [data-r], [data-sec]'); if (!b || b.disabled) return;
+  const v = lab.view, c = S.c;
+  if (b.dataset.sec) {
+    if (!secret.unlocked()) return secret.open();
+    const k = b.dataset.sec; S.sec = S.sec === k ? null : k; S.slow.on = false; S.snail = 20; sfx.click();
+  } else if (b.dataset.o !== undefined) {
+    const i = +b.dataset.o;
+    if (v === 'cells' && c.pend) { c.ans = i; c.pend = false; c.answered = true; c.askOpen = true; (i === T[lang].ask.c.ok ? sfx.good : sfx.bad)(); showStage(); }
+    else if (v === 'loop' && S.l.ans === null) { S.l.ans = i; (i === T[lang].ask.l.ok ? sfx.good : sfx.bad)(); showStage(); }
+  } else if (b.dataset.r) { c.R = +b.dataset.r; c.askOpen = false; sfx.tick(); }
+  else {
+    const a = b.dataset.act;
+    if (a === 'on' && bothPlaced()) { S.m.on = true; sfx.click(); showStage(); }
+    else if (a === 'show') { S.m.A = 'loop'; S.m.V = 'across'; S.m.on = true; S.sw = 0; S.cur = 0; S.curR = 0; sfx.good(); }
+    else if (a === 'reset') { S.m = { A: null, V: null, on: false, sel: null, drag: null }; sfx.click(); }
+    else if (a === 'cp' && c.n < 4) { c.n++; c.popAt = now(); c.askOpen = false; if (c.n === 2 && !c.answered) { c.pend = true; c.ans = null; c.askOpen = true; } sfx.tick(); }
+    else if (a === 'cm' && c.n > 1) { c.n--; c.askOpen = false; sfx.tick(); }
+    else if (a === 'again') { S.l.ans = null; sfx.click(); }
+    else if (a === 'swsec') { S.slow.on = !S.slow.on; sfx.click(); }
+  }
+  render();
+});
+
+// --- one render per change: controls, readout, state card, facts ---------------------------------------------
+const setS = (a) => lab.setState({ emo: a[0], title: a[1], lead: a[2], body: a[3], extra: a[4] || '' });
+const show = (id, on_) => { $(id).style.display = on_ ? '' : 'none'; };
+function askHTML(t, key, ans) {
+  const q = t.ask[key];
+  const opts = q.opts.map((o, i) => `<button class="va-opt ${ans === null ? '' : i === q.ok ? 'good' : i === ans ? 'bad' : ''}" data-o="${i}" ${ans === null ? '' : 'disabled'}>${esc(o)}</button>`).join('');
+  const verd = ans === null ? '' : `<div class="va-v" style="color:${ans === q.ok ? 'var(--ok)' : 'var(--wip)'}">${esc(ans === q.ok ? t.right : t.wrong)}</div>`;
+  return `<div class="va-q">${esc(q.q)}</div><div class="va-opts">${opts}</div>${verd}`;
+}
+function render() {
+  const t = T[lang], v = lab.view, sec = S.sec, open = secret.unlocked();
+  document.body.dataset.v = v;
+  show('va-m', v === 'meters' && !sec); show('va-c', v === 'cells' && !sec); show('va-l', v === 'loop' && !sec);
+  $('va-chips').innerHTML = ['a', 'b'].map((k) => `<button class="chip secret ${open ? 'open' : ''} ${sec === (k === 'a' ? 'slow' : 'par') ? 'on' : ''}" data-sec="${k === 'a' ? 'slow' : 'par'}">${open ? `${k === 'a' ? '🐌' : '⚡'} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`).join('');
+  $('va-swsec').textContent = S.slow.on ? t.swOff : t.sw; show('va-swsec', sec === 'slow');
+  if (sec) renderSec(t, sec); else if (v === 'meters') renderM(t); else if (v === 'cells') renderC(t); else renderL(t);
+  lab.setFacts(t.facts[v]);
+}
+function renderSec(t, sec) {
+  const k = sec === 'slow' ? 'a' : 'b';
+  setS([sec === 'slow' ? '🐌' : '⚡', t.secrets[k][0], t.secrets[k][1], t.secBody[k]]);
+  if (sec === 'slow') lab.setReadout(S.slow.on ? '💡' : '—', '', '', '#ffd54a');
+  else lab.setReadout(`${num(1, 2)} ${t.uA}`, `${num(0.5, 2)} ${t.uA} + ${num(0.5, 2)} ${t.uA}`, `${num(1.5, 1)} ${t.uV}`, '#4ea8ff');
+}
+function renderM(t) {
+  const o = m1(), both = bothPlaced(), done = S.m.on && o.kind !== 'idle';
+  $('va-mq').textContent = t.q1; $('va-mnote').textContent = done ? '' : (both ? t.note1 : t.note0);
+  $('va-on').textContent = t.on; $('va-on').disabled = !both; $('va-on').hidden = done;
+  $('va-show').textContent = t.show; $('va-show').hidden = !(done && o.kind !== 'ok');
+  $('va-reset').textContent = t.again; $('va-reset').hidden = !(done || S.m.A || S.m.V);
+  const u = `${t.uA}`, V0 = num(1.5, 1);
+  if (!done) { setS(t.m.start); lab.setReadout('?', '', '', '#4ea8ff'); return; }
+  if (o.kind === 'ok') { setS(t.m.ok(num(0.5, 2), V0)); lab.setReadout(`${num(0.5, 2)} ${u} · ${V0} ${t.uV}`, '', '', '#4ea8ff'); }
+  else if (o.kind === 'short') { setS(t.m.short()); lab.setReadout(`${t.max} · ${num(0, 1)} ${t.uV}`, '', t.shortC, '#e5484d'); }
+  else { setS(t.m[o.key](V0)); lab.setReadout(`${num(0, 2)} ${u} · ${V0} ${t.uV}`, '', '', '#4ea8ff'); }
+}
+function renderC(t) {
+  const c = S.c, V = 1.5 * c.n, I = V / c.R;
+  $('va-cl').textContent = t.cellsL; $('va-rl').textContent = t.resL; $('va-cn').textContent = c.n;
+  $('va-cm').disabled = c.n <= 1 || c.pend; $('va-cp').disabled = c.n >= 4 || c.pend;
+  document.querySelectorAll('#va-c [data-r]').forEach((b) => { b.classList.toggle('on', +b.dataset.r === c.R); b.disabled = c.pend; });
+  const askOn = c.pend || (c.askOpen && c.ans !== null);
+  show('va-ask-c', askOn); if (askOn) $('va-ask-c').innerHTML = askHTML(t, 'c', c.ans);
+  if (!c.pend) c.pts.add(`${c.n}|${c.R}`);
+  if (c.pend) { setS(t.c.pend); lab.setReadout('?', '', '', '#ffb04a'); }
+  else {
+    setS(!c.answered && c.n === 1 ? t.c.idle : t.c.free(c.n, c.R, num(V, 1), num(I, 2)));
+    lab.setReadout(`${num(I, 2)} ${t.uA}`, `${num(V, 1)} ${t.uV} ${t.div} ${c.R} Ω`, '', '#ffb04a');
+  }
+  drawGraph();
+}
+function renderL(t) {
+  const l = S.l, ok = l.ans === t.ask.l.ok;
+  $('va-ask-l').innerHTML = askHTML(t, 'l', l.ans);
+  $('va-again').textContent = t.again; $('va-again').hidden = l.ans === null;
+  if (l.ans === null) { setS(t.l.pre); lab.setReadout('?', '', '', '#3ddc97'); }
+  else { setS(t.l.post(ok, num(0.5, 2), num(1.5, 1), num(3, 1))); lab.setReadout(`${num(0.5, 2)} ${t.uA}`, `${num(1.5, 1)} ${t.uV} + ${num(1.5, 1)} ${t.uV}`, '', '#3ddc97'); }
+}
+
+// --- graph: voltage against current, one point per setting that has been seen ----------------------------------
+function drawGraph() {
+  const cvg = $('va-g'); if (!cvg || lab.view !== 'cells' || S.sec) return;
+  const r = cvg.getBoundingClientRect(), d = Math.min(window.devicePixelRatio || 1, 2), w = r.width, h = r.height; if (!w || !h) return;
+  if (cvg.width !== Math.round(w * d) || cvg.height !== Math.round(h * d)) { cvg.width = Math.round(w * d); cvg.height = Math.round(h * d); }
+  const c = cvg.getContext('2d'), t = T[lang], cs = S.c;
+  c.setTransform(d, 0, 0, d, 0, 0); c.clearRect(0, 0, w, h);
+  const L = 40, Rr = 14, Tp = 12, B = 28, pw = w - L - Rr, ph = h - Tp - B, X = (x) => L + (x / 6) * pw, Y = (a) => Tp + ph - (a / 2.5) * ph;
+  rr(c, L, Tp, pw, ph, 6); c.fillStyle = 'rgba(8,12,22,.6)'; c.fill();
+  c.font = '700 12px Nunito, sans-serif'; c.fillStyle = '#98A0B8'; c.strokeStyle = 'rgba(130,145,190,.2)'; c.lineWidth = 1;
+  c.textAlign = 'center'; c.textBaseline = 'top';
+  for (const x of [0, 1.5, 3, 4.5, 6]) { c.beginPath(); c.moveTo(X(x), Tp); c.lineTo(X(x), Tp + ph); c.stroke(); c.fillText(num(x, 1), X(x), Tp + ph + 5); }
+  c.textAlign = 'right'; c.textBaseline = 'middle';
+  for (const a of [0, 0.5, 1, 1.5, 2, 2.5]) { c.beginPath(); c.moveTo(L, Y(a)); c.lineTo(L + pw, Y(a)); c.stroke(); c.fillText(num(a, 1), L - 6, Y(a)); }
+  c.textAlign = 'left'; c.textBaseline = 'top'; c.fillStyle = '#EDEFF7'; c.fillText(t.uA, 6, 0); c.textAlign = 'right'; c.fillText(t.uV, w - 2, h - 15);
+  const col = { 3: '#ffb04a', 6: '#5fb7ff' };
+  for (const R of [3, 6]) {
+    const ps = [...cs.pts].map((s) => s.split('|').map(Number)).filter((p) => p[1] === R).map(([n]) => n).sort((a, b) => a - b);
+    if (ps.length >= 2) {
+      const mx = 1.5 * ps[ps.length - 1];
+      c.save(); c.setLineDash([4, 5]); c.lineWidth = 1.6; c.strokeStyle = col[R]; c.globalAlpha = 0.45; c.beginPath(); c.moveTo(X(mx), Y(mx / R)); c.lineTo(X(6), Y(6 / R)); c.stroke(); c.restore();
+      c.lineWidth = 2.6; c.strokeStyle = col[R]; c.beginPath(); c.moveTo(X(0), Y(0)); c.lineTo(X(mx), Y(mx / R)); c.stroke();
+    }
+    for (const n of ps) { c.beginPath(); c.arc(X(1.5 * n), Y(1.5 * n / R), 5, 0, TAU); c.fillStyle = col[R]; c.fill(); c.lineWidth = 1.4; c.strokeStyle = '#0b0e18'; c.stroke(); }
+  }
+  if (!cs.pend) { c.beginPath(); c.arc(X(1.5 * cs.n), Y(1.5 * cs.n / cs.R), 9, 0, TAU); c.lineWidth = 2; c.strokeStyle = '#ffffff'; c.stroke(); }
+  let lx = L + 10; c.textAlign = 'left'; c.textBaseline = 'middle';
+  for (const R of [3, 6]) { c.beginPath(); c.arc(lx, Tp + 14, 5, 0, TAU); c.fillStyle = col[R]; c.fill(); c.fillStyle = '#EDEFF7'; c.fillText(`${R} Ω`, lx + 9, Tp + 14.5); lx += 56; }
+}
+new ResizeObserver(() => drawGraph()).observe($('va-g'));
+
+render();
+</script>
+</body>
+</html>
