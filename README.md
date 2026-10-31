@@ -20,7 +20,8 @@ Skill Graph grew out of the [Marble Skill Taxonomy](https://withmarble.com/curri
 - About **4,750 prerequisite links**: open any topic to see what it builds on and what it unlocks.
 - Browse as a topic list or as a rotating graph; filter by age, school grade, subject, or by a **national school curriculum** (11 countries, grades 1–8 or 1–9; Australia Foundation–6).
 - Mark what a child already knows (“Known”, “Learning”); **Ready to learn** then shows the topics whose prerequisites are all known.
-- Progress stays in the browser. A file or a link moves it to another device. The site can be installed as a home-screen app.
+- It can be installed as an app on a phone, tablet or computer (open the site, then the link “Install it as an app” on the home page). The app works offline.
+- Everything stays on the device: progress, the child’s name and quiz results live only in the browser’s storage. There are no accounts and no server, so none of it is sent anywhere; a file or a link moves it to another device only when you make one. The site counts page visits with Google Analytics, which never sees the progress.
 
 **For children: the labs** ([`labs/`](labs/))
 
