@@ -54,7 +54,7 @@
 </head>
 <body>
 <script type="module">
-import { shell, canvasLoop, secretLab, sfx, store, $, esc, clamp, lerp, ruPlural, lang } from '../lab.js';
+import { shell, canvasLoop, secretLab, sfx, store, unmuteIOS, $, esc, clamp, lerp, ruPlural, lang } from '../lab.js';
 
 // --- texts -------------------------------------------------------------------------------------------------
 const T = {
@@ -176,15 +176,18 @@ const times = (gaps) => gaps.reduce((a, g) => (a.push(a[a.length - 1] + g), a), 
 const AU = { ctx: null, master: null };
 function actx() {
   try {
+    unmuteIOS();
     if (!AU.ctx) {
       AU.ctx = new (window.AudioContext || window.webkitAudioContext)();
       AU.master = AU.ctx.createGain(); AU.master.gain.value = 0.9; AU.master.connect(AU.ctx.destination);
     }
-    if (AU.ctx.state === 'suspended') AU.ctx.resume();
+    if (AU.ctx.state !== 'running') AU.ctx.resume().catch(() => {});
     return AU.ctx;
   } catch { return null; }
 }
-addEventListener('pointerdown', () => actx(), { passive: true });
+['pointerdown', 'pointerup', 'touchend', 'keydown', 'click'].forEach((e) => addEventListener(e, () => { if (store.get('sound', false)) actx(); }, { passive: true }));
+// a music lab: the first tap that makes a sound turns the shell's sound on, unless the visitor switched it off before
+function wantSound() { if (store.get('sound', null) === null) $('sound').click(); return store.get('sound', false); }
 const PL = { on: false, kind: null, ev: [], len: 0, bs: 0.75, loop: false, end: null, meta: null, t0: 0, base: null, i: 0, fx: {}, queued: false, nodes: [] };
 function osc(x, type, f, at, dur, vol, f0) {
   const o = x.createOscillator(), g = x.createGain();
@@ -218,7 +221,7 @@ function schedule(base) {
 // events: [{t (s), snd: 'wood'|'note'|'kick', lv, dur, fx}]; fx names are what the picture reacts to
 function startPlay(kind, ev, len, o = {}) {
   stopPlay();
-  const x = actx();
+  const x = store.get('sound', false) ? actx() : null;
   Object.assign(PL, { on: true, kind, ev, len, bs: o.bs ?? 60 / BPM, loop: !!o.loop, end: o.end ?? null, meta: o.meta ?? null,
     t0: performance.now() + LEAD * 1000, base: x ? x.currentTime + LEAD : null, i: 0, fx: {}, queued: false });
   schedule(PL.base);
@@ -274,6 +277,7 @@ const M = { round: 0, played: false, answer: null, rt0: 0, dx: 0 };
 const HIT = [];
 
 const lab = shell({ key: 'rhythm', T, topics: TOPICS, views: ['beat', 'bar', 'metre'], onLang: render, onView: () => { stopPlay(); R.ghost = null; render(); } });
+$('sound').addEventListener('click', () => { if (!store.get('sound', false) && PL.on) { stopPlay(); render(); } });
 const secret = secretLab('rhythm', () => ({
   secrets: [{ emo: '🎼', title: T[lang].secrets.compose[0], desc: T[lang].secrets.compose[1] }, { emo: '🐢', title: T[lang].secrets.tempo[0], desc: T[lang].secrets.tempo[1] }],
   questions: T[lang].quiz,
@@ -583,6 +587,7 @@ $('ctrlBody').addEventListener('click', (ev) => {
   const act = b.dataset.act, a = b.dataset.a;
   if (act === 'bplay') {
     if (PL.on) { stopPlay(); return render(); }
+    wantSound();
     const ta = times(B.steadyA ? GS : GD), tb = times(B.steadyA ? GD : GS), off = ta[7] + 1;
     const ev2 = [...ta.map((t) => ({ t, snd: 'wood', lv: 0.55, fx: 'A' })), ...tb.map((t) => ({ t: off + t, snd: 'wood', lv: 0.55, fx: 'B' }))];
     startPlay('beat', ev2, off + tb[7] + 0.4, { bs: 0.75, meta: { off }, end: () => { B.played = true; } });
@@ -591,8 +596,9 @@ $('ctrlBody').addEventListener('click', (ev) => {
   } else if (act === 'bnext') {
     stopPlay(); Object.assign(B, { mode: 'round', steadyA: Math.random() < 0.5, played: false, answer: null }); sfx.click(); render();
   } else if (act === 'btap') {
-    stopPlay(); Object.assign(B, { mode: 'tap', taps: [], epoch: performance.now(), lastBeat: -1 }); sfx.click(); render(); showStage();
+    wantSound(); stopPlay(); Object.assign(B, { mode: 'tap', taps: [], epoch: performance.now(), lastBeat: -1 }); sfx.click(); render(); showStage();
   } else if (act === 'rans') {
+    wantSound();
     const tot = sum(ROUNDS[R.round]);
     R.answer = a; R.rev = { t0: nowS(), n: ROUNDS[R.round].length, played: false };
     (a === (tot === 4 ? 'yes' : tot > 4 ? 'many' : 'few') ? sfx.good : sfx.bad)(); showStage(); render();
@@ -604,6 +610,7 @@ $('ctrlBody').addEventListener('click', (ev) => {
     R.ghost = null; R.noFit = false; sfx.click(); render();
   } else if (act === 'rplay') {
     if (PL.on) { stopPlay(); return render(); }
+    wantSound();
     if (S.sec === 'compose') {
       const r = rhythmEvents(C.bars, 60 / BPM, true);
       startPlay('compose', r.ev, r.len, { bs: 60 / BPM, loop: C.loop });
@@ -620,8 +627,10 @@ $('ctrlBody').addEventListener('click', (ev) => {
     S.sec = S.sec === k ? null : k; sfx.click(); render();
   } else if (act === 'mplay') {
     if (PL.on) { stopPlay(); return render(); }
+    wantSound();
     playMetre();
   } else if (act === 'mans') {
+    wantSound();
     M.answer = a; M.rt0 = nowS(); (a === M_ROUNDS[M.round] ? sfx.good : sfx.bad)(); showStage();
     playMetre(); // the reveal plays the pattern again while the dancer steps
   } else if (act === 'mnext') {
