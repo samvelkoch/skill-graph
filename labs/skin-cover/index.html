@@ -1,0 +1,1285 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Skin Lab · Skill Graph</title>
+<meta name="description" content="Look at animals through a magnifier, guess the group from a patch of skin, and meet the animals that break the rules. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  .sk-houses { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+  .sk-h { grid-column: span 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 58px;
+    padding: 6px 3px; border-radius: 14px; border: 2px solid var(--stroke2); background: rgba(130, 145, 190, .1); cursor: pointer;
+    font: 800 10.5px/1.15 var(--sans); text-align: center; overflow-wrap: anywhere; }
+  .sk-h:nth-child(4) { grid-column: 2 / span 2; } .sk-h:nth-child(5) { grid-column: 4 / span 2; }
+  .sk-h .e { font-size: 21px; line-height: 1.1; }
+  .sk-h:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .sk-h:disabled { cursor: default; }
+  .sk-h.ok { border-color: var(--ok); background: rgba(61, 220, 151, .22); }
+  .sk-h.bad { border-color: var(--red); background: rgba(255, 59, 48, .2); }
+  .sk-h.dim { opacity: .45; }
+  .sk-sec .chip { white-space: normal; text-align: left; }
+  .btn:disabled { opacity: .35; cursor: default; }
+  #skCards { display: flex; flex-direction: column; gap: 8px; padding: 0; }
+  .sk-card { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 18px; border: 2px solid var(--stroke);
+    background: var(--panel); transition: opacity .25s, border-color .25s, background .25s; }
+  .sk-card.hit { border-color: var(--ok); background: rgba(61, 220, 151, .14); }
+  .sk-card.dim { opacity: .35; }
+  #stage canvas.sk-sw { position: static; inset: auto; width: 64px; height: 64px; flex: none; }
+  .sk-card h3 { margin: 0 0 3px; font: 500 21px/1.1 var(--serif); color: #fff; }
+  .sk-card p { margin: 0; font-size: 12.5px; line-height: 1.4; color: var(--soft); }
+  .sk-card p b { color: var(--mut); font-weight: 800; }
+  @media (max-width: 760px) {
+    #stage { height: min(112vw, 480px); }
+    body[data-v=houses] #stage { height: auto; min-height: 0; }
+    body[data-v=houses] #overlay { position: static; }
+    body[data-v=sec] #stage { height: min(112vw, 480px); }
+  }
+  @media (min-width: 761px) {
+    body[data-v=houses] #stage { height: auto; min-height: 0; }
+    body[data-v=houses] #overlay { position: static; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, store, $, esc, clamp, lerp, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Skin Lab', title: 'Whose skin is it?',
+    lines: [['Look through', 'the magnifier.'], ['Guess the group', 'from a patch of skin.'], ['Meet the animals', 'that break the rules.']],
+    views: { lens: '🔍 Magnifier', trick: '🎭 Tricksters', houses: '🏠 Five houses' },
+    groups: { fish: 'Fish', amph: 'Amphibians', rept: 'Reptiles', bird: 'Birds', mammal: 'Mammals' },
+    of: (i, n) => `${i} of ${n}`, rightSub: 'right', next: 'Next', result: 'See result', again: 'Play again',
+    hint: 'Slide the magnifier', right: 'Right!', wrong: 'Not quite.',
+    q1: ['Which group has this skin?', 'Slide the magnifier over the card, then tap a house.'],
+    q2: ['Which group is it?', 'It may look like it belongs somewhere else. Tap a house.'],
+    end: (s, n) => [`${s} of ${n} right`, 'Skin is the quickest clue to the group.', 'Play again, or try another tab.'],
+    clueLbl: 'Clue',
+    an: { carp: 'Carp', frog: 'Frog', lizard: 'Lizard', sparrow: 'Sparrow', fox: 'Fox', salamander: 'Salamander', snake: 'Snake', owl: 'Owl', hedgehog: 'Hedgehog', tortoise: 'Tortoise',
+      bat: 'Bat', whale: 'Whale', penguin: 'Penguin', pangolin: 'Pangolin', axolotl: 'Axolotl', crocodile: 'Crocodile' },
+    clue: {
+      carp: 'Wet, slippery scales that overlap like roof tiles, plus fins and gills.',
+      frog: 'Smooth, moist skin with no scales. It soaks up water and air through it.',
+      lizard: 'Dry, matte scales that keep water in. It lays eggs with a shell on land.',
+      sparrow: 'Feathers! Only birds have them. Each one has a shaft with fine barbs.',
+      fox: 'Fur: thousands of hairs. Hair is the clue for a mammal.',
+      salamander: 'Smooth, wet skin with no scales, even though it looks like a lizard.',
+      snake: 'Dry scales, no fur and no feathers.',
+      owl: 'Soft feathers with bars and spots. Feathers mean bird.',
+      hedgehog: 'Spines are really stiff hairs! A hedgehog has hair.',
+      tortoise: 'Hard plates on the shell and dry scales on the legs.',
+      bat: 'Fur covers its body. Wings do not decide the group: it feeds its pups milk.',
+      whale: 'It breathes air through a blowhole and feeds its calf milk. Living in water does not make it a fish.',
+      penguin: 'Feathers, not fur: a bird that swims instead of flying. Flying does not decide the group.',
+      pangolin: 'Scales, but with hair between them, and it feeds its young milk. Scales alone do not make a reptile.',
+      axolotl: 'Smooth, moist skin with no scales, and feathery gills. It lives in water all its life, but it is not a fish.',
+      crocodile: 'Dry, hard scales, and eggs with a shell laid on land. It spends lots of time in water, but it is not an amphibian.',
+    },
+    tag: { bat: 'Fur on its body', whale: 'Blowhole: it breathes air', penguin: 'Feathers', pangolin: 'Hair between scales', axolotl: 'Smooth moist skin', crocodile: 'Dry hard scales' },
+    props: { gills: 'Gills', lungs: 'Lungs', skin: 'Breathes through skin', water: 'Eggs in water', shell: 'Eggs with a shell', alive: 'Born alive, drinks milk' },
+    cardLbl: ['Covering', 'Breathing', 'Young'],
+    houses: {
+      fish: ['Wet scales and fins', 'Gills', 'Eggs laid in water'],
+      amph: ['Smooth, moist skin', 'Gills when young, then lungs and skin', 'Eggs laid in water'],
+      rept: ['Dry scales', 'Lungs', 'Eggs with a shell, laid on land'],
+      bird: ['Feathers', 'Lungs', 'Hard-shelled eggs'],
+      mammal: ['Fur or hair', 'Lungs', 'Most are born alive and drink milk'],
+    },
+    hs: ['Five houses', 'Tap a fact to see which houses share it.'], hsShare: (l) => `Shared by: ${l}`,
+    furTag: 'Fur', eggTag: 'Eggs!', legTag: ['Feathers', 'Scales'],
+    pl: { t: 'The platypus', l1: 'The magnifier shows fur, so it is a mammal.', l2: 'And yet it lays eggs! Egg-laying mammals are very rare: the platypus and four kinds of echidna.',
+      b2: 'It feeds its babies milk too, but it has no nipples: the milk seeps out through the skin of its belly.' },
+    lg: { t: 'Feathers are cousins of scales', l: 'Higher up this bird’s leg has feathers, lower down it has scales.',
+      b: 'Both are made of keratin, like your nails. Bird feet are covered in tiny scales, just like their reptile relatives.' },
+    an2: { platypus: 'Platypus' },
+    secrets: { a: ['The platypus', 'A mammal that lays eggs'], b: ['Feathers are cousins of scales', 'Look at a bird’s leg up close'] },
+    facts: {
+      lens: [{ emo: '🐸', text: 'Frogs do not drink with their mouths: they soak up water through their skin, mostly through a patch on the belly.', src: 'Encyclopaedia Britannica: Amphibian – water balance; AmphibiaWeb' }],
+      trick: [{ emo: '🦔', text: 'The pangolin is a mammal covered in hard scales made of keratin, the same stuff as your nails. It rolls into a ball when it is scared.', src: 'IUCN SSC Pangolin Specialist Group; Encyclopaedia Britannica: Pangolin' }],
+      houses: [{ emo: '📚', text: 'Hungarian and Russian school books use the same five groups: halak, kétéltűek, hüllők, madarak, emlősök; рыбы, земноводные, пресмыкающиеся, птицы, млекопитающие. Scientists today also count reptiles and birds as close relatives: birds come from dinosaurs.', src: 'Hungarian 5th-grade természettudomány; Russian 7th-grade biology; Encyclopaedia Britannica: Bird – origin' }],
+    },
+    quiz: [
+      { q: 'An animal has dry scales and lays eggs with a shell on land. Which group?', opts: ['Fish', 'Reptile', 'Amphibian'], ok: 1, hint: 'Scales can be wet or dry. Look at the magnifier for the lizard.' },
+      { q: 'A bat has wings and flies. Which group is it in?', opts: ['Bird', 'Mammal', 'Insect'], ok: 1, hint: 'Look at what covers its body, not at its wings.' },
+      { q: 'Which animal is an amphibian?', opts: ['A frog', 'A snake', 'A dolphin'], ok: 0, hint: 'Amphibians have smooth, moist skin with no scales.' },
+    ],
+  },
+  ru: {
+    name: 'Лаборатория кожи', title: 'Чья это кожа?',
+    lines: [['Посмотри', 'через лупу.'], ['Угадай группу', 'по кусочку кожи.'], ['Познакомься с животными,', 'которые нарушают правила.']],
+    views: { lens: '🔍 Лупа', trick: '🎭 Хитрецы', houses: '🏠 Пять домов' },
+    groups: { fish: 'Рыбы', amph: 'Земноводные', rept: 'Пресмыкающиеся', bird: 'Птицы', mammal: 'Млекопитающие' },
+    of: (i, n) => `${i} из ${n}`, rightSub: 'верно', next: 'Дальше', result: 'Результат', again: 'Ещё раз',
+    hint: 'Двигай лупу', right: 'Верно!', wrong: 'Не совсем.',
+    q1: ['К какой группе относится эта кожа?', 'Води лупой по карточке, потом нажми на дом.'],
+    q2: ['К какой группе оно относится?', 'Оно может выглядеть так, будто ему место в другой группе. Нажми на дом.'],
+    end: (s, n) => [`Верно: ${s} из ${n}`, 'Кожа — самая быстрая подсказка к группе.', 'Сыграй ещё раз или загляни в другую вкладку.'],
+    clueLbl: 'Подсказка',
+    an: { carp: 'Карп', frog: 'Лягушка', lizard: 'Ящерица', sparrow: 'Воробей', fox: 'Лиса', salamander: 'Саламандра', snake: 'Змея', owl: 'Сова', hedgehog: 'Ёж', tortoise: 'Черепаха',
+      bat: 'Летучая мышь', whale: 'Кит', penguin: 'Пингвин', pangolin: 'Панголин', axolotl: 'Аксолотль', crocodile: 'Крокодил' },
+    clue: {
+      carp: 'Мокрая скользкая чешуя, как черепица, а ещё плавники и жабры.',
+      frog: 'Гладкая влажная кожа без чешуи. Через неё лягушка впитывает воду и воздух.',
+      lizard: 'Сухая матовая чешуя, которая удерживает влагу. Яйца с оболочкой она откладывает на суше.',
+      sparrow: 'Перья! Они есть только у птиц. У каждого пера стержень и тонкие бородки.',
+      fox: 'Шерсть: тысячи волосков. Волосы — главный признак млекопитающих.',
+      salamander: 'Гладкая мокрая кожа без чешуи, хотя саламандра и похожа на ящерицу.',
+      snake: 'Сухая чешуя, ни шерсти, ни перьев.',
+      owl: 'Мягкие перья с полосками и пятнышками. Перья значат: птица.',
+      hedgehog: 'Иголки — это на самом деле жёсткие волоски! Волосы у ежа есть.',
+      tortoise: 'Твёрдые щитки панциря и сухая чешуя на лапах.',
+      bat: 'Тело покрыто шерстью. Крылья не решают: детёнышей она кормит молоком.',
+      whale: 'Кит дышит воздухом через дыхало и кормит детёныша молоком. Жизнь в воде не делает его рыбой.',
+      penguin: 'Перья, а не шерсть: это птица, которая плавает вместо полёта. Умение летать не решает.',
+      pangolin: 'Чешуя, но между чешуйками растут волоски, а детёнышей он кормит молоком. Одна чешуя ещё не делает рептилию.',
+      axolotl: 'Гладкая влажная кожа без чешуи и перистые жабры. Всю жизнь он живёт в воде, но это не рыба.',
+      crocodile: 'Сухая твёрдая чешуя, а яйца в скорлупе он откладывает на суше. Много времени он проводит в воде, но это не земноводное.',
+    },
+    tag: { bat: 'Шерсть на теле', whale: 'Дыхало: дышит воздухом', penguin: 'Перья', pangolin: 'Волоски между чешуйками', axolotl: 'Гладкая влажная кожа', crocodile: 'Сухая твёрдая чешуя' },
+    props: { gills: 'Жабры', lungs: 'Лёгкие', skin: 'Дышит кожей', water: 'Яйца в воде', shell: 'Яйца в скорлупе', alive: 'Рождаются живыми, пьют молоко' },
+    cardLbl: ['Покров', 'Дыхание', 'Потомство'],
+    houses: {
+      fish: ['Мокрая чешуя и плавники', 'Жабры', 'Откладывают икру в воде'],
+      amph: ['Гладкая влажная кожа', 'В детстве жабры, потом лёгкие и кожа', 'Откладывают икру в воде'],
+      rept: ['Сухая чешуя', 'Лёгкие', 'Яйца в скорлупе, на суше'],
+      bird: ['Перья', 'Лёгкие', 'Яйца с твёрдой скорлупой'],
+      mammal: ['Шерсть или волосы', 'Лёгкие', 'Большинство рождается живыми и пьёт молоко'],
+    },
+    hs: ['Пять домов', 'Нажми на признак, и увидишь, у каких домов он общий.'], hsShare: (l) => `Общий у: ${l}`,
+    furTag: 'Шерсть', eggTag: 'Яйца!', legTag: ['Перья', 'Чешуя'],
+    pl: { t: 'Утконос', l1: 'Лупа показывает шерсть: значит, это млекопитающее.', l2: 'И всё же он откладывает яйца! Яйцекладущих млекопитающих очень мало: утконос и четыре вида ехидн.',
+      b2: 'Детёнышей он тоже кормит молоком, но сосков у него нет: молоко выступает прямо на коже живота.' },
+    lg: { t: 'Перья — родня чешуи', l: 'Выше на лапе птицы перья, ниже — чешуя.',
+      b: 'И то и другое сделано из кератина, как твои ногти. Лапы птиц покрыты мелкой чешуёй, как у их родни — рептилий.' },
+    an2: { platypus: 'Утконос' },
+    secrets: { a: ['Утконос', 'Млекопитающее, которое откладывает яйца'], b: ['Перья — родня чешуи', 'Посмотри вблизи на лапу птицы'] },
+    facts: {
+      lens: [{ emo: '🐸', text: 'Лягушки не пьют ртом: они впитывают воду кожей, в основном участком на животе.' }],
+      trick: [{ emo: '🦔', text: 'Панголин — млекопитающее, покрытое твёрдыми чешуйками из кератина, того же вещества, что и твои ногти. Испугавшись, он сворачивается в шар.' }],
+      houses: [{ emo: '📚', text: 'В венгерских и российских учебниках одни и те же пять групп: рыбы, земноводные, пресмыкающиеся, птицы, млекопитающие. А учёные сегодня считают птиц близкой роднёй рептилий: птицы произошли от динозавров.' }],
+    },
+    quiz: [
+      { q: 'У животного сухая чешуя, и оно откладывает яйца в скорлупе на суше. Какая это группа?', opts: ['Рыбы', 'Пресмыкающиеся', 'Земноводные'], ok: 1, hint: 'Чешуя бывает мокрой и сухой. Посмотри в лупу на ящерицу.' },
+      { q: 'У летучей мыши есть крылья, и она летает. К какой группе она относится?', opts: ['Птицы', 'Млекопитающие', 'Насекомые'], ok: 1, hint: 'Смотри, чем покрыто её тело, а не на крылья.' },
+      { q: 'Какое из этих животных — земноводное?', opts: ['Лягушка', 'Змея', 'Дельфин'], ok: 0, hint: 'У земноводных гладкая влажная кожа без чешуи.' },
+    ],
+  },
+  hu: {
+    name: 'Bőrlabor', title: 'Kié ez a bőr?',
+    lines: [['Nézz be', 'a nagyítón át.'], ['Találd ki a csoportot', 'egy darabka bőrből.'], ['Ismerd meg azokat az állatokat,', 'amelyek kilógnak a sorból.']],
+    views: { lens: '🔍 Nagyító', trick: '🎭 Ravaszok', houses: '🏠 Öt ház' },
+    groups: { fish: 'Halak', amph: 'Kétéltűek', rept: 'Hüllők', bird: 'Madarak', mammal: 'Emlősök' },
+    of: (i, n) => `${i}. / ${n}`, rightSub: 'jó', next: 'Tovább', result: 'Eredmény', again: 'Még egyszer',
+    hint: 'Mozgasd a nagyítót', right: 'Így van!', wrong: 'Nem egészen.',
+    q1: ['Melyik csoportnak van ilyen bőre?', 'Csúsztasd a nagyítót a kártyán, aztán koppints egy házra.'],
+    q2: ['Melyik csoportba tartozik?', 'Lehet, hogy úgy néz ki, mintha máshová tartozna. Koppints egy házra.'],
+    end: (s, n) => [`${s} / ${n} találat`, 'A bőr a leggyorsabb támpont a csoporthoz.', 'Játssz újra, vagy próbálj ki egy másik fület.'],
+    clueLbl: 'Támpont',
+    an: { carp: 'Ponty', frog: 'Béka', lizard: 'Gyík', sparrow: 'Veréb', fox: 'Róka', salamander: 'Szalamandra', snake: 'Kígyó', owl: 'Bagoly', hedgehog: 'Sün', tortoise: 'Teknős',
+      bat: 'Denevér', whale: 'Bálna', penguin: 'Pingvin', pangolin: 'Tobzoska', axolotl: 'Axolotl', crocodile: 'Krokodil' },
+    clue: {
+      carp: 'Nedves, csúszós pikkelyek, mint a cserepek, meg uszonyok és kopoltyúk.',
+      frog: 'Sima, nedves bőr, pikkelyek nélkül. Ezen át veszi fel a vizet és a levegőt.',
+      lizard: 'Száraz, matt pikkelyek, amelyek bent tartják a vizet. Héjas tojást rak a szárazföldön.',
+      sparrow: 'Tollak! Csak a madaraknak vannak. Mindegyiknek van tolltengelye és finom szálkái.',
+      fox: 'Szőrme: több ezer szőrszál. A szőr az emlősök árulkodó jele.',
+      salamander: 'Sima, nedves bőr pikkelyek nélkül, bár úgy néz ki, mint egy gyík.',
+      snake: 'Száraz pikkelyek, nincs szőr és nincs toll.',
+      owl: 'Puha tollak csíkokkal és foltokkal. Ahol toll van, ott madár van.',
+      hedgehog: 'A tüskék valójában merev szőrszálak! A sünnek van szőre.',
+      tortoise: 'A páncél kemény táblái és a száraz pikkelyek a lábán.',
+      bat: 'A testét szőr borítja. A szárny nem dönt: tejjel eteti a kicsinyeit.',
+      whale: 'A fújtatónyílásán át lélegzik levegőt, és tejjel eteti a borját. Attól, hogy vízben él, még nem hal.',
+      penguin: 'Tollak, nem szőr: madár, amely repülés helyett úszik. A repülés nem dönt.',
+      pangolin: 'Pikkelyei vannak, de köztük szőrszálak nőnek, és tejjel eteti a kicsinyét. A pikkely még nem tesz hüllővé.',
+      axolotl: 'Sima, nedves, pikkelytelen bőr és tollas kopoltyúk. Egész életében vízben él, de nem hal.',
+      crocodile: 'Száraz, kemény pikkelyek, a héjas tojásokat a szárazföldre rakja. Sok időt tölt a vízben, de nem kétéltű.',
+    },
+    tag: { bat: 'Szőr a testén', whale: 'Fújtatónyílás: levegőt lélegzik', penguin: 'Tollak', pangolin: 'Szőr a pikkelyek között', axolotl: 'Sima, nedves bőr', crocodile: 'Száraz, kemény pikkelyek' },
+    props: { gills: 'Kopoltyú', lungs: 'Tüdő', skin: 'Bőrén át lélegzik', water: 'Tojás a vízben', shell: 'Héjas tojás', alive: 'Élve születik, tejet iszik' },
+    cardLbl: ['Borítás', 'Légzés', 'Kicsinyek'],
+    houses: {
+      fish: ['Nedves pikkelyek és uszonyok', 'Kopoltyú', 'Vízbe rakott ikra'],
+      amph: ['Sima, nedves bőr', 'Fiatalon kopoltyú, aztán tüdő és bőr', 'Vízbe rakott ikra'],
+      rept: ['Száraz pikkelyek', 'Tüdő', 'Héjas tojás, szárazföldre rakva'],
+      bird: ['Tollak', 'Tüdő', 'Kemény héjú tojás'],
+      mammal: ['Szőr', 'Tüdő', 'A legtöbb élve születik, és tejet iszik'],
+    },
+    hs: ['Öt ház', 'Koppints egy tulajdonságra, és látod, mely házaknak közös.'], hsShare: (l) => `Közös ezeknél: ${l}`,
+    furTag: 'Szőr', eggTag: 'Tojás!', legTag: ['Tollak', 'Pikkelyek'],
+    pl: { t: 'A kacsacsőrű emlős', l1: 'A nagyító szőrt mutat, tehát emlős.', l2: 'Mégis tojást rak! A tojásrakó emlősök nagyon ritkák: a kacsacsőrű emlős és négy hangyászsün-faj.',
+      b2: 'Tejjel is táplálja a kicsinyeit, de nincs csecsbimbója: a tej a hasa bőrén szivárog ki.' },
+    lg: { t: 'A toll a pikkely rokona', l: 'Feljebb a madár lábán toll van, lejjebb pikkely.',
+      b: 'Mindkettő keratinból van, mint a körmöd. A madarak lábát apró pikkelyek borítják, akárcsak a hüllő rokonaikét.' },
+    an2: { platypus: 'Kacsacsőrű emlős' },
+    secrets: { a: ['A kacsacsőrű emlős', 'Emlős, amely tojást rak'], b: ['A toll a pikkely rokona', 'Nézd meg közelről egy madár lábát'] },
+    facts: {
+      lens: [{ emo: '🐸', text: 'A béka nem a szájával iszik: a bőrén keresztül szívja fel a vizet, főleg a hasán.' }],
+      trick: [{ emo: '🦔', text: 'A tobzoska emlős, kemény pikkelyek borítják, amelyek keratinból vannak, abból az anyagból, mint a körmöd. Ha megijed, gombóccá gömbölyödik.' }],
+      houses: [{ emo: '📚', text: 'A magyar és az orosz tankönyvek ugyanazt az öt csoportot használják: halak, kétéltűek, hüllők, madarak, emlősök. A kutatók ma a madarakat a hüllők közeli rokonainak tartják: a dinoszauruszoktól származnak.' }],
+    },
+    quiz: [
+      { q: 'Egy állatnak száraz pikkelyei vannak, és szárazföldön rak héjas tojást. Melyik csoport?', opts: ['Halak', 'Hüllők', 'Kétéltűek'], ok: 1, hint: 'A pikkely lehet nedves vagy száraz. Nézd meg a gyíkot a nagyítóval.' },
+      { q: 'A denevérnek szárnya van, és repül. Melyik csoportba tartozik?', opts: ['Madarak', 'Emlősök', 'Rovarok'], ok: 1, hint: 'Azt nézd, mi borítja a testét, ne a szárnyát.' },
+      { q: 'Melyik állat kétéltű?', opts: ['A béka', 'A kígyó', 'A delfin'], ok: 0, hint: 'A kétéltűek bőre sima, nedves és pikkely nélküli.' },
+    ],
+  },
+};
+// the sources of the facts are in English only; the other languages reuse them
+for (const l of ['ru', 'hu']) for (const k of Object.keys(T.en.facts)) T[l].facts[k][0].src = T.en.facts[k][0].src;
+
+const TOPICS = [{ id: 'mt_fDoE-pL6Jv', en: 'Animal Body Groups', ru: 'Группы животных по строению тела', hu: 'Az állatok testfelépítési csoportjai' }];
+
+// --- drawing helpers -----------------------------------------------------------------------------------------
+const TAU = Math.PI * 2;
+const hexv = (s) => [parseInt(s.slice(1, 3), 16), parseInt(s.slice(3, 5), 16), parseInt(s.slice(5, 7), 16)];
+const toHex = (a) => '#' + a.map((v) => Math.round(clamp(v, 0, 255)).toString(16).padStart(2, '0')).join('');
+const shade = (s, a) => toHex(hexv(s).map((v) => (a >= 0 ? v + (255 - v) * a : v * (1 + a))));
+const mix = (a, b, t) => { const A = hexv(a), B = hexv(b); return toHex(A.map((v, i) => v + (B[i] - v) * t)); };
+const lg = (c, x0, y0, x1, y1, st) => { const g = c.createLinearGradient(x0, y0, x1, y1); st.forEach(([o, col]) => g.addColorStop(o, col)); return g; };
+const rg = (c, x, y, r0, r1, st) => { const g = c.createRadialGradient(x, y, Math.max(0, r0), x, y, Math.max(0.01, r1)); st.forEach(([o, col]) => g.addColorStop(o, col)); return g; };
+const E = (c, x, y, rx, ry, rot = 0) => { c.moveTo(x + Math.cos(rot) * Math.max(0, rx), y + Math.sin(rot) * Math.max(0, rx)); c.ellipse(x, y, Math.max(0, rx), Math.max(0, ry), rot, 0, TAU); };
+const hsh = (a, b, k = 0) => { const x = Math.sin(a * 127.1 + b * 311.7 + k * 74.7) * 43758.5453; return x - Math.floor(x); };
+const ease = (t) => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
+const backOut = (t) => { t = clamp(t, 0, 1); const s = 1.7; return 1 + (s + 1) * Math.pow(t - 1, 3) + s * Math.pow(t - 1, 2); };
+const rr = (c, x, y, w, h, r) => { r = Math.max(0, Math.min(r, w / 2, h / 2)); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); };
+
+// a tapered tube through points (Catmull-Rom), half-widths ws
+function samp(pts, ws, n = 8) {
+  const P = [], W = [];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(pts.length - 1, i + 2)];
+    for (let k = 0; k < n; k++) {
+      const t = k / n, t2 = t * t, t3 = t2 * t;
+      const f = (a, b, c2, d) => 0.5 * (2 * b + (-a + c2) * t + (2 * a - 5 * b + 4 * c2 - d) * t2 + (-a + 3 * b - 3 * c2 + d) * t3);
+      P.push([f(p0[0], p1[0], p2[0], p3[0]), f(p0[1], p1[1], p2[1], p3[1])]);
+      W.push(lerp(ws[i], ws[i + 1], t));
+    }
+  }
+  P.push(pts[pts.length - 1]); W.push(ws[ws.length - 1]);
+  return [P, W];
+}
+function tubeShapes(c, pts, ws) {
+  const [P, W] = samp(pts, ws);
+  const poly = () => {
+    const L = [], R = [];
+    P.forEach((p, i) => {
+      const a = P[Math.max(0, i - 1)], b = P[Math.min(P.length - 1, i + 1)];
+      let dx = b[0] - a[0], dy = b[1] - a[1]; const d = Math.hypot(dx, dy) || 1; dx /= d; dy /= d;
+      L.push([p[0] - dy * W[i], p[1] + dx * W[i]]); R.push([p[0] + dy * W[i], p[1] - dx * W[i]]);
+    });
+    const ring = L.concat(R.reverse());
+    let ar = 0; ring.forEach((q, i) => { const n = ring[(i + 1) % ring.length]; ar += q[0] * n[1] - n[0] * q[1]; });
+    if (ar < 0) ring.reverse(); // same winding as ellipses, so clips and fills never cancel out
+    ring.forEach((q, i) => (i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]))); c.closePath();
+  };
+  const s = P[0], f = P[P.length - 1], n = W.length - 1;
+  return [poly, () => E(c, s[0], s[1], W[0], W[0]), () => E(c, f[0], f[1], W[n], W[n])];
+}
+// outline once around the union of shapes, then fill them all with one style
+function union(c, shapes, fill, ol, lw) {
+  const list = shapes.flat(Infinity);
+  c.save(); c.lineJoin = 'round';
+  c.lineWidth = lw * 2; c.strokeStyle = ol;
+  list.forEach((s) => { c.beginPath(); s(); c.stroke(); });
+  c.fillStyle = fill;
+  list.forEach((s) => { c.beginPath(); s(); c.fill(); });
+  c.restore();
+}
+const clipTo = (c, shapes) => { c.beginPath(); shapes.flat(Infinity).forEach((s) => s()); c.clip(); };
+function path(c, fn, fill, ol, lw = 1.4) {
+  c.beginPath(); fn();
+  if (fill) { c.fillStyle = fill; c.fill(); }
+  if (ol) { c.lineWidth = lw; c.strokeStyle = ol; c.lineJoin = 'round'; c.stroke(); }
+}
+function eye(c, x, y, r, iris = '#2b1d12') {
+  c.save();
+  path(c, () => E(c, x, y, r + 1.3, r + 1.3), 'rgba(0,0,0,.38)');
+  path(c, () => E(c, x, y, r, r), rg(c, x - r * 0.3, y - r * 0.3, 0, r * 1.3, [[0, shade(iris, 0.3)], [1, iris]]));
+  path(c, () => E(c, x - r * 0.32, y - r * 0.36, r * 0.33, r * 0.33), '#fff');
+  path(c, () => E(c, x + r * 0.32, y + r * 0.32, r * 0.14, r * 0.14), 'rgba(255,255,255,.7)');
+  c.restore();
+}
+function floorShadow(c, x, y, rx) {
+  c.save(); c.translate(x, y); c.scale(1, 0.16);
+  path(c, () => c.arc(0, 0, Math.max(0, rx), 0, TAU), rg(c, 0, 0, 0, rx, [[0, 'rgba(0,0,0,.5)'], [1, 'rgba(0,0,0,0)']]));
+  c.restore();
+}
+
+// --- procedural skins (design space: lens radius 100) -----------------------------------------------------------
+const BIG = { x0: -102, y0: -102, x1: 102, y1: 102 };
+const fillBox = (c, B, st) => { c.fillStyle = st; c.fillRect(B.x0, B.y0, B.x1 - B.x0, B.y1 - B.y0); };
+
+// fish: overlapping round scales with a silver sheen
+function fishTex(c, ox, oy, B, pal) {
+  const sz = pal.sz || 34, rh = sz * 0.5, R = sz * 0.62;
+  fillBox(c, B, pal.bg);
+  const j0 = Math.floor((B.y0 + oy) / rh) - 1, j1 = Math.ceil((B.y1 + oy) / rh) + 1;
+  for (let j = j1; j >= j0; j--) { // upper rows lie over the lower ones
+    const y = j * rh - oy, o = (j & 1) * sz / 2;
+    const i0 = Math.floor((B.x0 + ox - o) / sz) - 1, i1 = Math.ceil((B.x1 + ox - o) / sz) + 1;
+    for (let i = i0; i <= i1; i++) {
+      const x = i * sz + o - ox, base = mix(pal.a, pal.b, hsh(i, j) * 0.7);
+      c.beginPath(); c.arc(x, y, R, 0, TAU);
+      c.fillStyle = rg(c, x - R * 0.3, y - R * 0.45, R * 0.1, R * 1.1, [[0, shade(base, 0.45)], [0.55, base], [1, shade(base, -0.3)]]);
+      c.fill(); c.lineWidth = 1.3; c.strokeStyle = pal.edge; c.stroke();
+      c.strokeStyle = pal.ring; c.lineWidth = 1;
+      c.beginPath(); c.arc(x, y, R * 0.64, 0.25 * Math.PI, 0.75 * Math.PI); c.stroke();
+      c.beginPath(); c.arc(x, y, R * 0.38, 0.3 * Math.PI, 0.7 * Math.PI); c.stroke();
+      c.beginPath(); c.arc(x, y, R * 0.84, 1.15 * Math.PI, 1.7 * Math.PI); c.strokeStyle = pal.hi; c.lineWidth = 2; c.stroke();
+    }
+  }
+  if (pal.sheen) fillBox(c, B, lg(c, B.x0, B.y0, B.x1, B.y1, [[0, 'rgba(255,255,255,.34)'], [0.3, 'rgba(255,255,255,0)'], [0.55, 'rgba(255,255,255,.2)'], [0.78, 'rgba(255,255,255,0)']]));
+}
+// lizard: dry, matte keeled diamonds
+function lizardTex(c, ox, oy, B, pal) {
+  const w = pal.sz || 24, h = w * 1.35;
+  fillBox(c, B, pal.bg);
+  const j0 = Math.floor((B.y0 + oy) / (h / 2)) - 1, j1 = Math.ceil((B.y1 + oy) / (h / 2)) + 1;
+  for (let j = j0; j <= j1; j++) {
+    const y = j * h / 2 - oy, o = (j & 1) * w / 2;
+    const i0 = Math.floor((B.x0 + ox - o) / w) - 1, i1 = Math.ceil((B.x1 + ox - o) / w) + 1;
+    for (let i = i0; i <= i1; i++) {
+      const x = i * w + o - ox, base = mix(pal.a, pal.b, hsh(i, j, 2) * 0.8);
+      c.beginPath(); c.moveTo(x, y - h / 2); c.lineTo(x + w / 2, y); c.lineTo(x, y + h / 2); c.lineTo(x - w / 2, y); c.closePath();
+      c.fillStyle = lg(c, x - w / 2, y - h / 2, x + w / 2, y + h / 2, [[0, shade(base, 0.18)], [1, shade(base, -0.22)]]);
+      c.fill(); c.lineWidth = 1.2; c.strokeStyle = pal.edge; c.stroke();
+      c.beginPath(); c.moveTo(x, y - h * 0.4); c.lineTo(x, y + h * 0.4); c.strokeStyle = shade(base, 0.35); c.lineWidth = 1.6; c.stroke();
+      c.beginPath(); c.moveTo(x - 1.5, y - h * 0.34); c.lineTo(x - 1.5, y + h * 0.3); c.strokeStyle = shade(base, -0.3); c.lineWidth = 0.8; c.stroke();
+    }
+  }
+}
+// snake: long overlapping oval scales in bands
+function snakeTex(c, ox, oy, B, pal) {
+  const sz = pal.sz || 30, rh = sz * 0.55;
+  fillBox(c, B, pal.bg);
+  const j0 = Math.floor((B.y0 + oy) / rh) - 1, j1 = Math.ceil((B.y1 + oy) / rh) + 1;
+  for (let j = j1; j >= j0; j--) {
+    const y = j * rh - oy, o = (j & 1) * sz / 2;
+    const i0 = Math.floor((B.x0 + ox - o) / sz) - 1, i1 = Math.ceil((B.x1 + ox - o) / sz) + 1;
+    for (let i = i0; i <= i1; i++) {
+      const x = i * sz + o - ox, band = (((i * 2 + (j & 1)) + j) % 7 + 7) % 7 < 2, base = band ? pal.b : mix(pal.a, pal.b, hsh(i, j, 3) * 0.35);
+      c.beginPath(); E(c, x, y, sz * 0.52, sz * 0.8);
+      c.fillStyle = lg(c, x, y - sz * 0.8, x, y + sz * 0.8, [[0, shade(base, 0.12)], [0.7, base], [1, shade(base, -0.3)]]);
+      c.fill(); c.lineWidth = 1.2; c.strokeStyle = pal.edge; c.stroke();
+      c.beginPath(); c.moveTo(x, y - sz * 0.5); c.lineTo(x, y + sz * 0.45); c.strokeStyle = 'rgba(255,255,255,.12)'; c.lineWidth = 1; c.stroke();
+    }
+  }
+}
+// crocodile: hard plates with raised centres and pits
+function crocTex(c, ox, oy, B, pal) {
+  const w = pal.sz || 36, h = w * 0.78;
+  fillBox(c, B, pal.bg);
+  const j0 = Math.floor((B.y0 + oy) / h) - 1, j1 = Math.ceil((B.y1 + oy) / h) + 1;
+  for (let j = j0; j <= j1; j++) {
+    const y = j * h - oy, o = (j & 1) * w / 2;
+    const i0 = Math.floor((B.x0 + ox - o) / w) - 1, i1 = Math.ceil((B.x1 + ox - o) / w) + 1;
+    for (let i = i0; i <= i1; i++) {
+      const x = i * w + o - ox, base = mix(pal.a, pal.b, hsh(i, j, 5));
+      c.beginPath(); rr(c, x - w / 2 + 1.5, y - h / 2 + 1.5, w - 3, h - 3, 7);
+      c.fillStyle = lg(c, x - w / 2, y - h / 2, x + w / 2, y + h / 2, [[0, shade(base, 0.2)], [1, shade(base, -0.28)]]); c.fill();
+      c.lineWidth = 2; c.strokeStyle = pal.edge; c.stroke();
+      c.beginPath(); E(c, x, y, w * 0.2, h * 0.22);
+      c.fillStyle = rg(c, x - 2, y - 2, 0, w * 0.26, [[0, shade(base, 0.4)], [1, shade(base, -0.1)]]); c.fill();
+      for (let k = 0; k < 3; k++) { c.beginPath(); c.arc(x + (hsh(i, j, k + 9) - 0.5) * w * 0.7, y + (hsh(i, j, k + 19) - 0.5) * h * 0.6, 1.3, 0, TAU); c.fillStyle = 'rgba(0,0,0,.4)'; c.fill(); }
+    }
+  }
+}
+// tortoise: hexagonal shell plates with growth rings
+function hexTex(c, ox, oy, B, pal) {
+  const R = pal.sz || 34, hw = R * Math.sqrt(3) / 2;
+  fillBox(c, B, pal.edge);
+  const j0 = Math.floor((B.y0 + oy) / (R * 1.5)) - 1, j1 = Math.ceil((B.y1 + oy) / (R * 1.5)) + 1;
+  const hex = (x, y, r) => { c.beginPath(); for (let k = 0; k < 6; k++) { const a = Math.PI / 6 + k * Math.PI / 3; k ? c.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r) : c.moveTo(x + Math.cos(a) * r, y + Math.sin(a) * r); } c.closePath(); };
+  for (let j = j0; j <= j1; j++) {
+    const y = j * R * 1.5 - oy, o = (j & 1) * hw;
+    const i0 = Math.floor((B.x0 + ox - o) / (hw * 2)) - 1, i1 = Math.ceil((B.x1 + ox - o) / (hw * 2)) + 1;
+    for (let i = i0; i <= i1; i++) {
+      const x = i * hw * 2 + o - ox, base = mix(pal.a, pal.b, hsh(i, j, 7) * 0.8);
+      hex(x, y, R * 0.93);
+      c.fillStyle = rg(c, x - R * 0.25, y - R * 0.3, R * 0.1, R, [[0, shade(base, 0.35)], [0.6, base], [1, shade(base, -0.35)]]); c.fill();
+      c.lineWidth = 1.2; c.strokeStyle = 'rgba(40,26,6,.55)';
+      hex(x, y, R * 0.66); c.stroke(); hex(x, y, R * 0.4); c.stroke();
+      hex(x, y, R * 0.93); c.lineWidth = 2; c.strokeStyle = 'rgba(255,240,190,.28)'; c.stroke();
+    }
+  }
+}
+// feathers: shaft, barbs, soft edge; bars optional
+function featherTex(c, ox, oy, B, pal) {
+  const w = pal.w || 34, L = pal.L || 52, rh = L * 0.42;
+  fillBox(c, B, pal.bg);
+  const j0 = Math.floor((B.y0 + oy) / rh) - 2, j1 = Math.ceil((B.y1 + oy) / rh) + 1;
+  for (let j = j1; j >= j0; j--) { // upper rows lie over the lower ones
+    const y = j * rh - oy, o = (j & 1) * w / 2;
+    const i0 = Math.floor((B.x0 + ox - o) / w) - 1, i1 = Math.ceil((B.x1 + ox - o) / w) + 1;
+    for (let i = i0; i <= i1; i++) {
+      const x = i * w + o - ox, v = hsh(i, j, 11), base = mix(pal.a, pal.b, v * 0.6);
+      c.save();
+      c.beginPath(); c.moveTo(x - w * 0.5, y - L * 0.5); c.lineTo(x - w * 0.5, y + L * 0.12);
+      c.quadraticCurveTo(x - w * 0.5, y + L * 0.52, x, y + L * 0.54); c.quadraticCurveTo(x + w * 0.5, y + L * 0.52, x + w * 0.5, y + L * 0.12); c.lineTo(x + w * 0.5, y - L * 0.5); c.closePath();
+      c.fillStyle = lg(c, x, y - L * 0.5, x, y + L * 0.54, [[0, shade(base, -0.25)], [0.45, base], [1, shade(base, 0.18)]]); c.fill();
+      c.clip();
+      if (pal.bar) { c.fillStyle = pal.dark; for (let k = 0; k < 2; k++) { c.beginPath(); c.moveTo(x - w * 0.5, y + L * (0.02 + k * 0.2)); c.quadraticCurveTo(x, y + L * (0.12 + k * 0.2), x + w * 0.5, y + L * (0.02 + k * 0.2)); c.lineTo(x + w * 0.5, y + L * (0.08 + k * 0.2)); c.quadraticCurveTo(x, y + L * (0.18 + k * 0.2), x - w * 0.5, y + L * (0.08 + k * 0.2)); c.closePath(); c.globalAlpha = 0.55; c.fill(); c.globalAlpha = 1; } }
+      c.lineWidth = 0.9; c.strokeStyle = pal.barb;
+      for (let yy = -L * 0.5; yy < L * 0.5; yy += 3.2) {
+        c.beginPath(); c.moveTo(x, y + yy); c.lineTo(x - w * 0.55, y + yy + w * 0.36); c.moveTo(x, y + yy); c.lineTo(x + w * 0.55, y + yy + w * 0.36); c.stroke();
+      }
+      c.beginPath(); c.moveTo(x, y - L * 0.5); c.lineTo(x, y + L * 0.52); c.strokeStyle = pal.shaft; c.lineWidth = 1.7; c.stroke();
+      c.beginPath(); c.moveTo(x - w * 0.5, y + L * 0.1); c.quadraticCurveTo(x - w * 0.5, y + L * 0.5, x, y + L * 0.53); c.quadraticCurveTo(x + w * 0.5, y + L * 0.5, x + w * 0.5, y + L * 0.1);
+      c.strokeStyle = pal.rim; c.lineWidth = 2.2; c.stroke();
+      c.restore();
+    }
+  }
+}
+// fur: layers of curved strands with lighter tips
+function furTex(c, ox, oy, B, pal) {
+  fillBox(c, B, lg(c, B.x0, B.y0, B.x1, B.y1, [[0, shade(pal.b, -0.1)], [1, shade(pal.b, -0.45)]]));
+  c.lineCap = 'round';
+  for (let pass = 0; pass < 3; pass++) {
+    const cell = pal.cell * (1 - pass * 0.14), len = pal.len * (1 - pass * 0.1);
+    const j0 = Math.floor((B.y0 + oy) / cell) - 3, j1 = Math.ceil((B.y1 + oy) / cell) + 3, i0 = Math.floor((B.x0 + ox) / cell) - 3, i1 = Math.ceil((B.x1 + ox) / cell) + 3;
+    const col = pass === 0 ? pal.b : pass === 1 ? mix(pal.b, pal.a, 0.6) : pal.a;
+    c.strokeStyle = col; c.lineWidth = pal.lw * (1 - pass * 0.18);
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const x = (i + hsh(i, j, pass)) * cell - ox, y = (j + hsh(j, i, pass + 4)) * cell - oy;
+      const a = pal.ang + (hsh(i, j, pass + 8) - 0.5) * 0.9, l = len * (0.7 + hsh(i, j, pass + 12) * 0.6), bend = (hsh(i, j, pass + 16) - 0.5) * l * 0.5;
+      const ex = x + Math.cos(a) * l, ey = y + Math.sin(a) * l, mx = (x + ex) / 2 - Math.sin(a) * bend, my = (y + ey) / 2 + Math.cos(a) * bend;
+      c.beginPath(); c.moveTo(x, y); c.quadraticCurveTo(mx, my, ex, ey); c.stroke();
+      if (pass === 2) { c.strokeStyle = pal.c; c.beginPath(); c.moveTo(mx * 0.5 + ex * 0.5, my * 0.5 + ey * 0.5); c.lineTo(ex, ey); c.stroke(); c.strokeStyle = col; }
+    }
+  }
+}
+// hedgehog: stiff banded spines (really hairs)
+function spineTex(c, ox, oy, B) {
+  fillBox(c, B, '#2a1a0f');
+  const cell = 19, j0 = Math.floor((B.y0 + oy) / cell) - 5, j1 = Math.ceil((B.y1 + oy) / cell) + 5, i0 = Math.floor((B.x0 + ox) / cell) - 5, i1 = Math.ceil((B.x1 + ox) / cell) + 5;
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+    const x = (i + hsh(i, j, 1)) * cell - ox, y = (j + hsh(j, i, 2)) * cell - oy, a = -Math.PI / 2 + 0.25 + (hsh(i, j, 3) - 0.5) * 1.3, len = 62 + hsh(i, j, 4) * 26, w = 4.4;
+    c.save(); c.translate(x, y); c.rotate(a + Math.PI / 2);
+    c.beginPath(); c.moveTo(-w, 0); c.lineTo(w, 0); c.lineTo(0.4, -len); c.lineTo(-0.4, -len); c.closePath();
+    c.fillStyle = lg(c, 0, 0, 0, -len, [[0, '#24160c'], [0.22, '#7c5733'], [0.42, '#eadcc0'], [0.58, '#4c3322'], [0.78, '#e6d4b0'], [1, '#fff4dc']]);
+    c.fill(); c.lineWidth = 0.7; c.strokeStyle = 'rgba(20,10,4,.55)'; c.stroke();
+    c.restore();
+  }
+}
+// pangolin: big leaf-shaped scales with fine hair between them
+function pangoTex(c, ox, oy, B, pal) {
+  const w = pal.w || 54, h = w * 1.15, rh = h * 0.46;
+  fillBox(c, B, '#3a281a');
+  const j0 = Math.floor((B.y0 + oy) / rh) - 2, j1 = Math.ceil((B.y1 + oy) / rh) + 2;
+  const cells = [];
+  for (let j = j1; j >= j0; j--) {
+    const y = j * rh - oy, o = (j & 1) * w / 2;
+    const i0 = Math.floor((B.x0 + ox - o) / w) - 1, i1 = Math.ceil((B.x1 + ox - o) / w) + 1;
+    for (let i = i0; i <= i1; i++) {
+      const x = i * w + o - ox, base = mix(pal.a, pal.b, hsh(i, j, 21) * 0.8);
+      cells.push([x, y]);
+      c.beginPath(); c.moveTo(x - w / 2, y - h / 2); c.lineTo(x - w / 2, y + h * 0.05); c.quadraticCurveTo(x - w / 2, y + h / 2, x, y + h / 2 + 5); c.quadraticCurveTo(x + w / 2, y + h / 2, x + w / 2, y + h * 0.05); c.lineTo(x + w / 2, y - h / 2); c.closePath();
+      c.fillStyle = lg(c, x - w / 2, y - h / 2, x + w / 2, y + h / 2, [[0, shade(base, 0.3)], [0.5, base], [1, shade(base, -0.35)]]); c.fill();
+      c.lineWidth = 2.2; c.strokeStyle = '#3d2a18'; c.stroke();
+      c.save(); c.clip(); c.strokeStyle = 'rgba(40,24,10,.38)'; c.lineWidth = 1.1;
+      for (let k = -3; k <= 3; k++) { c.beginPath(); c.moveTo(x + k * 1.5, y - h * 0.45); c.lineTo(x + k * w * 0.13, y + h * 0.55); c.stroke(); }
+      c.restore();
+    }
+  }
+  c.lineCap = 'round';
+  cells.forEach(([x, y]) => {
+    for (let k = 0; k < 5; k++) {
+      const sx = x - w * 0.34 + k * w * 0.17, sy = y + h * 0.36 + Math.abs(k - 2) * -2 + 6, len = 15 + hsh(x, k, 1) * 6, bend = (hsh(x, y, k) - 0.5) * 10;
+      c.beginPath(); c.moveTo(sx, sy); c.quadraticCurveTo(sx - 4 + bend, sy + len * 0.5, sx - 7 + bend, sy + len); c.strokeStyle = k % 2 ? '#e9cf9e' : '#b58a55'; c.lineWidth = 1.7; c.stroke();
+    }
+  });
+}
+// moist skin: smooth, wet, with blotches, bumps and glossy highlights
+function moistTex(c, ox, oy, B, pal) {
+  fillBox(c, B, lg(c, B.x0, B.y0, B.x1, B.y1, [[0, shade(pal.base, 0.15)], [1, shade(pal.base, -0.25)]]));
+  const blot = (cell, k, rmin, rmax, col, alpha, prob) => {
+    const j0 = Math.floor((B.y0 + oy) / cell) - 1, j1 = Math.ceil((B.y1 + oy) / cell) + 1, i0 = Math.floor((B.x0 + ox) / cell) - 1, i1 = Math.ceil((B.x1 + ox) / cell) + 1;
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      if (hsh(i, j, k) > prob) continue;
+      const x = (i + 0.2 + hsh(i, j, k + 1) * 0.6) * cell - ox, y = (j + 0.2 + hsh(j, i, k + 2) * 0.6) * cell - oy, r = rmin + hsh(i, j, k + 3) * (rmax - rmin);
+      c.globalAlpha = alpha; c.beginPath(); E(c, x, y, r, r * (0.6 + hsh(i, j, k + 5) * 0.4), hsh(i, j, k + 6) * 3); E(c, x + r * 0.5, y + r * 0.2, r * 0.6, r * 0.5);
+      c.fillStyle = rg(c, x, y, 0, r * 1.2, [[0, col], [1, shade(col, -0.25)]]); c.fill(); c.globalAlpha = 1;
+    }
+  };
+  blot(40, 30, 7, 16, pal.blot, 0.8, 0.85);
+  if (pal.spot) blot(56, 50, 10, 19, pal.spot, 1, 0.9);
+  c.fillStyle = 'rgba(255,255,255,.16)';
+  for (let j = Math.floor((B.y0 + oy) / 9); j <= Math.ceil((B.y1 + oy) / 9); j++) for (let i = Math.floor((B.x0 + ox) / 9); i <= Math.ceil((B.x1 + ox) / 9); i++) {
+    c.beginPath(); c.arc((i + hsh(i, j, 60)) * 9 - ox, (j + hsh(j, i, 61)) * 9 - oy, 1.7, 0, TAU); c.fill();
+  }
+  // wet shine
+  const cell = 42, j0 = Math.floor((B.y0 + oy) / cell) - 1, j1 = Math.ceil((B.y1 + oy) / cell) + 1, i0 = Math.floor((B.x0 + ox) / cell) - 1, i1 = Math.ceil((B.x1 + ox) / cell) + 1;
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+    const x = (i + hsh(i, j, 70)) * cell - ox, y = (j + hsh(j, i, 71)) * cell - oy, r = 6 + hsh(i, j, 72) * 7;
+    c.beginPath(); E(c, x, y, r * 1.9, r, -0.5); c.fillStyle = rg(c, x, y, 0, r * 2, [[0, 'rgba(255,255,255,.55)'], [1, 'rgba(255,255,255,0)']]); c.fill();
+    c.beginPath(); E(c, x - r * 0.3, y - r * 0.25, r * 0.7, r * 0.32, -0.5); c.fillStyle = 'rgba(255,255,255,.9)'; c.fill();
+  }
+  fillBox(c, B, lg(c, B.x0, B.y0, B.x1, B.y0 + 120, [[0, 'rgba(255,255,255,.2)'], [1, 'rgba(255,255,255,0)']]));
+}
+// whale: the blowhole and a puff of spray
+function blowTex(c) {
+  fillBox(c, BIG, lg(c, -100, -100, 100, 100, [[0, '#4d6f93'], [1, '#22364c']]));
+  c.strokeStyle = 'rgba(10,20,34,.25)'; c.lineWidth = 2;
+  for (let k = 0; k < 9; k++) { c.beginPath(); c.moveTo(-110, -90 + k * 24 + hsh(k, 1) * 8); c.quadraticCurveTo(0, -80 + k * 24 + hsh(k, 2) * 16, 110, -90 + k * 24 + hsh(k, 3) * 8); c.stroke(); }
+  c.strokeStyle = 'rgba(200,225,250,.2)'; c.lineWidth = 1.5;
+  for (let k = 0; k < 9; k++) { c.beginPath(); c.moveTo(-110, -86 + k * 24 + hsh(k, 1) * 8); c.quadraticCurveTo(0, -76 + k * 24 + hsh(k, 2) * 16, 110, -86 + k * 24 + hsh(k, 3) * 8); c.stroke(); }
+  for (const s of [-1, 1]) {
+    c.beginPath(); c.moveTo(s * 40, 22); c.quadraticCurveTo(s * 10, 6, s * 6, 56); c.quadraticCurveTo(s * 30, 30, s * 40, 22); c.closePath();
+    c.fillStyle = '#060d16'; c.fill(); c.lineWidth = 3; c.strokeStyle = '#6d8fb2'; c.stroke();
+  }
+  for (let k = 0; k < 34; k++) {
+    const x = (hsh(k, 5) - 0.5) * 120, y = -10 - hsh(k, 6) * 80, r = 2 + hsh(k, 7) * 5;
+    c.beginPath(); c.arc(x, y, r, 0, TAU); c.fillStyle = rg(c, x - r * 0.3, y - r * 0.3, 0, r * 1.2, [[0, 'rgba(255,255,255,.95)'], [1, 'rgba(180,215,245,.5)']]); c.fill();
+  }
+}
+const SK = {
+  carp: { bg: '#8a5f1c', a: '#d9b25a', b: '#9a6a22', edge: '#5a3a10', ring: 'rgba(90,55,10,.4)', hi: 'rgba(255,240,190,.55)', sheen: true, sz: 36 },
+  frog: { base: '#5fb25a', blot: '#2f6e36' },
+  lizard: { bg: '#3d4f1c', a: '#9ab547', b: '#62772a', edge: '#33421a', sz: 26 },
+  sparrow: { bg: '#4a3626', a: '#a07850', b: '#6a4a30', dark: '#3a281a', barb: 'rgba(40,24,12,.35)', shaft: '#3e2a1a', rim: '#d9c09a', w: 36, L: 56 },
+  fox: { b: '#a8460f', a: '#ee8a34', c: '#f9d9a0', cell: 9, len: 38, lw: 2.6, ang: 1.15 },
+  salamander: { base: '#26262e', blot: '#101015', spot: '#f7c61a' },
+  snake: { bg: '#2e3a14', a: '#7f9a38', b: '#3f2c14', edge: '#222a0c', sz: 32 },
+  owl: { bg: '#4a3822', a: '#d2b078', b: '#9c7a48', dark: '#3a2a16', barb: 'rgba(60,40,20,.3)', shaft: '#4a3418', rim: '#f0dcb4', bar: true, w: 38, L: 58 },
+  hedgehog: {},
+  tortoise: { a: '#c9a84a', b: '#8a6a22', edge: '#2e220c', sz: 38 },
+  bat: { b: '#2e2420', a: '#7c6558', c: '#b79c88', cell: 8, len: 30, lw: 2.2, ang: 1.3 },
+  whale: {},
+  penguin: { bg: '#0d1220', a: '#2c3550', b: '#10162a', dark: '#000', barb: 'rgba(120,150,210,.25)', shaft: '#05080f', rim: '#4a5a86', w: 24, L: 36 },
+  pangolin: { a: '#c89a5e', b: '#8a6234', w: 56 },
+  axolotl: { base: '#f0b5c4', blot: '#a8707f' },
+  crocodile: { bg: '#1e2a12', a: '#7a9248', b: '#4a5e2a', edge: '#1c260e', sz: 38 },
+  platypus: { b: '#4a3223', a: '#7d5c43', c: '#b08e6c', cell: 8, len: 26, lw: 2.1, ang: 1.2 },
+};
+const TEX = {
+  carp: (c, x, y, B = BIG) => fishTex(c, x, y, B, SK.carp), frog: (c, x, y, B = BIG) => moistTex(c, x, y, B, SK.frog),
+  lizard: (c, x, y, B = BIG) => lizardTex(c, x, y, B, SK.lizard), sparrow: (c, x, y, B = BIG) => featherTex(c, x, y, B, SK.sparrow),
+  fox: (c, x, y, B = BIG) => furTex(c, x, y, B, SK.fox), salamander: (c, x, y, B = BIG) => moistTex(c, x, y, B, SK.salamander),
+  snake: (c, x, y, B = BIG) => snakeTex(c, x, y, B, SK.snake), owl: (c, x, y, B = BIG) => featherTex(c, x, y, B, SK.owl),
+  hedgehog: (c, x, y, B = BIG) => spineTex(c, x, y, B), tortoise: (c, x, y, B = BIG) => hexTex(c, x, y, B, SK.tortoise),
+  bat: (c, x, y, B = BIG) => furTex(c, x, y, B, SK.bat), whale: (c) => blowTex(c),
+  penguin: (c, x, y, B = BIG) => featherTex(c, x, y, B, SK.penguin), pangolin: (c, x, y, B = BIG) => pangoTex(c, x, y, B, SK.pangolin),
+  axolotl: (c, x, y, B = BIG) => moistTex(c, x, y, B, SK.axolotl), crocodile: (c, x, y, B = BIG) => crocTex(c, x, y, B, SK.crocodile),
+  platypus: (c, x, y, B = BIG) => furTex(c, x, y, B, SK.platypus),
+};
+// a skin laid over a body shape (the caller sets the clip); sc shrinks the design space to animal size
+function skinOver(c, kind, sc, x0, y0, x1, y1, ox = 0, oy = 0) {
+  c.save(); c.scale(sc, sc); TEX[kind](c, ox, oy, { x0: x0 / sc, y0: y0 / sc, x1: x1 / sc, y1: y1 / sc }); c.restore();
+}
+// the bird's leg for the second secret: feathers on top, scales below, in lens space
+function legScene(c) {
+  fillBox(c, BIG, lg(c, 0, -100, 0, 100, [[0, '#2c3350'], [1, '#161a2c']]));
+  c.save(); c.scale(0.9, 0.9);
+  const leg = tubeShapes(c, [[0, -120], [0, -20], [3, 44], [6, 70]], [42, 24, 17, 15]);
+  union(c, [leg], '#8a6a3a', '#3a2a12', 1.5);
+  c.save(); clipTo(c, [leg]);
+  fishTex(c, 0, 0, { x0: -80, y0: -10, x1: 80, y1: 130 }, { bg: '#5a4020', a: '#d9a65a', b: '#a8763a', edge: '#4a3016', ring: 'rgba(60,40,10,.3)', hi: 'rgba(255,235,180,.35)', sz: 15 });
+  featherTex(c, 0, 0, { x0: -80, y0: -130, x1: 80, y1: -26 }, { bg: '#5a4636', a: '#b69470', b: '#8a6a48', dark: '#3a281a', barb: 'rgba(50,30,14,.35)', shaft: '#4a3420', rim: '#ead3ac', w: 30, L: 46 });
+  c.restore();
+  const toes = [[[6, 70], [-16, 84], [-38, 96]], [[6, 70], [8, 88], [8, 106]], [[6, 70], [28, 84], [48, 94]]];
+  toes.forEach((p) => { const t = tubeShapes(c, p, [8, 6, 5]); union(c, [t], lg(c, 0, 70, 0, 106, [[0, '#e0a25a'], [1, '#a8702e']]), '#3a2a12', 1.2);
+    const e = p[2]; path(c, () => { c.moveTo(e[0] - 3, e[1] - 2); c.quadraticCurveTo(e[0] + (e[0] - p[1][0]) * 0.9, e[1] + 5, e[0] + (e[0] - p[1][0]) * 0.7, e[1] + 10); c.lineTo(e[0] + 3, e[1] + 3); c.closePath(); }, '#2a2018'); });
+  c.restore();
+}
+TEX.leg = (c) => legScene(c);
+
+// --- the animals (design box 240 x 180, drawn once into a sprite) ---------------------------------------------------
+const A = {};
+const bodyG = (c, base, x0 = -50, y0 = -50, x1 = 50, y1 = 60) => lg(c, x0, y0, x1, y1, [[0, shade(base, 0.32)], [0.5, base], [1, shade(base, -0.3)]]);
+
+A.carp = (c) => {
+  floorShadow(c, 0, 62, 90);
+  const OL = '#4f330c';
+  const body = () => { c.moveTo(82, 6); c.bezierCurveTo(72, -26, 25, -44, -22, -34); c.bezierCurveTo(-52, -27, -68, -12, -76, -3); c.bezierCurveTo(-68, 10, -52, 26, -22, 36); c.bezierCurveTo(25, 44, 72, 32, 82, 6); c.closePath(); };
+  const finG = lg(c, -100, 0, 40, 0, [[0, '#b8481c'], [1, '#ec9a46']]);
+  path(c, () => { c.moveTo(-66, -4); c.bezierCurveTo(-82, -14, -92, -30, -106, -42); c.bezierCurveTo(-98, -20, -98, -8, -94, 0); c.bezierCurveTo(-98, 10, -98, 22, -106, 42); c.bezierCurveTo(-92, 30, -80, 18, -66, 6); c.closePath(); }, finG, OL, 1.5);
+  path(c, () => { c.moveTo(38, -36); c.bezierCurveTo(30, -62, 4, -70, -32, -58); c.bezierCurveTo(-30, -48, -32, -40, -28, -32); c.closePath(); }, lg(c, 0, -70, 0, -30, [[0, '#c3501f'], [1, '#e8913c']]), OL, 1.5);
+  path(c, () => { c.moveTo(-6, 36); c.bezierCurveTo(-8, 50, -26, 56, -38, 52); c.bezierCurveTo(-30, 46, -28, 40, -26, 34); c.closePath(); }, finG, OL, 1.3);
+  path(c, body, lg(c, -20, -44, 20, 46, [[0, '#f0cc72'], [0.45, '#cf9f3e'], [1, '#8d6120']]), null);
+  c.save(); c.beginPath(); body(); c.clip();
+  skinOver(c, 'carp', 0.33, -100, -50, 100, 50);
+  path(c, () => E(c, 10, 40, 80, 24), rg(c, 10, 40, 4, 80, [[0, 'rgba(255,245,210,.65)'], [1, 'rgba(255,245,210,0)']]));
+  path(c, () => E(c, -6, -34, 80, 14), rg(c, -6, -34, 2, 80, [[0, 'rgba(60,35,5,.4)'], [1, 'rgba(60,35,5,0)']]));
+  c.restore();
+  path(c, body, null, OL, 1.8);
+  path(c, () => { c.moveTo(50, -30); c.quadraticCurveTo(38, 2, 50, 32); }, null, 'rgba(70,40,8,.7)', 2);
+  path(c, () => { c.moveTo(24, 6); c.quadraticCurveTo(40, 16, 42, 28); c.quadraticCurveTo(26, 28, 14, 20); c.closePath(); }, finG, OL, 1.2);
+  path(c, () => { c.moveTo(80, 8); c.quadraticCurveTo(70, 14, 62, 10); }, null, OL, 1.6);
+  path(c, () => { c.moveTo(78, 12); c.quadraticCurveTo(88, 24, 84, 30); c.moveTo(72, 14); c.quadraticCurveTo(76, 28, 70, 32); }, null, '#d9a04a', 1.6);
+  eye(c, 62, -8, 5.8, '#3a2410');
+};
+
+A.frog = (c) => {
+  floorShadow(c, 0, 62, 86);
+  const OL = '#1f4a22', G = lg(c, -60, -40, 60, 60, [[0, '#8bd47c'], [0.45, '#5fb25a'], [1, '#2f7a3a']]);
+  const farLeg = tubeShapes(c, [[-40, 40], [-22, 55], [10, 60], [34, 58]], [10, 7, 5.5, 4]);
+  union(c, [farLeg], lg(c, 0, 40, 0, 62, [[0, '#4a9a4e'], [1, '#2a6a30']]), OL, 1.2);
+  const hind = tubeShapes(c, [[-50, 40], [-30, 56], [8, 62], [34, 60]], [13, 8, 6, 4.5]);
+  const frontFar = tubeShapes(c, [[30, 20], [32, 42], [40, 58]], [8, 6, 4.5]);
+  union(c, [frontFar], lg(c, 0, 20, 0, 60, [[0, '#4a9a4e'], [1, '#2a6a30']]), OL, 1.2);
+  const shapes = [() => E(c, -12, 12, 60, 40), () => E(c, 46, -2, 32, 26), () => E(c, -42, 22, 30, 28), hind, tubeShapes(c, [[40, 22], [46, 44], [54, 58]], [10, 7, 5])];
+  union(c, shapes, G, OL, 1.5);
+  c.save(); clipTo(c, shapes); skinOver(c, 'frog', 0.34, -100, -50, 110, 80); c.restore();
+  c.save(); clipTo(c, shapes);
+  path(c, () => E(c, -10, 38, 70, 20), rg(c, -10, 38, 4, 70, [[0, 'rgba(235,255,200,.55)'], [1, 'rgba(235,255,200,0)']]));
+  c.restore();
+  // toes
+  [[34, 60], [54, 58]].forEach(([x, y]) => { for (let k = -1; k <= 1; k++) path(c, () => E(c, x + 7 + k * 0.5, y + k * 4, 7, 3.2), '#4a9a4e', OL, 1); });
+  // eye bulge
+  path(c, () => E(c, 50, -24, 12, 11), rg(c, 46, -28, 1, 14, [[0, '#9ae08a'], [1, '#3f8a44']]), OL, 1.4);
+  path(c, () => E(c, 52, -24, 8, 8), rg(c, 50, -27, 0, 9, [[0, '#f6e27a'], [1, '#d0922a']]), '#6a4a12', 1);
+  path(c, () => E(c, 53, -24, 6.4, 3.4), '#14180f');
+  path(c, () => E(c, 50, -27.5, 2.2, 2.2), '#fff');
+  // mouth, nostril, wet shine
+  path(c, () => { c.moveTo(76, 4); c.quadraticCurveTo(52, 14, 24, 2); }, null, '#1c4220', 1.8);
+  path(c, () => E(c, 74, -6, 1.5, 1), '#1c4220');
+  path(c, () => E(c, 58, -10, 12, 3.2, -0.2), 'rgba(255,255,255,.35)');
+  path(c, () => E(c, -20, -16, 20, 4.5, 0.2), 'rgba(255,255,255,.4)');
+};
+
+// four-legged crawlers: lizard, salamander, axolotl, crocodile, platypus
+function crawler(c, o) {
+  const { col, dark, belly, ol } = o, bw = o.bw || 1, ls = o.ls || 1, sn = o.snout || 0;
+  floorShadow(c, 0, 64, 92);
+  const G = lg(c, -30, -30, 30, 60, [[0, shade(col, 0.3)], [0.55, col], [1, dark]]);
+  const GD = lg(c, 0, 20, 0, 60, [[0, shade(dark, 0.1)], [1, shade(dark, -0.3)]]);
+  const far = [tubeShapes(c, [[48, 26], [56, 42], [70, 50]], [6 * ls, 4.5 * ls, 3.5 * ls]), tubeShapes(c, [[-4, 28], [-16, 44], [-4, 54]], [8 * ls, 5 * ls, 4 * ls])];
+  union(c, far, GD, ol, 1.2);
+  const spine = [[-100, 36], [-68, 44], [-34, 32], [0, 24], [34, 20], [60, 16], [74 + sn, 12]];
+  const ws = [o.tailW || 2, 4.5 * bw, 8 * bw, 12.5 * bw, 13.5 * bw, 11.5 * bw, 8.5 * o.hs || 8.5];
+  const body = tubeShapes(c, spine, ws);
+  const shapes = [body, () => E(c, 66 + sn * 0.6, 12, 18 + sn * 0.5, 10.5 * (o.hs || 1)), tubeShapes(c, [[34, 28], [46, 44], [60, 52]], [7.5 * ls, 5.5 * ls, 4 * ls]), tubeShapes(c, [[-18, 30], [-34, 46], [-18, 57]], [9.5 * ls, 6 * ls, 4.5 * ls])];
+  if (o.under) o.under(c);
+  union(c, shapes, G, ol, 1.5);
+  c.save(); clipTo(c, shapes);
+  if (o.skin) skinOver(c, o.skin, o.sc, -110, -30, 130, 70);
+  path(c, () => E(c, 0, 40, 110, 14), rg(c, 0, 40, 2, 110, [[0, belly], [1, 'rgba(0,0,0,0)']]));
+  path(c, () => E(c, -10, 14, 90, 6), rg(c, -10, 14, 2, 90, [[0, 'rgba(255,255,255,.4)'], [1, 'rgba(255,255,255,0)']]));
+  if (o.deco) o.deco(c);
+  c.restore();
+  if (o.deco2) o.deco2(c);
+  // toes
+  [[60, 52], [-18, 57], [70, 50], [-4, 54]].forEach(([x, y], i) => { for (let k = -1; k <= 1; k++) path(c, () => E(c, x + 4 + k * 0.5, y + k * 3, 5 * ls, 2.4 * ls), i < 2 ? col : dark, ol, 0.9); });
+  eye(c, 70 + sn * 0.5, 7, o.eyeR || 3.8, o.iris || '#2a1a0a');
+}
+A.lizard = (c) => crawler(c, { col: '#8aa83c', dark: '#4a6320', belly: '#d9e29c', ol: '#2f3f14', skin: 'lizard', sc: 0.3, iris: '#6a3a10',
+  deco: (c) => { for (let k = 0; k < 9; k++) path(c, () => E(c, -70 + k * 17, 28 - Math.sin(k * 0.5) * 3 - (k > 5 ? k - 5 : 0) * 1.2, 4.5, 2.2, 0.1), 'rgba(40,50,15,.5)'); } });
+A.salamander = (c) => crawler(c, { col: '#2a2a32', dark: '#0e0e14', belly: '#4a4a56', ol: '#050508', bw: 1.1, ls: 1.1, hs: 1.15, skin: 'salamander', sc: 0.3, eyeR: 4.2, iris: '#101010',
+  deco: (c) => { [[-72, 38, 5], [-52, 33, 6.5], [-28, 24, 7.5], [0, 16, 8], [28, 12, 7.5], [52, 8, 6]].forEach(([x, y, r]) => path(c, () => E(c, x, y, r, r * 0.8, 0.2), rg(c, x - 2, y - 2, 0, r * 1.2, [[0, '#ffe45a'], [1, '#e8a812']]))); } });
+A.axolotl = (c) => crawler(c, { col: '#f4bccb', dark: '#d58aa2', belly: '#fde6ec', ol: '#8a4a60', bw: 1.15, ls: 0.9, hs: 1.45, snout: -8, tailW: 4, eyeR: 3, iris: '#14101a', skin: 'axolotl', sc: 0.3,
+  under: (c) => { path(c, () => { c.moveTo(-96, 28); c.quadraticCurveTo(-60, -2, -20, 6); c.lineTo(10, 14); c.lineTo(-20, 22); c.lineTo(-96, 40); c.closePath(); }, 'rgba(240,160,190,.8)', '#8a4a60', 1.2); },
+  deco2: (c) => {
+    c.save(); c.lineCap = 'round';
+    for (let k = 0; k < 3; k++) {
+      const bx = 44 - k * 2, by = -2 - k * 6, ex = bx - 10 - k * 6, ey = by - 26 + k * 3;
+      c.strokeStyle = '#c0304e'; c.lineWidth = 3; c.beginPath(); c.moveTo(bx, by); c.quadraticCurveTo(bx - 4, by - 14, ex, ey); c.stroke();
+      for (let f = 1; f < 8; f++) { const t = f / 8, px = lerp(bx, ex, t) - 2, py = lerp(by, ey, t); c.lineWidth = 2; c.beginPath(); c.moveTo(px, py); c.lineTo(px - 9 + f * 0.4, py - 3 - f * 0.4); c.moveTo(px, py); c.lineTo(px + 4, py - 8 + f * 0.3); c.stroke(); }
+    }
+    c.restore();
+    path(c, () => { c.moveTo(84, 12); c.quadraticCurveTo(76, 20, 66, 17); }, null, '#8a4a60', 1.6);
+    path(c, () => E(c, 56, 18, 18, 5, 0.1), 'rgba(255,255,255,.4)');
+  } });
+A.crocodile = (c) => crawler(c, { col: '#6a8440', dark: '#2f4220', belly: '#d2d68e', ol: '#1a260d', bw: 1.35, ls: 1.1, snout: 24, hs: 1.05, tailW: 3, eyeR: 3.6, iris: '#d6a81a', skin: 'crocodile', sc: 0.26,
+  deco: (c) => { for (let k = 0; k < 12; k++) { const x = -92 + k * 16, y = 36 - k * 1.4 - (k > 6 ? (k - 6) * 1.5 : 0) - 8 * Math.min(1, k / 3); path(c, () => { c.moveTo(x - 5, y + 2); c.lineTo(x, y - 7); c.lineTo(x + 5, y + 2); c.closePath(); }, '#33481f', '#1a260d', 0.8); } },
+  deco2: (c) => {
+    path(c, () => { c.moveTo(60, 20); c.lineTo(98, 22); }, null, '#1a260d', 1.6);
+    for (let k = 0; k < 6; k++) path(c, () => { const x = 66 + k * 5.5; c.moveTo(x, 20.5); c.lineTo(x + 2, 25); c.lineTo(x + 4, 20.8); c.closePath(); }, '#fff', '#555', 0.4);
+    path(c, () => E(c, 98, 11, 2, 1.4), '#10160a');
+  } });
+A.platypus = (c) => crawler(c, { col: '#7a5a42', dark: '#42291a', belly: '#c4a688', ol: '#2a180d', bw: 1.2, ls: 1.1, hs: 0.95, tailW: 10, eyeR: 3, iris: '#0e0a08', skin: 'platypus', sc: 0.3,
+  deco2: (c) => {
+    path(c, () => { c.moveTo(72, 8); c.quadraticCurveTo(100, 2, 112, 12); c.quadraticCurveTo(114, 20, 104, 24); c.quadraticCurveTo(86, 26, 72, 20); c.closePath(); }, lg(c, 0, 4, 0, 26, [[0, '#6a6a72'], [1, '#2e2e34']]), '#17171c', 1.4);
+    path(c, () => E(c, 104, 12, 1.6, 1.2), '#0a0a0c'); path(c, () => E(c, 96, 11, 1.4, 1.1), '#0a0a0c');
+    path(c, () => E(c, 92, 9, 14, 2.2, 0.1), 'rgba(255,255,255,.28)');
+  } });
+
+A.sparrow = (c) => {
+  floorShadow(c, 0, 66, 70);
+  [[4, 44, 4, 64], [22, 42, 22, 64]].forEach(([x0, y0, x1, y1]) => { c.strokeStyle = '#8a5a30'; c.lineWidth = 3.4; c.lineCap = 'round'; c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.moveTo(x1 - 14, y1 + 2); c.lineTo(x1, y1); c.lineTo(x1 + 12, y1 + 1); c.stroke(); });
+  const OL = '#3a2616', G = lg(c, -40, -40, 50, 50, [[0, '#c0956a'], [0.5, '#8d6540'], [1, '#5a3e24']]);
+  const tail = tubeShapes(c, [[-34, 22], [-66, 34], [-100, 46]], [10, 8, 6]);
+  const sh = [() => E(c, 0, 6, 50, 37, -0.22), () => E(c, 40, -20, 23, 22), tail];
+  union(c, sh, G, OL, 1.6);
+  c.save(); clipTo(c, sh);
+  skinOver(c, 'sparrow', 0.4, -110, -50, 80, 60);
+  path(c, () => E(c, 16, 22, 40, 20, -0.15), rg(c, 16, 22, 2, 42, [[0, 'rgba(250,235,205,.95)'], [1, 'rgba(250,235,205,0)']]));
+  path(c, () => E(c, 46, -10, 11, 8), 'rgba(236,216,184,.9)');
+  c.restore();
+  path(c, () => E(c, 56, -8, 7, 5.5), '#2a2018');
+  path(c, () => E(c, -8, 4, 36, 21, 0.4), lg(c, -30, -10, 30, 20, [[0, '#7a4a28'], [1, '#4a2c16']]), OL, 1.4);
+  c.save(); c.beginPath(); E(c, -8, 4, 36, 21, 0.4); c.clip(); c.strokeStyle = 'rgba(240,215,170,.8)'; c.lineWidth = 1.8;
+  [-8, 0, 8].forEach((o) => { c.beginPath(); c.moveTo(-40 + o, -6); c.quadraticCurveTo(-4 + o, -8, 22 + o, 12); c.stroke(); });
+  c.strokeStyle = 'rgba(30,16,8,.6)'; c.lineWidth = 1;
+  for (let k = 0; k < 7; k++) { c.beginPath(); c.moveTo(-30 + k * 7, -14 + k * 2.5); c.lineTo(-20 + k * 7, 18); c.stroke(); }
+  c.restore();
+  path(c, () => { c.moveTo(60, -26); c.lineTo(82, -19); c.lineTo(60, -12); c.closePath(); }, lg(c, 60, -26, 60, -12, [[0, '#f0c98a'], [1, '#b8863a']]), '#6a4a1c', 1.2);
+  eye(c, 50, -26, 4);
+};
+
+A.fox = (c) => {
+  floorShadow(c, 0, 62, 92);
+  const OL = '#5e2808', G = lg(c, -50, -40, 60, 50, [[0, '#f7a352'], [0.5, '#e07322'], [1, '#a2430e']]), SOCK = lg(c, 0, 20, 0, 60, [[0, '#4a2a1a'], [1, '#1c0e08']]);
+  const farL = [tubeShapes(c, [[44, 20], [48, 40], [50, 56]], [6, 4.5, 3.5]), tubeShapes(c, [[-20, 22], [-14, 42], [-16, 56]], [8, 5, 4])];
+  union(c, farL, lg(c, 0, 10, 0, 60, [[0, '#b25016'], [1, '#2a140a']]), OL, 1.2);
+  const tail = tubeShapes(c, [[-48, 6], [-78, -4], [-104, -22]], [11, 18, 13]);
+  union(c, [tail], G, OL, 1.5);
+  path(c, () => E(c, -100, -22, 12, 14, -0.6), rg(c, -102, -26, 1, 16, [[0, '#fff'], [1, '#e2dccf']]), '#8a7a66', 1);
+  const torso = [tubeShapes(c, [[-44, 12], [-6, 8], [30, 4], [50, -8]], [19, 24, 22, 14]), tubeShapes(c, [[34, 22], [38, 40], [40, 56]], [8, 5.5, 4]), tubeShapes(c, [[-28, 24], [-24, 42], [-26, 56]], [11, 6.5, 4.5])];
+  union(c, torso, G, OL, 1.5);
+  c.save(); clipTo(c, torso);
+  c.lineCap = 'round'; c.lineWidth = 1.4;
+  for (let k = 0; k < 150; k++) { const x = -60 + hsh(k, 1) * 120, y = -18 + hsh(k, 2) * 70, a = 1.3 + (hsh(k, 3) - 0.5) * 0.6; c.strokeStyle = k % 3 ? 'rgba(255,200,120,.45)' : 'rgba(110,40,6,.4)'; c.beginPath(); c.moveTo(x, y); c.lineTo(x + Math.cos(a) * 8, y + Math.sin(a) * 8); c.stroke(); }
+  path(c, () => E(c, 44, 4, 12, 18), rg(c, 44, 4, 1, 18, [[0, '#fffaf0'], [1, 'rgba(255,250,240,0)']]));
+  path(c, () => E(c, 0, -14, 70, 8), rg(c, 0, -14, 2, 70, [[0, 'rgba(255,225,170,.5)'], [1, 'rgba(255,225,170,0)']]));
+  c.restore();
+  // dark socks
+  [[38, 44, 40, 58], [-24, 44, -26, 58]].forEach(([x0, y0, x1, y1]) => { c.save(); c.beginPath(); c.rect(x0 - 14, y0, 28, 20); c.clip(); union(c, [tubeShapes(c, x0 > 0 ? [[34, 22], [38, 40], [40, 56]] : [[-28, 24], [-24, 42], [-26, 56]], x0 > 0 ? [8, 5.5, 4] : [11, 6.5, 4.5])], SOCK, '#1c0e08', 1.2); c.restore(); });
+  // head
+  const snout = tubeShapes(c, [[68, -18], [82, -12], [94, -8]], [10, 6, 3.6]);
+  const ears = () => { c.moveTo(48, -30); c.lineTo(46, -56); c.lineTo(64, -36); c.closePath(); c.moveTo(66, -34); c.lineTo(74, -58); c.lineTo(80, -28); c.closePath(); };
+  path(c, ears, lg(c, 46, -58, 80, -28, [[0, '#f08a34'], [1, '#b8561a']]), OL, 1.4);
+  path(c, () => { c.moveTo(51, -34); c.lineTo(50, -50); c.lineTo(60, -37); c.closePath(); c.moveTo(70, -36); c.lineTo(74, -51); c.lineTo(77, -32); c.closePath(); }, '#2a1208');
+  union(c, [() => E(c, 60, -18, 21, 18), snout], G, OL, 1.5);
+  path(c, () => { c.moveTo(48, -6); c.quadraticCurveTo(70, 6, 94, -6); c.quadraticCurveTo(78, -12, 64, -14); c.closePath(); }, '#fffaf0');
+  path(c, () => E(c, 95, -8, 4.2, 3.6), rg(c, 94, -9, 0, 5, [[0, '#4a4a56'], [1, '#08080c']]));
+  path(c, () => E(c, 94, -9.5, 1.4, 1), 'rgba(255,255,255,.8)');
+  path(c, () => { c.moveTo(70, -2); c.quadraticCurveTo(80, 0, 90, -4); }, null, '#3a1a0a', 1.2);
+  path(c, () => E(c, 56, -28, 20, 5, -0.2), 'rgba(255,225,170,.4)');
+  eye(c, 66, -24, 3.8, '#6a3a0a');
+};
+
+A.snake = (c) => {
+  floorShadow(c, -10, 66, 96);
+  const pts = [], ws = [];
+  const N = 13;
+  for (let k = 0; k < N; k++) { const t = k / (N - 1); pts.push([-98 + t * 160, 14 + 25 * Math.sin(t * Math.PI * 3.1 + 0.5) * (1 - 0.3 * t) - t * 8]); ws.push(t < 0.85 ? 2.5 + 9.5 * Math.min(1, t / 0.35) : 12 - ((t - 0.85) / 0.15) * 4); }
+  const OL = '#1c240a', body = tubeShapes(c, pts, ws);
+  const hd = pts[N - 1], hp = pts[N - 2], ang = Math.atan2(hd[1] - hp[1], hd[0] - hp[0]);
+  const head = () => E(c, hd[0] + Math.cos(ang) * 8, hd[1] + Math.sin(ang) * 8, 17, 10.5, ang);
+  union(c, [body, head], lg(c, -60, -30, 40, 50, [[0, '#a4c250'], [0.5, '#6f8a2c'], [1, '#3b4c14']]), OL, 1.6);
+  c.save(); clipTo(c, [body, head]);
+  const [P] = samp(pts, ws, 6);
+  P.forEach((p, i) => {
+    if (i % 3 || i < 4 || i > P.length - 14) return;
+    const a = P[Math.min(P.length - 1, i + 1)], b = P[Math.max(0, i - 1)], th = Math.atan2(a[1] - b[1], a[0] - b[0]), w = lerp(ws[Math.min(ws.length - 1, Math.floor(i / 6))], 0, 0) || 8;
+    c.save(); c.translate(p[0], p[1]); c.rotate(th);
+    c.beginPath(); c.moveTo(-4.5, 0); c.lineTo(0, -Math.min(9, 4 + i / 8)); c.lineTo(4.5, 0); c.lineTo(0, Math.min(9, 4 + i / 8)); c.closePath();
+    c.fillStyle = 'rgba(45,30,12,.82)'; c.fill(); c.strokeStyle = 'rgba(226,214,150,.55)'; c.lineWidth = 0.9; c.stroke(); c.restore();
+  });
+  c.lineWidth = 0.7; c.strokeStyle = 'rgba(20,28,6,.28)';
+  P.forEach((p, i) => { if (i % 2) return; const a = P[Math.min(P.length - 1, i + 1)], b = P[Math.max(0, i - 1)], th = Math.atan2(a[1] - b[1], a[0] - b[0]); c.beginPath(); c.moveTo(p[0] - Math.sin(th) * 12, p[1] + Math.cos(th) * 12); c.lineTo(p[0] + Math.sin(th) * 12, p[1] - Math.cos(th) * 12); c.stroke(); });
+  P.forEach((p, i) => { if (i % 2) return; c.beginPath(); c.arc(p[0] - 2, p[1] - 4, 1.2, 0, TAU); c.fillStyle = 'rgba(255,255,230,.35)'; c.fill(); });
+  c.restore();
+  const tx = hd[0] + Math.cos(ang) * 25, ty = hd[1] + Math.sin(ang) * 25;
+  c.strokeStyle = '#d02a3a'; c.lineWidth = 1.8; c.lineCap = 'round';
+  c.beginPath(); c.moveTo(tx, ty); c.lineTo(tx + Math.cos(ang) * 10, ty + Math.sin(ang) * 10); c.lineTo(tx + Math.cos(ang + 0.5) * 16, ty + Math.sin(ang + 0.5) * 16); c.moveTo(tx + Math.cos(ang) * 10, ty + Math.sin(ang) * 10); c.lineTo(tx + Math.cos(ang - 0.5) * 16, ty + Math.sin(ang - 0.5) * 16); c.stroke();
+  const ex = hd[0] + Math.cos(ang) * 6 + Math.sin(ang) * -5, ey = hd[1] + Math.sin(ang) * 6 + Math.cos(ang) * 5;
+  eye(c, ex, ey - 1, 3.2, '#d9a020');
+  path(c, () => E(c, hd[0] + Math.cos(ang) * 4, hd[1] + Math.sin(ang) * 4 - 6, 9, 2.4, ang), 'rgba(255,255,255,.3)');
+};
+
+A.owl = (c) => {
+  floorShadow(c, 0, 72, 60);
+  c.strokeStyle = '#5a3a20'; c.lineWidth = 9; c.lineCap = 'round'; c.beginPath(); c.moveTo(-80, 68); c.lineTo(80, 68); c.stroke();
+  c.strokeStyle = 'rgba(255,220,170,.3)'; c.lineWidth = 2; c.beginPath(); c.moveTo(-78, 65); c.lineTo(78, 65); c.stroke();
+  const OL = '#3a2812', G = lg(c, -40, -60, 40, 60, [[0, '#e0bf86'], [0.5, '#b38d56'], [1, '#76552c']]);
+  const ears = () => { c.moveTo(-34, -46); c.lineTo(-40, -78); c.lineTo(-16, -56); c.closePath(); c.moveTo(34, -46); c.lineTo(40, -78); c.lineTo(16, -56); c.closePath(); };
+  path(c, ears, G, OL, 1.6);
+  const sh = [() => E(c, 0, 14, 44, 54), () => E(c, 0, -32, 42, 34)];
+  union(c, sh, G, OL, 1.8);
+  c.save(); clipTo(c, sh); skinOver(c, 'owl', 0.4, -60, -80, 60, 80);
+  path(c, () => E(c, 0, 24, 30, 36), rg(c, 0, 24, 2, 36, [[0, 'rgba(250,236,200,.55)'], [1, 'rgba(250,236,200,0)']]));
+  c.restore();
+  // wings
+  [-1, 1].forEach((s) => path(c, () => { c.moveTo(s * 40, -4); c.quadraticCurveTo(s * 58, 30, s * 34, 62); c.quadraticCurveTo(s * 34, 30, s * 28, -2); c.closePath(); }, lg(c, 0, -4, 0, 62, [[0, '#8a6638'], [1, '#4a3418']]), OL, 1.4));
+  // face disc
+  [-1, 1].forEach((s) => path(c, () => E(c, s * 18, -30, 20, 21), rg(c, s * 16, -34, 2, 24, [[0, '#f8ecd2'], [1, '#d5b985']]), '#7a5c30', 1.2));
+  path(c, () => { c.moveTo(0, -48); c.lineTo(-6, -22); c.lineTo(6, -22); c.closePath(); }, 'rgba(120,88,44,.35)');
+  [-1, 1].forEach((s) => { path(c, () => E(c, s * 18, -30, 12.5, 12.5), rg(c, s * 16, -33, 1, 14, [[0, '#ffd75a'], [0.7, '#f0a818'], [1, '#a8680a']]), '#3a2200', 1.4);
+    path(c, () => E(c, s * 18, -30, 6, 6), '#0b0906'); path(c, () => E(c, s * 15, -34, 2.6, 2.6), '#fff'); path(c, () => E(c, s * 21, -26, 1.2, 1.2), 'rgba(255,255,255,.7)'); });
+  path(c, () => { c.moveTo(-5, -26); c.quadraticCurveTo(0, -8, 5, -26); c.quadraticCurveTo(0, -30, -5, -26); c.closePath(); }, lg(c, 0, -28, 0, -10, [[0, '#f2c36a'], [1, '#b8802a']]), '#6a4a14', 1.2);
+  [-14, 14].forEach((x) => { for (let k = -1; k <= 1; k++) path(c, () => E(c, x + k * 6, 72, 4.2, 6, k * 0.2), '#d49a3c', '#5a3a10', 1); });
+};
+
+A.hedgehog = (c) => {
+  floorShadow(c, 0, 64, 86);
+  const dome = () => E(c, -10, 12, 62, 46);
+  // outer spines
+  for (let k = 0; k < 64; k++) {
+    const t = Math.PI * (1.02 + 0.96 * (k / 63)), x = -10 + Math.cos(t) * 60, y = 14 + Math.sin(t) * 44, nx = Math.cos(t), ny = Math.sin(t) * 1.15, tilt = (hsh(k, 1) - 0.5) * 0.5;
+    const a = Math.atan2(ny, nx) + tilt, len = 20 + hsh(k, 2) * 10;
+    c.save(); c.translate(x, y); c.rotate(a + Math.PI / 2);
+    c.beginPath(); c.moveTo(-4.4, 2); c.lineTo(4.4, 2); c.lineTo(0.3, -len); c.lineTo(-0.3, -len); c.closePath();
+    c.fillStyle = lg(c, 0, 0, 0, -len, [[0, '#2a1a0e'], [0.3, '#8a6238'], [0.55, '#ead9b6'], [0.75, '#4a3220'], [1, '#f4e6c8']]); c.fill(); c.lineWidth = 0.7; c.strokeStyle = 'rgba(20,10,4,.6)'; c.stroke(); c.restore();
+  }
+  path(c, dome, rg(c, -30, -20, 4, 80, [[0, '#6a4a2c'], [1, '#2a180c']]), '#1c0e06', 1.6);
+  c.save(); c.beginPath(); dome(); c.clip();
+  skinOver(c, 'hedgehog', 0.5, -80, -50, 70, 70, 20, 60);
+  path(c, () => E(c, -10, 52, 70, 16), rg(c, -10, 52, 2, 70, [[0, 'rgba(0,0,0,.45)'], [1, 'rgba(0,0,0,0)']]));
+  path(c, () => E(c, -30, -16, 36, 14, -0.5), rg(c, -30, -16, 2, 38, [[0, 'rgba(255,240,210,.35)'], [1, 'rgba(255,240,210,0)']]));
+  c.restore();
+  // face and feet
+  const FG = lg(c, 40, 10, 90, 50, [[0, '#f3dbb8'], [1, '#c4a07a']]);
+  path(c, () => { c.moveTo(44, 8); c.quadraticCurveTo(66, 4, 96, 34); c.quadraticCurveTo(70, 52, 44, 46); c.closePath(); }, FG, '#6a4a2a', 1.5);
+  path(c, () => E(c, 96, 34, 4.8, 4.2), rg(c, 95, 33, 0, 6, [[0, '#4a4a54'], [1, '#08080a']]));
+  path(c, () => E(c, 94.5, 32, 1.5, 1.1), 'rgba(255,255,255,.8)');
+  path(c, () => E(c, 52, 14, 7, 5.5, 0.4), '#e0a8a0', '#8a5a4a', 1);
+  path(c, () => { c.moveTo(70, 42); c.quadraticCurveTo(82, 46, 92, 40); }, null, '#6a4a2a', 1.2);
+  eye(c, 72, 22, 3.8);
+  [[28, 58], [-38, 58]].forEach(([x, y]) => path(c, () => E(c, x, y, 11, 6.5), lg(c, 0, y - 6, 0, y + 6, [[0, '#d8b690'], [1, '#a07c58']]), '#5a3a1e', 1.2));
+};
+
+A.tortoise = (c) => {
+  floorShadow(c, 0, 66, 92);
+  const OL = '#3a2a0e', SK2 = lg(c, 0, 0, 0, 60, [[0, '#a8b46a'], [1, '#6a7a3a']]);
+  const farLegs = [() => E(c, 28, 50, 12, 15), () => E(c, -62, 50, 13, 15)];
+  union(c, farLegs, lg(c, 0, 35, 0, 66, [[0, '#7a8a46'], [1, '#4a5a26']]), OL, 1.2);
+  const neck = tubeShapes(c, [[60, 26], [84, 18], [100, 6]], [11, 9, 8]);
+  const lowSh = [() => E(c, 40, 52, 14, 16), () => E(c, -44, 52, 15, 16), neck, () => E(c, 102, 2, 13, 11), () => { c.moveTo(-74, 40); c.lineTo(-96, 48); c.lineTo(-72, 50); c.closePath(); }];
+  union(c, lowSh, SK2, OL, 1.4);
+  c.save(); clipTo(c, lowSh); c.strokeStyle = 'rgba(40,52,16,.35)'; c.lineWidth = 1;
+  for (let k = 0; k < 40; k++) { const x = -100 + hsh(k, 1) * 215, y = 0 + hsh(k, 2) * 70; c.beginPath(); c.arc(x, y, 3.2, 0.2, 2.9); c.stroke(); } c.restore();
+  const shell = () => { c.moveTo(-76, 38); c.bezierCurveTo(-80, -58, 76, -58, 76, 38); c.closePath(); };
+  path(c, shell, '#6a4c1c', OL, 2);
+  c.save(); c.beginPath(); shell(); c.clip(); skinOver(c, 'tortoise', 0.62, -90, -70, 90, 50, 10, 10);
+  path(c, () => E(c, -16, -30, 60, 22, -0.2), rg(c, -16, -30, 2, 62, [[0, 'rgba(255,245,200,.4)'], [1, 'rgba(255,245,200,0)']]));
+  path(c, () => E(c, 0, 40, 90, 24), rg(c, 0, 40, 2, 90, [[0, 'rgba(0,0,0,.5)'], [1, 'rgba(0,0,0,0)']]));
+  c.restore();
+  path(c, shell, null, OL, 2);
+  path(c, () => { c.moveTo(-80, 34); c.lineTo(80, 34); c.lineTo(78, 46); c.quadraticCurveTo(0, 54, -78, 46); c.closePath(); }, lg(c, 0, 34, 0, 50, [[0, '#d8c07a'], [1, '#8a6e30']]), OL, 1.6);
+  path(c, () => { c.moveTo(-60, 34); c.lineTo(-58, 46); c.moveTo(-30, 35); c.lineTo(-29, 49); c.moveTo(0, 35); c.lineTo(0, 50); c.moveTo(30, 35); c.lineTo(29, 49); c.moveTo(60, 34); c.lineTo(58, 46); }, null, 'rgba(60,40,10,.6)', 1.4);
+  eye(c, 107, -2, 3.4, '#1a1006');
+  path(c, () => { c.moveTo(112, 8); c.quadraticCurveTo(106, 12, 98, 9); }, null, '#3a4a1c', 1.4);
+  path(c, () => E(c, 111, -3, 1, 0.8), '#2a3a14');
+  path(c, () => E(c, 98, -4, 8, 3, -0.3), 'rgba(255,255,255,.25)');
+};
+
+A.bat = (c) => {
+  const OL = '#1c1218', MEM = lg(c, 0, -40, 0, 60, [[0, '#8a6478'], [1, '#3e2a3c']]);
+  [-1, 1].forEach((s) => {
+    c.save(); c.scale(s, 1);
+    const wing = () => { c.moveTo(10, -14); c.lineTo(60, -44); c.lineTo(112, -30); c.quadraticCurveTo(100, -6, 108, 14); c.quadraticCurveTo(92, 20, 94, 40); c.quadraticCurveTo(74, 34, 66, 56); c.quadraticCurveTo(50, 38, 34, 44); c.quadraticCurveTo(24, 36, 12, 34); c.closePath(); };
+    path(c, wing, MEM, OL, 1.6);
+    c.save(); c.beginPath(); wing(); c.clip(); path(c, () => E(c, 60, -10, 70, 20, 0.3), 'rgba(255,200,230,.18)'); c.restore();
+    c.strokeStyle = '#26181f'; c.lineWidth = 2.6; c.lineCap = 'round';
+    [[112, -30], [108, 14], [94, 40], [66, 56], [34, 44]].forEach(([x, y]) => { c.beginPath(); c.moveTo(60, -44); c.quadraticCurveTo((60 + x) / 2 + 2, (-44 + y) / 2 - 3, x, y); c.stroke(); });
+    c.beginPath(); c.moveTo(10, -14); c.lineTo(60, -44); c.stroke();
+    path(c, () => E(c, 60, -45, 3, 3), '#26181f');
+    c.restore();
+  });
+  const body = [() => E(c, 0, 8, 18, 28), () => E(c, 0, -22, 15, 14)];
+  union(c, body, lg(c, -16, -30, 16, 36, [[0, '#8a6c5c'], [0.5, '#5a4438'], [1, '#2e2220']]), OL, 1.6);
+  c.save(); clipTo(c, body); skinOver(c, 'bat', 0.3, -30, -50, 30, 50); c.restore();
+  const ear = (s) => path(c, () => { c.moveTo(s * 5, -30); c.lineTo(s * 14, -54); c.lineTo(s * 20, -26); c.closePath(); }, lg(c, 0, -54, 0, -26, [[0, '#7a5a6c'], [1, '#4a3040']]), OL, 1.4);
+  ear(-1); ear(1);
+  path(c, () => { c.moveTo(7, -31); c.lineTo(14, -48); c.lineTo(17, -29); c.closePath(); c.moveTo(-7, -31); c.lineTo(-14, -48); c.lineTo(-17, -29); c.closePath(); }, 'rgba(230,150,170,.55)');
+  path(c, () => E(c, 0, -17, 7, 5.5), '#a07c70', '#2e2220', 1);
+  path(c, () => E(c, 0, -18, 2.4, 1.6), '#1a1214');
+  path(c, () => { c.moveTo(-3, -12); c.lineTo(-2, -9); c.lineTo(-1, -12); c.moveTo(1, -12); c.lineTo(2, -9); c.lineTo(3, -12); }, null, '#fff', 1.1);
+  eye(c, -6.5, -25, 2.8, '#0a0808'); eye(c, 6.5, -25, 2.8, '#0a0808');
+};
+
+A.whale = (c) => {
+  const OL = '#1c2c42', BG = lg(c, 0, -40, 0, 40, [[0, '#6e93bd'], [0.55, '#46688f'], [1, '#2c4466']]);
+  const body = () => { c.moveTo(100, 8); c.bezierCurveTo(100, -26, 62, -42, 20, -40); c.bezierCurveTo(-24, -38, -56, -22, -80, -8); c.lineTo(-84, -6); c.bezierCurveTo(-60, 4, -50, 14, -40, 26); c.bezierCurveTo(-10, 40, 56, 44, 84, 28); c.bezierCurveTo(94, 22, 100, 16, 100, 8); c.closePath(); };
+  const fluke = () => { c.moveTo(-76, -6); c.bezierCurveTo(-92, -4, -102, -24, -116, -40); c.bezierCurveTo(-98, -44, -84, -34, -80, -24); c.bezierCurveTo(-82, -30, -90, -52, -102, -66); c.bezierCurveTo(-82, -66, -72, -50, -72, -38); c.closePath(); };
+  path(c, () => { c.moveTo(-74, -8); c.bezierCurveTo(-96, -2, -112, 10, -118, 24); c.bezierCurveTo(-100, 22, -88, 14, -80, 8); c.closePath(); c.moveTo(-74, -8); c.bezierCurveTo(-92, -14, -106, -30, -118, -34); c.bezierCurveTo(-104, -20, -92, -4, -80, 4); c.closePath(); }, lg(c, -120, 0, -70, 0, [[0, '#2c4466'], [1, '#46688f']]), OL, 1.6);
+  path(c, body, BG, OL, 2);
+  c.save(); c.beginPath(); body(); c.clip();
+  path(c, () => { c.moveTo(-60, 14); c.bezierCurveTo(-10, 40, 60, 36, 100, 4); c.lineTo(100, 60); c.lineTo(-60, 60); c.closePath(); }, lg(c, 0, 10, 0, 44, [[0, '#d7e3f0'], [1, '#aebfd4']]));
+  c.strokeStyle = 'rgba(70,100,140,.5)'; c.lineWidth = 1.4;
+  for (let k = 0; k < 9; k++) { c.beginPath(); c.moveTo(-30 + k * 12, 24 + k * 0.8); c.quadraticCurveTo(-26 + k * 12, 34, -34 + k * 12 + 8, 44); c.stroke(); }
+  path(c, () => E(c, -10, -30, 80, 10, -0.08), rg(c, -10, -30, 2, 80, [[0, 'rgba(255,255,255,.35)'], [1, 'rgba(255,255,255,0)']]));
+  c.restore();
+  path(c, body, null, OL, 2);
+  path(c, () => { c.moveTo(14, 8); c.bezierCurveTo(30, 36, 8, 58, -10, 58); c.bezierCurveTo(-4, 40, 0, 24, 6, 6); c.closePath(); }, lg(c, 0, 8, 0, 58, [[0, '#4e739c'], [1, '#2a4264']]), OL, 1.6);
+  path(c, () => { c.moveTo(88, 12); c.quadraticCurveTo(60, 24, 40, 18); }, null, '#1c2c42', 1.8);
+  eye(c, 66, 6, 3.8, '#10161e');
+  path(c, () => E(c, 62, -26, 4, 2), '#1c2c42');
+  // spout
+  c.fillStyle = 'rgba(225,240,255,.9)';
+  for (let k = 0; k < 16; k++) { const t = k / 15, x = 60 + (t - 0.5) * 40 * (0.3 + t), y = -42 - Math.sin(t * Math.PI) * 38 + t * 14; c.beginPath(); c.arc(x, y, 2.2 + hsh(k, 3) * 2, 0, TAU); c.fill(); }
+  c.strokeStyle = 'rgba(225,240,255,.85)'; c.lineWidth = 3; c.lineCap = 'round'; c.beginPath(); c.moveTo(60, -40); c.quadraticCurveTo(60, -62, 56, -74); c.moveTo(60, -40); c.quadraticCurveTo(66, -60, 76, -66); c.stroke();
+  // water
+  path(c, () => { c.moveTo(-124, 30); for (let x = -124; x <= 124; x += 8) c.lineTo(x, 28 + Math.sin(x * 0.12) * 3); c.lineTo(124, 90); c.lineTo(-124, 90); c.closePath(); }, lg(c, 0, 26, 0, 86, [[0, 'rgba(70,150,210,.55)'], [1, 'rgba(20,60,110,.8)']]));
+  path(c, () => { c.moveTo(-124, 29); for (let x = -124; x <= 124; x += 8) c.lineTo(x, 28 + Math.sin(x * 0.12) * 3); }, null, 'rgba(210,235,255,.7)', 1.6);
+};
+
+A.penguin = (c) => {
+  floorShadow(c, 0, 72, 56);
+  path(c, () => { c.moveTo(-70, 76); c.lineTo(70, 76); c.lineTo(80, 84); c.lineTo(-80, 84); c.closePath(); }, lg(c, 0, 76, 0, 84, [[0, '#e8f3fb'], [1, '#a8c8e0']]));
+  const OL = '#05070c';
+  const fl = (s) => path(c, () => { c.moveTo(s * 34, -14); c.bezierCurveTo(s * 62, 4, s * 60, 38, s * 44, 50); c.bezierCurveTo(s * 38, 30, s * 36, 10, s * 32, 0); c.closePath(); }, lg(c, 0, -14, 0, 50, [[0, '#1c2438'], [1, '#080a12']]), OL, 1.5);
+  fl(-1); fl(1);
+  [-14, 14].forEach((x) => path(c, () => { c.moveTo(x - 14, 76); c.quadraticCurveTo(x, 62, x + 14, 76); c.quadraticCurveTo(x + 18, 80, x + 10, 80); c.lineTo(x - 10, 80); c.quadraticCurveTo(x - 18, 80, x - 14, 76); c.closePath(); }, lg(c, 0, 66, 0, 80, [[0, '#f0a43a'], [1, '#b8681a']]), '#5a3008', 1.2));
+  const sh = [() => E(c, 0, 10, 40, 62), () => E(c, 0, -46, 25, 24)];
+  union(c, sh, lg(c, -40, -60, 40, 70, [[0, '#2c3650'], [0.5, '#121828'], [1, '#05070c']]), OL, 1.8);
+  c.save(); clipTo(c, sh); skinOver(c, 'penguin', 0.35, -50, -80, 50, 80);
+  path(c, () => E(c, 0, 18, 29, 50), rg(c, -4, 6, 2, 56, [[0, '#ffffff'], [0.7, '#eef2f6'], [1, '#bfc8d4']]), '#8a96a8', 1);
+  path(c, () => E(c, -17, -40, 8, 13, 0.3), 'rgba(255,200,60,.95)'); path(c, () => E(c, 17, -40, 8, 13, -0.3), 'rgba(255,200,60,.95)');
+  path(c, () => E(c, -16, -62, 40, 8), rg(c, -16, -62, 2, 40, [[0, 'rgba(160,190,255,.35)'], [1, 'rgba(160,190,255,0)']]));
+  c.restore();
+  path(c, () => { c.moveTo(-8, -48); c.quadraticCurveTo(0, -26, 8, -48); c.quadraticCurveTo(0, -52, -8, -48); c.closePath(); }, lg(c, 0, -50, 0, -26, [[0, '#f6b04a'], [1, '#c4601a']]), '#5a3008', 1.2);
+  path(c, () => { c.moveTo(-6, -44); c.quadraticCurveTo(0, -42, 6, -44); }, null, 'rgba(90,40,0,.6)', 1);
+  eye(c, -11, -54, 3.8, '#0a0a0a'); eye(c, 11, -54, 3.8, '#0a0a0a');
+};
+
+A.pangolin = (c) => {
+  floorShadow(c, 0, 62, 96);
+  const OL = '#3a2616';
+  const legFar = [tubeShapes(c, [[40, 28], [46, 44], [54, 56]], [7, 5, 4]), tubeShapes(c, [[-30, 30], [-34, 46], [-26, 57]], [9, 6, 4.5])];
+  union(c, legFar, '#6a4a2e', OL, 1.2);
+  const tail = tubeShapes(c, [[-104, 50], [-82, 52], [-58, 42], [-38, 24]], [3, 9, 15, 22]);
+  const body = tubeShapes(c, [[-40, 22], [-8, 4], [26, 4], [50, 14]], [24, 29, 26, 18]);
+  const head = tubeShapes(c, [[56, 22], [78, 32], [100, 40]], [12, 8, 3.4]);
+  const legs = [tubeShapes(c, [[28, 28], [36, 44], [46, 57]], [9, 6.5, 5]), tubeShapes(c, [[-26, 30], [-24, 46], [-18, 58]], [11, 7, 5])];
+  const sh = [tail, body, head, legs];
+  union(c, sh, lg(c, -40, -30, 40, 50, [[0, '#d7b07a'], [0.5, '#a67848'], [1, '#6a4526']]), OL, 1.6);
+  c.save(); clipTo(c, [tail, body]); skinOver(c, 'pangolin', 0.5, -110, -40, 80, 60);
+  path(c, () => E(c, -6, -14, 70, 12, -0.1), rg(c, -6, -14, 2, 70, [[0, 'rgba(255,235,190,.35)'], [1, 'rgba(255,235,190,0)']]));
+  c.restore();
+  c.save(); clipTo(c, [head]); path(c, () => E(c, 76, 30, 40, 16), lg(c, 60, 14, 80, 40, [[0, '#f0d6b0'], [1, '#c09a70']])); c.restore();
+  path(c, () => E(c, 100, 41, 3.6, 3), '#20140c');
+  path(c, () => E(c, 61, 17, 9, 7), '#d8b88c', OL, 1.2);
+  eye(c, 76, 24, 3.2, '#140c06');
+  [[46, 57], [-18, 58]].forEach(([x, y]) => { for (let k = -1; k <= 1; k++) path(c, () => { c.moveTo(x, y + k * 3); c.lineTo(x + 11, y + k * 3 + 1); }, null, '#20140c', 1.8); });
+};
+
+// --- sprites ---------------------------------------------------------------------------------------------------
+const SPR = new Map();
+function sprite(id) {
+  if (!SPR.has(id)) {
+    const k = 3, cv = document.createElement('canvas'); cv.width = 240 * k; cv.height = 180 * k;
+    const c = cv.getContext('2d'); c.translate(cv.width / 2, cv.height / 2); c.scale(k, k); c.lineCap = 'round'; c.lineJoin = 'round';
+    A[id](c); SPR.set(id, cv);
+  }
+  return SPR.get(id);
+}
+const drawAnimal = (ctx, id, cx, cy, s) => ctx.drawImage(sprite(id), cx - 120 * s, cy - 90 * s, 240 * s, 180 * s);
+
+// --- the magnifier -----------------------------------------------------------------------------------------------
+const TEXPX = 480, TEXC = new Map();
+function texCanvas(kind, ox, oy) {
+  const rx = Math.round(ox * 2) / 2, ry = Math.round(oy * 2) / 2, key = `${kind}|${rx}|${ry}`;
+  let t = TEXC.get(key);
+  if (t) return t;
+  if (TEXC.size > 40) TEXC.clear();
+  t = document.createElement('canvas'); t.width = t.height = TEXPX;
+  const c = t.getContext('2d'); c.translate(TEXPX / 2, TEXPX / 2); c.scale(TEXPX / 200, TEXPX / 200); c.lineJoin = 'round';
+  TEX[kind](c, rx, ry, BIG);
+  TEXC.set(key, t);
+  return t;
+}
+function drawLens(c, cx, cy, R, kind, ox, oy, handle = 0) {
+  if (R < 3) return;
+  const rw = Math.max(3, R * 0.075);
+  c.save();
+  c.fillStyle = rg(c, cx + R * 0.1, cy + R * 0.16, R * 0.8, R * 1.3, [[0, 'rgba(0,0,0,.45)'], [1, 'rgba(0,0,0,0)']]);
+  c.beginPath(); c.arc(cx + R * 0.1, cy + R * 0.16, R * 1.3, 0, TAU); c.fill();
+  if (handle > 0.02) {
+    c.save(); c.globalAlpha = handle; c.translate(cx, cy); c.rotate(Math.PI / 4);
+    c.beginPath(); rr(c, R * 0.96, -R * 0.07, R * 0.4, R * 0.14, R * 0.05); c.fillStyle = lg(c, 0, -R * 0.07, 0, R * 0.07, [[0, '#f1d891'], [0.5, '#b98a2c'], [1, '#6a4710']]); c.fill();
+    c.beginPath(); rr(c, R * 1.3, -R * 0.13, R * 0.72, R * 0.26, R * 0.12); c.fillStyle = lg(c, 0, -R * 0.13, 0, R * 0.13, [[0, '#a2683a'], [0.5, '#7a4824'], [1, '#43260f']]); c.fill();
+    c.lineWidth = 1.2; c.strokeStyle = '#2a1608'; c.stroke();
+    c.beginPath(); rr(c, R * 1.38, -R * 0.09, R * 0.56, R * 0.05, R * 0.02); c.fillStyle = 'rgba(255,220,170,.3)'; c.fill();
+    c.restore();
+  }
+  c.save(); c.beginPath(); c.arc(cx, cy, R, 0, TAU); c.clip();
+  c.drawImage(texCanvas(kind, ox, oy), cx - R, cy - R, 2 * R, 2 * R);
+  c.fillStyle = rg(c, cx, cy, R * 0.5, R, [[0, 'rgba(8,10,20,0)'], [1, 'rgba(8,10,20,.5)']]); c.fillRect(cx - R, cy - R, 2 * R, 2 * R);
+  c.beginPath(); E(c, cx - R * 0.38, cy - R * 0.46, R * 0.36, R * 0.17, -0.7);
+  c.fillStyle = lg(c, cx - R * 0.7, cy - R * 0.7, cx - R * 0.1, cy - R * 0.2, [[0, 'rgba(255,255,255,.4)'], [1, 'rgba(255,255,255,.05)']]); c.fill();
+  c.beginPath(); c.arc(cx + R * 0.45, cy + R * 0.5, R * 0.05, 0, TAU); c.fillStyle = 'rgba(255,255,255,.35)'; c.fill();
+  c.restore();
+  c.beginPath(); c.arc(cx, cy, R + rw * 0.5, 0, TAU);
+  c.lineWidth = rw; c.strokeStyle = lg(c, cx - R, cy - R, cx + R, cy + R, [[0, '#fbe7a6'], [0.35, '#c8912f'], [0.65, '#8a5c14'], [1, '#ecc874']]); c.stroke();
+  c.beginPath(); c.arc(cx, cy, R, 0, TAU); c.lineWidth = 1.5; c.strokeStyle = 'rgba(40,24,4,.6)'; c.stroke();
+  c.beginPath(); c.arc(cx, cy, R + rw, 0, TAU); c.lineWidth = 1.2; c.strokeStyle = '#4a3008'; c.stroke();
+  c.restore();
+}
+
+// --- the quiz data ---------------------------------------------------------------------------------------------
+const GK = ['fish', 'amph', 'rept', 'bird', 'mammal'];
+const GEMO = { fish: '🐟', amph: '🐸', rept: '🦎', bird: '🐦', mammal: '🐾' };
+const GCOL = { fish: '#4aa8d8', amph: '#58b868', rept: '#d2a43c', bird: '#e8844c', mammal: '#b98ad8' };
+const ITEMS = {
+  carp: { g: 'fish' }, frog: { g: 'amph' }, lizard: { g: 'rept' }, sparrow: { g: 'bird' }, fox: { g: 'mammal' },
+  salamander: { g: 'amph' }, snake: { g: 'rept' }, owl: { g: 'bird' }, hedgehog: { g: 'mammal' }, tortoise: { g: 'rept' },
+  bat: { g: 'mammal', ax: 0, ay: 8, lx: 0, ly: 84 }, whale: { g: 'mammal', ax: 60, ay: -40, lx: -30, ly: -84 },
+  penguin: { g: 'bird', ax: 0, ay: 24, lx: -80, ly: 4 }, pangolin: { g: 'mammal', ax: -10, ay: -4, lx: -30, ly: -72 },
+  axolotl: { g: 'amph', ax: -30, ay: 22, lx: -50, ly: -66 }, crocodile: { g: 'rept', ax: -20, ay: 22, lx: -20, ly: -62 },
+};
+const SEQ = {
+  lens: ['carp', 'frog', 'lizard', 'sparrow', 'fox', 'salamander', 'snake', 'owl', 'hedgehog', 'tortoise'],
+  trick: ['bat', 'whale', 'penguin', 'pangolin', 'axolotl', 'crocodile'],
+};
+const HOUSE_PROPS = { fish: ['gills', 'water'], amph: ['gills', 'lungs', 'skin', 'water'], rept: ['lungs', 'shell'], bird: ['lungs', 'shell'], mammal: ['lungs', 'alive'] };
+const HOUSE_TEX = { fish: 'carp', amph: 'frog', rept: 'lizard', bird: 'sparrow', mammal: 'fox' };
+const mkQ = () => ({ i: 0, pick: null, p: 0, res: [], done: false });
+const Q = { lens: mkQ(), trick: mkQ() };
+const S = { sec: null, fx: 0.5, fy: 0.44, ox: 0, oy: 0, drag: null, egg: false, eggT: 0, prop: null };
+const G = { w: 0, h: 0, cd: { x: 10, y: 10, w: 300, h: 300 }, lens: null };
+const newRound = () => { const q = Q[lab.view] || Q.lens; S.fx = 0.5; S.fy = 0.44; S.ox = hsh(q.i + 1, 3) * 400; S.oy = hsh(q.i + 2, 5) * 400; };
+
+const lab = shell({ key: 'skin-cover', T, topics: TOPICS, views: ['lens', 'trick', 'houses'], onLang: render, onView: () => { S.sec = null; newRound(); render(); } });
+const secret = secretLab('skin-cover', () => ({
+  secrets: [{ emo: '🥚', title: T[lang].secrets.a[0], desc: T[lang].secrets.a[1] }, { emo: '🪶', title: T[lang].secrets.b[0], desc: T[lang].secrets.b[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="skQ"><div class="sk-houses" id="skH"></div><div class="row2" id="skNextRow"><button class="btn" id="skNext"></button></div></div>
+  <div id="skProps"><div class="chips" id="skPropChips"></div></div>
+  <div class="row2 sk-sec"><div class="chips" id="skSecChips"></div></div>`;
+const cardsEl = Object.assign(document.createElement('div'), { id: 'skCards' });
+$('overlay').append(cardsEl);
+
+// --- canvas scenes -------------------------------------------------------------------------------------------------
+function pill(c, text, x, y, align = 'center') {
+  c.save(); c.font = '800 13px Nunito, sans-serif'; c.textBaseline = 'middle';
+  const tw = c.measureText(text).width, pw = tw + 22, ph = 26;
+  let px = align === 'center' ? x - pw / 2 : x;
+  px = clamp(px, 6, Math.max(6, G.w - pw - 6));
+  const py = clamp(y - ph / 2, 6, Math.max(6, G.h - ph - 6));
+  c.beginPath(); rr(c, px, py, pw, ph, 13); c.fillStyle = 'rgba(10,12,22,.84)'; c.fill(); c.lineWidth = 1; c.strokeStyle = 'rgba(160,175,220,.35)'; c.stroke();
+  c.fillStyle = '#fff'; c.textAlign = 'left'; c.fillText(text, px + 11, py + ph / 2 + 0.5);
+  c.restore();
+}
+function drawCard(c, cd) {
+  c.save(); c.beginPath(); rr(c, cd.x, cd.y, cd.w, cd.h, 24);
+  c.fillStyle = lg(c, 0, cd.y, 0, cd.y + cd.h, [[0, '#222c4c'], [1, '#121830']]); c.fill();
+  c.clip();
+  c.fillStyle = rg(c, cd.x + cd.w * 0.5, cd.y + cd.h * 0.42, 10, cd.w * 0.7, [[0, 'rgba(120,150,230,.28)'], [1, 'rgba(120,150,230,0)']]); c.fillRect(cd.x, cd.y, cd.w, cd.h);
+  c.restore();
+  c.beginPath(); rr(c, cd.x, cd.y, cd.w, cd.h, 24); c.lineWidth = 1.5; c.strokeStyle = 'rgba(130,145,190,.35)'; c.stroke();
+}
+function drawCover(c, cd) {
+  c.beginPath(); rr(c, cd.x, cd.y, cd.w, cd.h, 24);
+  c.fillStyle = lg(c, cd.x, cd.y, cd.x + cd.w, cd.y + cd.h, [[0, '#3a4672'], [1, '#1c2442']]); c.fill();
+  c.save(); c.clip(); c.strokeStyle = 'rgba(170,185,235,.10)'; c.lineWidth = 8;
+  for (let k = -cd.h; k < cd.w + cd.h; k += 26) { c.beginPath(); c.moveTo(cd.x + k, cd.y); c.lineTo(cd.x + k - cd.h, cd.y + cd.h); c.stroke(); }
+  c.font = '900 120px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = 'rgba(190,205,255,.13)';
+  c.fillText('?', cd.x + cd.w * 0.18, cd.y + cd.h * 0.2); c.fillText('?', cd.x + cd.w * 0.84, cd.y + cd.h * 0.8); c.fillText('?', cd.x + cd.w * 0.8, cd.y + cd.h * 0.16);
+  c.fillStyle = lg(c, 0, cd.y + cd.h - 14, 0, cd.y + cd.h, [[0, 'rgba(255,255,255,0)'], [1, 'rgba(255,255,255,.25)']]); c.fillRect(cd.x, cd.y + cd.h - 14, cd.w, 14);
+  c.restore();
+  c.beginPath(); rr(c, cd.x, cd.y, cd.w, cd.h, 24); c.lineWidth = 2; c.strokeStyle = 'rgba(200,215,255,.4)'; c.stroke();
+}
+function lensScene(c, cd, dt) {
+  const q = Q.lens, id = SEQ.lens[q.i], s = Math.min(cd.w / 230, cd.h / 190), cx = cd.x + cd.w / 2, cy = cd.y + cd.h * 0.46, e = ease(q.p);
+  const R0 = Math.min(cd.w * 0.39, cd.h * 0.33, 150), R2 = Math.min(50, cd.w * 0.15);
+  if (q.p > 0) drawAnimal(c, id, cx, cy, s * (0.94 + 0.06 * backOut(q.p)));
+  if (q.p < 1) { c.save(); c.beginPath(); rr(c, cd.x, cd.y, cd.w, cd.h, 24); c.clip(); c.translate(0, -e * (cd.h + 30)); drawCover(c, cd); c.restore(); }
+  const px = clamp(cd.x + cd.w * S.fx, cd.x + R0 * 0.5, cd.x + cd.w - R0 * 0.5), py = clamp(cd.y + cd.h * S.fy, cd.y + R0 * 0.5, cd.y + cd.h - R0 * 0.5);
+  const lx = lerp(px, cd.x + cd.w - R2 - 16, e), ly = lerp(py, cd.y + cd.h - R2 - 16, e), R = lerp(R0, R2, e);
+  G.lens = q.pick === null && !q.done ? { x: px, y: py, R: R0 } : null;
+  drawLens(c, lx, ly, R, id, S.ox, S.oy, 1 - e);
+  if (q.p === 0) pill(c, T[lang].hint, cd.x + cd.w / 2, cd.y + 24);
+}
+function trickScene(c, cd) {
+  const q = Q.trick, id = SEQ.trick[q.i], it = ITEMS[id], s = Math.min(cd.w / 230, cd.h / 200), cx = cd.x + cd.w / 2, cy = cd.y + cd.h * 0.52;
+  drawAnimal(c, id, cx, cy, s);
+  if (q.p <= 0) return;
+  const Rf = Math.min(cd.w * 0.155, 54), R = Rf * backOut(q.p);
+  const lx = clamp(cx + it.lx * s, cd.x + Rf + 6, cd.x + cd.w - Rf - 6), ly = clamp(cy + it.ly * s, cd.y + Rf + 6, cd.y + cd.h - Rf - 34);
+  const ax = cx + it.ax * s, ay = cy + it.ay * s;
+  c.save(); c.globalAlpha = ease(q.p); c.setLineDash([5, 5]); c.lineWidth = 2; c.strokeStyle = 'rgba(255,255,255,.75)';
+  c.beginPath(); c.moveTo(ax, ay); c.lineTo(lx, ly); c.stroke(); c.setLineDash([]);
+  c.beginPath(); c.arc(ax, ay, 6, 0, TAU); c.fillStyle = '#ff3b30'; c.fill(); c.lineWidth = 2; c.strokeStyle = '#fff'; c.stroke(); c.restore();
+  drawLens(c, lx, ly, R, id, S.ox, S.oy, 0);
+  if (q.p > 0.6) { c.save(); c.globalAlpha = ease((q.p - 0.6) / 0.4); pill(c, T[lang].tag[id], lx, ly + Rf + 20 > cd.y + cd.h - 20 ? ly - Rf - 20 : ly + Rf + 20); c.restore(); }
+}
+function doneScene(c, cd) {
+  const v = lab.view, q = Q[v], seq = SEQ[v], n = seq.length, cols = n > 6 ? 5 : 3, rows = Math.ceil(n / cols);
+  const tw = (cd.w - 24) / cols, th = Math.min(tw * 1.1, (cd.h - 24) / rows), ox = cd.x + 12, oy = cd.y + (cd.h - th * rows) / 2;
+  seq.forEach((id, k) => {
+    const x = ox + (k % cols) * tw, y = oy + Math.floor(k / cols) * th, ok = q.res[k];
+    c.beginPath(); rr(c, x + 4, y + 4, tw - 8, th - 8, 14); c.fillStyle = 'rgba(10,14,30,.55)'; c.fill();
+    c.lineWidth = 2.5; c.strokeStyle = ok ? '#3ddc97' : '#ff6a5e'; c.stroke();
+    drawAnimal(c, id, x + tw / 2, y + th / 2, Math.min(tw / 250, th / 190));
+    c.save(); c.font = '900 14px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.beginPath(); c.arc(x + tw - 14, y + 14, 10, 0, TAU); c.fillStyle = ok ? '#3ddc97' : '#ff6a5e'; c.fill(); c.fillStyle = '#0a0c14'; c.fillText(ok ? '✓' : '✗', x + tw - 14, y + 14.5); c.restore();
+  });
+}
+function secScene(c, cd, t) {
+  if (S.sec === 'a') {
+    const s = Math.min(cd.w / 230, cd.h / 200) * 0.95, cx = cd.x + cd.w / 2, cy = cd.y + cd.h * 0.4;
+    drawAnimal(c, 'platypus', cx, cy, s);
+    const R = Math.min(54, cd.w * 0.16), lx = cd.x + cd.w - R - 16, ly = cd.y + cd.h - R - 16;
+    drawLens(c, lx, ly, R, 'platypus', 20, 30, 0);
+    pill(c, T[lang].furTag, lx, ly - R - 18);
+    if (S.egg) {
+      const pe = clamp((performance.now() - S.eggT) / 900, 0, 1), k = backOut(pe), nx = cd.x + cd.w * 0.3, ny = cd.y + cd.h * 0.8;
+      c.save(); c.translate(nx, ny); c.scale(0.5 + 0.5 * ease(pe), 0.5 + 0.5 * ease(pe));
+      path(c, () => E(c, 0, 10, 62, 20), lg(c, 0, -10, 0, 30, [[0, '#d6b266'], [1, '#7a5a22']]), '#4a3410', 1.5);
+      c.strokeStyle = 'rgba(70,45,10,.5)'; c.lineWidth = 1.4; for (let m = 0; m < 14; m++) { c.beginPath(); c.moveTo(-52 + m * 8, 6 + hsh(m, 1) * 8); c.lineTo(-40 + m * 8, 16 + hsh(m, 2) * 8); c.stroke(); }
+      [[-16, -6, -0.2], [16, -4, 0.2]].forEach(([x, y, r]) => { c.save(); c.translate(x, y - (1 - k) * 30); c.scale(Math.max(0, k), Math.max(0, k));
+        path(c, () => E(c, 0, 0, 15, 20, r), rg(c, -5, -8, 1, 24, [[0, '#fffdf2'], [0.6, '#efe3c0'], [1, '#b8a778']]), '#8a7a4a', 1.2);
+        path(c, () => E(c, -5, -9, 4, 6, r), 'rgba(255,255,255,.8)'); c.restore(); });
+      c.restore();
+      pill(c, T[lang].eggTag, nx, ny - 54);
+    }
+    return;
+  }
+  const R = Math.min(cd.w * 0.31, cd.h * 0.3, 130), cx = cd.x + cd.w * 0.58, cy = cd.y + cd.h * 0.48;
+  drawLens(c, cx, cy, R, 'leg', 0, 0, 0.7);
+  pill(c, T[lang].legTag[0], cd.x + 14, cy - R * 0.55, 'left');
+  pill(c, T[lang].legTag[1], cd.x + 14, cy + R * 0.5, 'left');
+}
+canvasLoop($('cv'), (c, w, h, dt, t) => {
+  G.w = w; G.h = h;
+  const v = lab.view;
+  if (v === 'houses' && !S.sec) return;
+  const cd = { x: 10, y: 10, w: w - 20, h: h - 20 }; G.cd = cd; G.lens = null;
+  drawCard(c, cd);
+  if (S.sec) return secScene(c, cd, t);
+  const q = Q[v];
+  if (q.pick !== null) q.p = Math.min(1, q.p + dt / 0.9);
+  if (q.done) return doneScene(c, cd);
+  if (v === 'lens') lensScene(c, cd, dt); else trickScene(c, cd);
+});
+
+// --- dragging the magnifier ---------------------------------------------------------------------------------------
+const cv = $('cv');
+cv.addEventListener('pointerdown', (ev) => {
+  if (lab.view !== 'lens' || S.sec || !G.lens) return;
+  const r = cv.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+  if (Math.hypot(x - G.lens.x, y - G.lens.y) > G.lens.R * 1.15) return;
+  S.drag = { x, y }; cv.setPointerCapture(ev.pointerId); ev.preventDefault();
+});
+cv.addEventListener('pointermove', (ev) => {
+  if (!S.drag || !G.lens) return;
+  const r = cv.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top, cd = G.cd, R = G.lens.R;
+  const nfx = clamp(S.fx + (x - S.drag.x) / cd.w, R * 0.5 / cd.w, 1 - R * 0.5 / cd.w), nfy = clamp(S.fy + (y - S.drag.y) / cd.h, R * 0.5 / cd.h, 1 - R * 0.5 / cd.h);
+  const m = R / 100;
+  S.ox += (nfx - S.fx) * cd.w / m; S.oy += (nfy - S.fy) * cd.h / m;
+  S.fx = nfx; S.fy = nfy; S.drag = { x, y };
+});
+const endDrag = () => { S.drag = null; };
+cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
+
+// --- controls ----------------------------------------------------------------------------------------------------
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+$('skH').addEventListener('click', (ev) => {
+  const b = ev.target.closest('.sk-h'); if (!b || b.disabled) return;
+  const v = lab.view, q = Q[v];
+  if (q.pick !== null || q.done) return;
+  const id = SEQ[v][q.i], ok = b.dataset.g === ITEMS[id].g;
+  q.pick = b.dataset.g; q.p = 0; q.res[q.i] = ok; (ok ? sfx.good : sfx.bad)();
+  setTimeout(showStage, 250); render();
+});
+$('skNext').addEventListener('click', () => {
+  const v = lab.view, q = Q[v], n = SEQ[v].length;
+  if (q.done) Q[v] = mkQ();
+  else if (q.pick !== null) { if (q.i + 1 >= n) q.done = true; else { q.i++; q.pick = null; q.p = 0; } }
+  sfx.click(); newRound(); render();
+});
+$('skPropChips').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-p]'); if (!b) return;
+  S.prop = S.prop === b.dataset.p ? null : b.dataset.p; sfx.tick(); render();
+});
+$('skSecChips').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-sec]'); if (!b) return;
+  if (!secret.unlocked()) return secret.open();
+  const k = b.dataset.sec;
+  if (S.sec === k) S.sec = null;
+  else {
+    S.sec = k; S.egg = false; sfx.click();
+    if (k === 'a') setTimeout(() => { if (S.sec === 'a') { S.egg = true; S.eggT = performance.now(); sfx.good(); render(); } }, 1800);
+    setTimeout(showStage, 150);
+  }
+  render();
+});
+
+// --- one render per change ---------------------------------------------------------------------------------------
+function render() {
+  const t = T[lang], v = lab.view, sec = S.sec;
+  const quiz = (v === 'lens' || v === 'trick') && !sec, houses = v === 'houses' && !sec;
+  document.body.dataset.v = sec ? 'sec' : v;
+  $('skQ').style.display = quiz ? '' : 'none';
+  $('skProps').style.display = houses ? '' : 'none';
+  cardsEl.style.display = houses ? '' : 'none';
+  $('cv').style.display = houses ? 'none' : '';
+  const open = secret.unlocked();
+  $('skSecChips').innerHTML = [['a', '🥚'], ['b', '🪶']].map(([k, emo]) =>
+    `<button class="chip secret ${open ? 'open' : ''} ${sec === k ? 'on' : ''}" data-sec="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`).join('');
+  if (sec) renderSec(t); else if (quiz) renderQuiz(t, v); else renderHouses(t);
+}
+function renderSec(t) {
+  const a = S.sec === 'a';
+  $('cv').style.touchAction = 'pan-y';
+  lab.setReadout(esc(a ? t.an2.platypus : t.secrets.b[0]), '', '', '#4ea8ff');
+  lab.setFacts([]);
+  if (a) lab.setState({ emo: '🥚', title: t.pl.t, lead: S.egg ? t.pl.l2 : t.pl.l1, body: S.egg ? t.pl.b2 : '' });
+  else lab.setState({ emo: '🪶', title: t.lg.t, lead: t.lg.l, body: t.lg.b });
+}
+function renderQuiz(t, v) {
+  const q = Q[v], seq = SEQ[v], n = seq.length, emo = v === 'lens' ? '🔍' : '🎭';
+  $('cv').style.touchAction = v === 'lens' && q.pick === null && !q.done ? 'none' : 'pan-y';
+  lab.setFacts(t.facts[v]);
+  const score = q.res.filter(Boolean).length;
+  const nx = $('skNext');
+  if (q.done) {
+    const [ti, le, bo] = t.end(score, n);
+    $('skH').style.display = 'none';
+    nx.textContent = t.again; $('skNextRow').style.display = '';
+    lab.setReadout(esc(t.of(score, n)), t.rightSub, '', '#3ddc97');
+    lab.setState({ emo: '🏆', title: ti, lead: le, body: bo });
+    return;
+  }
+  const id = seq[q.i], ok = q.pick !== null && q.pick === ITEMS[id].g, gr = ITEMS[id].g;
+  $('skH').style.display = '';
+  $('skH').innerHTML = GK.map((g) => {
+    const cls = q.pick === null ? '' : g === gr ? 'ok' : g === q.pick ? 'bad' : 'dim';
+    return `<button class="sk-h ${cls}" data-g="${g}" ${q.pick !== null ? 'disabled' : ''}><span class="e">${GEMO[g]}</span>${esc(t.groups[g])}</button>`;
+  }).join('');
+  $('skNextRow').style.display = q.pick !== null ? '' : 'none';
+  nx.textContent = q.i + 1 >= n ? t.result : t.next;
+  if (q.pick === null) {
+    const qq = v === 'lens' ? t.q1 : t.q2;
+    lab.setReadout(esc(t.of(q.i + 1, n)), `✓ ${score}`, '', '#4ea8ff');
+    lab.setState({ emo, title: qq[0], lead: qq[1], body: '' });
+  } else {
+    lab.setReadout(esc(t.of(q.i + 1, n)), `✓ ${score}`, t.groups[gr], GCOL[gr]);
+    lab.setState({ emo: ok ? '✅' : '🤔', title: ok ? t.right : t.wrong, lead: `${t.an[id]} → ${t.groups[gr]}`, body: t.clue[id] });
+  }
+}
+function renderHouses(t) {
+  $('cv').style.touchAction = 'pan-y';
+  const p = S.prop, hit = (g) => !p || HOUSE_PROPS[g].includes(p);
+  $('skPropChips').innerHTML = Object.keys(t.props).map((k) => `<button class="chip ${p === k ? 'on' : ''}" data-p="${k}">${esc(t.props[k])}</button>`).join('');
+  cardsEl.innerHTML = GK.map((g) => {
+    const h = t.houses[g];
+    return `<div class="sk-card ${p ? (hit(g) ? 'hit' : 'dim') : ''}" style="border-left:6px solid ${GCOL[g]}"><canvas class="sk-sw" data-t="${HOUSE_TEX[g]}" width="128" height="128"></canvas>
+      <div><h3>${GEMO[g]} ${esc(t.groups[g])}</h3><p><b>${esc(t.cardLbl[0])}:</b> ${esc(h[0])}</p><p><b>${esc(t.cardLbl[1])}:</b> ${esc(h[1])}</p><p><b>${esc(t.cardLbl[2])}:</b> ${esc(h[2])}</p></div></div>`;
+  }).join('');
+  cardsEl.querySelectorAll('canvas.sk-sw').forEach((cvs) => { const c = cvs.getContext('2d'); c.scale(2, 2); drawLens(c, 32, 32, 27, cvs.dataset.t, 0, 0, 0); });
+  lab.setReadout(esc(t.hs[0]), '', '', '#4ea8ff');
+  lab.setFacts(t.facts.houses);
+  if (p) lab.setState({ emo: '🏠', title: t.props[p], lead: t.hsShare(GK.filter(hit).map((g) => t.groups[g]).join(', ')), body: '' });
+  else lab.setState({ emo: '🏠', title: t.hs[0], lead: t.hs[1], body: '' });
+}
+newRound();
+render();
+</script>
+</body>
+</html>

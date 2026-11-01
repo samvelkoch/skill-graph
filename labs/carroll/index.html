@@ -1,0 +1,817 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Two Rules, Four Boxes · Skill Graph</title>
+<meta name="description" content="A sorting robot drops toys into a grid of four boxes. Find its two secret rules, then sort a pile yourself. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  body:not([data-drag]) #stage canvas { touch-action: pan-y; }
+  .cs-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+  .cs-row:first-child { margin-top: 0; }
+  .cs-opts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .cs-opt { flex: 1 1 70px; min-height: 46px; border-radius: 14px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 900; font-size: 20px; cursor: pointer; }
+  .cs-opt:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .cs-opt:disabled { opacity: .4; text-decoration: line-through; cursor: default; }
+  .cs-opt.good { border-color: var(--ok); background: rgba(61, 220, 151, .18); opacity: 1; text-decoration: none; }
+  .cs-c { display: inline-flex; align-items: center; gap: 6px; min-height: 38px; padding: 6px 13px; border-radius: 999px; border: 1px solid var(--stroke);
+    background: rgba(20, 24, 38, .6); color: var(--soft); font-size: 12.5px; font-weight: 800; cursor: pointer; white-space: nowrap; }
+  .cs-c:hover { background: rgba(130, 145, 190, .16); }
+  .cs-c.on { background: #fff; color: var(--bg); border-color: #fff; }
+  .cs-c.cs-sec { border-style: dashed; color: var(--mut); }
+  .cs-c.cs-sec.open { border-style: solid; border-color: var(--wip); color: var(--wip); }
+  .cs-c.cs-sec.open.on { background: var(--wip); color: var(--bg); }
+  .cs-c:disabled, .btn:disabled { opacity: .35; cursor: default; }
+  .cs-sep { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--stroke); }
+  @media (max-width: 760px) {
+    #stage { height: min(130vw, 560px); }
+    body[data-v=sort] #stage { height: min(124vw, 520px); }
+    body[data-v=rings] #stage { height: min(108vw, 470px); }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, ruPlural, lang } from '../lab.js';
+
+// --- rules -------------------------------------------------------------------------------------------------
+const RULES = {
+  round:   { f: (o) => o.sh === 'ball' || o.sh === 'button', en: ['round', 'not round'], ru: ['круглые', 'не круглые'], hu: ['kerek', 'nem kerek'] },
+  red:     { f: (o) => o.col === 'red', en: ['red', 'not red'], ru: ['красные', 'не красные'], hu: ['piros', 'nem piros'], gen: 'красных' },
+  blue:    { f: (o) => o.col === 'blue', en: ['blue', 'not blue'], ru: ['синие', 'не синие'], hu: ['kék', 'nem kék'], gen: 'синих' },
+  yellow:  { f: (o) => o.col === 'yellow', en: ['yellow', 'not yellow'], ru: ['жёлтые', 'не жёлтые'], hu: ['sárga', 'nem sárga'], gen: 'жёлтых' },
+  big:     { f: (o) => o.big, en: ['big', 'small'], ru: ['большие', 'маленькие'], hu: ['nagy', 'kicsi'] },
+  striped: { f: (o) => o.str, en: ['striped', 'not striped'], ru: ['полосатые', 'без полосок'], hu: ['csíkos', 'nem csíkos'], gen: 'полосатых' },
+  star:    { f: (o) => o.sh === 'star', en: ['stars', 'not stars'], ru: ['звёзды', 'не звёзды'], hu: ['csillag', 'nem csillag'] },
+  holes:   { f: (o) => o.sh === 'button', en: ['has holes', 'no holes'], ru: ['с дырочками', 'без дырочек'], hu: ['lyukas', 'nem lyukas'] },
+};
+const PAIRS = [['round', 'red'], ['big', 'striped'], ['star', 'yellow'], ['holes', 'blue']];
+const OWN = ['round', 'red', 'blue', 'big', 'striped', 'star'];
+const RL = (k) => RULES[k][lang];
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Two Rules, Four Boxes', title: 'Two Rules, Four Boxes',
+    lines: [['Watch', 'where the robot drops each toy.'], ['Find', 'its two secret rules.'], ['Then sort', 'a pile yourself.']],
+    views: { find: '🤖 Find the rules', sort: '🧸 Sort it', rings: '⭕ Rings' },
+    toys: (n) => `${n} ${n === 1 ? 'toy' : 'toys'}`, and: (x, y) => `${x} and ${y}`, sorted: 'sorted',
+    f: { watch: ['Watch the robot', 'It sorts the first 4 toys. Where does each one land?'],
+      ask: ['Where will this toy go?', 'Tap the box you think it lands in.'], askB: 'The labels are covered. Three right guesses in a row open them.',
+      ok: 'Right!', okL: 'The robot agrees.', no: 'Not there.', noL: 'Look where the robot put it.',
+      streak: (n) => `🎯 ${n} in a row`, show: 'Show the rules', again: 'New rules', cnt: (n) => `${n} sorted`,
+      openT: 'Here are the rules!', openL: (A, B) => `Columns: ${A[0]} / ${A[1]}. Rows: ${B[0]} / ${B[1]}.`, openB: 'Each toy goes into exactly one box.', emptied: 'The chest is empty.' },
+    s: { t: 'Put every toy in its box', lead: 'Tap a toy, then tap a box. Or drag it.', body: 'Read both labels: one on top, one on the left.',
+      wrong: 'Not that box.', wrongL: 'Check both labels: the top one and the left one.', chest: 'Toy chest',
+      q1: (p) => `How many ${p} toys are there?`, q1L: 'Choose the number.', q1no: 'Not quite.', q1noL: 'Look at the whole row.', right: 'Right!', q1okB: 'Add the two boxes of that row.',
+      q2: (a, b) => `Which box holds the toys that are “${a}” and “${b}”?`, q2L: 'Tap the box.', q2ok: (n) => `That box holds ${n}.`, q2no: 'Not that box.', q2noL: 'Read the two labels of the box.',
+      done: 'All sorted!', doneL: 'Every toy is in exactly one box.', newPile: 'New pile', next: 'Next →' },
+    r: { t: 'Same toys, two pictures', lead: 'Tap an area to count its toys.', body: 'Switch between the grid and the rings. Every box is one area of the rings.', grid: '▦ Grid', rings: '⭕ Rings',
+      where: [() => 'In both rings', (A, B) => `Only in the “${B}” ring`, (A) => `Only in the “${A}” ring`, () => 'Outside both rings'] },
+    secrets: { a: ['An empty box', 'Two rules that never meet'], b: ['Make your own rules', 'Pick two and let the robot sort'] },
+    ea: { run: ['The robot is sorting…', 'Rules: stars and round. Watch the boxes.'], doneT: 'One box stays empty', doneL: 'No toy is a star and round at the same time.', doneB: 'An empty box is not a mistake: it says that two properties never go together.' },
+    ob: { pickT: 'Pick two rules', pickL: 'The first one makes the columns, the second one makes the rows.', pick1T: 'Pick one more rule', pick1L: (a) => `Columns: ${a}.`, emptyB: 'An empty box means no toy has both properties.', fullB: 'Every toy fits in exactly one box.' },
+    facts: {
+      find: 'The grid is called a Carroll diagram after Lewis Carroll, the author of “Alice in Wonderland”. His real name was Charles Dodgson and he taught mathematics at Oxford. He described it in “The Game of Logic” (1886).',
+      sort: 'Libraries sort books by rules too: many school libraries use numbers from the Dewey or the UDC system, where, for example, 5 means science.',
+      rings: 'The two-ring picture is named after John Venn, who published it in 1880, six years before Carroll’s grid.' },
+    quiz: [
+      { q: 'Columns: round / not round. Rows: red / not red. Where does a blue ball go?', opts: ['Round and red', 'Round and not red', 'Not round and not red'], ok: 1, hint: 'Ask the two questions one at a time: is it round? is it red?' },
+      { q: 'In a sorting grid, one box stays empty. What does it mean?', opts: ['The sorting is wrong', 'Nothing has both of those properties', 'The rules are the same'], ok: 1, hint: 'Look at the two headers that meet at the empty box.' },
+      { q: 'How do you find how many red things there are in the grid?', opts: ['Count one box', 'Add the boxes in the red row', 'Count all the boxes'], ok: 1, hint: 'Red things can be round or not round.' },
+    ],
+  },
+  ru: {
+    name: 'Два правила, четыре клетки', title: 'Два правила, четыре клетки',
+    lines: [['Смотри,', 'куда робот кладёт каждую игрушку.'], ['Разгадай', 'два его тайных правила.'], ['Потом рассортируй', 'кучку игрушек.']],
+    views: { find: '🤖 Разгадай', sort: '🧸 Разложи', rings: '⭕ Кольца' },
+    toys: (n) => `${n} ${ruPlural(n, 'игрушка', 'игрушки', 'игрушек')}`, and: (x, y) => `${x} и ${y}`, sorted: 'разложено',
+    f: { watch: ['Смотри на робота', 'Он раскладывает первые 4 игрушки. Куда падает каждая?'],
+      ask: ['Куда попадёт эта игрушка?', 'Нажми на клетку, куда она, по-твоему, попадёт.'], askB: 'Заголовки закрыты. Три верных ответа подряд их откроют.',
+      ok: 'Верно!', okL: 'Робот согласен.', no: 'Не сюда.', noL: 'Посмотри, куда её положил робот.',
+      streak: (n) => `🎯 подряд: ${n}`, show: 'Показать правила', again: 'Новые правила', cnt: (n) => `разложено: ${n}`,
+      openT: 'Вот правила!', openL: (A, B) => `Столбцы: ${A[0]} / ${A[1]}. Строки: ${B[0]} / ${B[1]}.`, openB: 'Каждая игрушка попадает ровно в одну клетку.', emptied: 'Сундук опустел.' },
+    s: { t: 'Положи каждую игрушку в её клетку', lead: 'Нажми на игрушку, потом на клетку. Или перетащи её.', body: 'Читай оба заголовка: один сверху, другой слева.',
+      wrong: 'Не в эту клетку.', wrongL: 'Проверь оба заголовка: верхний и левый.', chest: 'Сундук с игрушками',
+      q1: (p, g) => `Сколько ${g} игрушек?`, q1L: 'Выбери число.', q1no: 'Не совсем.', q1noL: 'Посмотри на всю строку.', right: 'Верно!', q1okB: 'Складываем обе клетки этой строки.',
+      q2: (a, b) => `В какую клетку попадают игрушки «${a}» и «${b}»?`, q2L: 'Нажми на клетку.', q2ok: (n) => `В этой клетке: ${n}.`, q2no: 'Не эта клетка.', q2noL: 'Прочитай оба заголовка у клетки.',
+      done: 'Всё разложено!', doneL: 'Каждая игрушка лежит ровно в одной клетке.', newPile: 'Новая кучка', next: 'Дальше →' },
+    r: { t: 'Те же игрушки, две картинки', lead: 'Нажми на область, чтобы посчитать её игрушки.', body: 'Переключайся между таблицей и кольцами. Каждая клетка — это одна область колец.', grid: '▦ Таблица', rings: '⭕ Кольца',
+      where: [() => 'В обоих кольцах', (A, B) => `Только в кольце «${B}»`, (A) => `Только в кольце «${A}»`, () => 'Вне обоих колец'] },
+    secrets: { a: ['Пустая клетка', 'Два правила, которые никогда не встречаются'], b: ['Свои правила', 'Выбери два, и робот разложит'] },
+    ea: { run: ['Робот сортирует…', 'Правила: звёзды и круглые. Смотри на клетки.'], doneT: 'Одна клетка остаётся пустой', doneL: 'Ни одна игрушка не бывает звездой и круглой одновременно.', doneB: 'Пустая клетка — не ошибка: она говорит, что два свойства никогда не бывают вместе.' },
+    ob: { pickT: 'Выбери два правила', pickL: 'Первое задаст столбцы, второе — строки.', pick1T: 'Выбери ещё одно правило', pick1L: (a) => `Столбцы: ${a}.`, emptyB: 'Пустая клетка значит, что нет игрушки с обоими свойствами.', fullB: 'Каждая игрушка попадает ровно в одну клетку.' },
+    facts: {
+      find: 'Такую таблицу называют диаграммой Кэрролла — в честь Льюиса Кэрролла, автора «Алисы в Стране чудес». Его настоящее имя Чарльз Доджсон, он преподавал математику в Оксфорде и описал её в книге «Игра в логику» (1886).',
+      sort: 'Библиотеки тоже сортируют книги по правилам: во многих стоят номера по системе Дьюи или УДК, где, например, цифра 5 означает естественные науки.',
+      rings: 'Картинка с двумя кругами названа в честь Джона Венна, который опубликовал её в 1880 году — за шесть лет до таблицы Кэрролла.' },
+    quiz: [
+      { q: 'Столбцы: круглые / не круглые. Строки: красные / не красные. Куда попадёт синий мяч?', opts: ['Круглые и красные', 'Круглые и не красные', 'Не круглые и не красные'], ok: 1, hint: 'Задай два вопроса по очереди: он круглый? он красный?' },
+      { q: 'В таблице сортировки одна клетка осталась пустой. Что это значит?', opts: ['Сортировка неправильная', 'Ни у одного предмета нет сразу обоих свойств', 'Правила одинаковые'], ok: 1, hint: 'Посмотри на два заголовка, которые сходятся у пустой клетки.' },
+      { q: 'Как узнать, сколько в таблице красных предметов?', opts: ['Посчитать одну клетку', 'Сложить клетки в строке «красные»', 'Посчитать все клетки'], ok: 1, hint: 'Красные предметы бывают и круглыми, и не круглыми.' },
+    ],
+  },
+  hu: {
+    name: 'Két szabály, négy doboz', title: 'Két szabály, négy doboz',
+    lines: [['Figyeld,', 'hová dobja a robot a játékokat.'], ['Fejtsd meg', 'a két titkos szabályát.'], ['Aztán válogass szét', 'egy kupacot.']],
+    views: { find: '🤖 Fejtsd meg', sort: '🧸 Válogass', rings: '⭕ Karikák' },
+    toys: (n) => `${n} játék`, and: (x, y) => `${x} és ${y}`, sorted: 'elrendezve',
+    f: { watch: ['Nézd a robotot', 'Az első 4 játékot válogatja. Hová kerül mindegyik?'],
+      ask: ['Hová kerül ez a játék?', 'Koppints arra a dobozra, ahová szerinted esik.'], askB: 'A fejlécek takarva vannak. Három jó tipp egymás után felfedi őket.',
+      ok: 'Így van!', okL: 'A robot egyetért.', no: 'Nem oda.', noL: 'Nézd, hová tette a robot.',
+      streak: (n) => `🎯 egymás után: ${n}`, show: 'Mutasd a szabályokat', again: 'Új szabályok', cnt: (n) => `elrendezve: ${n}`,
+      openT: 'Itt vannak a szabályok!', openL: (A, B) => `Oszlopok: ${A[0]} / ${A[1]}. Sorok: ${B[0]} / ${B[1]}.`, openB: 'Minden játék pontosan egy dobozba kerül.', emptied: 'A láda kiürült.' },
+    s: { t: 'Tedd mindegyik játékot a helyére', lead: 'Koppints egy játékra, aztán egy dobozra. Vagy húzd oda.', body: 'Olvasd el mindkét fejlécet: egy van fent, egy balra.',
+      wrong: 'Nem ebbe a dobozba.', wrongL: 'Nézd meg mindkét fejlécet: a felsőt és a baloldalit.', chest: 'Játékláda',
+      q1: (p) => `Hány ${p} játék van?`, q1L: 'Válaszd ki a számot.', q1no: 'Nem egészen.', q1noL: 'Nézd meg az egész sort.', right: 'Így van!', q1okB: 'Összeadjuk a sor két dobozát.',
+      q2: (a, b) => `Melyik dobozba kerülnek a „${a}” és „${b}” játékok?`, q2L: 'Koppints a dobozra.', q2ok: (n) => `Ebben a dobozban ${n} van.`, q2no: 'Nem ez a doboz.', q2noL: 'Olvasd el a doboz két fejlécét.',
+      done: 'Mind a helyén van!', doneL: 'Minden játék pontosan egy dobozban van.', newPile: 'Új kupac', next: 'Tovább →' },
+    r: { t: 'Ugyanazok a játékok, két ábra', lead: 'Koppints egy részre, és számold meg a játékokat.', body: 'Válts a tábla és a karikák között. Minden doboz a karikák egy-egy része.', grid: '▦ Tábla', rings: '⭕ Karikák',
+      where: [() => 'Mindkét karikában', (A, B) => `Csak a ${B} karikában`, (A) => `Csak a ${A} karikában`, () => 'Mindkét karikán kívül'] },
+    secrets: { a: ['Üres doboz', 'Két szabály, amely sosem találkozik'], b: ['Saját szabályok', 'Válassz kettőt, és a robot szétválogat'] },
+    ea: { run: ['A robot válogat…', 'Szabályok: csillag és kerek. Figyeld a dobozokat.'], doneT: 'Az egyik doboz üres marad', doneL: 'Egy játék sem lehet egyszerre csillag és kerek.', doneB: 'Az üres doboz nem hiba: azt mutatja, hogy a két tulajdonság sosem fordul elő együtt.' },
+    ob: { pickT: 'Válassz két szabályt', pickL: 'Az első adja az oszlopokat, a második a sorokat.', pick1T: 'Válassz még egy szabályt', pick1L: (a) => `Oszlopok: ${a}.`, emptyB: 'Az üres doboz azt jelenti, hogy nincs olyan játék, amelyiknek mindkét tulajdonsága megvan.', fullB: 'Minden játék pontosan egy dobozba kerül.' },
+    facts: {
+      find: 'Ezt a táblát Carroll-diagramnak hívják Lewis Carroll, az „Alice Csodaországban” írója után. Igazi neve Charles Dodgson volt, matematikát tanított Oxfordban, és „A logika játéka” című könyvében (1886) írta le.',
+      sort: 'A könyvtárak is szabályok szerint rendezik a könyveket: sok helyen Dewey- vagy ETO-számok vannak rajtuk, ahol például az 5-ös a természettudományokat jelenti.',
+      rings: 'A kétkarikás ábra John Venn nevét viseli, aki 1880-ban tette közzé, hat évvel Carroll táblája előtt.' },
+    quiz: [
+      { q: 'Oszlopok: kerek / nem kerek. Sorok: piros / nem piros. Hová kerül egy kék labda?', opts: ['Kerek és piros', 'Kerek és nem piros', 'Nem kerek és nem piros'], ok: 1, hint: 'Tedd fel a két kérdést egymás után: kerek? piros?' },
+      { q: 'A válogatótáblában az egyik doboz üres maradt. Mit jelent ez?', opts: ['Rossz a válogatás', 'Semminek nincs meg egyszerre a két tulajdonsága', 'A két szabály ugyanaz'], ok: 1, hint: 'Nézd meg azt a két fejlécet, amelyik az üres doboznál találkozik.' },
+      { q: 'Hogyan tudod meg, hány piros dolog van a táblában?', opts: ['Megszámolok egy dobozt', 'Összeadom a piros sor dobozait', 'Megszámolom az összes dobozt'], ok: 1, hint: 'A piros dolgok lehetnek kerekek és nem kerekek is.' },
+    ],
+  },
+};
+const FACT = {
+  find: { emo: '🎩', src: 'Lewis Carroll, The Game of Logic (1886); MacTutor: Charles Dodgson' },
+  sort: { emo: '📚', src: 'OCLC: Dewey Decimal Classification; UDC Consortium' },
+  rings: { emo: '⭕', src: 'Venn, On the diagrammatic and mechanical representation of propositions (1880)' },
+};
+const TOPICS = [
+  { id: 'mt_JEtvvsAQjQ', en: 'Sorting data by two attributes', ru: 'Сортировка данных по двум признакам', hu: 'Adatok válogatása két szempont szerint' },
+  { id: 'mt_1VSfm9yiLn', en: 'Sorting into categories (age 6+)', ru: 'Сортировка по категориям (6+ лет)', hu: 'Csoportosítás kategóriák szerint (6 éves kortól)' },
+];
+
+// --- helpers -----------------------------------------------------------------------------------------------
+const TAU = Math.PI * 2;
+const ease = (t) => (t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+const hash = (n) => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+const rnd = (n) => Math.floor(Math.random() * n);
+const rr = (c, x, y, w, h, r) => { c.beginPath(); c.roundRect(x, y, w, h, Math.max(0, Math.min(r, w / 2, h / 2))); };
+const TINT = ['224,176,80', '95,143,208', '111,179,111', '143,127,208']; // both, only B, only A, outside
+const SKIN = { red: ['#ff9a9e', '#e5484d', '#8f2229'], blue: ['#a6c8ff', '#4a86e8', '#234c96'], yellow: ['#fff0a8', '#f4c430', '#a87a06'] };
+const STRIPE = { red: 'rgba(255,255,255,.7)', blue: 'rgba(255,255,255,.7)', yellow: 'rgba(140,80,0,.45)' };
+const SHAPES = ['ball', 'cube', 'star', 'button'], COLS = ['red', 'blue', 'yellow'];
+let uid = 0, pnSeq = 0;
+const rndBase = () => ({ sh: SHAPES[rnd(4)], col: COLS[rnd(3)], big: Math.random() < .5, str: Math.random() < .45 });
+const mk = (b) => ({ ...b, id: uid++, x: 0, y: 0, vx: 0, vy: 0, tx: 0, ty: 0, r: 12, init: false, st: 'chest', box: -1, pn: 0, tb: 0, pi: 0, rk: 0, sq: 0, shk: 0, air: false, drag: false, ang: (Math.random() - .5) * 1.4 });
+const truth = (o, A, B) => (RULES[B].f(o) ? 0 : 2) + (RULES[A].f(o) ? 0 : 1);
+function makeSet(A, B, n, shuffle) {
+  const out = [], order = [0, 1, 2, 3].sort(() => Math.random() - .5);
+  for (const b of order) {
+    for (let k = 0; k < 400; k++) {
+      const o = mk(rndBase());
+      if (truth(o, A, B) !== b || out.some((p) => p.sh === o.sh && p.col === o.col)) continue;
+      out.push(o); break;
+    }
+  }
+  while (out.length < n) out.push(mk(rndBase()));
+  if (shuffle) out.sort(() => Math.random() - .5);
+  out.forEach((o, i) => { o.tb = truth(o, A, B); o.pi = i; });
+  return out;
+}
+
+// --- state -------------------------------------------------------------------------------------------------
+const S = {
+  F: null, p2: 1, pile: null, sel: null, q: 0, qd: false, qopts: [], qwrong: [], qmsg: '', note: '', hlB: [], hl: -1,
+  mode: 'grid', m: 0, hv: 0, sec: null, E: null, own: [], ownObjs: null, flash: [], drag: null, hover: -1, ep: 0,
+  rb: { x: null, at: 'c', g: 1, gt: 1 }, G: null, sc: null, counts: [0, 0, 0, 0],
+};
+const lab = shell({ key: 'carroll', T, topics: TOPICS, views: ['find', 'sort', 'rings'], onLang: () => render(), onView: () => onView() });
+const secret = secretLab('carroll', () => ({
+  secrets: [{ emo: '🗃️', title: T[lang].secrets.a[0], desc: T[lang].secrets.a[1] }, { emo: '🎛️', title: T[lang].secrets.b[0], desc: T[lang].secrets.b[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+const later = (ms, fn) => { const ep = S.ep; setTimeout(() => { if (ep === S.ep) fn(); }, ms); };
+const now = () => performance.now() / 1000;
+const showStage = () => { const r = $('stage').getBoundingClientRect(); if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+
+$('ctrlBody').innerHTML = `
+  <div class="cs-row" id="rowFind"><button class="cs-c" data-act="show" id="bShow"></button><button class="btn" data-act="again" id="bAgain"></button></div>
+  <div id="rowQ"><div class="cs-opts" id="qOpts"></div></div>
+  <div class="cs-row" id="rowMode"><div class="card seg small" id="modeSeg"></div></div>
+  <div class="cs-row" id="rowPile"><button class="btn" data-act="next" id="bNext"></button><button class="cs-c" data-act="pile" id="bPile"></button></div>
+  <div class="cs-row" id="rowOwn"><div class="chips" id="ownChips"></div></div>
+  <div class="cs-row cs-sep" id="secChips"></div>`;
+
+// --- flows ---------------------------------------------------------------------------------------------------
+function newFind(pi) {
+  S.ep++; const [A, B] = PAIRS[pi];
+  S.F = { pi, A, B, objs: makeSet(A, B, 16, false), idx: 0, phase: 'demo', streak: 0, shown: false, fb: null, emptied: false };
+  S.rb.at = 'c'; S.rb.gt = 1; S.flash = [];
+  later(450, nextObj); render();
+}
+function nextObj() {
+  const F = S.F;
+  if (F.idx >= F.objs.length) { F.emptied = true; F.shown = true; F.phase = 'open'; sfx.good(); render(); return; }
+  const o = F.objs[F.idx], ch = S.G?.chest ?? { x: 40, y: 50 };
+  o.st = 'held'; o.x = ch.x; o.y = ch.y; o.vx = o.vy = 0; o.init = true; o.air = true; S.rb.gt = 1;
+  if (F.idx < 4) { F.phase = 'demo'; later(950, () => dropTo(o, o.tb, () => { F.idx++; nextObj(); })); } else F.phase = 'ask';
+  render();
+}
+function dropTo(o, box, done) {
+  S.rb.at = box & 1;
+  later(560, () => {
+    o.st = 'placed'; o.box = box; o.pn = ++pnSeq; o.air = true; S.rb.gt = 0; sfx.snap();
+    later(380, () => { S.rb.at = 'c'; S.rb.gt = 1; done(); });
+  });
+}
+function predict(box) {
+  const F = S.F, o = F.objs[F.idx];
+  if (F.phase !== 'ask' || !o) return;
+  const ok = box === o.tb, t0 = now();
+  F.phase = 'busy'; F.fb = { ok };
+  if (!ok) S.flash.push({ box, kind: 'no', t0 });
+  S.flash.push({ box: o.tb, kind: 'ok', t0 });
+  (ok ? sfx.good : sfx.bad)();
+  F.streak = ok ? F.streak + 1 : 0;
+  dropTo(o, o.tb, () => {
+    F.idx++;
+    if (F.streak >= 3) { F.shown = true; F.phase = 'open'; sfx.good(); render(); showStage(); } else nextObj();
+  });
+  render();
+}
+function showRules() {
+  const F = S.F; if (F.phase !== 'ask') return;
+  const o = F.objs[F.idx]; F.phase = 'busy'; F.fb = null; F.shown = true;
+  dropTo(o, o.tb, () => { F.idx++; F.phase = 'open'; render(); });
+  render(); showStage();
+}
+function fixFind() { if (lab.view === 'find' && S.F && S.F.phase !== 'ask' && S.F.phase !== 'open') newFind(S.F.pi); }
+function onView() { S.ep++; S.sec = null; S.drag = null; S.hover = -1; fixFind(); render(); }
+
+function newSort(pi) {
+  S.ep++; S.p2 = pi; const [A, B] = PAIRS[pi];
+  S.pile = makeSet(A, B, 12, true); S.pile.forEach((o) => { o.st = 'pile'; });
+  S.sel = null; S.q = 0; S.qd = false; S.hlB = []; S.hl = -1; S.note = ''; S.drag = null; render();
+}
+function place(o, b) {
+  if (b === o.tb) {
+    o.st = 'placed'; o.box = b; o.pn = ++pnSeq; o.air = true; o.drag = false; S.sel = null; S.note = '';
+    S.flash.push({ box: b, kind: 'ok', t0: now() }); sfx.snap();
+    if (S.pile.every((p) => p.st === 'placed')) startQ1();
+  } else {
+    o.drag = false; o.vx = o.vy = 0; o.shk = 1; S.note = 'wrong'; S.flash.push({ box: b, kind: 'no', t0: now() }); sfx.bad();
+  }
+  render();
+}
+function startQ1() {
+  const cnt = [0, 0, 0, 0]; S.pile.forEach((o) => cnt[o.tb]++);
+  S.qopts = [cnt[0] + cnt[1], cnt[0], S.pile.length].sort(() => Math.random() - .5);
+  S.qwrong = []; S.qmsg = ''; S.qd = false; S.q = 1;
+}
+
+function startEmpty() {
+  S.sec = 'empty'; S.ep++; S.flash = [];
+  S.E = { objs: makeSet('star', 'round', 10, false), idx: 0, done: false };
+  S.rb.at = 'c'; S.rb.gt = 1; later(500, autoStep); render();
+}
+function autoStep() {
+  const E = S.E, o = E.objs[E.idx];
+  if (!o) { E.done = true; sfx.good(); render(); return; }
+  const ch = S.G?.chest ?? { x: 40, y: 50 };
+  o.st = 'held'; o.x = ch.x; o.y = ch.y; o.init = true; o.air = true; S.rb.gt = 1;
+  later(260, () => dropTo(o, o.tb, () => { E.idx++; render(); later(60, autoStep); }));
+}
+function startOwn() {
+  S.sec = 'own'; S.ep++; S.own = [];
+  S.ownObjs = Array.from({ length: 12 }, (_, i) => { const o = mk(rndBase()); o.st = 'pile'; o.pi = i; return o; });
+  render();
+}
+function applyOwn() {
+  if (S.own.length === 2) {
+    const [A, B] = S.own;
+    S.ownObjs.forEach((o, i) => { o.tb = truth(o, A, B); o.st = 'placed'; o.box = o.tb; o.pn = ++pnSeq; o.air = true; });
+  } else S.ownObjs.forEach((o) => { o.st = 'pile'; o.box = -1; o.air = true; });
+}
+
+// --- geometry ------------------------------------------------------------------------------------------------
+function geom(w, h, sc) {
+  const Lw = 36, gap = 6, px = 10, robot = !!sc.robot, pile = !!sc.pile;
+  const topH = robot ? 116 : 8, hdrH = 30, pileH = pile ? 116 : 0;
+  const bw = Math.max(70, Math.min((w - Lw - 4 - gap - px * 2) / 2, 200));
+  const bh = Math.max(56, Math.min((h - topH - hdrH - 4 - gap - (pile ? pileH + 14 : 0) - 10) / 2, 200));
+  const GW = Lw + 4 + 2 * bw + gap, gx = Math.round((w - GW) / 2), bx = gx + Lw + 4, by = topH + hdrH + 4;
+  const boxes = [0, 1, 2, 3].map((i) => ({ x: bx + (i & 1) * (bw + gap), y: by + (i >> 1) * (bh + gap), w: bw, h: bh }));
+  const uni = { x: bx, y: by, w: 2 * bw + gap, h: 2 * bh + gap };
+  const R = Math.max(20, Math.min(uni.w * .29, (uni.h - 52) / 2)), cx = uni.x + uni.w / 2, cy = uni.y + uni.h / 2 + 10;
+  return { w, h, Lw, bw, bh, gap, gx, bx, by, GW, boxes, uni, hdrH, topH, R, cx, cy, cA: { x: cx - R * .55, y: cy }, cB: { x: cx + R * .55, y: cy },
+    tray: { x: gx, y: by + 2 * bh + gap + 14, w: GW, h: pileH }, clawY: 82, chest: { x: gx + 30, y: 50 }, railY: 14 };
+}
+function boxSlots(G, box, n) {
+  const b = G.boxes[box], cols = n > 9 ? 4 : 3, rows = Math.max(3, Math.ceil(n / cols)), px = 9, py = 10;
+  const cw = (b.w - px * 2) / cols, ch = (b.h - py * 2) / rows, rb = clamp(Math.min(cw, ch) * .5, 9, 24);
+  return (k) => [b.x + px + cw * ((k % cols) + .5) + (hash(k + box * 13) - .5) * cw * .12, b.y + py + ch * (Math.floor(k / cols) + .5) + (hash(k * 3 + box) - .5) * ch * .1, rb];
+}
+function traySlot(G, i) {
+  const t = G.tray, cw = (t.w - 16) / 6, ch = (t.h - 22) / 2, r = clamp(Math.min(cw, ch) * .46, 10, 24);
+  return [t.x + 8 + cw * ((i % 6) + .5), t.y + 14 + ch * (Math.floor(i / 6) + .5), r];
+}
+let RC = { key: '', slots: null, rr: 12 };
+function ringSlots(G, counts) {
+  const u = G.uni, key = counts.join(',') + [u.x | 0, u.y | 0, u.w | 0, u.h | 0].join('/');
+  if (RC.key === key) return RC;
+  const anchors = [[G.cx, G.cy], [G.cB.x + G.R * .35, G.cy], [G.cA.x - G.R * .35, G.cy], [G.cx, u.y + u.h - 26]];
+  let res = null, used = 8;
+  for (let rad = 17; rad >= 8; rad--) {
+    const got = [[], [], [], []], m = rad + 3, step = rad * 2 + 3;
+    for (let y = u.y + rad + 8, row = 0; y <= u.y + u.h - rad - 8; y += step * .9, row++) {
+      for (let x = u.x + rad + 8 + (row % 2 ? step / 2 : 0); x <= u.x + u.w - rad - 8; x += step) {
+        const dA = Math.hypot(x - G.cA.x, y - G.cA.y), dB = Math.hypot(x - G.cB.x, y - G.cB.y);
+        const inA = dA <= G.R - m, outA = dA >= G.R + m, inB = dB <= G.R - m, outB = dB >= G.R + m;
+        const rg = inA && inB ? 0 : outA && inB ? 1 : inA && outB ? 2 : outA && outB ? 3 : -1;
+        if (rg >= 0) got[rg].push([x, y]);
+      }
+    }
+    got.forEach((l, i) => l.sort((p, q) => Math.hypot(p[0] - anchors[i][0], p[1] - anchors[i][1]) - Math.hypot(q[0] - anchors[i][0], q[1] - anchors[i][1])));
+    used = rad; res = got;
+    if (got.every((l, i) => l.length >= counts[i])) break;
+  }
+  RC = { key, slots: res, rr: used };
+  return RC;
+}
+function ringRegionAt(G, x, y) {
+  const inA = Math.hypot(x - G.cA.x, y - G.cA.y) < G.R, inB = Math.hypot(x - G.cB.x, y - G.cB.y) < G.R;
+  if (inA && inB) return 0; if (inB) return 1; if (inA) return 2;
+  const u = G.uni; return x >= u.x && x <= u.x + u.w && y >= u.y && y <= u.y + u.h ? 3 : -1;
+}
+const boxAt = (G, x, y) => G.boxes.findIndex((b) => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h);
+
+// --- scene ---------------------------------------------------------------------------------------------------
+function scene() {
+  const v = lab.view;
+  if (S.sec === 'empty') return { kind: 'empty', A: 'star', B: 'round', objs: S.E.objs, hdr: true, robot: true, mark: S.E.done };
+  if (S.sec === 'own') { const r = S.own; return { kind: 'own', A: r[0], B: r[1], objs: S.ownObjs, hdr: r.length === 2, pile: true, mark: r.length === 2 }; }
+  if (v === 'find') return { kind: 'find', A: S.F.A, B: S.F.B, objs: S.F.objs, hdr: S.F.shown, robot: true };
+  const [A, B] = PAIRS[S.p2];
+  if (v === 'sort') return { kind: 'sort', A, B, objs: S.pile, hdr: true, pile: true };
+  return { kind: 'rings', A, B, objs: S.pile, hdr: true };
+}
+
+// --- update --------------------------------------------------------------------------------------------------
+function update(dt, sc, G) {
+  const rings = sc.kind === 'rings', ringMode = rings && S.mode === 'rings';
+  S.hv = clamp(S.hv + (sc.hdr ? dt : -dt) / .6, 0, 1);
+  S.m = clamp(S.m + (ringMode ? dt : -dt) / .55, 0, 1);
+  const rb = S.rb, rtx = rb.at === 'c' ? G.bx + G.bw + G.gap / 2 : G.boxes[rb.at].x + G.bw / 2;
+  rb.x = rb.x === null ? rtx : rb.x + (rtx - rb.x) * (1 - Math.exp(-dt * 8));
+  rb.g += (rb.gt - rb.g) * (1 - Math.exp(-dt * 14));
+  const placed = sc.objs.filter((o) => rings || o.st === 'placed').sort((a, b) => a.pn - b.pn);
+  const counts = [0, 0, 0, 0];
+  placed.forEach((o) => { o.rk = counts[rings ? o.tb : o.box]++; });
+  S.counts = counts;
+  const RS = ringMode ? ringSlots(G, counts) : null, slotFns = [0, 1, 2, 3].map((b) => boxSlots(G, b, counts[b]));
+  for (const o of sc.objs) {
+    let tx, ty, tr;
+    if (rings || o.st === 'placed') {
+      const b = rings ? o.tb : o.box, rs = RS && RS.slots[b][o.rk];
+      if (rs) { [tx, ty] = rs; tr = RS.rr; } else [tx, ty, tr] = slotFns[b](o.rk);
+    } else if (o.st === 'pile') [tx, ty, tr] = traySlot(G, o.pi);
+    else if (o.st === 'held') { tx = rb.x; ty = G.clawY; tr = 22; }
+    else { tx = G.chest.x; ty = G.chest.y; tr = 10; }
+    if (!o.init || o.st === 'chest') { o.x = tx; o.y = ty; o.r = tr; o.init = true; o.vx = o.vy = 0; }
+    o.tx = tx; o.ty = ty;
+    if (o.drag) continue;
+    o.vx += ((tx - o.x) * 320 - o.vx * 24) * dt; o.vy += ((ty - o.y) * 320 - o.vy * 24) * dt;
+    o.x += o.vx * dt; o.y += o.vy * dt;
+    o.r += (tr - o.r) * (1 - Math.exp(-dt * 12));
+    const d = Math.hypot(tx - o.x, ty - o.y);
+    if (d > 40) o.air = true;
+    if (o.air && d < 3 && Math.hypot(o.vx, o.vy) < 40) { o.air = false; o.sq = 1; }
+    o.sq = Math.max(0, o.sq - dt * 3.2); o.shk = Math.max(0, o.shk - dt * 2.2);
+  }
+}
+
+// --- drawing -------------------------------------------------------------------------------------------------
+function bands(c, r) { c.save(); c.rotate(-.55); for (let k = -4; k <= 4; k++) c.fillRect(-r * 1.7, k * r * .62 - r * .13, r * 3.4, r * .26); c.restore(); }
+function shapePath(c, o, r) {
+  c.beginPath();
+  if (o.sh === 'star') {
+    for (let i = 0; i < 10; i++) { const a = o.ang - Math.PI / 2 + i * Math.PI / 5, q = i % 2 ? r * .52 : r * 1.12; c[i ? 'lineTo' : 'moveTo'](Math.cos(a) * q, Math.sin(a) * q); }
+    c.closePath();
+  } else if (o.sh === 'cube') {
+    const R = r * 1.08;
+    for (let i = 0; i < 6; i++) { const a = -Math.PI / 2 + i * Math.PI / 3; c[i ? 'lineTo' : 'moveTo'](Math.cos(a) * R, Math.sin(a) * R); }
+    c.closePath();
+  } else c.arc(0, 0, r, 0, TAU);
+}
+function drawObj(c, o, x, y, r, opt = {}) {
+  const { sq = 0, lift = 0, glow = 0 } = opt;
+  r = Math.max(3, r);
+  const [lt, bs, dk] = SKIN[o.col];
+  c.save();
+  c.save(); c.translate(x + r * .1 + lift * .2, y + r * .86); c.scale(1, .3);
+  let g = c.createRadialGradient(0, 0, 0, 0, 0, r * 1.05);
+  g.addColorStop(0, `rgba(0,0,0,${.5 - Math.min(.25, lift / 40)})`); g.addColorStop(1, 'rgba(0,0,0,0)');
+  c.fillStyle = g; c.beginPath(); c.arc(0, 0, r * 1.05, 0, TAU); c.fill(); c.restore();
+  c.translate(x, y - lift); c.translate(0, r * .8); c.scale(1 + .16 * sq, 1 - .16 * sq); c.translate(0, -r * .8);
+  c.lineJoin = 'round';
+  if (glow) { c.beginPath(); c.arc(0, 0, r + 7, 0, TAU); c.strokeStyle = 'rgba(255,236,170,.95)'; c.lineWidth = 3; c.setLineDash([6, 5]); c.stroke(); c.setLineDash([]); }
+  if (o.sh === 'cube') {
+    const R = r * 1.08, v = [0, 1, 2, 3, 4, 5].map((i) => [Math.cos(-Math.PI / 2 + i * Math.PI / 3) * R, Math.sin(-Math.PI / 2 + i * Math.PI / 3) * R]), C = [0, 0];
+    const face = (pts, fill) => { c.beginPath(); pts.forEach(([px, py], i) => (i ? c.lineTo(px, py) : c.moveTo(px, py))); c.closePath(); c.fillStyle = fill; c.fill(); };
+    face([v[0], v[1], C, v[5]], lt); face([v[5], C, v[3], v[4]], bs); face([C, v[1], v[2], v[3]], dk);
+    if (o.str) { c.save(); shapePath(c, o, r); c.clip(); c.fillStyle = STRIPE[o.col]; bands(c, r); c.restore(); }
+    c.strokeStyle = 'rgba(25,10,40,.55)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(0, 0); c.lineTo(v[1][0], v[1][1]); c.moveTo(0, 0); c.lineTo(v[5][0], v[5][1]); c.moveTo(0, 0); c.lineTo(v[3][0], v[3][1]); c.stroke();
+    c.strokeStyle = 'rgba(255,255,255,.65)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(v[5][0], v[5][1]); c.lineTo(v[0][0], v[0][1]); c.lineTo(v[1][0], v[1][1]); c.stroke();
+  } else {
+    g = c.createRadialGradient(-r * .35, -r * .4, r * .08, -r * .1, -r * .1, r * 1.25);
+    g.addColorStop(0, lt); g.addColorStop(.5, bs); g.addColorStop(1, dk);
+    shapePath(c, o, r); c.fillStyle = g; c.fill();
+    if (o.str) { c.save(); shapePath(c, o, r); c.clip(); c.fillStyle = STRIPE[o.col]; bands(c, r); c.restore(); }
+    c.save(); shapePath(c, o, r); c.clip();
+    g = c.createRadialGradient(-r * .35, -r * .4, r * .2, 0, 0, r * 1.3);
+    g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(.6, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(15,0,30,.38)');
+    c.fillStyle = g; c.fillRect(-r * 2, -r * 2, r * 4, r * 4); c.restore();
+    if (o.sh === 'button') {
+      g = c.createLinearGradient(-r * .5, -r * .5, r * .5, r * .5); g.addColorStop(0, 'rgba(0,0,0,.25)'); g.addColorStop(1, 'rgba(255,255,255,.2)');
+      c.beginPath(); c.arc(0, 0, r * .72, 0, TAU); c.fillStyle = g; c.fill(); c.strokeStyle = 'rgba(0,0,0,.3)'; c.lineWidth = 1.2; c.stroke();
+      const hr = Math.max(1.4, r * .1);
+      for (let k = 0; k < 4; k++) {
+        const a = o.ang + Math.PI / 4 + k * Math.PI / 2, hx = Math.cos(a) * r * .34, hy = Math.sin(a) * r * .34;
+        c.beginPath(); c.arc(hx, hy, hr, 0, TAU); c.fillStyle = '#1a1126'; c.fill();
+        c.beginPath(); c.arc(hx, hy, hr, .2, 1.4); c.strokeStyle = 'rgba(255,255,255,.4)'; c.lineWidth = .8; c.stroke();
+      }
+    }
+    shapePath(c, o, r); c.lineWidth = 1.6; c.strokeStyle = 'rgba(25,10,40,.8)'; c.stroke();
+    c.save(); c.translate(-r * (o.sh === 'star' ? .2 : .36), -r * (o.sh === 'star' ? .35 : .42)); c.rotate(-.6); c.fillStyle = 'rgba(255,255,255,.8)';
+    const k = o.sh === 'star' ? .6 : 1; c.beginPath(); c.ellipse(0, 0, Math.max(0, r * .26 * k), Math.max(0, r * .15 * k), 0, 0, TAU); c.fill(); c.restore();
+    return c.restore();
+  }
+  shapePath(c, o, r); c.lineWidth = 1.6; c.strokeStyle = 'rgba(25,10,40,.8)'; c.stroke();
+  c.restore();
+}
+function fit(c, s, maxW, size) {
+  let z = size;
+  for (; z > 12; z--) { c.font = `800 ${z}px Nunito, sans-serif`; if (c.measureText(s).width <= maxW) return; }
+  c.font = '800 12px Nunito, sans-serif';
+}
+function pillText(c, s, cx, cy, W) {
+  c.save(); c.font = '800 12px Nunito, sans-serif';
+  const tw = c.measureText(s).width + 16, x = clamp(cx - tw / 2, 4, Math.max(4, W - tw - 4));
+  rr(c, x, cy - 11, tw, 22, 11); c.fillStyle = 'rgba(14,17,28,.84)'; c.fill(); c.strokeStyle = 'rgba(255,255,255,.2)'; c.lineWidth = 1; c.stroke();
+  c.fillStyle = '#fff'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(s, x + tw / 2, cy + 1); c.restore();
+}
+function badge(c, n, x, y, hot) {
+  c.save(); c.beginPath(); c.arc(x, y, 12, 0, TAU); c.fillStyle = hot ? '#f5c84c' : 'rgba(14,17,28,.9)'; c.fill();
+  c.lineWidth = 1.5; c.strokeStyle = 'rgba(255,255,255,.55)'; c.stroke();
+  c.fillStyle = hot ? '#1a1306' : '#fff'; c.font = '900 13px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(n, x, y + 1); c.restore();
+}
+function woodFill(c, x, y, w, h, r, dark) {
+  c.save(); c.shadowColor = 'rgba(0,0,0,.45)'; c.shadowBlur = 12; c.shadowOffsetY = 4;
+  rr(c, x, y, w, h, r);
+  const g = c.createLinearGradient(x, y, x + w * .4, y + h);
+  g.addColorStop(0, dark ? '#c68d57' : '#d6a56d'); g.addColorStop(.5, dark ? '#9a6638' : '#b57f48'); g.addColorStop(1, dark ? '#6b4222' : '#7e5129');
+  c.fillStyle = g; c.fill(); c.shadowColor = 'transparent'; c.lineWidth = 2; c.strokeStyle = '#3a2210'; c.stroke();
+  const m = 7; rr(c, x + m, y + m, w - 2 * m, h - 2 * m, r - 4);
+  const g2 = c.createLinearGradient(0, y + m, 0, y + h - m); g2.addColorStop(0, '#2a2030'); g2.addColorStop(1, '#3b2e3a');
+  c.fillStyle = g2; c.fill();
+  c.restore();
+}
+function drawBox(c, b, i, tint) {
+  woodFill(c, b.x, b.y, b.w, b.h, 14, false);
+  const m = 7;
+  c.save(); rr(c, b.x + m, b.y + m, b.w - 2 * m, b.h - 2 * m, 10); c.fillStyle = `rgba(${TINT[i]},${tint})`; c.fill(); c.clip();
+  const g3 = c.createLinearGradient(b.x + m, b.y + m, b.x + m + 28, b.y + m + 28); g3.addColorStop(0, 'rgba(0,0,0,.4)'); g3.addColorStop(1, 'rgba(0,0,0,0)');
+  c.fillStyle = g3; c.fillRect(b.x, b.y, b.w, b.h); c.restore();
+  rr(c, b.x + m, b.y + m, b.w - 2 * m, b.h - 2 * m, 10); c.lineWidth = 1.5; c.strokeStyle = 'rgba(255,230,190,.2)'; c.stroke();
+  for (const [nx, ny] of [[3.5, 3.5], [b.w - 3.5, 3.5], [3.5, b.h - 3.5], [b.w - 3.5, b.h - 3.5]]) {
+    c.beginPath(); c.arc(b.x + nx, b.y + ny, 1.8, 0, TAU); c.fillStyle = '#f0dcb4'; c.fill(); c.lineWidth = .8; c.strokeStyle = '#3a2210'; c.stroke();
+  }
+}
+function plaque(c, x, y, w, h, label, t, vert) {
+  c.save(); c.translate(x + w / 2, y + h / 2);
+  if (vert) c.rotate(-Math.PI / 2);
+  const W = vert ? h : w, H = vert ? w : h, open = t > .5 && label;
+  c.scale(1, Math.max(.04, Math.abs(Math.cos(Math.PI * t))));
+  c.shadowColor = 'rgba(0,0,0,.4)'; c.shadowBlur = 6; c.shadowOffsetY = 2;
+  rr(c, -W / 2 + 2, -H / 2 + 2, W - 4, H - 4, 9);
+  const g = c.createLinearGradient(0, -H / 2, 0, H / 2);
+  if (open) { g.addColorStop(0, '#fff4d8'); g.addColorStop(1, '#ecd49c'); } else { g.addColorStop(0, '#454d7e'); g.addColorStop(1, '#272c52'); }
+  c.fillStyle = g; c.fill(); c.shadowColor = 'transparent'; c.lineWidth = 1.5; c.strokeStyle = open ? '#6b4a1e' : 'rgba(170,179,230,.55)'; c.stroke();
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  if (open) { fit(c, label, W - 14, 14); c.fillStyle = '#3a2810'; c.fillText(label, 0, 1); }
+  else {
+    c.save(); rr(c, -W / 2 + 2, -H / 2 + 2, W - 4, H - 4, 9); c.clip(); c.strokeStyle = 'rgba(255,255,255,.07)'; c.lineWidth = 3;
+    for (let k = -W; k < W; k += 9) { c.beginPath(); c.moveTo(k, -H); c.lineTo(k + H * 2, H); c.stroke(); } c.restore();
+    c.setLineDash([4, 4]); rr(c, -W / 2 + 5, -H / 2 + 5, W - 10, H - 10, 6); c.lineWidth = 1; c.strokeStyle = 'rgba(200,208,255,.35)'; c.stroke(); c.setLineDash([]);
+    c.font = '900 20px Nunito, sans-serif'; c.fillStyle = '#dfe4ff'; c.fillText('?', 0, 1);
+  }
+  c.restore();
+}
+function drawHeaders(c, G, sc) {
+  const t = ease(S.hv), A = sc.A && RL(sc.A), B = sc.B && RL(sc.B);
+  for (let i = 0; i < 2; i++) plaque(c, G.boxes[i].x, G.topH, G.bw, G.hdrH, A && A[i], t, false);
+  for (let i = 0; i < 2; i++) plaque(c, G.gx, G.boxes[i * 2].y, G.Lw, G.bh, B && B[i], t, true);
+}
+function drawEmpty(c, b) {
+  const x = b.x + b.w / 2, y = b.y + b.h / 2;
+  c.save(); c.strokeStyle = 'rgba(255,255,255,.4)'; c.lineWidth = 3; c.setLineDash([6, 5]); rr(c, b.x + 10, b.y + 10, b.w - 20, b.h - 20, 8); c.stroke(); c.setLineDash([]);
+  c.beginPath(); c.arc(x, y, 14, 0, TAU); c.moveTo(x - 10, y + 10); c.lineTo(x + 10, y - 10); c.stroke(); c.restore();
+}
+function drawTray(c, G, label) {
+  const t = G.tray; woodFill(c, t.x, t.y, t.w, t.h, 16, true);
+  pillText(c, label, t.x + 56, t.y - 1, G.w);
+}
+function metal(c, x, y, w, h, r) {
+  rr(c, x, y, w, h, r); const g = c.createLinearGradient(x, y, x + w * .5, y + h);
+  g.addColorStop(0, '#f1f5fc'); g.addColorStop(.5, '#aeb8cc'); g.addColorStop(1, '#6f7a94'); c.fillStyle = g; c.fill(); c.lineWidth = 1.5; c.strokeStyle = '#2e3550'; c.stroke();
+}
+function drawChest(c, G, left) {
+  const { x, y } = G.chest; c.save();
+  c.shadowColor = 'rgba(0,0,0,.4)'; c.shadowBlur = 8; c.shadowOffsetY = 3;
+  rr(c, x - 22, y - 4, 44, 26, 6); let g = c.createLinearGradient(x - 22, y, x + 22, y + 24); g.addColorStop(0, '#c68d57'); g.addColorStop(1, '#6b4222');
+  c.fillStyle = g; c.fill(); c.shadowColor = 'transparent'; c.lineWidth = 1.5; c.strokeStyle = '#3a2210'; c.stroke();
+  rr(c, x - 23, y - 18, 46, 17, 8); g = c.createLinearGradient(x - 23, y - 18, x + 23, y); g.addColorStop(0, '#e0b27a'); g.addColorStop(1, '#9a6638'); c.fillStyle = g; c.fill(); c.stroke();
+  c.fillStyle = '#8d98b2'; c.fillRect(x - 3, y - 18, 6, 40); c.strokeRect(x - 3, y - 18, 6, 40);
+  c.beginPath(); c.arc(x, y + 1, 3.2, 0, TAU); c.fillStyle = '#f5c84c'; c.fill(); c.stroke();
+  c.restore(); pillText(c, `×${left}`, x, y + 36, G.w);
+}
+function drawRobotBack(c, G, time, dirX) {
+  const x = S.rb.x, bx0 = G.bx, bx1 = G.bx + G.uni.w;
+  metal(c, bx0 - 6, G.railY - 5, bx1 - bx0 + 12, 10, 5);
+  metal(c, x - 4, 46, 8, 28, 3); // arm
+  c.save(); c.strokeStyle = 'rgba(30,40,70,.5)'; c.lineWidth = 1; c.beginPath(); c.moveTo(x - 4, 56); c.lineTo(x + 4, 56); c.moveTo(x - 4, 64); c.lineTo(x + 4, 64); c.stroke(); c.restore();
+  c.save(); c.shadowColor = 'rgba(0,0,0,.4)'; c.shadowBlur = 8; c.shadowOffsetY = 3; metal(c, x - 30, 18, 60, 30, 10); c.restore();
+  rr(c, x - 23, 24, 46, 17, 8); c.fillStyle = '#1d2440'; c.fill();
+  const blink = (time % 4.2) > 4.08 ? .15 : 1, look = clamp(dirX / 40, -1, 1) * 2;
+  for (const ex of [-9, 9]) {
+    c.beginPath(); c.ellipse(x + ex, 32.5, 5, Math.max(0, 5 * blink), 0, 0, TAU); c.fillStyle = '#fff'; c.fill();
+    c.beginPath(); c.arc(x + ex + look, 33, 2.4 * blink + .1, 0, TAU); c.fillStyle = '#1d2440'; c.fill();
+    c.beginPath(); c.arc(x + ex + look - .8, 32, .9, 0, TAU); c.fillStyle = '#fff'; c.fill();
+  }
+  for (const dx of [-25, 25]) { c.beginPath(); c.arc(x + dx, 43, 1.6, 0, TAU); c.fillStyle = '#5b667f'; c.fill(); }
+}
+function drawRobotFront(c, G, held) {
+  const x = S.rb.x, rh = held ? held.r * (held.big ? 1 : .68) : 14, gap = rh + 14 - (rh + 11) * S.rb.g;
+  metal(c, x - 12, 70, 24, 8, 3);
+  for (const s of [-1, 1]) {
+    c.beginPath(); c.moveTo(x + s * 9, 76); c.quadraticCurveTo(x + s * (gap + 2), 78, x + s * gap, 94);
+    c.lineCap = 'round'; c.strokeStyle = '#2e3550'; c.lineWidth = 7; c.stroke(); c.strokeStyle = '#a9b4cc'; c.lineWidth = 4; c.stroke();
+  }
+}
+function drawRings(c, G, sc, time) {
+  const u = G.uni, R = G.R;
+  woodFill(c, u.x, u.y, u.w, u.h, 16, false);
+  c.save(); rr(c, u.x + 7, u.y + 7, u.w - 14, u.h - 14, 10); c.fillStyle = `rgba(${TINT[3]},.2)`; c.fill(); c.restore();
+  const circ = (p) => { c.beginPath(); c.arc(p.x, p.y, R, 0, TAU); };
+  circ(G.cA); c.fillStyle = `rgba(${TINT[2]},.34)`; c.fill();
+  circ(G.cB); c.fillStyle = `rgba(${TINT[1]},.34)`; c.fill();
+  c.save(); circ(G.cA); c.clip(); circ(G.cB); c.fillStyle = `rgba(${TINT[0]},.5)`; c.fill(); c.restore();
+  circ(G.cA); c.lineWidth = 3; c.strokeStyle = `rgba(${TINT[2]},.95)`; c.stroke();
+  circ(G.cB); c.strokeStyle = `rgba(${TINT[1]},.95)`; c.stroke();
+  if (S.hl >= 0) {
+    const pulse = .14 + .08 * Math.sin(time * 5);
+    c.save(); c.fillStyle = `rgba(255,255,255,${pulse + .1})`;
+    const big = () => c.rect(u.x - 2, u.y - 2, u.w + 4, u.h + 4);
+    if (S.hl === 0) { circ(G.cA); c.clip(); circ(G.cB); c.fill(); }
+    else if (S.hl === 1) { circ(G.cB); c.clip(); c.beginPath(); big(); c.arc(G.cA.x, G.cA.y, R, 0, TAU); c.fill('evenodd'); }
+    else if (S.hl === 2) { circ(G.cA); c.clip(); c.beginPath(); big(); c.arc(G.cB.x, G.cB.y, R, 0, TAU); c.fill('evenodd'); }
+    else { c.beginPath(); big(); c.arc(G.cA.x, G.cA.y, R, 0, TAU); c.clip('evenodd'); c.beginPath(); big(); c.arc(G.cB.x, G.cB.y, R, 0, TAU); c.fill('evenodd'); }
+    c.restore();
+  }
+  const A = RL(sc.A), B = RL(sc.B);
+  pillText(c, A[0], G.cA.x - R * .3, G.cy - R - 14, G.w); pillText(c, B[0], G.cB.x + R * .3, G.cy - R - 14, G.w);
+}
+function paint(c, w, h, sc, G, time) {
+  const rings = sc.kind === 'rings', m = rings ? ease(S.m) : 0, t = T[lang];
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  const held = sc.objs.find((o) => o.st === 'held');
+  if (sc.robot) {
+    const left = sc.objs.filter((o) => o.st === 'chest').length;
+    drawChest(c, G, left);
+    drawRobotBack(c, G, time, held ? held.tx - S.rb.x : 0);
+  }
+  if (1 - m > .01) {
+    c.save(); c.globalAlpha = 1 - m;
+    for (let i = 0; i < 4; i++) drawBox(c, G.boxes[i], i, rings ? .24 : .1);
+    drawHeaders(c, G, sc);
+    if (sc.mark) for (let i = 0; i < 4; i++) if (!S.counts[i]) drawEmpty(c, G.boxes[i]);
+    c.restore();
+  }
+  if (rings && m > .01) { c.save(); c.globalAlpha = m; drawRings(c, G, sc, time); c.restore(); }
+  if (sc.pile) drawTray(c, G, t.s.chest);
+  // objects
+  const vis = sc.objs.filter((o) => o.st !== 'chest').sort((a, b) => (a.drag ? 1e5 : a.y) - (b.drag ? 1e5 : b.y));
+  for (const o of vis) {
+    const sel = S.sel === o && sc.kind === 'sort';
+    drawObj(c, o, o.x + Math.sin(time * 50) * 7 * o.shk, o.y, o.r * (o.big ? 1 : .68), { sq: o.sq, lift: o.drag ? 10 : sel ? 7 : 0, glow: sel ? 1 : 0 });
+  }
+  if (sc.robot) drawRobotFront(c, G, held);
+  // flashes and highlights
+  S.flash = S.flash.filter((f) => time - f.t0 < .9);
+  if (1 - m > .01) {
+    c.save(); c.globalAlpha = 1 - m;
+    for (const f of S.flash) {
+      const b = G.boxes[f.box], a = 1 - (time - f.t0) / .9;
+      c.shadowColor = f.kind === 'ok' ? 'rgba(61,220,151,.9)' : 'rgba(255,59,48,.9)'; c.shadowBlur = 14;
+      rr(c, b.x - 1, b.y - 1, b.w + 2, b.h + 2, 15); c.lineWidth = 4; c.strokeStyle = f.kind === 'ok' ? `rgba(61,220,151,${a})` : `rgba(255,90,80,${a})`; c.stroke();
+    }
+    c.shadowColor = 'transparent';
+    const hl = sc.kind === 'rings' ? (S.hl >= 0 ? [S.hl] : []) : sc.kind === 'sort' ? S.hlB : [];
+    for (const i of hl) { const b = G.boxes[i]; rr(c, b.x + 1, b.y + 1, b.w - 2, b.h - 2, 13); c.lineWidth = 3.5; c.strokeStyle = `rgba(245,200,76,${.65 + .35 * Math.sin(time * 5)})`; c.stroke(); }
+    if (S.drag && S.drag.moved && S.hover >= 0) { const b = G.boxes[S.hover]; c.setLineDash([8, 6]); rr(c, b.x + 2, b.y + 2, b.w - 4, b.h - 4, 12); c.lineWidth = 3; c.strokeStyle = '#fff'; c.stroke(); c.setLineDash([]); }
+    c.restore();
+  }
+  if (rings) {
+    const R = G.R, u = G.uni;
+    const bp = ringMode() ? [[G.cx, G.cy - R * .835], [G.cB.x + R * .7, G.cy - R * .72], [G.cA.x - R * .7, G.cy - R * .72], [u.x + u.w - 20, u.y + u.h - 18]]
+      : G.boxes.map((b) => [b.x + b.w - 20, b.y + 4]);
+    bp.forEach(([x, y], i) => badge(c, S.counts[i], x, y, S.hl === i));
+  }
+}
+const ringMode = () => S.mode === 'rings';
+
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  if (!S.F || !S.pile) return;
+  const sc = scene(), G = geom(w, h, sc);
+  S.sc = sc; S.G = G;
+  update(dt, sc, G);
+  paint(c, w, h, sc, G, time);
+});
+
+// --- pointer -------------------------------------------------------------------------------------------------
+const cv = $('cv');
+const pt = (ev) => { const r = cv.getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; };
+function hitPile(sc, x, y) {
+  let best = null, bd = 1e9;
+  for (const o of sc.objs) {
+    if (o.st !== 'pile') continue;
+    const d = Math.hypot(o.x - x, o.y - y);
+    if (d < o.r * (o.big ? 1 : .68) + 10 && d < bd) { best = o; bd = d; }
+  }
+  return best;
+}
+function tapAt(x, y) {
+  const sc = S.sc, G = S.G; if (!sc || !G) return;
+  if (sc.kind === 'find') { const b = boxAt(G, x, y); if (b >= 0) predict(b); }
+  else if (sc.kind === 'sort') {
+    const b = boxAt(G, x, y); if (b < 0) return;
+    if (S.q === 0 && S.sel) place(S.sel, b);
+    else if (S.q === 2) {
+      if (b === 3) { S.q = 3; S.hlB = [3]; S.flash.push({ box: 3, kind: 'ok', t0: now() }); sfx.good(); S.qmsg = ''; showStage(); }
+      else { S.qmsg = 'no'; S.flash.push({ box: b, kind: 'no', t0: now() }); sfx.bad(); }
+      render();
+    }
+  } else if (sc.kind === 'rings') {
+    const r = S.mode === 'rings' ? ringRegionAt(G, x, y) : boxAt(G, x, y);
+    S.hl = r < 0 || r === S.hl ? -1 : r; sfx.tick(); render();
+  }
+}
+cv.addEventListener('pointerdown', (ev) => {
+  const [x, y] = pt(ev), sc = S.sc; if (!sc) return;
+  if (sc.kind === 'sort' && S.q === 0) {
+    const o = hitPile(sc, x, y);
+    if (o) { S.drag = { o, wasSel: S.sel === o, sx: x, sy: y, dx: o.x - x, dy: o.y - y, moved: false }; S.sel = o; try { cv.setPointerCapture(ev.pointerId); } catch { /* ok */ } sfx.tick(); render(); return; }
+  }
+  tapAt(x, y);
+});
+cv.addEventListener('pointermove', (ev) => {
+  const d = S.drag; if (!d) return;
+  const [x, y] = pt(ev);
+  if (!d.moved && Math.hypot(x - d.sx, y - d.sy) > 6) { d.moved = true; d.o.drag = true; }
+  if (d.moved) { d.o.x = x + d.dx; d.o.y = y + d.dy; d.o.vx = d.o.vy = 0; S.hover = boxAt(S.G, x, y); }
+});
+function endDrag(ev, cancel) {
+  const d = S.drag; if (!d) return;
+  S.drag = null; S.hover = -1;
+  const [x, y] = pt(ev);
+  if (d.moved) {
+    d.o.drag = false;
+    const b = cancel ? -1 : boxAt(S.G, x, y);
+    if (b >= 0) place(d.o, b); else { S.sel = null; render(); }
+  } else if (d.wasSel) { S.sel = null; render(); }
+}
+cv.addEventListener('pointerup', (ev) => endDrag(ev, false));
+cv.addEventListener('pointercancel', (ev) => endDrag(ev, true));
+
+// --- controls ------------------------------------------------------------------------------------------------
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b) return;
+  const act = b.dataset.act;
+  if (act === 'show') showRules();
+  else if (act === 'again') { sfx.click(); newFind((S.F.pi + 1) % 4); }
+  else if (act === 'pile') { sfx.click(); newSort((S.p2 + 1) % 4); }
+  else if (act === 'mode') { S.mode = b.dataset.m; sfx.click(); }
+  else if (act === 'next') { S.q = 2; S.qmsg = ''; S.hlB = []; sfx.click(); }
+  else if (act === 'qopt') {
+    const n = +b.dataset.v, cnt = [0, 0, 0, 0]; S.pile.forEach((o) => cnt[o.tb]++);
+    if (n === cnt[0] + cnt[1]) { S.qd = true; S.hlB = [0, 1]; S.flash.push({ box: 0, kind: 'ok', t0: now() }, { box: 1, kind: 'ok', t0: now() }); sfx.good(); showStage(); }
+    else { S.qwrong.push(n); S.qmsg = 'no'; sfx.bad(); }
+  } else if (act === 'sec') {
+    const k = b.dataset.k;
+    if (!secret.unlocked()) return secret.open();
+    sfx.click();
+    if (S.sec === k) { S.sec = null; S.ep++; S.drag = null; fixFind(); } else if (k === 'empty') startEmpty(); else startOwn();
+  } else if (act === 'rule') {
+    const k = b.dataset.k, i = S.own.indexOf(k);
+    if (i >= 0) S.own.splice(i, 1); else { S.own.push(k); if (S.own.length > 2) S.own.shift(); }
+    applyOwn(); sfx.click();
+  }
+  render();
+});
+
+// --- render --------------------------------------------------------------------------------------------------
+const show = (id, on) => { $(id).style.display = on ? '' : 'none'; };
+function render() {
+  if (!S.F) return;
+  const t = T[lang], v = lab.view, sc = scene(), k = sc.kind;
+  document.body.dataset.v = k === 'sort' || k === 'own' ? 'sort' : k === 'rings' ? 'rings' : 'find';
+  if (k === 'sort') document.body.dataset.drag = '1'; else delete document.body.dataset.drag;
+  show('rowFind', k === 'find'); show('rowQ', k === 'sort' && S.q === 1 && !S.qd); show('rowMode', k === 'rings');
+  show('rowPile', k === 'sort' || k === 'rings'); show('rowOwn', k === 'own');
+  lab.setGlow('rgba(224, 176, 80, .26)');
+  const open = secret.unlocked();
+  const sc_ = (key, emo) => `<button class="cs-c cs-sec ${open ? 'open' : ''} ${S.sec === key ? 'on' : ''}" data-act="sec" data-k="${key}">${open ? `${emo} ${esc(t.secrets[key === 'empty' ? 'a' : 'b'][0])}` : '🔒 ???'}</button>`;
+  $('secChips').innerHTML = sc_('empty', '🗃️') + sc_('own', '🎛️');
+  const fk = v === 'rings' ? 'rings' : v === 'sort' ? 'sort' : 'find';
+  lab.setFacts([{ emo: FACT[fk].emo, text: t.facts[fk], src: FACT[fk].src }]);
+  if (k === 'find') renderFind(t); else if (k === 'sort') renderSort(t); else if (k === 'rings') renderRings(t); else if (k === 'empty') renderEmpty(t); else renderOwn(t);
+}
+function renderFind(t) {
+  const F = S.F, A = RL(F.A), B = RL(F.B), n = F.objs.filter((o) => o.st === 'placed').length;
+  $('bShow').textContent = t.f.show; $('bShow').disabled = F.phase !== 'ask'; show('bShow', !F.shown);
+  $('bAgain').textContent = t.f.again; show('bAgain', F.shown);
+  lab.setReadout(F.shown ? `${A[0]} × ${B[0]}` : '?', t.f.cnt(n), !F.shown && F.phase !== 'demo' && F.streak > 0 ? t.f.streak(F.streak) : '', '#e0b050');
+  let st;
+  if (F.shown) st = { emo: '🗃️', title: t.f.openT, lead: (F.emptied ? t.f.emptied + ' ' : '') + t.f.openL(A, B), body: t.f.openB };
+  else if (F.phase === 'demo') st = { emo: '🤖', title: t.f.watch[0], lead: t.f.watch[1], body: '' };
+  else if (F.phase === 'busy' && F.fb) st = { emo: F.fb.ok ? '✅' : '👀', title: F.fb.ok ? t.f.ok : t.f.no, lead: F.fb.ok ? t.f.okL : t.f.noL, body: '' };
+  else st = { emo: '🤔', title: t.f.ask[0], lead: t.f.ask[1], body: t.f.askB };
+  lab.setState({ ...st, extra: '' });
+}
+function renderSort(t) {
+  const [A, B] = PAIRS[S.p2], ra = RL(A), rb = RL(B), n = S.pile.filter((o) => o.st === 'placed').length, cnt = [0, 0, 0, 0];
+  S.pile.forEach((o) => cnt[o.tb]++);
+  $('bPile').textContent = t.s.newPile; $('bNext').textContent = t.s.next; show('bNext', S.q === 1 && S.qd);
+  show('bPile', true);
+  lab.setReadout(`${n}/${S.pile.length}`, t.sorted, '', '#e0b050');
+  $('qOpts').innerHTML = S.qopts.map((x) => `<button class="cs-opt" data-act="qopt" data-v="${x}" ${S.qwrong.includes(x) ? 'disabled' : ''}>${x}</button>`).join('');
+  let st;
+  if (S.q === 0) st = S.note === 'wrong' ? { emo: '🙅', title: t.s.wrong, lead: t.s.wrongL, body: '' } : { emo: '🧸', title: t.s.t, lead: t.s.lead, body: t.s.body };
+  else if (S.q === 1) {
+    const total = cnt[0] + cnt[1];
+    st = S.qd ? { emo: '✅', title: t.s.right, lead: `${cnt[0]} + ${cnt[1]} = ${total}`, body: t.s.q1okB }
+      : S.qmsg === 'no' ? { emo: '🤔', title: t.s.q1no, lead: t.s.q1noL, body: t.s.q1(rb[0], RULES[B].gen) }
+      : { emo: '🔢', title: t.s.q1(rb[0], RULES[B].gen), lead: t.s.q1L, body: '' };
+  } else if (S.q === 2) st = S.qmsg === 'no' ? { emo: '🤔', title: t.s.q2no, lead: t.s.q2noL, body: '' } : { emo: '👆', title: t.s.q2(ra[1], rb[1]), lead: t.s.q2L, body: '' };
+  else st = { emo: '🏆', title: t.s.done, lead: t.s.doneL, body: t.s.q2ok(t.toys(cnt[3])) };
+  lab.setState({ ...st, extra: '' });
+}
+function renderRings(t) {
+  const [A, B] = PAIRS[S.p2], ra = RL(A), rb = RL(B), n = S.hl >= 0 ? S.counts[S.hl] : S.pile.length;
+  const names = [t.and(ra[0], rb[0]), t.and(ra[1], rb[0]), t.and(ra[0], rb[1]), t.and(ra[1], rb[1])];
+  $('modeSeg').innerHTML = [['grid', t.r.grid], ['rings', t.r.rings]].map(([m, l]) => `<button data-act="mode" data-m="${m}" class="${S.mode === m ? 'on' : ''}">${esc(l)}</button>`).join('');
+  $('bPile').textContent = t.s.newPile; show('bNext', false); show('bPile', true);
+  lab.setReadout(String(n), S.hl >= 0 ? names[S.hl] : t.toys(S.pile.length).replace(/^\d+ /, ''), '', '#e0b050');
+  lab.setState(S.hl >= 0 ? { emo: '🔎', title: names[S.hl], lead: t.toys(n), body: t.r.where[S.hl](ra[0], rb[0]), extra: '' }
+    : { emo: '⭕', title: t.r.t, lead: t.r.lead, body: t.r.body, extra: '' });
+}
+function renderEmpty(t) {
+  const E = S.E, ra = RL('star'), rb = RL('round');
+  lab.setReadout(E.done ? '0' : `${E.idx}/${E.objs.length}`, E.done ? t.and(ra[0], rb[0]) : t.sorted, '', '#e0b050');
+  lab.setState(E.done ? { emo: '🗃️', title: t.ea.doneT, lead: t.ea.doneL, body: t.ea.doneB, extra: '' } : { emo: '🤖', title: t.ea.run[0], lead: t.ea.run[1], body: '', extra: '' });
+}
+function renderOwn(t) {
+  const r = S.own, o = t.ob;
+  $('ownChips').innerHTML = OWN.map((k) => `<button class="cs-c ${r.includes(k) ? 'on' : ''}" data-act="rule" data-k="${k}">${r.includes(k) ? `${r.indexOf(k) + 1} · ` : ''}${esc(RULES[k][lang][0])}</button>`).join('');
+  if (r.length === 2) {
+    const A = RL(r[0]), B = RL(r[1]), empty = S.counts.filter((x) => !x).length;
+    lab.setReadout(`${A[0]} × ${B[0]}`, '', '', '#e0b050');
+    lab.setState({ emo: '🎛️', title: `${A[0]} × ${B[0]}`, lead: t.f.openL(A, B), body: empty ? o.emptyB : o.fullB, extra: '' });
+  } else {
+    lab.setReadout('?', '', '', '#e0b050');
+    lab.setState(r.length === 1 ? { emo: '🎛️', title: o.pick1T, lead: o.pick1L(RL(r[0])[0]), body: '', extra: '' } : { emo: '🎛️', title: o.pickT, lead: o.pickL, body: '', extra: '' });
+  }
+}
+
+newSort(1);
+newFind(0);
+</script>
+</body>
+</html>
