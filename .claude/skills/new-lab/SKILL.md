@@ -100,13 +100,13 @@ One folder, one page: `labs/<id>/index.html`. Copy the `<head>` pattern of `labs
 Append one entry to `labs/registry.json`:
 
 ```json
-{ "id": "magnets", "path": "labs/magnets/", "emoji": "🧲", "subject": "Science",
+{ "id": "magnets", "path": "labs/magnets/", "emoji": "🧲", "subject": "Science", "added": "2026-11-01",
   "title": { "en": "Magnet Lab", "ru": "Магнитная лаборатория", "hu": "Mágneslabor" },
   "blurb": { "en": "One sentence for the overview card.", "ru": "…", "hu": "…" },
   "topics": ["mt_9NvuqZKNiV", "mt_jgNB2752b9"] }
 ```
 
-Add `"lang": "<code>"` only for a lab made for one language's speakers. Then regenerate the catalog (never edit it by hand) and commit both files:
+`added` is the day the lab is added (YYYY-MM-DD): the overview's "Newest first" order groups labs by it, and the latest day's labs get a "New" badge. Add `"lang": "<code>"` only for a lab made for one language's speakers. Then regenerate the catalog (never edit it by hand) and commit both files:
 
 ```bash
 node scripts/labs-catalog.mjs

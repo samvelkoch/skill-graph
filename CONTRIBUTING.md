@@ -31,7 +31,7 @@ Not sure where something belongs? Open an issue and describe it in plain words; 
    |---|---|
    | `node scripts/validate.mjs` | The upstream data in `data/`: structure, references between topics, edges and standards, counts and checksums. |
    | `node scripts/i18n-validate.mjs ru` (and `hu`) | Every topic string is translated and keeps its placeholders. |
-   | `node scripts/labs-catalog.mjs` | Regenerates `labs/catalog.json` from `labs/registry.json`; fails on a topic id that does not exist. CI fails if the committed catalog is out of date. |
+   | `node scripts/labs-catalog.mjs` | Regenerates `labs/catalog.json` from `labs/registry.json`; fails on a topic id that does not exist or a lab without an `added` date. CI fails if the committed catalog is out of date. |
    | `node scripts/check-scripts.mjs` | Every page script (inline in the HTML or in a `.js` file) parses (`node --check`). |
    | `node scripts/test-robot-lab.mjs` | Every Robot Lab level can be solved. |
 
