@@ -1,0 +1,916 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The Magic Xylophone · Skill Graph</title>
+<meta name="description" content="Lift bars off a xylophone until a fussy bird stops frowning, sing short tunes back and find the same secret in a piano. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  .pt-q { margin: 0 0 10px; font: 700 13.5px/1.4 var(--sans); color: var(--soft); }
+  .pt-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .pt-big, .pt-chip { min-height: 44px; border-radius: 14px; border: 1px solid var(--stroke2); background: rgba(20, 24, 38, .6);
+    color: var(--soft); font-weight: 800; font-size: 13.5px; cursor: pointer; padding: 6px 14px; transition: background .15s, border-color .15s; }
+  .pt-big { flex: 1 1 150px; }
+  .pt-chip { border-radius: 999px; min-height: 40px; font-size: 13px; white-space: nowrap; }
+  .pt-big:hover:not(:disabled), .pt-chip:hover:not(:disabled) { background: rgba(130, 145, 190, .16); }
+  .pt-big:disabled, .pt-chip:disabled { opacity: .38; cursor: default; }
+  .pt-chip.on { background: #fff; color: var(--bg); border-color: #fff; }
+  .pt-chip.ok { border-color: var(--ok); background: rgba(61, 220, 151, .16); color: var(--ok); }
+  .pt-chip.bad { border-color: var(--red); background: rgba(255, 59, 48, .14); color: #ff8c84; }
+  .pt-chip.secret { border-style: dashed; color: var(--mut); }
+  .pt-chip.secret.open { border-style: solid; border-color: var(--wip); color: var(--wip); }
+  .pt-chip.secret.open.on { background: var(--wip); color: var(--bg); }
+  .pt-hint { position: absolute; left: 50%; top: 66px; transform: translateX(-50%); min-height: 38px; padding: 6px 14px; border-radius: 999px;
+    border: 1px solid var(--wip); background: rgba(20, 17, 8, .88); color: var(--wip); font: 800 12.5px var(--sans); cursor: pointer; white-space: nowrap; }
+  .pt-hint[hidden] { display: none; }
+  .fine { font-size: 11px; color: var(--faint); }
+  @media (max-width: 760px) {
+    #stage { height: min(118vw, 520px); }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, store, $, esc, clamp, lerp, ruPlural, lang, unmuteIOS } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'The Magic Xylophone', title: 'Can a xylophone have no wrong notes?',
+    lines: [['Lift two bars out', 'and let a bird listen.'], ['Sing it back', 'short tunes, by ear.'], ['Find the same trick', 'hidden in a piano.']],
+    views: { test: '🐦 The bird test', echo: '🗣️ Echo', keys: '🎹 Black keys' },
+    syl: ['do', 're', 'mi', 'fa', 'so', 'la', 'ti', 'do'],
+    pairs: '🤖 Play 20 random pairs', tune: '🎲 Random tune',
+    liftTask: 'Lift out two bars so the bird never frowns.', needSix: 'Lift out exactly two bars, then play.',
+    barsIn: (n) => `${n} bars`, frowns: (k) => `😖 × ${k}`,
+    rub: (a, b) => `${a} and ${b} rub against each other.`,
+    penta: 'You made a pentatonic! The usual one takes out fa and ti: do re mi so la.',
+    right: 'Right!', notQuite: 'Not quite.',
+    soundHint: '🔈 Turn on the sound (top right)', listen: 'Listen…', yourTurn: 'Your turn: play it back.',
+    echoWin: 'You sing in five notes!', newPat: '↻ New pattern', again: '🔁 Again', nRight: (k) => `${k} right`,
+    hear: '▶ Hear it', bandOn: '▶ Start the band', bandOff: '⏹ Stop the band', bpm: 'bpm',
+    keysQ: 'Play only black keys, any you like. Will the bird frown?', keysOpts: ['Yes, often', 'Sometimes', 'Never'],
+    blackPairs: '🤖 20 random black-key pairs', whitePairs: '🤖 20 random white-key pairs',
+    keysWin: 'Five black keys in every group: a pentatonic is already built into the piano.',
+    state: {
+      test0: ['Eight bars, one fussy bird.', 'When two notes rub, the bird frowns. Play random pairs and count the frowns.'],
+      testWin: ['Five bars, no frowns.', 'Without the close neighbours, every note fits every other one.'],
+      echo0: ['Sing it back.', 'Listen to the little tune and play it back. Only five bars are left on the xylophone.'],
+      keys0: ['A piano has a secret.', 'Look at the black keys: they come in groups. Guess what the bird thinks of them.'] },
+    secrets: { jam: ['Jam with a band', 'Improvise on five notes'], move: ['Do can move', 'Sing on the black keys'] },
+    jamText: 'Five notes and a steady bass: you can’t play a wrong note. Musicians call this improvising.',
+    moveText: 'Do is not one key. Put do anywhere, and so-mi still sounds like so-mi.',
+    quiz: [
+      { q: 'Which two bars sound rough when you play them together?', opts: ['mi and fa', 'do and so', 'do and high do'], ok: 0, hint: 'Find the neighbours that are closest to each other in sound.' },
+      { q: 'Why does every tune on do re mi so la sound fine?', opts: ['Because the bars are made of wood', 'Because no two of the five notes rub', 'Because you play softly'], ok: 1, hint: 'Remember which bars made the bird frown, and whether they are still there.' },
+      { q: 'Where on a piano do you find a pentatonic straight away?', opts: ['On the black keys', 'On the white keys', 'Only on the lowest keys'], ok: 0, hint: 'Count the keys in one group of black keys and the next one.' } ],
+    facts: {
+      test: [{ emo: '🦘', text: 'At the World Science Festival in 2009, Bobby McFerrin jumped from spot to spot on a stage, and the audience sang the pentatonic notes for each spot without being told.', src: 'World Science Festival 2009, “Notes & Neurons”' }],
+      echo: [
+        { emo: '📜', text: 'About a thousand years ago Guido of Arezzo named the notes after the first syllables of a hymn: ut, re, mi, fa, sol, la. Later ut became do.', src: 'Wikipedia: Solfège; Guido of Arezzo' },
+        { emo: '✋', text: 'Singers also show do, re, mi with hand signs. John Curwen made them up in England in the 1800s, and Zoltán Kodály’s method spread them around the world.', src: 'Wikipedia: Solfège (Curwen hand signs); Kodály method' }],
+      keys: [
+        { emo: '🇭🇺', text: 'Kodály and Bartók collected thousands of Hungarian folk songs. The oldest of them use the five pentatonic notes.', src: 'Wikipedia: Hungarian folk music; Zoltán Kodály' },
+        { emo: '🇨🇳', text: 'Traditional Chinese music is also built on five notes, called gong, shang, jue, zhi and yu.', src: 'Wikipedia: Pentatonic scale' }] },
+    fine: 'Rubbing pairs here: notes 1, 6 or 11 half steps apart.',
+  },
+  ru: {
+    name: 'Волшебный ксилофон', title: 'Бывает ксилофон без фальшивых нот?',
+    lines: [['Сними две пластинки', 'и дай птичке послушать.'], ['Повтори за мной', 'короткие мелодии на слух.'], ['Найди тот же секрет', 'в пианино.']],
+    views: { test: '🐦 Птичка слушает', echo: '🗣️ Эхо', keys: '🎹 Чёрные клавиши' },
+    syl: ['до', 'ре', 'ми', 'фа', 'соль', 'ля', 'си', 'до'],
+    pairs: '🤖 Сыграть 20 случайных пар', tune: '🎲 Случайная мелодия',
+    liftTask: 'Сними две пластинки, чтобы птичка ни разу не поморщилась.', needSix: 'Сними ровно две пластинки, потом играй.',
+    barsIn: (n) => `${n} ${ruPlural(n, 'пластинка', 'пластинки', 'пластинок')}`, frowns: (k) => `😖 × ${k}`,
+    rub: (a, b) => `${a} и ${b} трутся друг о друга.`,
+    penta: 'Получилась пентатоника! Обычно снимают фа и си: до ре ми соль ля.',
+    right: 'Верно!', notQuite: 'Не совсем.',
+    soundHint: '🔈 Включи звук (вверху справа)', listen: 'Слушай…', yourTurn: 'Твоя очередь: повтори.',
+    echoWin: 'Ты поёшь на пяти нотах!', newPat: '↻ Новая мелодия', again: '🔁 Ещё раз', nRight: (k) => `верно: ${k}`,
+    hear: '▶ Послушать', bandOn: '▶ Включить группу', bandOff: '⏹ Выключить группу', bpm: 'уд/мин',
+    keysQ: 'Играй только на чёрных клавишах, на любых. Птичка поморщится?', keysOpts: ['Да, часто', 'Иногда', 'Никогда'],
+    blackPairs: '🤖 20 случайных пар на чёрных', whitePairs: '🤖 20 случайных пар на белых',
+    keysWin: 'В каждой группе пять чёрных клавиш: пентатоника уже встроена в пианино.',
+    state: {
+      test0: ['Восемь пластинок и привередливая птичка.', 'Когда две ноты трутся, птичка морщится. Сыграй случайные пары и считай.'],
+      testWin: ['Пять пластинок, ни одной гримасы.', 'Без близких соседей каждая нота подходит к каждой.'],
+      echo0: ['Повтори за мной.', 'Послушай мелодию и сыграй её. На ксилофоне остались только пять пластинок.'],
+      keys0: ['У пианино есть секрет.', 'Посмотри на чёрные клавиши: они собраны в группы. Угадай, что о них скажет птичка.'] },
+    secrets: { jam: ['Играем с группой', 'Импровизация на пяти нотах'], move: ['До может переехать', 'Пой на чёрных клавишах'] },
+    jamText: 'Пять нот и ровный бас: фальшивую ноту не сыграть. Музыканты называют это импровизацией.',
+    moveText: 'До — не одна клавиша. Поставь до куда угодно, и соль-ми всё равно звучит как соль-ми.',
+    quiz: [
+      { q: 'Какие две пластинки звучат вместе шершаво?', opts: ['ми и фа', 'до и соль', 'до и верхнее до'], ok: 0, hint: 'Найди соседей, которые ближе всех друг к другу по звуку.' },
+      { q: 'Почему любая мелодия на до ре ми соль ля звучит хорошо?', opts: ['Потому что пластинки деревянные', 'Потому что никакие две из пяти нот не трутся', 'Потому что играешь тихо'], ok: 1, hint: 'Вспомни, из-за каких пластинок морщилась птичка, и остались ли они.' },
+      { q: 'Где на пианино сразу найти пентатонику?', opts: ['На чёрных клавишах', 'На белых клавишах', 'Только на самых низких'], ok: 0, hint: 'Сосчитай клавиши в одной группе чёрных и в следующей.' } ],
+    facts: {
+      test: [{ emo: '🦘', text: 'На Всемирном научном фестивале в 2009 году Бобби Макферрин прыгал по сцене с места на место, и зал без подсказки пел ноты пентатоники для каждого места.', src: 'World Science Festival 2009, «Notes & Neurons»' }],
+      echo: [
+        { emo: '📜', text: 'Около тысячи лет назад Гвидо д’Ареццо назвал ноты по первым слогам гимна: ut, re, mi, fa, sol, la. Позже ut стало до.', src: 'Wikipedia: Сольмизация; Гвидо д’Ареццо' },
+        { emo: '✋', text: 'Певцы показывают до, ре, ми ещё и знаками руки. Их придумал Джон Кервен в Англии в XIX веке, а по миру их разнесла система Золтана Кодая.', src: 'Wikipedia: Solfège (Curwen hand signs); Метод Кодая' }],
+      keys: [
+        { emo: '🇭🇺', text: 'Кодай и Барток собрали тысячи венгерских народных песен. Самые старые из них построены на пяти нотах пентатоники.', src: 'Wikipedia: Hungarian folk music; Золтан Кодай' },
+        { emo: '🇨🇳', text: 'Традиционная китайская музыка тоже построена на пяти нотах: гун, шан, цзюэ, чжи и юй.', src: 'Wikipedia: Пентатоника' }] },
+    fine: 'Трущиеся пары здесь: ноты на расстоянии 1, 6 или 11 полутонов.',
+  },
+  hu: {
+    name: 'A varázslatos xilofon', title: 'Létezik xilofon hamis hangok nélkül?',
+    lines: [['Vegyél ki két lapot,', 'és hallgassa meg egy madárka.'], ['Játszd vissza', 'a rövid dallamokat hallás után.'], ['Keresd meg ugyanezt a trükköt', 'a zongorában.']],
+    views: { test: '🐦 Madárpróba', echo: '🗣️ Visszhang', keys: '🎹 Fekete billentyűk' },
+    syl: ['dó', 'ré', 'mi', 'fá', 'szó', 'lá', 'ti', 'dó'],
+    pairs: '🤖 20 véletlen pár', tune: '🎲 Véletlen dallam',
+    liftTask: 'Vegyél ki két lapot, hogy a madárka egyszer se fintorogjon.', needSix: 'Pontosan két lapot vegyél ki, aztán játssz.',
+    barsIn: (n) => `${n} lap`, frowns: (k) => `😖 × ${k}`,
+    rub: (a, b) => `${a} és ${b} súrlódik egymással.`,
+    penta: 'Pentatónia lett belőle! Általában a fá és a ti marad ki: dó ré mi szó lá.',
+    right: 'Így van!', notQuite: 'Nem egészen.',
+    soundHint: '🔈 Kapcsold be a hangot (jobbra fent)', listen: 'Figyelj…', yourTurn: 'Te jössz: játszd vissza.',
+    echoWin: 'Öt hangon énekelsz!', newPat: '↻ Új dallam', again: '🔁 Még egyszer', nRight: (k) => `${k} jó`,
+    hear: '▶ Meghallgatom', bandOn: '▶ Indulhat az együttes', bandOff: '⏹ Állj az együttes', bpm: 'ütem/perc',
+    keysQ: 'Csak fekete billentyűkön játssz, bármelyiken. Fintorog majd a madárka?', keysOpts: ['Igen, gyakran', 'Néha', 'Soha'],
+    blackPairs: '🤖 20 véletlen pár a feketéken', whitePairs: '🤖 20 véletlen pár a fehéreken',
+    keysWin: 'Minden csoportban öt fekete billentyű: a pentatónia már be van építve a zongorába.',
+    state: {
+      test0: ['Nyolc lap, egy finnyás madárka.', 'Ha két hang súrlódik, a madárka fintorog. Játssz véletlen párokat, és számold.'],
+      testWin: ['Öt lap, egy fintor sem.', 'A közeli szomszédok nélkül minden hang illik minden másikhoz.'],
+      echo0: ['Játszd vissza.', 'Hallgasd meg a kis dallamot, és játszd vissza. Csak öt lap maradt a xilofonon.'],
+      keys0: ['A zongorának van egy titka.', 'Nézd meg a fekete billentyűket: csoportokban állnak. Tippeld meg, mit szól hozzájuk a madárka.'] },
+    secrets: { jam: ['Zenélj együttessel', 'Rögtönzés öt hangon'], move: ['A dó vándorolhat', 'Énekelj a fekete billentyűkön'] },
+    jamText: 'Öt hang és egy egyenletes basszus: nem tudsz hamisat játszani. A zenészek ezt rögtönzésnek hívják.',
+    moveText: 'A dó nem egyetlen billentyű. Tedd bárhová a dót, a szó-mi akkor is szó-mi marad.',
+    quiz: [
+      { q: 'Melyik két lap szól érdesen együtt?', opts: ['mi és fá', 'dó és szó', 'dó és a felső dó'], ok: 0, hint: 'Keresd meg azokat a szomszédokat, amelyek hangban a legközelebb vannak egymáshoz.' },
+      { q: 'Miért szól jól minden dallam a dó ré mi szó lá hangokon?', opts: ['Mert a lapok fából vannak', 'Mert az öt hang közül egyik kettő sem súrlódik', 'Mert halkan játszol'], ok: 1, hint: 'Emlékezz, melyik lapok miatt fintorgott a madárka, és ott vannak-e még.' },
+      { q: 'Hol találsz a zongorán rögtön pentatóniát?', opts: ['A fekete billentyűkön', 'A fehér billentyűkön', 'Csak a legmélyebb billentyűkön'], ok: 0, hint: 'Számold meg a billentyűket egy fekete csoportban és a következőben.' } ],
+    facts: {
+      test: [{ emo: '🦘', text: 'A 2009-es World Science Festivalon Bobby McFerrin a színpadon helyről helyre ugrált, és a közönség magától énekelte minden helyhez a pentaton hangot.', src: 'World Science Festival 2009, „Notes & Neurons”' }],
+      echo: [
+        { emo: '📜', text: 'Kb. ezer éve Guido d’Arezzo egy himnusz szótagjairól nevezte el a hangokat: ut, re, mi, fa, sol, la. Később az ut-ból dó lett.', src: 'Wikipedia: Szolmizáció; Guido d’Arezzo' },
+        { emo: '✋', text: 'A dó, ré, mi kézjelekkel is mutatható. John Curwen találta ki őket Angliában a XIX. században, Kodály Zoltán módszere pedig elterjesztette őket a világban.', src: 'Wikipedia: Solfège (Curwen hand signs); Kodály-módszer' }],
+      keys: [
+        { emo: '🇭🇺', text: 'Kodály és Bartók népdalok ezreit gyűjtötte. A legrégebbi magyar népdalok az öt pentaton hangra épülnek.', src: 'Wikipedia: Hungarian folk music; Kodály Zoltán' },
+        { emo: '🇨🇳', text: 'A hagyományos kínai zene is öt hangra épül: gong, shang, jue, zhi és yu.', src: 'Wikipedia: Pentatonic scale' }] },
+    fine: 'Súrlódó párok itt: 1, 6 vagy 11 félhang távolságra lévő hangok.',
+  },
+};
+const TOPICS = [{ id: 'sg_art_47', en: 'Solfege and the Pentatonic Scale', ru: 'Сольфеджио и пентатоника', hu: 'Szolmizáció és pentaton hangsor' }];
+
+// --- music data (MIDI) -------------------------------------------------------------------------------------
+const XM = [72, 74, 76, 77, 79, 81, 83, 84];                 // the eight bars: C5 .. C6
+const CLS = [0, 1, 2, 3, 4, 5, 6, 0];                        // bar -> syllable (high do sings "do" too)
+const BM = { 0: 66, 1: 68, 2: 70, 4: 73, 5: 75 };            // black-key do re mi so la (do = F#4)
+const BCLS = { 61: 4, 63: 5, 66: 0, 68: 1, 70: 2, 73: 4, 75: 5, 78: 0, 80: 1, 82: 2 }; // black key -> syllable
+const BLACKS = [61, 63, 66, 68, 70, 73, 75, 78, 80, 82];
+const WHITES = [60, 62, 64, 65, 67, 69, 71, 72, 74, 76, 77, 79, 81, 83];
+const KLO = 60, KHI = 83;
+const BAR = ['#e5484d', '#f2843a', '#f5c518', '#5cb85c', '#2bb3a6', '#3e7bfa', '#8b5cf6', '#e5484d'];
+const PAL12 = ['#ff6b6b', '#ff9f43', '#ffd23f', '#9be15d', '#3ddc97', '#34c8e8', '#4ea8ff', '#7b7bff', '#a770ff', '#e46bff', '#ff6bb5', '#ff8a8a'];
+const FIXED_OUT = new Set([3, 6]);                           // fa and ti lie at the top in Echo and in the band
+const POOL = [
+  [[4, 2], [4, 2, 4], [2, 4, 2]],
+  [[4, 2, 5], [5, 4, 2], [2, 5, 4], [4, 5, 4, 2]],
+  [[2, 1, 0], [0, 1, 2, 4], [5, 4, 2, 1], [0, 2, 1, 0]],
+];
+POOL[3] = [...POOL[1], ...POOL[2]];
+const rubs = (a, b) => [1, 6, 11].includes(Math.abs(a - b) % 12);
+
+// --- helpers -----------------------------------------------------------------------------------------------
+const nowS = () => performance.now() / 1000;
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+const easeOut = (t) => 1 - (1 - t) ** 3;
+const rgb = (hex) => { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+const mixH = (a, b, k) => { const A = rgb(a), B = rgb(b); return '#' + A.map((v, i) => Math.round(v + (B[i] - v) * clamp01(k)).toString(16).padStart(2, '0')).join(''); };
+const rgba = (hex, a) => { const [r, g, b] = rgb(hex); return `rgba(${r},${g},${b},${a})`; };
+const rr = (c, x, y, w, h, r) => { r = Math.max(0, Math.min(r, w / 2, h / 2)); c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); };
+const lg = (c, x0, y0, x1, y1, st) => { const g = c.createLinearGradient(x0, y0, x1, y1); st.forEach(([o, col]) => g.addColorStop(o, col)); return g; };
+const circ = (c, x, y, r) => { c.beginPath(); c.arc(x, y, Math.max(0, r), 0, Math.PI * 2); };
+const FONT = 'Nunito, system-ui, sans-serif';
+const pick = (a) => a[Math.floor(Math.random() * a.length)];
+const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+let timers = [];
+const later = (ms, fn) => { timers.push(setTimeout(fn, ms)); };
+
+// --- sound: own xylophone synth; the context is made on the first tap ----------------------------------------
+let AC = null, master = null, noiseBuf = null;
+function actx() {
+  try {
+    if (!AC) {
+      AC = new (window.AudioContext || window.webkitAudioContext)();
+      const comp = AC.createDynamicsCompressor(); master = AC.createGain(); master.gain.value = 0.9;
+      master.connect(comp); comp.connect(AC.destination);
+    }
+    if (AC.state !== 'running') AC.resume().catch(() => {});
+    return AC;
+  } catch { return null; }
+}
+['pointerdown', 'pointerup', 'touchend', 'keydown', 'click'].forEach((e) => addEventListener(e, () => { if (store.get('sound', false)) { unmuteIOS(); actx(); } }, { passive: true }));
+// a music lab: the first tap that makes a sound turns the shell's sound on, unless the visitor switched it off before
+function wantSound() { if (store.get('sound', null) === null) $('sound').click(); return store.get('sound', false); }
+const soundOn = () => store.get('sound', false);
+// xylophone / marimba: sine at f, a quiet 4f and a very quiet 10f, 3 ms attack, exponential decay
+function playNote(m, vol = 1) {
+  if (!soundOn()) return false;
+  unmuteIOS(); const x = actx(); if (!x) return false;
+  const f = 440 * 2 ** ((m - 69) / 12), t = x.currentTime;
+  [[1, 1, 0.9], [4, 0.08, 0.35], [10, 0.02, 0.12]].forEach(([mul, g, d]) => {
+    const o = x.createOscillator(), gn = x.createGain();
+    o.type = 'sine'; o.frequency.value = f * mul;
+    gn.gain.setValueAtTime(0.0001, t); gn.gain.linearRampToValueAtTime(0.3 * vol * g, t + 0.003); gn.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.003);
+    o.connect(gn).connect(master); o.start(t); o.stop(t + d + 0.05);
+  });
+  return true;
+}
+function bassNote(f) {
+  if (!soundOn()) return;
+  const x = actx(); if (!x) return; const t = x.currentTime;
+  const g = x.createGain(), lp = x.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 480;
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.42, t + 0.012); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+  [['sine', 1, 1], ['triangle', 1, 0.3]].forEach(([ty, mul, gv]) => {
+    const o = x.createOscillator(), og = x.createGain(); o.type = ty; o.frequency.value = f * mul; og.gain.value = gv;
+    o.connect(og).connect(lp); o.start(t); o.stop(t + 0.65);
+  });
+  lp.connect(g).connect(master);
+}
+function shaker() {
+  if (!soundOn()) return;
+  const x = actx(); if (!x) return; const t = x.currentTime;
+  noiseBuf ??= (() => { const b = x.createBuffer(1, Math.floor(x.sampleRate * 0.07), x.sampleRate), d = b.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; return b; })();
+  const s = x.createBufferSource(), f = x.createBiquadFilter(), g = x.createGain(); s.buffer = noiseBuf; f.type = 'highpass'; f.frequency.value = 5500;
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.08, t + 0.006); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
+  s.connect(f).connect(g).connect(master); s.start(t);
+}
+
+// --- state -------------------------------------------------------------------------------------------------
+const mkEcho = (kind) => ({ kind, right: 0, phase: 'idle', pat: [], idx: 0, err: false, playing: false, card: false, cardN: 0, pulse: -9, won: false, tok: 0 });
+const S = {
+  t: { out: new Set(), ran8: false, phase: 'idle', k: 0, won: false, arcs: [], bad: null },
+  e: mkEcho('bar'), m: mkEcho('key'),
+  k: { guess: null, running: false, k: 0, ranBlack: false, last: null, verdict: null },
+  sec: null, jam: { on: false, n: 0, beatT: -9, timer: 0 },
+  hits: [], press: {}, flash: [], shake: {}, ring: [],
+  lift: Array(8).fill(0), liftV: Array(8).fill(0), bird: { frownT: -9, singT: -9 },
+  rid: 0, tokN: 0, hintDone: false, hintTm: 0,
+};
+const lab = shell({ key: 'pentatonic', T, topics: TOPICS, views: ['test', 'echo', 'keys'], onLang: render, onView: changeView });
+const secret = secretLab('pentatonic', () => ({
+  secrets: [{ emo: '🎸', title: T[lang].secrets.jam[0], desc: T[lang].secrets.jam[1] }, { emo: '🔀', title: T[lang].secrets.move[0], desc: T[lang].secrets.move[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+$('overlay').insertAdjacentHTML('beforeend', '<button class="pt-hint" id="ptHint" type="button" hidden></button>');
+$('ctrlBody').innerHTML = '<div id="ptBody"></div>';
+
+const mode = () => (S.sec === 'move' ? 'keys' : S.sec === 'jam' ? 'bars' : lab.view === 'keys' ? 'keys' : 'bars');
+const outSet = () => (!S.sec && lab.view === 'test' ? S.t.out : FIXED_OUT);
+const plain = (s) => s.replace(/^\S+\s+/, '');
+const emoOf = (s) => s.split(' ')[0];
+
+// --- playing -----------------------------------------------------------------------------------------------
+function birdReact() { S.bird.frownT = nowS(); }
+function maybeHint() {
+  if (soundOn() || S.hintDone) return;
+  S.hintDone = true;
+  const b = $('ptHint'); b.textContent = T[lang].soundHint; b.hidden = false;
+  clearTimeout(S.hintTm); S.hintTm = setTimeout(() => { b.hidden = true; }, 7000);
+}
+$('ptHint').addEventListener('click', () => { if (!soundOn()) $('sound').click(); unmuteIOS(); actx(); $('ptHint').hidden = true; });
+// one struck bar or key: sound + the picture (id: bar 0..7, key 100 + midi). o.hide = sound only (the Echo tune)
+function strike(id, midi, o = {}) {
+  const t = nowS();
+  if (!o.hide) { wantSound(); playNote(midi, o.vol ?? 1); maybeHint(); S.press[id] = t; S.hits.push({ id, t0: t }); }
+  if (!o.noRing) {
+    S.ring = S.ring.filter((r) => t - r.t < 0.7);
+    if (!o.noReact && S.ring.some((r) => rubs(r.m, midi))) birdReact();
+    S.ring.push({ m: midi, t });
+  }
+}
+function stopAll() {
+  timers.forEach(clearTimeout); timers = []; S.rid++;
+  S.jam.on = false; clearTimeout(S.jam.timer);
+  if (S.t.phase === 'running') S.t.phase = 'idle';
+  S.k.running = false;
+  [S.e, S.m].forEach((e) => { e.tok = ++S.tokN; e.playing = false; e.card = false; if (e.phase === 'listen' || e.phase === 'input' || e.phase === 'wait' || e.phase === 'done') e.phase = 'idle'; });
+}
+// n random pairs; force = every rubbing pair appears at least once; minClash = at least that many rubbing pairs
+function buildPairs(ids, midiOf, { force = false, minClash = 0 } = {}) {
+  const all = [];
+  for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) all.push([ids[i], ids[j]]);
+  const clash = all.filter(([a, b]) => rubs(midiOf(a), midiOf(b)));
+  const want = force && clash.length <= 6 ? [...clash] : [];
+  while (clash.length && want.length < minClash) want.push(pick(clash));
+  const list = [...want];
+  while (list.length < 20) list.push(pick(all));
+  return shuffle(list).map((p) => (Math.random() < 0.5 ? p : [p[1], p[0]]));
+}
+function runList(list, ms, midiOf, play, onTick, onDone) {
+  const id = ++S.rid; let i = 0, k = 0;
+  const step = () => {
+    if (S.rid !== id) return;
+    if (i >= list.length) { onDone(k); return; }
+    const [a, b] = list[i++];
+    play(a, b);
+    if (rubs(midiOf(a), midiOf(b))) { k++; birdReact(); }
+    onTick(k);
+    later(ms, step);
+  };
+  step();
+}
+function badPairs(ids) {
+  const o = [];
+  for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) if (rubs(XM[ids[i]], XM[ids[j]])) o.push([ids[i], ids[j]]);
+  return o;
+}
+
+// --- test view logic ---------------------------------------------------------------------------------------
+const barsIn = () => [0, 1, 2, 3, 4, 5, 6, 7].filter((i) => !S.t.out.has(i));
+function runTest() {
+  const t = S.t, ids = barsIn();
+  if (t.phase === 'running' || (t.ran8 && ids.length !== 6)) return;
+  stopAll(); wantSound();
+  t.phase = 'running'; t.k = 0; t.won = false; t.arcs = []; t.bad = null;
+  const list = buildPairs(ids, (i) => XM[i], { force: true, minClash: ids.length === 8 ? 3 : 0 });
+  runList(list, 450, (i) => XM[i], (a, b) => { strike(a, XM[a], { noRing: true, vol: 0.8 }); strike(b, XM[b], { noRing: true, vol: 0.8 }); },
+    (k) => { t.k = k; readout(); },
+    (k) => {
+      t.k = k; t.phase = 'idle';
+      if (ids.length === 8) t.ran8 = true;
+      if (ids.length === 6) {
+        const bad = badPairs(ids);
+        if (!bad.length) { t.won = true; S.bird.singT = nowS(); sfx.good(); } else { t.arcs = bad; t.bad = bad[0]; sfx.bad(); }
+      }
+      render();
+    });
+  render();
+}
+function randomTune() {
+  const t = S.t; if (t.phase === 'running') return;
+  stopAll(); wantSound();
+  const ids = barsIn(); if (!ids.length) return;
+  t.phase = 'running'; const id = ++S.rid; let n = 0;
+  const step = () => {
+    if (S.rid !== id) return;
+    if (n++ >= 8) { t.phase = 'idle'; render(); return; }
+    const i = pick(ids); strike(i, XM[i], { noRing: true });
+    later(340, step);
+  };
+  step(); render();
+}
+function toggleOut(i) {
+  const t = S.t;
+  if (t.out.has(i)) t.out.delete(i); else t.out.add(i);
+  t.won = false; t.arcs = []; t.bad = null; t.k = 0;
+  sfx.click(); render();
+}
+
+// --- echo engine (the xylophone and the black keys share it) -----------------------------------------------
+const midiOfCls = (eg, c) => (eg.kind === 'bar' ? XM[c] : BM[c]);
+const idOfCls = (eg, c) => (eg.kind === 'bar' ? c : 100 + BM[c]);
+const levelOf = (eg) => Math.min(3, eg.right);
+const usedCls = (eg) => (levelOf(eg) === 0 ? [4, 2] : levelOf(eg) === 1 ? [4, 2, 5] : [4, 2, 5, 1, 0]);
+function echoReset(eg) { Object.assign(eg, mkEcho(eg.kind), { tok: eg.tok }); }
+function startPattern(eg) {
+  const pool = POOL[levelOf(eg)], prev = JSON.stringify(eg.pat);
+  const cand = pool.filter((p) => JSON.stringify(p) !== prev);
+  eg.pat = pick(cand.length ? cand : pool); eg.err = false;
+  playPattern(eg);
+}
+function playPattern(eg) {
+  const tok = (eg.tok = ++S.tokN), step = 620;
+  eg.phase = 'listen'; eg.idx = 0; eg.playing = true; eg.cardN = 0;
+  eg.card = !wantSound(); if (eg.card) maybeHint();
+  eg.pat.forEach((c, i) => later(350 + i * step, () => {
+    if (eg.tok !== tok) return;
+    if (eg.card) eg.cardN = i + 1; else { playNote(midiOfCls(eg, c), 0.95); eg.pulse = nowS(); }
+  }));
+  later(350 + eg.pat.length * step + (eg.card ? 650 : 250), () => {
+    if (eg.tok !== tok) return;
+    eg.playing = false; eg.card = false; eg.phase = 'input'; eg.idx = 0; render();
+  });
+  render();
+}
+function echoTap(eg, cls, id) {
+  if (eg.phase !== 'input') return;
+  const t = nowS(), want = eg.pat[eg.idx], tok = eg.tok;
+  if (cls === want) {
+    S.flash.push({ id, t0: t, col: '#3ddc97' }); eg.idx++;
+    if (eg.idx >= eg.pat.length) {
+      if (!eg.err) eg.right++;
+      eg.err = false; eg.phase = 'done';
+      if (eg.right >= 4 && !eg.won) { eg.won = true; eg.phase = 'win'; S.bird.singT = t; sfx.good(); }
+      else later(900, () => { if (eg.tok === tok && eg.phase === 'done') startPattern(eg); });
+    }
+  } else {
+    eg.err = true; S.shake[id] = t; S.flash.push({ id: idOfCls(eg, want), t0: t + 0.1, col: '#f5c518' });
+    eg.idx = 0; eg.phase = 'wait'; sfx.bad();
+    later(1300, () => { if (eg.tok === tok && eg.phase === 'wait') playPattern(eg); });
+  }
+  render();
+}
+
+// --- keys view logic ---------------------------------------------------------------------------------------
+function runKeys(kind) {
+  const K = S.k; if (K.running || K.guess === null) return;
+  stopAll(); wantSound();
+  const ids = kind === 'black' ? BLACKS : WHITES;
+  K.running = true; K.k = 0; K.last = kind;
+  const list = buildPairs(ids, (m) => m, { minClash: kind === 'white' ? 2 : 0 });
+  runList(list, 450, (m) => m, (a, b) => { strike(100 + a, a, { noRing: true, vol: 0.8 }); strike(100 + b, b, { noRing: true, vol: 0.8 }); },
+    (k) => { K.k = k; readout(); },
+    (k) => {
+      K.k = k; K.running = false;
+      if (kind === 'black' && !K.ranBlack) { K.ranBlack = true; K.verdict = K.guess === 2 ? 'ok' : 'sur'; (K.verdict === 'ok' ? sfx.good : sfx.bad)(); S.bird.singT = nowS(); }
+      render();
+    });
+  render();
+}
+
+// --- the band (secret) -------------------------------------------------------------------------------------
+function jamStart() {
+  const J = S.jam, beat = 60000 / 90, t0 = performance.now();
+  wantSound(); J.on = true; J.n = 0;
+  const tick = () => {
+    if (!J.on) return;
+    const n = J.n++; bassNote(n % 2 === 0 ? 130.81 : 196); shaker(); J.beatT = nowS();
+    J.timer = setTimeout(tick, Math.max(0, t0 + (n + 1) * beat - performance.now()));
+  };
+  tick();
+}
+function jamStop() { S.jam.on = false; clearTimeout(S.jam.timer); }
+
+// --- view control ------------------------------------------------------------------------------------------
+function changeView(v) {
+  stopAll(); S.sec = null; S.ring = [];
+  if (v === 'echo') { echoReset(S.e); startPattern(S.e); return; }
+  render();
+}
+function openSecret(k) {
+  if (!secret.unlocked()) { secret.open(); return; }
+  stopAll(); S.ring = [];
+  if (S.sec === k) { S.sec = null; render(); return; }
+  S.sec = k;
+  if (k === 'jam') jamStart();
+  else { echoReset(S.m); startPattern(S.m); return; }
+  render();
+}
+
+// --- controls ----------------------------------------------------------------------------------------------
+function echoCtrl(t, eg) {
+  return `<div class="pt-row"><button class="pt-chip" data-act="hear" ${eg.playing || eg.phase === 'wait' ? 'disabled' : ''}>${esc(t.hear)}</button>
+    <button class="pt-chip" data-act="newpat">${esc(t.newPat)}</button>${eg.won ? `<button class="pt-chip" data-act="again">${esc(t.again)}</button>` : ''}</div>`;
+}
+function render() {
+  const t = T[lang], v = lab.view, sec = S.sec, T_ = S.t, K = S.k;
+  document.body.dataset.v = sec || v;
+  const open = secret.unlocked();
+  let h = '';
+  if (sec === 'jam') h = `<div class="pt-row"><button class="pt-big" data-act="band">${esc(S.jam.on ? t.bandOff : t.bandOn)}</button></div>`;
+  else if (sec === 'move') h = echoCtrl(t, S.m);
+  else if (v === 'test') {
+    const n = barsIn().length, busy = T_.phase === 'running';
+    h = `${T_.ran8 ? `<div class="pt-q">${esc(t.liftTask)}</div>` : ''}<div class="pt-row">
+      <button class="pt-big" data-act="pairs" ${busy || (T_.ran8 && n !== 6) ? 'disabled' : ''}>${esc(t.pairs)}</button>
+      <button class="pt-big" data-act="tune" ${busy || !n ? 'disabled' : ''}>${esc(t.tune)}</button></div>`;
+  } else if (v === 'echo') h = echoCtrl(t, S.e);
+  else {
+    h = `<div class="pt-q">${esc(t.keysQ)}</div><div class="pt-row">` + t.keysOpts.map((o, i) => {
+      const done = K.verdict !== null, cls = done ? (i === 2 ? 'ok' : K.guess === i ? 'bad' : '') : K.guess === i ? 'on' : '';
+      return `<button class="pt-chip ${cls}" data-act="guess" data-g="${i}" ${K.guess !== null ? 'disabled' : ''}>${esc(o)}</button>`;
+    }).join('') + `</div><div class="pt-row">
+      <button class="pt-big" data-act="bpairs" ${K.guess === null || K.running ? 'disabled' : ''}>${esc(t.blackPairs)}</button>
+      <button class="pt-big" data-act="wpairs" ${!K.ranBlack || K.running ? 'disabled' : ''}>${esc(t.whitePairs)}</button></div>`;
+  }
+  h += '<div class="pt-row" style="margin-top:6px">' + [['jam', '🎸'], ['move', '🔀']].map(([k, emo]) =>
+    `<button class="pt-chip secret ${open ? 'open' : ''} ${sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`).join('') + '</div>';
+  $('ptBody').innerHTML = h;
+  readout();
+  // state card
+  const vl = (x) => ({ emo: emoOf(t.views[x]), name: plain(t.views[x]) });
+  let st;
+  if (sec === 'jam') st = { emo: '🎸', title: t.secrets.jam[0], lead: t.jamText, body: '' };
+  else if (sec === 'move') {
+    const e = S.m, lead = e.phase === 'input' ? t.yourTurn : e.phase === 'win' ? t.echoWin : t.listen;
+    st = { emo: '🔀', title: t.secrets.move[0], lead, body: t.moveText };
+  } else if (v === 'test') {
+    const { emo, name } = vl('test');
+    if (T_.won) st = { emo: '🎉', title: t.state.testWin[0], lead: t.penta, body: t.state.testWin[1] };
+    else if (T_.bad) st = { emo: '😖', title: t.rub(t.syl[T_.bad[0]], t.syl[T_.bad[1]]), lead: t.liftTask, body: '' };
+    else if (!T_.ran8) st = { emo, title: t.state.test0[0], lead: t.state.test0[1], body: '' };
+    else st = { emo, title: name, lead: t.liftTask, body: barsIn().length !== 6 ? t.needSix : '' };
+  } else if (v === 'echo') {
+    const e = S.e, lead = e.phase === 'input' ? t.yourTurn : e.phase === 'win' ? t.echoWin : t.listen;
+    st = { emo: '🗣️', title: e.phase === 'win' ? t.echoWin : t.state.echo0[0], lead: e.phase === 'win' ? t.state.echo0[1] : lead, body: e.phase === 'win' ? '' : t.state.echo0[1] };
+  } else st = { emo: '🎹', title: t.state.keys0[0], lead: K.ranBlack ? t.keysWin : t.state.keys0[1], body: '' };
+  lab.setState({ ...st, extra: `<div class="fine">${esc(t.fine)}</div>` });
+  lab.setFacts(sec ? [] : t.facts[v]);
+}
+function readout() {
+  const t = T[lang], v = lab.view, sec = S.sec, T_ = S.t, K = S.k;
+  const ACC = '#f5c518', OK = '#2fbf84', BAD = '#e59a1f';
+  if (sec === 'jam') return lab.setReadout('90', t.bpm, '', ACC);
+  if (sec === 'move') return lab.setReadout(esc(t.nRight(S.m.right)), usedCls(S.m).map((c) => t.syl[c]).join(' '), S.m.phase === 'input' ? t.yourTurn : S.m.phase === 'win' ? t.right : '', ACC);
+  if (v === 'test') {
+    const n = barsIn().length, busy = T_.phase === 'running';
+    const pill = busy ? t.listen : T_.won ? t.right : T_.bad ? t.notQuite : T_.ran8 && n !== 6 ? t.needSix : '';
+    return lab.setReadout(esc(t.barsIn(n)), t.frowns(T_.k), pill, T_.won ? OK : T_.bad ? BAD : ACC);
+  }
+  if (v === 'echo') {
+    const e = S.e;
+    return lab.setReadout(esc(t.nRight(e.right)), usedCls(e).map((c) => t.syl[c]).join(' '), e.phase === 'input' ? t.yourTurn : e.phase === 'win' ? t.right : e.phase === 'listen' ? t.listen : '', e.phase === 'win' ? OK : ACC);
+  }
+  lab.setReadout(esc(t.frowns(K.k)), '', K.verdict === 'ok' ? t.right : K.verdict === 'sur' ? t.notQuite : '', K.verdict === 'ok' ? OK : K.verdict === 'sur' ? BAD : ACC);
+}
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const act = b.dataset.act;
+  if (act === 'sec') return openSecret(b.dataset.k);
+  if (act === 'pairs') return runTest();
+  if (act === 'tune') return randomTune();
+  if (act === 'band') { if (S.jam.on) jamStop(); else jamStart(); render(); return; }
+  if (act === 'guess') { S.k.guess = +b.dataset.g; sfx.click(); render(); return; }
+  if (act === 'bpairs') return runKeys('black');
+  if (act === 'wpairs') return runKeys('white');
+  const eg = S.sec === 'move' ? S.m : S.e;
+  if (act === 'hear') { stopAll(); if (eg.pat.length) playPattern(eg); else startPattern(eg); return; }
+  if (act === 'newpat') { stopAll(); startPattern(eg); return; }
+  if (act === 'again') { stopAll(); echoReset(eg); startPattern(eg); }
+});
+
+// --- geometry ----------------------------------------------------------------------------------------------
+const G = { w: 0, h: 0 };
+const barCX = (i) => G.x0 + i * G.slot;
+const barLen = (i) => lerp(G.Lmax, G.Lmax * 0.6, i / 7);
+const barAng = (i) => lerp(-0.06, 0.06, i / 7);
+function geo(w, h) {
+  G.w = w; G.h = h;
+  G.slot = clamp((w - 28) / 8, 30, 54); G.x0 = w / 2 - G.slot * 3.5;
+  G.Lmax = clamp(h * 0.42, 110, 200); G.yM = h * 0.575;
+  G.kw = (w - 24) / 14; G.kh = clamp(h * 0.4, 110, 190); G.ky = h - G.kh - 20; G.kx0 = (w - 14 * G.kw) / 2;
+}
+const pillYof = (i) => G.yM + barLen(i) / 2 + 24;
+function barBox(i) {
+  const e = S.lift[i], u = clamp01(e), W = G.slot - 6;
+  return { x: barCX(i), y: lerp(G.yM, 34, e), w: lerp(W, 24, u), l: lerp(barLen(i), 46, u), a: lerp(barAng(i), i % 2 ? 0.16 : -0.16, u), e };
+}
+function barAt(px, py) {
+  const out = outSet();
+  for (let i = 7; i >= 0; i--) {
+    if (out.has(i)) continue;
+    const a = barAng(i), dx = px - barCX(i), dy = py - G.yM, lx = dx * Math.cos(a) + dy * Math.sin(a), ly = -dx * Math.sin(a) + dy * Math.cos(a);
+    if (Math.abs(lx) <= G.slot / 2 && Math.abs(ly) <= barLen(i) / 2 + 6) return i;
+  }
+  return -1;
+}
+function liftTargetAt(px, py) { // the grey bar on the shelf, or the pill + hand under its slot
+  for (const i of S.t.out) if (Math.abs(px - barCX(i)) <= G.slot / 2 && py >= 4 && py <= 66) return i;
+  for (let i = 0; i < 8; i++) if (Math.abs(px - barCX(i)) <= G.slot / 2 && py >= pillYof(i) - 14 && py <= pillYof(i) + 40) return i;
+  return -1;
+}
+const keyBlack = (m) => [1, 3, 6, 8, 10].includes(m % 12);
+const WI = { 0: 0, 2: 1, 4: 2, 5: 3, 7: 4, 9: 5, 11: 6 }, BI = { 1: 0, 3: 1, 6: 3, 8: 4, 10: 5 };
+function keyRect(m) {
+  const oct = Math.floor((m - KLO) / 12), pc = m % 12;
+  if (pc in BI) { const bw = G.kw * 0.68, cx = G.kx0 + (oct * 7 + BI[pc] + 1) * G.kw; return { x: cx - bw / 2, y: G.ky, w: bw, h: G.kh * 0.6, cx, black: true }; }
+  const x = G.kx0 + (oct * 7 + WI[pc]) * G.kw; return { x, y: G.ky, w: G.kw, h: G.kh, cx: x + G.kw / 2, black: false };
+}
+function keyAt(px, py) {
+  for (const black of [true, false]) for (let m = KLO; m <= KHI; m++) {
+    if (keyBlack(m) !== black) continue;
+    const r = keyRect(m); if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) return m;
+  }
+  return null;
+}
+
+// --- drawing: the xylophone ----------------------------------------------------------------------------------
+function pill(c, txt, x, y, o = {}) {
+  const { fill = 'rgba(10,12,22,.82)', col = '#fff', stroke = 'rgba(255,255,255,.2)', sz = 12 } = o;
+  c.save(); c.font = `800 ${sz}px ${FONT}`; c.textBaseline = 'middle'; c.textAlign = 'left';
+  const pw = c.measureText(txt).width + 18, ph = sz + 10, x0 = clamp(x - pw / 2, 4, Math.max(4, G.w - pw - 4));
+  rr(c, x0, y - ph / 2, pw, ph, ph / 2); c.fillStyle = fill; c.fill(); c.strokeStyle = stroke; c.lineWidth = 1; c.stroke();
+  c.fillStyle = col; c.fillText(txt, x0 + 9, y + 0.5); c.restore();
+}
+function roundPoly(c, pts, r) {
+  const n = pts.length; c.beginPath();
+  for (let i = 0; i < n; i++) {
+    const p0 = pts[(i + n - 1) % n], p1 = pts[i], p2 = pts[(i + 1) % n];
+    const d0 = Math.hypot(p0[0] - p1[0], p0[1] - p1[1]), d2 = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]), k0 = Math.min(0.5, r / d0), k2 = Math.min(0.5, r / d2);
+    const a = [p1[0] + (p0[0] - p1[0]) * k0, p1[1] + (p0[1] - p1[1]) * k0], b = [p1[0] + (p2[0] - p1[0]) * k2, p1[1] + (p2[1] - p1[1]) * k2];
+    if (i === 0) c.moveTo(a[0], a[1]); else c.lineTo(a[0], a[1]);
+    c.quadraticCurveTo(p1[0], p1[1], b[0], b[1]);
+  }
+  c.closePath();
+}
+function bodyTop(x) { return lerp(G.yM - G.Lmax / 2 - 12, G.yM - G.Lmax * 0.3 - 12, clamp01((x - barCX(0)) / (barCX(7) - barCX(0)))); }
+function drawBody(c) {
+  const xl = barCX(0) - G.slot / 2 - 10, xr = barCX(7) + G.slot / 2 + 10;
+  const yTL = G.yM - G.Lmax / 2 - 12, yTR = G.yM - G.Lmax * 0.3 - 12, yBL = G.yM + G.Lmax / 2 + 12, yBR = G.yM + G.Lmax * 0.3 + 12;
+  c.save(); c.shadowColor = 'rgba(0,0,0,.55)'; c.shadowBlur = 22; c.shadowOffsetY = 10;
+  roundPoly(c, [[xl, yTL], [xr, yTR], [xr, yBR], [xl, yBL]], 14);
+  c.fillStyle = lg(c, 0, yTL, 0, yBL, [[0, '#c9915a'], [0.45, '#94602f'], [1, '#5a371b']]); c.fill(); c.restore();
+  c.strokeStyle = 'rgba(30,14,4,.85)'; c.lineWidth = 1.8; roundPoly(c, [[xl, yTL], [xr, yTR], [xr, yBR], [xl, yBL]], 14); c.stroke();
+  c.strokeStyle = 'rgba(255,225,180,.3)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(xl + 10, yTL + 3); c.lineTo(xr - 10, yTR + 3); c.stroke();
+  // the dark cavity the bars sit in
+  const m = 9;
+  roundPoly(c, [[xl + m, yTL + m], [xr - m, yTR + m], [xr - m, yBR - m], [xl + m, yBL - m]], 8);
+  c.fillStyle = lg(c, 0, yTL, 0, yBL, [[0, '#2f1d12'], [1, '#1a100a']]); c.fill();
+  // two felt rails behind the bars
+  [-1, 1].forEach((s) => {
+    const y0 = G.yM + s * G.Lmax * 0.26, y1 = G.yM + s * G.Lmax * 0.6 * 0.26;
+    c.save(); c.lineCap = 'round';
+    c.strokeStyle = '#3a1a1c'; c.lineWidth = 8; c.beginPath(); c.moveTo(xl + 12, y0); c.lineTo(xr - 12, y1); c.stroke();
+    c.strokeStyle = 'rgba(255,255,255,.12)'; c.lineWidth = 2; c.beginPath(); c.moveTo(xl + 12, y0 - 2); c.lineTo(xr - 12, y1 - 2); c.stroke();
+    c.restore();
+  });
+}
+function drawBar(c, i, b, o) {
+  const grey = clamp01(b.e), col = BAR[i], cc = mixH(col, '#7d8393', grey * 0.8), dark = mixH(cc, '#1a0f0a', 0.55), light = mixH(cc, '#ffffff', 0.42), deep = mixH(cc, '#1a0f0a', 0.32);
+  const W = b.w, L = b.l, rad = Math.min(8, W / 3);
+  c.save(); c.translate(b.x + (o.sx || 0), b.y + (o.dip || 0)); c.rotate(b.a);
+  (o.rings || []).forEach((r) => { c.strokeStyle = rgba(r.col, r.a); c.lineWidth = 2.2; rr(c, -W / 2 - r.d, -L / 2 - r.d, W + 2 * r.d, L + 2 * r.d, rad + r.d); c.stroke(); });
+  const glow = o.g > 0.02;
+  c.shadowColor = glow ? (o.gc || col) : 'rgba(0,0,0,.5)'; c.shadowBlur = glow ? 8 + 22 * o.g : 5 + 14 * grey; c.shadowOffsetY = glow ? 0 : 3 + 9 * grey;
+  rr(c, -W / 2, -L / 2, W, L, rad); c.fillStyle = lg(c, -W / 2, -L / 2, W / 2, L / 2, [[0, light], [0.42, cc], [1, deep]]); c.fill();
+  c.shadowColor = 'transparent'; c.shadowBlur = 0; c.shadowOffsetY = 0;
+  c.fillStyle = 'rgba(255,255,255,.3)'; rr(c, -W / 2 + 3, -L / 2 + 4, W * 0.26, L - 8, 3); c.fill();
+  c.fillStyle = 'rgba(255,255,255,.22)'; rr(c, -W / 2 + 2, -L / 2 + 2, W - 4, 5, 2.5); c.fill();
+  c.fillStyle = 'rgba(0,0,0,.15)'; rr(c, -W / 2 + 1, L / 2 - 7, W - 2, 6, 3); c.fill();
+  if (o.g > 0.02) { c.fillStyle = `rgba(255,255,255,${0.32 * o.g})`; rr(c, -W / 2, -L / 2, W, L, rad); c.fill(); }
+  c.strokeStyle = dark; c.lineWidth = 1.5; rr(c, -W / 2, -L / 2, W, L, rad); c.stroke();
+  if (grey < 0.5) [-1, 1].forEach((s) => { // brass screws
+    const sy = s * L * 0.26, rg = c.createRadialGradient(-1, sy - 1, 0.5, 0, sy, 3.8);
+    rg.addColorStop(0, '#fff6c8'); rg.addColorStop(0.5, '#d9a93a'); rg.addColorStop(1, '#7a5712');
+    c.fillStyle = rg; circ(c, 0, sy, 3.5); c.fill(); c.strokeStyle = 'rgba(60,40,5,.7)'; c.lineWidth = 0.8; c.stroke();
+  });
+  c.restore();
+}
+function drawMallet(c, hx, hy, age) { // head at (hx, hy) at the moment of the hit
+  const a = age < 0.12 ? easeOut(age / 0.12) : 1, off = age < 0.12 ? 1 - a * a : age > 0.3 ? clamp01((age - 0.3) / 0.2) : 0;
+  const bounce = age >= 0.12 && age < 0.3 ? Math.sin((age - 0.12) / 0.18 * Math.PI) * 4 : 0;
+  const x = hx + off * 30 + bounce * 0.4, y = hy - off * 46 - bounce, phi = lerp(0.95, 0.5, a), len = 50, al = age > 0.3 ? 1 - clamp01((age - 0.3) / 0.2) : 1;
+  const ex = x + Math.sin(phi) * len, ey = y - Math.cos(phi) * len;
+  c.save(); c.globalAlpha = al; c.lineCap = 'round';
+  c.strokeStyle = 'rgba(0,0,0,.3)'; c.lineWidth = 4.5; c.beginPath(); c.moveTo(x + 1.5, y + 2.5); c.lineTo(ex + 1.5, ey + 2.5); c.stroke();
+  c.strokeStyle = '#7a4a22'; c.lineWidth = 4; c.beginPath(); c.moveTo(x, y); c.lineTo(ex, ey); c.stroke();
+  c.strokeStyle = 'rgba(255,220,170,.55)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(x - 0.8, y); c.lineTo(ex - 0.8, ey); c.stroke();
+  const rg = c.createRadialGradient(x - 2.5, y - 3, 1, x, y, 8.5); rg.addColorStop(0, '#ff9a8f'); rg.addColorStop(0.55, '#e5484d'); rg.addColorStop(1, '#8f1d28');
+  c.fillStyle = rg; circ(c, x, y, 7.5); c.fill(); c.strokeStyle = '#6b1520'; c.lineWidth = 1.2; c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.7)'; circ(c, x - 2.6, y - 2.8, 1.8); c.fill();
+  c.restore();
+}
+function drawXylo(c, dt, time) {
+  const out = outSet(), v = lab.view, sec = S.sec, T_ = S.t;
+  S.hits = S.hits.filter((h) => time - h.t0 < 0.6); S.flash = S.flash.filter((f) => time - f.t0 < 1.1);
+  for (let i = 0; i < 8; i++) { // springy lift
+    const tg = out.has(i) ? 1 : 0, acc = (tg - S.lift[i]) * 160 - S.liftV[i] * 13;
+    S.liftV[i] += acc * dt; S.lift[i] += S.liftV[i] * dt;
+  }
+  drawBody(c);
+  const glowAll = !sec && v === 'test' && T_.won ? 0.5 + 0.5 * Math.sin(time * 4) : 0;
+  const boxes = [];
+  for (let i = 0; i < 8; i++) {
+    const b = barBox(i), age = S.press[i] !== undefined ? time - S.press[i] : 9;
+    let dip = 0, g = 0; const rings = [];
+    if (age > 0.06 && age < 1.2) { const q = age - 0.06; dip = 3 * Math.exp(-q * 10) * Math.cos(q * 30); g = Math.exp(-q * 5); if (q < 0.55) rings.push({ col: mixH(BAR[i], '#ffffff', 0.4), a: 0.55 * (1 - q / 0.55), d: q * 34 }); }
+    let sx = 0, gc = null;
+    if (S.shake[i] !== undefined && time - S.shake[i] < 0.45) sx = Math.sin((time - S.shake[i]) * 55) * 5 * (1 - (time - S.shake[i]) / 0.45);
+    S.flash.forEach((f) => { const fa = time - f.t0; if (f.id === i && fa > 0 && fa < 1.0) { const q = Math.sin(clamp01(fa / 1.0) * Math.PI); if (q > g) { g = q; gc = f.col; } if (fa < 0.55) rings.push({ col: f.col, a: 0.7 * (1 - fa / 0.55), d: fa * 30 }); } });
+    if (!out.has(i) && glowAll > 0) { if (glowAll * 0.8 > g) { g = glowAll * 0.8; gc = '#ffd23f'; } }
+    boxes.push([i, b, { dip, g, rings, sx, gc }]);
+  }
+  boxes.filter(([i]) => !out.has(i) || S.lift[i] < 0.6).forEach(([i, b, o]) => drawBar(c, i, b, o));
+  // syllable pills under the bars, and a hand to lift a bar out
+  const canLift = !sec && v === 'test' && T_.ran8;
+  const t = T[lang];
+  for (let i = 0; i < 8; i++) {
+    const y = pillYof(i), x = barCX(i), dimmed = out.has(i), W = G.slot - 4;
+    c.save(); c.font = `800 12px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.globalAlpha = dimmed ? 0.5 : 1;
+    rr(c, x - W / 2, y - 11, W, 22, 11); c.fillStyle = 'rgba(12,10,20,.86)'; c.fill();
+    c.strokeStyle = dimmed ? 'rgba(255,255,255,.18)' : rgba(BAR[i], 0.85); c.lineWidth = 1.4; c.stroke();
+    c.fillStyle = '#fff'; c.fillText(t.syl[i], x, y + 0.5); c.restore();
+    if (canLift) { c.save(); c.globalAlpha = 1; c.font = '15px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#fff'; c.fillText(dimmed ? '↩' : '✋', x, y + 27); c.restore(); }
+  }
+  // the grey bars on the shelf, over everything
+  boxes.filter(([i]) => out.has(i) && S.lift[i] >= 0.6).forEach(([i, b, o]) => drawBar(c, i, b, o));
+  // red arcs between the rubbing bars
+  T_.arcs.forEach(([a, b], k) => {
+    const ya = G.yM - barLen(a) / 2 - 10, yb = G.yM - barLen(b) / 2 - 10, xa = barCX(a), xb = barCX(b), top = Math.min(ya, yb) - 26 - k * 7;
+    c.save(); c.lineCap = 'round';
+    c.strokeStyle = 'rgba(255,255,255,.9)'; c.lineWidth = 5.5; c.beginPath(); c.moveTo(xa, ya); c.quadraticCurveTo((xa + xb) / 2, top - 18, xb, yb); c.stroke();
+    c.strokeStyle = '#ff4d4d'; c.lineWidth = 3.2; c.beginPath(); c.moveTo(xa, ya); c.quadraticCurveTo((xa + xb) / 2, top - 18, xb, yb); c.stroke();
+    [[xa, ya], [xb, yb]].forEach(([x, y]) => { c.fillStyle = '#ff4d4d'; circ(c, x, y, 3.6); c.fill(); c.strokeStyle = '#fff'; c.lineWidth = 1.2; c.stroke(); });
+    c.restore();
+  });
+  // mallets
+  S.hits.forEach((h) => { if (h.id > 7) return; const i = h.id, age = time - h.t0, b = barBox(i); drawMallet(c, b.x + Math.sin(b.a) * -4, G.yM - barLen(i) * 0.14, age); });
+}
+
+// --- drawing: the piano -------------------------------------------------------------------------------------
+function drawKeys(c, dt, time) {
+  const { kw, kh, ky, kx0 } = G, v = lab.view, K = S.k, sec = S.sec;
+  S.hits = S.hits.filter((h) => time - h.t0 < 0.6); S.flash = S.flash.filter((f) => time - f.t0 < 1.1);
+  const lit = (m) => { // glow for a key: [0..1, colour]
+    let g = 0, col = PAL12[m % 12];
+    const age = S.press[100 + m] !== undefined ? time - S.press[100 + m] : 9;
+    if (age < 1.2) { g = Math.exp(-age * 4.5); }
+    S.flash.forEach((f) => { const fa = time - f.t0; if (f.id === 100 + m && fa > 0 && fa < 1) { const q = Math.sin(fa * Math.PI); if (q > g) { g = q; col = f.col; } } });
+    if (!sec && v === 'keys' && K.ranBlack && keyBlack(m)) { const q = 0.55 + 0.35 * Math.sin(time * 3); if (q > g) { g = q; col = '#ffd23f'; } }
+    return [g, col];
+  };
+  c.save(); c.shadowColor = 'rgba(0,0,0,.55)'; c.shadowBlur = 22; c.shadowOffsetY = 9;
+  rr(c, kx0 - 11, ky - 16, 14 * kw + 22, kh + 28, 12); c.fillStyle = lg(c, 0, ky - 16, 0, ky + kh + 12, [[0, '#8a5632'], [0.5, '#64391d'], [1, '#43240f']]); c.fill(); c.restore();
+  c.strokeStyle = 'rgba(30,14,4,.8)'; c.lineWidth = 1.5; rr(c, kx0 - 11, ky - 16, 14 * kw + 22, kh + 28, 12); c.stroke();
+  c.strokeStyle = 'rgba(255,220,170,.28)'; c.lineWidth = 1; rr(c, kx0 - 9.5, ky - 14.5, 14 * kw + 19, kh + 25, 11); c.stroke();
+  c.fillStyle = '#6e1b28'; c.fillRect(kx0, ky - 5, 14 * kw, 5);
+  const face = (m, blk) => {
+    const r = keyRect(m), [g, col] = lit(m), age = S.press[100 + m] !== undefined ? time - S.press[100 + m] : 9;
+    const dy = age < 0.3 ? 3 * Math.exp(-age * 10) * Math.cos(age * 28) : 0;
+    let sx = 0; if (S.shake[100 + m] !== undefined && time - S.shake[100 + m] < 0.45) sx = Math.sin((time - S.shake[100 + m]) * 55) * 3 * (1 - (time - S.shake[100 + m]) / 0.45);
+    c.save(); c.translate(sx, 0);
+    if (blk) {
+      c.shadowColor = g > 0.03 ? col : 'rgba(0,0,0,.5)'; c.shadowBlur = g > 0.03 ? 6 + 16 * g : 5; c.shadowOffsetY = g > 0.03 ? 0 : 3;
+      rr(c, r.x, r.y + dy, r.w, r.h, 3.5); c.fillStyle = lg(c, r.x, r.y, r.x + r.w, r.y + r.h, [[0, mixH('#4a4a58', col, g * 0.65)], [1, mixH('#0e0e16', col, g * 0.55)]]); c.fill(); c.shadowColor = 'transparent';
+      c.fillStyle = 'rgba(255,255,255,.22)'; rr(c, r.x + 2, r.y + 2 + dy, r.w * 0.32, r.h - 12, 2); c.fill();
+      c.strokeStyle = 'rgba(0,0,0,.85)'; c.lineWidth = 1.2; rr(c, r.x, r.y + dy, r.w, r.h, 3.5); c.stroke();
+    } else {
+      const x = r.x + 0.8, w = r.w - 1.6;
+      if (g > 0.03) { c.shadowColor = col; c.shadowBlur = 14 * g; }
+      c.beginPath(); c.moveTo(x, r.y); c.lineTo(x + w, r.y); c.lineTo(x + w, r.y + r.h - 5 + dy); c.quadraticCurveTo(x + w, r.y + r.h + dy, x + w - 5, r.y + r.h + dy);
+      c.lineTo(x + 5, r.y + r.h + dy); c.quadraticCurveTo(x, r.y + r.h + dy, x, r.y + r.h - 5 + dy); c.closePath();
+      c.fillStyle = lg(c, x, r.y, x + w, r.y + r.h, [[0, mixH('#fffdf6', col, g * 0.4)], [0.6, mixH('#f1ead8', col, g * 0.7)], [1, mixH('#d8cfb8', col, g * 0.85)]]); c.fill(); c.shadowColor = 'transparent';
+      c.fillStyle = 'rgba(255,255,255,.55)'; c.fillRect(x + 1.5, r.y + 1, 2.4, r.h - 12);
+      c.strokeStyle = 'rgba(120,104,78,.7)'; c.lineWidth = 1; c.stroke();
+    }
+    c.restore();
+  };
+  for (let m = KLO; m <= KHI; m++) if (!keyBlack(m)) face(m, false);
+  for (let m = KLO; m <= KHI; m++) if (keyBlack(m)) face(m, true);
+  // keys the child just struck get a ring
+  S.hits.forEach((h) => { if (h.id < 100) return; const r = keyRect(h.id - 100), age = time - h.t0; c.strokeStyle = rgba(PAL12[(h.id - 100) % 12], 0.6 * (1 - age / 0.6)); c.lineWidth = 2; rr(c, r.x - age * 8, r.y - age * 8, r.w + age * 16, r.h + age * 16, 5); c.stroke(); });
+  // groups of two and three black keys
+  if (!sec && v === 'keys' && K.ranBlack) {
+    for (let o = 0; o < 2; o++) [[1, 3, '2'], [6, 10, '3']].forEach(([a, z, n]) => {
+      const ra = keyRect(KLO + o * 12 + a), rz = keyRect(KLO + o * 12 + z), x0 = ra.x - 3, x1 = rz.x + rz.w + 3, yb = ky - 11;
+      c.save(); c.strokeStyle = '#ffd23f'; c.lineWidth = 2.4; c.lineCap = 'round'; c.beginPath(); c.moveTo(x0, yb + 5); c.lineTo(x0, yb); c.lineTo(x1, yb); c.lineTo(x1, yb + 5); c.stroke();
+      circ(c, (x0 + x1) / 2, yb - 11, 10); c.fillStyle = 'rgba(10,12,22,.88)'; c.fill(); c.stroke();
+      c.fillStyle = '#ffd23f'; c.font = `900 13px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(n, (x0 + x1) / 2, yb - 10.5); c.restore();
+    });
+  }
+  // syllables written on the black keys (the "Do can move" secret), on two staggered rows so the words never collide
+  if (sec === 'move') BLACKS.forEach((m, i) => {
+    const r = keyRect(m), y = ky - 16 - (i % 2) * 24, cls = BCLS[m], main = cls === 0;
+    c.save(); c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 1; c.beginPath(); c.moveTo(r.cx, y + 11); c.lineTo(r.cx, r.y + 2); c.stroke(); c.restore();
+    pill(c, T[lang].syl[cls], r.cx, y, { stroke: main ? '#ffd23f' : 'rgba(255,255,255,.25)', col: main ? '#ffd23f' : '#fff' });
+  });
+}
+
+// --- drawing: the bird -----------------------------------------------------------------------------------
+function drawBird(c, x, y, r, time) {
+  const fr = clamp01(1 - (time - S.bird.frownT) / 0.5), sg = time - S.bird.singT < 2.4 ? 1 : 0;
+  const frE = fr * fr * (3 - 2 * fr);
+  const sway = Math.sin(time * 2.3) * 0.07 * (1 - frE * 0.6) + Math.sin(time * 55) * 0.05 * frE;
+  // shadow on the perch
+  c.fillStyle = 'rgba(0,0,0,.28)'; c.beginPath(); c.ellipse(x, y + r * 1.06, r * 0.75, r * 0.16, 0, 0, Math.PI * 2); c.fill();
+  c.save(); c.translate(x, y + r * 1.0); c.rotate(sway); c.translate(0, -r * 1.0);
+  const sc = 1 + 0.13 * frE; c.scale(sc, sc * (1 - 0.05 * frE));
+  c.strokeStyle = '#e8892b'; c.lineWidth = Math.max(2, r * 0.1); c.lineCap = 'round';
+  [-0.28, 0.28].forEach((dx) => { c.beginPath(); c.moveTo(dx * r, r * 0.82); c.lineTo(dx * r, r * 1.0); c.stroke(); c.beginPath(); c.moveTo(dx * r - r * 0.13, r * 1.02); c.lineTo(dx * r + r * 0.13, r * 1.02); c.stroke(); });
+  c.fillStyle = '#2a79b8'; c.strokeStyle = '#16578a'; c.lineWidth = 1.4; // tail
+  c.beginPath(); c.moveTo(-r * 0.6, r * 0.3); c.quadraticCurveTo(-r * 1.4, r * 0.35, -r * 1.45, r * 0.95); c.quadraticCurveTo(-r * 0.8, r * 0.85, -r * 0.35, r * 0.7); c.closePath(); c.fill(); c.stroke();
+  if (frE > 0.02) { // puffed-up feathers
+    const N = 14; c.fillStyle = '#3f9be0'; c.strokeStyle = '#16578a'; c.lineWidth = 1.2;
+    for (let k = 0; k < N; k++) {
+      const a = k * Math.PI * 2 / N + 0.2, w = 0.15, tip = r * (1 + 0.34 * frE * (0.8 + 0.2 * Math.sin(time * 40 + k)));
+      c.beginPath(); c.moveTo(Math.cos(a - w) * r * 0.9, Math.sin(a - w) * r * 0.9); c.lineTo(Math.cos(a) * tip, Math.sin(a) * tip); c.lineTo(Math.cos(a + w) * r * 0.9, Math.sin(a + w) * r * 0.9); c.closePath(); c.fill(); c.stroke();
+    }
+  }
+  const bg = c.createRadialGradient(-r * 0.35, -r * 0.45, r * 0.1, 0, 0, r * 1.15);
+  bg.addColorStop(0, '#b4efff'); bg.addColorStop(0.55, '#4fb6ee'); bg.addColorStop(1, '#2275b5');
+  c.fillStyle = bg; circ(c, 0, 0, r); c.fill(); c.strokeStyle = '#16578a'; c.lineWidth = 1.6; c.stroke();
+  c.save(); circ(c, 0, 0, r - 0.5); c.clip(); const bl = c.createLinearGradient(0, r * 0.1, 0, r); bl.addColorStop(0, 'rgba(255,255,255,.85)'); bl.addColorStop(1, 'rgba(225,245,255,.7)');
+  c.fillStyle = bl; c.beginPath(); c.ellipse(0, r * 0.5, r * 0.62, r * 0.5, 0, 0, Math.PI * 2); c.fill(); c.restore();
+  c.fillStyle = '#2a86c9'; c.strokeStyle = '#16578a'; c.lineWidth = 1.2; // wings
+  [-1, 1].forEach((s) => { c.save(); c.translate(s * r * 0.92, r * 0.18); c.rotate(s * 0.45 - s * 0.25 * Math.sin(time * 9) * sg); c.beginPath(); c.ellipse(0, 0, r * 0.22, r * 0.45, 0, 0, Math.PI * 2); c.fill(); c.stroke(); c.restore(); });
+  c.fillStyle = '#2f93d6'; c.strokeStyle = '#16578a'; c.lineWidth = 1.1; // tuft
+  [-0.5, 0, 0.5].forEach((a) => { c.save(); c.translate(Math.sin(a) * r * 0.2, -r * 0.96); c.rotate(a); c.beginPath(); c.ellipse(0, -r * 0.16, r * 0.09, r * 0.24, 0, 0, Math.PI * 2); c.fill(); c.stroke(); c.restore(); });
+  const ey = -r * 0.14, ex = r * 0.34;
+  if (frE > 0.15) { // squinting eyes and angry brows
+    c.strokeStyle = '#14213a'; c.lineWidth = Math.max(2, r * 0.12); c.lineCap = 'round'; c.lineJoin = 'round';
+    c.beginPath(); c.moveTo(-ex - r * 0.17, ey - r * 0.17); c.lineTo(-ex + r * 0.1, ey); c.lineTo(-ex - r * 0.17, ey + r * 0.17); c.stroke();
+    c.beginPath(); c.moveTo(ex + r * 0.17, ey - r * 0.17); c.lineTo(ex - r * 0.1, ey); c.lineTo(ex + r * 0.17, ey + r * 0.17); c.stroke();
+    c.lineWidth = Math.max(1.8, r * 0.09);
+    c.beginPath(); c.moveTo(-ex - r * 0.28, ey - r * 0.38); c.lineTo(-ex + r * 0.2, ey - r * 0.24); c.stroke();
+    c.beginPath(); c.moveTo(ex + r * 0.28, ey - r * 0.38); c.lineTo(ex - r * 0.2, ey - r * 0.24); c.stroke();
+  } else [-ex, ex].forEach((px) => {
+    c.fillStyle = '#fff'; circ(c, px, ey, r * 0.24); c.fill(); c.strokeStyle = '#16578a'; c.lineWidth = 1; c.stroke();
+    c.fillStyle = '#14213a'; circ(c, px + r * 0.02, ey + r * 0.03, r * 0.135); c.fill();
+    c.fillStyle = '#fff'; circ(c, px - r * 0.03, ey - r * 0.04, r * 0.055); c.fill();
+  });
+  c.fillStyle = frE > 0.15 ? 'rgba(255,90,90,.5)' : 'rgba(255,130,160,.45)'; [-1, 1].forEach((s) => { circ(c, s * r * 0.58, r * 0.2, r * 0.14); c.fill(); });
+  const bk = c.createLinearGradient(0, r * 0.02, 0, r * 0.32); bk.addColorStop(0, '#ffc15a'); bk.addColorStop(1, '#ec8a24');
+  c.fillStyle = bk; c.strokeStyle = '#b8620f'; c.lineWidth = 1.1;
+  const open = sg ? 0.5 + 0.5 * Math.sin(time * 12) : 0;
+  c.beginPath(); c.moveTo(-r * 0.15, r * 0.04); c.lineTo(r * 0.15, r * 0.04); c.lineTo(0, r * 0.2); c.closePath(); c.fill(); c.stroke();
+  if (sg) { c.fillStyle = '#7a2020'; c.beginPath(); c.ellipse(0, r * 0.25, r * 0.1, r * 0.05 + r * 0.07 * open, 0, 0, Math.PI * 2); c.fill(); }
+  c.restore();
+  if (sg) for (let k = 0; k < 3; k++) { // singing notes
+    const p = ((time * 0.7 + k / 3) % 1), nx = x + (k - 1) * r * 0.9 + Math.sin(time * 3 + k) * 4, ny = y - r * 1.3 - p * 36;
+    c.save(); c.globalAlpha = Math.sin(p * Math.PI); c.font = `800 ${Math.round(r * 0.9)}px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#ffe27a'; c.fillText(k % 2 ? '♫' : '♪', nx, ny); c.restore();
+  }
+}
+
+// --- frame -------------------------------------------------------------------------------------------------
+function frame(c, w, h, dt, time) {
+  geo(w, h);
+  const md = mode(), v = lab.view, sec = S.sec;
+  rr(c, 0, 0, w, h, 20); c.fillStyle = lg(c, 0, 0, w, h, [[0, '#2b2340'], [1, '#14111f']]); c.fill();
+  const lamp = c.createRadialGradient(w * 0.3, 0, 4, w * 0.3, 0, w * 0.9); lamp.addColorStop(0, 'rgba(255,214,140,.2)'); lamp.addColorStop(1, 'rgba(0,0,0,0)');
+  c.save(); rr(c, 0, 0, w, h, 20); c.clip(); c.fillStyle = lamp; c.fillRect(0, 0, w, h); c.restore();
+  const r = clamp(w * 0.06, 18, 28);
+  if (md === 'bars') {
+    drawXylo(c, dt, time);
+    const bx = barCX(7) + G.slot * 0.05;
+    drawBird(c, bx, bodyTop(bx) - r * 1.0 + 3, r, time);
+    // echo: only a pulsing note while the tune plays; no light on the bars
+    const e = sec ? null : v === 'echo' ? S.e : null;
+    if (e && e.playing && !e.card) {
+      const p = clamp01(1 - (time - e.pulse) / 0.5), sc = 1 + 0.35 * p * p;
+      c.save(); c.translate(w * 0.4, 108); c.scale(sc, sc); circ(c, 0, 0, 24); c.fillStyle = 'rgba(10,12,22,.8)'; c.fill(); c.strokeStyle = 'rgba(255,226,122,.7)'; c.lineWidth = 1.5; c.stroke();
+      c.fillStyle = '#ffe27a'; c.font = `800 28px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('♪', 0, 2); c.restore();
+    }
+    if (e && e.card) drawCard(c, e, w * 0.4, 108);
+    if (sec === 'jam') drawBeat(c, w, time);
+  } else {
+    drawKeys(c, dt, time);
+    drawBird(c, w * 0.5, G.ky - 90, r * 1.15, time);
+    if (sec === 'move' && S.m.card) drawCard(c, S.m, w / 2, G.ky - 150);
+    if (sec === 'move' && S.m.playing && !S.m.card) {
+      const p = clamp01(1 - (time - S.m.pulse) / 0.5), sc = 1 + 0.35 * p * p;
+      c.save(); c.translate(w * 0.22, G.ky - 90); c.scale(sc, sc); circ(c, 0, 0, 22); c.fillStyle = 'rgba(10,12,22,.8)'; c.fill(); c.strokeStyle = 'rgba(255,226,122,.7)'; c.lineWidth = 1.5; c.stroke();
+      c.fillStyle = '#ffe27a'; c.font = `800 26px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('♪', 0, 2); c.restore();
+    }
+  }
+}
+function drawCard(c, e, cx, y) { // no sound: the tune appears syllable by syllable instead
+  const t = T[lang], items = e.pat.slice(0, e.cardN).map((k) => t.syl[k]);
+  c.save(); c.font = `800 18px ${FONT}`;
+  const widths = items.map((s) => c.measureText(s).width + 22), total = widths.reduce((a, b) => a + b + 6, -6);
+  let x = clamp(cx - total / 2, 6, Math.max(6, G.w - total - 6));
+  items.forEach((s, i) => {
+    const pw = widths[i];
+    rr(c, x, y - 17, pw, 34, 17); c.fillStyle = 'rgba(10,12,22,.88)'; c.fill(); c.strokeStyle = 'rgba(255,226,122,.75)'; c.lineWidth = 1.5; c.stroke();
+    c.fillStyle = '#ffe27a'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(s, x + pw / 2, y + 1); x += pw + 6;
+  });
+  c.restore();
+}
+function drawBeat(c, w, time) { // the band: four beats, do - so - do - so
+  const J = S.jam, age = time - J.beatT, bump = J.on ? Math.max(0, 1 - age / 0.25) : 0, cx = w * 0.4, cy = 108;
+  for (let i = 0; i < 4; i++) {
+    const on = J.on && (J.n - 1) % 4 === i, rad = on ? 8 + bump * 3 : 6;
+    c.save(); c.shadowColor = on ? '#ffe27a' : 'transparent'; c.shadowBlur = on ? 12 : 0;
+    circ(c, cx - 33 + i * 22, cy, rad); c.fillStyle = on ? '#ffe27a' : 'rgba(255,255,255,.22)'; c.fill(); c.restore();
+  }
+  pill(c, '♪ 90', cx, cy + 28, { sz: 12 });
+}
+const cv = $('cv');
+canvasLoop(cv, frame);
+
+// --- pointer input -----------------------------------------------------------------------------------------
+let drag = null;
+cv.addEventListener('pointerdown', (ev) => {
+  const r = cv.getBoundingClientRect(), px = ev.clientX - r.left, py = ev.clientY - r.top, v = lab.view, sec = S.sec;
+  if (mode() === 'keys') {
+    const m = keyAt(px, py); if (m === null) return;
+    const gate = !sec && v === 'keys' && S.k.guess === null; // before the guess the bird stays neutral
+    strike(100 + m, m, { noReact: gate });
+    if (sec === 'move' && BCLS[m] !== undefined) echoTap(S.m, BCLS[m], 100 + m);
+    return;
+  }
+  const canLift = !sec && v === 'test' && S.t.ran8 && S.t.phase !== 'running';
+  if (canLift) { const li = liftTargetAt(px, py); if (li >= 0) { toggleOut(li); return; } }
+  const i = barAt(px, py); if (i < 0) return;
+  strike(i, XM[i]);
+  if (!sec && v === 'echo') echoTap(S.e, CLS[i], i);
+  if (canLift) { drag = { i, y0: py }; try { cv.setPointerCapture(ev.pointerId); } catch { /* fine */ } }
+});
+cv.addEventListener('pointermove', (ev) => {
+  if (!drag) return;
+  const py = ev.clientY - cv.getBoundingClientRect().top;
+  if (py - drag.y0 < -24) { const i = drag.i; drag = null; if (S.t.phase !== 'running' && !S.t.out.has(i)) toggleOut(i); }
+});
+['pointerup', 'pointercancel'].forEach((e) => cv.addEventListener(e, () => { drag = null; }));
+render();
+</script>
+</body>
+</html>
