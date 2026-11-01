@@ -31,6 +31,9 @@ for (const { topicId: a, prerequisiteId: b } of deps) {
   adj.get(a).push(b); adj.get(b).push(a);
 }
 
+// every lab says when it was added (YYYY-MM-DD): the overview's "newest first" order and its "New" badge use it
+for (const l of labs) if (!/^\d{4}-\d{2}-\d{2}$/.test(l.added ?? '')) throw new Error(`${l.id}: "added" must be a date like 2026-11-01`);
+
 // topic -> labs that explain it
 const labsOf = new Map();
 for (const l of labs) for (const t of l.topics) {
