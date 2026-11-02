@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-02
 
 ### Labs
+- New lab `part-of` “Part of a Pile”: deal sweets into bags to find 3/4 of 24, work backwards from a part, cut an hour, a metre and a class on a strip (340). (#267)
 - New lab `peter-wolf` “A Voice for Every Hero”: six heroes on an evening meadow, each with its own instrument and tune; guess who plays, swap voices, give a voice to a new hero (original tunes; Prokofiev’s instrument assignments) (339). (#266)
 - "Where next" under every lab: up to three easier labs to look at first ("Too hard?", labs on the prerequisites of the lab's topics) and up to three to go on to ("Too easy?", labs on the topics that build on it). `scripts/labs-catalog.mjs` derives them from the prerequisite graph as `before` / `after` in `labs/catalog.json`, keeping out labs reached both ways and preferring younger labs before and older ones after; new file `labs/next.js`, precached by the service worker (`sg-v4`). 288 of 331 labs get labs before, 255 get labs after. The new-lab skill makes it a rule for future labs. (#261)
 - 7 labs after Tamás Varga's Hungarian maths method (338): `logic-blocks` (the 48-piece logic set, one difference at a time), `every-some` (true and false statements, and / or / not, two hoops), `all-ways` (listing every tower and outfit, tree diagrams), `rods` (Cuisenaire rods and missing numbers), `packs` (packing in threes, other bases, binary lamps), `pairs` (odd and even), `dice-race` (sums of two dice, certain / possible / impossible). They cover 21 topics that had no lab. (#262)
