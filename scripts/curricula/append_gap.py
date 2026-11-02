@@ -7,6 +7,9 @@ Existing ids, edges and links are skipped, so a second run changes nothing. Core
 
 Gap file: {domainLabels: {domain: {ru, hu}}, topics: [EN fields + i18n.{ru,hu}], dependencies: [...],
 links: [{index, title, topics: [[topicId, 'core'|'related']]}]}.
+A link may name a new item instead of an index: {item: [country, subject, grade, title], topics}; the item is
+appended to school-curricula.json once. An optional `curriculum: {code, name, url, grades}` adds or updates that
+entry of `curricula` (a new curriculum also needs its code in merge.py CURRICULA and labels in the viewer).
 
 Usage: python3 scripts/curricula/append_gap.py <gap json> [<country>]   (country defaults to hu)
 """
@@ -84,8 +87,20 @@ def main(gap_path, country='hu'):
     raw = sc_path.read_text()
     sc = json.loads(raw)
     items, links = sc['items'], sc['links']
-    added_links = 0
+    if cur := gap.get('curriculum'):
+        sc['curricula'][cur['code']] = {k: cur[k] for k in ('name', 'url', 'grades')}
+    where = {tuple(it): n for n, it in enumerate(items)}
+    added_links = added_items = 0
     for ln in gap['links']:
+        if 'item' in ln:
+            it = ln['item']
+            if it[0] != country:
+                sys.exit(f'link item {it}: expected country {country}')
+            if tuple(it) not in where:
+                where[tuple(it)] = len(items)
+                items.append(list(it))
+                added_items += 1
+            ln = {'index': where[tuple(it)], 'title': it[3], 'topics': ln['topics']}
         i, title = ln['index'], ln['title']
         if not (0 <= i < len(items)) or items[i][0] != country or not items[i][3].startswith(title):
             sys.exit(f"link entry {i} {title!r}: item is {items[i] if 0 <= i < len(items) else None}, expected country {country}")
@@ -123,7 +138,7 @@ def main(gap_path, country='hu'):
     if raw.endswith('\n'):
         out += '\n'
     sc_path.write_text(out)
-    print(f'{added_topics} topics, {added_edges} edges, {added_links} links added; '
+    print(f'{added_topics} topics, {added_edges} edges, {added_items} items, {added_links} links added; '
           f'{len(tagged)} extra topics newly tagged {country}: {", ".join(tagged) or "-"}')
 
 
