@@ -1,0 +1,803 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Every, Some, None · Skill Graph</title>
+<meta name="description" content="Read a statement about the blocks on a tray, decide whether it is true before the tray lights up, and see how ‘and’, ‘or’ and ‘not’ change the answer. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  .es-card { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); width: min(560px, calc(100% - 16px)); padding: 10px 14px 12px; text-align: center; }
+  .es-card .es-k { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-weight: 700; margin-bottom: 4px; }
+  .es-card .es-p { font-size: 13px; color: var(--soft); font-weight: 700; margin-bottom: 4px; }
+  .es-card .es-s { font: 500 24px/1.18 var(--serif); color: #fff; text-wrap: balance; }
+  .es-card .op { font-family: var(--sans); font-weight: 900; color: var(--wip); letter-spacing: .04em; }
+  .es-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .es-opt { min-height: 54px; padding: 6px 8px; border-radius: 14px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1); font-size: 18px; font-weight: 900; cursor: pointer; transition: background .15s; }
+  .es-opt:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .es-opt:disabled { cursor: default; }
+  .es-opt.ok { border-color: var(--ok); background: rgba(61, 220, 151, .18); }
+  .es-opt.bad { border-color: var(--red); background: rgba(255, 59, 48, .14); }
+  .es-b { min-height: 40px; padding: 8px 18px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .12); font-weight: 800; font-size: 13px; cursor: pointer; }
+  .es-b:hover:not(:disabled) { background: rgba(130, 145, 190, .26); }
+  .es-b.main { background: #fff; color: var(--bg); border-color: #fff; }
+  .es-b:disabled { opacity: .35; cursor: default; }
+  .es-q { font: 500 20px/1.25 var(--serif); color: #fff; margin: 0 0 10px; text-wrap: balance; }
+  .es-q b { font-family: var(--sans); font-weight: 900; color: var(--wip); }
+  .es-step { display: flex; align-items: center; gap: 10px; }
+  .es-sb { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1); font-size: 20px; font-weight: 800; line-height: 1; padding: 0; cursor: pointer; }
+  .es-sb:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .es-sb:disabled { opacity: .3; cursor: default; }
+  .es-step b { min-width: 34px; text-align: center; font-size: 26px; font-weight: 900; }
+  .es-sel { min-height: 42px; max-width: 100%; border-radius: 12px; border: 1px solid var(--stroke2); background: rgba(20, 24, 38, .85); color: #fff; font: 800 14px var(--sans); padding: 0 10px; }
+  .row2 .chip { min-height: 36px; padding: 7px 14px; }
+  @media (max-width: 760px) {
+    #stage { height: min(125vw, 540px); }
+    body[data-v=hoops] #stage { height: min(138vw, 590px); }
+    .es-card .es-s { font-size: 20px; }
+    .es-q { font-size: 18px; }
+  }
+  @media (min-width: 761px) { #stage { min-height: 500px; } }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, lang } from '../lab.js';
+
+// --- texts: vocabulary and sentence builders per language ----------------------------------------------------
+// descriptors: {t:'col'|'shp'|'siz'|'hole', v}; quantifiers: 'every' | 'some' | 'no'
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+const G = {
+  en: {
+    col: ['red', 'yellow', 'blue', 'green'], shp: ['circle', 'square', 'triangle'], shpA: ['a circle', 'a square', 'a triangle'], shpP: ['circles', 'squares', 'triangles'], siz: ['big', 'small'],
+    sent(q, d, p) {
+      const sg = q !== 'some';
+      const subj = d.t === 'col' ? `${this.col[d.v]} block` : d.t === 'siz' ? `${this.siz[d.v]} block` : d.v ? 'block with a hole' : 'solid block';
+      const sub = sg ? subj : subj.replace('block', 'blocks');
+      const pr = p.t === 'shp' ? (sg ? this.shpA[p.v] : this.shpP[p.v]) : p.t === 'col' ? this.col[p.v] : this.siz[p.v];
+      return q === 'every' ? `Every ${sub} is ${pr}.` : q === 'some' ? `Some ${sub} are ${pr}.` : `No ${sub} is ${pr}.`;
+    },
+    someAny(c) { return `Some blocks are ${this.col[c]}.`; },
+    noneBoth(c, s) { return `No block is a ${this.col[c]} ${this.shp[s]}.`; },
+    qOpts: ['Every', 'Some', 'No'],
+    dOpts() { return [...this.col, 'with a hole', 'solid', 'big', 'small']; },
+    pOpts() { return [...this.shpA, ...this.col]; },
+    colA() { return this.col; }, shpAon() { return this.shpA; }, colH() { return this.col; }, shpH() { return this.shpP; },
+  },
+  ru: {
+    colF: ['красная', 'жёлтая', 'синяя', 'зелёная'], colP: ['красные', 'жёлтые', 'синие', 'зелёные'], colI: ['красной', 'жёлтой', 'синей', 'зелёной'], colG: ['красных', 'жёлтых', 'синих', 'зелёных'],
+    shpN: ['круг', 'квадрат', 'треугольник'], shpP: ['круги', 'квадраты', 'треугольники'], shpI: ['кругом', 'квадратом', 'треугольником'], shpG: ['кругов', 'квадратов', 'треугольников'],
+    shpAd: ['круглая', 'квадратная', 'треугольная'], shpAdP: ['круглые', 'квадратные', 'треугольные'],
+    sizF: ['большая', 'маленькая'], sizP: ['большие', 'маленькие'], sizI: ['большой', 'маленькой'],
+    sent(q, d, p) {
+      const subF = d.t === 'col' ? `${this.colF[d.v]} фигурка` : d.t === 'siz' ? `${this.sizF[d.v]} фигурка` : d.v ? 'фигурка с дыркой' : 'фигурка без дырки';
+      const subP = d.t === 'col' ? `${this.colP[d.v]} фигурки` : d.t === 'siz' ? `${this.sizP[d.v]} фигурки` : d.v ? 'фигурки с дыркой' : 'фигурки без дырки';
+      if (q === 'every') return `Каждая ${subF} — ${p.t === 'shp' ? this.shpN[p.v] : p.t === 'col' ? this.colF[p.v] : this.sizF[p.v]}.`;
+      if (q === 'some') return `Некоторые ${subP} — ${p.t === 'shp' ? this.shpP[p.v] : p.t === 'col' ? this.colP[p.v] : this.sizP[p.v]}.`;
+      return `Ни одна ${subF} не является ${p.t === 'shp' ? this.shpI[p.v] : p.t === 'col' ? this.colI[p.v] : this.sizI[p.v]}.`;
+    },
+    someAny(c) { return `Некоторые фигурки ${this.colP[c]}.`; },
+    noneBoth(c, s) { return `${cap(this.colG[c])} ${this.shpG[s]} нет.`; },
+    qOpts: ['Каждая', 'Некоторые', 'Ни одна'],
+    dOpts() { return [...this.colF, 'с дыркой', 'без дырки', ...this.sizF]; },
+    pOpts() { return [...this.shpN, ...this.colF]; },
+    colA() { return this.colF; }, shpAon() { return this.shpAd; }, colH() { return this.colP; }, shpH() { return this.shpAdP; },
+  },
+  hu: {
+    col: ['piros', 'sárga', 'kék', 'zöld'], shp: ['kör', 'négyzet', 'háromszög'], siz: ['nagy', 'kicsi'],
+    sent(q, d, p) {
+      const sub = d.t === 'col' ? `${this.col[d.v]} elem` : d.t === 'siz' ? `${this.siz[d.v]} elem` : d.v ? 'lyukas elem' : 'nem lyukas elem';
+      const pr = p.t === 'shp' ? this.shp[p.v] : p.t === 'col' ? this.col[p.v] : this.siz[p.v];
+      return q === 'every' ? `Minden ${sub} ${pr}.` : q === 'some' ? `Néhány ${sub} ${pr}.` : `Egyetlen ${sub} sem ${pr}.`;
+    },
+    someAny(c) { return `Van ${this.col[c]} elem.`; },
+    noneBoth(c, s) { return `Nincs ${this.col[c]} ${this.shp[s]}.`; },
+    qOpts: ['Minden', 'Néhány', 'Egyetlen'],
+    dOpts() { return [...this.col, 'lyukas', 'nem lyukas', 'nagy', 'kicsi']; },
+    pOpts() { return [...this.shp, ...this.col]; },
+    colA() { return this.col; }, shpAon() { return this.shp; }, colH() { return this.col; }, shpH() { return this.shp; },
+  },
+};
+
+const T = {
+  en: {
+    name: 'Every, Some, None', title: 'Is the statement true?',
+    lines: [['Read a statement', 'about the blocks on the tray.'], ['Decide if it is true', 'before the tray lights up.'], ['Then play with “and”,', '“or” and “not”.']],
+    views: { tf: '✅ True or false?', aon: '🔀 And, or, not', hoops: '⭕ Two hoops' },
+    ok: 'Right!', no: 'Not quite', rightLbl: 'right',
+    tf: {
+      kick: 'Statement', stT: 'Read it, then look at the tray', stL: 'Is the statement true or false? Decide before the tray lights up.', t: 'True', f: 'False', next: 'Next statement',
+      breaks: 'this one breaks it', fits: 'this one fits', nobody: 'no block fits', clean: 'nothing breaks it',
+      expl: {
+        everyT: 'True. Every block it talks about fits, so nothing breaks it.', everyF: 'False. One block that does not fit is enough to break an “every” statement.',
+        someT: 'True. One block that fits is enough for “some”.', someF: 'False. Not a single block fits.',
+        noneT: 'True. Not a single block is both.', noneF: 'False. One block that is both is enough to break a “no” statement.',
+      },
+    },
+    aon: {
+      prompt: 'Tap every block that is…', and: 'AND', or: 'OR', not: 'NOT', check: 'Check', next: 'Next statement', fitsLbl: 'blocks fit', tapped: (n) => `👆 ${n}`,
+      stT: 'Tap the blocks that fit', stL: 'Tap every block the statement fits, then press Check.',
+      res: (r, m, w) => `Right: ${r} · missed: ${m} · wrong: ${w}`,
+      notes: { and: 'AND: both things must be true for the same block.', or: 'OR: one is enough, and a block that is both fits too.', not: 'NOT turns it round: every block that is not like that fits.', nor: 'NOT (… OR …): the block is neither one nor the other.' },
+      orPill: 'OR includes both', orLead: 'In maths, “or” includes “both”: a block with both properties fits too.',
+    },
+    hp: {
+      q: (A, B) => `How many blocks are ${A} <b>OR</b> ${B}?`, check: 'Check', newTray: 'New tray', and: 'and', twice: 'counted twice',
+      stT: 'Two hoops', stL: 'Blocks that are in hoop A, in hoop B, or in both slide into place. Guess first, then check.',
+      explain: 'The blocks in the overlap are in both hoops, so |A| + |B| counts them twice. Take them away once.',
+      chips: { or: 'A or B', and: 'A and B', na: 'not A', nb: 'not B' },
+      notes: { or: 'A or B: everything inside either hoop. Overlap blocks count once.', and: 'A and B: only the overlap, the blocks that are in both hoops.', na: 'not A: everything outside hoop A.', nb: 'not B: everything outside hoop B.' },
+      lab: (x, c) => `${x} · ${c}`,
+    },
+    own: {
+      kick: 'Your statement', stT: 'Your own statement', stL: 'Choose the parts and the tray checks the sentence at once.', newTray: 'New tray',
+      vac: 'No block of that kind is on the tray, so nothing can break it.', sq: 'quantity', sd: 'which blocks', sp: 'what they are',
+    },
+    nn: { kick: 'Statement', stT: 'Not not', say: 'Say “not”', other: 'Another colour', again: 'Start again', l0: 'These are the blocks that fit.', lOdd: 'The other blocks fit now: everything that is not like that.', lEven: 'Back to the same blocks as at the start.' },
+    secrets: {
+      a: ['Your own statement', 'Build a sentence from parts and let the tray check it.'],
+      b: ['Not not', 'Say ‘not’ twice and you are back where you started.'],
+    },
+    facts: {
+      tf: [{ emo: '🇭🇺', text: 'In Hungarian first grades, children sort and judge statements like ‘every red block is round’ as true or false: this has been part of maths since Tamás Varga’s reform of the 1970s.', src: 'K. Gosztonyi, TMCS 18/3 (2020): strand ‘sets and logic’ in grades 1–8' }],
+      aon: [{ emo: '☕', text: 'In everyday talk ‘tea or coffee?’ means one of them, but in maths ‘or’ also allows both. Logicians call this the inclusive ‘or’.', src: 'Stanford Encyclopedia of Philosophy: Disjunction' }],
+      hoops: [{ emo: '⭕', text: 'The hoop pictures are named after John Venn, an English logician who drew them in 1880.', src: 'J. Venn, On the Diagrammatic and Mechanical Representation of Propositions and Reasonings, Philosophical Magazine (1880)' }],
+    },
+    quiz: [
+      { q: 'On the tray 5 red blocks are circles and 1 red block is a square. ‘Every red block is a circle’ is…', opts: ['True', 'False', 'Almost true'], ok: 1, hint: 'How many blocks does it take to break an ‘every’ statement?' },
+      { q: 'Exactly one block on the tray is blue. Is ‘Some blocks are blue’ true?', opts: ['Yes', 'No, you need at least two', 'Only if every block is blue'], ok: 0, hint: 'Look for one example that fits.' },
+      { q: 'In a class 12 children have a dog, 8 have a cat and 5 have both. How many have a dog or a cat?', opts: ['20', '15', '25'], ok: 1, hint: 'Children with both pets stand in the overlap: count them once.' },
+    ],
+  },
+  ru: {
+    name: 'Все, некоторые, ни один', title: 'Верно ли утверждение?',
+    lines: [['Прочитай утверждение', 'про фигурки на подносе.'], ['Реши, верно ли оно,', 'прежде чем поднос подсветится.'], ['А потом поиграй с «и»,', '«или» и «не».']],
+    views: { tf: '✅ Верно ли?', aon: '🔀 И, или, не', hoops: '⭕ Два обруча' },
+    ok: 'Верно!', no: 'Не совсем', rightLbl: 'верно',
+    tf: {
+      kick: 'Утверждение', stT: 'Прочитай и посмотри на поднос', stL: 'Верно ли утверждение? Реши, прежде чем поднос подсветится.', t: 'Верно', f: 'Неверно', next: 'Следующее утверждение',
+      breaks: 'ломает утверждение', fits: 'это подходит', nobody: 'ни одна не подходит', clean: 'ничто не ломает',
+      expl: {
+        everyT: 'Верно. Все фигурки, о которых речь, подходят, так что ничто не ломает утверждение.', everyF: 'Неверно. Одной неподходящей фигурки хватает, чтобы сломать утверждение со словом «каждая».',
+        someT: 'Верно. Для «некоторые» хватает одной подходящей фигурки.', someF: 'Неверно. Ни одна фигурка не подходит.',
+        noneT: 'Верно. Ни одна фигурка не подходит сразу под оба признака.', noneF: 'Неверно. Одной фигурки с обоими признаками хватает, чтобы сломать утверждение «нет».',
+      },
+    },
+    aon: {
+      prompt: 'Нажми на каждую фигурку, которая…', and: 'И', or: 'ИЛИ', not: 'НЕ', check: 'Проверить', next: 'Следующее утверждение', fitsLbl: 'фигурок подходят', tapped: (n) => `👆 ${n}`,
+      stT: 'Нажимай на подходящие фигурки', stL: 'Нажми на каждую фигурку, которой подходит утверждение, и жми «Проверить».',
+      res: (r, m, w) => `Верно: ${r} · пропущено: ${m} · лишних: ${w}`,
+      notes: { and: 'И: оба признака сразу у одной фигурки.', or: 'ИЛИ: хватает одного, и фигурка с обоими признаками тоже подходит.', not: 'НЕ переворачивает: подходит каждая фигурка, у которой этого нет.', nor: 'НЕ (… ИЛИ …): нет ни того, ни другого.' },
+      orPill: '«или» — и оба', orLead: 'В математике «или» включает и «оба сразу»: фигурка с обоими признаками тоже подходит.',
+    },
+    hp: {
+      q: (A, B) => `Сколько фигурок ${A} <b>ИЛИ</b> ${B}?`, check: 'Проверить', newTray: 'Новый поднос', and: 'и', twice: 'посчитаны дважды',
+      stT: 'Два обруча', stL: 'Фигурки, которые попали в обруч A, в обруч B или в оба, раскладываются по местам. Сначала угадай, потом проверь.',
+      explain: 'Фигурки в общей части лежат в обоих обручах, поэтому |A| + |B| считает их дважды. Вычти их один раз.',
+      chips: { or: 'A или B', and: 'A и B', na: 'не A', nb: 'не B' },
+      notes: { or: 'A или B: всё, что лежит хотя бы в одном обруче. Фигурки в общей части считаются один раз.', and: 'A и B: только общая часть — фигурки, которые лежат в обоих обручах.', na: 'не A: всё, что лежит вне обруча A.', nb: 'не B: всё, что лежит вне обруча B.' },
+      lab: (x, c) => `${x} · ${c}`,
+    },
+    own: {
+      kick: 'Твоё утверждение', stT: 'Своё утверждение', stL: 'Выбери части, и поднос сразу проверит фразу.', newTray: 'Новый поднос',
+      vac: 'Таких фигурок на подносе нет, так что сломать утверждение нечем.', sq: 'сколько', sd: 'какие фигурки', sp: 'какие они',
+    },
+    nn: { kick: 'Утверждение', stT: 'Не-не', say: 'Сказать «не»', other: 'Другой цвет', again: 'Сначала', l0: 'Вот фигурки, которые подходят.', lOdd: 'Теперь подходят остальные фигурки: все, у кого этого нет.', lEven: 'Снова те же фигурки, что и в начале.' },
+    secrets: {
+      a: ['Своё утверждение', 'Собери фразу из частей и проверь её на подносе.'],
+      b: ['Не-не', 'Скажи «не» два раза, и вернёшься туда же, откуда начал.'],
+    },
+    facts: {
+      tf: [{ emo: '🇭🇺', text: 'В венгерских первых классах дети раскладывают фигурки и решают, верно ли «каждая красная фигурка круглая»: это часть математики со времён реформы Тамаша Варги в 1970-х.', src: 'K. Gosztonyi, TMCS 18/3 (2020): strand ‘sets and logic’ in grades 1–8' }],
+      aon: [{ emo: '☕', text: 'В жизни «чай или кофе?» значит что-то одно, а в математике «или» разрешает и то и другое сразу. Логики называют это неисключающим «или».', src: 'Stanford Encyclopedia of Philosophy: Disjunction' }],
+      hoops: [{ emo: '⭕', text: 'Картинки с кругами названы в честь Джона Венна, английского логика, который нарисовал их в 1880 году.', src: 'J. Venn, On the Diagrammatic and Mechanical Representation of Propositions and Reasonings, Philosophical Magazine (1880)' }],
+    },
+    quiz: [
+      { q: 'На подносе 5 красных фигурок — круги, а 1 красная — квадрат. «Каждая красная фигурка — круг» — это…', opts: ['Верно', 'Неверно', 'Почти верно'], ok: 1, hint: 'Сколько фигурок нужно, чтобы сломать утверждение со словом «каждая»?' },
+      { q: 'На подносе ровно одна синяя фигурка. Верно ли, что «некоторые фигурки синие»?', opts: ['Да', 'Нет, нужно хотя бы две', 'Только если все синие'], ok: 0, hint: 'Поищи хотя бы один подходящий пример.' },
+      { q: 'В классе у 12 детей есть собака, у 8 — кошка, а у 5 — и то и другое. У скольких есть собака или кошка?', opts: ['20', '15', '25'], ok: 1, hint: 'Дети с обоими питомцами стоят в общей части кругов: считай их один раз.' },
+    ],
+  },
+  hu: {
+    name: 'Mind, néhány, egy sem', title: 'Igaz az állítás?',
+    lines: [['Olvass el egy állítást', 'a tálcán lévő elemekről.'], ['Döntsd el, igaz-e,', 'mielőtt a tálca kivilágosodik.'], ['Aztán játssz az „és”, a „vagy”', 'és a „nem” szavakkal.']],
+    views: { tf: '✅ Igaz vagy hamis?', aon: '🔀 És, vagy, nem', hoops: '⭕ Két karika' },
+    ok: 'Így van!', no: 'Nem egészen', rightLbl: 'jó',
+    tf: {
+      kick: 'Állítás', stT: 'Olvasd el, aztán nézd a tálcát', stL: 'Igaz vagy hamis az állítás? Döntsd el, mielőtt a tálca kivilágosodik.', t: 'Igaz', f: 'Hamis', next: 'Következő állítás',
+      breaks: 'ez megdönti', fits: 'ez illik rá', nobody: 'egy sem illik rá', clean: 'semmi sem dönti meg',
+      expl: {
+        everyT: 'Igaz. Minden elem megfelel, amelyről az állítás szól, így semmi sem dönti meg.', everyF: 'Hamis. Egyetlen nem illő elem elég ahhoz, hogy egy „minden” állítás megdőljön.',
+        someT: 'Igaz. A „néhány” állításhoz elég egyetlen illő elem.', someF: 'Hamis. Egyetlen elem sem illik rá.',
+        noneT: 'Igaz. Egyetlen elem sem olyan, hogy mindkettő igaz rá.', noneF: 'Hamis. Egyetlen olyan elem elég, amelyre mindkettő igaz, hogy a „nincs” állítás megdőljön.',
+      },
+    },
+    aon: {
+      prompt: 'Koppints minden elemre, amely…', and: 'ÉS', or: 'VAGY', not: 'NEM', check: 'Ellenőrzés', next: 'Következő állítás', fitsLbl: 'elem illik', tapped: (n) => `👆 ${n}`,
+      stT: 'Koppints az illő elemekre', stL: 'Koppints minden elemre, amelyre illik az állítás, aztán nyomd meg az Ellenőrzést.',
+      res: (r, m, w) => `Jó: ${r} · kimaradt: ${m} · fölösleges: ${w}`,
+      notes: { and: 'ÉS: mindkettőnek igaznak kell lennie ugyanarra az elemre.', or: 'VAGY: elég az egyik, és az is illik, amelyre mindkettő igaz.', not: 'A NEM megfordítja: minden olyan elem illik, amelyre ez nem igaz.', nor: 'NEM (… VAGY …): az elem egyik sem, a másik sem.' },
+      orPill: 'a ‚vagy’ mindkettőt is', orLead: 'A matekban a „vagy” a mindkettőt is megengedi: az az elem is illik, amelyre mindkettő igaz.',
+    },
+    hp: {
+      q: (A, B) => `Hány elem ${A} <b>VAGY</b> ${B}?`, check: 'Ellenőrzés', newTray: 'Új tálca', and: 'és', twice: 'kétszer számolva',
+      stT: 'Két karika', stL: 'Az A, a B vagy mindkét karikába kerülő elemek a helyükre csúsznak. Előbb tippelj, aztán ellenőrizd.',
+      explain: 'A közös részben lévő elemek mindkét karikában benne vannak, ezért az |A| + |B| kétszer számolja őket. Egyszer vond ki őket.',
+      chips: { or: 'A vagy B', and: 'A és B', na: 'nem A', nb: 'nem B' },
+      notes: { or: 'A vagy B: minden, ami legalább az egyik karikában van. A közös részben lévőket egyszer számoljuk.', and: 'A és B: csak a közös rész, vagyis az elemek, amelyek mindkét karikában vannak.', na: 'nem A: minden, ami az A karikán kívül van.', nb: 'nem B: minden, ami a B karikán kívül van.' },
+      lab: (x, c) => `${x} · ${c}`,
+    },
+    own: {
+      kick: 'Saját állításod', stT: 'Saját állítás', stL: 'Válaszd ki a részeket, és a tálca azonnal ellenőrzi a mondatot.', newTray: 'Új tálca',
+      vac: 'Ilyen elem nincs a tálcán, ezért semmi sem döntheti meg.', sq: 'mennyi', sd: 'melyik elemek', sp: 'milyenek',
+    },
+    nn: { kick: 'Állítás', stT: 'Nem nem', say: 'Mondd: „nem”', other: 'Másik szín', again: 'Újra', l0: 'Ezek az elemek illenek.', lOdd: 'Most a többi elem illik: mind, amelyre ez nem igaz.', lEven: 'Újra ugyanazok az elemek, mint az elején.' },
+    secrets: {
+      a: ['Saját állítás', 'Rakj össze egy mondatot részekből, és a tálca ellenőrzi.'],
+      b: ['Nem nem', 'Ha kétszer mondod, hogy ‚nem’, oda jutsz vissza, ahonnan elindultál.'],
+    },
+    facts: {
+      tf: [{ emo: '🇭🇺', text: 'A magyar első osztályokban a gyerekek eldöntik, igaz-e, hogy ‚minden piros elem kerek’: ez Varga Tamás 1970-es évekbeli reformja óta része a matematikának.', src: 'K. Gosztonyi, TMCS 18/3 (2020): strand ‘sets and logic’ in grades 1–8' }],
+      aon: [{ emo: '☕', text: 'A hétköznapokban a ‚teát vagy kávét?’ azt jelenti, hogy az egyiket, a matematikában viszont a ‚vagy’ mindkettőt is megengedi. Ezt megengedő ‚vagy’-nak hívják.', src: 'Stanford Encyclopedia of Philosophy: Disjunction' }],
+      hoops: [{ emo: '⭕', text: 'A karikás ábrák John Venn angol logikusról kapták a nevüket, aki 1880-ban rajzolta le őket.', src: 'J. Venn, On the Diagrammatic and Mechanical Representation of Propositions and Reasonings, Philosophical Magazine (1880)' }],
+    },
+    quiz: [
+      { q: 'A tálcán 5 piros elem kör, 1 piros elem négyzet. ‚Minden piros elem kör’ – ez…', opts: ['Igaz', 'Hamis', 'Majdnem igaz'], ok: 1, hint: 'Hány elem kell ahhoz, hogy egy ‚minden’ állítás megdőljön?' },
+      { q: 'A tálcán pontosan egy kék elem van. Igaz-e, hogy ‚Van kék elem’?', opts: ['Igen', 'Nem, legalább kettő kell', 'Csak ha minden elem kék'], ok: 0, hint: 'Keress egyetlen példát, amely illik rá.' },
+      { q: 'Egy osztályban 12 gyereknek van kutyája, 8-nak macskája, és 5-nek mindkettő. Hánynak van kutyája vagy macskája?', opts: ['20', '15', '25'], ok: 1, hint: 'Akinek mindkettő van, az a közös részben áll: őket csak egyszer számold.' },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'sg_mth_01', en: 'True and False Statements', ru: 'Истинные и ложные утверждения', hu: 'Igaz és hamis állítások' },
+  { id: 'mt_1YwOCMMwD8', en: 'Sets & Venn Diagrams', ru: 'Множества и диаграммы Венна', hu: 'Halmazok és Venn-diagramok' },
+  { id: 'mt_eSv_w46u6H', en: 'Venn Diagrams and Counting Outcomes', ru: 'Диаграммы Венна и подсчёт исходов', hu: 'Venn-diagramok és kimenetelek számlálása' },
+];
+
+// --- helpers -------------------------------------------------------------------------------------------------
+const TAU = Math.PI * 2;
+const COL = ['#e5484d', '#f5c518', '#3b82f6', '#22a55b'];
+const GREEN = '#3ddc97', AMBER = '#f5c84c', REDC = '#ff4d4f', HOOPB = '#4b3a8f';
+const rnd = (n) => Math.floor(Math.random() * n);
+const pick = (a) => a[rnd(a.length)];
+const shuf = (a) => { const b = [...a]; for (let i = b.length - 1; i > 0; i--) { const j = rnd(i + 1); [b[i], b[j]] = [b[j], b[i]]; } return b; };
+const c01 = (x) => Math.min(1, Math.max(0, x));
+const ease = (x) => { x = c01(x); return x * x * (3 - 2 * x); };
+const easeOut = (x) => 1 - Math.pow(1 - c01(x), 3);
+const tm = () => performance.now() / 1000;
+const rgb = (h) => { const n = parseInt(h.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; };
+const mixH = (h, to, k) => '#' + rgb(h).map((v) => Math.round(v + (to - v) * k).toString(16).padStart(2, '0')).join('');
+const lite = (h, k) => mixH(h, 255, k), dark = (h, k) => mixH(h, 0, k);
+const hexA = (h, a) => { const [r, g, b] = rgb(h); return `rgba(${r},${g},${b},${a})`; };
+const rr = (c, x, y, w, h, r) => { c.beginPath(); c.roundRect(x, y, Math.max(0, w), Math.max(0, h), Math.max(0, r)); };
+let CW = 300, LR = 24; // canvas width, current block radius (for pills and hit tests)
+
+function pill(c, txt, x, y, o = {}) {
+  c.save(); c.font = '800 12px Nunito, sans-serif'; c.textBaseline = 'middle';
+  const tw = c.measureText(txt).width + 16, hh = 22;
+  const x0 = clamp(x - tw / 2, 3, Math.max(3, CW - tw - 3)), y0 = Math.max(hh / 2 + 2, y);
+  c.fillStyle = o.bg || 'rgba(10,12,24,.86)'; rr(c, x0, y0 - hh / 2, tw, hh, hh / 2); c.fill();
+  c.fillStyle = '#fff'; c.textAlign = 'left'; c.fillText(txt, x0 + 8, y0 + 1);
+  c.restore();
+}
+
+// --- the blocks: a glossy plastic tile, drawn once into a sprite -----------------------------------------------
+function rpoly(c, pts, rad) {
+  const n = pts.length; c.beginPath();
+  for (let i = 0; i < n; i++) {
+    const p0 = pts[(i + n - 1) % n], p1 = pts[i], p2 = pts[(i + 1) % n];
+    if (i === 0) c.moveTo((p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2);
+    c.arcTo(p1[0], p1[1], p2[0], p2[1], rad);
+  }
+  c.closePath();
+}
+function shapePath(c, s, x, y, r) {
+  if (s === 0) { c.beginPath(); c.arc(x, y, Math.max(0, r), 0, TAU); return; }
+  if (s === 1) { const q = r * .86; rpoly(c, [[x - q, y - q], [x + q, y - q], [x + q, y + q], [x - q, y + q]], q * .3); return; }
+  const t = r * 1.14; rpoly(c, [[x, y - t], [x + t * .866, y + t * .5], [x - t * .866, y + t * .5]], t * .16);
+}
+const SPR = new Map();
+function sprite(b, R) {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2), r = Math.round((b.z ? .6 : 1) * R * 2) / 2, key = `${b.k}|${r}|${dpr}`;
+  let s = SPR.get(key); if (s) return s;
+  if (SPR.size > 300) SPR.clear();
+  const col = COL[b.c], dep = clamp(r * .24, 3, 6), pad = 4, half = r * 1.14, W = Math.ceil(half * 2 + dep + pad * 2);
+  const cv = document.createElement('canvas'); cv.width = Math.ceil(W * dpr); cv.height = Math.ceil(W * dpr);
+  const c = cv.getContext('2d'); c.scale(dpr, dpr); c.lineJoin = 'round';
+  const cx = pad + half, cy = pad + half, path = (ox, oy) => shapePath(c, b.s, cx + ox, cy + oy, r);
+  c.fillStyle = dark(col, .42); // the side of the tile
+  for (let k = dep; k >= .5; k -= .5) { path(k * .5, k); c.fill(); }
+  path(dep * .5, dep); c.lineWidth = 1.5; c.strokeStyle = dark(col, .62); c.stroke();
+  let g = c.createLinearGradient(cx - r, cy - r, cx + r, cy + r); // the top face
+  g.addColorStop(0, lite(col, .42)); g.addColorStop(.5, col); g.addColorStop(1, dark(col, .2));
+  path(0, 0); c.fillStyle = g; c.fill();
+  c.save(); path(0, 0); c.clip();
+  g = c.createRadialGradient(cx - r * .4, cy - r * .45, 1, cx - r * .4, cy - r * .45, r * .9);
+  g.addColorStop(0, 'rgba(255,255,255,.55)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+  c.fillStyle = g; c.fillRect(cx - r * 1.3, cy - r * 1.3, r * 2.6, r * 2.6);
+  g = c.createLinearGradient(cx - r, cy - r, cx + r, cy + r); g.addColorStop(0, 'rgba(255,255,255,.6)'); g.addColorStop(.5, 'rgba(255,255,255,0)');
+  path(0, 0); c.lineWidth = 3.5; c.strokeStyle = g; c.stroke();
+  c.restore();
+  path(0, 0); c.lineWidth = 1.5; c.strokeStyle = dark(col, .55); c.stroke();
+  if (b.h) { // a round hole: the table shows through
+    const hr = b.s === 2 ? r * .27 : r * .34;
+    c.globalCompositeOperation = 'destination-out'; c.beginPath(); c.arc(cx, cy, hr, 0, TAU); c.fill(); c.globalCompositeOperation = 'source-over';
+    c.save(); c.beginPath(); c.arc(cx, cy, hr, 0, TAU); c.clip();
+    c.beginPath(); c.rect(cx - r, cy - r, r * 2, r * 2); c.moveTo(cx + dep * .5 + hr, cy + dep); c.arc(cx + dep * .5, cy + dep, hr, 0, TAU, true);
+    c.fillStyle = dark(col, .5); c.fill('evenodd'); c.restore();
+    c.beginPath(); c.arc(cx, cy, hr, 0, TAU); c.lineWidth = 1.5; c.strokeStyle = dark(col, .6); c.stroke();
+  }
+  s = { cv, w: W, h: W, cx, cy }; SPR.set(key, s); return s;
+}
+function halo(c, x, y, r, col, a) {
+  const g = c.createRadialGradient(x, y, r * .4, x, y, r * 1.9);
+  g.addColorStop(0, hexA(col, .85 * a)); g.addColorStop(.5, hexA(col, .4 * a)); g.addColorStop(1, hexA(col, 0));
+  c.fillStyle = g; c.beginPath(); c.arc(x, y, r * 1.9, 0, TAU); c.fill();
+}
+function shadow(c, x, y, r, lift) {
+  const sx = x + r * .2 + lift * .5, sy = y + r * .55 + 2 + lift * .8, rx = r * 1.05 + lift * .2, ry = r * .48;
+  c.save(); c.translate(sx, sy); c.scale(1, ry / rx);
+  const g = c.createRadialGradient(0, 0, rx * .2, 0, 0, rx); g.addColorStop(0, `rgba(50,25,5,${.42 - lift * .01})`); g.addColorStop(1, 'rgba(50,25,5,0)');
+  c.fillStyle = g; c.beginPath(); c.arc(0, 0, rx, 0, TAU); c.fill(); c.restore();
+}
+// b.v holds this frame's targets {glow, gcol, ring, rcol, mark, alpha, lift, blink}; b.ga/ra/al/lf ease towards them
+function stepBlock(b, v, dt) {
+  const k = Math.min(1, dt * 8);
+  b.v = v; if (v.gcol) b.gcol = v.gcol; if (v.rcol) b.rcol = v.rcol; if (v.mark !== undefined) b.mark = v.mark; else if ((v.ring || 0) === 0 && b.ra < .02) b.mark = null;
+  b.ga += ((v.glow || 0) - b.ga) * k; b.ra += ((v.ring || 0) - b.ra) * k; b.al += ((v.alpha ?? 1) - b.al) * k; b.lf += ((v.lift || 0) - b.lf) * k;
+}
+function paintBlock(c, b, R, time) {
+  const r = (b.z ? .6 : 1) * R, lift = b.lf * 7, cy = b.y - lift;
+  c.save();
+  if (b.ga > .01) halo(c, b.x, b.y, r, b.gcol || GREEN, b.ga);
+  c.globalAlpha = b.al; shadow(c, b.x, b.y, r, lift);
+  const s = sprite(b, R); c.drawImage(s.cv, b.x - s.cx, cy - s.cy, s.w, s.h);
+  c.globalAlpha = 1;
+  if (b.ra > .02) {
+    const a = b.ra * (b.v && b.v.blink ? .55 + .45 * Math.sin(time * 8) : 1), rad = r * 1.2 + 5, col = b.rcol || GREEN;
+    c.globalAlpha = a; c.lineWidth = 6; c.strokeStyle = 'rgba(0,0,0,.28)'; c.beginPath(); c.arc(b.x, cy, rad, 0, TAU); c.stroke();
+    c.lineWidth = 3.5; c.strokeStyle = col; c.stroke();
+    if (b.mark) {
+      const mx = b.x + r * .95 + 3, my = cy - r * .95 - 3, mc = b.mark === 'ok' ? '#1f9d63' : b.mark === 'x' ? '#d6282d' : '#d99a06';
+      c.fillStyle = mc; c.beginPath(); c.arc(mx, my, 10, 0, TAU); c.fill(); c.lineWidth = 1.5; c.strokeStyle = '#fff'; c.stroke();
+      c.fillStyle = '#fff'; c.font = '900 13px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(b.mark === 'ok' ? '✓' : b.mark === 'x' ? '✗' : '!', mx, my + 1);
+    }
+  }
+  c.restore();
+}
+
+// --- the wooden tray -----------------------------------------------------------------------------------------
+function drawTray(c, r) {
+  c.save(); c.shadowColor = 'rgba(0,0,0,.5)'; c.shadowBlur = 18; c.shadowOffsetY = 8;
+  let g = c.createLinearGradient(r.x, r.y, r.x + r.w, r.y + r.h); g.addColorStop(0, '#c98e52'); g.addColorStop(1, '#8a5a2b');
+  c.fillStyle = g; rr(c, r.x, r.y, r.w, r.h, 22); c.fill(); c.restore();
+  rr(c, r.x, r.y, r.w, r.h, 22); c.lineWidth = 2; c.strokeStyle = '#4a2f14'; c.stroke();
+  c.strokeStyle = 'rgba(255,235,200,.45)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(r.x + 22, r.y + 2.5); c.lineTo(r.x + r.w - 22, r.y + 2.5); c.stroke();
+  const f = { x: r.x + 11, y: r.y + 11, w: r.w - 22, h: r.h - 22 };
+  c.save(); rr(c, f.x, f.y, f.w, f.h, 14); c.clip();
+  g = c.createLinearGradient(f.x, f.y, f.x + f.w * .3, f.y + f.h); g.addColorStop(0, '#efd6a8'); g.addColorStop(1, '#d9ae74'); c.fillStyle = g; c.fillRect(f.x, f.y, f.w, f.h);
+  c.strokeStyle = 'rgba(140,95,45,.14)'; c.lineWidth = 1;
+  for (let i = 0; f.y + i * 9 < f.y + f.h; i++) {
+    const y = f.y + i * 9 + 3; c.beginPath(); c.moveTo(f.x, y + Math.sin(i * 2.3) * 2);
+    for (let x = f.x + 40; x <= f.x + f.w + 40; x += 40) c.quadraticCurveTo(x - 20, y + Math.sin(i * 1.7 + x * .02) * 3.5, x, y + Math.sin(i * 2.3 + x * .015) * 2);
+    c.stroke();
+  }
+  g = c.createLinearGradient(0, f.y, 0, f.y + 18); g.addColorStop(0, 'rgba(70,40,10,.38)'); g.addColorStop(1, 'rgba(70,40,10,0)'); c.fillStyle = g; c.fillRect(f.x, f.y, f.w, 18);
+  g = c.createLinearGradient(f.x, 0, f.x + 14, 0); g.addColorStop(0, 'rgba(70,40,10,.3)'); g.addColorStop(1, 'rgba(70,40,10,0)'); c.fillStyle = g; c.fillRect(f.x, f.y, 14, f.h);
+  c.restore();
+  rr(c, f.x, f.y, f.w, f.h, 14); c.lineWidth = 1.5; c.strokeStyle = 'rgba(70,40,10,.55)'; c.stroke();
+}
+
+// --- logic: blocks, statements, generators ---------------------------------------------------------------------
+let UID = 1;
+const mk = (c, s, z, h) => ({ c, s, z, h, k: `${c}${s}${z}${h}`, id: UID++, ga: 0, ra: 0, al: 1, lf: 0, jx: Math.random() * 2 - 1, jy: Math.random() * 2 - 1, x: 0, y: 0, v: {} });
+const rndBlock = () => mk(rnd(4), rnd(3), rnd(2), rnd(2));
+const fit = (d, b) => (d.t === 'col' ? b.c === d.v : d.t === 'shp' ? b.s === d.v : d.t === 'siz' ? b.z === d.v : b.h === d.v);
+function builder() {
+  const B = [];
+  const add = (pred) => { for (let i = 0; i < 400; i++) { const b = rndBlock(); if (pred(b) && !B.some((x) => x.k === b.k)) { B.push(b); return b; } } return null; };
+  return { B, add };
+}
+function evalQ(q, d, p, B) {
+  const sub = B.filter((b) => fit(d, b)), bad = sub.filter((b) => !fit(p, b)), good = sub.filter((b) => fit(p, b));
+  if (q === 'every') return { truth: bad.length === 0, sub, brk: bad[0] || null, ex: null, vac: sub.length === 0 };
+  if (q === 'some') return { truth: good.length > 0, sub, brk: null, ex: good[0] || null, vac: false };
+  return { truth: good.length === 0, sub, brk: good[0] || null, ex: null, vac: sub.length === 0 };
+}
+function genTf(prev) {
+  let last = null;
+  for (let tries = 0; tries < 40; tries++) {
+    const kind = pick(['every', 'some', 'none', 'hole'].filter((k) => k !== prev?.kind)), truth = Math.random() < .5, n = 6 + rnd(5);
+    const { B, add } = builder();
+    let q, d, p;
+    if (kind === 'every') {
+      const c = rnd(4), s = rnd(3), k = 2 + rnd(3), nb = truth ? 0 : 1 + (k > 2 && Math.random() < .4 ? 1 : 0);
+      for (let i = 0; i < k; i++) add((b) => b.c === c && (i < nb ? b.s !== s : b.s === s));
+      while (B.length < n && add((b) => b.c !== c));
+      q = 'every'; d = { t: 'col', v: c }; p = { t: 'shp', v: s };
+    } else if (kind === 'some') {
+      const c = rnd(4), k = truth ? 1 + rnd(2) : 0;
+      for (let i = 0; i < k; i++) add((b) => b.c === c);
+      while (B.length < n && add((b) => b.c !== c));
+      q = 'some'; d = { t: 'col', v: c }; p = { t: 'col', v: c };
+    } else if (kind === 'none') {
+      const c = rnd(4), s = rnd(3);
+      if (!truth) for (let i = 0, k = 1 + rnd(2); i < k; i++) add((b) => b.c === c && b.s === s);
+      for (let i = 0, k = 1 + rnd(2); i < k; i++) { add((b) => b.c === c && b.s !== s); add((b) => b.c !== c && b.s === s); }
+      while (B.length < n && add((b) => !(b.c === c && b.s === s)));
+      q = 'no'; d = { t: 'col', v: c }; p = { t: 'shp', v: s };
+    } else {
+      const z = rnd(2), nh = 2 + rnd(2), nb = truth ? 0 : 1;
+      for (let i = 0; i < nh; i++) add((b) => b.h === 1 && (i < nb ? b.z !== z : b.z === z));
+      add((b) => b.h === 0 && b.z === z); add((b) => b.h === 0 && b.z !== z);
+      while (B.length < n && add((b) => b.h === 0));
+      q = 'every'; d = { t: 'hole', v: 1 }; p = { t: 'siz', v: z };
+    }
+    const res = evalQ(q, d, p, B);
+    last = { kind, q, d, p, res, blocks: shuf(B), guess: null, done: false };
+    if (res.truth === truth && B.length >= 6 && res.sub.length >= (q === 'some' && !truth ? 0 : 1)) return last;
+  }
+  return last;
+}
+function regionBlocks(c, s, cnt) {
+  const { B, add } = builder(), A = (b) => b.c === c, P = (b) => b.s === s;
+  for (let i = 0; i < cnt.both; i++) add((b) => A(b) && P(b));
+  for (let i = 0; i < cnt.a; i++) add((b) => A(b) && !P(b));
+  for (let i = 0; i < cnt.b; i++) add((b) => !A(b) && P(b));
+  for (let i = 0; i < cnt.out; i++) add((b) => !A(b) && !P(b));
+  B.forEach((b) => { b.rg = A(b) && P(b) ? 'both' : A(b) ? 'a' : P(b) ? 'b' : 'out'; });
+  return B;
+}
+function counts(maxBoth) {
+  const cnt = { both: 1 + rnd(maxBoth), a: 1 + rnd(3), b: 1 + rnd(3), out: 1 + rnd(3) };
+  const tot = () => cnt.both + cnt.a + cnt.b + cnt.out;
+  while (tot() > 10) { const k = ['a', 'b', 'out'].sort((x, y) => cnt[y] - cnt[x])[0]; cnt[k]--; }
+  while (tot() < 7) cnt[pick(['a', 'b', 'out'])]++;
+  return cnt;
+}
+function genAon(prev) {
+  const type = pick(['and', 'or', 'not', 'nor'].filter((t) => t !== prev?.type)), c = rnd(4), s = rnd(3);
+  const B = shuf(regionBlocks(c, s, counts(2)));
+  const fits = new Set(B.filter((b) => (type === 'and' ? b.rg === 'both' : type === 'or' ? b.rg !== 'out' : type === 'not' ? (b.rg === 'b' || b.rg === 'out') : b.rg === 'out')).map((b) => b.id));
+  return { type, c, s, blocks: B, sel: new Set(), checked: false, fits, ok: false };
+}
+function genHp() {
+  const c = rnd(4), s = rnd(3), B = shuf(regionBlocks(c, s, counts(3))), idx = { both: 0, a: 0, b: 0, out: 0 };
+  B.forEach((b, i) => { b.idx = idx[b.rg]++; b.ord = i; b.litAt = 0; });
+  return { c, s, blocks: B, guess: null, rev: false, mode: 'or', t0: tm() + .15, revAt: 0, flash: 0, ok: false };
+}
+function genOwn() {
+  const { B, add } = builder(); while (B.length < 9 && add(() => true));
+  return { blocks: shuf(B), q: 0, d: 0, p: 0, res: null };
+}
+function genNn(col) {
+  const { B, add } = builder(), cs = shuf([0, 1, 2, 3]).slice(0, 3), c = col ?? cs[0];
+  const order = [c, ...cs.filter((x) => x !== c)];
+  order.forEach((x) => { for (let i = 0, k = 2 + rnd(2); i < k; i++) add((b) => b.c === x); });
+  return { blocks: shuf(B), col: c, flips: 0, flipAt: -9, manual: false, timer: 0 };
+}
+const dOf = (i) => (i < 4 ? { t: 'col', v: i } : i === 4 ? { t: 'hole', v: 1 } : i === 5 ? { t: 'hole', v: 0 } : { t: 'siz', v: i - 6 });
+const pOf = (i) => (i < 3 ? { t: 'shp', v: i } : { t: 'col', v: i - 3 });
+const QS = ['every', 'some', 'no'];
+const ownEval = () => { OWN.res = evalQ(QS[OWN.q], dOf(OWN.d), pOf(OWN.p), OWN.blocks); };
+const nnFits = (b) => (NN.flips % 2 === 0 ? b.c === NN.col : b.c !== NN.col);
+
+// --- state -------------------------------------------------------------------------------------------------
+const S = { sec: null, ok: 0, n: 0 };
+let TF = genTf(), AON = genAon(), HP = genHp(), OWN = genOwn(), NN = genNn();
+ownEval();
+const lab = shell({ key: 'every-some', T, topics: TOPICS, views: ['tf', 'aon', 'hoops'], onLang: render, onView: () => { S.sec = null; clearTimeout(NN.timer); render(); } });
+const secret = secretLab('every-some', () => ({
+  secrets: [{ emo: '✍️', title: T[lang].secrets.a[0], desc: T[lang].secrets.a[1] }, { emo: '🔄', title: T[lang].secrets.b[0], desc: T[lang].secrets.b[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+const mode = () => (S.sec === 'own' ? 'own' : S.sec === 'nn' ? 'nn' : lab.view);
+
+$('ctrlBody').innerHTML = `<div id="vTf"></div><div id="vAon"></div><div id="vHp"></div><div id="vOwn"></div><div id="vNn"></div><div class="row2" id="secRow"></div>`;
+const statEl = Object.assign(document.createElement('div'), { className: 'es-card card' });
+$('overlay').append(statEl);
+const showStage = () => { const r = $('stage').getBoundingClientRect(); if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+
+// --- drawing: a tray of blocks (views 1 and 2 and the secrets) -------------------------------------------------
+function sceneTray(c, w, h, dt, time, blocks, vis) {
+  const top = statEl.style.display === 'none' ? 8 : statEl.offsetHeight + 16, r = { x: 6, y: top, w: w - 12, h: h - top - 6 };
+  drawTray(c, r);
+  const inner = { x: r.x + 22, y: r.y + 22, w: r.w - 44, h: r.h - 44 }, n = blocks.length, cols = inner.w < 420 ? 4 : 5, rows = Math.ceil(n / cols);
+  const cw = inner.w / cols, ch = Math.min(inner.h / rows, cw * 1.3), R = clamp(Math.min(cw, ch) * .36, 11, 30), y0 = inner.y + (inner.h - ch * rows) / 2;
+  LR = R;
+  blocks.forEach((b, i) => {
+    const row = (i / cols) | 0, col = i % cols, inRow = row === rows - 1 ? n - row * cols : cols, x0 = inner.x + (inner.w - inRow * cw) / 2;
+    b.x = x0 + cw * (col + .5) + b.jx * cw * .08; b.y = y0 + ch * (row + .5) + b.jy * ch * .06;
+    stepBlock(b, vis(b, time), dt);
+  });
+  [...blocks].sort((a, b) => a.y - b.y).forEach((b) => paintBlock(c, b, R, time));
+  return { r, R };
+}
+const above = (b) => b.y - (b.z ? .6 : 1) * LR * 1.35 - 16 - b.lf * 7;
+
+function tfVis(b, time) {
+  const q = TF; if (!q.done) return {};
+  const o = {}, li = q.lit.get(b.id);
+  if (q.res.sub.length) o.alpha = q.res.sub.includes(b) ? 1 : .5;
+  if (li !== undefined && time >= li) { o.glow = 1; o.gcol = q.res.truth ? GREEN : AMBER; }
+  if (q.mark && q.mark.b === b && time >= q.ringAt) { o.ring = 1; o.rcol = q.mark.kind === 'x' ? REDC : GREEN; o.mark = q.mark.kind; }
+  return o;
+}
+function revealPills(c, time, q, blocks, r, vis) { // shared by the true/false view and the sentence builder
+  const t = T[lang];
+  if (q.mark && time >= q.ringAt + .1) { const b = q.mark.b; pill(c, q.mark.kind === 'x' ? t.tf.breaks : t.tf.fits, b.x, above(b), { bg: q.mark.kind === 'x' ? '#c0282d' : '#1f9d63' }); }
+  else if (!q.mark && time >= q.allAt) pill(c, vis.text, CW / 2, r.y + 20, { bg: '#2b3558' });
+}
+function aonVis(b) {
+  const q = AON, sel = q.sel.has(b.id);
+  if (!q.checked) return { lift: sel ? 1 : 0, glow: sel ? .55 : 0, gcol: '#ffffff' };
+  const f = q.fits.has(b.id);
+  if (f && sel) return { lift: 1, glow: .6, gcol: GREEN, ring: 1, rcol: GREEN, mark: 'ok' };
+  if (f) return { glow: .5, gcol: AMBER, ring: 1, rcol: AMBER, mark: 'miss', blink: true };
+  if (sel) return { lift: 1, ring: 1, rcol: REDC, mark: 'x', alpha: .8 };
+  return { alpha: .55 };
+}
+function ownVis(b) {
+  const q = OWN.res; if (!q || !q.sub.length) return {};
+  const o = { alpha: q.sub.includes(b) ? 1 : .5 };
+  if (q.sub.includes(b)) { o.glow = 1; o.gcol = q.truth ? GREEN : AMBER; }
+  if (q.brk === b) { o.ring = 1; o.rcol = REDC; o.mark = 'x'; } else if (q.ex === b) { o.ring = 1; o.rcol = GREEN; o.mark = 'ok'; }
+  return o;
+}
+const nnVis = (b) => (nnFits(b) ? { glow: 1, gcol: GREEN } : { alpha: .5 });
+
+// --- drawing: two hoops ------------------------------------------------------------------------------------------
+let HG = null, HGkey = '';
+function spread(L, k) {
+  if (!L.length) return [];
+  const mx = L.reduce((s, p) => s + p[0], 0) / L.length, my = L.reduce((s, p) => s + p[1], 0) / L.length;
+  let first = L[0], bd = 1e9;
+  for (const p of L) { const d = Math.hypot(p[0] - mx, p[1] - my); if (d < bd) { bd = d; first = p; } }
+  const out = [first];
+  while (out.length < k) {
+    let best = L[0], bs = -1;
+    for (const p of L) { let md = 1e9; for (const q of out) md = Math.min(md, Math.hypot(p[0] - q[0], p[1] - q[1])); if (md > bs) { bs = md; best = p; } }
+    out.push(best);
+  }
+  return out.map(([x, y]) => ({ x, y }));
+}
+function hoopGeo(w, h) {
+  const key = `${w | 0}x${h | 0}`; if (HG && HGkey === key) return HG;
+  const tr = { x: 6, y: 8, w: w - 12, h: h - 14 }, inner = { x: tr.x + 22, y: tr.y + 22, w: tr.w - 44, h: tr.h - 44 };
+  const R = clamp(inner.w * .052, 12, 20), rh = Math.min(inner.w * .3, inner.h * .3), d = rh * 1.04, cy = inner.y + inner.h * .47, cx = tr.x + tr.w / 2;
+  const A = { x: cx - d / 2, y: cy, r: rh }, B = { x: cx + d / 2, y: cy, r: rh }, m = R * 1.2 + 5, cand = { both: [], a: [], b: [], out: [] };
+  for (let y = inner.y + m; y <= inner.y + inner.h - m; y += 6) for (let x = inner.x + m; x <= inner.x + inner.w - m; x += 6) {
+    const dA = Math.hypot(x - A.x, y - A.y) - A.r, dB = Math.hypot(x - B.x, y - B.y) - B.r;
+    if (dA <= -m && dB <= -m) cand.both.push([x, y]); else if (dA <= -m && dB >= m) cand.a.push([x, y]); else if (dB <= -m && dA >= m) cand.b.push([x, y]); else if (dA >= m && dB >= m) cand.out.push([x, y]);
+  }
+  if (!cand.both.length) cand.both.push([cx, cy]);
+  const slots = {}; for (const k in cand) slots[k] = spread(cand[k], 5);
+  HG = { tr, inner, R, A, B, slots, cx, cy, lensBottom: cy + Math.sqrt(Math.max(0, rh * rh - (d / 2) ** 2)) }; HGkey = key; return HG;
+}
+function hoop(c, H, col) {
+  c.fillStyle = hexA(col, .14); c.beginPath(); c.arc(H.x, H.y, H.r, 0, TAU); c.fill();
+  c.lineWidth = 9.5; c.strokeStyle = dark(col, .5); c.beginPath(); c.arc(H.x, H.y, H.r, 0, TAU); c.stroke();
+  const g = c.createLinearGradient(H.x - H.r, H.y - H.r, H.x + H.r, H.y + H.r); g.addColorStop(0, lite(col, .4)); g.addColorStop(.5, col); g.addColorStop(1, dark(col, .25));
+  c.lineWidth = 6.5; c.strokeStyle = g; c.stroke();
+  c.lineWidth = 1.6; c.strokeStyle = 'rgba(255,255,255,.55)'; c.beginPath(); c.arc(H.x, H.y, H.r - 1.5, -2.6, -1.2); c.stroke();
+}
+const LIT = { or: ['both', 'a', 'b'], and: ['both'], na: ['b', 'out'], nb: ['a', 'out'] };
+const MODECOL = { or: AMBER, and: GREEN, na: '#6ea8ff', nb: '#6ea8ff' };
+const hpN = () => { const k = (rg) => HP.blocks.filter((b) => b.rg === rg).length; return { both: k('both'), a: k('a'), b: k('b'), out: k('out'), N: HP.blocks.length }; };
+function drawHoops(c, w, h, dt, time) {
+  const t = T[lang], G_ = hoopGeo(w, h), n = HP.blocks.length;
+  LR = G_.R;
+  drawTray(c, G_.tr); hoop(c, G_.B, HOOPB); hoop(c, G_.A, COL[HP.c]);
+  HP.blocks.forEach((b) => {
+    const to = G_.slots[b.rg][b.idx] || G_.slots[b.rg][0] || { x: G_.cx, y: G_.cy };
+    const fx = G_.inner.x + G_.inner.w * (.1 + .8 * (b.ord + .5) / n), fy = G_.inner.y + G_.inner.h - G_.R * .9;
+    const e = easeOut((time - HP.t0 - b.ord * .07) / .85);
+    b.x = lerp(fx, to.x, e); b.y = lerp(fy, to.y, e) - Math.sin(Math.PI * e) * 22;
+    let v = {};
+    if (HP.rev) {
+      const lit = LIT[HP.mode].includes(b.rg);
+      v = { alpha: lit ? 1 : .55 };
+      if (lit && time >= b.litAt) { v.glow = 1; v.gcol = MODECOL[HP.mode]; }
+      if (HP.mode === 'or' && b.rg === 'both' && time < HP.flash) { v.ring = 1; v.rcol = '#ffffff'; v.blink = true; }
+    }
+    stepBlock(b, v, dt);
+  });
+  [...HP.blocks].sort((a, b) => a.y - b.y).forEach((b) => paintBlock(c, b, G_.R, time));
+  const N = hpN(), cn = G[lang].colH()[HP.c], sn = G[lang].shpH()[HP.s];
+  pill(c, t.hp.lab('A', HP.rev ? `${cn} · ${N.both + N.a}` : cn), G_.A.x - G_.A.r * .5, G_.A.y - G_.A.r - 14);
+  pill(c, t.hp.lab('B', HP.rev ? `${sn} · ${N.both + N.b}` : sn), G_.B.x + G_.B.r * .5, G_.B.y - G_.B.r - 14);
+  if (HP.rev && HP.mode === 'or') pill(c, t.hp.twice, G_.cx, G_.lensBottom + 16, { bg: '#2b3558' });
+}
+
+// --- the stage loop ----------------------------------------------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  CW = w; const m = mode(), t = T[lang];
+  if (m === 'hoops') return drawHoops(c, w, h, dt, time);
+  if (m === 'tf') {
+    const { r } = sceneTray(c, w, h, dt, time, TF.blocks, tfVis);
+    if (TF.done) revealPills(c, time, TF, TF.blocks, r, { text: TF.res.truth ? t.tf.clean : t.tf.nobody });
+  } else if (m === 'aon') {
+    const { r } = sceneTray(c, w, h, dt, time, AON.blocks, aonVis);
+    if (AON.checked && AON.orMiss) pill(c, t.aon.orPill, AON.orMiss.x, above(AON.orMiss), { bg: '#a87400' });
+    void r;
+  } else if (m === 'own') {
+    const q = OWN.res, { r } = sceneTray(c, w, h, dt, time, OWN.blocks, ownVis);
+    const mk_ = q.brk ? { b: q.brk, kind: 'x' } : q.ex ? { b: q.ex, kind: 'ok' } : null;
+    if (mk_) pill(c, mk_.kind === 'x' ? t.tf.breaks : t.tf.fits, mk_.b.x, above(mk_.b), { bg: mk_.kind === 'x' ? '#c0282d' : '#1f9d63' });
+    else pill(c, q.truth ? (q.vac ? t.own.vac : t.tf.clean) : t.tf.nobody, w / 2, r.y + 20, { bg: '#2b3558' });
+  } else {
+    const { r } = sceneTray(c, w, h, dt, time, NN.blocks, nnVis);
+    const a = 1 - (time - NN.flipAt) / 1;
+    if (a > 0 && NN.flips > 0) {
+      c.save(); c.globalAlpha = c01(a); const sc = 1 + (1 - c01(a)) * .5, cx = w / 2, cy = r.y + r.h / 2;
+      c.translate(cx, cy); c.scale(sc, sc); c.font = '900 30px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      const tw = c.measureText(t.aon.not).width + 34; c.fillStyle = 'rgba(10,12,24,.88)'; rr(c, -tw / 2, -24, tw, 48, 24); c.fill(); c.fillStyle = AMBER; c.fillText(t.aon.not, 0, 2);
+      c.restore();
+    }
+  }
+});
+
+// --- controls ----------------------------------------------------------------------------------------------------
+function tfAnswer(val) {
+  if (TF.done) return;
+  TF.guess = val; TF.done = true; S.n++;
+  const ok = val === TF.res.truth; if (ok) S.ok++;
+  const t0 = tm(), sub = [...TF.res.sub].sort((a, b) => a.y - b.y || a.x - b.x);
+  TF.lit = new Map(sub.map((b, i) => [b.id, t0 + .12 + i * .22]));
+  TF.allAt = t0 + .12 + sub.length * .22 + .2; TF.ringAt = TF.allAt - .05;
+  const r = TF.res; TF.mark = r.brk ? { b: r.brk, kind: 'x' } : r.ex ? { b: r.ex, kind: 'ok' } : null;
+  (ok ? sfx.good : sfx.bad)(); render(); showStage();
+}
+function aonCheck() {
+  const q = AON; if (q.checked || !q.sel.size) return;
+  q.checked = true;
+  const hit = [...q.sel].filter((id) => q.fits.has(id)).length, miss = q.fits.size - hit, wrong = q.sel.size - hit;
+  q.ok = miss === 0 && wrong === 0; q.hit = hit; q.miss = miss; q.wrong = wrong;
+  q.orMiss = q.type === 'or' ? q.blocks.find((b) => b.rg === 'both' && !q.sel.has(b.id)) || null : null;
+  (q.ok ? sfx.good : sfx.bad)(); render(); showStage();
+}
+function hpCheck() {
+  if (HP.rev || HP.guess === null) return;
+  const N = hpN(), u = N.both + N.a + N.b; HP.rev = true; HP.revAt = tm(); HP.flash = HP.revAt + 2.8; HP.ok = HP.guess === u;
+  HP.blocks.filter((b) => LIT.or.includes(b.rg)).forEach((b, i) => { b.litAt = HP.revAt + .1 + i * .11; });
+  (HP.ok ? sfx.good : sfx.bad)(); render(); showStage();
+}
+function nnFlip(manual) {
+  if (manual) { NN.manual = true; clearTimeout(NN.timer); }
+  NN.flips++; NN.flipAt = tm(); sfx.tick(); render();
+}
+function nnAuto() {
+  clearTimeout(NN.timer);
+  NN.timer = setTimeout(() => { if (S.sec !== 'nn' || NN.manual || NN.flips >= 2) return; nnFlip(false); nnAuto(); }, 1500);
+}
+function enterSec(k) {
+  S.sec = S.sec === k ? null : k; clearTimeout(NN.timer);
+  if (S.sec === 'own') { OWN = genOwn(); ownEval(); }
+  if (S.sec === 'nn') { NN = genNn(); nnAuto(); }
+}
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const a = b.dataset.act;
+  if (a === 'tfT') tfAnswer(true); else if (a === 'tfF') tfAnswer(false);
+  else if (a === 'tfNext') { sfx.click(); TF = genTf(TF); render(); }
+  else if (a === 'aonCheck') aonCheck();
+  else if (a === 'aonNext') { sfx.click(); AON = genAon(AON); render(); }
+  else if (a === 'hpInc' || a === 'hpDec') { HP.guess = clamp((HP.guess ?? 0) + (a === 'hpInc' ? 1 : -1), 0, 12); sfx.tick(); render(); }
+  else if (a === 'hpCheck') hpCheck();
+  else if (a === 'hpNew') { sfx.click(); HP = genHp(); render(); }
+  else if (a === 'hpMode') { HP.mode = b.dataset.m; HP.blocks.forEach((x) => { x.litAt = 0; }); HP.flash = b.dataset.m === 'or' ? tm() + 2 : 0; sfx.click(); render(); }
+  else if (a === 'ownNew') { sfx.click(); OWN = genOwn(); ownEval(); render(); }
+  else if (a === 'nnSay') { if (NN.flips >= 4) { NN.flips = 0; NN.flipAt = -9; sfx.click(); render(); } else nnFlip(true); }
+  else if (a === 'nnOther') { const present = [...new Set(NN.blocks.map((x) => x.c))]; NN.col = present[(present.indexOf(NN.col) + 1) % present.length]; NN.manual = true; clearTimeout(NN.timer); NN.flips = 0; NN.flipAt = -9; sfx.click(); render(); }
+  else if (a === 'sec') { if (!secret.unlocked()) return secret.open(); sfx.click(); enterSec(b.dataset.k); render(); }
+});
+$('ctrlBody').addEventListener('change', (ev) => {
+  const k = ev.target.dataset.sel; if (!k) return;
+  OWN[k] = +ev.target.value; ownEval(); sfx.tick(); render();
+});
+$('cv').addEventListener('pointerdown', (ev) => {
+  if (mode() !== 'aon' || AON.checked) return;
+  const r = $('cv').getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+  let best = null, bd = 1e9;
+  for (const b of AON.blocks) {
+    const rad = (b.z ? .6 : 1) * LR, d = Math.hypot(x - b.x, y - (b.y - b.lf * 7));
+    if (d < Math.max(rad * 1.15 + 6, 22) && d < bd) { best = b; bd = d; }
+  }
+  if (!best) return;
+  if (AON.sel.has(best.id)) AON.sel.delete(best.id); else AON.sel.add(best.id);
+  sfx.tick(); render();
+});
+
+// --- render: card, controls, readout, state ----------------------------------------------------------------------
+const tfText = (t, q) => (q.kind === 'some' ? G[lang].someAny(q.d.v) : q.kind === 'none' ? G[lang].noneBoth(q.d.v, q.p.v) : G[lang].sent(q.q, q.d, q.p));
+function aonHtml(t, q, flips) {
+  const g = G[lang], A = esc(g.colA()[q.c]), B = esc(g.shpAon()[q.s]), op = (w) => `<b class="op">${esc(w)}</b>`, a = t.aon;
+  if (flips !== undefined) { let s = A; for (let i = 0; i < flips; i++) s = i === 0 ? `${op(a.not)} ${s}` : `${op(a.not)} (${s})`; return s; }
+  return q.type === 'and' ? `${A} ${op(a.and)} ${B}` : q.type === 'or' ? `${A} ${op(a.or)} ${B}` : q.type === 'not' ? `${op(a.not)} ${A}` : `${op(a.not)} (${A} ${op(a.or)} ${B})`;
+}
+function render() {
+  const t = T[lang], m = mode(), sec = S.sec;
+  document.body.dataset.v = sec ? 'sec' : lab.view;
+  statEl.style.display = m === 'hoops' ? 'none' : '';
+  for (const [id, k] of [['vTf', 'tf'], ['vAon', 'aon'], ['vHp', 'hoops'], ['vOwn', 'own'], ['vNn', 'nn']]) $(id).style.display = m === k ? '' : 'none';
+  lab.setFacts(t.facts[lab.view]);
+  if (m === 'tf') renderTf(t); else if (m === 'aon') renderAon(t); else if (m === 'hoops') renderHp(t); else if (m === 'own') renderOwn(t); else renderNn(t);
+  const open = secret.unlocked();
+  $('secRow').innerHTML = [['own', '✍️', 'a'], ['nn', '🔄', 'b']].map(([k, emo, s]) =>
+    `<button class="chip secret ${open ? 'open' : ''} ${sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.secrets[s][0])}` : '🔒 ???'}</button>`).join('');
+  lab.setGlow(sec ? 'rgba(245, 197, 24, .22)' : m === 'hoops' ? 'rgba(139, 123, 216, .26)' : m === 'aon' ? 'rgba(59, 130, 246, .24)' : 'rgba(34, 165, 91, .22)');
+}
+function renderTf(t) {
+  const q = TF, g = t.tf, ask = !q.done;
+  statEl.innerHTML = `<div class="es-k">${esc(g.kick)}</div><div class="es-s">${esc(tfText(t, q))}</div>`;
+  $('vTf').innerHTML = `<div class="es-opts">${[[true, g.t, 'tfT'], [false, g.f, 'tfF']].map(([val, l, a]) =>
+    `<button class="es-opt ${!ask && val === q.res.truth ? 'ok' : !ask && q.guess === val ? 'bad' : ''}" data-act="${a}"${ask ? '' : ' disabled'}>${esc(l)}</button>`).join('')}</div>`
+    + (ask ? '' : `<div class="row2"><button class="es-b main" data-act="tfNext">${esc(g.next)}</button></div>`);
+  lab.setReadout(`${S.ok}/${S.n}`, t.rightLbl, '', GREEN);
+  if (ask) return lab.setState({ emo: '🧐', title: g.stT, lead: g.stL, body: '', extra: '' });
+  const ok = q.guess === q.res.truth, key = (q.q === 'every' ? 'every' : q.q === 'some' ? 'some' : 'none') + (q.res.truth ? 'T' : 'F');
+  lab.setState({ emo: ok ? '✅' : '🤔', title: ok ? t.ok : t.no, lead: g.expl[key], body: '', extra: '' });
+}
+function renderAon(t) {
+  const q = AON, a = t.aon;
+  statEl.innerHTML = `<div class="es-p">${esc(a.prompt)}</div><div class="es-s">${aonHtml(t, q)}</div>`;
+  $('vAon').innerHTML = `<div class="row2" style="margin-top:0">${q.checked ? `<button class="es-b main" data-act="aonNext">${esc(a.next)}</button>`
+    : `<button class="es-b main" data-act="aonCheck"${q.sel.size ? '' : ' disabled'}>${esc(a.check)}</button>`}</div>`;
+  if (!q.checked) {
+    lab.setReadout('?', a.fitsLbl, a.tapped(q.sel.size), '#3b82f6');
+    return lab.setState({ emo: '👆', title: a.stT, lead: a.stL, body: '', extra: '' });
+  }
+  lab.setReadout(q.fits.size, a.fitsLbl, a.tapped(q.sel.size), '#3b82f6');
+  lab.setState({ emo: q.ok ? '✅' : '🤔', title: q.ok ? t.ok : t.no, lead: a.res(q.hit, q.miss, q.wrong), body: q.orMiss ? a.orLead : a.notes[q.type], extra: '' });
+}
+function renderHp(t) {
+  const h = t.hp, g = G[lang], N = hpN(), A = g.colH()[HP.c], B = g.shpH()[HP.s], nA = N.both + N.a, nB = N.both + N.b, u = nA + nB - N.both;
+  $('vHp').innerHTML = `<div class="es-q">${h.q(esc(A), esc(B))}</div>` + (HP.rev
+    ? `<div class="row2" style="margin-top:0">${['or', 'and', 'na', 'nb'].map((k) => `<button class="chip ${HP.mode === k ? 'on' : ''}" data-act="hpMode" data-m="${k}">${esc(h.chips[k])}</button>`).join('')}</div>
+       <div class="row2"><button class="es-b main" data-act="hpNew">${esc(h.newTray)}</button></div>`
+    : `<div class="es-step"><button class="es-sb" data-act="hpDec" aria-label="−"${(HP.guess ?? 0) <= 0 ? ' disabled' : ''}>−</button><b>${HP.guess ?? '?'}</b><button class="es-sb" data-act="hpInc" aria-label="+"${(HP.guess ?? 0) >= 12 ? ' disabled' : ''}>+</button>
+       <button class="es-b main" data-act="hpCheck"${HP.guess === null ? ' disabled' : ''}>${esc(h.check)}</button><button class="es-b" data-act="hpNew">${esc(h.newTray)}</button></div>`);
+  if (!HP.rev) { lab.setReadout('?', '', '', '#8b7bd8'); return lab.setState({ emo: '⭕', title: h.stT, lead: h.stL, body: '', extra: '' }); }
+  const m = HP.mode;
+  if (m === 'or') {
+    lab.setReadout(u, `|A| + |B| − |A ${h.and} B| = ${nA} + ${nB} − ${N.both} = ${u}`, '', AMBER);
+    return lab.setState({ emo: HP.ok ? '✅' : '🤔', title: HP.ok ? t.ok : t.no, lead: h.explain, body: h.notes.or, extra: '' });
+  }
+  const sub = m === 'and' ? `|A ${h.and} B| = ${N.both}` : m === 'na' ? `${h.chips.na}: ${N.N} − ${nA} = ${N.N - nA}` : `${h.chips.nb}: ${N.N} − ${nB} = ${N.N - nB}`;
+  lab.setReadout(m === 'and' ? N.both : m === 'na' ? N.N - nA : N.N - nB, sub, '', MODECOL[m]);
+  lab.setState({ emo: '⭕', title: h.chips[m], lead: h.notes[m], body: '', extra: '' });
+}
+function renderOwn(t) {
+  const o = t.own, g = G[lang], q = OWN.res, qs = QS[OWN.q];
+  statEl.innerHTML = `<div class="es-k">${esc(o.kick)}</div><div class="es-s">${esc(g.sent(qs, dOf(OWN.d), pOf(OWN.p)))}</div>`;
+  const sel = (k, label, list, cur) => `<select class="es-sel" data-sel="${k}" aria-label="${esc(label)}">${list.map((x, i) => `<option value="${i}"${i === cur ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select>`;
+  $('vOwn').innerHTML = `<div class="row2" style="margin-top:0">${sel('q', o.sq, g.qOpts, OWN.q)}${sel('d', o.sd, g.dOpts(), OWN.d)}${sel('p', o.sp, g.pOpts(), OWN.p)}</div>
+    <div class="row2"><button class="es-b main" data-act="ownNew">${esc(o.newTray)}</button></div>`;
+  lab.setReadout(q.truth ? t.tf.t : t.tf.f, '', '', q.truth ? GREEN : REDC);
+  const key = (qs === 'every' ? 'every' : qs === 'some' ? 'some' : 'none') + (q.truth ? 'T' : 'F');
+  lab.setState({ emo: '✍️', title: o.stT, lead: q.vac && qs !== 'some' ? o.vac : t.tf.expl[key], body: o.stL, extra: '' });
+}
+function renderNn(t) {
+  const n = t.nn, N = NN.blocks.filter(nnFits).length;
+  statEl.innerHTML = `<div class="es-k">${esc(n.kick)}</div><div class="es-s">${aonHtml(t, { c: NN.col }, NN.flips)}</div>`;
+  $('vNn').innerHTML = `<div class="row2" style="margin-top:0"><button class="es-b main" data-act="nnSay">${esc(NN.flips >= 4 ? n.again : n.say)}</button><button class="es-b" data-act="nnOther">${esc(n.other)}</button></div>`;
+  lab.setReadout(N, t.aon.fitsLbl, '', GREEN);
+  lab.setState({ emo: '🔄', title: n.stT, lead: NN.flips === 0 ? n.l0 : NN.flips % 2 ? n.lOdd : n.lEven, body: '', extra: '' });
+}
+render();
+</script>
+</body>
+</html>
