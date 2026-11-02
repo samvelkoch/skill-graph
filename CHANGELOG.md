@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-02
 
 ### Labs
+- New lab `boxes` “Three Boxes”: equal vs fair with three friends behind a fence, five everyday cases, staggered starts on a running track (341). (#268)
 - New lab `part-of` “Part of a Pile”: deal sweets into bags to find 3/4 of 24, work backwards from a part, cut an hour, a metre and a class on a strip (340). (#267)
 - New lab `peter-wolf` “A Voice for Every Hero”: six heroes on an evening meadow, each with its own instrument and tune; guess who plays, swap voices, give a voice to a new hero (original tunes; Prokofiev’s instrument assignments) (339). (#266)
 - "Where next" under every lab: up to three easier labs to look at first ("Too hard?", labs on the prerequisites of the lab's topics) and up to three to go on to ("Too easy?", labs on the topics that build on it). `scripts/labs-catalog.mjs` derives them from the prerequisite graph as `before` / `after` in `labs/catalog.json`, keeping out labs reached both ways and preferring younger labs before and older ones after; new file `labs/next.js`, precached by the service worker (`sg-v4`). 288 of 331 labs get labs before, 255 get labs after. The new-lab skill makes it a rule for future labs. (#261)
