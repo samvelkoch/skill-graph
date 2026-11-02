@@ -27,3 +27,4 @@ Every lab is built with the project skill `.claude/skills/new-lab/` (`SKILL.md`,
 - `node scripts/labs-catalog.mjs` after adding a lab (regenerates `labs/catalog.json`).
 - The lab's topic links in its footer open the right cards on the map.
 - The quiz's unlock writes `learning` for the lab's topics.
+- `CHANGELOG.md` gets an entry under the merge date (English, with the PR number); a change parents notice also gets a bullet in `changelog/index.html` in EN, RU and HU (new labs appear there by themselves from `added` in `labs/registry.json`).
