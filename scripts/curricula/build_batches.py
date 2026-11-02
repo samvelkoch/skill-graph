@@ -56,9 +56,14 @@ SUBJECTS = {
            'Tööõpetus ja tehnoloogia': ['Life Skills', 'Personal & Social Development'] + SCIENCE},
     'fr': {'Français': ENGLISH + LANG, 'Mathématiques': COMPUTING, 'Sciences et technologie': SCIENCE + COMPUTING,
            'Histoire-géographie': HISTORY + GEO + CIVICS},
+    'fi': {'Äidinkieli ja kirjallisuus': ENGLISH + LANG, 'Matematiikka': COMPUTING, 'Ympäristöoppi': WORLD + GEO + CIVICS,
+           'Biologia': SCIENCE, 'Maantieto': GEO + SCIENCE, 'Fysiikka': SCIENCE, 'Kemia': SCIENCE,
+           'Terveystieto': SOCIAL + SCIENCE, 'Historia': HISTORY, 'Yhteiskuntaoppi': SOCIAL + CIVICS,
+           'Elämänkatsomustieto': SOCIAL + CIVICS, 'Kotitalous': ['Life Skills', 'Personal & Social Development']},
 }
-COUNTRIES = ('ru', 'hu', 'rs', 'de', 'us', 'gb', 'sg', 'se', 'jp', 'ee', 'fr')
+COUNTRIES = ('ru', 'hu', 'rs', 'de', 'us', 'gb', 'sg', 'se', 'jp', 'ee', 'fr', 'fi')
 TEXT_CAP = 1200
+TEXT_CAPS = {'fi': 2200}  # a Finnish content area covers a whole grade band (3-6); keep it whole
 RU_MERGE = 700  # RU paragraphs are short; merge neighbours of the same section up to this size
 
 
@@ -117,7 +122,7 @@ def main(parsed, out):
             lo, hi = grade_range(r['grade'], r.get('stage'))
             it = {'key': f'{country}:{i}', 'country': country, 'subject': r['subject'].strip(),
                   'grade': f'{lo}' if lo == hi else f'{lo}-{hi}', 'title': title_of(r),
-                  'text': re.sub(r'\s+', ' ', r['text'])[:TEXT_CAP]}
+                  'text': re.sub(r'\s+', ' ', r['text'])[:TEXT_CAPS.get(country, TEXT_CAP)]}
             items.append(it)
             groups[(country, it['subject'], it['grade'])].append(it)
 

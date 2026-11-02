@@ -28,6 +28,7 @@ CURRICULA = {
     'jp': {'name': '学習指導要領 (2017)', 'url': 'https://www.mext.go.jp/a_menu/shotou/new-cs/index.htm', 'grades': list(range(1, 10))},
     'ee': {'name': 'Põhikooli riiklik õppekava', 'url': 'https://www.riigiteataja.ee/akt/114012011001', 'grades': list(range(1, 10))},
     'fr': {'name': 'Programmes de l’école élémentaire (2024–2026)', 'url': 'https://www.education.gouv.fr/bo/2024/Hebdo41/MENE2415135A', 'grades': list(range(1, 6))},
+    'fi': {'name': 'Perusopetuksen opetussuunnitelman perusteet 2014', 'url': 'https://eperusteet.opintopolku.fi/#/fi/perusopetus/419550/tiedot', 'grades': list(range(1, 10))},
     'au': {'name': 'Australian Curriculum v9 (Foundation–Year 6)', 'url': 'https://v9.australiancurriculum.edu.au/', 'grades': list(range(0, 7))},
     # not a country: AI4K12 guidelines (K-8 bands), added with append_gap.py; objectives retold, codes kept
     'ai': {'name': 'AI4K12 Five Big Ideas in AI: grade band progression charts (drafts 2020–2022)', 'url': 'https://ai4k12.org/gradeband-progression-charts/', 'grades': list(range(0, 9))},
