@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-02
 
 ### Labs
+- New lab `black-death` “The Year the Ships Came”: the plague of 1347 along the trade routes month by month, fewer hands and higher wages in a village, a chain of 14th-century crises (357). (#287)
 - New lab `pin-factory` “The Toy Car Workshop”: all-rounders vs a line in a model workshop, find the bottleneck, core and supporting processes (356). (#284)
 - New lab `two-islands` “Two Islands”: split working days between fish and coconuts and trade by boat, comparative advantage, a toy from Japan in your own money (355). (#283)
 - New lab `like-terms` “Sort the Tiles”: sort algebra tiles into trays, test simplifications for every x, zero pairs of plus and minus tiles (354). (#282)
