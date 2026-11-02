@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-02
 
 ### Labs
+- New lab `two-islands` “Two Islands”: split working days between fish and coconuts and trade by boat, comparative advantage, a toy from Japan in your own money (355). (#283)
 - New lab `like-terms` “Sort the Tiles”: sort algebra tiles into trays, test simplifications for every x, zero pairs of plus and minus tiles (354). (#282)
 - New lab `chocolate-chain` “The Journey of a Chocolate Bar”: follow a cocoa bean from Ghana to a shop and break a link, cut a bar into everyone’s share of its price, a Fairtrade price floor (353). (#281)
 - New lab `new-stuff` “New Stuff or Same Stuff?”: six kitchen changes under a particle magnifier, three experiments on a scale, and signs of change that are not proofs (352). (#279)
