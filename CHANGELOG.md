@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-02
 
 ### Labs
+- New lab `chocolate-chain` “The Journey of a Chocolate Bar”: follow a cocoa bean from Ghana to a shop and break a link, cut a bar into everyone’s share of its price, a Fairtrade price floor (353). (#281)
 - New lab `new-stuff` “New Stuff or Same Stuff?”: six kitchen changes under a particle magnifier, three experiments on a scale, and signs of change that are not proofs (352). (#279)
 - New lab `variations` “Same Tune, New Clothes”: five disguises of one tune on a piano roll with gold skeleton notes, five dials, and how far you can go before it becomes a new tune (351). (#278)
 - New lab `heads-tall` “How Many Heads Tall?”: a wooden mannequin grows beside a stack of its own heads, where the eyes really are, poses with limbs that keep their length (350). (#277)
