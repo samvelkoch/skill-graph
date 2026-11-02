@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-02
 
 ### Labs
+- New lab `ways-to-pay` “Where Did the Money Go?”: cash, card and phone move coins between two glass jars, a month of pocket money one tap at a time, keep your PIN safe (346). (#273)
 - New lab `look-ahead` “The Last Match”: a matches game against a robot that searches the game tree, colour a tree from the bottom up, watch game trees explode (345). (#272)
 - New lab `twenty-questions` “Twenty Questions”: find a robot’s number with yes/no questions and count bits, grow a decision tree for eight animals, switches, bytes and file sizes (344). (#271)
 - New lab `symbiosis` “Who Gains?”: separate six odd couples and watch two health meters, sort nine pairs into four baskets, look inside a lichen (343). (#270)
