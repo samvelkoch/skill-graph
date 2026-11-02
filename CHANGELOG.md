@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-02
 
 ### Labs
+- New lab `symbiosis` “Who Gains?”: separate six odd couples and watch two health meters, sort nine pairs into four baskets, look inside a lichen (343). (#270)
 - New lab `passwords` “Guess My Password”: a robot tries every code on a brass lock, passwords from letters and three random words, who may know your password (342). (#269)
 - New lab `boxes` “Three Boxes”: equal vs fair with three friends behind a fence, five everyday cases, staggered starts on a running track (341). (#268)
 - New lab `part-of` “Part of a Pile”: deal sweets into bags to find 3/4 of 24, work backwards from a part, cut an hour, a metre and a class on a strip (340). (#267)
