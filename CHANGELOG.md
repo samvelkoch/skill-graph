@@ -15,7 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-02
 
 ### Labs
-- "Where next" under every lab: up to three easier labs to look at first ("Too hard?", labs on the prerequisites of the lab's topics) and up to three to go on to ("Too easy?", labs on the topics that build on it). `scripts/labs-catalog.mjs` derives them from the prerequisite graph as `before` / `after` in `labs/catalog.json`, keeping out labs reached both ways and preferring younger labs before and older ones after; new file `labs/next.js`, precached by the service worker (`sg-v4`). 288 of 331 labs get labs before, 255 get labs after. The new-lab skill makes it a rule for future labs. (#PR)
+- "Where next" under every lab: up to three easier labs to look at first ("Too hard?", labs on the prerequisites of the lab's topics) and up to three to go on to ("Too easy?", labs on the topics that build on it). `scripts/labs-catalog.mjs` derives them from the prerequisite graph as `before` / `after` in `labs/catalog.json`, keeping out labs reached both ways and preferring younger labs before and older ones after; new file `labs/next.js`, precached by the service worker (`sg-v4`). 288 of 331 labs get labs before, 255 get labs after. The new-lab skill makes it a rule for future labs. (#261)
 
 ### Curricula
 - Finland: core curriculum for basic education POPS 2014 (Perusopetuksen opetussuunnitelman perusteet), from the ePerusteet API: content areas of 12 subjects for grade bands 1–2, 3–6 and 7–9, 97 items with 659 topic links; grade filter `fi-1`…`fi-9` shows the content of the grade's band. (#259)
