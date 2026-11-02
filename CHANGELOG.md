@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-02
 
 ### Labs
+- New lab `spreadsheet` “The Living Table”: a camping budget that recalculates in a wave, copying formulas with relative and absolute references, the right chart for the question (361). (#291)
 - New lab `steepness` “The Steepness Number”: a ramp whose ratio stays fixed, sin and cos on a ladder, the sun’s angle from a tree’s shadow (360). (#290)
 - New lab `lahar` “Living Under a Volcano”: evacuate towns before ash and mudflows, “once in 100 years” odds, an observatory’s warning signs and the Armero case (359). (#289)
 - New lab `silver-prices` “More Coins, Same Bread”: coins vs bread in a market town, American silver and the price revolution, how a few per cent a year adds up (358). (#288)
