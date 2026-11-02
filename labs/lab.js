@@ -2,6 +2,7 @@
 // and the "secret lab" challenge. Each lab (labs/<name>/index.html) builds its own scene on top of it.
 
 import './switcher.js'; // the "Other labs" menu in the top bar
+import './next.js'; // "Where next": labs before and after this one in the graph
 
 export const LANGS = { en: 'EN', ru: 'RU', hu: 'HU' };
 const params = new URLSearchParams(location.search);

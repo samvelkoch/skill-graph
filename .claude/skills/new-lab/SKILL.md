@@ -26,6 +26,7 @@ Pick from the top ~20 by this rule: **the topic unlocks many others, has no lab 
 - **The picture test decides.** A high-ranking topic without an obvious picture is skipped.
 - Ages 6–10 are the starting focus, not a limit. Other ages are fine when asked for or when good 6–10 candidates run thin.
 - Prefer topics next to existing labs (the `near labs` column), so the nearby-labs menu stays connected.
+- **Every lab is a step on a path.** Under each lab, "Where next" (`labs/next.js`) shows up to three labs to look at first ("Too hard?": labs on the prerequisites of its topics) and up to three to go on to ("Too easy?": labs on the topics that build on it). `scripts/labs-catalog.mjs` derives them from the graph (`before` / `after` in `labs/catalog.json`), so they need no code in the lab. Their quality depends on the lab's `topics`: list the topics the lab really explains, in its age band; a lab that spans a whole series from age 5 to 12 gets muddled neighbours. A topic with labs on both sides beats one that leaves the lab isolated.
 - Out of scope: vocabulary topics (type `LANGUAGE`, "Vocabulary" in the name), meta-cognitive topics (type `META`, the "Learning to Learn" subject), English phonics/spelling/handwriting/grammar (native-English literacy does not transfer to RU/HU children), native-language grammar in "Language & Literature". Reading comprehension, story structure, cause and effect, folklore and genres are fine. The script applies these filters already.
 - Exception, low priority: labs for one language's own school curriculum (e.g. Hungarian). Mark them in the registry with `"lang": "<code>"` and that language as `subject`; explanations stay in EN/RU/HU, the material is in that language. The overview, the map panel and the lab menu show them normally in that UI language and in a collapsed section in the others.
 - Stages of one series ("… (age 8+)") are one row (`stages` column); one lab can cover the series.
@@ -127,6 +128,7 @@ Then, in a browser, serve the repo (`python3 -m http.server 8000`) and open `htt
 - each view works; the readouts update in every view;
 - the "Did you know?" box shows facts in every view and language, and its "Another fact" button cycles them;
 - the footer's topic links open the right topics on the map (`/?topic=…`);
+- "Where next" under the lab lists sensible easier and harder labs (or hides itself when the graph has none); if one side looks wrong, fix the lab's `topics`, not the catalog;
 - after the quiz, the secrets open and the lab's topics show as "Learning" on the map;
 - a wrong quiz answer is crossed out, and the second wrong tap shows the question's `hint`;
 - the browser console shows no errors.
