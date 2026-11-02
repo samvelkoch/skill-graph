@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-02
 
 ### Labs
+- New lab `what-a-state` “Build a State”: four jigsaw pieces of a state, six real places judged from Vatican City to Antarctica, monarchy or republic, unitary or federal (366). (#294)
 - New lab `taxes` “The Town Purse”: a street light paid by chipping in vs a small tax, a town budget with deficit and debt, flat vs progressive tax for three families (365). (#293)
 - New lab `ice-core` “The Ice Archive”: drill into Antarctic ice and count yearly layers, crush a sample to measure ancient air, count down to Tambora’s ash (364). (#285)
 - New lab `lines-test` “Which Line Is Longer?”: Asch’s line test in a classroom, what one honest friend changes, five ways to say no (363). (#286)
