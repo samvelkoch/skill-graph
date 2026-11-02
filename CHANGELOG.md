@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-02
 
 ### Labs
+- New lab `steepness` “The Steepness Number”: a ramp whose ratio stays fixed, sin and cos on a ladder, the sun’s angle from a tree’s shadow (360). (#290)
 - New lab `lahar` “Living Under a Volcano”: evacuate towns before ash and mudflows, “once in 100 years” odds, an observatory’s warning signs and the Armero case (359). (#289)
 - New lab `silver-prices` “More Coins, Same Bread”: coins vs bread in a market town, American silver and the price revolution, how a few per cent a year adds up (358). (#288)
 - New lab `black-death` “The Year the Ships Came”: the plague of 1347 along the trade routes month by month, fewer hands and higher wages in a village, a chain of 14th-century crises (357). (#287)
