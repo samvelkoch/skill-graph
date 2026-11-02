@@ -1,0 +1,946 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Stations and Lines · Skill Graph</title>
+<meta name="description" content="Turn a city map into a metro diagram and then into a bare graph, race fewest stops against fewest minutes, and grow a tree of routes from one station. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  .mt-off { display: none; }
+  .mt-q { font: 500 19px/1.25 var(--serif); color: #fff; margin: 0 0 10px; text-wrap: balance; }
+  .mt-opt { min-height: 38px; font-size: 13.5px; white-space: normal; text-align: left; }
+  .mt-ask .mt-opt:disabled { cursor: default; opacity: .5; }
+  .mt-ask .mt-opt.mt-good { opacity: 1; background: rgba(61, 220, 151, .18); border-color: var(--ok); color: var(--ink); }
+  .mt-ask .mt-opt.mt-bad { opacity: 1; background: rgba(245, 200, 76, .14); border-color: var(--wip); color: var(--ink); }
+  .mt-v { margin-top: 10px; font-size: 13.5px; color: var(--soft); line-height: 1.45; }
+  .mt-v b { font-weight: 900; margin-right: 6px; }
+  .mt-v.ok b { color: var(--ok); }
+  .mt-v.no b { color: var(--wip); }
+  .mt-res { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 13.5px; color: var(--soft); }
+  .mt-res i, .mt-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; flex: none; }
+  .mt-sel { min-height: 38px; max-width: 100%; padding: 6px 30px 6px 12px; border-radius: 999px; border: 1px solid var(--stroke2); background-color: rgba(10, 12, 20, .6);
+    color: var(--ink); font: 800 13.5px var(--sans); color-scheme: dark; cursor: pointer; }
+  .mt-info { font-size: 13px; color: var(--soft); margin-top: 10px; line-height: 1.45; }
+  .mt-info.faint { color: var(--faint); }
+  .mt-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 14px; font-size: 12px; color: var(--mut); font-weight: 700; }
+  .mt-legend i { display: inline-block; width: 18px; height: 5px; border-radius: 3px; vertical-align: middle; margin-right: 6px; }
+  .mt-legend i.mt-dash { background: repeating-linear-gradient(90deg, #aeb6cc 0 5px, transparent 5px 8px); }
+  .mt-ctl-gap { margin-top: 12px; }
+  .mt-btn-sm { min-height: 38px; padding: 8px 18px; }
+  @media (max-width: 760px) {
+    #stage { height: min(104vw, 480px); }
+    body[data-v=tree] #stage { height: min(192vw, 760px); }
+    body[data-v=sec] #stage { height: min(116vw, 520px); }
+    .mt-q { font-size: 18px; }
+  }
+  @media (min-width: 761px) { body[data-v=tree] #stage { min-height: 640px; } }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, ruPlural, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Stations and Lines', title: 'Stations and Lines',
+    lines: [['A metro map', ' is not a real map at all.'], ['What does it keep,', ' and what can it throw away?']],
+    views: { map: 'Map to graph', route: 'Best route', tree: 'Table and tree' },
+    stations: { A: 'Airport', B: 'Bridge', C: 'Castle', D: 'Docks', E: 'East Gate', F: 'Fair', G: 'Garden', H: 'Harbour', L: 'Library', M: 'Market', P: 'Park', S: 'Station Square' },
+    lineNames: { red: 'Red line', blue: 'Blue line', green: 'Green line', walk: 'walk' }, roadworks: 'roadworks: slow',
+    realMap: 'Real map', schematic: 'Schematic', justGraph: 'Just the graph', vertsEdges: 'vertices · edges',
+    qMorph: 'When the map turns into a schematic, what must stay the same?', optsMorph: ['Which stations are connected', 'The real distances', 'The shape of the river'],
+    morphWhy: 'Every connection survived the change; the distances and the river did not. For travelling, connections are what matter.',
+    from: 'From', to: 'To', fewestStops: 'Fewest stops', fewestMinutes: 'Fewest minutes', findRoute: 'Find route', fastest: 'fastest route', minStops: (m, s) => `${m} min · ${s} ${s === 1 ? 'stop' : 'stops'}`,
+    qRoute: 'From Docks to East Gate: is the route with the fewest stops also the fastest?', optsRoute: ['Not always: here it isn’t', 'Yes, always', 'It depends on the colour of the line'],
+    routeWhy: 'The 4-stop route has a slow stretch and takes 18 minutes; a 5-stop route takes 16. “Shortest” depends on what you count.',
+    growFrom: 'Grow a tree from', root: 'root', leaves: 'leaves', height: 'height of the tree', table: 'adjacency table',
+    qTree: 'Grow the tree from Station Square. How tall will it be (levels below the root)?',
+    treeWhy: 'Each level holds the stations one more stop away. The deepest station is the tree’s height away from the root.',
+    right: 'Right!', notQuite: 'Look:',
+    kept: (k, n, c) => `${k} of ${n} connections kept. The distances changed on ${c} of them.`,
+    reset: 'Reset', tableHint: 'Tap a cell, a station or a connection: the table and the graph light up together.',
+    kg: { sub: 'bridges crossed', start: 'Tap a piece of land to start your walk.', next: 'Now tap a neighbouring piece of land to cross a bridge. Use each bridge only once!', stuck: 'Stuck: no unused bridge from here. Reset and try another way!', graph: 'The same map as a graph' },
+    state: {
+      map: { emo: '🚇', title: 'A map of connections', lead: 'A metro diagram keeps only stations and which ones are connected.', body: 'Mathematicians call that a graph: vertices joined by edges.' },
+      route: { emo: '🧭', title: 'Shortest means… what?', lead: 'Count stops, and the computer searches ring by ring. Count minutes, and it searches by the time on each edge.', body: 'The best route depends on what the edges measure.' },
+      tree: { emo: '🌳', title: 'Same data, three shapes', lead: 'A graph can be stored as a table: a row and a column for every station.', body: 'Searching from one station grows a tree: a root on top, leaves at the ends.' },
+    },
+    facts: {
+      map: [{ emo: '🇬🇧', text: 'In 1931 Harry Beck drew the London Underground as a diagram that ignored real distances. It became the model for metro maps all over the world.', src: 'London Transport Museum, “Harry Beck’s Tube map”' }],
+      route: [{ emo: '🇭🇺', text: 'Budapest’s Line 1, opened in 1896, is the oldest underground railway in continental Europe.', src: 'Encyclopaedia Britannica, “Budapest”; BKV, “The history of the Millennium Underground”' }, { emo: '🇷🇺', text: 'The Moscow Metro opened on 15 May 1935.', src: 'Encyclopaedia Britannica, “Moscow Metro”' }],
+      tree: [{ emo: '🌉', text: 'In 1736 Leonhard Euler showed that you can’t walk across all seven bridges of Königsberg exactly once. That puzzle started graph theory.', src: 'Encyclopaedia Britannica, “Königsberg bridge problem”' }],
+    },
+    secrets: { a: ['Königsberg’s bridges', 'Four pieces of land, seven bridges. A walk crossing each bridge once is impossible, because more than two pieces of land have an odd number of bridges. Euler proved it in 1736.'], b: ['Beck’s map', 'Harry Beck straightened the lines and spaced the stations evenly. The company doubted it at first; passengers loved it.'] },
+    quiz: [
+      { q: 'On a schematic metro map, what must stay true to reality?', opts: ['Which stations are connected to which', 'The distances between stations', 'The direction of north'], ok: 0, hint: 'Watch what changes in the morph in the first tab.' },
+      { q: 'The route with the fewest stops is…', opts: ['not always the fastest', 'always the fastest', 'never the fastest'], ok: 0, hint: 'Compare the two modes in the second tab.' },
+      { q: 'In a tree grown from one station, what is a leaf?', opts: ['A station with no stations below it in the tree', 'The station you start from', 'A station on the green line'], ok: 0, hint: 'Grow a tree in the third tab and look at the bottom.' },
+    ],
+  },
+  ru: {
+    name: 'Станции и линии', title: 'Станции и линии',
+    lines: [['Схема метро —', ' вовсе не настоящая карта.'], ['Что она сохраняет,', ' а что можно выбросить?']],
+    views: { map: 'От карты к графу', route: 'Лучший маршрут', tree: 'Таблица и дерево' },
+    stations: { A: 'Аэропорт', B: 'Мост', C: 'Замок', D: 'Доки', E: 'Восточные ворота', F: 'Ярмарка', G: 'Сад', H: 'Гавань', L: 'Библиотека', M: 'Рынок', P: 'Парк', S: 'Вокзальная площадь' },
+    lineNames: { red: 'Красная линия', blue: 'Синяя линия', green: 'Зелёная линия', walk: 'пешком' }, roadworks: 'ремонт: медленно',
+    realMap: 'Настоящая карта', schematic: 'Схема', justGraph: 'Только граф', vertsEdges: 'вершин · рёбер',
+    qMorph: 'Когда карта превращается в схему, что должно остаться прежним?', optsMorph: ['Какие станции соединены', 'Настоящие расстояния', 'Форма реки'],
+    morphWhy: 'Все связи сохранились, а расстояния и река — нет. Для поездки важны именно связи.',
+    from: 'Откуда', to: 'Куда', fewestStops: 'Меньше остановок', fewestMinutes: 'Меньше минут', findRoute: 'Найти маршрут', fastest: 'самый быстрый маршрут', minStops: (m, s) => `${m} мин · ${s} ${ruPlural(s, 'перегон', 'перегона', 'перегонов')}`,
+    qRoute: 'От Доков до Восточных ворот: маршрут с наименьшим числом перегонов — самый быстрый?', optsRoute: ['Не всегда: здесь — нет', 'Да, всегда', 'Зависит от цвета линии'],
+    routeWhy: 'На маршруте из 4 перегонов есть медленный участок, и он занимает 18 минут, а маршрут из 5 перегонов — 16. «Кратчайший» зависит от того, что считать.',
+    growFrom: 'Вырастить дерево от', root: 'корень', leaves: 'листья', height: 'высота дерева', table: 'таблица смежности',
+    qTree: 'Вырасти дерево от Вокзальной площади. Какой будет его высота (уровней ниже корня)?',
+    treeWhy: 'На каждом уровне — станции, до которых на один перегон дальше. Самая далёкая станция находится на высоте дерева от корня.',
+    right: 'Верно!', notQuite: 'Смотри:',
+    kept: (k, n, c) => `Связей сохранилось: ${k} из ${n}. У ${c} из них расстояние изменилось.`,
+    reset: 'Сначала', tableHint: 'Нажми на клетку, станцию или связь: таблица и граф подсвечиваются вместе.',
+    kg: { sub: 'мостов пройдено', start: 'Нажми на участок суши, чтобы начать прогулку.', next: 'Теперь нажми на соседний участок суши: ты пройдёшь по мосту. По каждому мосту — только один раз!', stuck: 'Тупик: отсюда нет непройденного моста. Начни сначала и попробуй иначе!', graph: 'Та же карта как граф' },
+    state: {
+      map: { emo: '🚇', title: 'Карта связей', lead: 'Схема метро сохраняет только станции и то, какие из них соединены.', body: 'Математики называют это графом: вершины, соединённые рёбрами.' },
+      route: { emo: '🧭', title: 'Кратчайший — по чему?', lead: 'Считай перегоны — и компьютер ищет кольцо за кольцом. Считай минуты — и он ищет по времени на каждом ребре.', body: 'Лучший маршрут зависит от того, что измеряют рёбра.' },
+      tree: { emo: '🌳', title: 'Одни данные, три формы', lead: 'Граф можно хранить как таблицу: строка и столбец для каждой станции.', body: 'Поиск от одной станции выращивает дерево: корень наверху, листья на концах.' },
+    },
+    facts: {
+      map: [{ emo: '🇬🇧', text: 'В 1931 году Гарри Бек нарисовал лондонское метро схемой без настоящих расстояний. Она стала образцом для схем метро по всему миру.', src: 'London Transport Museum, «Harry Beck’s Tube map»' }],
+      route: [{ emo: '🇭🇺', text: 'Первая линия будапештского метро, открытая в 1896 году, — старейший метрополитен континентальной Европы.', src: 'Encyclopaedia Britannica, «Budapest»; BKV, «The history of the Millennium Underground»' }, { emo: '🇷🇺', text: 'Московское метро открылось 15 мая 1935 года.', src: 'Encyclopaedia Britannica, «Moscow Metro»' }],
+      tree: [{ emo: '🌉', text: 'В 1736 году Леонард Эйлер доказал, что нельзя пройти по всем семи мостам Кёнигсберга ровно по одному разу. С этой задачи началась теория графов.', src: 'Encyclopaedia Britannica, «Königsberg bridge problem»' }],
+    },
+    secrets: { a: ['Мосты Кёнигсберга', 'Четыре участка суши, семь мостов. Пройти по каждому мосту ровно один раз нельзя: у больше чем двух участков нечётное число мостов. Эйлер доказал это в 1736 году.'], b: ['Схема Бека', 'Гарри Бек выпрямил линии и расставил станции на равных расстояниях. Сначала компания сомневалась, а пассажирам схема понравилась.'] },
+    quiz: [
+      { q: 'Что на схеме метро должно соответствовать действительности?', opts: ['Какие станции с какими соединены', 'Расстояния между станциями', 'Направление на север'], ok: 0, hint: 'Посмотри, что меняется при превращении на первой вкладке.' },
+      { q: 'Маршрут с наименьшим числом перегонов…', opts: ['не всегда самый быстрый', 'всегда самый быстрый', 'никогда не самый быстрый'], ok: 0, hint: 'Сравни два режима на второй вкладке.' },
+      { q: 'Что такое лист в дереве, выращенном от одной станции?', opts: ['Станция, под которой в дереве больше нет станций', 'Станция, с которой начинают', 'Станция на зелёной линии'], ok: 0, hint: 'Вырасти дерево на третьей вкладке и посмотри вниз.' },
+    ],
+  },
+  hu: {
+    name: 'Állomások és vonalak', title: 'Állomások és vonalak',
+    lines: [['A metrótérkép', ' egyáltalán nem igazi térkép.'], ['Mit tart meg,', ' és mit dobhat el?']],
+    views: { map: 'Térképből gráf', route: 'A legjobb útvonal', tree: 'Táblázat és fa' },
+    stations: { A: 'Repülőtér', B: 'Híd', C: 'Vár', D: 'Dokkok', E: 'Keleti kapu', F: 'Vásártér', G: 'Kert', H: 'Kikötő', L: 'Könyvtár', M: 'Piac', P: 'Park', S: 'Állomás tér' },
+    lineNames: { red: 'Piros vonal', blue: 'Kék vonal', green: 'Zöld vonal', walk: 'gyalog' }, roadworks: 'felújítás: lassú',
+    realMap: 'Igazi térkép', schematic: 'Vázlat', justGraph: 'Csak a gráf', vertsEdges: 'csúcs · él',
+    qMorph: 'Amikor a térkép vázlattá alakul, minek kell változatlannak maradnia?', optsMorph: ['Melyik állomás melyikkel van összekötve', 'A valódi távolságok', 'A folyó alakja'],
+    morphWhy: 'Minden kapcsolat megmaradt, a távolságok és a folyó nem. Az utazáshoz a kapcsolatok számítanak.',
+    from: 'Honnan', to: 'Hová', fewestStops: 'Legkevesebb szakasz', fewestMinutes: 'Legkevesebb perc', findRoute: 'Útvonal keresése', fastest: 'leggyorsabb útvonal', minStops: (m, s) => `${m} perc · ${s} szakasz`,
+    qRoute: 'A Dokkoktól a Keleti kapuig: a legkevesebb szakaszból álló útvonal a leggyorsabb is?', optsRoute: ['Nem mindig: itt nem', 'Igen, mindig', 'A vonal színétől függ'],
+    routeWhy: 'A 4 szakaszos útvonalon van egy lassú rész, és 18 percig tart; egy 5 szakaszos útvonal 16 perc. A „legrövidebb” attól függ, mit számolsz.',
+    growFrom: 'Fa növesztése innen:', root: 'gyökér', leaves: 'levelek', height: 'a fa magassága', table: 'szomszédsági táblázat',
+    qTree: 'Növessz fát az Állomás térről. Milyen magas lesz (hány szint a gyökér alatt)?',
+    treeWhy: 'Minden szinten azok az állomások vannak, amelyek eggyel több szakasznyira vannak. A legtávolabbi állomás a fa magasságának megfelelő szinten van a gyökér alatt.',
+    right: 'Így van!', notQuite: 'Nézd:',
+    kept: (k, n, c) => `${n} kapcsolatból ${k} megmaradt. A távolság ${c} szakaszon változott.`,
+    reset: 'Újra', tableHint: 'Koppints egy cellára, állomásra vagy kapcsolatra: a táblázat és a gráf együtt világít.',
+    kg: { sub: 'híd átkelve', start: 'Koppints egy szárazföldrészre, hogy elindulj.', next: 'Most koppints egy szomszédos szárazföldrészre: átkelsz a hídon. Minden hídon csak egyszer!', stuck: 'Zsákutca: innen nincs használatlan híd. Kezdd újra, és próbálj másképp!', graph: 'Ugyanez a térkép gráfként' },
+    state: {
+      map: { emo: '🚇', title: 'A kapcsolatok térképe', lead: 'A metróvázlat csak az állomásokat és a köztük lévő kapcsolatokat tartja meg.', body: 'A matematikusok ezt gráfnak hívják: élekkel összekötött csúcsok.' },
+      route: { emo: '🧭', title: 'Legrövidebb… mi szerint?', lead: 'Ha a szakaszokat számolod, a gép körről körre keres. Ha a perceket, az egyes élek ideje szerint.', body: 'A legjobb útvonal attól függ, mit mérnek az élek.' },
+      tree: { emo: '🌳', title: 'Ugyanaz az adat, három alakban', lead: 'Egy gráfot táblázatként is tárolhatsz: minden állomásnak egy sor és egy oszlop.', body: 'Egy állomásból indított keresés fát növeszt: fent a gyökér, a végeken a levelek.' },
+    },
+    facts: {
+      map: [{ emo: '🇬🇧', text: '1931-ben Harry Beck a londoni metrót olyan vázlatként rajzolta meg, amely nem törődött a valódi távolságokkal. Ez lett a mintája a metrótérképeknek az egész világon.', src: 'London Transport Museum, „Harry Beck’s Tube map”' }],
+      route: [{ emo: '🇭🇺', text: 'Az 1896-ban megnyílt budapesti 1-es metró a kontinentális Európa legrégebbi földalattija.', src: 'Encyclopaedia Britannica, „Budapest”; BKV, „A Millenniumi Földalatti Vasút története”' }, { emo: '🇷🇺', text: 'A moszkvai metró 1935. május 15-én nyílt meg.', src: 'Encyclopaedia Britannica, „Moscow Metro”' }],
+      tree: [{ emo: '🌉', text: '1736-ban Leonhard Euler bebizonyította, hogy nem lehet Königsberg mind a hét hídján pontosan egyszer átsétálni. Ezzel a feladvánnyal kezdődött a gráfelmélet.', src: 'Encyclopaedia Britannica, „Königsberg bridge problem”' }],
+    },
+    secrets: { a: ['Königsberg hídjai', 'Négy szárazföldrész, hét híd. Nem lehet úgy sétálni, hogy minden hídon pontosan egyszer menj át, mert kettőnél több szárazföldrészhez páratlan számú híd tartozik. Euler 1736-ban bizonyította.'], b: ['Beck térképe', 'Harry Beck kiegyenesítette a vonalakat, és egyenlő távolságra tette az állomásokat. A társaság eleinte kételkedett, az utasok viszont imádták.'] },
+    quiz: [
+      { q: 'Mi az, aminek egy metróvázlaton egyeznie kell a valósággal?', opts: ['Melyik állomás melyikkel van összekötve', 'Az állomások közti távolságok', 'Az északi irány'], ok: 0, hint: 'Figyeld, mi változik az átalakulásnál az első fülön.' },
+      { q: 'A legkevesebb szakaszból álló útvonal…', opts: ['nem mindig a leggyorsabb', 'mindig a leggyorsabb', 'soha nem a leggyorsabb'], ok: 0, hint: 'Hasonlítsd össze a két módot a második fülön.' },
+      { q: 'Mi a levél egy állomásból növesztett fában?', opts: ['Olyan állomás, amely alatt nincs több állomás a fában', 'Az az állomás, ahonnan indulsz', 'Egy állomás a zöld vonalon'], ok: 0, hint: 'Növessz fát a harmadik fülön, és nézd meg az alját.' },
+    ],
+  },
+};
+const TOPICS = [{ id: 'sg_cmp_30', en: 'Tables, Graphs and Trees as Data Models', ru: 'Таблицы, графы и деревья как модели данных', hu: 'Táblázatok, gráfok és fák adatmodellként' }];
+
+// --- the made-up city Riverton: stations, lines, minutes -----------------------------------------------------
+const IDS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'L', 'M', 'P', 'S'];
+const EDGES = [
+  ['A', 'B', 4, 'red'], ['B', 'S', 3, 'red'], ['S', 'M', 2, 'red'], ['M', 'E', 9, 'red'],
+  ['D', 'H', 3, 'blue'], ['H', 'S', 4, 'blue'], ['S', 'L', 2, 'blue'], ['L', 'P', 6, 'blue'], ['P', 'G', 3, 'blue'],
+  ['C', 'B', 5, 'green'], ['B', 'L', 3, 'green'], ['L', 'F', 4, 'green'], ['F', 'E', 3, 'green'],
+  ['G', 'F', 8, 'walk'],
+].map(([a, b, m, ln], i) => ({ a, b, m, ln, i }));
+const V = IDS.length, NE = EDGES.length;
+const EIDX = {};
+EDGES.forEach((e) => { EIDX[e.a + e.b] = e.i; EIDX[e.b + e.a] = e.i; });
+const ADJ = Object.fromEntries(IDS.map((id) => [id, []])); // neighbour order = order of EDGES: every search is deterministic
+EDGES.forEach((e) => { ADJ[e.a].push({ to: e.b, m: e.m, e: e.i }); ADJ[e.b].push({ to: e.a, m: e.m, e: e.i }); });
+const DEG = Object.fromEntries(IDS.map((id) => [id, ADJ[id].length]));
+const INTER = Object.fromEntries(IDS.map((id) => [id, new Set(ADJ[id].map((n) => EDGES[n.e].ln).filter((l) => l !== 'walk')).size >= 2]));
+
+// world box 130 × 120; the "real" map is irregular, the schematic keeps 45° / 90° lines and even spacing
+const WW = 130, WH = 120;
+const GEO = { A: [10, 60], B: [59, 43], C: [38, 16], D: [120, 34], E: [115, 100], F: [88, 98], G: [58, 106], H: [101, 47], L: [45, 74], M: [88, 80], P: [26, 88], S: [68, 70] };
+const SCH = { D: [65, 10], H: [65, 35], C: [40, 35], A: [15, 60], B: [40, 60], S: [65, 60], M: [90, 60], E: [115, 60], L: [65, 85], F: [90, 85], P: [65, 110], G: [90, 110] };
+const RIVER_X = [-6, 12, 30, 46, 59, 72, 88, 104, 120, 136], RIVER_Y = [30, 26, 36, 34, 43, 57, 60, 58, 66, 62], RIVER_STRAIGHT = 47.5;
+const PARKS = [[[8, 92], [22, 87], [36, 93], [35, 108], [18, 112], [6, 104]], [[28, 8], [42, 5], [53, 13], [47, 24], [32, 22]], [[50, 100], [64, 97], [69, 110], [54, 115]]];
+const BEND = [.10, -.14, .12, -.10, .14, -.12, .11, -.15, .13, -.12, .10, -.13, .12, .16];
+const COL = { red: '#e0524f', blue: '#4b86e6', green: '#4fb477', walk: '#aeb6cc' };
+const INK = '#0e1220', CYAN = '#58d0e8', AMBER = '#ffc857', PINK = '#ff6b8b', MINT = '#3ddc97';
+const FONT = '800 12px Nunito, sans-serif';
+// streets: a gently tilted, wobbly grid
+const STREETS = (() => {
+  let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647, L = [], ang = -0.2, ca = Math.cos(ang), sa = Math.sin(ang);
+  const rot = ([x, y]) => [65 + (x - 65) * ca - (y - 60) * sa, 60 + (x - 65) * sa + (y - 60) * ca];
+  for (let y = -30; y <= 150; y += 11) { const p = []; for (let x = -40; x <= 170; x += 21) p.push(rot([x, y + (rnd() - .5) * 6])); L.push(p); }
+  for (let x = -30; x <= 160; x += 13) { const p = []; for (let y = -40; y <= 160; y += 22) p.push(rot([x + (rnd() - .5) * 5, y])); L.push(p); }
+  L.push([[0, 100], [40, 70], [80, 50], [130, 15]], [[0, 20], [50, 60], [90, 85], [130, 110]]);
+  return L;
+})();
+// how far the schematic bends distances: how many connections change their relative length by more than a fifth
+const CHANGED = (() => {
+  const len = (L, e) => Math.hypot(L[e.a][0] - L[e.b][0], L[e.a][1] - L[e.b][1]), gl = EDGES.map((e) => len(GEO, e)), sl = EDGES.map((e) => len(SCH, e));
+  const mg = gl.reduce((x, y) => x + y) / NE, ms = sl.reduce((x, y) => x + y) / NE;
+  return EDGES.filter((e, i) => Math.abs((gl[i] / mg) / (sl[i] / ms) - 1) > .2).length;
+})();
+
+// --- searches: breadth-first (every edge = 1) and Dijkstra (edge = minutes) ---------------------------------
+function bfs(src) {
+  const dist = { [src]: 0 }, par = {}, parE = {}, order = [src];
+  for (let q = 0; q < order.length; q++) for (const { to, e } of ADJ[order[q]]) if (!(to in dist)) { dist[to] = dist[order[q]] + 1; par[to] = order[q]; parE[to] = e; order.push(to); }
+  return { dist, par, parE, order };
+}
+function dijkstra(src) {
+  const dist = {}, stops = {}, par = {}, parE = {}, done = {}, order = [];
+  IDS.forEach((id) => { dist[id] = Infinity; stops[id] = Infinity; });
+  dist[src] = 0; stops[src] = 0;
+  for (;;) {
+    let u = null;
+    for (const id of IDS) if (!done[id] && dist[id] < Infinity && (u === null || dist[id] < dist[u] || (dist[id] === dist[u] && stops[id] < stops[u]))) u = id;
+    if (u === null) break;
+    done[u] = true; order.push(u);
+    for (const { to, m, e } of ADJ[u]) {
+      const nd = dist[u] + m, ns = stops[u] + 1;
+      if (!done[to] && (nd < dist[to] || (nd === dist[to] && ns < stops[to]))) { dist[to] = nd; stops[to] = ns; par[to] = u; parE[to] = e; }
+    }
+  }
+  return { dist, stops, par, parE, order };
+}
+function makeRun(mode, a, b) {
+  let res, events, waveEnd;
+  if (mode === 'stops') {
+    res = bfs(a); const d = res.dist[b];
+    events = res.order.filter((id) => res.dist[id] <= d).map((id) => ({ id, val: res.dist[id], t: res.dist[id] * .6, pe: res.parE[id] }));
+    waveEnd = d * .6 + .5;
+  } else {
+    res = dijkstra(a); const upto = res.order.indexOf(b);
+    events = res.order.slice(0, upto + 1).map((id) => ({ id, val: res.dist[id], t: res.dist[id] * .13, pe: res.parE[id] }));
+    waveEnd = res.dist[b] * .13 + .5;
+  }
+  const nodes = [b];
+  while (nodes[0] !== a) nodes.unshift(res.par[nodes[0]]);
+  let minutes = 0;
+  for (let i = 1; i < nodes.length; i++) minutes += EDGES[EIDX[nodes[i - 1] + nodes[i]]].m;
+  return { mode, color: mode === 'stops' ? CYAN : AMBER, events, waveEnd, nodes, minutes, stops: nodes.length - 1 };
+}
+function fastest(a, b) { const r = makeRun('min', a, b); return { minutes: r.minutes, stops: r.stops }; }
+// a tree grown by breadth-first search: rows are levels, columns come from a tidy left-to-right order of the leaves
+function makeTree(root) {
+  const r = bfs(root), kids = Object.fromEntries(IDS.map((id) => [id, []]));
+  r.order.forEach((id) => { if (id !== root) kids[r.par[id]].push(id); });
+  const slot = {}; let n = 0;
+  const walk = (id) => {
+    if (!kids[id].length) { slot[id] = n++; return; }
+    kids[id].forEach(walk); slot[id] = (slot[kids[id][0]] + slot[kids[id][kids[id].length - 1]]) / 2;
+  };
+  walk(root);
+  const nx = {}; IDS.forEach((id) => { nx[id] = n > 1 ? slot[id] / (n - 1) : .5; });
+  const leaves = IDS.filter((id) => !kids[id].length), height = Math.max(...Object.values(r.dist));
+  return { root, lvl: r.dist, nx, kids, leaves, height, te: new Set(Object.values(r.parE)) };
+}
+const TREE_S = makeTree('S');
+const TREE_OPTS = [TREE_S.height, TREE_S.height + 2, 11]; // the first one is right; shown shuffled
+
+// --- helpers -----------------------------------------------------------------------------------------------
+const now = () => performance.now() / 1000;
+const clamp01 = (x) => clamp(x, 0, 1);
+const ease = (t) => { t = clamp01(t); return t * t * (3 - 2 * t); };
+const easeBack = (t) => { t = clamp01(t); const c1 = 1.5, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+const hex3 = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+const mix = (a, b, t) => { const A = hex3(a), B = hex3(b), k = clamp01(t); return '#' + A.map((v, i) => Math.round(v + (B[i] - v) * k).toString(16).padStart(2, '0')).join(''); };
+const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const fitWorld = (w, h, pad, x0 = 0, y0 = 0) => { const s = Math.max(.1, Math.min((w - 2 * pad) / WW, (h - 2 * pad) / WH)); return { s, ox: x0 + (w - WW * s) / 2, oy: y0 + (h - WH * s) / 2 }; };
+const wp = (F, [x, y]) => [F.ox + x * F.s, F.oy + y * F.s];
+const quizCache = {};
+const quiz = () => (quizCache[lang] ??= T[lang].quiz.map((q) => { const idx = shuffle(q.opts.map((_, i) => i)); return { q: q.q, opts: idx.map((i) => q.opts[i]), ok: idx.indexOf(q.ok), hint: q.hint }; }));
+
+// --- state -------------------------------------------------------------------------------------------------
+const S = {
+  m: 0, tw: null, bare: 0, bareTo: 0, chk: null, // map view: morph 0 real → 1 schematic, bare-graph toggle, "all connections kept" flash
+  ans: { map: null, route: null, tree: null }, ord: { map: shuffle([0, 1, 2]), route: shuffle([0, 1, 2]), tree: shuffle([0, 1, 2]) },
+  from: 'D', to: 'E', mode: 'stops', sr: null, pk: 'from', // route view
+  root: 'S', tr: null, sel: null, // tree view: tr = { from: tree | null, to: tree | null, t0 }
+  sec: null, kg: { at: null, used: [], w: null, stuck: false }, optLang: '',
+};
+const G = { tb: null, gr: null, nodes: null, map: null, gnodes: null }; // hit areas from the last frame
+const lab = shell({ key: 'metro', T, topics: TOPICS, views: ['map', 'route', 'tree'], onLang: render, onView: () => { S.sec = null; S.sel = null; render(); } });
+const secret = secretLab('metro', () => ({
+  secrets: [{ emo: '🌉', title: T[lang].secrets.a[0], desc: T[lang].secrets.a[1] }, { emo: '🗺️', title: T[lang].secrets.b[0], desc: T[lang].secrets.b[1] }],
+  questions: quiz(),
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="mtMap">
+    <div class="mt-ask" id="askMap" data-view="map"></div>
+    <div id="toolsMap" class="mt-ctl-gap">
+      <div class="row2" style="margin-top:0"><div class="card seg small" id="mtSeg"></div><button class="chip" id="mtBare" data-act="bare"></button></div>
+      <input type="range" class="big" id="mtSlide" min="0" max="1000" value="0" style="margin-top:14px">
+    </div>
+  </div>
+  <div id="mtRoute">
+    <div class="mt-ask" id="askRoute" data-view="route"></div>
+    <div id="toolsRoute" class="mt-ctl-gap">
+      <div class="row2" style="margin-top:0"><span class="lbl"><i class="mt-dot" style="background:${MINT}"></i> <span id="lbFrom"></span></span><select id="mtFrom" class="mt-sel"></select>
+        <span class="lbl"><i class="mt-dot" style="background:${PINK}"></i> <span id="lbTo"></span></span><select id="mtTo" class="mt-sel"></select></div>
+      <div class="row2"><div class="card seg small" id="mtMode"></div><button class="btn mt-btn-sm" id="mtFind" data-act="find"></button></div>
+    </div>
+  </div>
+  <div id="mtTree">
+    <div class="mt-ask" id="askTree" data-view="tree"></div>
+    <div id="toolsTree" class="mt-ctl-gap">
+      <div class="row2" style="margin-top:0"><span class="lbl" id="lbRoot"></span><select id="mtRoot" class="mt-sel"></select><button class="chip" id="mtUntree" data-act="untree"></button></div>
+      <div class="mt-info" id="mtInfo"></div>
+    </div>
+    <div class="mt-info faint" id="mtHint"></div>
+  </div>
+  <div class="mt-legend" id="mtLegend"></div>
+  <div class="row2"><div class="chips" id="mtSecChips"></div></div>`;
+
+// --- geometry of edges, stations, labels -----------------------------------------------------------------------
+function edgeG(p, q, i, m) {
+  const mx = (p[0] + q[0]) / 2, my = (p[1] + q[1]) / 2, dx = q[0] - p[0], dy = q[1] - p[1], L = Math.hypot(dx, dy) || 1, b = BEND[i] * (1 - m) * L;
+  return { x0: p[0], y0: p[1], cx: mx - dy / L * b, cy: my + dx / L * b, x1: q[0], y1: q[1] };
+}
+const qpt = (g, t) => [(1 - t) * (1 - t) * g.x0 + 2 * (1 - t) * t * g.cx + t * t * g.x1, (1 - t) * (1 - t) * g.y0 + 2 * (1 - t) * t * g.cy + t * t * g.y1];
+const edgePath = (c, g) => { c.beginPath(); c.moveTo(g.x0, g.y0); c.quadraticCurveTo(g.cx, g.cy, g.x1, g.y1); };
+function drawEdges(c, P, o) {
+  const { m, bare, lw } = o;
+  for (const e of EDGES) {
+    const g = edgeG(P[e.a], P[e.b], e.i, m), walk = e.ln === 'walk', dash = o.dash ? o.dash(e.i) : false, dashed = walk || dash;
+    const w1 = lerp(lw, 3, bare), col = o.color ? o.color(e) : mix(COL[e.ln], '#8d96b0', bare);
+    c.save(); c.globalAlpha = o.alpha ? o.alpha(e.i) : 1; c.lineCap = 'round'; c.lineJoin = 'round';
+    if (dashed) c.setLineDash([w1 * (walk ? 1.5 : 1.1), w1 * (walk ? 1.3 : 1.1)]);
+    else if (!o.flat && bare < .95) { edgePath(c, g); c.strokeStyle = `rgba(5,7,14,${.45 * (1 - bare)})`; c.lineWidth = w1 + 3.5; c.stroke(); }
+    edgePath(c, g); c.strokeStyle = col; c.lineWidth = w1; c.stroke();
+    if (!dashed && !o.flat && bare < .95) { c.translate(-.8, -.8); edgePath(c, g); c.strokeStyle = `rgba(255,255,255,${.2 * (1 - bare)})`; c.lineWidth = w1 * .3; c.stroke(); }
+    c.restore();
+  }
+}
+function station(c, x, y, r, inter, bare) {
+  c.save();
+  if (bare < .9) { c.fillStyle = `rgba(0,0,0,${.3 * (1 - bare)})`; c.beginPath(); c.arc(x + 1.5, y + 2.5, Math.max(0, r + 1), 0, 7); c.fill(); }
+  const g = c.createRadialGradient(x - r * .35, y - r * .4, Math.max(0, r * .1), x, y, Math.max(.1, r));
+  g.addColorStop(0, '#ffffff'); g.addColorStop(1, mix('#cdd5ee', '#e8ecfa', bare));
+  c.fillStyle = g; c.beginPath(); c.arc(x, y, Math.max(0, r), 0, 7); c.fill();
+  if (bare < .9) { c.lineWidth = inter ? 3 : 2; c.strokeStyle = `rgba(14,18,32,${1 - bare})`; c.stroke(); }
+  c.restore();
+}
+function disc(c, x, y, r, color, text) { // a station that the search has reached: a coloured disc with its number
+  c.save();
+  c.fillStyle = 'rgba(0,0,0,.3)'; c.beginPath(); c.arc(x + 1.5, y + 2.5, Math.max(0, r + 1), 0, 7); c.fill();
+  c.fillStyle = color; c.beginPath(); c.arc(x, y, Math.max(0, r), 0, 7); c.fill(); c.lineWidth = 2; c.strokeStyle = INK; c.stroke();
+  c.fillStyle = INK; c.font = FONT; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(text, x, y + 1);
+  c.restore();
+}
+function pill(c, x, y, w, h, fill) { c.beginPath(); c.roundRect(x, y, w, h, Math.min(9, h / 2)); c.fillStyle = fill; c.fill(); }
+function drawLabel(c, r, lines, alpha, dark, at, ar) {
+  c.save(); c.globalAlpha = alpha; c.font = FONT; c.textAlign = 'center'; c.textBaseline = 'middle';
+  if (at) { // a short leader line when the pill sits away from its station
+    const nx = clamp(at[0], r.x, r.x + r.w), ny = clamp(at[1], r.y, r.y + r.h), d = Math.hypot(nx - at[0], ny - at[1]);
+    if (d > ar + 9) {
+      const k = ar / d; c.lineCap = 'round'; c.lineWidth = 1.5; c.strokeStyle = dark ? 'rgba(237,239,247,.7)' : 'rgba(42,33,24,.7)';
+      c.beginPath(); c.moveTo(at[0] + (nx - at[0]) * k, at[1] + (ny - at[1]) * k); c.lineTo(nx, ny); c.stroke();
+    }
+  }
+  if (dark) { pill(c, r.x, r.y, r.w, r.h, 'rgba(10,13,24,.84)'); c.fillStyle = '#EDEFF7'; lines.forEach((s, i) => c.fillText(s, r.x + r.w / 2, r.y + 10 + i * 14)); }
+  else { c.lineJoin = 'round'; c.lineWidth = 4; c.strokeStyle = '#efe5cf'; c.fillStyle = '#2a2118'; lines.forEach((s, i) => { c.strokeText(s, r.x + r.w / 2, r.y + 10 + i * 14); c.fillText(s, r.x + r.w / 2, r.y + 10 + i * 14); }); }
+  c.restore();
+}
+const splitName = (s) => {
+  if (s.length <= 11 || !s.includes(' ')) return [s];
+  let best = -1, bd = 1e9;
+  for (let i = 0; i < s.length; i++) if (s[i] === ' ' && Math.abs(i - s.length / 2) < bd) { bd = Math.abs(i - s.length / 2); best = i; }
+  return [s.slice(0, best), s.slice(best + 1)];
+};
+function geomSamples(P, m) {
+  return EDGES.map((e) => { const g = edgeG(P[e.a], P[e.b], e.i, m), n = Math.max(4, Math.ceil(Math.hypot(g.x1 - g.x0, g.y1 - g.y0) / 5)); return Array.from({ length: n + 1 }, (_, k) => qpt(g, k / n)); });
+}
+// label placement: for every station try pills around it and keep the one that hits the fewest nodes, edges, other pills or the border
+function placeLabels(c, P, samples, fixed, nr, w, h, names, extra) {
+  c.save(); c.font = FONT;
+  const meas = (lines) => ({ lines, tw: Math.max(...lines.map((s) => c.measureText(s).width)) + 14, th: lines.length * 14 + 6 });
+  const items = [...extra.map((x) => ({ id: x.id, pos: x.at, r: 6, ...meas(x.lines) })), ...[...IDS].sort((a, b) => DEG[b] - DEG[a]).map((id) => ({ id, pos: P[id], r: nr, ...meas(splitName(names[id])) }))];
+  c.restore();
+  // wide pills have the fewest free places: they go first (the extra labels stay first of all)
+  const nExtra = extra.length, rest = items.slice(nExtra).sort((a, b) => b.tw - a.tw || DEG[b.id] - DEG[a.id]);
+  items.splice(nExtra, rest.length, ...rest);
+  const placed = fixed.slice(), out = {};
+  const dirs = [[1, 0, 0, .5], [-1, 0, 1, .5], [0, -1, .5, 1], [0, 1, .5, 0], [.7, -.7, 0, 1], [-.7, -.7, 1, 1], [.7, .7, 0, 0], [-.7, .7, 1, 0]];
+  const hit = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  const score = (rc, it) => {
+    let s = 0;
+    for (const p of placed) if (hit(rc, p)) s += 1000; // a pill never sits on another pill
+    for (const id of IDS) {
+      const [X, Y] = P[id], nx = clamp(X, rc.x, rc.x + rc.w), ny = clamp(Y, rc.y, rc.y + rc.h);
+      if (Math.hypot(X - nx, Y - ny) < (id === it.id ? nr + 2 : nr + 3)) s += id === it.id ? 1000 : 60;
+    }
+    for (const pts of samples) for (const [px, py] of pts) {
+      if (px > rc.x - 2 && px < rc.x + rc.w + 2 && py > rc.y - 2 && py < rc.y + rc.h + 2 && Math.hypot(px - it.pos[0], py - it.pos[1]) > it.r + 8) s += 5;
+    }
+    return s;
+  };
+  for (const it of items) {
+    let best = null;
+    [1, 1.8, 2.6, 3.6, 4.8, 6.2].forEach((k, ki) => dirs.forEach(([ux, uy, ax, ay], di) => {
+      const d = (it.r + 5) * k;
+      const rc = { x: it.pos[0] + ux * d - ax * it.tw, y: it.pos[1] + uy * d - ay * it.th, w: it.tw, h: it.th };
+      rc.x = clamp(rc.x, 3, Math.max(3, w - 3 - rc.w)); rc.y = clamp(rc.y, 3, Math.max(3, h - 3 - rc.h)); // always inside the canvas
+      const sc = score(rc, it) + ki * 12 + di * .5;
+      if (!best || sc < best.sc) best = { sc, rc };
+    }));
+    out[it.id] = { ...best.rc, lines: it.lines }; placed.push(best.rc);
+  }
+  return out;
+}
+const memo = new Map();
+try { document.fonts.ready.then(() => memo.clear()); } catch { /* no font events: widths stay as measured */ }
+function labelsFor(c, key, P, m, w, h, nr, fixed = [], extra = []) {
+  if (memo.has(key)) return memo.get(key);
+  if (memo.size > 40) memo.clear();
+  const res = placeLabels(c, P, geomSamples(P, m), fixed, nr, w, h, T[lang].stations, extra);
+  memo.set(key, res); return res;
+}
+
+// --- backdrop of the map: streets, parks and river that melt away into a clean diagram ------------------------------
+function blob(c, pts) {
+  const n = pts.length, mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], s = mid(pts[n - 1], pts[0]);
+  c.beginPath(); c.moveTo(s[0], s[1]);
+  for (let i = 0; i < n; i++) { const m2 = mid(pts[i], pts[(i + 1) % n]); c.quadraticCurveTo(pts[i][0], pts[i][1], m2[0], m2[1]); }
+  c.closePath();
+}
+function smooth(c, pts) {
+  c.beginPath(); c.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length - 1; i++) c.quadraticCurveTo(pts[i][0], pts[i][1], (pts[i][0] + pts[i + 1][0]) / 2, (pts[i][1] + pts[i + 1][1]) / 2);
+  c.lineTo(pts[pts.length - 1][0], pts[pts.length - 1][1]);
+}
+function backdrop(c, w, h, F, m, bare) {
+  const rl = 1 - m, A = 1 - bare;
+  c.save(); c.beginPath(); c.roundRect(0, 0, w, h, 18); c.clip();
+  const g = c.createLinearGradient(0, 0, w * .6, h);
+  g.addColorStop(0, mix(mix('#2a3650', '#1a2238', m), '#10152a', bare)); g.addColorStop(1, mix(mix('#1f2a42', '#10162a', m), '#0c1020', bare));
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  const ga = m * A * .07;
+  if (ga > .002) { // 45° guide lines of the diagram
+    c.strokeStyle = `rgba(190,205,255,${ga})`; c.lineWidth = 1; c.beginPath();
+    for (let k = -120; k <= 130; k += 25) {
+      let a = wp(F, [k, 0]), b = wp(F, [k + WH, WH]); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]);
+      a = wp(F, [k + WH, 0]); b = wp(F, [k, WH]); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]);
+    }
+    c.stroke();
+  }
+  const sa = rl * A;
+  if (sa > .01) { // streets
+    c.strokeStyle = `rgba(200,212,240,${.13 * sa})`; c.lineWidth = 1.2; c.beginPath();
+    for (const st of STREETS) st.forEach((p, i) => { const q = wp(F, p); if (i) c.lineTo(q[0], q[1]); else c.moveTo(q[0], q[1]); });
+    c.stroke();
+    PARKS.forEach((pk) => {
+      blob(c, pk.map((p) => wp(F, p)));
+      const q = wp(F, pk[0]), gg = c.createLinearGradient(q[0], q[1], q[0] + 40 * F.s, q[1] + 40 * F.s);
+      gg.addColorStop(0, `rgba(66,128,92,${.85 * sa})`); gg.addColorStop(1, `rgba(36,84,62,${.85 * sa})`);
+      c.fillStyle = gg; c.fill(); c.lineWidth = 1.5; c.strokeStyle = `rgba(20,56,40,${.8 * sa})`; c.stroke();
+    });
+  }
+  if (A > .02) { // river: wiggles on the real map, one straight band on the diagram
+    const pts = RIVER_X.map((x, i) => wp(F, [x, lerp(RIVER_Y[i], RIVER_STRAIGHT, m)])), rw = 8.5 * F.s;
+    c.globalAlpha = A;
+    smooth(c, pts); c.strokeStyle = '#1d4a78'; c.lineWidth = rw + 4; c.stroke();
+    smooth(c, pts); c.strokeStyle = '#2f6fa8'; c.lineWidth = rw; c.stroke();
+    c.save(); c.translate(-rw * .18, -rw * .22); smooth(c, pts); c.strokeStyle = 'rgba(150,205,245,.4)'; c.lineWidth = Math.max(1.5, rw * .18); c.stroke(); c.restore();
+    c.globalAlpha = 1;
+  }
+  if (sa > .02) { // north arrow: the diagram does not keep it
+    const cx = w - 26, cy = 28;
+    c.globalAlpha = sa; pill(c, cx - 17, cy - 19, 34, 38, 'rgba(10,13,24,.7)');
+    c.fillStyle = '#EDEFF7'; c.beginPath(); c.moveTo(cx, cy - 12); c.lineTo(cx + 6, cy + 4); c.lineTo(cx, cy + 1); c.lineTo(cx - 6, cy + 4); c.closePath(); c.fill();
+    c.font = FONT; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('N', cx, cy + 13); c.globalAlpha = 1;
+  }
+  c.restore();
+}
+
+// --- view 1: from the map to the graph -------------------------------------------------------------------------
+function drawMap(c, w, h, dt, time) {
+  const F = fitWorld(w, h, 12), nr = w < 520 ? 8 : 10, lw = w < 520 ? 6 : 8;
+  if (S.tw) {
+    const p = (time - S.tw.t0) / S.tw.dur;
+    if (p >= 1) { S.m = S.tw.to; const done = S.tw; S.tw = null; $('mtSlide').value = Math.round(S.m * 1000); if (done.to === 1 && S.ans.map !== null) S.chk = { t0: time }; render(); }
+    else { S.m = lerp(S.tw.from, S.tw.to, ease(p)); $('mtSlide').value = Math.round(S.m * 1000); }
+  }
+  S.bare += clamp(S.bareTo - S.bare, -dt / .45, dt / .45);
+  const m = S.m, bare = S.bare;
+  backdrop(c, w, h, F, m, bare);
+  const gP = {}, sP = {}, P = {};
+  IDS.forEach((id) => { gP[id] = wp(F, GEO[id]); sP[id] = wp(F, SCH[id]); P[id] = [lerp(gP[id][0], sP[id][0], m), lerp(gP[id][1], sP[id][1], m)]; });
+  const compass = [{ x: w - 46, y: 6, w: 40, h: 44 }];
+  const lg = labelsFor(c, `map|g|${lang}|${w}|${h}`, gP, 0, w, h, nr, compass), ls = labelsFor(c, `map|s|${lang}|${w}|${h}`, sP, 1, w, h, nr, compass);
+  drawEdges(c, P, { m, bare, lw });
+  if (S.chk) { // the check: every connection flashes once
+    EDGES.forEach((e) => {
+      const k = (time - S.chk.t0 - e.i * .07) / .32;
+      if (k > 0 && k < 1) { const g = edgeG(P[e.a], P[e.b], e.i, m); c.save(); c.lineCap = 'round'; edgePath(c, g); c.strokeStyle = `rgba(255,255,255,${Math.sin(Math.PI * k) * .85})`; c.lineWidth = lw + 2; c.stroke(); c.restore(); }
+    });
+  }
+  IDS.forEach((id) => station(c, P[id][0], P[id][1], lerp(nr + (INTER[id] ? 2 : 0), 4.5, bare), INTER[id], bare));
+  const la = (1 - bare) * (.5 + .5 * Math.abs(2 * m - 1));
+  if (la > .02) IDS.forEach((id) => drawLabel(c, { x: lerp(lg[id].x, ls[id].x, m), y: lerp(lg[id].y, ls[id].y, m), w: lg[id].w, h: lg[id].h }, lg[id].lines, la, true, P[id], nr));
+}
+
+// --- view 2: fewest stops or fewest minutes? -----------------------------------------------------------------------
+function drawPath(c, nodes, P, prog, color, wd) {
+  const pts = nodes.map((id) => P[id]), lens = [];
+  let total = 0;
+  for (let i = 1; i < pts.length; i++) { lens.push(Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])); total += lens[i - 1]; }
+  let rem = prog * total;
+  c.save(); c.lineCap = 'round'; c.lineJoin = 'round'; c.strokeStyle = color; c.lineWidth = wd; c.shadowColor = color; c.shadowBlur = 14;
+  c.beginPath(); c.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length && rem > 0; i++) { const f = Math.min(1, rem / (lens[i - 1] || 1)); c.lineTo(lerp(pts[i - 1][0], pts[i][0], f), lerp(pts[i - 1][1], pts[i][1], f)); rem -= lens[i - 1]; }
+  c.stroke(); c.restore();
+}
+function startRun(modes) {
+  const runs = modes.map((m) => makeRun(m, S.from, S.to));
+  let t = .25;
+  runs.forEach((r) => { r.start = t; r.end = t + r.waveEnd + .9; t = r.end + .7; });
+  S.sr = { t0: now(), runs, fin: false };
+}
+function drawRoute(c, w, h, dt, time) {
+  const F = fitWorld(w, h, 12), nr = w < 520 ? 8 : 10, lw = w < 520 ? 6 : 8, ans = S.ans.route !== null;
+  backdrop(c, w, h, F, 1, 0);
+  const P = {}; IDS.forEach((id) => { P[id] = wp(F, SCH[id]); });
+  G.nodes = P;
+  const mid = (e) => [(P[e.a][0] + P[e.b][0]) / 2, (P[e.a][1] + P[e.b][1]) / 2];
+  const pills = ans ? EDGES.map((e) => { const [x, y] = mid(e); return { x: x - 12, y: y - 9, w: 24, h: 18 }; }) : [];
+  const rwE = EDGES[3], extra = ans ? [{ id: 'road', lines: [T[lang].roadworks], at: mid(rwE) }] : [];
+  const L = labelsFor(c, `route|${lang}|${w}|${h}|${ans}`, P, 1, w, h, nr, pills, extra);
+  drawEdges(c, P, { m: 1, bare: 0, lw });
+  // the search: edges light up with the wave, then the path glows
+  let cur = null;
+  const sr = S.sr;
+  if (sr) {
+    const el = time - sr.t0;
+    sr.runs.forEach((r) => { r.local = el - r.start; if (r.local >= 0) cur = r; });
+    if (!sr.fin && el > sr.runs[sr.runs.length - 1].end) { sr.fin = true; render(); }
+  }
+  const discs = {};
+  if (cur) {
+    cur.events.forEach((ev) => {
+      const k = (cur.local - ev.t) / .35;
+      if (k <= 0) return;
+      discs[ev.id] = { val: ev.val, k };
+      if (ev.pe !== undefined) { // the edge the search came along
+        const from = otherEnd(ev.pe, ev.id), a = P[from], b = P[ev.id], f = ease(k);
+        c.save(); c.lineCap = 'round'; c.strokeStyle = cur.color; c.globalAlpha = .55; c.lineWidth = lw * .8;
+        c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(lerp(a[0], b[0], f), lerp(a[1], b[1], f)); c.stroke(); c.restore();
+      }
+    });
+    sr.runs.forEach((r, i) => { if (r.local >= 0) { const pr = ease((r.local - r.waveEnd) / .9); if (pr > 0) drawPath(c, r.nodes, P, pr, r.color, i === 0 && sr.runs.length > 1 ? lw + 6 : lw + 1); } });
+  }
+  if (ans) { // minutes on every edge
+    c.font = FONT; c.textAlign = 'center'; c.textBaseline = 'middle';
+    EDGES.forEach((e) => { const [x, y] = mid(e), slow = e.m >= 9; pill(c, x - 12, y - 9, 24, 18, slow ? AMBER : 'rgba(10,13,24,.86)'); c.fillStyle = slow ? INK : '#EDEFF7'; c.fillText(e.m, x, y + 1); });
+  }
+  // start and end rings, then the stations
+  [[S.from, MINT], [S.to, PINK]].forEach(([id, col]) => { c.beginPath(); c.arc(P[id][0], P[id][1], Math.max(0, nr + 6), 0, 7); c.strokeStyle = col; c.lineWidth = 3.5; c.stroke(); });
+  IDS.forEach((id) => {
+    const d = discs[id];
+    if (d && cur) {
+      const k = easeBack(d.k), r = nr + 3 * k;
+      if (d.k < 1) { c.beginPath(); c.arc(P[id][0], P[id][1], Math.max(0, nr + 18 * d.k), 0, 7); c.strokeStyle = cur.color; c.globalAlpha = (1 - d.k) * .8; c.lineWidth = 2; c.stroke(); c.globalAlpha = 1; }
+      disc(c, P[id][0], P[id][1], r, cur.color, String(d.val));
+    } else station(c, P[id][0], P[id][1], nr + (INTER[id] ? 2 : 0), INTER[id], 0);
+  });
+  IDS.forEach((id) => drawLabel(c, L[id], L[id].lines, 1, true, P[id], nr));
+  if (ans) { const r = L.road; c.save(); pill(c, r.x, r.y, r.w, r.h, 'rgba(10,13,24,.88)'); c.strokeStyle = AMBER; c.lineWidth = 1.5; c.beginPath(); c.roundRect(r.x, r.y, r.w, r.h, 9); c.stroke(); c.fillStyle = AMBER; c.font = FONT; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(r.lines[0], r.x + r.w / 2, r.y + 10); c.restore(); }
+}
+function otherEnd(ei, id) { const e = EDGES[ei]; return e.a === id ? e.b : e.a; }
+
+// --- view 3: the same data as a table and as a tree ---------------------------------------------------------------
+function treePix(tree, id, gr) {
+  const padX = 30, padT = 36, padB = 26, H = Math.max(1, tree.height), avail = gr.h - padT - padB, gap = Math.min(80, avail / H), y0 = gr.y + padT + (avail - gap * H) / 2;
+  return [gr.x + padX + tree.nx[id] * (gr.w - 2 * padX), y0 + tree.lvl[id] * gap];
+}
+function growTree(root) {
+  S.root = root; S.tr = { from: S.tr ? S.tr.to : null, to: makeTree(root), t0: now() }; sfx.snap();
+}
+function drawTree(c, w, h, dt, time) {
+  const wide = w >= 700, nr = 12, t = T[lang];
+  let tb, gr;
+  if (wide) { const cs = clamp((h - 70) / 13, 22, 34), x = 14 + 13 * cs + 18; tb = { x: 14, y: Math.max(34, (h - 13 * cs) / 2 + 12), cs }; gr = { x, y: 8, w: w - x - 8, h: h - 16 }; }
+  else { const cs = Math.min(30, (w - 16) / 13); tb = { x: (w - 13 * cs) / 2, y: h - 13 * cs - 10, cs }; gr = { x: 8, y: 8, w: w - 16, h: Math.max(120, tb.y - 8 - 30) }; }
+  const cs = tb.cs;
+  G.tb = tb; G.gr = gr;
+  // graph panel
+  const pg = c.createLinearGradient(gr.x, gr.y, gr.x + gr.w, gr.y + gr.h);
+  pg.addColorStop(0, '#1d263d'); pg.addColorStop(1, '#121830');
+  c.beginPath(); c.roundRect(gr.x, gr.y, gr.w, gr.h, 18); c.fillStyle = pg; c.fill(); c.strokeStyle = 'rgba(130,145,190,.2)'; c.lineWidth = 1; c.stroke();
+  const F = fitWorld(gr.w, gr.h, 20, gr.x, gr.y), tr = S.tr, el = tr ? time - tr.t0 : 0;
+  const lvlOf = (id) => (tr ? (tr.to ? tr.to.lvl[id] : tr.from ? tr.from.lvl[id] : 0) : 0);
+  const pr = (id) => (tr ? clamp01((el - .2 * lvlOf(id)) / .8) : 1);
+  const P = {};
+  IDS.forEach((id) => {
+    const s0 = wp(F, SCH[id]), A = tr && tr.from ? treePix(tr.from, id, gr) : s0, B = tr ? (tr.to ? treePix(tr.to, id, gr) : s0) : s0, e = tr ? easeBack(pr(id)) : 1;
+    P[id] = [lerp(A[0], B[0], e), lerp(A[1], B[1], e)];
+  });
+  G.nodes = P;
+  const growOf = (i) => {
+    if (!tr) return 0;
+    const e = EDGES[i], g0 = tr.from && !tr.from.te.has(i) ? 1 : 0, g1 = tr.to && !tr.to.te.has(i) ? 1 : 0;
+    return lerp(g0, g1, ease((pr(e.a) + pr(e.b)) / 2));
+  };
+  drawEdges(c, P, { m: 1, bare: 0, lw: 5, alpha: (i) => lerp(1, .28, growOf(i)), dash: (i) => growOf(i) > .5 });
+  const sel = S.sel;
+  if (sel && sel.type === 'edge') {
+    const e = EDGES[sel.i], g = edgeG(P[e.a], P[e.b], e.i, 1);
+    c.save(); c.lineCap = 'round'; edgePath(c, g); c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 12; c.stroke(); c.restore();
+    const x = (P[e.a][0] + P[e.b][0]) / 2, y = (P[e.a][1] + P[e.b][1]) / 2;
+    pill(c, x - 14, y - 11, 28, 22, AMBER); c.fillStyle = INK; c.font = FONT; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(e.m, x, y + 1);
+  }
+  // levels and the root tag
+  const to = tr && tr.to;
+  if (to) {
+    const a = ease(el / .6);
+    for (let L = 0; L <= to.height; L++) {
+      const id = IDS.find((x) => to.lvl[x] === L), y = treePix(to, id, gr)[1];
+      c.save(); c.globalAlpha = a; c.strokeStyle = 'rgba(190,205,255,.1)'; c.lineWidth = 1; c.beginPath(); c.moveTo(gr.x + 30, y); c.lineTo(gr.x + gr.w - 14, y); c.stroke();
+      c.beginPath(); c.arc(gr.x + 16, y, 10, 0, 7); c.fillStyle = L === to.height ? AMBER : 'rgba(10,13,24,.86)'; c.fill();
+      c.fillStyle = L === to.height ? INK : '#EDEFF7'; c.font = FONT; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(L, gr.x + 16, y + 1); c.restore();
+    }
+  }
+  // stations with their letters
+  IDS.forEach((id) => {
+    const [x, y] = P[id], isRoot = to && id === to.root && pr(id) > .4, isLeaf = to && to.leaves.includes(id) && pr(id) >= 1;
+    c.save();
+    if (sel && sel.type === 'node' && sel.id === id) { c.beginPath(); c.arc(x, y, Math.max(0, nr + 7), 0, 7); c.strokeStyle = CYAN; c.lineWidth = 3; c.stroke(); }
+    if (sel && sel.type === 'edge' && (EDGES[sel.i].a === id || EDGES[sel.i].b === id)) { c.beginPath(); c.arc(x, y, Math.max(0, nr + 5), 0, 7); c.strokeStyle = AMBER; c.lineWidth = 3; c.stroke(); }
+    c.fillStyle = 'rgba(0,0,0,.3)'; c.beginPath(); c.arc(x + 1.5, y + 2.5, Math.max(0, nr + 1), 0, 7); c.fill();
+    const g = c.createRadialGradient(x - nr * .35, y - nr * .4, 1, x, y, nr);
+    if (isRoot) { g.addColorStop(0, '#ffe9a8'); g.addColorStop(1, AMBER); } else { g.addColorStop(0, '#ffffff'); g.addColorStop(1, '#cdd5ee'); }
+    c.fillStyle = g; c.beginPath(); c.arc(x, y, nr, 0, 7); c.fill(); c.lineWidth = 2; c.strokeStyle = INK; c.stroke();
+    if (isLeaf) { c.beginPath(); c.arc(x, y, nr + 4, 0, 7); c.strokeStyle = MINT; c.lineWidth = 3; c.stroke(); }
+    c.fillStyle = INK; c.font = FONT; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(id, x, y + 1);
+    c.restore();
+    if (isRoot) { c.font = FONT; const tw = c.measureText(t.root).width + 12; pill(c, x - tw / 2, y - nr - 26, tw, 20, 'rgba(10,13,24,.86)'); c.fillStyle = AMBER; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(t.root, x, y - nr - 15); }
+  });
+  // the adjacency table
+  c.font = FONT; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillStyle = '#98A0B8'; c.fillText(t.table, tb.x, tb.y - 12);
+  const selN = sel && sel.type === 'node' ? sel.id : null, selE = sel && sel.type === 'edge' ? EDGES[sel.i] : null, rootId = to ? to.root : null;
+  c.textAlign = 'center';
+  IDS.forEach((id, k) => {
+    const on = id === selN || id === rootId || (selE && (selE.a === id || selE.b === id));
+    if (on) { c.fillStyle = on && id === selN ? CYAN : AMBER; c.beginPath(); c.roundRect(tb.x + (k + 1) * cs + 2, tb.y + 2, cs - 4, cs - 4, 6); c.fill(); c.beginPath(); c.roundRect(tb.x + 2, tb.y + (k + 1) * cs + 2, cs - 4, cs - 4, 6); c.fill(); }
+    c.fillStyle = on ? INK : '#c6cde0'; c.fillText(id, tb.x + (k + 1) * cs + cs / 2, tb.y + cs / 2 + 1); c.fillText(id, tb.x + cs / 2, tb.y + (k + 1) * cs + cs / 2 + 1);
+  });
+  for (let i = 0; i < 12; i++) for (let j = 0; j < 12; j++) {
+    const x = tb.x + (j + 1) * cs, y = tb.y + (i + 1) * cs, ei = i !== j ? EIDX[IDS[i] + IDS[j]] : undefined, e = ei === undefined ? null : EDGES[ei];
+    const isSel = selE && e && e.i === selE.i, line = (selN && (IDS[i] === selN || IDS[j] === selN)) || (rootId && !selN && (IDS[i] === rootId || IDS[j] === rootId));
+    c.beginPath(); c.roundRect(x + 1.5, y + 1.5, cs - 3, cs - 3, 5);
+    c.fillStyle = isSel ? AMBER : e ? mix(COL[e.ln], '#171c30', .45) : i === j ? 'rgba(130,145,190,.03)' : line ? 'rgba(255,255,255,.1)' : 'rgba(130,145,190,.09)';
+    c.fill();
+    if (e && to && to.te.has(e.i)) { c.strokeStyle = MINT; c.lineWidth = 1.5; c.stroke(); }
+    if (e) { c.fillStyle = isSel ? INK : '#fff'; c.fillText(e.m, x + cs / 2, y + cs / 2 + 1); }
+  }
+}
+function segDist(px, py, a, b) {
+  const dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy || 1, t = clamp(((px - a[0]) * dx + (py - a[1]) * dy) / L2, 0, 1);
+  return Math.hypot(px - (a[0] + t * dx), py - (a[1] + t * dy));
+}
+function treeTap(x, y) {
+  const tb = G.tb, cs = tb.cs, a = S.ans.tree !== null;
+  if (x >= tb.x && x < tb.x + 13 * cs && y >= tb.y && y < tb.y + 13 * cs) { // the table
+    const j = Math.floor((x - tb.x) / cs) - 1, i = Math.floor((y - tb.y) / cs) - 1;
+    if (i >= 0 && j >= 0) { const ei = i !== j ? EIDX[IDS[i] + IDS[j]] : undefined; S.sel = ei === undefined ? null : { type: 'edge', i: ei }; }
+    else if (i >= 0) S.sel = { type: 'node', id: IDS[i] };
+    else if (j >= 0) S.sel = { type: 'node', id: IDS[j] };
+    else S.sel = null;
+    sfx.tick(); render(); return;
+  }
+  let best = null;
+  for (const id of IDS) { const d = Math.hypot(x - G.nodes[id][0], y - G.nodes[id][1]); if (d < 20 && (!best || d < best.d)) best = { id, d }; }
+  if (best) { S.sel = { type: 'node', id: best.id }; if (a) { growTree(best.id); showStage(); } else sfx.tick(); render(); return; }
+  let be = null;
+  for (const e of EDGES) { const d = segDist(x, y, G.nodes[e.a], G.nodes[e.b]); if (d < 11 && (!be || d < be.d)) be = { i: e.i, d }; }
+  S.sel = be ? { type: 'edge', i: be.i } : null;
+  if (be) sfx.tick();
+  render();
+}
+function routeTap(x, y) {
+  if (S.ans.route === null) return;
+  let best = null;
+  for (const id of IDS) { const d = Math.hypot(x - G.nodes[id][0], y - G.nodes[id][1]); if (d < 24 && (!best || d < best.d)) best = { id, d }; }
+  if (!best) return;
+  S[S.pk] = best.id; S.pk = S.pk === 'from' ? 'to' : 'from'; S.sr = null; sfx.click(); render();
+}
+
+// --- secrets: Königsberg's bridges and Beck's map ----------------------------------------------------------------
+const KC = { N: [.5, .14], K: [.33, .5], E: [.74, .5], S: [.5, .86] }, KG = { N: [.5, .14], K: [.17, .5], E: [.83, .5], S: [.5, .86] };
+const KB = [ // seven bridges: land a, land b, the ends on the picture (0..1), the bend of the arc on the graph
+  { a: 'N', b: 'K', p: [[.26, .24], [.26, .372]], o: -1 }, { a: 'N', b: 'K', p: [[.40, .24], [.40, .372]], o: 1 },
+  { a: 'S', b: 'K', p: [[.26, .76], [.26, .628]], o: 1 }, { a: 'S', b: 'K', p: [[.40, .76], [.40, .628]], o: -1 },
+  { a: 'K', b: 'E', p: [[.50, .50], [.60, .50]], o: 0 }, { a: 'N', b: 'E', p: [[.74, .24], [.74, .37]], o: 0 }, { a: 'S', b: 'E', p: [[.74, .76], [.74, .63]], o: 0 },
+];
+const KDEG = Object.fromEntries(Object.keys(KC).map((k) => [k, KB.filter((b) => b.a === k || b.b === k).length]));
+function landAt(nx, ny) {
+  if (ny < .26) return 'N';
+  if (ny > .74) return 'S';
+  if (((nx - .33) / .19) ** 2 + ((ny - .5) / .16) ** 2 <= 1) return 'K';
+  if (((nx - .74) / .16) ** 2 + ((ny - .5) / .15) ** 2 <= 1) return 'E';
+  return null;
+}
+function kgReset() { S.kg = { at: null, used: [], w: null, stuck: false }; }
+function kgStep(to) {
+  const k = S.kg;
+  if (!to) return sfx.bad();
+  if (k.at === null) { k.at = to; sfx.click(); return; }
+  if (to === k.at) return;
+  const i = KB.findIndex((b, j) => !k.used[j] && ((b.a === k.at && b.b === to) || (b.b === k.at && b.a === to)));
+  if (i < 0) return sfx.bad();
+  k.used[i] = true; k.at = to; sfx.snap();
+  const n = k.used.filter(Boolean).length;
+  k.stuck = n < 7 && !KB.some((b, j) => !k.used[j] && (b.a === to || b.b === to));
+  if (k.stuck) sfx.bad();
+}
+function drawKonig(c, w, h, dt, time) {
+  const wide = w >= 640, t = T[lang], k = S.kg;
+  const mr = wide ? { x: 8, y: 8, w: w * .58 - 12, h: h - 16 } : { x: 8, y: 8, w: w - 16, h: (h - 24) * .62 };
+  const gr = wide ? { x: w * .58 + 4, y: 8, w: w * .42 - 12, h: h - 16 } : { x: 8, y: mr.y + mr.h + 8, w: w - 16, h: h - mr.y - mr.h - 16 };
+  G.map = mr; G.gr = gr;
+  const M = (p) => [mr.x + p[0] * mr.w, mr.y + p[1] * mr.h];
+  c.save(); c.beginPath(); c.roundRect(mr.x, mr.y, mr.w, mr.h, 18); c.clip();
+  const wg = c.createLinearGradient(0, mr.y, 0, mr.y + mr.h); wg.addColorStop(0, '#2f6fa8'); wg.addColorStop(1, '#1d4a78');
+  c.fillStyle = wg; c.fillRect(mr.x, mr.y, mr.w, mr.h);
+  c.strokeStyle = 'rgba(170,215,250,.16)'; c.lineWidth = 1.5; c.lineCap = 'round';
+  for (let i = 0; i < 9; i++) { const x = mr.x + ((i * 37) % 100) / 100 * mr.w, y = mr.y + (.3 + ((i * 53) % 40) / 100) * mr.h; c.beginPath(); c.moveTo(x, y); c.quadraticCurveTo(x + 8, y - 4, x + 16, y); c.stroke(); }
+  const land = (key) => {
+    const [X, Y, W, H] = key === 'N' ? [.03, .03, .94, .21] : key === 'S' ? [.03, .76, .94, .21] : key === 'K' ? [.14, .34, .38, .32] : [.58, .35, .32, .30];
+    c.beginPath();
+    if (key === 'N' || key === 'S') c.roundRect(mr.x + X * mr.w, mr.y + Y * mr.h, W * mr.w, H * mr.h, 16);
+    else c.ellipse(mr.x + (X + W / 2) * mr.w, mr.y + (Y + H / 2) * mr.h, Math.max(0, W / 2 * mr.w), Math.max(0, H / 2 * mr.h), 0, 0, 7);
+    return [X, Y, W, H];
+  };
+  c.shadowColor = 'rgba(0,0,0,.35)'; c.shadowBlur = 10; c.shadowOffsetY = 4;
+  for (const key of ['N', 'S', 'K', 'E']) {
+    const [X, Y, W, H] = land(key), g = c.createLinearGradient(mr.x + X * mr.w, mr.y + Y * mr.h, mr.x + (X + W) * mr.w, mr.y + (Y + H) * mr.h);
+    g.addColorStop(0, '#7aa764'); g.addColorStop(1, '#3f6b49'); c.fillStyle = g; c.fill(); c.shadowColor = 'transparent'; c.lineWidth = 2; c.strokeStyle = '#2a4a33'; c.stroke();
+    c.shadowColor = 'rgba(0,0,0,.35)';
+  }
+  c.shadowColor = 'transparent'; c.shadowBlur = 0; c.shadowOffsetY = 0;
+  for (const key of ['N', 'S', 'K', 'E']) { // a few little houses
+    const [cx, cy] = KC[key], span = key === 'N' || key === 'S' ? [-.36, -.2, .2, .36] : [-.07, .05];
+    span.forEach((dx, i) => { const [X, Y] = M([cx + dx, cy + (i % 2 ? .03 : -.03) * (key === 'N' || key === 'S' ? 1 : 1.2)]); c.fillStyle = '#e4d6b3'; c.beginPath(); c.roundRect(X - 6, Y - 5, 12, 10, 2); c.fill(); c.fillStyle = '#b86b4b'; c.beginPath(); c.moveTo(X - 7, Y - 5); c.lineTo(X, Y - 11); c.lineTo(X + 7, Y - 5); c.closePath(); c.fill(); });
+  }
+  KB.forEach((b, i) => {
+    const [x0, y0] = M(b.p[0]), [x1, y1] = M(b.p[1]), used = k.used[i];
+    c.lineCap = 'round'; c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.strokeStyle = '#3b2a1a'; c.lineWidth = 11; c.stroke();
+    c.strokeStyle = used ? MINT : '#c9a066'; c.lineWidth = 7; c.stroke();
+    c.strokeStyle = 'rgba(0,0,0,.25)'; c.lineWidth = 1.5; c.setLineDash([2, 5]); c.stroke(); c.setLineDash([]);
+  });
+  // the walker
+  const tgt = k.at ? KC[k.at] : null;
+  if (tgt) { if (!k.w) k.w = { x: tgt[0], y: tgt[1] }; k.w.x += (tgt[0] - k.w.x) * Math.min(1, dt * 7); k.w.y += (tgt[1] - k.w.y) * Math.min(1, dt * 7); }
+  if (k.w) { const [x, y] = M([k.w.x, k.w.y]); c.save(); c.globalAlpha = 1; c.fillStyle = '#fff'; c.beginPath(); c.arc(x, y, 15, 0, 7); c.fill(); c.lineWidth = 2; c.strokeStyle = INK; c.stroke(); c.font = '18px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('🚶', x, y + 1); c.restore(); }
+  c.restore();
+  // the same thing as a graph
+  c.beginPath(); c.roundRect(gr.x, gr.y, gr.w, gr.h, 18); c.fillStyle = 'rgba(16,21,40,.9)'; c.fill(); c.strokeStyle = 'rgba(130,145,190,.2)'; c.lineWidth = 1; c.stroke();
+  const GP = (key) => [gr.x + 28 + KG[key][0] * (gr.w - 56), gr.y + 30 + KG[key][1] * (gr.h - 60)];
+  G.gnodes = { N: GP('N'), K: GP('K'), E: GP('E'), S: GP('S') };
+  KB.forEach((b, i) => {
+    const p = GP(b.a), q = GP(b.b), mx = (p[0] + q[0]) / 2, my = (p[1] + q[1]) / 2, dx = q[0] - p[0], dy = q[1] - p[1], L = Math.hypot(dx, dy) || 1;
+    c.beginPath(); c.moveTo(p[0], p[1]); c.quadraticCurveTo(mx - dy / L * b.o * 16, my + dx / L * b.o * 16, q[0], q[1]);
+    c.strokeStyle = k.used[i] ? MINT : '#c9a066'; c.lineWidth = 4; c.lineCap = 'round'; c.stroke();
+  });
+  Object.keys(KC).forEach((key) => {
+    const [x, y] = GP(key), cur = k.at === key, odd = KDEG[key] % 2 === 1;
+    c.beginPath(); c.arc(x, y, 15, 0, 7); c.fillStyle = '#f4f6ff'; c.fill(); c.lineWidth = cur ? 4 : 2; c.strokeStyle = cur ? CYAN : INK; c.stroke();
+    c.fillStyle = odd ? '#c43b63' : INK; c.font = '900 14px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(KDEG[key], x, y + 1);
+  });
+  c.font = FONT; const tw = c.measureText(t.kg.graph).width + 14; pill(c, gr.x + (gr.w - tw) / 2, gr.y + gr.h - 28, tw, 20, 'rgba(10,13,24,.86)'); c.fillStyle = '#EDEFF7'; c.textAlign = 'center'; c.fillText(t.kg.graph, gr.x + gr.w / 2, gr.y + gr.h - 17);
+}
+function konigTap(x, y) {
+  const mr = G.map, gr = G.gr;
+  if (x >= mr.x && x <= mr.x + mr.w && y >= mr.y && y <= mr.y + mr.h) kgStep(landAt((x - mr.x) / mr.w, (y - mr.y) / mr.h));
+  else if (G.gnodes) {
+    let best = null;
+    for (const key of Object.keys(G.gnodes)) { const d = Math.hypot(x - G.gnodes[key][0], y - G.gnodes[key][1]); if (d < 26 && (!best || d < best.d)) best = { key, d }; }
+    kgStep(best ? best.key : null);
+  }
+  render();
+}
+function drawBeck(c, w, h, dt, time) {
+  const F = fitWorld(w, h, 14), nr = w < 520 ? 8 : 10, lw = w < 520 ? 7 : 9;
+  c.save(); c.beginPath(); c.roundRect(0, 0, w, h, 18); c.clip();
+  const g = c.createLinearGradient(0, 0, w, h); g.addColorStop(0, '#f3ebd6'); g.addColorStop(1, '#e6dac0'); c.fillStyle = g; c.fillRect(0, 0, w, h);
+  const a = wp(F, [-6, RIVER_STRAIGHT]), b = wp(F, [136, RIVER_STRAIGHT]);
+  c.lineCap = 'butt'; c.strokeStyle = '#c3d9e9'; c.lineWidth = 9 * F.s; c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke();
+  c.strokeStyle = 'rgba(255,255,255,.5)'; c.lineWidth = 2; c.beginPath(); c.moveTo(a[0], a[1] - 4.5 * F.s + 3); c.lineTo(b[0], b[1] - 4.5 * F.s + 3); c.stroke();
+  c.restore();
+  c.beginPath(); c.roundRect(1, 1, w - 2, h - 2, 18); c.strokeStyle = '#b9a77f'; c.lineWidth = 2; c.stroke();
+  const P = {}; IDS.forEach((id) => { P[id] = wp(F, SCH[id]); });
+  const BC = { red: '#d4322c', blue: '#1c5cae', green: '#2e8b57', walk: '#6a7188' };
+  const stamp = [{ x: 8, y: 8, w: 84, h: 46 }];
+  const L = labelsFor(c, `beck|${lang}|${w}|${h}`, P, 1, w, h, nr, stamp);
+  drawEdges(c, P, { m: 1, bare: 0, lw, flat: true, color: (e) => BC[e.ln] });
+  IDS.forEach((id) => {
+    const [x, y] = P[id];
+    if (INTER[id]) { c.beginPath(); c.arc(x, y, nr, 0, 7); c.fillStyle = '#fff'; c.fill(); c.lineWidth = 3.5; c.strokeStyle = '#1b1b1b'; c.stroke(); return; }
+    const e0 = ADJ[id][0], o = P[e0.to], dx = o[0] - x, dy = o[1] - y, d = Math.hypot(dx, dy) || 1, nx = -dy / d * (lw * .9 + 2), ny = dx / d * (lw * .9 + 2);
+    c.beginPath(); c.moveTo(x - nx, y - ny); c.lineTo(x + nx, y + ny); c.strokeStyle = '#1b1b1b'; c.lineWidth = 3.5; c.lineCap = 'round'; c.stroke();
+  });
+  IDS.forEach((id) => drawLabel(c, L[id], L[id].lines, 1, false, P[id], nr));
+  c.save(); c.translate(48, 30); c.rotate(-.07); c.beginPath(); c.roundRect(-34, -17, 68, 34, 6); c.strokeStyle = '#a8321f'; c.lineWidth = 3; c.stroke();
+  c.fillStyle = '#a8321f'; c.font = '900 20px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('1931', 0, 1); c.restore();
+}
+
+// --- draw loop ---------------------------------------------------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  if (S.sec === 'a') return drawKonig(c, w, h, dt, time);
+  if (S.sec === 'b') return drawBeck(c, w, h, dt, time);
+  const v = lab.view;
+  if (v === 'map') drawMap(c, w, h, dt, time); else if (v === 'route') drawRoute(c, w, h, dt, time); else drawTree(c, w, h, dt, time);
+});
+$('cv').addEventListener('pointerdown', (ev) => {
+  const r = $('cv').getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+  if (S.sec === 'a') konigTap(x, y);
+  else if (!S.sec && lab.view === 'tree' && G.tb) treeTap(x, y);
+  else if (!S.sec && lab.view === 'route' && G.nodes) routeTap(x, y);
+});
+
+// --- controls ----------------------------------------------------------------------------------------------------
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+function pick(view, i) {
+  if (S.ans[view] !== null) return;
+  S.ans[view] = i; (i === 0 ? sfx.good : sfx.bad)();
+  if (view === 'map') S.tw = { from: S.m, to: 1, t0: now(), dur: 1.6 };
+  else if (view === 'route') startRun(['stops', 'min']);
+  else growTree('S');
+  render(); showStage();
+}
+$('ctrlBody').addEventListener('click', (ev) => {
+  const p = ev.target.closest('[data-pick]');
+  if (p) { pick(p.closest('.mt-ask').dataset.view, +p.dataset.pick); return; }
+  const b = ev.target.closest('[data-act]'); if (!b) return;
+  const act = b.dataset.act;
+  if (act === 'morph') { S.tw = { from: S.m, to: +b.dataset.k, t0: now(), dur: 1.3 }; S.chk = null; sfx.click(); }
+  else if (act === 'bare') { S.bareTo = S.bareTo ? 0 : 1; sfx.click(); }
+  else if (act === 'mode') { S.mode = b.dataset.k; sfx.click(); }
+  else if (act === 'find') { startRun([S.mode]); sfx.click(); showStage(); }
+  else if (act === 'untree') { if (S.tr && S.tr.to) { S.tr = { from: S.tr.to, to: null, t0: now() }; S.sel = null; sfx.click(); } }
+  else if (act === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    const k = b.dataset.k; S.sec = S.sec === k ? null : k; if (S.sec === 'a') kgReset(); sfx.click(); showStage();
+  } else if (act === 'kgreset') { kgReset(); sfx.click(); }
+  render();
+});
+$('mtSlide').addEventListener('input', (ev) => { S.tw = null; S.m = clamp(+ev.target.value / 1000, 0, 1); S.chk = null; render(); });
+$('mtFrom').addEventListener('change', (ev) => { S.from = ev.target.value; S.sr = null; render(); });
+$('mtTo').addEventListener('change', (ev) => { S.to = ev.target.value; S.sr = null; render(); });
+$('mtRoot').addEventListener('change', (ev) => { if (S.ans.tree !== null) { growTree(ev.target.value); S.sel = null; render(); } });
+
+// --- one render per change: controls, readout and the state card -----------------------------------------------------
+function askHTML(t, view, q, opts, why) {
+  const a = S.ans[view];
+  const chips = S.ord[view].map((i) => `<button class="chip mt-opt ${a === null ? '' : i === 0 ? 'mt-good' : i === a ? 'mt-bad' : ''}" data-pick="${i}"${a === null ? '' : ' disabled'}>${esc(opts[i])}</button>`).join('');
+  const verdict = a === null ? '' : `<div class="mt-v ${a === 0 ? 'ok' : 'no'}"><b>${esc(a === 0 ? t.right : t.notQuite)}</b>${esc(why)}</div>`;
+  return `<div class="mt-q">${esc(q)}</div><div class="chips">${chips}</div>${verdict}`;
+}
+function fillSelects(t) {
+  const opts = IDS.map((id) => `<option value="${id}">${esc(t.stations[id])}</option>`).join('');
+  ['mtFrom', 'mtTo', 'mtRoot'].forEach((id) => { $(id).innerHTML = opts; });
+  S.optLang = lang;
+}
+function render() {
+  const t = T[lang], v = lab.view, sec = S.sec;
+  document.body.dataset.v = sec ? 'sec' : v;
+  $('mtMap').classList.toggle('mt-off', !!sec || v !== 'map');
+  $('mtRoute').classList.toggle('mt-off', !!sec || v !== 'route');
+  $('mtTree').classList.toggle('mt-off', !!sec || v !== 'tree');
+  $('mtLegend').classList.toggle('mt-off', !!sec || v === 'tree');
+  if (S.optLang !== lang) fillSelects(t);
+  $('mtLegend').innerHTML = ['red', 'blue', 'green', 'walk'].map((k) => `<span><i ${k === 'walk' ? 'class="mt-dash"' : `style="background:${COL[k]}"`}></i>${esc(t.lineNames[k])}</span>`).join('');
+  const open = secret.unlocked(), sc = (k, emo) => `<button class="chip secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  $('mtSecChips').innerHTML = sc('a', '🌉') + sc('b', '🗺️') + (S.sec === 'a' ? `<button class="chip" data-act="kgreset">${esc(t.reset)}</button>` : '');
+  if (sec === 'a') return renderKonig(t);
+  if (sec === 'b') { lab.setGlow('rgba(214,170,90,.26)'); lab.setReadout('1931', t.secrets.b[0], '', AMBER); lab.setState({ emo: '🗺️', title: t.secrets.b[0], lead: t.secrets.b[1], body: '', extra: '' }); lab.setFacts([]); return; }
+  if (v === 'map') renderMap(t); else if (v === 'route') renderRoute(t); else renderTree(t);
+}
+function renderMap(t) {
+  const a = S.ans.map;
+  $('askMap').innerHTML = askHTML(t, 'map', t.qMorph, t.optsMorph, t.morphWhy);
+  $('toolsMap').classList.toggle('mt-off', a === null);
+  $('mtSeg').innerHTML = [[0, t.realMap], [1, t.schematic]].map(([k, l]) => `<button data-act="morph" data-k="${k}" class="${(k ? S.m > .5 : S.m <= .5) ? 'on' : ''}">${esc(l)}</button>`).join('');
+  $('mtBare').textContent = t.justGraph; $('mtBare').classList.toggle('on', S.bareTo === 1);
+  $('mtSlide').setAttribute('aria-label', `${t.realMap} – ${t.schematic}`);
+  lab.setGlow('rgba(78, 168, 255, .26)');
+  lab.setReadout(`${V} · ${NE}`, t.vertsEdges, '', '#4ea8ff');
+  if (a === null) { lab.setState({ emo: '🤔', title: t.qMorph, lead: '', body: '', extra: '' }); lab.setFacts([]); return; }
+  lab.setState({ ...t.state.map, extra: S.m > .985 ? `<div class="mt-v ok"><b>✓</b>${esc(t.kept(NE, NE, CHANGED))}</div>` : '' });
+  lab.setFacts(t.facts.map);
+}
+function renderRoute(t) {
+  const a = S.ans.route;
+  $('askRoute').innerHTML = askHTML(t, 'route', t.qRoute, t.optsRoute, t.routeWhy);
+  $('toolsRoute').classList.toggle('mt-off', a === null);
+  $('lbFrom').textContent = t.from; $('lbTo').textContent = t.to;
+  $('mtFrom').value = S.from; $('mtTo').value = S.to;
+  $('mtMode').innerHTML = [['stops', t.fewestStops], ['min', t.fewestMinutes]].map(([k, l]) => `<button data-act="mode" data-k="${k}" class="${S.mode === k ? 'on' : ''}">${esc(l)}</button>`).join('');
+  $('mtFind').textContent = t.findRoute;
+  lab.setGlow('rgba(88, 208, 232, .24)');
+  if (a === null) { lab.setReadout('?', '', '', CYAN); lab.setState({ emo: '🤔', title: t.qRoute, lead: '', body: '', extra: '' }); lab.setFacts([]); return; }
+  const f = fastest(S.from, S.to);
+  lab.setReadout(t.minStops(f.minutes, f.stops), t.fastest, '', AMBER);
+  const res = S.sr && S.sr.fin ? S.sr.runs.map((r) => `<div class="mt-res"><i style="background:${r.color}"></i><span><b>${esc(r.mode === 'stops' ? t.fewestStops : t.fewestMinutes)}:</b> ${esc(t.minStops(r.minutes, r.stops))}</span></div>`).join('') : '';
+  lab.setState({ ...t.state.route, extra: res });
+  lab.setFacts(t.facts.route);
+}
+function renderTree(t) {
+  const a = S.ans.tree, tree = S.tr && S.tr.to;
+  $('askTree').innerHTML = askHTML(t, 'tree', t.qTree, TREE_OPTS.map(String), t.treeWhy);
+  $('toolsTree').classList.toggle('mt-off', a === null);
+  $('lbRoot').textContent = t.growFrom; $('mtRoot').value = S.root;
+  $('mtUntree').textContent = t.reset; $('mtUntree').classList.toggle('mt-off', !tree);
+  $('mtHint').textContent = t.tableHint;
+  const leaves = tree ? [...tree.leaves].sort().join(', ') : '';
+  $('mtInfo').textContent = tree ? `${t.root}: ${t.stations[tree.root]} · ${t.leaves}: ${leaves}` : '';
+  lab.setGlow('rgba(61, 220, 151, .22)');
+  if (a === null) { lab.setReadout('?', '', '', MINT); lab.setState({ emo: '🤔', title: t.qTree, lead: '', body: '', extra: '' }); lab.setFacts([]); return; }
+  lab.setReadout(tree ? String(tree.height) : '–', t.height, tree ? `${t.leaves}: ${leaves}` : '', MINT);
+  lab.setState({ ...t.state.tree, extra: '' });
+  lab.setFacts(t.facts.tree);
+}
+function renderKonig(t) {
+  const k = S.kg, n = k.used.filter(Boolean).length;
+  lab.setGlow('rgba(201, 160, 102, .26)');
+  lab.setReadout(`${n} / ${KB.length}`, t.kg.sub, '', '#c9a066');
+  lab.setState({ emo: '🌉', title: t.secrets.a[0], lead: k.stuck ? t.kg.stuck : k.at ? t.kg.next : t.kg.start, body: t.secrets.a[1], extra: '' });
+  lab.setFacts([]);
+}
+render();
+</script>
+</body>
+</html>
