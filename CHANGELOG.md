@@ -1,15 +1,185 @@
 # Changelog
 
-All notable changes to the Marble Skill Taxonomy dataset are documented here.
-Dataset releases are versioned independently of the taxonomy `version` field
-(the underlying taxonomy is `v1`).
+All notable changes to Skill Graph are documented here, newest first. Skill Graph is a fork of the
+[Marble Skill Taxonomy](https://github.com/withmarbleapp/os-taxonomy): the first part of this file covers
+the fork (the viewer, labs, school curricula, extra topics and translations); the second part keeps the
+upstream Marble dataset history as it was synced.
 
-## [Unreleased]
+The fork has no version numbers: `main` is deployed to GitHub Pages on every merge, so entries are grouped
+by merge date and point to their pull requests. A shorter, parent-facing summary in English, Russian and
+Hungarian is on the site: [What's new](https://samvelkoch.github.io/skill-graph/changelog/)
+(`changelog/index.html`; its lab lists are read from the `added` dates in `labs/registry.json`).
+
+Counts in brackets are totals after that day.
+
+## 2026-11-02
+
+### Curricula
+- Finland: core curriculum for basic education POPS 2014 (Perusopetuksen opetussuunnitelman perusteet), from the ePerusteet API: content areas of 12 subjects for grade bands 1–2, 3–6 and 7–9, 97 items with 659 topic links; grade filter `fi-1`…`fi-9` shows the content of the grade's band. (#259)
+- AI4K12 "Five Big Ideas in AI" as a curriculum layer, code `ai`: 122 items for grade bands K–2, 3–5 and 6–8, each keeping its AI4K12 concept code; objectives are paraphrased, not quoted (the AI4K12 charts are CC BY-NC-SA). Selectable in the viewer's school filter and shown as its own card on the curricula page, not counted as a country. (#258)
+
+### Topics
+- 8 extra topics `ai_01`–`ai_08` in `data/extra/` (machine perception, game trees, decision trees, training and test data, reinforcement learning, neural networks, language processing, working with an AI helper), with RU/HU translations and prerequisites (503 extra topics). (#258)
+
+## 2026-11-01
+
+### Labs
+- 46 labs (331): 16 in one batch (#227), then one PR per lab (#228–#257), among them the periodic table, logic gates, latitude and longitude, linear perspective, Magna Carta, the Treaty of Verdun, the outbreak of World War I and the Cuban missile crisis.
+- Labs overview: "Newest first" order (`?sort=new`, grouped by day) and a "New" badge. Every registry entry now needs `"added": "YYYY-MM-DD"`; `scripts/labs-catalog.mjs` fails without it. (#227)
+
+## 2026-10-31
+
+### Viewer
+- App page (`?view=app`), linked from the home view and the sidebar: install steps for iPhone/iPad, Android and computers, the install button when the browser offers one, and a privacy panel (progress, the child's name and quick-check results stay in the browser; visits are counted with Google Analytics, which never sees the progress hash). (#225)
+- Fix a green line across the top bar when the topic card is pulled up on phones. (#226)
+
+### Labs
+- 30 labs in three batches (285). (#218, #219, #220)
+- Sound plays on iPhone and iPad in silent mode, in every lab (#221) and in the Robot Lab (#222).
+- Beat and Rhythm: syncopation, more rhythms, a softer sound (#223) and a choice of instrument (#224).
+
+## 2026-10-30
+
+### Labs
+- 14 labs (255), among them five "find the rule" labs where the child guesses a hidden rule from examples. (#215, #217)
+- Lab quiz: wrong answers are crossed out and a hint ladder leads to the answer; the map records whether a topic went "easily" or "with hints" and asks for a second look after a week. The new-lab skill requires a hint per quiz question. (#216)
+
+## 2026-10-29
+
+### Labs
+- 25 labs in five batches of five (241). (#210–#214)
+
+## 2026-10-28
+
+### Viewer
+- Routes: plain wording ("How to get here · N steps", "Goals") (#203, #205); the path screen shows the route as a trail, then as a night sky of stars, with a list of steps (#204, #207).
+- Check by subject: the check starts from the grade level and finds where knowledge ends in each section; topics the child probably knows are hatched. (#206)
+- Ready-made routes grow to 61 (#208) and then 107 goals, now also for ages 5–6 and 12+ (#209). Only goal IDs are stored in `data/extra/routes.json`.
+
+## 2026-10-27
+
+### Data
+- Sync with upstream Marble: Australian Curriculum v9 Foundation–Year 6 and Ontario mathematics mappings; 1,845 Marble topics, 3,941 dependencies. 2,589 new or changed strings per language translated to RU and HU (256 new topics, 85 changed topics, 809 prerequisite reasons, 13 labels). (#192) Upstream details are below.
+
+### Curricula
+- France: primary-school programmes CP–CM2 (grades 1–5) from the Bulletin officiel (etalab-2.0): French, mathematics, history-geography, science and technology; one item per school year and section. (#193)
+
+### Labs
+- 21 labs (216): Ballet Studio (#190, a piano plays a waltz or polka under the steps #191) and four batches of five (#198–#201).
+- Redrawn graphics: Plates on the Move (#188), Volcano and Four Hunters (#189).
+- Lab layout: the state card's title under the picture (#194), the explanation card under the headline on desktop (#195), a compact scene deck in Story Mountain (#196), the switch label in the Circuit Lab (#197); Notes on a Ladder plays on the first tap (#187); Read It Right gets a half-centimetre stepper (#202).
+
+## 2026-10-26
+
+### Labs
+- 30 labs in two PRs (195). (#185, #186)
+
+### Project
+- Positioning as a map of knowledge and the paths through it: new titles, descriptions and social metadata on all pages; README names Marble as the foundation (#183); site description names children aged 4–16 (#184).
+
+## 2026-10-25
+
+### Labs
+- 10 labs (165) and "Did you know?" facts (`lab.setFacts` in `labs/lab.js`), checked and sourced; labs gain depth with the age of the topic (rules in `.claude/skills/new-lab/`). (#181)
+- Two Poles: real Natural Earth outlines on both polar maps and the globe (#180), without road-like lines on the ice (#182).
+
+### Viewer
+- Route: clickable section bars instead of the Sankey; on phones the topic card drags by its whole header and snaps to peek, half or full. (#179)
+
+## 2026-10-24
+
+### Viewer
+- Home view (`?view=home`) with three doors: where the child is now, how to reach a topic, labs; the same doors on the map. The tour no longer opens by itself. (#178)
+- Route to a topic from the topic card: known topics folded away, age stages merged, optional topics behind a toggle, stations with a lab marked; `?route=1`. (#173, #174)
+- "My child" view: pick a country and grade, a quick check of 8 questions, a radar and bars by the school's own subjects, saved snapshots. (#175)
+- "Routes" view with 18 ready-made goals. (#176)
+- Marble's English subject is labelled "Reading & writing". (#177)
+
+## 2026-10-22
+
+### Viewer
+- Own 2D-canvas graph (`graph2d.js`) from precomputed positions (`scripts/layout.mjs` → `data/layout.json`) instead of 3d-force-graph: no WebGL, no CDN, works offline. (#108)
+- Topic card as a working tool: sticky head, quick check, lab, path with a progress bar, tabs (Links / About / At school / Full path); a bottom sheet on phones. (#106)
+- Curricula page `curricula/`: every curriculum with issuer, grades, item and topic counts computed from the data, PISA/TIMSS context with sources. (#107)
+- UI clean-up: "Curricula" naming, units on counts, removable filter pills, labs navigation (#105); collapsible subject legend on phones (#109); tapping a subject in the legend picks it (#116); the list view scrolls the page (#42); subject filters for Geography, History, Music and Reading in the labs overview (#44).
+- Home-screen app manifest fixes. (#36, #40, #41)
+
+### Data
+- Marble's teaching research (`data/teaching-research.json`, 1,049 records) and its schema; 1,048 records match topics in this fork. (#35)
+- Hungarian grammar topics (495 extra topics) and HU links to Language & Literature. (#110)
+
+### Labs
+- 114 labs (155), mostly one PR per lab (#37–#104, #112–#170, #172); visual redesigns of Food's Journey, Bones and Muscles, The Heart's Loop and Teeth Tell.
+- Labs for speakers of one language (`lang` in the registry), with four Hungarian labs: short and long sounds, the ABC, runes, stems and suffixes. (#111–#115)
+
+### Project
+- Open to contributors: README, CONTRIBUTING, issue and PR templates, CI. (#75)
+- The new-lab procedure as a project skill (`.claude/skills/new-lab/`) and `AGENTS.md`. (#43, #146)
+- Google Analytics tag on every HTML page. (#171)
+
+## 2026-10-21
+
+### Curricula
+- Singapore primary Mathematics and Science (#28), Sweden Lgr22 years 1–9 (#29), Japan Course of Study grades 1–9 (#30), Estonia basic school grades 1–9 (#32).
+
+### Topics
+- Visual Arts and Music branch from six school programmes (490 extra topics). (#31)
+
+### Viewer
+- Phones open the list first; "Next step" shows five ranked topics per subject. (#20)
+- "Stuck on this?": walks back the prerequisite chain with quick questions to find the gap. (#21)
+- Save and load progress as a JSON file, or share it as a link with the marks in the hash. (#22)
+- Logo mark and favicon. (#25)
+- Home-screen app (PWA): manifest, icons, service worker, offline labs, install hint. (#34)
+
+### Labs
+- 16 labs (41), among them a secret two-bulb mode in the Circuit Lab (#24) and Fraction Moves for 6th-grade fraction operations (#33). (#23, #27)
+- `scripts/labs-candidates.mjs`: a ranked list of topics for new labs; project `CLAUDE.md`. (#26)
+
+## 2026-10-20
+
+### Curricula
+- Germany (Bavaria, LehrplanPLUS: Grundschule 1–4, Gymnasium 5–9), USA and England from Marble's standards, a per-source filter, and an alphabetical curriculum list. (#9, #10)
+
+### Topics
+- 412 extra topics in `data/extra/` for curriculum content the Marble graph does not cover (geography, history, civics, computing, literature and more). (#9)
+
+### Viewer
+- Guided tour on the first visit and a `?` button. (#12)
+- Labs navigation for hundreds of labs: an in-lab menu with search, nearby labs in the graph and the same subject; a filterable gallery; a "topics with a lab" filter. (#13)
+- Layout fixes for the filters drawer, headline and legend. (#14, #15)
+- Cold start by school grade: one button marks the lower grades as known; the quick-check question leads the topic card. (#17)
+- A finished lab quiz marks its topics as "learning"; prerequisite reasons are printed in the topic card. (#18)
+- List fallback when the graph cannot start; age stages of a topic in one row. (#19)
+
+### Labs
+- 22 labs (25), including the Robot Lab (#8) and two batches of ten and eleven. (#11, #16)
+
+## 2026-10-19
+
+### Viewer
+- Redesign after withmarble.com/curriculum. (#5)
+
+### Curricula
+- School curricula of Hungary (NAT 2020 kerettanterv 1–8), Russia (federal work programmes 1–9) and Serbia (grades 1–8) linked to topics; viewer filter `?school=<country>-<grade>`. (#6)
+
+### Labs
+- First labs: magnets, seasons, fractions, in EN, RU and HU. (#7)
+
+## 2026-10-18
 
 ### Added
-- The viewer installs as a home-screen app (web manifest, icons, service worker); the labs work offline after the first visit. The chosen language is remembered for app launches.
-- Marble's teaching research (`data/teaching-research.json`, 1,049 records, upstream export of 2026-10-19) and its schema. 1,048 records match topics in this fork; the validator checks the record count and the list of unmatched topic IDs.
-- Synced with upstream Marble (2026-10-24): Australian Curriculum v9 F–6 and Ontario mathematics mappings, 1,845 topics / 3,941 dependencies. Upstream entries follow.
+- Russian and Hungarian translations of the Marble text and the i18n pipeline (`scripts/i18n-*.mjs`, `data/i18n/`). (#1)
+- Viewer on GitHub Pages: an interactive graph (#2), then a list view with age, grade and subject filters and progress marks kept in the browser (#3).
+
+---
+
+# Upstream: Marble Skill Taxonomy dataset
+
+Dataset releases are versioned independently of the taxonomy `version` field (the underlying taxonomy is `v1`).
+The entries below come from upstream and were synced into this fork on 2026-10-27 (#192).
+
+## [Unreleased]
 
 ### Upstream (Marble)
 - Map Ontario Grade 5 Mathematics after auditing 51 specific and 12 overall expectations: 190 pairs on 145 existing topics and three additions (stacked bars, tax categories/collectors, focused orthographic views). Preserve every old mastery body, curriculum pair, learner record and research record; repair unnecessary prerequisites. Refresh the verified staging export (1,845 topics / 3,941 edges); publish the [code-by-code report](reports/ontario-grade5-mathematics-2026-10-24.md).
