@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-02
 
 ### Labs
+- New lab `lahar` “Living Under a Volcano”: evacuate towns before ash and mudflows, “once in 100 years” odds, an observatory’s warning signs and the Armero case (359). (#289)
 - New lab `silver-prices` “More Coins, Same Bread”: coins vs bread in a market town, American silver and the price revolution, how a few per cent a year adds up (358). (#288)
 - New lab `black-death` “The Year the Ships Came”: the plague of 1347 along the trade routes month by month, fewer hands and higher wages in a village, a chain of 14th-century crises (357). (#287)
 - New lab `pin-factory` “The Toy Car Workshop”: all-rounders vs a line in a model workshop, find the bottleneck, core and supporting processes (356). (#284)
