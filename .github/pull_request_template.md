@@ -17,6 +17,7 @@
 
 - [ ] `npm run check` passes (validate, translations, lab catalog, page scripts)
 - [ ] Checked in the browser at phone width (about 390 px) in EN, RU and HU
+- [ ] `CHANGELOG.md` has an entry; a change parents notice also has a bullet in `changelog/index.html` (EN, RU, HU)
 - [ ] Sources for facts are listed below (labs, data fixes, curricula)
 
 For a lab:

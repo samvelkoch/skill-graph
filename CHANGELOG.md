@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-02
 
 ### Curricula
+- Finland: core curriculum for basic education POPS 2014 (Perusopetuksen opetussuunnitelman perusteet), from the ePerusteet API: content areas of 12 subjects for grade bands 1–2, 3–6 and 7–9, 97 items with 659 topic links; grade filter `fi-1`…`fi-9` shows the content of the grade's band. (#259)
 - AI4K12 "Five Big Ideas in AI" as a curriculum layer, code `ai`: 122 items for grade bands K–2, 3–5 and 6–8, each keeping its AI4K12 concept code; objectives are paraphrased, not quoted (the AI4K12 charts are CC BY-NC-SA). Selectable in the viewer's school filter and shown as its own card on the curricula page, not counted as a country. (#258)
 
 ### Topics

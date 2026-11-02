@@ -37,6 +37,8 @@ Not sure where something belongs? Open an issue and describe it in plain words; 
 
 3. **One change per pull request**, on its own branch. Say in the description what you changed, why, and how you checked it (which pages, languages and screen width).
 
+   Add a line to [CHANGELOG.md](CHANGELOG.md) under the date (English, with the pull request number); CI fails without it, unless the maintainer adds the label `skip-changelog`. If parents or children will notice the change, also add a bullet to the [What's new](changelog/index.html) page in EN, RU and HU. New labs show up there by themselves.
+
 4. **Licensing.** Data and text you add become part of the dataset, so they are released under its licenses: ODbL 1.0 for the data and CC BY-SA 4.0 for the text (see the [README](README.md#license)). Only add material you have the right to share under those terms, and give sources for facts.
 
 ## Add or improve a lab
