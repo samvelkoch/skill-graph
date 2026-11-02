@@ -1,0 +1,834 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Twenty Questions · Skill Graph</title>
+<meta name="description" content="Find a robot’s secret number with yes-or-no questions, grow a tree of questions that sorts eight animals, and count what a row of switches can say. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  #stage { min-height: 600px; }
+  #stage canvas { touch-action: pan-y; }
+  .tq-ask { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); width: min(560px, calc(100% - 16px)); padding: 12px 14px; text-align: center;
+    z-index: 2; background: #0e111c; border: 1px solid var(--stroke2); border-radius: 20px; }
+  .tq-ask .tq-q { font: 500 19px/1.2 var(--serif); color: #fff; margin-bottom: 10px; text-wrap: balance; }
+  .tq-opts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .tq-opts button { padding: 9px 16px; min-height: 40px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 800; cursor: pointer; max-width: 100%; }
+  .tq-opts button:hover { background: rgba(130, 145, 190, .25); }
+  .tq-ask p { margin: 0 0 10px; color: var(--soft); font-size: 13px; text-align: left; }
+  .tq-verdict { font-weight: 900; margin-bottom: 4px; text-align: left; }
+  .tq-chip { min-height: 36px; }
+  .tq-chip:disabled { opacity: .35; cursor: default; }
+  .tq-qline { font: 800 16px/1.3 var(--sans); color: #fff; margin: 10px 0 4px; min-height: 22px; }
+  .tq-chips-wrap { display: flex; flex-wrap: wrap; gap: 6px; }
+  .btn:disabled { opacity: .35; cursor: default; }
+  @media (max-width: 760px) {
+    #stage { height: min(140vw, 600px); min-height: 0; }
+    body[data-v=animals] #stage { height: min(152vw, 660px); }
+    body[data-v=bits] #stage { height: min(168vw, 720px); }
+    .tq-ask .tq-q { font-size: 17px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, store, $, esc, clamp, lerp, ruPlural, lang } from '../lab.js';
+
+// --- texts ---------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Twenty Questions', title: 'Twenty Questions',
+    lines: [['Thinky', ' has picked a secret.'], ['Ask yes-or-no questions', ' and find it in as few as you can.']],
+    views: { number: 'Guess my number', animals: 'Animal tree', bits: 'Bits and bytes' },
+    qMin: 'What is the smallest number of yes/no questions that always finds any number from 1 to 64?',
+    kinds: { bigger: 'Is it bigger than', even: 'Is it even?', exactly: 'Is it exactly' },
+    ask: 'Ask', newNumber: 'New number', yes: 'YES', no: 'NO', found: (n, k) => `Found it: ${n}, in ${k} questions!`,
+    left: (k) => `tiles left after ${k} ${k === 1 ? 'question' : 'questions'}`, bitsSoFar: 'bits so far:',
+    animals: { cat: 'cat', eagle: 'eagle', shark: 'shark', frog: 'frog', snake: 'snake', penguin: 'penguin', bee: 'bee', horse: 'horse' },
+    questions: { fly: 'Can it fly?', water: 'Does it live in water?', legs: 'Does it have legs?', mammal: 'Is it a mammal?', feathers: 'Does it have feathers?', big: 'Is it bigger than a cat?', shark: 'Is it a shark?', four: 'Does it have four legs?' },
+    qBetter: 'Which first question is better?', pickNode: 'Tap a group, then choose a question.', depth: 'questions to the deepest animal', perfect: 'perfect tree',
+    switches: 'Switches', patterns: (n) => `patterns with ${n} ${n === 1 ? 'switch' : 'switches'}`,
+    qSwitches: 'How many different on/off patterns can 8 switches make?', byteNote: '8 bits = 1 byte = one letter',
+    files: { letter: 'one letter', page: 'a page of text', photo: 'a phone photo', song: 'a 4-minute song', film: 'a 2-hour film' },
+    sizes: { letter: '1 byte', page: 'about 2 KB', photo: 'about 3 MB', song: 'about 4 MB', film: 'about 4 GB' },
+    right: 'Right!', notQuite: 'Watch:', show: 'Show me', gotIt: 'Got it', wordsLeft: 'Words left:', reset: 'Start over', undo: 'Undo',
+    state: {
+      number: { emo: '✂️', title: 'Cut it in half', lead: 'The best question splits what is left into two equal halves.', body: 'Then each answer, yes or no, throws away half. 64 → 32 → 16 → 8 → 4 → 2 → 1: six questions.' },
+      animals: { emo: '🌳', title: 'A tree of questions', lead: 'A decision tree is a chain of yes-or-no questions.', body: 'Questions that split a group in half make the shortest tree. Computers build such trees from examples.' },
+      bits: { emo: '💡', title: 'One switch, one bit', lead: 'A bit is the answer to one yes-or-no question: on or off, 1 or 0.', body: 'Every extra switch doubles the number of patterns. 8 bits make a byte, enough for one letter.' },
+    },
+    facts: {
+      number: [{ emo: '📻', text: '“Twenty Questions” was a radio quiz on the BBC from 1947 to 1976: a panel had to guess an object with twenty yes-or-no questions.', src: 'BBC Genome, “Twenty Questions” (1947–1976)' }, { emo: '🧮', text: 'The word “bit” is short for “binary digit”. It first appeared in print in 1948, in Claude Shannon’s paper on the mathematics of communication.', src: 'C. E. Shannon, “A Mathematical Theory of Communication”, Bell System Technical Journal, 1948' }],
+      animals: [{ emo: '🌿', text: 'Botanists find a plant’s name with a “key”: a list of two-way questions. In 1778 Jean-Baptiste Lamarck published one of the first such keys, for French plants.', src: 'J.-B. Lamarck, “Flore françoise” (1778); Encyclopaedia Britannica, “Lamarck”' }],
+      bits: [{ emo: '🔤', text: 'The word “byte” was made up in 1956 by Werner Buchholz, an engineer at IBM.', src: 'W. Buchholz, IBM Stretch project, 1956; Encyclopaedia Britannica, “byte”' }],
+    },
+    secrets: { a: ['Twenty questions', 'With 20 questions that each cut the list in half you can find one word among 1,048,576. That is why twenty questions are so many.'], b: ['The worst question', '“Is it exactly 37?” is almost always answered “no”, so it throws away just one tile. A question whose answer you can predict tells you almost nothing.'] },
+    quiz: [
+      { q: 'A number from 1 to 128. Which first question is best?', opts: ['Is it bigger than 64?', 'Is it 7?', 'Is it bigger than 120?'], ok: 0, hint: 'Look at how many tiles each answer leaves.' },
+      { q: 'Each extra yes/no question lets you tell apart…', opts: ['twice as many things', 'one more thing', 'ten more things'], ok: 0, hint: 'Watch the patterns when you add one switch.' },
+      { q: 'Is a “no” worth less than a “yes”?', opts: ['No: if both answers are equally likely, each gives one bit', 'Yes, “no” tells you nothing', 'Yes, “yes” is always worth two bits'], ok: 0, hint: 'When Thinky said NO, count how many tiles flipped.' },
+    ],
+  },
+  ru: {
+    name: 'Двадцать вопросов', title: 'Двадцать вопросов',
+    lines: [['Думалка', ' загадала секрет.'], ['Задавай вопросы «да или нет»', ' и найди его как можно быстрее.']],
+    views: { number: 'Угадай число', animals: 'Дерево животных', bits: 'Биты и байты' },
+    qMin: 'Какое наименьшее число вопросов «да/нет» всегда находит любое число от 1 до 64?',
+    kinds: { bigger: 'Оно больше, чем', even: 'Оно чётное?', exactly: 'Это ровно' },
+    ask: 'Спросить', newNumber: 'Новое число', yes: 'ДА', no: 'НЕТ', found: (n, k) => `Нашли: ${n}, за ${k} ${ruPlural(k, 'вопрос', 'вопроса', 'вопросов')}!`,
+    left: (k) => `плиток осталось после ${k} ${ruPlural(k, 'вопроса', 'вопросов', 'вопросов')}`, bitsSoFar: 'битов пока:',
+    animals: { cat: 'кошка', eagle: 'орёл', shark: 'акула', frog: 'лягушка', snake: 'змея', penguin: 'пингвин', bee: 'пчела', horse: 'лошадь' },
+    questions: { fly: 'Оно умеет летать?', water: 'Оно живёт в воде?', legs: 'У него есть ноги?', mammal: 'Это млекопитающее?', feathers: 'У него есть перья?', big: 'Оно больше кошки?', shark: 'Это акула?', four: 'У него четыре лапы?' },
+    qBetter: 'Какой первый вопрос лучше?', pickNode: 'Нажми на группу, потом выбери вопрос.', depth: 'вопросов до самого глубокого животного', perfect: 'идеальное дерево',
+    switches: 'Выключатели', patterns: (n) => `узоров у ${n} ${ruPlural(n, 'выключателя', 'выключателей', 'выключателей')}`,
+    qSwitches: 'Сколько разных узоров «вкл/выкл» могут дать 8 выключателей?', byteNote: '8 бит = 1 байт = одна буква',
+    files: { letter: 'одна буква', page: 'страница текста', photo: 'фото с телефона', song: 'песня на 4 минуты', film: 'фильм на 2 часа' },
+    sizes: { letter: '1 байт', page: 'около 2 КБ', photo: 'около 3 МБ', song: 'около 4 МБ', film: 'около 4 ГБ' },
+    right: 'Верно!', notQuite: 'Смотри:', show: 'Покажи', gotIt: 'Понятно', wordsLeft: 'Слов осталось:', reset: 'Сначала', undo: 'Отменить',
+    state: {
+      number: { emo: '✂️', title: 'Режь пополам', lead: 'Лучший вопрос делит то, что осталось, на две равные половины.', body: 'Тогда каждый ответ, да или нет, отбрасывает половину. 64 → 32 → 16 → 8 → 4 → 2 → 1: шесть вопросов.' },
+      animals: { emo: '🌳', title: 'Дерево вопросов', lead: 'Дерево решений — это цепочка вопросов «да или нет».', body: 'Вопросы, которые делят группу пополам, дают самое короткое дерево. Компьютеры строят такие деревья по примерам.' },
+      bits: { emo: '💡', title: 'Один выключатель — один бит', lead: 'Бит — это ответ на один вопрос «да или нет»: вкл или выкл, 1 или 0.', body: 'Каждый новый выключатель удваивает число узоров. 8 бит — это байт, его хватает на одну букву.' },
+    },
+    facts: {
+      number: [{ emo: '📻', text: '«Двадцать вопросов» — радиовикторина Би-би-си с 1947 по 1976 год: участники угадывали предмет за двадцать вопросов «да или нет».', src: 'BBC Genome, «Twenty Questions» (1947–1976)' }, { emo: '🧮', text: 'Слово «бит» — сокращение от binary digit, «двоичная цифра». Впервые оно появилось в печати в 1948 году в статье Клода Шеннона о математике связи.', src: 'C. E. Shannon, «A Mathematical Theory of Communication», Bell System Technical Journal, 1948' }],
+      animals: [{ emo: '🌿', text: 'Ботаники узнают название растения по «ключу» — списку вопросов с двумя ответами. В 1778 году Жан-Батист Ламарк издал один из первых таких ключей, для растений Франции.', src: 'J.-B. Lamarck, «Flore françoise» (1778); Encyclopaedia Britannica, «Lamarck»' }],
+      bits: [{ emo: '🔤', text: 'Слово «байт» придумал в 1956 году Вернер Бухгольц, инженер IBM.', src: 'W. Buchholz, проект IBM Stretch, 1956; Encyclopaedia Britannica, «byte»' }],
+    },
+    secrets: { a: ['Двадцать вопросов', 'Двадцатью вопросами, каждый из которых делит список пополам, можно найти одно слово из 1 048 576. Вот почему двадцать вопросов — это так много.'], b: ['Худший вопрос', 'На «Это ровно 37?» почти всегда отвечают «нет», и отпадает всего одна плитка. Вопрос, ответ на который можно угадать заранее, почти ничего не сообщает.'] },
+    quiz: [
+      { q: 'Число от 1 до 128. Какой первый вопрос лучше всего?', opts: ['Оно больше 64?', 'Это 7?', 'Оно больше 120?'], ok: 0, hint: 'Посмотри, сколько плиток оставляет каждый ответ.' },
+      { q: 'Каждый новый вопрос «да/нет» позволяет различить…', opts: ['вдвое больше вещей', 'на одну вещь больше', 'на десять вещей больше'], ok: 0, hint: 'Посмотри на узоры, когда добавляется один выключатель.' },
+      { q: '«Нет» стоит меньше, чем «да»?', opts: ['Нет: если оба ответа одинаково вероятны, каждый даёт один бит', 'Да, «нет» ничего не сообщает', 'Да, «да» всегда стоит два бита'], ok: 0, hint: 'Когда Думалка сказала «НЕТ», посчитай, сколько плиток перевернулось.' },
+    ],
+  },
+  hu: {
+    name: 'Húsz kérdés', title: 'Húsz kérdés',
+    lines: [['Agyas', ' kitalált egy titkot.'], ['Tegyél fel igen-nem kérdéseket,', ' és találd meg minél kevesebbel.']],
+    views: { number: 'Találd ki a számot', animals: 'Állatfa', bits: 'Bitek és bájtok' },
+    qMin: 'Legkevesebb hány igen-nem kérdéssel lehet mindig kitalálni bármelyik számot 1 és 64 között?',
+    kinds: { bigger: 'Nagyobb, mint', even: 'Páros?', exactly: 'Pontosan ennyi:' },
+    ask: 'Kérdezd meg', newNumber: 'Új szám', yes: 'IGEN', no: 'NEM', found: (n, k) => `Megvan: ${n}, ${k} kérdésből!`,
+    left: (k) => `csempe maradt ${k} kérdés után`, bitsSoFar: 'eddigi bitek:',
+    animals: { cat: 'macska', eagle: 'sas', shark: 'cápa', frog: 'béka', snake: 'kígyó', penguin: 'pingvin', bee: 'méh', horse: 'ló' },
+    questions: { fly: 'Tud repülni?', water: 'Vízben él?', legs: 'Van lába?', mammal: 'Emlős?', feathers: 'Van tolla?', big: 'Nagyobb egy macskánál?', shark: 'Cápa?', four: 'Négy lába van?' },
+    qBetter: 'Melyik első kérdés a jobb?', pickNode: 'Koppints egy csoportra, aztán válassz kérdést.', depth: 'kérdés a legmélyebben ülő állatig', perfect: 'tökéletes fa',
+    switches: 'Kapcsolók', patterns: (n) => `minta ${n} kapcsolóval`,
+    qSwitches: 'Hány különböző be/ki mintát adhat 8 kapcsoló?', byteNote: '8 bit = 1 bájt = egy betű',
+    files: { letter: 'egy betű', page: 'egy oldalnyi szöveg', photo: 'egy telefonos fotó', song: 'egy 4 perces dal', film: 'egy 2 órás film' },
+    sizes: { letter: '1 bájt', page: 'kb. 2 KB', photo: 'kb. 3 MB', song: 'kb. 4 MB', film: 'kb. 4 GB' },
+    right: 'Így van!', notQuite: 'Figyeld:', show: 'Mutasd', gotIt: 'Értem', wordsLeft: 'Maradt szó:', reset: 'Elölről', undo: 'Vissza',
+    state: {
+      number: { emo: '✂️', title: 'Vágd félbe', lead: 'A legjobb kérdés két egyenlő félre osztja azt, ami maradt.', body: 'Így minden válasz, igen vagy nem, eldobja a felét. 64 → 32 → 16 → 8 → 4 → 2 → 1: hat kérdés.' },
+      animals: { emo: '🌳', title: 'Kérdések fája', lead: 'A döntési fa igen-nem kérdések láncolata.', body: 'Azok a kérdések adják a legrövidebb fát, amelyek félbevágják a csoportot. A számítógépek példákból építenek ilyen fákat.' },
+      bits: { emo: '💡', title: 'Egy kapcsoló, egy bit', lead: 'A bit egyetlen igen-nem kérdés válasza: be vagy ki, 1 vagy 0.', body: 'Minden újabb kapcsoló megduplázza a minták számát. 8 bit egy bájt, ez egy betűre elég.' },
+    },
+    facts: {
+      number: [{ emo: '📻', text: 'A „Húsz kérdés” a BBC rádiós vetélkedője volt 1947 és 1976 között: a játékosoknak húsz igen-nem kérdéssel kellett kitalálniuk egy tárgyat.', src: 'BBC Genome, „Twenty Questions” (1947–1976)' }, { emo: '🧮', text: 'A „bit” szó a binary digit, azaz „kettes számrendszerbeli számjegy” rövidítése. Először 1948-ban jelent meg nyomtatásban, Claude Shannon a kommunikáció matematikájáról szóló cikkében.', src: 'C. E. Shannon, „A Mathematical Theory of Communication”, Bell System Technical Journal, 1948' }],
+      animals: [{ emo: '🌿', text: 'A botanikusok „határozókulccsal” keresik meg egy növény nevét: ez kétválaszos kérdések listája. 1778-ban Jean-Baptiste Lamarck adta ki az egyik első ilyen kulcsot, a francia növényekhez.', src: 'J.-B. Lamarck, „Flore françoise” (1778); Encyclopaedia Britannica, „Lamarck”' }],
+      bits: [{ emo: '🔤', text: 'A „bájt” szót 1956-ban találta ki Werner Buchholz, az IBM mérnöke.', src: 'W. Buchholz, IBM Stretch projekt, 1956; Encyclopaedia Britannica, „byte”' }],
+    },
+    secrets: { a: ['Húsz kérdés', 'Húsz olyan kérdéssel, amelyek mind félbevágják a listát, 1 048 576 szó közül is megtalálható egy. Ezért olyan sok a húsz kérdés.'], b: ['A legrosszabb kérdés', 'A „Pontosan 37?” kérdésre szinte mindig „nem” a válasz, így csak egy csempe esik ki. Az a kérdés, amelynek a válaszát előre tudod, szinte semmit sem árul el.'] },
+    quiz: [
+      { q: 'Egy szám 1 és 128 között. Melyik a legjobb első kérdés?', opts: ['Nagyobb, mint 64?', '7?', 'Nagyobb, mint 120?'], ok: 0, hint: 'Nézd meg, hány csempét hagy meg az egyes válasz.' },
+      { q: 'Minden újabb igen-nem kérdéssel meg tudsz különböztetni…', opts: ['kétszer annyi dolgot', 'eggyel több dolgot', 'tízzel több dolgot'], ok: 0, hint: 'Figyeld a mintákat, amikor hozzáadsz egy kapcsolót.' },
+      { q: 'Kevesebbet ér egy „nem”, mint egy „igen”?', opts: ['Nem: ha mindkét válasz egyformán valószínű, mindegyik egy bitet ad', 'Igen, a „nem” semmit sem árul el', 'Igen, az „igen” mindig két bitet ér'], ok: 0, hint: 'Amikor Agyas NEM-et mondott, számold meg, hány csempe fordult le.' },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'sg_cmp_05', en: 'Information and Information Processes', ru: 'Информация и информационные процессы', hu: 'Információ és információs folyamatok' },
+  { id: 'ai_03', en: 'Decision Trees', ru: 'Деревья решений', hu: 'Döntési fák' },
+  { id: 'sg_cmp_07', en: 'Units of Information and Data Speed', ru: 'Единицы информации и скорость передачи данных', hu: 'Információmennyiség és adatátviteli sebesség' },
+];
+
+// --- small helpers -------------------------------------------------------------------------------------------
+const FONT = 'Nunito, ui-rounded, system-ui, sans-serif';
+const EMOJI = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+const now = () => performance.now() / 1000;
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+const easeOut = (t) => 1 - Math.pow(1 - clamp01(t), 3);
+const easeInOut = (t) => { t = clamp01(t); return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; };
+const easeBack = (t) => { t = clamp01(t); const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+const fmt = (x) => Math.round(x).toLocaleString(lang);
+const fmtD = (x, d) => x.toLocaleString(lang, { minimumFractionDigits: d, maximumFractionDigits: d });
+const shuffle = (a) => { const r = a.slice(); for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; } return r; };
+const frac = (x) => x - Math.floor(x);
+const hexRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+const mixHex = (a, b, t) => { const A = hexRgb(a), B = hexRgb(b); return '#' + A.map((v, i) => Math.round(v + (B[i] - v) * t).toString(16).padStart(2, '0')).join(''); };
+
+function rrPath(c, x, y, w, h, r) {
+  r = Math.max(0, Math.min(r, w / 2, h / 2));
+  c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+}
+function pill(c, W, text, cx, cy, o = {}) {
+  const size = o.size ?? 12; c.save(); c.font = `800 ${size}px ${FONT}`;
+  const w = c.measureText(text).width + (o.padX ?? 10) * 2, h = size + 10;
+  const x = clamp(cx - w / 2, 4, Math.max(4, W - w - 4)), y = cy - h / 2;
+  rrPath(c, x, y, w, h, h / 2); c.fillStyle = o.bg ?? 'rgba(8,12,26,.84)'; c.fill();
+  if (o.stroke) { c.strokeStyle = o.stroke; c.lineWidth = 1.5; c.stroke(); }
+  c.fillStyle = o.fg ?? '#fff'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(text, x + w / 2, y + h / 2 + 0.5); c.restore();
+  return { x, y, w, h };
+}
+function emo(c, ch, x, y, size) {
+  c.save(); c.globalAlpha = 1; c.font = `${Math.max(1, size)}px ${EMOJI}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#fff'; c.fillText(ch, x, y); c.restore();
+}
+function wrap(c, text, maxW) { // c.font must be set; returns the lines (a long word stays on its own line)
+  const lines = []; let cur = '';
+  for (const w of text.split(' ')) {
+    const t = cur ? `${cur} ${w}` : w;
+    if (!cur || c.measureText(t).width <= maxW) cur = t; else { lines.push(cur); cur = w; }
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+function drawBoard(c, W, H) {
+  c.save();
+  rrPath(c, 0, 0, W, H, 18);
+  const g = c.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#16213a'); g.addColorStop(1, '#0f172a'); c.fillStyle = g; c.fill();
+  c.clip();
+  const r = c.createRadialGradient(W * 0.2, 0, 0, W * 0.2, 0, Math.max(W, H) * 0.8); r.addColorStop(0, 'rgba(124,196,255,.12)'); r.addColorStop(1, 'rgba(124,196,255,0)');
+  c.fillStyle = r; c.fillRect(0, 0, W, H);
+  c.restore();
+  rrPath(c, 0.5, 0.5, W - 1, H - 1, 18); c.strokeStyle = 'rgba(130,145,190,.28)'; c.lineWidth = 1; c.stroke();
+}
+
+// --- animals data --------------------------------------------------------------------------------------------
+const ANIMALS = ['cat', 'eagle', 'shark', 'frog', 'snake', 'penguin', 'bee', 'horse'];
+const EMO = { cat: '🐈', eagle: '🦅', shark: '🦈', frog: '🐸', snake: '🐍', penguin: '🐧', bee: '🐝', horse: '🐴' };
+const QS = {
+  fly: ['eagle', 'bee'], water: ['shark', 'frog', 'penguin'], legs: ['cat', 'eagle', 'frog', 'penguin', 'bee', 'horse'], four: ['cat', 'frog', 'horse'],
+  mammal: ['cat', 'horse'], feathers: ['eagle', 'penguin'], big: ['eagle', 'shark', 'penguin', 'horse'], shark: ['shark'],
+};
+const QICON = { fly: '🕊️', water: '💧', legs: '🦵', four: '4️⃣', mammal: '🍼', feathers: '🪶', big: '📏', shark: '🦈' };
+const QORDER = ['fly', 'water', 'legs', 'four', 'mammal', 'feathers', 'big', 'shark'];
+
+// --- state ---------------------------------------------------------------------------------------------------
+const asked = { number: store.get('tq:asked:number', false), animals: store.get('tq:asked:animals', false), bits: store.get('tq:asked:bits', false) };
+const P = { number: null, animals: null, bits: null }; // the child's prediction (null = not answered yet)
+const ORD = { number: shuffle(['6', '8', '32', '63']), animals: shuffle(['big', 'shark']), bits: shuffle(['16', '64', '256']) }; // chip order: fixed per visit
+const QPERM = [0, 1, 2].map(() => shuffle([0, 1, 2])); // quiz options order: fixed per visit
+const OK = { number: '6', animals: 'big', bits: '256' };
+const sched = []; // scripted events: { at, fn } in real seconds
+const schedule = (delay, fn) => sched.push({ at: now() + delay, fn });
+let band = 0; // how much of the stage's top the prediction card covers (eased)
+
+const N = { secret: 1, live: new Array(64).fill(true), tiles: Array.from({ length: 64 }, () => ({ a: 0, b: 0, t0: 0 })), qs: [], bits: 0, kind: 'bigger', pick: 32,
+  last: null, ans: null, found: false, foundAt: 0, demo: false, sec: null, secA: null, secB: null, meter: 0, sparks: 0 };
+const A = { root: null, sel: null, log: [], cap: '', capAt: -99, an: {}, items: {}, hit: [], lay: null, nameA: 1, cmpT: 0, cards: null };
+const B = { n: 8, sw: [0, 1, 0, 0, 0, 0, 0, 1, 0, 0], swA: Array.from({ length: 10 }, (_, i) => (i === 1 || i === 7 ? 1 : 0)), shown: 0, gridAt: 0, gh: 100, hit: [] };
+const BAR = [['letter', 1], ['page', 2e3], ['photo', 3e6], ['song', 4e6], ['film', 4e9]];
+
+function mkNode(animals, parent) {
+  const n = { animals, q: null, yes: null, no: null, born: now(), depth: 0, ax: NaN, ay: NaN, aw: 0, ah: 0, tx: 0, ty: 0, tw: 0, th: 0, mode: 'leaf', lines: null, L: 0, R: 0, cx: 0 };
+  if (parent) { n.ax = parent.ax; n.ay = parent.ay; n.aw = parent.aw * 0.4; n.ah = parent.ah * 0.4; }
+  return n;
+}
+A.root = mkNode(ANIMALS.slice(), null); A.sel = A.root;
+
+const lab = shell({ key: 'twenty-questions', T, topics: TOPICS, views: ['number', 'animals', 'bits'], onLang: render, onView: (v) => { if (v !== 'number' && (N.sec || N.demo)) newGame(); render(); } });
+const secret = secretLab('twenty-questions', () => ({
+  secrets: [{ emo: '🎯', title: T[lang].secrets.a[0], desc: T[lang].secrets.a[1] }, { emo: '🤏', title: T[lang].secrets.b[0], desc: T[lang].secrets.b[1] }],
+  questions: T[lang].quiz.map((q, i) => { const p = QPERM[i]; return { ...q, opts: p.map((j) => q.opts[j]), ok: p.indexOf(q.ok) }; }),
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="tqNumber" hidden>
+    <div class="chips" id="tqKinds"></div>
+    <div class="tq-qline" id="tqQtext"></div>
+    <input class="big" type="range" id="tqSlide" min="1" max="63" value="32" style="--track:linear-gradient(90deg,#334155,#7cc4ff)">
+    <div class="row2"><button class="btn" data-act="ask" id="tqAsk"></button><button class="btn ghost" data-act="new" id="tqNew"></button></div>
+    <div class="row2"><div class="chips" id="tqSec"></div></div>
+  </div>
+  <div id="tqAnimals" hidden>
+    <div class="chips" id="tqQs"></div>
+    <div class="row2"><button class="chip tq-chip" data-act="undo" id="tqUndo"></button><button class="chip tq-chip" data-act="reset" id="tqReset"></button></div>
+  </div>
+  <div id="tqBits" hidden>
+    <div class="tq-qline" id="tqNlabel"></div>
+    <input class="big" type="range" id="tqN" min="1" max="10" value="8" style="--track:linear-gradient(90deg,#334155,#ffd166)">
+    <div class="ends"><span>1</span><span>10</span></div>
+  </div>`;
+const askEl = Object.assign(document.createElement('div'), { className: 'tq-ask' });
+askEl.hidden = true;
+$('overlay').append(askEl);
+
+// --- number game ---------------------------------------------------------------------------------------------
+const tileP = (i, tn) => { const t = N.tiles[i]; return t.a + (t.b - t.a) * clamp01((tn - t.t0) / 0.55); };
+function flipTo(i, to, delay) { const t = N.tiles[i], tn = now(); t.a = tileP(i, tn); t.b = to; t.t0 = tn + delay; }
+const liveCount = () => N.live.reduce((s, x) => s + (x ? 1 : 0), 0);
+function resetTiles() {
+  for (let i = 0; i < 64; i++) { N.live[i] = true; if (N.tiles[i].b !== 0 || tileP(i, now()) > 0) flipTo(i, 0, ((i & 7) + (i >> 3)) * 0.015); }
+  N.found = false;
+}
+function newGame() {
+  sched.length = 0;
+  N.secret = 1 + Math.floor(Math.random() * 64); N.qs = []; N.bits = 0; N.last = null; N.ans = null; N.demo = false; N.sec = null; N.secA = null; N.secB = null; N.meter = 0;
+  resetTiles();
+}
+const qText = (t, kind, n) => kind === 'even' ? t.kinds.even : `${t.kinds[kind]} ${n}?`;
+function askQ(kind, n) {
+  const f = kind === 'bigger' ? (x) => x > n : kind === 'even' ? (x) => x % 2 === 0 : (x) => x === n;
+  const yes = f(N.secret), before = liveCount(), tn = now();
+  let k = 0;
+  for (let i = 0; i < 64; i++) if (N.live[i] && f(i + 1) !== yes) { N.live[i] = false; flipTo(i, 1, k++ * 0.02); }
+  const after = before - k, ratio = after / before;
+  N.qs.push({ big: ratio >= 0.4 && ratio <= 0.6, t: tn });
+  N.bits += Math.log2(before / after);
+  N.last = { kind, n }; N.ans = { yes, t: tn };
+  if (after === 1 && N.sec !== 'b') { N.found = true; N.foundAt = tn + k * 0.02 + 0.3; setTimeout(() => sfx.good(), 500); }
+  sfx.snap();
+}
+function startDemo() {
+  newGame(); N.demo = true;
+  let lo = 1, hi = 64, at = 1.2;
+  while (lo < hi) {
+    const mid = (lo + hi - 1) >> 1;
+    schedule(at, () => { askQ('bigger', mid); render(); });
+    if (N.secret > mid) lo = mid + 1; else hi = mid;
+    at += 1.6;
+  }
+  schedule(at + 2.6, () => { newGame(); render(); });
+}
+function startSecA() {
+  newGame(); N.sec = 'a'; N.secA = { k: 0, t: now() };
+  for (let k = 1; k <= 20; k++) schedule(0.8 + k * 0.8, () => { N.secA.k = k; N.secA.t = now(); sfx.tick(); if (k === 20) sfx.good(); render(); });
+}
+function startSecB() {
+  newGame(); N.sec = 'b'; N.secB = { round: 0 };
+  const nums = [12, 50, 5, 29, 58];
+  nums.forEach((num, r) => {
+    const base = 0.4 + r * 2.8;
+    schedule(base, () => { if (r > 0) { resetTiles(); N.ans = null; N.last = null; } N.secret = num; N.secB.round = r + 1; render(); });
+    schedule(base + 0.9, () => { N.last = { kind: 'exactly', n: 37 }; render(); });
+    schedule(base + 1.7, () => { askQ('exactly', 37); render(); });
+  });
+}
+const busy = () => N.demo || N.sec;
+
+// --- animals tree --------------------------------------------------------------------------------------------
+function treeInfo() {
+  const leaves = []; let maxD = 0;
+  const walk = (n, d) => { if (n.q) { walk(n.yes, d + 1); walk(n.no, d + 1); } else { leaves.push(n); maxD = Math.max(maxD, d); n.depth = d; } };
+  walk(A.root, 0);
+  return { leaves, maxD, done: leaves.every((l) => l.animals.length === 1), perfect: leaves.length === 8 && leaves.every((l) => l.depth === 3) };
+}
+const firstOpen = () => treeInfo().leaves.find((l) => l.animals.length > 1) ?? null;
+function canSplit(node, key) { if (!node || node.q) return false; const k = node.animals.filter((a) => QS[key].includes(a)).length; return k > 0 && k < node.animals.length; }
+function splitNode(node, key) {
+  if (!canSplit(node, key)) return false;
+  node.q = key; node.yes = mkNode(node.animals.filter((a) => QS[key].includes(a)), node); node.no = mkNode(node.animals.filter((a) => !QS[key].includes(a)), node);
+  A.log.push(node); A.sel = firstOpen(); A.cap = ''; return true;
+}
+function undoSplit() { const n = A.log.pop(); if (!n) return; n.q = null; n.yes = n.no = null; A.sel = n; }
+function resetTree() { A.root = mkNode(ANIMALS.slice(), null); A.log = []; A.sel = A.root; A.cap = ''; }
+
+// --- readout, controls, state card ---------------------------------------------------------------------------
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+function renderAsk(v, t) {
+  const p = P[v];
+  if (p === null) {
+    const q = v === 'number' ? t.qMin : v === 'animals' ? t.qBetter : t.qSwitches;
+    askEl.innerHTML = `<div class="tq-q">${esc(q)}</div><div class="tq-opts">${ORD[v].map((o) => `<button data-a="${o}">${esc(v === 'animals' ? t.questions[o] : o)}</button>`).join('')}</div>`;
+  } else {
+    const ok = p === OK[v];
+    askEl.innerHTML = `<div class="tq-verdict" style="color:${ok ? 'var(--ok)' : 'var(--wip)'}">${esc(ok ? t.right : t.notQuite)}</div><p>${esc(t.state[v].body)}</p>
+      <div class="tq-opts"><button data-go="1">${esc(v === 'number' ? t.show : t.gotIt)} →</button></div>`;
+  }
+}
+function render() {
+  const t = T[lang], v = lab.view, asking = !asked[v];
+  document.body.dataset.v = v;
+  $('tqNumber').hidden = !(v === 'number' && !asking);
+  $('tqAnimals').hidden = !(v === 'animals' && !asking);
+  $('tqBits').hidden = !(v === 'bits' && !asking);
+  askEl.hidden = !asking;
+  if (asking) renderAsk(v, t);
+  if (v === 'number') renderNumber(t, asking); else if (v === 'animals') renderAnimals(t, asking); else renderBits(t, asking);
+  lab.setFacts(t.facts[v]);
+}
+function renderNumber(t, asking) {
+  lab.setGlow('rgba(124, 196, 255, .24)');
+  if (asking) { lab.setReadout('64', t.left(0), '', '#7cc4ff'); lab.setState({ emo: '🤔', title: t.qMin, lead: '', body: '' }); return; }
+  const k = N.qs.length, st = t.state.number, open = secret.unlocked();
+  $('tqKinds').innerHTML = ['bigger', 'even', 'exactly'].map((x) => `<button class="chip tq-chip ${N.kind === x ? 'on' : ''}" data-act="kind" data-k="${x}">${esc(x === 'even' ? t.kinds.even : `${t.kinds[x]} …`)}</button>`).join('');
+  const sl = $('tqSlide'); sl.hidden = N.kind === 'even'; sl.max = N.kind === 'bigger' ? 63 : 64;
+  if (N.pick > +sl.max) N.pick = +sl.max;
+  if (+sl.value !== N.pick) sl.value = N.pick;
+  sl.setAttribute('aria-label', t.kinds[N.kind === 'even' ? 'bigger' : N.kind]);
+  $('tqQtext').textContent = qText(t, N.kind, N.pick);
+  $('tqAsk').textContent = t.ask; $('tqAsk').disabled = busy() || N.found;
+  $('tqNew').textContent = t.newNumber;
+  const sc = (x, e) => `<button class="chip tq-chip secret ${open ? 'open' : ''} ${N.sec === x ? 'on' : ''}" data-act="sec" data-k="${x}">${open ? `${e} ${esc(t.secrets[x][0])}` : '🔒 ???'}</button>`;
+  $('tqSec').innerHTML = sc('a', '🎯') + sc('b', '🤏');
+  if (N.sec === 'a') {
+    const kk = N.secA.k;
+    lab.setReadout(fmt(1048576 / 2 ** kk), t.wordsLeft, `${t.bitsSoFar} ${fmtD(kk, 1)}`, '#ffd166');
+    lab.setState({ emo: '🎯', title: t.secrets.a[0], lead: t.secrets.a[1], body: '' });
+  } else if (N.sec === 'b') {
+    lab.setReadout(String(liveCount()), t.left(k), k ? `${t.bitsSoFar} ${fmtD(N.bits, 2)}` : '', '#ff7a7a');
+    lab.setState({ emo: '🤏', title: t.secrets.b[0], lead: t.secrets.b[1], body: '' });
+  } else {
+    lab.setReadout(String(liveCount()), t.left(k), k ? `${t.bitsSoFar} ${fmtD(N.bits, 1)}` : '', '#7cc4ff');
+    lab.setState(N.found ? { emo: '🎉', title: t.found(N.secret, k), lead: st.lead, body: st.body } : { emo: st.emo, title: st.title, lead: st.lead, body: st.body });
+  }
+}
+function renderAnimals(t, asking) {
+  lab.setGlow('rgba(110, 231, 183, .2)');
+  const info = treeInfo(), st = t.state.animals;
+  if (asking) { lab.setReadout('0+', t.depth, '', '#6ee7b7'); lab.setState({ emo: '🤔', title: P.animals === null ? t.qBetter : st.title, lead: '', body: '' }); return; }
+  lab.setReadout(`${info.maxD}${info.done ? '' : '+'}`, t.depth, info.done && info.perfect ? t.perfect : '', '#6ee7b7');
+  $('tqQs').innerHTML = QORDER.map((k) => `<button class="chip tq-chip" data-act="q" data-k="${k}"${canSplit(A.sel, k) ? '' : ' disabled'}>${QICON[k]} ${esc(t.questions[k])}</button>`).join('');
+  $('tqUndo').textContent = `↶ ${t.undo}`; $('tqUndo').disabled = !A.log.length;
+  $('tqReset').textContent = t.reset; $('tqReset').disabled = !A.log.length;
+  lab.setState({ emo: st.emo, title: st.title, lead: st.lead, body: st.body });
+}
+function renderBits(t, asking) {
+  lab.setGlow('rgba(255, 209, 102, .2)');
+  const st = t.state.bits;
+  if (asking) { lab.setReadout('?', '', '', '#ffd166'); lab.setState({ emo: '🤔', title: P.bits === null ? t.qSwitches : st.title, lead: '', body: '' }); return; }
+  $('tqNlabel').textContent = `${t.switches}: ${B.n}`;
+  const sl = $('tqN'); if (+sl.value !== B.n) sl.value = B.n;
+  sl.setAttribute('aria-label', t.switches);
+  lab.setReadout(fmt(2 ** B.n), t.patterns(B.n), B.n === 8 ? t.byteNote : '', '#ffd166');
+  lab.setState({ emo: st.emo, title: st.title, lead: st.lead, body: st.body });
+}
+
+// --- events --------------------------------------------------------------------------------------------------
+askEl.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  const v = lab.view;
+  if (b.dataset.a !== undefined) {
+    P[v] = b.dataset.a; (P[v] === OK[v] ? sfx.good : sfx.bad)();
+    if (v === 'bits') B.shown = 0;
+    if (v === 'animals') A.cmpT = now();
+    showStage();
+  } else if (b.dataset.go) {
+    asked[v] = true; store.set(`tq:asked:${v}`, true); sfx.click();
+    if (v === 'number') startDemo();
+    showStage();
+  }
+  render();
+});
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const act = b.dataset.act;
+  if (act === 'kind') { N.kind = b.dataset.k; sfx.click(); }
+  else if (act === 'ask') { if (busy() || N.found) return; askQ(N.kind, N.pick); }
+  else if (act === 'new') { newGame(); sfx.click(); }
+  else if (act === 'sec') {
+    const k = b.dataset.k;
+    if (!secret.unlocked()) return secret.open();
+    if (N.sec === k) newGame(); else if (k === 'a') startSecA(); else startSecB();
+    sfx.click();
+  } else if (act === 'q') { if (splitNode(A.sel, b.dataset.k)) sfx.snap(); }
+  else if (act === 'undo') { undoSplit(); sfx.click(); }
+  else if (act === 'reset') { resetTree(); sfx.click(); }
+  render();
+});
+$('ctrlBody').addEventListener('input', (ev) => {
+  if (ev.target.id === 'tqSlide') { N.pick = +ev.target.value; sfx.tick(); render(); }
+  else if (ev.target.id === 'tqN') { B.n = +ev.target.value; B.gridAt = now(); sfx.tick(); render(); }
+});
+$('cv').addEventListener('pointerdown', (ev) => {
+  const r = $('cv').getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top, v = lab.view;
+  if (!asked[v]) return;
+  if (v === 'bits') {
+    const h = B.hit.find((o) => x >= o.x && x <= o.x + o.w && y >= o.y && y <= o.y + o.h);
+    if (h) { B.sw[h.i] = B.sw[h.i] ? 0 : 1; sfx.tick(); }
+  } else if (v === 'animals') {
+    const t = T[lang];
+    const hits = A.hit.filter((o) => x >= o.x && x <= o.x + o.w && y >= o.y && y <= o.y + o.h);
+    const o = hits.find((h) => !h.node.q && h.node.animals.length > 1) ?? hits[0];
+    if (!o) return;
+    if (!o.node.q && o.node.animals.length > 1) { A.sel = o.node; A.cap = ''; sfx.click(); }
+    else if (o.node.q) { A.cap = t.questions[o.node.q]; A.capAt = now(); sfx.tick(); }
+    else { A.cap = `${EMO[o.node.animals[0]]} ${t.animals[o.node.animals[0]]}`; A.capAt = now(); sfx.tick(); }
+  } else return;
+  render();
+});
+
+// --- drawing: number view ------------------------------------------------------------------------------------
+function drawTile(c, cx, cy, s, num, p, gold, tn) {
+  const sy = Math.max(0.05, Math.abs(Math.cos(Math.PI * p))), out = p >= 0.5, sc = 1 - 0.08 * p;
+  c.save(); c.translate(cx, cy + easeOut(p) * s * 0.06); c.scale(sc, sc * sy);
+  if (gold > 0) {
+    const pulse = 1 + 0.08 * Math.sin(tn * 5), g = c.createRadialGradient(0, 0, s * 0.2, 0, 0, s * 1.2 * pulse);
+    g.addColorStop(0, `rgba(255,209,102,${0.75 * gold})`); g.addColorStop(1, 'rgba(255,209,102,0)');
+    c.fillStyle = g; c.beginPath(); c.arc(0, 0, Math.max(0, s * 1.2 * pulse), 0, Math.PI * 2); c.fill();
+  }
+  rrPath(c, -s / 2 + 1, -s / 2 + 3, s, s, s * 0.26); c.fillStyle = out ? 'rgba(0,0,0,.18)' : 'rgba(0,0,0,.34)'; c.fill();
+  const g = c.createLinearGradient(-s / 2, -s / 2, s / 2, s / 2);
+  if (out) { g.addColorStop(0, '#3a4a63'); g.addColorStop(1, '#2a3548'); }
+  else if (gold > 0) { g.addColorStop(0, '#ffeaa8'); g.addColorStop(0.5, '#ffd166'); g.addColorStop(1, '#e3a928'); }
+  else { g.addColorStop(0, '#c4e6ff'); g.addColorStop(0.5, '#7cc4ff'); g.addColorStop(1, '#4b9bdc'); }
+  rrPath(c, -s / 2, -s / 2, s, s, s * 0.26); c.fillStyle = g; c.fill();
+  c.lineWidth = 1.5; c.strokeStyle = out ? '#475569' : gold > 0 ? '#b8841a' : '#3b82c4'; c.stroke();
+  if (!out) {
+    const gl = c.createLinearGradient(0, -s / 2, 0, 0); gl.addColorStop(0, 'rgba(255,255,255,.5)'); gl.addColorStop(1, 'rgba(255,255,255,0)');
+    rrPath(c, -s / 2 + 3, -s / 2 + 3, s - 6, s * 0.44, s * 0.2); c.fillStyle = gl; c.fill();
+  }
+  c.font = `800 ${Math.round(s * 0.42)}px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillStyle = out ? '#6b7a90' : '#0b2a4a'; c.fillText(String(num), 0, 1);
+  c.restore();
+}
+function drawThinky(c, x, y, tn, mood) {
+  const bob = Math.sin(tn * 2) * 2;
+  c.save();
+  c.fillStyle = 'rgba(0,0,0,.28)'; c.beginPath(); c.ellipse(x, y + 58, 32, 6, 0, 0, Math.PI * 2); c.fill();
+  c.translate(x, y + bob);
+  for (const sx of [-14, 14]) {
+    c.strokeStyle = '#5b8fcb'; c.lineWidth = 2.5; c.lineCap = 'round'; c.beginPath(); c.moveTo(sx, -26); c.lineTo(sx * 1.35, -41); c.stroke();
+    const by = -45 + Math.sin(tn * 3 + sx) * 1.5, g = c.createRadialGradient(sx * 1.35 - 1.5, by - 1.5, 0.5, sx * 1.35, by, 5.5);
+    g.addColorStop(0, '#fff3c4'); g.addColorStop(1, '#ffb703'); c.fillStyle = g; c.beginPath(); c.arc(sx * 1.35, by, 5, 0, Math.PI * 2); c.fill();
+  }
+  // body and arms
+  const bg = c.createLinearGradient(-22, 24, 22, 54); bg.addColorStop(0, '#dbeafe'); bg.addColorStop(1, '#8fb9ea');
+  rrPath(c, -21, 24, 42, 31, 12); c.fillStyle = bg; c.fill(); c.strokeStyle = '#5b8fcb'; c.lineWidth = 1.5; c.stroke();
+  c.fillStyle = '#ffd166'; c.beginPath(); c.arc(0, 40, 4.2, 0, Math.PI * 2); c.fill();
+  for (const sx of [-1, 1]) { c.fillStyle = '#9cc7f5'; c.strokeStyle = '#5b8fcb'; c.beginPath(); c.ellipse(sx * 27, 38 + (mood ? Math.sin(tn * 8) * 1.5 : 0), 6, 9.5, sx * 0.25, 0, Math.PI * 2); c.fill(); c.stroke(); }
+  // head
+  const hg = c.createLinearGradient(-32, -28, 24, 26); hg.addColorStop(0, '#f2f8ff'); hg.addColorStop(1, '#93c0f0');
+  rrPath(c, -32, -28, 64, 54, 18); c.fillStyle = hg; c.fill(); c.strokeStyle = '#5b8fcb'; c.lineWidth = 1.5; c.stroke();
+  rrPath(c, -25, -20, 50, 36, 12); c.fillStyle = '#12203a'; c.fill();
+  const blink = (tn % 4.2) < 0.14 ? 0.12 : 1;
+  for (const ex of [-11, 11]) {
+    c.fillStyle = '#7cc4ff'; c.beginPath(); c.ellipse(ex, -5, 6.5, Math.max(0.5, 6.5 * blink), 0, 0, Math.PI * 2); c.fill();
+    if (blink > 0.5) { c.fillStyle = '#fff'; c.beginPath(); c.arc(ex - 2.2, -7.2, 2, 0, Math.PI * 2); c.fill(); }
+  }
+  c.strokeStyle = mood === 'no' ? '#ff9a9a' : '#7cc4ff'; c.lineWidth = 2; c.lineCap = 'round'; c.beginPath();
+  if (mood === 'no') c.arc(0, 13, 5, Math.PI * 1.15, Math.PI * 1.85); else c.arc(0, 4, 6, Math.PI * 0.15, Math.PI * 0.85);
+  c.stroke();
+  c.restore();
+}
+function drawBlock(c, x0, y0, G, tn) {
+  const s = N.secA, k = s.k, e = k === 0 ? 1 : easeInOut((tn - s.t) / 0.7);
+  const dims = (j) => [G / 2 ** Math.ceil(j / 2), G / 2 ** Math.floor(j / 2)];
+  const [w0, h0] = dims(Math.max(0, k - 1)), [w1, h1] = dims(k);
+  const w = Math.max(10, lerp(w0, w1, e)), h = Math.max(10, lerp(h0, h1, e)), cx = x0 + G / 2, cy = y0 + G / 2;
+  if (k > 0 && e < 1) { // the half that was thrown away
+    c.save(); c.globalAlpha = (1 - e) * 0.3; rrPath(c, cx - Math.max(10, w0) / 2, cy - Math.max(10, h0) / 2 + e * 24, Math.max(10, w0), Math.max(10, h0), 8); c.fillStyle = '#334155'; c.fill(); c.restore();
+  }
+  const col = mixHex('#7cc4ff', '#ffd166', k / 20);
+  rrPath(c, cx - w / 2 + 2, cy - h / 2 + 4, w, h, Math.min(10, w / 3)); c.fillStyle = 'rgba(0,0,0,.32)'; c.fill();
+  const g = c.createLinearGradient(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2); g.addColorStop(0, mixHex(col, '#ffffff', 0.45)); g.addColorStop(0.5, col); g.addColorStop(1, mixHex(col, '#0f172a', 0.35));
+  rrPath(c, cx - w / 2, cy - h / 2, w, h, Math.min(10, w / 3)); c.fillStyle = g; c.fill(); c.strokeStyle = mixHex(col, '#0f172a', 0.5); c.lineWidth = 1.5; c.stroke();
+  c.save(); rrPath(c, cx - w / 2, cy - h / 2, w, h, Math.min(10, w / 3)); c.clip();
+  const cnt = Math.min(700, Math.floor(w * h / 14));
+  for (let i = 0; i < cnt; i++) {
+    c.fillStyle = `rgba(255,255,255,${0.15 + 0.45 * (0.5 + 0.5 * Math.sin(tn * 3 + i * 1.7))})`;
+    c.fillRect(cx - w / 2 + frac(Math.sin(i * 12.9898) * 43758.5453) * w, cy - h / 2 + frac(Math.sin(i * 78.233 + 1.3) * 43758.5453) * h, 2, 2);
+  }
+  c.restore();
+  if (k === 20 && e >= 1) {
+    const g2 = c.createRadialGradient(cx, cy, 2, cx, cy, 46); g2.addColorStop(0, 'rgba(255,209,102,.7)'); g2.addColorStop(1, 'rgba(255,209,102,0)');
+    c.fillStyle = g2; c.beginPath(); c.arc(cx, cy, 46, 0, Math.PI * 2); c.fill();
+  }
+}
+function drawNumber(c, W, H, dt, tn) {
+  const t = T[lang], asking = !asked.number;
+  const top = Math.max(150, band + 2);
+  const cell = Math.max(20, Math.min((W - 24) / 8, (H - top - 40) / 8)), G = cell * 8, x0 = (W - G) / 2;
+  // tiles, or the dictionary block
+  if (N.sec === 'a') drawBlock(c, x0, top, G, tn);
+  else {
+    const fa = N.found ? easeBack((tn - N.foundAt) / 0.6) : 0;
+    let goldI = -1; if (N.found && tn >= N.foundAt) goldI = N.live.indexOf(true);
+    for (let i = 0; i < 64; i++) {
+      if (i === goldI) continue;
+      drawTile(c, x0 + (i & 7) * cell + cell / 2, top + (i >> 3) * cell + cell / 2, cell - 4, i + 1, tileP(i, tn), 0, tn);
+    }
+    if (goldI >= 0) drawTile(c, x0 + (goldI & 7) * cell + cell / 2, top + (goldI >> 3) * cell + cell / 2, (cell - 4) * (1 + 0.14 * Math.max(0, fa)), goldI + 1, tileP(goldI, tn), 1, tn);
+  }
+  // Thinky, bubble, answer
+  const mood = N.ans && tn - N.ans.t < 2 ? (N.ans.yes ? 'yes' : 'no') : null;
+  drawThinky(c, 58, 70, tn, mood);
+  const bx = 106, by = 14, bw = W - bx - 10, bh = 84;
+  c.save();
+  c.fillStyle = 'rgba(0,0,0,.25)'; rrPath(c, bx + 2, by + 4, bw, bh, 18); c.fill();
+  c.fillStyle = '#f1f5f9'; c.strokeStyle = '#94a3b8'; c.lineWidth = 1.5;
+  rrPath(c, bx, by, bw, bh, 18); c.fill(); c.stroke();
+  c.beginPath(); c.moveTo(bx + 1.5, 40); c.lineTo(bx - 14, 56); c.lineTo(bx + 1.5, 68); c.closePath(); c.fill();
+  c.strokeStyle = '#94a3b8'; c.beginPath(); c.moveTo(bx + 1, 40); c.lineTo(bx - 14, 56); c.lineTo(bx + 1, 68); c.stroke();
+  c.restore();
+  let text;
+  if (N.sec === 'a') text = `❓ ${N.secA.k}/20`;
+  else if (N.found) text = t.found(N.secret, N.qs.length);
+  else if (N.last) text = qText(t, N.last.kind, N.last.n);
+  else text = '🤫';
+  c.save(); c.font = `800 15px ${FONT}`; c.fillStyle = '#0f172a'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  const lines = wrap(c, text, bw - 26).slice(0, 3), lh = 19;
+  lines.forEach((l, i) => c.fillText(l, bx + bw / 2, by + bh / 2 + (i - (lines.length - 1) / 2) * lh));
+  c.restore();
+  if (N.ans && !asking) {
+    const e = easeBack((tn - N.ans.t) / 0.35), pw = 78, ph = 28, px = bx + bw - pw / 2 - 6, py = by + bh + 22;
+    c.save(); c.translate(px, py); c.scale(Math.max(0.01, e), Math.max(0.01, e));
+    rrPath(c, -pw / 2, -ph / 2, pw, ph, 14); c.fillStyle = N.ans.yes ? '#6ee7b7' : '#ff7a7a'; c.fill();
+    c.font = `900 16px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = N.ans.yes ? '#06382a' : '#400b0b'; c.fillText(N.ans.yes ? t.yes : t.no, 0, 1);
+    c.restore();
+  }
+  // under the grid: dots, meter or the word count
+  const ry = top + G + Math.min(18, (H - top - G) / 2);
+  if (N.sec === 'a') {
+    pill(c, W, `${t.wordsLeft} ${fmt(1048576 / 2 ** N.secA.k)}`, W / 2, ry, { size: 14, stroke: '#ffd166' });
+  } else if (N.sec === 'b') {
+    N.meter += (N.bits - N.meter) * (1 - Math.exp(-dt * 6));
+    const mw = Math.min(W - 80, 300), mx = (W - mw) / 2, my = ry - 6;
+    rrPath(c, mx, my - 6, mw, 12, 6); c.fillStyle = 'rgba(255,255,255,.08)'; c.fill();
+    if (N.meter > 0.001) { rrPath(c, mx, my - 6, Math.max(8, mw * clamp01(N.meter)), 12, 6); c.fillStyle = '#ff7a7a'; c.fill(); }
+    c.font = `800 12px ${FONT}`; c.fillStyle = '#c6cde0'; c.textBaseline = 'middle'; c.textAlign = 'right'; c.fillText('0', mx - 8, my); c.textAlign = 'left'; c.fillText('1', mx + mw + 8, my);
+    c.strokeStyle = '#ffd166'; c.lineWidth = 2; c.beginPath(); c.moveTo(mx + mw, my - 9); c.lineTo(mx + mw, my + 9); c.stroke();
+    if (N.qs.length) pill(c, W, `${t.bitsSoFar} ${fmtD(N.bits, 2)}`, W / 2, my + 24, { size: 12, stroke: '#ff7a7a' });
+  } else if (N.qs.length) {
+    const n = N.qs.length, sp = Math.min(18, (W - 24) / n), sx = W / 2 - sp * (n - 1) / 2;
+    N.qs.forEach((q, i) => {
+      const e = Math.max(0, easeBack((tn - q.t) / 0.3)), r = Math.max(0, (q.big ? 6 : 3.5) * e);
+      c.fillStyle = q.big ? '#ffd166' : '#64748b'; c.beginPath(); c.arc(sx + i * sp, ry, r, 0, Math.PI * 2); c.fill();
+    });
+  }
+}
+
+// --- drawing: animals view -----------------------------------------------------------------------------------
+function layoutTree(c, W, H, top) {
+  const root = A.root, leaves = [], all = [], items = {};
+  const walk = (n, d) => { n.depth = d; all.push(n); if (n.q) { walk(n.yes, d + 1); walk(n.no, d + 1); } else leaves.push(n); };
+  walk(root, 0);
+  if (!root.q) {
+    const pad = 8, gap = 6, cw = (W - 2 * pad - 3 * gap) / 4, ch = 66, y0 = top + 14;
+    ANIMALS.forEach((id, i) => { items[id] = { x: pad + (i % 4) * (cw + gap) + cw / 2, y: y0 + (i >> 2) * (ch + gap) + 26, s: 30 }; });
+    A.cards = { cw, ch, y0, pad, gap };
+    Object.assign(root, { tx: W / 2, ty: y0 + ch + gap / 2, tw: W - 2 * pad + 10, th: 2 * ch + gap + 10, mode: 'cards' });
+    A.items = items; return { leaves, all, maxD: 0 };
+  }
+  const gap = 4, avail = W - 12;
+  const info = leaves.map((l) => { const k = l.animals.length, es = k <= 2 ? 22 : k <= 4 ? 20 : 17, cols = k <= 3 ? k : Math.ceil(k / 2), rows = Math.ceil(k / cols); return { l, es, cols, rows, w: cols * (es + 4) + 10, h: Math.max(34, rows * (es + 4) + 10) }; });
+  const sum = info.reduce((s, i) => s + i.w, 0) + gap * (info.length - 1), fit = Math.min(1, avail / sum);
+  const maxD = Math.max(...leaves.map((l) => l.depth)), leafH = Math.max(...info.map((i) => i.h * fit));
+  const pitch = clamp((H - top - 14 - 44 - leafH) / Math.max(1, maxD), 52, 92), cyOf = (d) => top + 36 + d * pitch;
+  let x = (W - sum * fit) / 2;
+  for (const i of info) {
+    const w = i.w * fit, h = i.h * fit, l = i.l;
+    Object.assign(l, { cx: x + w / 2, L: x, R: x + w, tx: x + w / 2, ty: cyOf(l.depth), tw: w, th: h, mode: 'leaf' });
+    x += w + gap * fit;
+    const es = i.es * fit, cell = es + 4 * fit, gw = i.cols * cell, gh = i.rows * cell;
+    l.animals.forEach((id, j) => { items[id] = { x: l.cx - gw / 2 + ((j % i.cols) + 0.5) * cell, y: l.ty - gh / 2 + (Math.floor(j / i.cols) + 0.5) * cell, s: es }; });
+  }
+  c.font = `800 12px ${FONT}`;
+  const post = (n) => {
+    if (!n.q) return;
+    post(n.yes); post(n.no);
+    n.L = n.yes.L; n.R = n.no.R; n.cx = (n.yes.cx + n.no.cx) / 2; n.tx = n.cx; n.ty = cyOf(n.depth);
+    const maxW = Math.min(150, 2 * Math.min(n.cx - n.L, n.R - n.cx));
+    let lines = null;
+    if (maxW >= 92) { lines = wrap(c, T[lang].questions[n.q], maxW - 14); if (lines.length > 2 || lines.some((l) => c.measureText(l).width > maxW - 14)) lines = null; }
+    if (lines) { n.mode = 'text'; n.lines = lines; n.tw = Math.max(...lines.map((l) => c.measureText(l).width)) + 16; n.th = lines.length * 15 + 12; }
+    else { n.mode = 'icon'; n.tw = 34; n.th = 30; }
+  };
+  post(root);
+  A.items = items; A.cards = null;
+  return { leaves, all, maxD };
+}
+function bez(p0, p1, p2, p3, t) { const u = 1 - t; return u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3; }
+function drawEdge(c, W, x1, y1, x2, y2, yes, a, label) {
+  const my = y1 + (y2 - y1) * 0.55, col = yes ? '#6ee7b7' : '#ff7a7a';
+  c.save(); c.globalAlpha = a; c.strokeStyle = col; c.lineWidth = 2; c.lineCap = 'round';
+  c.beginPath(); c.moveTo(x1, y1); c.bezierCurveTo(x1, my, x2, y2 - (y2 - y1) * 0.55, x2, y2); c.stroke(); c.restore();
+  if (a > 0.7) pill(c, W, label, bez(x1, x1, x2, x2, 0.5) + (yes ? -2 : 2), bez(y1, my, y2 - (y2 - y1) * 0.55, y2, 0.5), { size: 12, padX: 6, fg: col, bg: 'rgba(8,12,26,.9)' });
+}
+function groupBox(k, fit = 1) { const es = (k <= 2 ? 22 : k <= 4 ? 20 : 17) * fit, cols = k <= 3 ? k : Math.ceil(k / 2), rows = Math.ceil(k / cols); return { es, cols, rows, w: cols * (es + 4 * fit) + 10 * fit, h: Math.max(34 * fit, rows * (es + 4 * fit) + 10 * fit) }; }
+function qBox(c, x, y, lines, a, stroke) {
+  const w = Math.max(...lines.map((l) => c.measureText(l).width)) + 16, h = lines.length * 15 + 12;
+  const g = c.createLinearGradient(0, y - h / 2, 0, y + h / 2); g.addColorStop(0, '#2d4170'); g.addColorStop(1, '#1b2744');
+  c.save(); c.globalAlpha = a; rrPath(c, x - w / 2, y - h / 2, w, h, 10); c.fillStyle = g; c.fill(); c.lineWidth = 1.5; c.strokeStyle = stroke ?? '#7cc4ff'; c.stroke();
+  c.fillStyle = '#fff'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  lines.forEach((l, i) => c.fillText(l, x, y + (i - (lines.length - 1) / 2) * 15 + 0.5)); c.restore();
+  return { w, h };
+}
+function drawCompare(c, W, H, tn, top) {
+  const t = T[lang], e = easeOut((tn - A.cmpT) / 0.9);
+  c.font = `800 12px ${FONT}`;
+  ['big', 'shark'].forEach((q, idx) => {
+    const cx = W * (idx ? 0.75 : 0.25), pw = W / 2 - 12, good = q === 'big';
+    const yes = ANIMALS.filter((a) => QS[q].includes(a)), no = ANIMALS.filter((a) => !QS[q].includes(a));
+    const qy = top + 40, ly = top + 150;
+    const lines = wrap(c, t.questions[q], Math.min(150, pw) - 14).slice(0, 3);
+    const boxes = [yes, no].map((g) => groupBox(g.length)), totalW = boxes[0].w + boxes[1].w + 10;
+    const sx = cx - totalW / 2, lx = [sx + boxes[0].w / 2, sx + boxes[0].w + 10 + boxes[1].w / 2];
+    c.save(); rrPath(c, cx - pw / 2, top + 6, pw, 250 - 40, 16); c.strokeStyle = good ? 'rgba(110,231,183,.5)' : 'rgba(255,122,122,.4)'; c.lineWidth = 1.5; c.stroke(); c.restore();
+    [yes, no].forEach((g, j) => {
+      const b = boxes[j], y = lerp(qy, ly, e);
+      drawEdge(c, W, cx, qy + 20, lx[j], y - b.h / 2, j === 0, e, (j === 0 ? t.yes : t.no).toLocaleLowerCase(lang));
+      c.save(); c.globalAlpha = e; rrPath(c, lx[j] - b.w / 2, y - b.h / 2, b.w, b.h, 10); c.fillStyle = 'rgba(124,196,255,.10)'; c.fill(); c.strokeStyle = '#3b4f7c'; c.lineWidth = 1.5; c.stroke(); c.restore();
+      if (e > 0.5) g.forEach((id, k) => emo(c, EMO[id], lx[j] - (b.cols * (b.es + 4)) / 2 + ((k % b.cols) + 0.5) * (b.es + 4), y - (b.rows * (b.es + 4)) / 2 + (Math.floor(k / b.cols) + 0.5) * (b.es + 4), b.es * easeBack((e - 0.5) * 2)));
+    });
+    qBox(c, cx, qy, lines, 1, good ? '#6ee7b7' : '#ff7a7a');
+    if (e > 0.6) pill(c, W, `${yes.length} + ${no.length}`, cx, ly + 54, { size: 15, stroke: good ? '#6ee7b7' : '#ff7a7a' });
+  });
+}
+function drawAnimals(c, W, H, dt, tn) {
+  const t = T[lang], top = Math.max(0, band - 4);
+  if (!asked.animals && P.animals !== null) { drawCompare(c, W, H, tn, top); A.hit = []; return; }
+  const L = layoutTree(c, W, H, top), kk = 1 - Math.exp(-dt * 11);
+  A.hit = [];
+  const split = !!A.root.q;
+  A.nameA += ((split ? 0 : 1) - A.nameA) * (1 - Math.exp(-dt * 10));
+  for (const n of L.all) {
+    if (Number.isNaN(n.ax)) { n.ax = n.tx; n.ay = n.ty; n.aw = n.tw; n.ah = n.th; }
+    n.ax += (n.tx - n.ax) * kk; n.ay += (n.ty - n.ay) * kk; n.aw += (n.tw - n.aw) * kk; n.ah += (n.th - n.ah) * kk;
+  }
+  // edges
+  for (const n of L.all) if (n.q) for (const [ch, yes] of [[n.yes, true], [n.no, false]]) {
+    drawEdge(c, W, n.ax, n.ay + n.ah / 2, ch.ax, ch.ay - ch.ah / 2, yes, easeOut((tn - ch.born) / 0.5), (yes ? t.yes : t.no).toLocaleLowerCase(lang));
+  }
+  const info = treeInfo(), glowDone = info.done && info.perfect;
+  // cards of the unsplit root
+  if (A.nameA > 0.02 && A.cards) {
+    const { cw, ch, y0, pad, gap } = A.cards;
+    ANIMALS.forEach((id, i) => {
+      const x = pad + (i % 4) * (cw + gap), y = y0 + (i >> 2) * (ch + gap);
+      c.save(); c.globalAlpha = A.nameA;
+      rrPath(c, x + 1, y + 3, cw, ch, 12); c.fillStyle = 'rgba(0,0,0,.28)'; c.fill();
+      const g = c.createLinearGradient(x, y, x + cw, y + ch); g.addColorStop(0, '#2b3f6a'); g.addColorStop(1, '#1a2542');
+      rrPath(c, x, y, cw, ch, 12); c.fillStyle = g; c.fill(); c.strokeStyle = '#4a6196'; c.lineWidth = 1.5; c.stroke();
+      c.font = `800 12px ${FONT}`; c.fillStyle = '#e2e8f0'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(t.animals[id], x + cw / 2, y + ch - 12);
+      c.restore();
+    });
+  }
+  // boxes
+  for (const n of L.all) {
+    const a = easeOut((tn - n.born) / 0.45), x = n.ax - n.aw / 2, y = n.ay - n.ah / 2;
+    if (n.q) {
+      const g = c.createLinearGradient(0, y, 0, y + n.ah); g.addColorStop(0, '#2d4170'); g.addColorStop(1, '#1b2744');
+      c.save(); c.globalAlpha = a; rrPath(c, x + 1, y + 3, n.aw, n.ah, 10); c.fillStyle = 'rgba(0,0,0,.3)'; c.fill();
+      rrPath(c, x, y, n.aw, n.ah, 10); c.fillStyle = g; c.fill(); c.lineWidth = 1.5; c.strokeStyle = '#7cc4ff'; c.stroke(); c.restore();
+      if (n.mode === 'text') { c.save(); c.font = `800 12px ${FONT}`; c.fillStyle = '#fff'; c.textAlign = 'center'; c.textBaseline = 'middle'; n.lines.forEach((l, i) => c.fillText(l, n.ax, n.ay + (i - (n.lines.length - 1) / 2) * 15 + 0.5)); c.restore(); }
+      else emo(c, QICON[n.q], n.ax, n.ay + 1, 16);
+      A.hit.push({ x, y, w: n.aw, h: n.ah, node: n });
+    } else if (n.mode === 'leaf') {
+      const single = n.animals.length === 1, sel = A.sel === n;
+      c.save(); c.globalAlpha = a; rrPath(c, x, y, n.aw, n.ah, 10); c.fillStyle = single ? 'rgba(110,231,183,.10)' : 'rgba(124,196,255,.10)'; c.fill();
+      c.lineWidth = 1.5; c.strokeStyle = glowDone ? '#ffd166' : single ? 'rgba(110,231,183,.7)' : '#4a6196'; if (!single) c.setLineDash([5, 4]); c.stroke(); c.restore();
+      A.hit.push({ x: x - 3, y: y - 3, w: n.aw + 6, h: n.ah + 6, node: n });
+    } else A.hit.push({ x, y, w: n.aw, h: n.ah, node: n });
+  }
+  // selection
+  const sel = A.sel;
+  if (sel && !sel.q && sel.animals.length > 1) {
+    const pulse = 0.6 + 0.4 * Math.sin(tn * 5), x = sel.ax - sel.aw / 2 - 4, y = sel.ay - sel.ah / 2 - 4;
+    c.save(); c.strokeStyle = `rgba(255,209,102,${pulse})`; c.lineWidth = 2.5; c.setLineDash([7, 5]); c.lineDashOffset = -tn * 14; rrPath(c, x, y, sel.aw + 8, sel.ah + 8, 14); c.stroke(); c.restore();
+  }
+  // the animals
+  for (const id of ANIMALS) {
+    const it = A.items[id]; let an = A.an[id];
+    if (!an) an = A.an[id] = { x: it.x, y: it.y, vx: 0, vy: 0, s: it.s };
+    const steps = Math.max(1, Math.ceil(dt / 0.016));
+    for (let i = 0; i < steps; i++) {
+      const h = dt / steps;
+      an.vx += ((it.x - an.x) * 150 - an.vx * 15) * h; an.vy += ((it.y - an.y) * 150 - an.vy * 15) * h;
+      an.x += an.vx * h; an.y += an.vy * h;
+    }
+    an.s += (it.s - an.s) * kk;
+    emo(c, EMO[id], an.x, an.y, an.s);
+  }
+  // caption
+  let cap = A.cap && tn - A.capAt < 5 ? A.cap : '';
+  if (!cap && !info.done) cap = t.pickNode;
+  if (cap) pill(c, W, cap, W / 2, H - 22, { size: 13 });
+}
+
+// --- drawing: bits view --------------------------------------------------------------------------------------
+function drawBits(c, W, H, dt, tn) {
+  const t = T[lang], n = B.n, rev = asked.bits || P.bits !== null;
+  const top = 10 + Math.max(0, band);
+  B.hit = [];
+  if (rev) B.shown += (2 ** n - B.shown) * (1 - Math.exp(-dt * 4)); else B.shown = 0;
+  // switches and lamps
+  const slot = Math.min(44, (W - 24) / n), sx = (W - slot * n) / 2;
+  let idx = 0;
+  for (let i = 0; i < n; i++) {
+    const on = B.sw[i] ? 1 : 0; idx = idx * 2 + on;
+    B.swA[i] += (on - B.swA[i]) * (1 - Math.exp(-dt * 14));
+    const a = B.swA[i], cx = sx + (i + 0.5) * slot, lampY = top + 16, swY = top + 62, sw = Math.min(26, slot - 6);
+    // lamp
+    if (a > 0.02) { const g = c.createRadialGradient(cx, lampY, 2, cx, lampY, 24); g.addColorStop(0, `rgba(255,209,102,${0.7 * a})`); g.addColorStop(1, 'rgba(255,209,102,0)'); c.fillStyle = g; c.beginPath(); c.arc(cx, lampY, 24, 0, Math.PI * 2); c.fill(); }
+    const lg = c.createRadialGradient(cx - 3, lampY - 3, 1, cx, lampY, 11); lg.addColorStop(0, mixHex('#3a465e', '#fff3c4', a)); lg.addColorStop(1, mixHex('#1e293b', '#ffb703', a));
+    c.fillStyle = lg; c.beginPath(); c.arc(cx, lampY, 10, 0, Math.PI * 2); c.fill(); c.strokeStyle = mixHex('#475569', '#b8841a', a); c.lineWidth = 1.5; c.stroke();
+    c.strokeStyle = 'rgba(148,160,184,.35)'; c.lineWidth = 2; c.beginPath(); c.moveTo(cx, lampY + 11); c.lineTo(cx, swY - 21); c.stroke();
+    // switch
+    rrPath(c, cx - sw / 2 + 1, swY - 21 + 3, sw, 42, 8); c.fillStyle = 'rgba(0,0,0,.3)'; c.fill();
+    const hg = c.createLinearGradient(0, swY - 21, 0, swY + 21); hg.addColorStop(0, mixHex('#56657f', '#3f8f78', a)); hg.addColorStop(1, mixHex('#2b364b', '#1f5c4b', a));
+    rrPath(c, cx - sw / 2, swY - 21, sw, 42, 8); c.fillStyle = hg; c.fill(); c.strokeStyle = '#0f172a'; c.lineWidth = 1.5; c.stroke();
+    const ky = lerp(swY + 10, swY - 10, a), kg = c.createLinearGradient(cx - 8, ky - 8, cx + 8, ky + 8); kg.addColorStop(0, '#f8fafc'); kg.addColorStop(1, mixHex('#aab4c8', '#9be8c9', a));
+    rrPath(c, cx - sw / 2 + 3, ky - 8, sw - 6, 16, 6); c.fillStyle = kg; c.fill(); c.strokeStyle = 'rgba(15,23,42,.5)'; c.lineWidth = 1; c.stroke();
+    c.font = `800 14px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = on ? '#ffd166' : '#94a3b8'; c.fillText(on ? '1' : '0', cx, swY + 34);
+    B.hit.push({ x: cx - slot / 2, y: lampY - 14, w: slot, h: swY + 44 - lampY, i });
+  }
+  // patterns
+  const py = top + 114, count = 2 ** n;
+  let targetH = 100;
+  const tileW = n * 7 + 6, cols = Math.max(1, Math.min(count, Math.floor((W - 12 + 4) / (tileW + 4)))), rows = Math.ceil(count / cols);
+  if (rev && n <= 6) targetH = rows * 16 + 8;
+  B.gh += (targetH - B.gh) * (1 - Math.exp(-dt * 8));
+  if (rev && n <= 6) {
+    const gx = (W - (cols * (tileW + 4) - 4)) / 2;
+    for (let p = 0; p < count; p++) {
+      const x = gx + (p % cols) * (tileW + 4), y = py + Math.floor(p / cols) * 16 + 4, e = easeOut((tn - B.gridAt - p * 0.005) / 0.3);
+      if (e <= 0.01) continue;
+      c.save(); c.globalAlpha = e; const cur = p === idx;
+      rrPath(c, x, y, tileW, 13, 5); c.fillStyle = cur ? 'rgba(255,209,102,.18)' : 'rgba(255,255,255,.06)'; c.fill(); if (cur) { c.strokeStyle = '#ffd166'; c.lineWidth = 1.5; c.stroke(); }
+      for (let i = 0; i < n; i++) { c.fillStyle = (p >> (n - 1 - i)) & 1 ? '#ffd166' : '#2a3650'; c.beginPath(); c.arc(x + 3 + 3.5 + i * 7, y + 6.5, 2.6, 0, Math.PI * 2); c.fill(); }
+      c.restore();
+    }
+  } else {
+    const cy = py + 38;
+    c.save(); c.font = `900 46px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.shadowColor = 'rgba(255,209,102,.5)'; c.shadowBlur = 18; c.fillStyle = '#ffd166';
+    c.fillText(rev ? fmt(B.shown) : '?', W / 2, cy); c.restore();
+    if (rev) {
+      if (n === 8) pill(c, W, t.byteNote, W / 2, cy + 40, { size: 13, stroke: '#ffd166' });
+      else pill(c, W, Array(n).fill('2').join(' × '), W / 2, cy + 40, { size: 12 });
+    }
+  }
+  // file sizes, log scale
+  const by = py + B.gh + 14, rowH = 32, pad = 14, bw = W - 2 * pad;
+  BAR.forEach(([key, bytes], i) => {
+    const y = by + i * rowH, f = (Math.log10(bytes) + 1) / 10.2, hot = key === 'letter' && n === 8 && rev;
+    c.font = `800 12px ${FONT}`; c.textBaseline = 'middle'; c.textAlign = 'left'; c.fillStyle = hot ? '#ffd166' : '#e2e8f0'; c.fillText(t.files[key], pad, y + 8);
+    c.textAlign = 'right'; c.fillStyle = '#98a0b8'; c.fillText(t.sizes[key], W - pad, y + 8);
+    rrPath(c, pad, y + 17, bw, 8, 4); c.fillStyle = 'rgba(255,255,255,.07)'; c.fill();
+    const g = c.createLinearGradient(pad, 0, pad + bw * f, 0); g.addColorStop(0, hot ? '#ffe29a' : '#a6d8ff'); g.addColorStop(1, hot ? '#e3a928' : '#4b9bdc');
+    rrPath(c, pad, y + 17, Math.max(8, bw * f), 8, 4); c.fillStyle = g; c.fill();
+  });
+}
+
+// --- main loop -----------------------------------------------------------------------------------------------
+newGame();
+render();
+canvasLoop($('cv'), (c, W, H, dt, time) => {
+  const tn = now();
+  for (let i = 0; i < sched.length;) { if (sched[i].at <= tn) { const [f] = sched.splice(i, 1); f.fn(); } else i++; }
+  band += ((askEl.hidden ? 0 : askEl.offsetHeight + 16) - band) * (1 - Math.exp(-dt * 10));
+  drawBoard(c, W, H);
+  const v = lab.view;
+  if (v === 'number') drawNumber(c, W, H, dt, tn); else if (v === 'animals') drawAnimals(c, W, H, dt, tn); else drawBits(c, W, H, dt, tn);
+});
+</script>
+</body>
+</html>
