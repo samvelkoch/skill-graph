@@ -29,6 +29,7 @@ const secret = secretLab('magnets', () => ({
 | `#stage` with `<canvas id="cv">` and `#overlay` | the main picture; HTML on top goes in `#overlay` |
 | `#ctrl`: `#val`, `#valSub`, `#pill`, `#ctrlBody` | the readout and your controls (put sliders and chips in `#ctrlBody`) |
 | `#state` card | `lab.setState({ emo, title, lead, body, extra })` |
+| `#cue` button | filled by `lab.setState` (the step's emoji + title; its "Why" text points to the `#state` card). In labs with more than one view it sits as a compact "💡 Why" button at the right of the tabs row, which stays pinned on phones (it shrinks to the bulb when the row would wrap); in single-view labs it stays under the picture. Don't touch it from the lab. |
 | `#gauge` | `lab.setGauge(frac, ticks, cap)`; hide it with `#gauge { display: none }` if unused |
 
 `lab.setFacts([{ emo, text, src }])` fills the "Did you know?" box under the state card (see "Fun facts" in [SKILL.md](SKILL.md)); `[]` hides it. Call it from `render()` with `T[lang]` text, so it follows the language and the view; a list with more than one fact gets an "Another fact" button.

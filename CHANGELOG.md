@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-03
 
 ### Labs
+- The "Why" button moves from under the picture to the right end of the tabs row (pinned on phones), freeing a row on small screens; single-view labs keep it under the picture. (#303)
 - `sound-poems`: fifth part, 3 poems on С’ and 3 on З’ under the speech therapist's rule for whistling sounds, each approved one by one, all strict; 36 poems in all. (#302)
 - `sound-poems`: the poem list becomes face-down hero cards — the child opens a card to meet the poem's hero (up to 3 cards per deal, a surprise card, reshuffle); the hero filter chips are gone. (#301)
 - `sound-poems`: fourth part, 3 poems on З, each approved one by one, all strict; 30 poems in all. (#300)

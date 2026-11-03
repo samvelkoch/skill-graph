@@ -28,6 +28,7 @@ Collected while building and reviewing 100+ labs. Read before you build and agai
 
 ## Phones
 - The stage is capped on phones to `100svh − pinned tabs − 250px` (`max-height` in `lab.css`, beats the lab's own `height`). Draw pictures that scale to fit BOTH width and height of the canvas: compute the scale as `min(w / W, h / H)` of a design box, never width only.
+- The step's "💡 Why" button (`#cue`, filled by `lab.setState`) sits at the right of the tabs row in multi-view labs, so it is pinned with the tabs; in single-view labs it stays under the picture. Don't style or move `#cue` in a lab.
 - The canvas allows vertical page scrolling (`touch-action: pan-y`) by default. A lab that drags on the canvas sets `#stage canvas { touch-action: none; }` in its own style (or `pan-x` / `pan-y` for a one-axis drag).
 - Put the first control (slider / chips) as high as possible in `#ctrlBody`, and keep the question text short, so the picture and the control fit on one screen.
 
