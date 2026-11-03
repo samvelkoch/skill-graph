@@ -5,6 +5,8 @@
  *  - the target sound (each sound of a pair) comes often enough;
  *  - no words whose pronunciation norm is unsettled (дождь, вожжи…);
  *  - 4 or 8 lines; warns when the syllable count of rhyming lines differs a lot or the line ends do not look like AABB / ABAB.
+ *  - whistling targets (С’ З’ С З Ц): no hushing sounds at all; later sounds such as Л and Р only in words without the
+ *    target sound (the speech therapist's rule), and at most NEAR_MAX such words per quatrain;
  * Also reports which poems pass the stricter rule (whistling and hushing sounds apart, Л and Р apart).
  *
  *   node scripts/sound-poems-check.mjs            # the collection
@@ -23,6 +25,7 @@ const text = arg ? readFileSync(resolve(arg), 'utf8') : (await import(pathToFile
 const poems = parsePoems(text);
 const SEASONS = new Set(['autumn', 'winter', 'spring', 'summer', 'any']);
 const MIN = 4; // the target sound at least this many times per quatrain (each sound of a pair: 3)
+const NEAR_MAX = 3; // whistling poems: words with Л, Р… (outside the target words) per quatrain — "чуть-чуть"
 
 const DEV = { б: 'п', в: 'ф', г: 'к', д: 'т', ж: 'ш', з: 'с' };
 const norm = (w) => w.toLowerCase().replace(/ё/g, 'о').replace(/ы/g, 'и').replace(/я/g, 'а').replace(/ю/g, 'у').replace(/е/g, 'э').replace(/[ьъ]/g, '')
@@ -44,6 +47,7 @@ for (const p of poems) {
   for (const b of r.bad) msgs.push(`«${b.w}» has ${LABEL[b.k]}`);
   for (const a of r.ambiguous) msgs.push(`«${a.w}»: ${a.why === 'soft' ? 'soft or hard, the norm allows both' : 'pronunciation not fixed'}`);
   const q = p.lines.length / 4;
+  if (r.near.length > NEAR_MAX * q) msgs.push(`${r.near.length} words with later sounds (${r.near.map((b) => b.w).join(', ')}), max ${NEAR_MAX * q}`);
   for (const k of keys) { const need = (keys.length > 1 ? 3 : MIN) * q; if (r.n[k] < need) msgs.push(`${LABEL[k]} only ${r.n[k]}× (need ${need})`); }
   // rhythm and rhyme: per quatrain
   for (let s = 0; s + 3 < p.lines.length; s += 4) {
