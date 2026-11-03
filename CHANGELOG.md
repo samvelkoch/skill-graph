@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-03
 
 ### Labs
+- Phones: the top bar shrinks to one row of tabs while scrolling, the picture is capped so it fits on screen together with the first control, and a swipe on the picture scrolls the page (labs that drag on the picture keep it). (#PR)
 - `sound-poems`: third part, 3 poems on С, each approved one by one, all strict; 27 poems in all. New rule for whistling sounds (С’ З’ С З Ц) from the speech therapist: no hushing sounds at all, and a few later sounds such as Л and Р (at most 3 words per quatrain) only in words without the target sound; the checker and the adult view follow it. (#298)
 
 ## 2026-11-02

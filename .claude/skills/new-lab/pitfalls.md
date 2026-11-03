@@ -26,6 +26,11 @@ Collected while building and reviewing 100+ labs. Read before you build and agai
 - Readouts drop meaningless parts: `2 × 6`, not `0 + 2 × 6`.
 - Pointer events (`pointerdown/move/up`) for dragging, with `touch-action: none` only on draggable areas.
 
+## Phones
+- The stage is capped on phones to `100svh − pinned tabs − 210px` (`max-height` in `lab.css`, beats the lab's own `height`). Draw pictures that scale to fit BOTH width and height of the canvas: compute the scale as `min(w / W, h / H)` of a design box, never width only.
+- The canvas allows vertical page scrolling (`touch-action: pan-y`) by default. A lab that drags on the canvas sets `#stage canvas { touch-action: none; }` in its own style (or `pan-x` / `pan-y` for a one-axis drag).
+- Put the first control (slider / chips) as high as possible in `#ctrlBody`, and keep the question text short, so the picture and the control fit on one screen.
+
 ## Visual quality
 The labs must look crafted, not "made of sticks". The main picture is the most important part of the job.
 - Depth: soft gradients instead of flat fills on big shapes, light from the top left, a soft shadow under objects, 1–2 px darker outlines on key shapes.

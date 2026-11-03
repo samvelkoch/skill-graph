@@ -168,7 +168,22 @@ export function shell(cfg) {
       const p = new URLSearchParams({ topic: t.id }); if (lang !== 'en') p.set('lang', lang);
       return `<a href="../../?${p}">${esc(t[lang])}</a>`;
     }).join('')}<span class="lic">${esc(u.lic)} <a class="contrib" href="${CONTRIB}" target="_blank" rel="noopener">${esc(u.contrib)}</a></span>`;
+    measureBar();
   };
+  // phones: only the view tabs stay pinned while scrolling; --bar-hide = height of the row above them (scrolls away),
+  // --bar-keep = the pinned rest (the stage height cap in lab.css uses it). Wider screens: nothing hides.
+  const measureBar = () => {
+    const bar = document.querySelector('.bar'), views = $('views');
+    if (!bar) return;
+    const root = document.documentElement.style, h = bar.getBoundingClientRect().height;
+    const phone = matchMedia('(max-width: 760px)').matches;
+    const hide = !phone ? 0 : views.style.display === 'none' ? h : Math.max(0, views.getBoundingClientRect().top - bar.getBoundingClientRect().top);
+    root.setProperty('--bar-hide', `${Math.round(hide * 10) / 10}px`);
+    root.setProperty('--bar-keep', `${Math.round((h - hide) * 10) / 10}px`);
+  };
+  addEventListener('resize', measureBar);
+  new ResizeObserver(measureBar).observe(document.querySelector('.bar')); // the "other labs" button arrives late; fonts load late
+  document.fonts?.ready.then(measureBar);
 
   $('langs').addEventListener('click', (ev) => {
     const k = ev.target.closest('button')?.dataset.lang;
