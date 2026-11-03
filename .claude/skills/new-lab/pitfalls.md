@@ -27,7 +27,7 @@ Collected while building and reviewing 100+ labs. Read before you build and agai
 - Pointer events (`pointerdown/move/up`) for dragging, with `touch-action: none` only on draggable areas.
 
 ## Phones
-- The stage is capped on phones to `100svh − pinned tabs − 210px` (`max-height` in `lab.css`, beats the lab's own `height`). Draw pictures that scale to fit BOTH width and height of the canvas: compute the scale as `min(w / W, h / H)` of a design box, never width only.
+- The stage is capped on phones to `100svh − pinned tabs − 250px` (`max-height` in `lab.css`, beats the lab's own `height`). Draw pictures that scale to fit BOTH width and height of the canvas: compute the scale as `min(w / W, h / H)` of a design box, never width only.
 - The canvas allows vertical page scrolling (`touch-action: pan-y`) by default. A lab that drags on the canvas sets `#stage canvas { touch-action: none; }` in its own style (or `pan-x` / `pan-y` for a one-axis drag).
 - Put the first control (slider / chips) as high as possible in `#ctrlBody`, and keep the question text short, so the picture and the control fit on one screen.
 
