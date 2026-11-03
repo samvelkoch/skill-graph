@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-02
 
 ### Labs
+- `sound-poems`: second part, 3 poems on Л’ and 3 on Р’, each approved one by one, all strict; 24 poems in all. (#280)
 - New lab `unification` “Many States, One Nation”: toll gates from Hamburg to Munich, 39 German states become one empire, Garibaldi’s Thousand (369). (#297)
 - New lab `ottoman` “The Empire on Three Continents”: 400 years of the Ottoman Empire on a map, Hungary in three parts after 1541, many peoples in one empire (368). (#296)
 - New lab `moscow` “Gathering the Lands”: Moscow gathers its neighbours from 1300 to 1533, tribute to the Horde from Kulikovo to the Ugra, why Moscow (367). (#295)
