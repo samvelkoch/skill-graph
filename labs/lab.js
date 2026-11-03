@@ -188,16 +188,18 @@ export function shell(cfg) {
     root.setProperty('--bar-hide', `${Math.round(hide * 10) / 10}px`);
     root.setProperty('--bar-keep', `${Math.round((h - hide) * 10) / 10}px`);
   };
-  // the "Why" button in the tabs row: if it makes the row wrap, shrink it to the bulb; if it still wraps, give the text back
+  // the "Why" button in the tabs row sits beside the tabs, never on its own line. If its full label makes the tabs wrap more
+  // (or overflows the row), it shrinks to the bulb.
   const fitCue = () => {
-    const cue = $('cue'), tab = $('views').querySelector('button');
-    if (!cue || !tab || cue.parentElement !== $('viewsRow')) return;
+    const cue = $('cue'), views = $('views'), row = $('viewsRow');
+    if (!cue || cue.parentElement !== row) return;
     cue.classList.remove('compact'); cue.removeAttribute('aria-label');
     if (cue.hidden) return;
-    const wraps = () => cue.getBoundingClientRect().top - tab.getBoundingClientRect().top > 10;
-    if (!wraps()) return;
-    cue.classList.add('compact'); cue.setAttribute('aria-label', $('cueWhy').textContent);
-    if (wraps()) { cue.classList.remove('compact'); cue.removeAttribute('aria-label'); }
+    const a = views.getBoundingClientRect().height, over = row.scrollWidth > row.clientWidth + 1;
+    cue.classList.add('compact');
+    const b = views.getBoundingClientRect().height;
+    if (b < a || over) cue.setAttribute('aria-label', $('cueWhy').textContent);
+    else cue.classList.remove('compact');
   };
   // phones: the stage is capped (lab.css); a stage whose content is taller than the cap (HTML cards, auto height) is set free
   // by the class `stage-free` on <html>. Remove the class, measure the children, set it again; a stage that fits is left as it was.
