@@ -15,7 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-03
 
 ### Labs
-- `sound-poems`: first pair poems, З–Ж (2 poems, approved one by one; a third will follow); 41 poems in all. (#PR)
+- `sound-poems`: first pair poems, З–Ж (2 poems, approved one by one; a third will follow); 41 poems in all. (#305)
 - `sound-poems`: sixth part, 3 poems on Ж, each approved one by one; 39 poems in all. (#304)
 - The "Why" button moves from under the picture to the right end of the tabs row (pinned on phones), freeing a row on small screens; single-view labs keep it under the picture. (#303)
 - `sound-poems`: fifth part, 3 poems on С’ and 3 on З’ under the speech therapist's rule for whistling sounds, each approved one by one, all strict; 36 poems in all. (#302)
