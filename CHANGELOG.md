@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-03
 
 ### Labs
+- `sound-poems`: third З–Ж poem; the speech therapist's allowance for whistling sounds now also covers pairs with a whistling sound (З–Ж, С–Ш, С–Ц): up to 3 words per quatrain with Л or Р outside the target words, never Ч or Щ; 42 poems in all. (#PR)
 - `sound-poems`: first pair poems, З–Ж (2 poems, approved one by one; a third will follow); 41 poems in all. (#305)
 - `sound-poems`: sixth part, 3 poems on Ж, each approved one by one; 39 poems in all. (#304)
 - The "Why" button moves from under the picture to the right end of the tabs row (pinned on phones), freeing a row on small screens; single-view labs keep it under the picture. (#303)
