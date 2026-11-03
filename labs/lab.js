@@ -122,7 +122,7 @@ export function shell(cfg) {
   document.body.insertAdjacentHTML('afterbegin', `
   <nav class="bar">
     <a id="brand" href="../../"></a>
-    <div id="views" class="card seg" role="tablist"></div>
+    <div id="viewsRow"><div id="views" class="card seg" role="tablist"></div></div>
     <div id="langs" class="card seg"></div>
     <button id="sound" class="card iconbtn"></button>
   </nav>
@@ -159,8 +159,14 @@ export function shell(cfg) {
     $('brand').title = u.back;
     $('langs').innerHTML = Object.entries(LANGS).map(([k, v]) => `<button data-lang="${k}" class="${k === lang ? 'on' : ''}">${v}</button>`).join('');
     $('views').innerHTML = (cfg.views ?? []).map((v) => `<button role="tab" data-view="${v}" class="${v === lab.view ? 'on' : ''}">${T.views[v]}</button>`).join('');
-    $('views').style.display = cfg.views?.length > 1 ? '' : 'none';
+    const multi = cfg.views?.length > 1;
+    $('views').style.display = multi ? '' : 'none';
+    $('viewsRow').style.display = multi ? '' : 'none'; // no empty row; the cue is in the stage then
+    // the step's "Why" button: right of the tabs when there are several views, under the picture otherwise
+    const cueEl = $('cue'), cueHome = multi ? $('viewsRow') : $('stage');
+    if (cueEl.parentElement !== cueHome) cueHome.append(cueEl);
     $('cueWhy').textContent = u.why;
+    fitCue();
     $('sound').textContent = soundOn ? '🔊' : '🔈';
     $('sound').title = `${u.sound}: ${soundOn ? 'on' : 'off'}`;
     $('hero').innerHTML = `<h1>${T.title}${/[?!.…]$/.test(T.title) ? '' : '<i>.</i>'}</h1>${T.lines.map(([b, r]) => `<p><b>${esc(b)}</b> ${esc(r)}</p>`).join('')}`;
@@ -173,13 +179,25 @@ export function shell(cfg) {
   // phones: only the view tabs stay pinned while scrolling; --bar-hide = height of the row above them (scrolls away),
   // --bar-keep = the pinned rest (the stage height cap in lab.css uses it). Wider screens: nothing hides.
   const measureBar = () => {
-    const bar = document.querySelector('.bar'), views = $('views');
+    const bar = document.querySelector('.bar'), views = $('views'), row = $('viewsRow');
     if (!bar) return;
     const root = document.documentElement.style, h = bar.getBoundingClientRect().height;
     const phone = matchMedia('(max-width: 760px)').matches;
-    const hide = !phone ? 0 : views.style.display === 'none' ? h : Math.max(0, views.getBoundingClientRect().top - bar.getBoundingClientRect().top);
+    const rowOff = views.style.display === 'none' && $('cue').parentElement !== row; // single-view lab: the whole bar scrolls away
+    const hide = !phone ? 0 : rowOff ? h : Math.max(0, row.getBoundingClientRect().top - bar.getBoundingClientRect().top);
     root.setProperty('--bar-hide', `${Math.round(hide * 10) / 10}px`);
     root.setProperty('--bar-keep', `${Math.round((h - hide) * 10) / 10}px`);
+  };
+  // the "Why" button in the tabs row: if it makes the row wrap, shrink it to the bulb; if it still wraps, give the text back
+  const fitCue = () => {
+    const cue = $('cue'), tab = $('views').querySelector('button');
+    if (!cue || !tab || cue.parentElement !== $('viewsRow')) return;
+    cue.classList.remove('compact'); cue.removeAttribute('aria-label');
+    if (cue.hidden) return;
+    const wraps = () => cue.getBoundingClientRect().top - tab.getBoundingClientRect().top > 10;
+    if (!wraps()) return;
+    cue.classList.add('compact'); cue.setAttribute('aria-label', $('cueWhy').textContent);
+    if (wraps()) { cue.classList.remove('compact'); cue.removeAttribute('aria-label'); }
   };
   // phones: the stage is capped (lab.css); a stage whose content is taller than the cap (HTML cards, auto height) is set free
   // by the class `stage-free` on <html>. Remove the class, measure the children, set it again; a stage that fits is left as it was.
@@ -195,10 +213,10 @@ export function shell(cfg) {
     if (free) root.classList.add('stage-free');
   };
   const checkStageSoon = () => { requestAnimationFrame(checkStage); setTimeout(checkStage, 0); };
-  addEventListener('resize', () => { measureBar(); checkStage(); });
+  addEventListener('resize', () => { fitCue(); measureBar(); checkStage(); });
   document.fonts?.ready.then(checkStage);
-  new ResizeObserver(measureBar).observe(document.querySelector('.bar')); // the "other labs" button arrives late; fonts load late
-  document.fonts?.ready.then(measureBar);
+  new ResizeObserver(() => { fitCue(); measureBar(); }).observe(document.querySelector('.bar')); // the "other labs" button arrives late; fonts load late
+  document.fonts?.ready.then(() => { fitCue(); measureBar(); });
 
   $('langs').addEventListener('click', (ev) => {
     const k = ev.target.closest('button')?.dataset.lang;
@@ -227,13 +245,15 @@ export function shell(cfg) {
   $('cue').addEventListener('click', () => {
     sfx.tick();
     const r = $('state').getBoundingClientRect();
-    if (r.top < 0 || r.bottom > innerHeight) $('state').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+    const keep = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--bar-keep')) || 0; // the pinned tabs
+    if (r.top < keep || r.bottom > innerHeight) $('state').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
     cued();
   });
   lab.setState = ({ emo, title, lead, body, extra = '' }) => {
     $('stEmo').textContent = emo; $('stTitle').textContent = title; $('stLead').textContent = lead;
     $('stBody').textContent = body; $('stExtra').innerHTML = extra;
     $('cue').hidden = !title; $('cueEmo').textContent = emo ?? ''; $('cueTitle').textContent = title ?? '';
+    fitCue();
     const key = `${emo}|${title}`;
     if (cueKey !== null && key !== cueKey && lang === cueLang) cueFlash();
     cueKey = key; cueLang = lang;
