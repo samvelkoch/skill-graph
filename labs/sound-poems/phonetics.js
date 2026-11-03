@@ -174,25 +174,32 @@ export function analysePoem(text) {
   return { lines, words: flat, count, maybe, pos };
 }
 
-// Check a poem against a target: one sound key or a pair 'a+b'. → { ok, strict, bad: [{w, k}], ambiguous: [...], n }
+// Check a poem against a target: one sound key or a pair 'a+b'. → { ok, strict, bad: [{w, k}], ambiguous: [...], near: [{w, k, li}], n }
 export function checkPoem(text, target) {
   const keys = target.split('+');
   const top = Math.max(...keys.map((k) => RANK[k]));
   const groups = new Set(keys.map((k) => GROUP[k]));
   const forbidStrict = new Set([...groups].map((g) => OPPOSITE[g]).filter((g) => !groups.has(g)));
   const A = analysePoem(text);
-  const bad = [], strictBad = [], ambiguous = [];
+  // whistling targets (the speech therapist's rule): no hushing sounds at all, but a few later sounds (Л, Р…)
+  // may stand in words that do not carry the target sound — they come back in `near`, one entry per word
+  const whistling = keys.every((k) => GROUP[k] === 'wh');
+  const bad = [], strictBad = [], ambiguous = [], near = [];
   for (const w of A.words) {
     if (w.info.ambiguous) ambiguous.push({ w: w.w, why: 'norm' });
+    const hasTarget = w.info.sounds.some((s) => keys.includes(s.k) || keys.includes(s.amb));
     for (const s of w.info.sounds) {
       const opts = [s.k, s.amb].filter(Boolean);
-      if (opts.some((k) => RANK[k] > top)) bad.push({ w: w.w, k: opts.find((k) => RANK[k] > top) });
+      const hush = whistling && opts.find((k) => GROUP[k] === 'hi');
+      const later = hush || opts.find((k) => RANK[k] > top);
+      if (later && whistling && !hush && !hasTarget) { if (near.at(-1)?.w !== w.w) near.push({ w: w.w, k: later, li: w.li }); }
+      else if (later) bad.push({ w: w.w, k: later });
       if (s.amb && keys.some((k) => opts.includes(k))) ambiguous.push({ w: w.w, why: 'soft' });
       if (opts.some((k) => forbidStrict.has(GROUP[k]) && !keys.includes(k))) strictBad.push({ w: w.w, k: opts.find((k) => forbidStrict.has(GROUP[k])) });
     }
   }
   const n = Object.fromEntries(keys.map((k) => [k, A.count[k] ?? 0]));
-  return { ok: bad.length === 0, strict: bad.length === 0 && strictBad.length === 0, bad, strictBad, ambiguous, n, analysis: A };
+  return { ok: bad.length === 0, strict: bad.length === 0 && strictBad.length === 0, bad, strictBad, ambiguous, near, n, analysis: A };
 }
 
 export const syllables = (line) => [...line.toLowerCase()].filter((c) => VOWELS.includes(c)).length;
