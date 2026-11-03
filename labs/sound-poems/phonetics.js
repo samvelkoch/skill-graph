@@ -184,6 +184,8 @@ export function checkPoem(text, target) {
   // whistling targets (the speech therapist's rule): no hushing sounds at all, but a few later sounds (Л, Р…)
   // may stand in words that do not carry the target sound — they come back in `near`, one entry per word
   const whistling = keys.every((k) => GROUP[k] === 'wh');
+  // the same allowance for pairs with a whistling sound (С–Ш, З–Ж, С–Ц): later Л, Р… outside the target words, never Ч or Щ
+  const relaxed = whistling || (keys.length > 1 && keys.some((k) => GROUP[k] === 'wh') && keys.every((k) => GROUP[k] === 'wh' || GROUP[k] === 'hi'));
   const bad = [], strictBad = [], ambiguous = [], near = [];
   for (const w of A.words) {
     if (w.info.ambiguous) ambiguous.push({ w: w.w, why: 'norm' });
@@ -192,7 +194,7 @@ export function checkPoem(text, target) {
       const opts = [s.k, s.amb].filter(Boolean);
       const hush = whistling && opts.find((k) => GROUP[k] === 'hi');
       const later = hush || opts.find((k) => RANK[k] > top);
-      if (later && whistling && !hush && !hasTarget) { if (near.at(-1)?.w !== w.w) near.push({ w: w.w, k: later, li: w.li }); }
+      if (later && relaxed && !hush && GROUP[later] !== 'hi' && !hasTarget) { if (near.at(-1)?.w !== w.w) near.push({ w: w.w, k: later, li: w.li }); }
       else if (later) bad.push({ w: w.w, k: later });
       if (s.amb && keys.some((k) => opts.includes(k))) ambiguous.push({ w: w.w, why: 'soft' });
       if (opts.some((k) => forbidStrict.has(GROUP[k]) && !keys.includes(k))) strictBad.push({ w: w.w, k: opts.find((k) => forbidStrict.has(GROUP[k])) });

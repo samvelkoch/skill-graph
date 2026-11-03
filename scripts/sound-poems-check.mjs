@@ -7,6 +7,7 @@
  *  - 4 or 8 lines; warns when the syllable count of rhyming lines differs a lot or the line ends do not look like AABB / ABAB.
  *  - whistling targets (С’ З’ С З Ц): no hushing sounds at all; later sounds such as Л and Р only in words without the
  *    target sound (the speech therapist's rule), and at most NEAR_MAX such words per quatrain;
+ *    pairs with a whistling sound (С–Ш, З–Ж, С–Ц) get the same allowance for Л, Р… (never Ч or Щ);
  * Also reports which poems pass the stricter rule (whistling and hushing sounds apart, Л and Р apart).
  *
  *   node scripts/sound-poems-check.mjs            # the collection
@@ -25,7 +26,7 @@ const text = arg ? readFileSync(resolve(arg), 'utf8') : (await import(pathToFile
 const poems = parsePoems(text);
 const SEASONS = new Set(['autumn', 'winter', 'spring', 'summer', 'any']);
 const MIN = 4; // the target sound at least this many times per quatrain (each sound of a pair: 3)
-const NEAR_MAX = 3; // whistling poems: words with Л, Р… (outside the target words) per quatrain — "чуть-чуть"
+const NEAR_MAX = 3; // whistling poems and pairs with a whistling sound: words with Л, Р… (outside the target words) per quatrain — "чуть-чуть"
 
 const DEV = { б: 'п', в: 'ф', г: 'к', д: 'т', ж: 'ш', з: 'с' };
 const norm = (w) => w.toLowerCase().replace(/ё/g, 'о').replace(/ы/g, 'и').replace(/я/g, 'а').replace(/ю/g, 'у').replace(/е/g, 'э').replace(/[ьъ]/g, '')
