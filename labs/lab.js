@@ -182,14 +182,15 @@ export function shell(cfg) {
     root.setProperty('--bar-keep', `${Math.round((h - hide) * 10) / 10}px`);
   };
   // phones: the stage is capped (lab.css); a stage whose content is taller than the cap (HTML cards, auto height) is set free
-  // by the class `stage-free` on <html>. Remove the class, measure, set it again; a stage that fits is left as it was.
+  // by the class `stage-free` on <html>. Remove the class, measure the children, set it again; a stage that fits is left as it was.
   const checkStage = () => {
     const root = document.documentElement, stage = $('stage');
     if (!stage) return;
     let free = false;
     if (matchMedia('(max-width: 760px)').matches) {
       root.classList.remove('stage-free');
-      free = stage.scrollHeight > stage.clientHeight + 1;
+      // the children, not scrollHeight: #cue hangs below the stage on purpose (bottom: -48px). #stage is position: relative, so offsetTop is stage-relative
+      free = [...stage.children].some((e) => e.id !== 'cue' && getComputedStyle(e).display !== 'none' && e.offsetTop + e.offsetHeight > stage.clientHeight + 1);
     }
     if (free) root.classList.add('stage-free');
   };
