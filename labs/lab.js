@@ -168,7 +168,7 @@ export function shell(cfg) {
       const p = new URLSearchParams({ topic: t.id }); if (lang !== 'en') p.set('lang', lang);
       return `<a href="../../?${p}">${esc(t[lang])}</a>`;
     }).join('')}<span class="lic">${esc(u.lic)} <a class="contrib" href="${CONTRIB}" target="_blank" rel="noopener">${esc(u.contrib)}</a></span>`;
-    measureBar();
+    measureBar(); checkStageSoon();
   };
   // phones: only the view tabs stay pinned while scrolling; --bar-hide = height of the row above them (scrolls away),
   // --bar-keep = the pinned rest (the stage height cap in lab.css uses it). Wider screens: nothing hides.
@@ -181,7 +181,21 @@ export function shell(cfg) {
     root.setProperty('--bar-hide', `${Math.round(hide * 10) / 10}px`);
     root.setProperty('--bar-keep', `${Math.round((h - hide) * 10) / 10}px`);
   };
-  addEventListener('resize', measureBar);
+  // phones: the stage is capped (lab.css); a stage whose content is taller than the cap (HTML cards, auto height) is set free
+  // by the class `stage-free` on <html>. Remove the class, measure, set it again; a stage that fits is left as it was.
+  const checkStage = () => {
+    const root = document.documentElement, stage = $('stage');
+    if (!stage) return;
+    let free = false;
+    if (matchMedia('(max-width: 760px)').matches) {
+      root.classList.remove('stage-free');
+      free = stage.scrollHeight > stage.clientHeight + 1;
+    }
+    if (free) root.classList.add('stage-free');
+  };
+  const checkStageSoon = () => { requestAnimationFrame(checkStage); setTimeout(checkStage, 0); };
+  addEventListener('resize', () => { measureBar(); checkStage(); });
+  document.fonts?.ready.then(checkStage);
   new ResizeObserver(measureBar).observe(document.querySelector('.bar')); // the "other labs" button arrives late; fonts load late
   document.fonts?.ready.then(measureBar);
 
@@ -190,16 +204,17 @@ export function shell(cfg) {
     if (!k || k === lang) return;
     lang = k;
     const p = new URLSearchParams(location.search); p.set('lang', k); history.replaceState(null, '', `?${p}`);
-    renderChrome(); cfg.onLang?.();
+    renderChrome(); cfg.onLang?.(); checkStageSoon();
   });
   $('views').addEventListener('click', (ev) => {
     const v = ev.target.closest('button')?.dataset.view;
     if (!v || v === lab.view) return;
-    lab.view = v; sfx.click(); renderChrome(); cfg.onView?.(v);
+    lab.view = v; sfx.click(); renderChrome(); cfg.onView?.(v); checkStageSoon();
   });
   $('sound').onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); renderChrome(); sfx.click(); };
 
   lab.renderChrome = renderChrome;
+  lab.checkStage = checkStageSoon;
   // stage caption: echoes the state card's emoji + title under the picture; pops when they change, glows the card
   let cueKey = null, cueLang = lang, cuedTimer = 0;
   const cued = () => { const st = $('state'); st.classList.add('cued'); clearTimeout(cuedTimer); cuedTimer = setTimeout(() => st.classList.remove('cued'), 1600); };
