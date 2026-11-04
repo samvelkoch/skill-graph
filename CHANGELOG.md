@@ -15,7 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-04
 
 ### Labs
-- `sound-poems`: pair С–Ш, 3 poems under the whistling allowance for pairs, each approved one by one; 51 poems in all. (#PR)
+- `sound-poems`: pair С–Ш, 3 poems under the whistling allowance for pairs, each approved one by one; 51 poems in all. (#310)
 - `sound-poems`: eighth part, 3 poems on Ч (no Щ, Л or Р), each approved one by one; 48 poems in all. (#309)
 - `sound-poems`: seventh part, 3 poems on Ц under the speech therapist's rule for whistling sounds, each approved one by one; 45 poems in all. (#308)
 
