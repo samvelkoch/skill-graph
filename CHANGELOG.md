@@ -12,6 +12,11 @@ Hungarian is on the site: [What's new](https://samvelkoch.github.io/skill-graph/
 
 Counts in brackets are totals after that day.
 
+## 2026-11-04
+
+### Labs
+- `sound-poems`: seventh part, 3 poems on Ц under the speech therapist's rule for whistling sounds, each approved one by one; 45 poems in all. (#PR)
+
 ## 2026-11-03
 
 ### Labs
