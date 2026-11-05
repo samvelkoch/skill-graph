@@ -1,24 +1,31 @@
 #!/usr/bin/env node
 /**
- * sound-poems-kit.mjs — builds the speech therapist's kit for the sound-poems lab into dist/sound-poems-kit/:
+ * sound-poems-kit.mjs — builds the speech therapist's kit for the sound-poems lab into labs/sound-poems/kit/,
+ * which the site serves as a download page (index.html) and a GitHub release can carry:
  *  - sound-poems.html: the whole lab in one file (scripts and styles inlined), so it opens offline from a disk,
  *    without the site; the links to the map (brand, footer topics) point to the live site;
  *  - poems.html: every poem on one printable page, by sound in the lab's order, then the pairs;
  *  - cards.html: the picture cards of the drawing step (labs/sound-poems/cards.js) as a printable sheet to cut out,
- *    by category, for working at the table without a screen.
+ *    by category, for working at the table without a screen;
+ *  - poems.pdf, cards.pdf: those two pages printed by headless Chrome (skipped with a warning if there is no Chrome);
+ *  - sound-poems-kit.zip: the lab and the two PDFs in one file to send (needs `zip`);
+ *  - index.html: the download page.
  *
  *   node scripts/sound-poems-kit.mjs
+ *
+ * The kit is committed, so rebuild it and commit the result whenever poems.js, cards.js or the lab change.
  *
  * Modules are inlined through an import map with data: URLs, so the lab's own code runs unchanged; lab.js loses its
  * imports of switcher.js and next.js (the lab menu and "Where next" read the site's JSON, which a file on a disk has not).
  */
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const LAB = resolve(ROOT, 'labs/sound-poems');
-const OUT = resolve(ROOT, 'dist/sound-poems-kit');
+const OUT = resolve(ROOT, 'labs/sound-poems/kit');
 const SITE = 'https://samvelkoch.github.io/skill-graph/';
 const read = (p) => readFileSync(p, 'utf8');
 const dataUrl = (js) => 'data:text/javascript;base64,' + Buffer.from(js, 'utf8').toString('base64');
@@ -119,3 +126,46 @@ writeFileSync(resolve(OUT, 'cards.html'), cards);
 console.log(`${OUT}/sound-poems.html  ${(html.length / 1024).toFixed(0)} KB`);
 console.log(`${OUT}/poems.html  ${poems.length} poems, ${targets.length} sounds and pairs`);
 console.log(`${OUT}/cards.html  ${CARDS.length} cards`);
+
+// --- PDFs and the zip ---
+const CHROME = [process.env.CHROME, '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/usr/bin/google-chrome', '/usr/bin/chromium']
+  .find((p) => p && existsSync(p));
+const run = (cmd, args) => { try { execFileSync(cmd, args, { stdio: 'pipe' }); return true; } catch { return false; } };
+for (const f of ['poems', 'cards']) {
+  if (CHROME && run(CHROME, ['--headless=new', '--disable-gpu', '--no-pdf-header-footer', `--print-to-pdf=${resolve(OUT, f + '.pdf')}`, pathToFileURL(resolve(OUT, f + '.html')).href]))
+    console.log(`${OUT}/${f}.pdf`);
+  else console.warn(`warning: ${f}.pdf not printed (no Chrome; set CHROME=/path/to/chrome)`);
+}
+const ZIP = 'sound-poems-kit.zip';
+rmSync(resolve(OUT, ZIP), { force: true });
+if (run('zip', ['-j', '-q', '-X', resolve(OUT, ZIP), ...['sound-poems.html', 'poems.pdf', 'cards.pdf'].map((f) => resolve(OUT, f)).filter(existsSync)])) console.log(`${OUT}/${ZIP}`);
+else console.warn(`warning: ${ZIP} not made (no zip)`);
+
+// --- the download page ---
+const size = (f) => existsSync(resolve(OUT, f)) ? `${(statSync(resolve(OUT, f)).size / 1048576).toFixed(1).replace('.', ',')} МБ` : null;
+const item = (f, title, text, also = '') => size(f) ? `<li><a href="${f}" download>${title}</a> <small>${f}, ${size(f)}</small><br>${text}${also}</li>` : '';
+const page = `<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Стихи на звук — комплект для логопеда</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; color: #1a1a1a; background: #fff; max-width: 640px; margin: 0 auto; padding: 24px 16px; }
+  h1 { font: 700 26px/1.2 Georgia, serif; margin: 0 0 8px; } .lead { color: #555; margin: 0 0 20px; }
+  ul { list-style: none; padding: 0; margin: 0; } li { border: 1px solid #ddd; border-radius: 10px; padding: 12px 14px; margin: 0 0 10px; }
+  li a { font-weight: 700; color: #0b57d0; } li small { color: #777; } li.all { border-color: #0b57d0; background: #f3f7ff; }
+  .foot { color: #777; font-size: 14px; margin-top: 20px; } .foot a { color: inherit; }
+</style>
+<h1>Стихи на звук: комплект для логопеда</h1>
+<p class="lead">Стихов: ${poems.length}, карточек: ${CARDS.length}. Всё работает без интернета и без сайта.</p>
+<ul>
+${item(ZIP, 'Скачать всё одним архивом', 'Тренажёр, все стихи и карточки — три файла ниже в одном архиве.').replace('<li>', '<li class="all">')}
+${item('sound-poems.html', 'Тренажёр одним файлом', 'Сохранить на компьютер и открыть двойным щелчком — откроется в браузере, интернет не нужен.')}
+${item('poems.pdf', 'Все стихи', 'По звукам, для печати.', ' <a href="poems.html">Открыть страницей</a>')}
+${item('cards.pdf', 'Карточки', 'Распечатать, разрезать по пунктиру и выкладывать стих по словам.', ' <a href="cards.html">Открыть страницей</a>')}
+</ul>
+<p class="foot">Онлайн-версия: <a href="../">${SITE}labs/sound-poems/</a></p>
+</html>
+`;
+writeFileSync(resolve(OUT, 'index.html'), page);
+console.log(`${OUT}/index.html`);
