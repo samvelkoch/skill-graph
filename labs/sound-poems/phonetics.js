@@ -23,7 +23,7 @@ const RESPELL = [
   [/^(ч)(то|тоб|тобы|то-то|то-нибудь|то-либо)$/, 'ш$2'],
   [/^(ни|не|кое-)ч(то)$/, '$1ш$2'],
   [/^(конеч|скуч|нароч|яич|скворечн|пустяч|прачеч|горчич|подсвеч|сливоч)/, (m) => m.replace(/ч(?=н|$)/, 'ш')],
-  [/^(лего|морзе|рэп|кафе|пюре|шоссе|отель|модель|тест|кашне|пенсне|сэр|мэр)/, (m) => m.replace(/е/g, 'э')],
+  [/^(лего|морзе|рэп|кафе|пюре|шоссе|отель|модель|тест|кашне|пенсне|сэр|мэр|рекс)/, (m) => m.replace(/е/g, 'э')],
 ];
 // Silent letters and merged clusters, applied inside a word before the sound rules.
 const CLUSTERS = [
@@ -108,8 +108,11 @@ function phones(w) {
   return out;
 }
 
-// Prepositions and particles that are said together with the next word (the sounds can merge: «с шапкой» → [ш:]).
-const PROCLITIC = new Set(['с', 'из', 'без', 'в', 'к', 'от', 'под', 'над', 'об', 'перед', 'через', 'раз']);
+// Prepositions are read on their own, as speech therapists say them to a child: no merging with the next word
+// («с жуком» keeps its С, «без завода» ends in [с]). In quick speech they would merge («с шапкой» → [ш:]); set GLUE to
+// true to analyse that way again.
+const GLUE = false;
+const PROCLITIC = new Set(GLUE ? ['с', 'из', 'без', 'в', 'к', 'от', 'под', 'над', 'об', 'перед', 'через', 'раз'] : []);
 
 // Split a line into words, keeping punctuation out. Returns [{ w, start, end }] (indices in the line).
 export function words(line) {
