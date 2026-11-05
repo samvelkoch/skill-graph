@@ -15,7 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-05
 
 ### Labs
-- `sound-poems`: fixes from the speech therapist's review. Prepositions are read on their own, as therapists say them to a child (no merging with the next word: «с жуком» keeps its С, «без» ends in [с]); «Рекс» has a hard Р, so the dog in «Зонтик» is now Рик; «В чемодане у Сонечки», «Сапоги — носами вбок». The checker now warns about lines without the target sound (23 poems for now; to be rewritten and approved one by one). (#PR)
+- `sound-poems`: fixes from the speech therapist's review. Prepositions are read on their own, as therapists say them to a child (no merging with the next word: «с жуком» keeps its С, «без» ends in [с]); «Рекс» has a hard Р, so the dog in «Зонтик» is now Рик; «В чемодане у Сонечки», «Сапоги — носами вбок». The checker now warns about lines without the target sound (23 poems for now; to be rewritten and approved one by one). (#315)
 - `sound-poems`: pair Л–Р, 3 poems (no Р’), each approved one by one; 57 poems in all. (#312)
 - `sound-poems`: pair С–Ц, 3 poems under the speech therapist's rule for whistling sounds, each approved one by one; 54 poems in all. (#311)
 
