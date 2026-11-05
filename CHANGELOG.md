@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-05
 
 ### Labs
+- `sound-poems`: pair Л–Р, 3 poems (no Р’), each approved one by one; 57 poems in all. (#312)
 - `sound-poems`: pair С–Ц, 3 poems under the speech therapist's rule for whistling sounds, each approved one by one; 54 poems in all. (#311)
 
 ## 2026-11-04
