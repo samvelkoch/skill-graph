@@ -3,7 +3,9 @@
  * sound-poems-kit.mjs — builds the speech therapist's kit for the sound-poems lab into dist/sound-poems-kit/:
  *  - sound-poems.html: the whole lab in one file (scripts and styles inlined), so it opens offline from a disk,
  *    without the site; the links to the map (brand, footer topics) point to the live site;
- *  - poems.html: every poem on one printable page, by sound in the lab's order, then the pairs.
+ *  - poems.html: every poem on one printable page, by sound in the lab's order, then the pairs;
+ *  - cards.html: the picture cards of the drawing step (labs/sound-poems/cards.js) as a printable sheet to cut out,
+ *    by category, for working at the table without a screen.
  *
  *   node scripts/sound-poems-kit.mjs
  *
@@ -28,8 +30,9 @@ const MODULES = {
   'sg-phonetics': read(resolve(LAB, 'phonetics.js')),
   'sg-poems-parse': read(resolve(LAB, 'poems-parse.js')),
   'sg-poems': read(resolve(LAB, 'poems.js')),
+  'sg-cards': read(resolve(LAB, 'cards.js')),
 };
-const SPEC = { '../lab.js': 'sg-lab', './phonetics.js': 'sg-phonetics', './poems-parse.js': 'sg-poems-parse', './poems.js': 'sg-poems' };
+const SPEC = { '../lab.js': 'sg-lab', './phonetics.js': 'sg-phonetics', './poems-parse.js': 'sg-poems-parse', './poems.js': 'sg-poems', './cards.js': 'sg-cards' };
 for (const [k, js] of Object.entries(MODULES)) if (/^\s*import\s|\.\.\//m.test(js)) throw new Error(`${k} still imports or links something relative`);
 
 let html = read(resolve(LAB, 'index.html'));
@@ -86,8 +89,33 @@ ${targets.map(section).join('\n').replace(/<\/h2>\n/g, '</h2>\n<div class="grid"
 </html>
 `;
 
+// --- the picture cards on a printable sheet ---
+const { CATS, CARDS, glyph } = await import(pathToFileURL(resolve(LAB, 'cards.js')));
+const cards = `<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Стихи на звук — карточки</title>
+<style>
+  body { font: 15px/1.4 system-ui, sans-serif; color: #1a1a1a; background: #fff; max-width: 860px; margin: 0 auto; padding: 24px 16px; }
+  h1 { font: 700 26px Georgia, serif; margin: 0 0 4px; } .lead { color: #555; margin: 0 0 16px; }
+  h2 { font-size: 18px; margin: 20px 0 8px; break-after: avoid; }
+  .grid { display: grid; grid-template-columns: repeat(5, 1fr); }
+  .c { aspect-ratio: 1; border: 1px dashed #aaa; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; break-inside: avoid; }
+  .c .e { font-size: 52px; line-height: 1; } .c svg { width: 64%; height: auto; } .c .n { font-size: 12px; color: #444; }
+  @page { margin: 10mm; } @media print { body { padding: 0; } h2 { margin-top: 10px; } }
+</style>
+<h1>Карточки к стихам на звук</h1>
+<p class="lead">Карточек: ${CARDS.length}. Распечатать, разрезать по пунктиру и выкладывать стих по словам. Маленькие слова (предлоги) — по схемам, принятым у логопедов: кубик — предмет, красный кружок — то, о чём говорим.</p>
+${Object.entries(CATS).map(([k, c]) => `<h2>${c.e} ${esc(c.ru)}</h2>
+<div class="grid">${CARDS.filter((x) => x.cat === k).map((x) => `<div class="c">${x.e ? `<span class="e">${x.e}</span>` : glyph(x.g)}<span class="n">${esc(x.ru)}</span></div>`).join('')}</div>`).join('\n')}
+</html>
+`;
+
 mkdirSync(OUT, { recursive: true });
 writeFileSync(resolve(OUT, 'sound-poems.html'), html);
 writeFileSync(resolve(OUT, 'poems.html'), list);
+writeFileSync(resolve(OUT, 'cards.html'), cards);
 console.log(`${OUT}/sound-poems.html  ${(html.length / 1024).toFixed(0)} KB`);
 console.log(`${OUT}/poems.html  ${poems.length} poems, ${targets.length} sounds and pairs`);
+console.log(`${OUT}/cards.html  ${CARDS.length} cards`);
