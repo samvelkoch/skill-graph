@@ -16,6 +16,7 @@ Counts in brackets are totals after that day.
 
 ### Labs
 - `sound-poems`: after the speech therapist's feedback: in the drawing step the child can pick picture cards instead of drawing (`labs/sound-poems/cards.js`: 241 cards in 14 categories — emoji up to Unicode 13, and glyphs for small words); the catalogue opens on the category whose card fits the word, the child picks the card; a cell keeps a drawing or `card:<id>`. Small words now use the speech therapists' usual schemes (the table our speech therapist sent, after O. S. Yatsel: a white cube and a red circle — в, на, под, над, за, из, от, к, у, перед, между, через, с, из-за, из-под, по). Printing the drawn sheet no longer piles the pictures up (fixed-width cells in a grid of narrower columns, and the sheet was confined to the stage column). New «📷 Сохранить картинкой»: the whole sheet as one PNG, shared or downloaded. (#314)
+- `sound-poems`: `scripts/sound-poems-kit.mjs` builds a kit for the speech therapist into `dist/sound-poems-kit/`: the whole lab in one HTML file that opens offline from a disk, and every poem on one printable page. (#313)
 - `sound-poems`: pair Л–Р, 3 poems (no Р’), each approved one by one; 57 poems in all. (#312)
 - `sound-poems`: pair С–Ц, 3 poems under the speech therapist's rule for whistling sounds, each approved one by one; 54 poems in all. (#311)
 
