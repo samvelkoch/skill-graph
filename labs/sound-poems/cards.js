@@ -244,7 +244,7 @@ export const CARDS = [
   { id: "potom", e: "⏩", ru: "потом", cat: "words", w: ["=потом", "=скоро", "=теперь", "=сейчас", "=вперёд", "=мигом", "=сразу", "=наконец"] },
   { id: "bolshoy", e: "📏", ru: "большой", cat: "words", w: ["больш", "огромн", "круглый", "толст"] },
   { id: "malenkiy", e: "🤏", ru: "маленький", cat: "words", w: ["маленьк", "чуток", "чуть"] },
-  // small words: the lab's glyphs instead of emoji
+  // small words: the lab's glyphs (the therapists' schemes) instead of emoji
   { id: "v", g: "in", ru: "в", cat: "small", w: ["=в", "=во"] },
   { id: "na", g: "on", ru: "на", cat: "small", w: ["=на"] },
   { id: "pod", g: "under", ru: "под", cat: "small", w: ["=под"] },
@@ -260,7 +260,9 @@ export const CARDS = [
   { id: "iz-pod", g: "outunder", ru: "из-под", cat: "small", w: ["=из-под"] },
   { id: "i", g: "and", ru: "и, а", cat: "small", w: ["=и", "=а"] },
   { id: "ne", g: "not", ru: "не", cat: "small", w: ["=не"] },
-  { id: "s", g: "with", ru: "с", cat: "small", w: ["=с", "=со"] },
+  { id: "s", g: "with", ru: "с (вместе)", cat: "small", w: ["=с", "=со"] },
+  { id: "s-so", g: "off", ru: "с, со (откуда)", cat: "small", w: [] },
+  { id: "cherez", g: "through", ru: "через", cat: "small", w: ["=через"] },
   { id: "po", g: "along", ru: "по", cat: "small", w: ["=по"] },
 ];
 
