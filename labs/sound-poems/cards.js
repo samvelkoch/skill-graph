@@ -1,6 +1,6 @@
 // Picture cards for the drawing step: instead of drawing a word, the child picks a card from this catalogue.
 // A card is an emoji (on every device, offline) or, for the small words (в, на, под…), one of the lab's own glyphs
-// (g: the glyph kind drawn by glyph() in index.html), in one of the categories below; a drawing cell stores it as "card:<id>",
+// (g: the glyph kind drawn by glyph() below), in one of the categories below; a drawing cell stores it as "card:<id>",
 // so ids must stay stable even if an emoji is swapped. Emoji are kept to Unicode 13 (2020) and older.
 // w: word stems that the card fits — a word fits when it starts with a stem; "=word" means the exact word. They only
 // choose which category the catalogue opens on; the child still finds and picks the card.
@@ -265,6 +265,36 @@ export const CARDS = [
   { id: "cherez", g: "through", ru: "через", cat: "small", w: ["=через"] },
   { id: "po", g: "along", ru: "по", cat: "small", w: ["=по"] },
 ];
+
+// small words in the schemes speech therapists use (the table our therapist sent; O. S. Yatsel): a white cube is the
+// thing, a red circle is what the word is about; where it sits, and the arrow, show the word
+// (also used by the drawing grid's hints and the kit's printable card sheet)
+export function glyph(kind) {
+  const ink = '#1d1d1d';
+  const cube = (x, y, s) => { const d = Math.round(s * 0.28);
+    return `<g stroke="${ink}" stroke-width="2.5" stroke-linejoin="round"><path d="M${x} ${y + d} L${x + d} ${y} H${x + s + d} L${x + s} ${y + d} Z" fill="#f1f1f1"/><path d="M${x + s} ${y + d} L${x + s + d} ${y} V${y + s} L${x + s} ${y + s + d} Z" fill="#dcdcdc"/><rect x="${x}" y="${y + d}" width="${s}" height="${s}" fill="#fff"/></g>`; };
+  const box = (x, y, s) => `<rect x="${x}" y="${y}" width="${s}" height="${s}" fill="${ink}"/>`;
+  const ci = (x, y, r = 12) => `<circle cx="${x}" cy="${y}" r="${r}" fill="#e3161e"/>`;
+  const head = (x, y, a) => { const c = Math.cos(a), s = Math.sin(a); return `<path d="M${x - 9 * c + 6 * s} ${y - 9 * s - 6 * c} L${x} ${y} L${x - 9 * c - 6 * s} ${y - 9 * s + 6 * c} Z" fill="${ink}" stroke="${ink}" stroke-width="2" stroke-linejoin="round"/>`; };
+  const line = (d) => `<path d="${d}" fill="none" stroke="${ink}" stroke-width="4" stroke-linecap="round"/>`;
+  const arrow = (x1, y1, x2, y2) => line(`M${x1} ${y1} L${x2} ${y2}`) + head(x2, y2, Math.atan2(y2 - y1, x2 - x1));
+  const curve = (d, x, y, a) => line(d) + head(x, y, a);
+  const g = {
+    on: cube(30, 50, 36) + ci(48, 41), over: cube(30, 58, 32) + ci(48, 20, 11), under: cube(28, 12, 36) + ci(42, 82),
+    in: cube(22, 22, 48) + ci(46, 60, 15), front: cube(36, 16, 42) + ci(40, 70, 17), behind: ci(46, 38, 14) + cube(24, 40, 42),
+    between: cube(2, 40, 26) + cube(64, 40, 26) + ci(50, 60, 11),
+    out: cube(8, 28, 40) + arrow(28, 64, 60, 64) + ci(78, 64, 13), by: ci(18, 64, 12) + cube(38, 32, 42),
+    along: ci(32, 50) + arrow(10, 66, 90, 66), from: arrow(40, 76, 10, 76) + ci(42, 56) + box(56, 40, 30), to: ci(22, 52) + arrow(10, 70, 46, 70) + box(58, 38, 30),
+    through: cube(36, 50, 28) + ci(16, 78, 11) + curve('M20 60 C26 12 78 12 84 56', 84, 56, Math.PI * 0.45),
+    off: cube(10, 42, 40) + ci(84, 74, 11) + curve('M30 40 C36 14 72 14 80 54', 80, 54, Math.PI * 0.42),
+    outbehind: cube(20, 18, 42) + curve('M70 30 C94 44 92 74 70 84', 70, 84, Math.PI * 0.9) + ci(52, 86, 11),
+    outunder: ci(16, 44, 11) + cube(36, 24, 40) + curve('M54 86 C38 98 18 88 18 64', 18, 64, -Math.PI / 2),
+    with: ci(36, 54) + `<path d="M47 54 H53" stroke="${ink}" stroke-width="4" stroke-linecap="round"/>` + ci(64, 54),
+    and: '<path d="M50 30 V70 M30 50 H70" stroke="#f2a33a" stroke-width="7" stroke-linecap="round"/>',
+    not: '<path d="M30 30 L70 70 M70 30 L30 70" stroke="#e5534b" stroke-width="7" stroke-linecap="round"/>',
+  }[kind];
+  return g ? `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${g}</svg>` : '';
+}
 
 export const cardById = new Map(CARDS.map((c) => [c.id, c]));
 
