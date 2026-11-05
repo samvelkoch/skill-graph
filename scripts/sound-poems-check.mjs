@@ -2,7 +2,7 @@
 /**
  * sound-poems-check.mjs — checks every poem of the speech-therapy lab (labs/sound-poems/poems.js) by sound, not by spelling:
  *  - no sound later in the order than the poem's target (с' з' с з ш ж ц ч щ л' л р р'); earlier sounds are allowed;
- *  - the target sound (each sound of a pair) comes often enough, and (a warning for now) in every line;
+ *  - the target sound (each sound of a pair) comes often enough, and in every line (the speech therapist's rule);
  *  - no words whose pronunciation norm is unsettled (дождь, вожжи…);
  *  - 4 or 8 lines; warns when the syllable count of rhyming lines differs a lot or the line ends do not look like AABB / ABAB.
  *  - whistling targets (С’ З’ С З Ц): no hushing sounds at all; later sounds such as Л and Р only in words without the
@@ -53,7 +53,7 @@ for (const p of poems) {
   // the speech therapist: every line carries the target sound (a line without it is a line the child does not practise)
   const per = p.lines.map((_, li) => r.analysis.words.filter((w) => w.li === li).reduce((s, w) => s + w.info.sounds.filter((x) => keys.includes(x.k)).length, 0));
   const empty = per.flatMap((n, li) => (n ? [] : [li + 1]));
-  if (empty.length) warn.push(`no ${keys.map((k) => LABEL[k]).join('/')} in line ${empty.join(', ')}`);
+  if (empty.length) msgs.push(`no ${keys.map((k) => LABEL[k]).join('/')} in line ${empty.join(', ')}`);
   // rhythm and rhyme: per quatrain
   for (let s = 0; s + 3 < p.lines.length; s += 4) {
     const L = p.lines.slice(s, s + 4), syl = L.map(syllables);
