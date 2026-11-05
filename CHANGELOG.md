@@ -15,7 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-05
 
 ### Labs
-- `sound-poems`: `scripts/sound-poems-kit.mjs` builds a kit for the speech therapist into `dist/sound-poems-kit/`: the whole lab in one HTML file that opens offline from a disk, and every poem on one printable page. (#PR)
+- `sound-poems`: `scripts/sound-poems-kit.mjs` builds a kit for the speech therapist into `dist/sound-poems-kit/`: the whole lab in one HTML file that opens offline from a disk, and every poem on one printable page. (#313)
 - `sound-poems`: pair Л–Р, 3 poems (no Р’), each approved one by one; 57 poems in all. (#312)
 - `sound-poems`: pair С–Ц, 3 poems under the speech therapist's rule for whistling sounds, each approved one by one; 54 poems in all. (#311)
 
