@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-06
 
 ### Labs
+- `next-word`: the Guess tab is now a loop. Before every word the child picks one of the three most common next words, the robot picks with the Surprise setting, and the lab says whether they matched, with a running score, until the sentence ends. Before, the child guessed once and the chips locked, and new words came only from a “Next word” button that few people noticed. (#PR)
 - `seasons`, `shadows`: latitude labels read “47.5° N” / “47,5° с. ш.” / “é. sz. 47,5°”; the old “47,5° С” looked like degrees Celsius. (#352)
 - New lab `word-cousins` “Cousin Languages”: compare words for three, mother and water across nine languages, grow a family tree of languages, find where Hungarian’s cousins live (402). (#351)
 - New lab `constantinople` “The City on Two Seas”: send ships and caravans through the crossroads of the world, attack the walls from sea and land, follow an emperor through 38 years (401). (#350)
