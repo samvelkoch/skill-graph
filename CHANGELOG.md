@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-06
 
 ### Labs
+- New lab `venice-facades` “Palaces on the Grand Canal”: sort Venice’s palaces by the shape of their arches, build a palace, sail through seven centuries on one canal (Venice series) (373). (#322)
 - New lab `venice-piles` “A City on a Forest”: drive piles through Venice’s mud, flood St Mark’s Square with the Moon and the wind, float up a MOSE sea gate (Venice series) (372). (#321)
 - New lab `doge-election` “Balls in the Urn”: elect a Doge of Venice in ten rounds of lots and votes, a thousand elections under two rules, the curve of a family’s chances (Venice series) (371). (#320)
 - New lab `venice-colour` “Light Through Paint”: thin see-through layers of paint and a light beam, a Venetian colour seller’s shop, colouring glass on Murano (Venice series) (370). (#319)
