@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-06
 
 ### Labs
+- New lab `next-word` “Guess the Next Word”: watch a little robot write by guessing the next word, give it more text, see why it can sound sure and be wrong (391). (#340)
 - New lab `snowshoes` “Press Lightly”: stand on snow in boots, skis or snowshoes, drag along the pressure–area curve, compare high heels with an elephant (390). (#339)
 - New lab `ornament` “One Motif, Many Times”: stitch a border by sliding, flipping or turning one motif, turn a motif around a plate, find the rule behind folk borders (389). (#338)
 - New lab `data-trail` “Crumbs Online”: follow Sam’s day and collect the crumbs, sort what is safe to share, switch the settings that hide them; `lab.css` wraps long fact source URLs (388). (#337)
