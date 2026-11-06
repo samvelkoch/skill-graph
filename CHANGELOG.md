@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-06
 
 ### Labs
+- New lab `clock-24` “Twice Around the Clock”: turn a clock through a whole day past 12, read a 24-hour timetable, read Roman numerals on a clock face (387). (#336)
 - New lab `making-change` “Count Up to the Change”: count up from the price to the money paid in coin jumps, make one amount in many ways, be the seller (386). (#335)
 - New lab `abstract` “From Tree to Lines”: simplify a tree step by step into lines and colour, mix lines and colours into a feeling, make your own abstract picture (385). (#334)
 - New lab `dino-hips` “Two Kinds of Hips”: swing the pubis to change a dinosaur’s group, sort six skeletons by their hips, find the branch where birds belong (384). (#333)
