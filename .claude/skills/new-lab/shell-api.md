@@ -32,6 +32,8 @@ const secret = secretLab('magnets', () => ({
 | `#cue` button | filled by `lab.setState` (the step's emoji + title; its "Why" text points to the `#state` card). In labs with more than one view it sits as a compact "💡 Why" button at the right of the tabs row, which stays pinned on phones (it shrinks to the bulb when the row would wrap); in single-view labs it stays under the picture. Don't touch it from the lab. |
 | `#gauge` | `lab.setGauge(frac, ticks, cap)`; hide it with `#gauge { display: none }` if unused |
 
+In labs with more than one view the shell numbers the tabs and draws `#parts` under the lab: “Part i of n” and a button to the next view (it clicks that tab, so `onView` runs as usual). Nothing to do in the lab; keep the views in the order a child should go through them.
+
 `lab.setFacts([{ emo, text, src }])` fills the "Did you know?" box under the state card (see "Fun facts" in [SKILL.md](SKILL.md)); `[]` hides it. Call it from `render()` with `T[lang]` text, so it follows the language and the view; a list with more than one fact gets an "Another fact" button.
 
 `lab.setReadout(val, sub, pill, color)` fills the readout; `lab.view` is the current view; `lab.renderChrome()` redraws the chrome.
