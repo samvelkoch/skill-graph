@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-06
 
 ### Labs
+- New lab `idioms` “Not Really Gold”: watch a painter take phrases literally and find what they really mean, match funny pictures to meanings, sort similes from metaphors (398). (#347)
 - New lab `enzymes` “Tiny Scissors”: match enzyme scissors to the food they cut, warm and cool them to find their best temperature, chew a cracker and see what changes (397). (#346)
 - New lab `mad` “How Far from the Middle?”: tie strings from each value to the mean and lay them in a row, compare two teams with the same mean, add one far value (396). (#345)
 - New lab `triangle-types` “The Triangle Table”: drag a triangle through a table of side and angle names, fill every cell you can and find out why two stay empty (395). (#344)
