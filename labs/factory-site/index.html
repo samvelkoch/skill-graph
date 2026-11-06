@@ -1,0 +1,866 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Where to Build the Steelworks · Skill Graph</title>
+<meta name="description" content="Drag a steelworks around a map and watch the transport bill, make the ore heavier, add a river, and visit real steel towns. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  .fs-q { font: 800 14px/1.35 var(--sans); color: #fff; margin: 0 0 10px; }
+  .fs-c { min-height: 38px; }
+  .fs-c.fs-ok { background: rgba(61, 220, 151, .22); border-color: var(--ok); color: #fff; }
+  .fs-c.fs-bad { background: rgba(255, 59, 48, .22); border-color: var(--red); color: #fff; }
+  .fs-c.fs-done { pointer-events: none; }
+  .fs-c.fs-dis { opacity: .45; }
+  .fs-v { margin-top: 10px; font-size: 13.5px; line-height: 1.4; font-weight: 800; }
+  .fs-v .fs-live { display: block; margin-top: 4px; font-weight: 700; color: var(--soft); }
+  .fs-sec { margin-top: 12px; }
+  .fs-sl + .fs-sl { margin-top: 2px; }
+  .fs-lab { display: flex; justify-content: space-between; align-items: baseline; font-size: 12.5px; font-weight: 800; color: var(--soft); margin-bottom: 2px; }
+  .fs-lab b { color: #fff; font-size: 14px; }
+  .fs-tc { margin-top: 10px; display: grid; grid-template-columns: 160px 1fr; gap: 12px; align-items: center; padding: 10px; border-radius: 14px;
+    border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .07); }
+  .fs-tc svg { width: 100%; height: auto; display: block; border-radius: 10px; }
+  .fs-tc h4 { margin: 0 0 4px; font: 500 20px/1.1 var(--serif); color: #fff; }
+  .fs-tc p { margin: 0 0 8px; color: var(--soft); font-size: 13px; line-height: 1.5; }
+  .fs-pulls { display: flex; flex-wrap: wrap; gap: 6px; }
+  .fs-pulls span { padding: 3px 10px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(10, 12, 20, .55); font-size: 12px; font-weight: 800; color: #fff; }
+  .fs-secrow { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--stroke); }
+  @media (max-width: 760px) {
+    .fs-tc { grid-template-columns: 1fr; }
+    .fs-tc svg { max-width: 240px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Where to Build the Steelworks', title: 'Where to Build the Steelworks',
+    lines: [['Drag a steelworks around a map', ' and watch the transport bill.'], ['Make the ore heavier', ' and see what happens to the best spot.'], ['Add a river', ' and visit real steel towns.']],
+    views: { triangle: '🏭 Triangle', heavy: '⚖️ Heavy', real: '🌍 Real towns' },
+    places: { ore: 'iron-ore mine', coal: 'coal mine', city: 'city (market)', plant: 'steelworks' },
+    cost: (c) => `${c} coins`, costSub: 'transport cost per day (game)', loads: (o, c) => `ore ${o} t · coal ${c} t`,
+    triAsk: 'Where will the cheapest place for the steelworks be? Tap the map.', fromBest: (km, extra) => `${km} km from the best spot · ${extra} coins more`,
+    triRight: 'Very close to the best spot!', triWrong: 'The star shows the best spot: look at the heat map.',
+    oreW: 'Ore per tonne of steel', coalW: 'Coal per tonne of steel', toOre: (km) => `${km} km from the ore`,
+    heavyAsk: 'We need 3 tonnes of ore for every tonne of steel. The best spot moves…', heavyOpts: ['towards the ore mine', 'towards the city', 'it does not move'],
+    heavyRight: 'Right! The heaviest load pulls the plant towards it.', heavyWrong: 'Not quite: move the ore slider and watch the star.',
+    addRiver: 'Add a river', riverPill: 'river transport ×0.3',
+    realAsk: 'We add a river that boats can use. The best spot will…', realOpts: ['move onto the riverbank', 'stay where it was', 'move away from the river'],
+    realRight: 'Right! Cheap river transport pulls the plant to the water.', realWrong: 'Not quite: add the river and watch the heat map.',
+    towns: { magn: 'Magnitogorsk', ruhr: 'The Ruhr', duna: 'Dunaújváros' },
+    townText: { magn: 'Built from 1929 next to Mount Magnitnaya, a mountain of iron ore.', ruhr: 'Steelworks grew on a big coalfield beside the Rhine.', duna: 'A new steel town built from 1950 on the Danube.' },
+    km: 'km', pull: { ore: 'ore', coal: 'coal', river: 'river' },
+    st: {
+      triangle: ['🏭', 'Heavy things are expensive to move', 'A steelworks needs ore and coal coming in and steel going out to the city. Every tonne moved costs money.', 'The best place is where the total cost of moving everything is smallest. The numbers here are a simple game model.'],
+      heavy: ['⚖️', 'The heaviest load wins', 'If you need much more ore than coal, carrying the ore is the biggest cost.', 'So the best spot moves towards the ore mine. Industries that use heavy raw materials often sit next to them.'],
+      real: ['🌍', 'Rivers and railways bend the map', 'Moving goods by boat or train is much cheaper than by road, so a river or a railway pulls industry towards it.', 'Real steel towns grew next to ore (Magnitogorsk), coal (the Ruhr) or a big river (Dunaújváros on the Danube).']
+    },
+    facts: {
+      triangle: [
+        { emo: '📐', text: 'In 1909 the economist Alfred Weber described how factories choose a place by the cost of transport: the “location triangle”.', src: 'https://transportgeography.org/contents/chapter2/transport-and-location/weber-location-triangle/' }
+      ],
+      heavy: [
+        { emo: '⛰️', text: 'Magnitogorsk in Russia was built from 1929 beside Mount Magnitnaya, whose rock was rich in iron ore.', src: 'https://en.wikipedia.org/wiki/Magnitogorsk' }
+      ],
+      real: [
+        { emo: '🇭🇺', text: 'Dunaújváros in Hungary was built from 1950 as a new town around a large steelworks on the Danube.', src: 'https://en.wikipedia.org/wiki/Duna%C3%BAjv%C3%A1ros' }
+      ]
+    },
+    secrets: { a: ['Weber’s triangle', 'See the classic diagram from 1909.'], b: ['Rail changes the map', 'Build a railway and watch the cheap area stretch.'] },
+    weberText: 'Three corners: raw material, raw material, market. The best spot is pulled towards each corner by the weight carried.', railText: 'Draw a railway: tap two points on the map.',
+    quiz: [
+      { q: 'Why are steelworks often built near iron-ore mines?', opts: ['Workers like mountains', 'Ore is heavy and needed in large amounts, so moving it costs most', 'Steel can only be made underground'], ok: 1, hint: 'In the Heavy tab, make the ore heavier.' },
+      { q: 'What does a navigable river do to the best location?', opts: ['Pushes it away from the river', 'Nothing', 'Pulls it towards the river, because boats are cheap'], ok: 2, hint: 'In the Real towns tab, add the river.' },
+      { q: 'The best place for a plant is where…', opts: ['the total cost of moving all the goods is smallest', 'the city is biggest', 'the land is highest'], ok: 0, hint: 'In the Triangle tab, drag the plant and watch the cost.' }
+    ]
+  },
+  ru: {
+    name: 'Где строить металлургический завод', title: 'Где строить металлургический завод',
+    lines: [['Двигай завод по карте', ' и следи за счётом за перевозки.'], ['Сделай руду тяжелее', ' и посмотри, что станет с лучшим местом.'], ['Добавь реку', ' и загляни в настоящие города металлургов.']],
+    views: { triangle: '🏭 Треугольник', heavy: '⚖️ Тяжесть', real: '🌍 Города' },
+    places: { ore: 'рудник', coal: 'угольная шахта', city: 'город (рынок)', plant: 'завод' },
+    cost: (c) => `${c} монет`, costSub: 'перевозки за день (игра)', loads: (o, c) => `руда ${o} т · уголь ${c} т`,
+    triAsk: 'Где будет самое выгодное место для завода? Нажми на карту.', fromBest: (km, extra) => `${km} км от лучшего места · на ${extra} монет дороже`,
+    triRight: 'Совсем рядом с лучшим местом!', triWrong: 'Звезда показывает лучшее место: посмотри на тепловую карту.',
+    oreW: 'Руды на тонну стали', coalW: 'Угля на тонну стали', toOre: (km) => `${km} км до рудника`,
+    heavyAsk: 'На каждую тонну стали нужно 3 тонны руды. Лучшее место сдвинется…', heavyOpts: ['к руднику', 'к городу', 'не сдвинется'],
+    heavyRight: 'Верно! Самый тяжёлый груз тянет завод к себе.', heavyWrong: 'Не совсем: подвигай ползунок руды и следи за звездой.',
+    addRiver: 'Добавить реку', riverPill: 'перевозка по реке ×0,3',
+    realAsk: 'Добавляем судоходную реку. Лучшее место…', realOpts: ['переедет на берег реки', 'останется где было', 'уйдёт от реки'],
+    realRight: 'Верно! Дешёвая перевозка по реке тянет завод к воде.', realWrong: 'Не совсем: добавь реку и посмотри на тепловую карту.',
+    towns: { magn: 'Магнитогорск', ruhr: 'Рур', duna: 'Дунауйварош' },
+    townText: { magn: 'Строился с 1929 года у горы Магнитной — горы железной руды.', ruhr: 'Заводы выросли на большом угольном бассейне у Рейна.', duna: 'Новый город металлургов, строился с 1950 года на Дунае.' },
+    km: 'км', pull: { ore: 'руда', coal: 'уголь', river: 'река' },
+    st: {
+      triangle: ['🏭', 'Тяжёлое дорого возить', 'Металлургическому заводу нужно привезти руду и уголь и отвезти сталь в город. Каждая перевезённая тонна стоит денег.', 'Лучшее место — там, где общая стоимость всех перевозок меньше всего. Числа здесь — простая игровая модель.'],
+      heavy: ['⚖️', 'Побеждает самый тяжёлый груз', 'Если руды нужно гораздо больше, чем угля, дороже всего возить руду.', 'Поэтому лучшее место сдвигается к руднику. Производства, которым нужно тяжёлое сырьё, часто стоят прямо рядом с ним.'],
+      real: ['🌍', 'Реки и железные дороги меняют карту', 'Возить грузы на судах или поездах гораздо дешевле, чем по дороге, поэтому река или железная дорога тянет производство к себе.', 'Настоящие города металлургов выросли у руды (Магнитогорск), у угля (Рур) или у большой реки (Дунауйварош на Дунае).']
+    },
+    facts: {
+      triangle: [
+        { emo: '📐', text: 'В 1909 году экономист Альфред Вебер описал, как заводы выбирают место по стоимости перевозок: «треугольник размещения».', src: 'https://transportgeography.org/contents/chapter2/transport-and-location/weber-location-triangle/' }
+      ],
+      heavy: [
+        { emo: '⛰️', text: 'Магнитогорск строили с 1929 года у горы Магнитной, богатой железной рудой.', src: 'https://en.wikipedia.org/wiki/Magnitogorsk' }
+      ],
+      real: [
+        { emo: '🇭🇺', text: 'Венгерский Дунауйварош строился с 1950 года как новый город вокруг большого металлургического завода на Дунае.', src: 'https://en.wikipedia.org/wiki/Duna%C3%BAjv%C3%A1ros' }
+      ]
+    },
+    secrets: { a: ['Треугольник Вебера', 'Посмотри на классическую схему 1909 года.'], b: ['Железная дорога меняет карту', 'Построй дорогу и посмотри, как вытянется выгодная зона.'] },
+    weberText: 'Три вершины: сырьё, сырьё, рынок. Лучшее место тянет к каждой вершине по весу перевозимого груза.', railText: 'Проведи железную дорогу: нажми на две точки на карте.',
+    quiz: [
+      { q: 'Почему металлургические заводы часто строят у рудников?', opts: ['Рабочие любят горы', 'Руда тяжёлая и её нужно много, поэтому её перевозка дороже всего', 'Сталь можно делать только под землёй'], ok: 1, hint: 'Во вкладке «Тяжесть» сделай руду тяжелее.' },
+      { q: 'Как судоходная река меняет лучшее место?', opts: ['Отталкивает от реки', 'Никак', 'Тянет его к реке, потому что суда дешёвые'], ok: 2, hint: 'Во вкладке «Города» добавь реку.' },
+      { q: 'Лучшее место для завода там, где…', opts: ['общая стоимость всех перевозок меньше всего', 'город больше всего', 'земля выше всего'], ok: 0, hint: 'Во вкладке «Треугольник» подвигай завод и посмотри на стоимость.' }
+    ]
+  },
+  hu: {
+    name: 'Hová épüljön az acélmű?', title: 'Hová épüljön az acélmű?',
+    lines: [['Mozgasd az acélművet a térképen,', ' és figyeld a szállítási számlát.'], ['Tedd nehezebbé az ércet,', ' és nézd meg, mi lesz a legjobb hellyel.'], ['Adj hozzá egy folyót,', ' és nézz meg valódi acélvárosokat.']],
+    views: { triangle: '🏭 Háromszög', heavy: '⚖️ Súly', real: '🌍 Városok' },
+    places: { ore: 'vasércbánya', coal: 'szénbánya', city: 'város (piac)', plant: 'acélmű' },
+    cost: (c) => `${c} érme`, costSub: 'napi szállítási költség (játék)', loads: (o, c) => `érc ${o} t · szén ${c} t`,
+    triAsk: 'Hol lesz az acélmű legolcsóbb helye? Koppints a térképre.', fromBest: (km, extra) => `${km} km-re a legjobb helytől · ${extra} érmével drágább`,
+    triRight: 'Nagyon közel a legjobb helyhez!', triWrong: 'A csillag mutatja a legjobb helyet: nézd a hőtérképet.',
+    oreW: 'Érc egy tonna acélhoz', coalW: 'Szén egy tonna acélhoz', toOre: (km) => `${km} km-re az érctől`,
+    heavyAsk: 'Minden tonna acélhoz 3 tonna érc kell. A legjobb hely…', heavyOpts: ['az ércbánya felé mozdul', 'a város felé mozdul', 'nem mozdul'],
+    heavyRight: 'Így van! A legnehezebb rakomány maga felé húzza a gyárat.', heavyWrong: 'Nem egészen: mozgasd az érc csúszkáját, és figyeld a csillagot.',
+    addRiver: 'Folyó hozzáadása', riverPill: 'folyami szállítás ×0,3',
+    realAsk: 'Hajózható folyót adunk hozzá. A legjobb hely…', realOpts: ['a folyópartra költözik', 'ott marad, ahol volt', 'eltávolodik a folyótól'],
+    realRight: 'Így van! Az olcsó folyami szállítás a vízhez húzza a gyárat.', realWrong: 'Nem egészen: add hozzá a folyót, és nézd a hőtérképet.',
+    towns: { magn: 'Magnyitogorszk', ruhr: 'A Ruhr-vidék', duna: 'Dunaújváros' },
+    townText: { magn: '1929-től épült a Magnyitnaja-hegy, egy vasércből álló hegy mellett.', ruhr: 'Az acélművek egy nagy szénmedencén nőttek ki a Rajna mellett.', duna: 'Új acélváros, 1950-től épült a Duna partján.' },
+    km: 'km', pull: { ore: 'érc', coal: 'szén', river: 'folyó' },
+    st: {
+      triangle: ['🏭', 'A nehéz dolgok szállítása drága', 'Az acélműbe ércet és szenet kell szállítani, az acélt pedig a városba. Minden szállított tonna pénzbe kerül.', 'A legjobb hely ott van, ahol a teljes szállítási költség a legkisebb. A számok itt egyszerű játékmodellből valók.'],
+      heavy: ['⚖️', 'A legnehezebb rakomány nyer', 'Ha sokkal több érc kell, mint szén, az érc szállítása a legdrágább.', 'Ezért a legjobb hely az ércbánya felé mozdul. A nehéz nyersanyagot használó iparágak gyakran közvetlenül mellette települnek.'],
+      real: ['🌍', 'A folyók és vasutak átrajzolják a térképet', 'Hajón vagy vonaton sokkal olcsóbb az áruszállítás, mint közúton, ezért egy folyó vagy vasút magához vonzza az ipart.', 'A valódi acélvárosok érc (Magnyitogorszk), szén (Ruhr-vidék) vagy egy nagy folyó (Dunaújváros a Dunán) mellett nőttek ki.']
+    },
+    facts: {
+      triangle: [
+        { emo: '📐', text: 'Alfred Weber közgazdász 1909-ben írta le, hogyan választanak helyet a gyárak a szállítási költség alapján: ez a „telephelyi háromszög”.', src: 'https://transportgeography.org/contents/chapter2/transport-and-location/weber-location-triangle/' }
+      ],
+      heavy: [
+        { emo: '⛰️', text: 'Az oroszországi Magnyitogorszk 1929-től épült a vasércben gazdag Magnyitnaja-hegy mellett.', src: 'https://en.wikipedia.org/wiki/Magnitogorsk' }
+      ],
+      real: [
+        { emo: '🇭🇺', text: 'Dunaújvárost 1950-től építették új városként egy nagy dunai acélmű köré.', src: 'https://en.wikipedia.org/wiki/Duna%C3%BAjv%C3%A1ros' }
+      ]
+    },
+    secrets: { a: ['Weber háromszöge', 'Nézd meg az 1909-es klasszikus ábrát.'], b: ['A vasút átrajzolja a térképet', 'Építs vasutat, és nézd, hogyan nyúlik meg az olcsó terület.'] },
+    weberText: 'Három csúcs: nyersanyag, nyersanyag, piac. A legjobb helyet minden csúcs a szállított súly arányában húzza.', railText: 'Rajzolj vasutat: koppints két pontra a térképen.',
+    quiz: [
+      { q: 'Miért épülnek gyakran acélművek vasércbányák mellé?', opts: ['A munkások szeretik a hegyeket', 'Az érc nehéz és sok kell belőle, ezért a szállítása a legdrágább', 'Acélt csak a föld alatt lehet gyártani'], ok: 1, hint: 'A Súly fülön tedd nehezebbé az ércet.' },
+      { q: 'Mit tesz egy hajózható folyó a legjobb hellyel?', opts: ['Eltaszítja a folyótól', 'Semmit', 'A folyó felé húzza, mert a hajó olcsó'], ok: 2, hint: 'A Városok fülön add hozzá a folyót.' },
+      { q: 'A gyár legjobb helye ott van, ahol…', opts: ['a teljes szállítási költség a legkisebb', 'a város a legnagyobb', 'a föld a legmagasabb'], ok: 0, hint: 'A Háromszög fülön mozgasd a gyárat, és figyeld a költséget.' }
+    ]
+  },
+};
+const TOPICS = [
+  { id: 'sg_geo_22', en: 'Factors in Locating Industry', ru: 'Факторы размещения производства', hu: 'Az ipar telepítő tényezői' },
+  { id: 'sg_geo_21', en: 'Sectors of the Economy', ru: 'Отрасли хозяйства и сферы деятельности', hu: 'A gazdaság ágazatai' },
+];
+
+// --- the model: a 100 x 100 km map, three fixed points, a transport cost per tonne-km ----------------------------
+const O = [10, 62], C = [78, 14], M = [86, 70], PTS = [O, C, M];
+const K = 0.3;            // cost per tonne-km along a river or a railway (a road costs 1)
+const N = 40, CELL = 100 / N; // the heat map grid
+const DAY = 10;           // tonnes of steel made per day: the readout is the daily bill
+const W0 = [1.6, 0.8];    // ore and coal per tonne of steel (the plant makes 1 t of steel for the market)
+const RIVER = [[0, 49.4], [8.3, 55.1], [16.7, 51.9], [25, 48.9], [33.3, 50.1], [41.7, 46], [50, 38.1], [58.3, 38.1], [66.7, 42.7], [75, 42.3], [83.3, 43.4], [91.7, 51.3], [100, 55.1]];
+const hyp = Math.hypot;
+function mkLine(pts, kind) {
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + hyp(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  return { pts, cum, len: cum[cum.length - 1], kind };
+}
+const RIV = mkLine(RIVER, 'river');
+// nearest point of a polyline: distance d, arc length s along the line, and the point itself
+function proj(L, x, y, out) {
+  let bd = 1e9, bs = 0, bx = 0, by = 0;
+  for (let i = 0; i < L.pts.length - 1; i++) {
+    const a = L.pts[i], b = L.pts[i + 1], dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy;
+    const t = clamp(((x - a[0]) * dx + (y - a[1]) * dy) / l2, 0, 1), qx = a[0] + dx * t, qy = a[1] + dy * t, d = hyp(x - qx, y - qy);
+    if (d < bd) { bd = d; bs = L.cum[i] + Math.sqrt(l2) * t; bx = qx; by = qy; }
+  }
+  out.d = bd; out.s = bs; out.x = bx; out.y = by;
+  return out;
+}
+function pointAt(L, s) {
+  let i = 1;
+  while (i < L.pts.length - 1 && L.cum[i] < s) i++;
+  const a = L.pts[i - 1], b = L.pts[i], t = (s - L.cum[i - 1]) / (L.cum[i] - L.cum[i - 1]);
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+}
+// a "net" = the transport lines in use (river and/or railway); everything expensive is cached on it
+const nets = new Map();
+function netFor(river, rail) {
+  const key = (river ? 'R' : '-') + (rail ? rail.pts.flat().join(',') : '-');
+  let n = nets.get(key);
+  if (n) return n;
+  const lines = [];
+  if (river) lines.push(RIV);
+  if (rail) lines.push(rail);
+  n = { key, lines, pr: lines.map((L) => PTS.map(([x, y]) => proj(L, x, y, {}))), D: null, opts: new Map(), tmp: lines.map(() => ({})) };
+  nets.set(key, n);
+  return n;
+}
+const out3 = new Float64Array(3);
+// route cost per tonne from (x, y) to the mine, the coal mine and the city: the straight road, or road + line + road
+function dists(net, x, y) {
+  for (let i = 0; i < 3; i++) out3[i] = hyp(x - PTS[i][0], y - PTS[i][1]);
+  for (let j = 0; j < net.lines.length; j++) {
+    const p = proj(net.lines[j], x, y, net.tmp[j]);
+    for (let i = 0; i < 3; i++) {
+      const v = p.d + K * Math.abs(p.s - net.pr[j][i].s) + net.pr[j][i].d;
+      if (v < out3[i]) out3[i] = v;
+    }
+  }
+  return out3;
+}
+const tcost = (net, x, y, wO, wC) => { const d = dists(net, x, y); return wO * d[0] + wC * d[1] + d[2]; }; // T(P), coins per tonne of steel
+const coins = (tc) => tc * DAY;
+function gridOf(net) { // route costs for every cell centre, computed once per net
+  if (!net.D) {
+    const D = new Float32Array(N * N * 3);
+    let q = 0;
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const d = dists(net, (i + 0.5) * CELL, (j + 0.5) * CELL);
+      D[q++] = d[0]; D[q++] = d[1]; D[q++] = d[2];
+    }
+    net.D = D;
+  }
+  return net.D;
+}
+// the cheapest place: best grid cell, the three corners and every point of the lines, then a local refinement
+function best(net, wO, wC) {
+  const key = wO.toFixed(2) + '|' + wC.toFixed(2);
+  let r = net.opts.get(key);
+  if (r) return r;
+  const D = gridOf(net);
+  let bi = 0, bt = 1e9;
+  for (let i = 0; i < N * N; i++) { const t = wO * D[3 * i] + wC * D[3 * i + 1] + D[3 * i + 2]; if (t < bt) { bt = t; bi = i; } }
+  let px = ((bi % N) + 0.5) * CELL, py = (Math.floor(bi / N) + 0.5) * CELL;
+  bt = tcost(net, px, py, wO, wC);
+  const cands = [...PTS];
+  for (const L of net.lines) for (let s = 0; s <= L.len; s += 0.5) cands.push(pointAt(L, s));
+  for (const [x, y] of cands) { const t = tcost(net, x, y, wO, wC); if (t < bt) { bt = t; px = x; py = y; } }
+  let st = 1.25;
+  while (st > 0.02) {
+    let moved = false;
+    for (let a = 0; a < 8; a++) {
+      const x = clamp(px + Math.cos(a * Math.PI / 4) * st, 0, 100), y = clamp(py + Math.sin(a * Math.PI / 4) * st, 0, 100), t = tcost(net, x, y, wO, wC);
+      if (t < bt - 1e-9) { bt = t; px = x; py = y; moved = true; }
+    }
+    if (!moved) st /= 2;
+  }
+  for (const [x, y] of PTS) if (hyp(px - x, py - y) < 0.4) { px = x; py = y; bt = tcost(net, x, y, wO, wC); }
+  r = { x: px, y: py, T: bt };
+  if (net.opts.size > 400) net.opts.clear();
+  net.opts.set(key, r);
+  return r;
+}
+// the road/line/road route from P to point i, as a polyline with the kind of every leg
+function routeOf(net, P, i) {
+  const X = PTS[i];
+  let bestC = hyp(P.x - X[0], P.y - X[1]), via = -1, pp = null;
+  for (let j = 0; j < net.lines.length; j++) {
+    const p = proj(net.lines[j], P.x, P.y, {}), v = p.d + K * Math.abs(p.s - net.pr[j][i].s) + net.pr[j][i].d;
+    if (v < bestC - 1e-9) { bestC = v; via = j; pp = p; }
+  }
+  if (via < 0) return { pts: [[P.x, P.y], X], kinds: ['r'], lines: [-1] };
+  const L = net.lines[via], b = net.pr[via][i], pts = [[P.x, P.y], [pp.x, pp.y]], kinds = ['r'], lns = [-1];
+  const inner = [];
+  for (let q = 0; q < L.pts.length; q++) if (L.cum[q] > Math.min(pp.s, b.s) + 1e-6 && L.cum[q] < Math.max(pp.s, b.s) - 1e-6) inner.push(L.pts[q]);
+  if (pp.s > b.s) inner.reverse();
+  for (const p of inner) { pts.push(p); kinds.push('l'); lns.push(via); }
+  pts.push([b.x, b.y]); kinds.push('l'); lns.push(via);
+  pts.push(X); kinds.push('r'); lns.push(-1);
+  return { pts, kinds, lines: lns };
+}
+// the heat map: the cost of a plant in every cell, built once per (net, weights) and only drawn afterwards
+const heatC = document.createElement('canvas');
+heatC.width = heatC.height = N;
+const heatX = heatC.getContext('2d');
+let heatKey = '';
+const STOPS = [[0, 70, 230, 160, 0.56], [0.35, 190, 230, 90, 0.4], [0.7, 245, 170, 70, 0.27], [1, 210, 70, 120, 0.17]];
+function buildHeat(net, wO, wC) {
+  const key = `${net.key}|${wO}|${wC}`;
+  if (key === heatKey) return;
+  heatKey = key;
+  const D = gridOf(net), Tg = new Float32Array(N * N);
+  let lo = 1e9, hi = 0;
+  for (let i = 0; i < N * N; i++) { const t = wO * D[3 * i] + wC * D[3 * i + 1] + D[3 * i + 2]; Tg[i] = t; if (t < lo) lo = t; if (t > hi) hi = t; }
+  const img = heatX.createImageData(N, N), px = img.data;
+  for (let i = 0; i < N * N; i++) {
+    const u = Math.pow((Tg[i] - lo) / Math.max(1e-6, hi - lo), 0.6);
+    let a = STOPS[0], b = STOPS[1];
+    for (let s = 1; s < STOPS.length; s++) if (u >= STOPS[s - 1][0]) { a = STOPS[s - 1]; b = STOPS[s]; }
+    const f = clamp((u - a[0]) / (b[0] - a[0]), 0, 1);
+    px[4 * i] = a[1] + (b[1] - a[1]) * f; px[4 * i + 1] = a[2] + (b[2] - a[2]) * f; px[4 * i + 2] = a[3] + (b[3] - a[3]) * f;
+    px[4 * i + 3] = 255 * (a[4] + (b[4] - a[4]) * f);
+  }
+  heatX.putImageData(img, 0, 0);
+}
+
+// --- state ---------------------------------------------------------------------------------------------------------
+const COL = { ore: '#b5532f', coal: '#3a3a46', steel: '#c5d0e6', river: '#4aa3e0', rail: '#e2d3a8', gold: '#ffd25a' };
+const CARGO = [COL.ore, COL.coal, COL.steel];
+const HEAVY_ORDER = [1, 0, 2], REAL_ORDER = [1, 2, 0]; // the order of the chips on screen (the right one is not always first)
+const S = {
+  pin: null, drag: null, tri: null,                          // triangle: the pin, the drag, the placed plant {P, km, extra, right}
+  H: { ans: null, wO: W0[0], wC: W0[1] },                    // heavy
+  R: { ans: null, river: false, town: null },                // real towns
+  sec: null, rail: null, railPick: null,                     // secrets: 'a' Weber, 'b' railway
+  disp: null, dispView: '', star: null, heatA: 0, starA: 0, pop: 1, riverT: 0, popAt: 0,
+};
+const heavyRight = (() => {
+  let r = null;
+  return () => {
+    if (r === null) {
+      const n0 = netFor(false, null), B = best(n0, ...W0), A = best(n0, 3, W0[1]);
+      r = hyp(A.x - O[0], A.y - O[1]) < hyp(B.x - O[0], B.y - O[1]) - 0.5 ? 0 : hyp(A.x - M[0], A.y - M[1]) < hyp(B.x - M[0], B.y - M[1]) - 0.5 ? 1 : 2;
+    }
+    return r;
+  };
+})();
+const realRight = (() => {
+  let r = null;
+  return () => {
+    if (r === null) {
+      const B = best(netFor(false, null), ...W0), A = best(netFor(true, null), ...W0), tmp = {};
+      const dA = proj(RIV, A.x, A.y, tmp).d, dB = proj(RIV, B.x, B.y, tmp).d;
+      r = dA < 1 && dB > dA + 2 ? 0 : hyp(A.x - B.x, A.y - B.y) < 1 ? 1 : 2;
+    }
+    return r;
+  };
+})();
+const lab = shell({ key: 'factory-site', T, topics: TOPICS, views: ['triangle', 'heavy', 'real'], onLang: () => render(), onView: () => viewChanged() });
+const secret = secretLab('factory-site', () => ({
+  secrets: [{ emo: '📐', title: T[lang].secrets.a[0], desc: T[lang].secrets.a[1] }, { emo: '🚂', title: T[lang].secrets.b[0], desc: T[lang].secrets.b[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="fsAsk"></div>
+  <div id="fsHeavy" class="fs-sec">
+    <div class="fs-sl"><div class="fs-lab"><span id="fsWoL"></span><b id="fsWoV"></b></div>
+      <input class="big" id="fsWo" type="range" min="1" max="3" step="0.1" value="1.6" style="--track:linear-gradient(90deg,#e58f5e,#6e2f1b)"></div>
+    <div class="fs-sl"><div class="fs-lab"><span id="fsWcL"></span><b id="fsWcV"></b></div>
+      <input class="big" id="fsWc" type="range" min="0.5" max="2" step="0.1" value="0.8" style="--track:linear-gradient(90deg,#7a7a8a,#15151b)"></div>
+  </div>
+  <div id="fsReal" class="fs-sec">
+    <div class="chips"><button class="chip fs-c" id="fsRiverB" type="button"></button></div>
+    <div class="chips" id="fsTownB" style="margin-top:10px"></div>
+    <div id="fsTown"></div>
+  </div>
+  <div class="fs-secrow"><div class="chips" id="fsSec"></div></div>`;
+
+const nf = (x) => { const s = (Math.round(x * 10) / 10).toString(); return lang === 'en' ? s : s.replace('.', ','); };
+const fmt = (n) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+const ease = (x) => x * x * (3 - 2 * x);
+const backOut = (x) => 1 + 2.7 * Math.pow(x - 1, 3) + 1.7 * Math.pow(x - 1, 2);
+const answered = () => (lab.view === 'triangle' ? !!S.tri : lab.view === 'heavy' ? S.H.ans !== null : S.R.ans !== null);
+const curNet = () => netFor(lab.view === 'real' && S.R.river, S.rail);
+const curW = () => (lab.view === 'heavy' ? [S.H.wO, S.H.wC] : W0);
+const railing = () => S.sec === 'b' && !S.rail && answered();
+const now = () => performance.now() / 1000;
+function plantTarget() {
+  if (lab.view === 'triangle') return S.tri ? S.tri.P : null;
+  const [wO, wC] = curW();
+  return best(curNet(), wO, wC);
+}
+// the track of the best spot while the ore gets heavier (cached per net and coal weight)
+const tracks = new Map();
+function trackOf(net, wC) {
+  const key = `${net.key}|${wC}`;
+  let r = tracks.get(key);
+  if (!r) {
+    r = [];
+    for (let w = 1; w <= 3.001; w += 0.25) { const b = best(net, w, wC); r.push([b.x, b.y]); }
+    if (tracks.size > 60) tracks.clear();
+    tracks.set(key, r);
+  }
+  return r;
+}
+
+// --- drawing helpers ----------------------------------------------------------------------------------------------
+const box = (w, h) => { const m = Math.max(120, Math.min(w, h) - 16); return { m, mx: (w - m) / 2, my: (h - m) / 2, k: m / 100 }; };
+function drawOre(c, x, y, s) {
+  c.save(); c.translate(x, y); c.scale(s, s); c.lineJoin = 'round';
+  c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.ellipse(1, 1.5, 19, 5, 0, 0, 7); c.fill();
+  c.strokeStyle = '#3d2a22'; c.lineWidth = 2; c.beginPath(); c.moveTo(8, -4); c.lineTo(12, -27); c.lineTo(16, -4); c.stroke();
+  c.fillStyle = '#d9c9a0'; c.lineWidth = 1.2; c.beginPath(); c.arc(12, -27, 3.2, 0, 7); c.fill(); c.stroke();
+  const g = c.createLinearGradient(-14, -20, 12, 2); g.addColorStop(0, '#e9966a'); g.addColorStop(0.55, '#b5532f'); g.addColorStop(1, '#6e2f1b');
+  c.fillStyle = g; c.strokeStyle = '#3d1a0e'; c.lineWidth = 1.6;
+  c.beginPath(); c.moveTo(-19, 1); c.quadraticCurveTo(-14, -6, -9, -12); c.quadraticCurveTo(-4, -20, 2, -17); c.quadraticCurveTo(7, -14, 10, -8); c.quadraticCurveTo(15, -5, 19, 1); c.closePath(); c.fill(); c.stroke();
+  c.fillStyle = 'rgba(255,215,175,.6)';
+  for (const [a, b, r] of [[-8, -9, 2], [0, -13, 2.2], [6, -6, 1.8], [-2, -4, 1.6], [-13, -3, 1.4]]) { c.beginPath(); c.arc(a, b, r, 0, 7); c.fill(); }
+  c.restore();
+}
+function drawCoal(c, x, y, s) {
+  c.save(); c.translate(x, y); c.scale(s, s); c.lineJoin = 'round';
+  c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.ellipse(1, 1.5, 19, 5, 0, 0, 7); c.fill();
+  c.strokeStyle = '#59607a'; c.lineWidth = 2; c.beginPath(); c.moveTo(-16, -4); c.lineTo(-12, -27); c.lineTo(-8, -4); c.stroke();
+  c.fillStyle = '#c9cfe2'; c.lineWidth = 1.2; c.beginPath(); c.arc(-12, -27, 3.2, 0, 7); c.fill(); c.stroke();
+  const g = c.createLinearGradient(-12, -18, 12, 2); g.addColorStop(0, '#7a7a8a'); g.addColorStop(0.5, '#34343f'); g.addColorStop(1, '#14141a');
+  c.fillStyle = g; c.strokeStyle = '#08080c'; c.lineWidth = 1.6;
+  c.beginPath(); c.moveTo(-18, 1); c.bezierCurveTo(-16, -10, -6, -19, 1, -16); c.bezierCurveTo(9, -18, 16, -9, 18, 1); c.closePath(); c.fill(); c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.5)';
+  for (const p of [[-8, -9, -5, -12, -4, -8], [2, -13, 5, -14, 4, -10], [8, -6, 11, -7, 10, -3], [-3, -4, 0, -6, -1, -2]]) { c.beginPath(); c.moveTo(p[0], p[1]); c.lineTo(p[2], p[3]); c.lineTo(p[4], p[5]); c.closePath(); c.fill(); }
+  c.restore();
+}
+function drawCity(c, x, y, s) {
+  c.save(); c.translate(x, y); c.scale(s, s); c.lineJoin = 'round';
+  c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.ellipse(0, 1.5, 21, 5, 0, 0, 7); c.fill();
+  c.strokeStyle = '#1a2036'; c.lineWidth = 1.4;
+  for (const [bx, bw, bh] of [[-20, 8, 17], [-12, 8, 27], [-4, 9, 21], [5, 8, 31], [13, 8, 19]]) {
+    const g = c.createLinearGradient(bx, -bh, bx + bw, 0); g.addColorStop(0, '#c2d0ee'); g.addColorStop(1, '#5d7098');
+    c.fillStyle = g; c.fillRect(bx, -bh, bw, bh); c.strokeRect(bx, -bh, bw, bh);
+    c.fillStyle = '#ffe29a';
+    for (let r = 0; r < Math.floor((bh - 3) / 7); r++) for (const cx of [bx + 2, bx + bw - 4.2]) c.fillRect(cx, -bh + 3 + r * 7, 2.2, 3);
+  }
+  c.restore();
+}
+function drawPlant(c, x, y, s, time, alpha = 1) {
+  c.save(); c.translate(x, y); c.scale(s, s); c.lineJoin = 'round'; c.globalAlpha = alpha;
+  c.fillStyle = 'rgba(0,0,0,.38)'; c.beginPath(); c.ellipse(0, 1.5, 22, 5.5, 0, 0, 7); c.fill();
+  c.strokeStyle = '#5a3510'; c.lineWidth = 1.5;
+  for (const [cx, ch, cw] of [[-13, 19, 5], [-5, 15, 5]]) { // chimneys
+    const g = c.createLinearGradient(cx, 0, cx + cw, 0); g.addColorStop(0, '#f2f2f2'); g.addColorStop(1, '#b9bcc6');
+    c.fillStyle = g; c.fillRect(cx, -14 - ch, cw, ch); c.strokeRect(cx, -14 - ch, cw, ch);
+    c.fillStyle = '#d9534f'; c.fillRect(cx, -14 - ch, cw, 3); c.fillRect(cx, -14 - ch + 7, cw, 3);
+  }
+  const g = c.createLinearGradient(-20, -16, 18, 0); g.addColorStop(0, '#f0c070'); g.addColorStop(1, '#b9762f');
+  c.fillStyle = g; c.fillRect(-20, -14, 40, 14); c.strokeRect(-20, -14, 40, 14);
+  c.fillStyle = '#8c5a22'; // sawtooth roof
+  for (let i = 0; i < 3; i++) { c.beginPath(); c.moveTo(1 + i * 6.3, -14); c.lineTo(1 + i * 6.3, -21); c.lineTo(7.3 + i * 6.3, -14); c.closePath(); c.fill(); c.stroke(); }
+  c.fillStyle = '#ffe29a'; c.fillRect(-16, -9, 5, 4); c.fillRect(-8, -9, 5, 4); c.fillStyle = '#5a3510'; c.fillRect(8, -9, 8, 9);
+  for (let i = 0; i < 3; i++) { // smoke
+    const ph = (time * 0.45 + i / 3) % 1;
+    c.globalAlpha = alpha * (1 - ph) * 0.6; c.fillStyle = '#dfe4ef';
+    c.beginPath(); c.arc(-10.5 + ph * 9, -34 - ph * 20, Math.max(0, 3 + ph * 5), 0, 7); c.fill();
+  }
+  c.restore();
+}
+function starPath(c, x, y, r) {
+  c.beginPath();
+  for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.45 : r; c[i ? 'lineTo' : 'moveTo'](x + Math.cos(a) * rr, y + Math.sin(a) * rr); }
+  c.closePath();
+}
+function drawStar(c, x, y, s, time) {
+  const r = 12 * s * (1 + 0.07 * Math.sin(time * 3));
+  c.save(); c.lineJoin = 'round';
+  c.shadowColor = 'rgba(255,210,90,.9)'; c.shadowBlur = 16;
+  const g = c.createLinearGradient(x - r, y - r, x + r, y + r); g.addColorStop(0, '#fff0b0'); g.addColorStop(1, '#ffb800');
+  c.fillStyle = g; starPath(c, x, y, r); c.fill();
+  c.shadowBlur = 0; c.strokeStyle = '#8a5a00'; c.lineWidth = 1.5; starPath(c, x, y, r); c.stroke();
+  c.restore();
+}
+function drawPin(c, x, y, s) { // the tip at (x, y)
+  c.save(); c.translate(x, y); c.scale(s, s); c.lineJoin = 'round';
+  c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.ellipse(0, 0, 7, 2.6, 0, 0, 7); c.fill();
+  const g = c.createLinearGradient(-9, -30, 9, -6); g.addColorStop(0, '#ff8d7e'); g.addColorStop(1, '#e03a2c');
+  c.fillStyle = g; c.strokeStyle = '#7a1c14'; c.lineWidth = 1.6;
+  c.beginPath(); c.moveTo(0, 0); c.bezierCurveTo(-4, -8, -11, -12, -11, -21); c.arc(0, -21, 11, Math.PI, 0); c.bezierCurveTo(11, -12, 4, -8, 0, 0); c.closePath(); c.fill(); c.stroke();
+  c.fillStyle = '#fff'; c.beginPath(); c.arc(0, -21, 4.2, 0, 7); c.fill();
+  c.restore();
+}
+function vehicle(c, x, y, ang, cargo, mode, s) {
+  c.save(); c.translate(x, y); c.rotate(ang); c.scale(s, s); c.lineJoin = 'round'; c.strokeStyle = '#10131c'; c.lineWidth = 1.2;
+  if (mode === 'boat') {
+    c.fillStyle = '#e8f0ff'; c.beginPath(); c.moveTo(-8, -3.6); c.lineTo(4, -3.6); c.lineTo(9, 0); c.lineTo(4, 3.6); c.lineTo(-8, 3.6); c.closePath(); c.fill(); c.stroke();
+    c.fillStyle = cargo; c.beginPath(); c.roundRect(-6, -2.2, 9, 4.4, 1.5); c.fill(); c.stroke();
+  } else if (mode === 'rail') {
+    for (const dx of [-5.5, 2.5]) { c.fillStyle = cargo; c.beginPath(); c.roundRect(dx - 4, -3.2, 8, 6.4, 1.2); c.fill(); c.stroke(); }
+  } else {
+    c.fillStyle = '#10131c'; c.fillRect(-6.5, -4.7, 3.4, 1.8); c.fillRect(-6.5, 2.9, 3.4, 1.8); c.fillRect(3.5, -4.7, 3.4, 1.8); c.fillRect(3.5, 2.9, 3.4, 1.8);
+    c.fillStyle = cargo; c.beginPath(); c.roundRect(-8.5, -3.4, 10.5, 6.8, 1.5); c.fill(); c.stroke();
+    c.fillStyle = '#f2f4fa'; c.beginPath(); c.roundRect(2.6, -3.1, 5.6, 6.2, 1.5); c.fill(); c.stroke();
+  }
+  c.restore();
+}
+const boxes = [];
+const hit = (a, b) => a.x < b.x + b.w + 2 && b.x < a.x + a.w + 2 && a.y < b.y + b.h + 2 && b.y < a.y + a.h + 2;
+// a text pill on a dark rounded plate, clamped inside the map, placed at the first free candidate [dx, dy, align]
+function pill(c, text, ax, ay, cands, B, color = '#fff') {
+  c.font = '800 12px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  const w = c.measureText(text).width + 14, h = 20;
+  let pick = null;
+  for (const [dx, dy, al] of cands) {
+    const r = { x: clamp(ax + dx - (al === 'c' ? w / 2 : al === 'r' ? w : 0), B.mx + 3, B.mx + B.m - w - 3), y: clamp(ay + dy, B.my + 3, B.my + B.m - h - 3), w, h };
+    if (!boxes.some((q) => hit(r, q))) { pick = r; break; }
+    pick ??= r;
+  }
+  boxes.push(pick);
+  c.fillStyle = 'rgba(10,12,20,.84)'; c.beginPath(); c.roundRect(pick.x, pick.y, w, h, 10); c.fill();
+  c.fillStyle = color; c.fillText(text, pick.x + w / 2, pick.y + h / 2 + 1);
+}
+function arrow(c, x1, y1, x2, y2, col, lw) {
+  const a = Math.atan2(y2 - y1, x2 - x1), hs = 6 + lw;
+  c.strokeStyle = col; c.fillStyle = col; c.lineWidth = lw; c.lineCap = 'round';
+  c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2 - Math.cos(a) * hs * 0.6, y2 - Math.sin(a) * hs * 0.6); c.stroke();
+  c.beginPath(); c.moveTo(x2, y2); c.lineTo(x2 - Math.cos(a - 0.45) * hs, y2 - Math.sin(a - 0.45) * hs); c.lineTo(x2 - Math.cos(a + 0.45) * hs, y2 - Math.sin(a + 0.45) * hs); c.closePath(); c.fill();
+}
+const LAND = [[30, 22, 26, 'rgba(120,170,110,.16)'], [72, 62, 30, 'rgba(20,40,30,.28)'], [52, 88, 22, 'rgba(120,170,110,.12)'], [12, 86, 20, 'rgba(20,40,30,.25)'], [88, 20, 18, 'rgba(120,170,110,.12)'], [40, 55, 16, 'rgba(20,40,30,.18)']];
+
+// --- the picture -------------------------------------------------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  const v = lab.view, t = T[lang], B = box(w, h), { m, mx, my, k } = B;
+  const ks = clamp(m / 300, 0.78, 1.45), is = clamp(m * 0.09, 22, 36) / 30; // ks: line and vehicle scale; is: icon scale
+  const X = (x) => mx + x * k, Y = (y) => my + y * k;
+  const ans = answered(), net = curNet(), [wO, wC] = curW(), best0 = best(net, wO, wC);
+  boxes.length = 0;
+
+  // animation state: everything eases by real time
+  S.heatA += clamp((ans ? 1 : 0) - S.heatA, -dt / 0.6, dt / 0.6);
+  S.riverT += clamp((v === 'real' && S.R.river ? 1 : 0) - S.riverT, -dt / 0.9, dt / 0.9);
+  S.pop = Math.min(1, S.pop + dt / 0.5);
+  S.starA = clamp(S.starA + (ans ? dt / 0.5 : -1), 0, 1);
+  const tgt = plantTarget();
+  if (!tgt) S.disp = null;
+  else if (v === 'triangle' || !S.disp || S.dispView !== v) S.disp = { x: tgt.x, y: tgt.y };
+  else { const a = 1 - Math.exp(-dt * 6); S.disp.x += (tgt.x - S.disp.x) * a; S.disp.y += (tgt.y - S.disp.y) * a; }
+  S.dispView = v;
+  if (!S.star) S.star = { x: best0.x, y: best0.y };
+  else { const a = v === 'triangle' ? 1 - Math.exp(-dt * 6) : 1; S.star.x += (best0.x - S.star.x) * a; S.star.y += (best0.y - S.star.y) * a; }
+  const P = S.disp;
+
+  // the map: land, soft patches, a faint grid
+  c.save();
+  c.shadowColor = 'rgba(0,0,0,.5)'; c.shadowBlur = 18; c.shadowOffsetY = 6; c.fillStyle = '#1d3029';
+  c.beginPath(); c.roundRect(mx, my, m, m, 16); c.fill();
+  c.restore();
+  c.save();
+  c.beginPath(); c.roundRect(mx, my, m, m, 16); c.clip();
+  const lg = c.createLinearGradient(mx, my, mx + m, my + m); lg.addColorStop(0, '#34533f'); lg.addColorStop(1, '#1a2b26');
+  c.fillStyle = lg; c.fillRect(mx, my, m, m);
+  for (const [px, py, pr, col] of LAND) {
+    const g = c.createRadialGradient(X(px), Y(py), 0, X(px), Y(py), pr * k); g.addColorStop(0, col); g.addColorStop(1, 'rgba(0,0,0,0)');
+    c.fillStyle = g; c.fillRect(mx, my, m, m);
+  }
+  c.strokeStyle = 'rgba(255,255,255,.05)'; c.lineWidth = 1; c.beginPath();
+  for (let i = 20; i < 100; i += 20) { c.moveTo(X(i), my); c.lineTo(X(i), my + m); c.moveTo(mx, Y(i)); c.lineTo(mx + m, Y(i)); }
+  c.stroke();
+
+  // the cost heat map (already built; only drawn here)
+  if (S.heatA > 0.01) { c.globalAlpha = S.heatA; c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high'; c.drawImage(heatC, mx, my, m, m); c.globalAlpha = 1; }
+
+  // the river grows from its source; the railway is a ladder of sleepers
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  const path = (L) => { c.beginPath(); L.pts.forEach(([x, y], i) => c[i ? 'lineTo' : 'moveTo'](X(x), Y(y))); };
+  if (S.riverT > 0.01) {
+    const len = RIV.len * k, vis = len * ease(S.riverT);
+    c.setLineDash([vis, len * 3]);
+    path(RIV); c.strokeStyle = '#27678f'; c.lineWidth = 13 * ks; c.stroke();
+    path(RIV); c.strokeStyle = COL.river; c.lineWidth = 9 * ks; c.stroke();
+    path(RIV); c.strokeStyle = 'rgba(200,235,255,.55)'; c.lineWidth = 2 * ks; c.stroke();
+    c.setLineDash([]);
+  }
+  if (S.rail) {
+    path(S.rail); c.strokeStyle = '#2b261c'; c.lineWidth = 7 * ks; c.stroke();
+    path(S.rail); c.strokeStyle = COL.rail; c.lineWidth = 5 * ks; c.setLineDash([2.5 * ks, 4.5 * ks]); c.stroke(); c.setLineDash([]);
+    for (const [x, y] of S.rail.pts) { c.fillStyle = '#f4ead0'; c.strokeStyle = '#2b261c'; c.lineWidth = 2; c.beginPath(); c.arc(X(x), Y(y), 5 * ks, 0, 7); c.fill(); c.stroke(); }
+  }
+  if (S.railPick) { const [x, y] = S.railPick; c.fillStyle = '#f4ead0'; c.strokeStyle = '#2b261c'; c.lineWidth = 2; c.beginPath(); c.arc(X(x), Y(y), (5 + 1.5 * Math.sin(time * 6)) * ks, 0, 7); c.fill(); c.stroke(); }
+
+  // roads from the plant to the mine, the coal mine and the city, drawn by the weight carried
+  const wts = [wO, wC, 1];
+  if (P && (v !== 'triangle' || S.pop > 0.2)) {
+    const routes = [0, 1, 2].map((i) => routeOf(net, P, i));
+    routes.forEach((R, i) => {
+      const lw = (2 + 2.2 * wts[i]) * ks;
+      for (let j = 0; j < R.kinds.length; j++) {
+        const a = R.pts[j], b = R.pts[j + 1];
+        if (hyp(a[0] - b[0], a[1] - b[1]) < 0.05) continue;
+        c.beginPath(); c.moveTo(X(a[0]), Y(a[1])); c.lineTo(X(b[0]), Y(b[1]));
+        if (R.kinds[j] === 'r') { c.strokeStyle = 'rgba(20,24,20,.7)'; c.lineWidth = lw + 2.5; c.stroke(); c.strokeStyle = '#d8c9a4'; c.lineWidth = lw; c.stroke(); }
+        else { c.strokeStyle = net.lines[R.lines[j]].kind === 'river' ? 'rgba(210,240,255,.85)' : 'rgba(255,245,215,.9)'; c.lineWidth = Math.max(2, lw * 0.55); c.stroke(); }
+      }
+    });
+    // vehicles: ore and coal come in, steel goes out; boats on the river, wagons on the railway
+    routes.forEach((R, i) => {
+      const px = R.pts.map(([x, y]) => [X(x), Y(y)]), segL = [];
+      let tot = 0;
+      for (let j = 0; j < px.length - 1; j++) { const l = hyp(px[j + 1][0] - px[j][0], px[j + 1][1] - px[j][1]); segL.push(l); tot += l; }
+      if (tot < 14) return;
+      const n = clamp(Math.round(wts[i] * 1.4), 1, 4), sp = 40 * ks, pop = S.pop;
+      for (let q = 0; q < n; q++) {
+        const u = ((time * sp + (q * tot) / n) % tot) / tot, dist = (i === 2 ? u : 1 - u) * tot; // steel leaves the plant, the rest arrives
+        let d = dist, j = 0;
+        while (j < segL.length - 1 && d > segL[j]) { d -= segL[j]; j++; }
+        const f = segL[j] > 0 ? d / segL[j] : 0, x = px[j][0] + (px[j + 1][0] - px[j][0]) * f, y = px[j][1] + (px[j + 1][1] - px[j][1]) * f;
+        const ang = Math.atan2(px[j + 1][1] - px[j][1], px[j + 1][0] - px[j][0]) + (i === 2 ? 0 : Math.PI);
+        const mode = R.kinds[j] === 'r' ? 'truck' : net.lines[R.lines[j]].kind === 'river' ? 'boat' : 'rail';
+        c.globalAlpha = Math.min(1, u * 9, (1 - u) * 9) * pop;
+        vehicle(c, x, y, ang, CARGO[i], mode, ks * 1.05);
+      }
+      c.globalAlpha = 1;
+    });
+  }
+
+  // heavy: the track of the best spot, the ghost of where the plant stood, the distance to the ore
+  if (v === 'heavy' && ans) {
+    const tr = trackOf(net, wC);
+    c.strokeStyle = 'rgba(255,255,255,.7)'; c.lineWidth = 2.2; c.setLineDash([1, 6]); c.beginPath();
+    tr.forEach(([x, y], i) => c[i ? 'lineTo' : 'moveTo'](X(x), Y(y))); c.stroke(); c.setLineDash([]);
+    const b0 = best(net, W0[0], W0[1]);
+    if (hyp(P.x - b0.x, P.y - b0.y) > 2) drawPlant(c, X(b0.x), Y(b0.y), is * 0.85, time, 0.38);
+  }
+  // the star marks the cheapest place once the prediction is answered; in the triangle view a dashed way leads from the plant to it
+  if (ans && P && S.starA > 0.01) {
+    const sx = X(S.star.x), sy = Y(S.star.y), dd = hyp(P.x - S.star.x, P.y - S.star.y);
+    if (v === 'triangle' && dd > 3) {
+      c.strokeStyle = 'rgba(255,255,255,.65)'; c.lineWidth = 2; c.setLineDash([5, 5]); c.beginPath(); c.moveTo(X(P.x), Y(P.y)); c.lineTo(sx, sy); c.stroke(); c.setLineDash([]);
+    }
+    c.save(); c.translate(sx, sy); const sc = backOut(clamp(S.starA, 0, 1)); c.scale(sc, sc); c.translate(-sx, -sy); drawStar(c, sx, sy, is * 1.15, time); c.restore();
+  }
+
+  const wl = [];
+  // Weber's picture (secret): the triangle of corners and the pulls on the plant
+  if (S.sec === 'a' && ans && P) {
+    c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1.6; c.setLineDash([6, 5]); c.fillStyle = 'rgba(255,255,255,.05)';
+    c.beginPath(); PTS.forEach(([x, y], i) => c[i ? 'lineTo' : 'moveTo'](X(x), Y(y))); c.closePath(); c.fill(); c.stroke(); c.setLineDash([]);
+    PTS.forEach(([x, y], i) => {
+      const dx = x - P.x, dy = y - P.y, dl = hyp(dx, dy);
+      if (dl < 3) return;
+      const len = Math.min((12 + 17 * wts[i]) * ks, dl * k - 6), ex = X(P.x) + dx / dl * len, ey = Y(P.y) + dy / dl * len;
+      arrow(c, X(P.x), Y(P.y), ex, ey, i === 0 ? '#ff9a68' : i === 1 ? '#aab0c8' : '#9fc3ff', 3.2 * ks);
+      wl.push([nf(wts[i]), ex, ey, dx / dl, dy / dl]);
+    });
+
+  }
+
+  // the three points
+  const drawAt = (fn, p) => { fn(c, X(p[0]), Y(p[1]), is); };
+  drawAt(drawOre, O); drawAt(drawCoal, C); drawAt(drawCity, M);
+  const ib = (p, up, wd) => ({ x: X(p[0]) - wd * is, y: Y(p[1]) - up * is, w: wd * 2 * is, h: (up + 4) * is });
+  boxes.push(ib(O, 28, 19), ib(C, 28, 19), ib(M, 32, 21));
+  if (P) boxes.push({ x: X(P.x) - 22 * is, y: Y(P.y) - 36 * is, w: 44 * is, h: 40 * is });
+  const low = (up, wd) => [[0, 4 * is + 3, 'c'], [0, -(up * is) - 24, 'c'], [wd * is + 4, -10, 'l'], [-(wd * is) - 4, -10, 'r']];
+  pill(c, t.places.ore, X(O[0]), Y(O[1]), low(28, 19), B); pill(c, t.places.coal, X(C[0]), Y(C[1]), low(28, 19), B); pill(c, t.places.city, X(M[0]), Y(M[1]), low(32, 21), B);
+
+  // the plant: dropped as a pin first, a factory afterwards
+  if (P) {
+    const sc = v === 'triangle' ? backOut(S.pop) : 1;
+    drawPlant(c, X(P.x), Y(P.y), is * Math.max(0.01, sc), time);
+    pill(c, t.places.plant, X(P.x), Y(P.y), [[0, -(40 * is) - 22, 'c'], [0, 6, 'c'], [26 * is, -20, 'l'], [-26 * is, -20, 'r']], B);
+  }
+  for (const [txt, ex, ey, ux, uy] of wl) pill(c, txt, ex + ux * 14, ey + uy * 12, [[0, -10, 'c'], [0, -26, 'c'], [0, 6, 'c']], B, '#ffe49a');
+  if (v === 'triangle' && !S.tri && S.pin) drawPin(c, X(S.pin.x), Y(S.pin.y), is * 1.1 * backOut(clamp((time - S.pin.t0) / 0.3, 0, 1)));
+  if (v === 'triangle' && !S.tri && !S.pin) { c.font = `${Math.round(30 * ks)}px sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.globalAlpha = 0.75 + 0.25 * Math.sin(time * 3); c.fillStyle = '#fff'; c.fillText('👆', X(48), Y(40) + 4 * Math.sin(time * 3)); c.globalAlpha = 1; }
+  if (v === 'triangle' && S.tri && P && hyp(P.x - S.star.x, P.y - S.star.y) > 3) {
+    const km = Math.round(hyp(P.x - S.star.x, P.y - S.star.y)), mxp = (X(P.x) + X(S.star.x)) / 2, myp = (Y(P.y) + Y(S.star.y)) / 2;
+    pill(c, `${km} ${t.km}`, mxp, myp, [[0, -10, 'c'], [-30, -10, 'c'], [30, -10, 'c'], [0, 14, 'c']], B, '#ffe49a');
+  }
+  if (v === 'heavy' && ans && P) {
+    const km = Math.round(hyp(P.x - O[0], P.y - O[1]));
+    if (km >= 6) {
+      c.strokeStyle = 'rgba(255,170,120,.85)'; c.lineWidth = 2; c.setLineDash([4, 5]); c.beginPath(); c.moveTo(X(P.x), Y(P.y)); c.lineTo(X(O[0]), Y(O[1])); c.stroke(); c.setLineDash([]);
+      pill(c, t.toOre(km), (X(P.x) + X(O[0])) / 2, (Y(P.y) + Y(O[1])) / 2, [[0, -10, 'c'], [0, 16, 'c'], [0, -34, 'c']], B, '#ffb990');
+    }
+  }
+  // the scale: 20 km
+  c.strokeStyle = 'rgba(255,255,255,.85)'; c.lineWidth = 2.5; c.lineCap = 'butt';
+  c.beginPath(); c.moveTo(mx + 12, my + m - 14); c.lineTo(mx + 12, my + m - 9); c.lineTo(mx + 12 + 20 * k, my + m - 9); c.lineTo(mx + 12 + 20 * k, my + m - 14); c.stroke();
+  c.font = '800 12px Nunito, sans-serif'; c.textAlign = 'left'; c.textBaseline = 'alphabetic'; c.fillStyle = 'rgba(255,255,255,.9)'; c.fillText(`20 ${t.km}`, mx + 14 + 20 * k, my + m - 8);
+  // the colour key of the heat map
+  if (S.heatA > 0.05) {
+    const kw = 56, kx = mx + m - kw - 12, ky = my + m - 16, g = c.createLinearGradient(kx, 0, kx + kw, 0);
+    g.addColorStop(0, 'rgb(70,230,160)'); g.addColorStop(0.5, 'rgb(245,200,80)'); g.addColorStop(1, 'rgb(210,70,120)');
+    c.globalAlpha = S.heatA; c.fillStyle = g; c.beginPath(); c.roundRect(kx, ky, kw, 7, 3.5); c.fill(); c.strokeStyle = 'rgba(0,0,0,.5)'; c.lineWidth = 1; c.stroke(); c.globalAlpha = 1;
+  }
+  c.restore();
+  c.strokeStyle = 'rgba(255,255,255,.22)'; c.lineWidth = 1.5; c.beginPath(); c.roundRect(mx, my, m, m, 16); c.stroke();
+});
+
+// --- pointer: drop a pin, drag the plant, draw a railway --------------------------------------------------------
+const cv = $('cv');
+const toKm = (ev) => { const r = cv.getBoundingClientRect(), B = box(r.width, r.height); return [clamp((ev.clientX - r.left - B.mx) / B.k, 0, 100), clamp((ev.clientY - r.top - B.my) / B.k, 0, 100), B.k]; };
+cv.addEventListener('pointerdown', (ev) => {
+  const [x, y, k] = toKm(ev);
+  if (railing()) { railTap(x, y); return; }
+  if (lab.view !== 'triangle' || (S.sec === 'b' && !S.rail)) return;
+  if (!S.tri) { S.pin = { x, y, t0: now() }; S.drag = 'pin'; sfx.tick(); }
+  else {
+    const P = S.tri.P;
+    if (hyp((x - P.x) * k, (y - P.y) * k) < 34) S.drag = { ox: P.x - x, oy: P.y - y };
+    else { P.x = x; P.y = y; S.drag = { ox: 0, oy: 0 }; }
+    renderLive();
+  }
+  try { cv.setPointerCapture(ev.pointerId); } catch { /* not needed */ }
+});
+cv.addEventListener('pointermove', (ev) => {
+  if (!S.drag) return;
+  const [x, y] = toKm(ev);
+  if (S.drag === 'pin') { S.pin.x = x; S.pin.y = y; return; }
+  S.tri.P.x = clamp(x + S.drag.ox, 0, 100); S.tri.P.y = clamp(y + S.drag.oy, 0, 100);
+  renderLive();
+});
+const dropped = () => { const d = S.drag; S.drag = null; if (d === 'pin' && S.pin && !S.tri) revealTri(); };
+cv.addEventListener('pointerup', dropped);
+cv.addEventListener('pointercancel', dropped);
+function railTap(x, y) {
+  const p = [Math.round(x * 10) / 10, Math.round(y * 10) / 10];
+  if (!S.railPick) { S.railPick = p; sfx.tick(); }
+  else {
+    if (hyp(S.railPick[0] - p[0], S.railPick[1] - p[1]) < 8) { sfx.bad(); return; }
+    S.rail = mkLine([S.railPick, p], 'rail'); S.railPick = null; sfx.snap();
+  }
+  render();
+}
+function revealTri() {
+  const net = curNet(), b = best(net, ...W0), P = { x: S.pin.x, y: S.pin.y };
+  const km = hyp(P.x - b.x, P.y - b.y), extra = coins(tcost(net, P.x, P.y, ...W0) - b.T);
+  S.tri = { P, right: km <= 7, km: Math.round(km), extra: Math.max(0, Math.round(extra)) };
+  S.pin = null; S.pop = 0; S.star = { x: b.x, y: b.y };
+  (S.tri.right ? sfx.good : sfx.bad)(); showStage(); render();
+}
+
+// --- controls ----------------------------------------------------------------------------------------------------
+// on a phone the controls sit below the picture: bring the reveal into view
+function showStage() {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+function viewChanged() { S.sec = null; S.rail = null; S.railPick = null; S.drag = null; render(); }
+$('fsAsk').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-pick]');
+  if (!b) return;
+  const i = +b.dataset.pick;
+  if (lab.view === 'heavy' && S.H.ans === null) { S.H.ans = i; S.H.wO = 3; (i === heavyRight() ? sfx.good : sfx.bad)(); }
+  else if (lab.view === 'real' && S.R.ans === null) { S.R.ans = i; S.R.river = true; (i === realRight() ? sfx.good : sfx.bad)(); }
+  else return;
+  showStage(); render();
+});
+// a slider tick only rebuilds what depends on the weights: the labels, the heat map and the readout (no DOM churn while dragging)
+function sliderTick() {
+  const unit = lang === 'ru' ? 'т' : 't';
+  $('fsWoV').textContent = `${nf(S.H.wO)} ${unit}`; $('fsWcV').textContent = `${nf(S.H.wC)} ${unit}`;
+  buildHeat(curNet(), S.H.wO, S.H.wC); readout(); sfx.tick();
+}
+$('fsWo').addEventListener('input', (ev) => { S.H.wO = Math.round(+ev.target.value * 10) / 10; sliderTick(); });
+$('fsWc').addEventListener('input', (ev) => { S.H.wC = Math.round(+ev.target.value * 10) / 10; sliderTick(); });
+$('fsRiverB').addEventListener('click', () => { S.R.river = !S.R.river; sfx.click(); render(); });
+$('fsTownB').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-town]');
+  if (!b) return;
+  S.R.town = S.R.town === b.dataset.town ? null : b.dataset.town; sfx.click(); render();
+});
+$('fsSec').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-k]');
+  if (!b) return;
+  if (!secret.unlocked()) return secret.open();
+  if (!answered()) return;
+  const k = b.dataset.k;
+  if (k === 'a') S.sec = S.sec === 'a' ? null : 'a';
+  else if (S.sec === 'b' || S.rail) { S.sec = null; S.rail = null; S.railPick = null; }
+  else S.sec = 'b';
+  sfx.click(); render();
+});
+
+// pictures for the three real towns: what pulls the plant (ore, coal, a river)
+function sketch(key) {
+  const land = '<rect width="160" height="92" rx="10" fill="#27402f"/><rect width="160" height="92" rx="10" fill="url(#g)" opacity=".5"/>';
+  const defs = '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4b7a5a"/><stop offset="1" stop-color="#14221d"/></linearGradient><linearGradient id="o" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e9966a"/><stop offset="1" stop-color="#6e2f1b"/></linearGradient></defs>';
+  const plant = (x, y) => `<g transform="translate(${x} ${y})"><ellipse cx="0" cy="2" rx="17" ry="4" fill="#000" opacity=".35"/><rect x="-14" y="-13" width="28" height="13" fill="#e0a850" stroke="#5a3510" stroke-width="1.4"/><rect x="-11" y="-27" width="5" height="15" fill="#e8e8ee" stroke="#5a3510" stroke-width="1.2"/><rect x="-3" y="-23" width="5" height="11" fill="#e8e8ee" stroke="#5a3510" stroke-width="1.2"/><rect x="6" y="-8" width="6" height="8" fill="#5a3510"/></g>`;
+  const arrowSvg = (x1, y1, x2, y2, col) => `<path d="M${x1} ${y1} L${x2} ${y2}" stroke="${col}" stroke-width="3.5" stroke-linecap="round" stroke-dasharray="1 7"/><path d="M${x2} ${y2} l-8 -3 m8 3 l-3 8" stroke="${col}" stroke-width="3.5" stroke-linecap="round" fill="none"/>`;
+  let body = '';
+  if (key === 'magn') body = `<path d="M6 60 L28 20 L40 38 L52 12 L78 60 Z" fill="url(#o)" stroke="#3d1a0e" stroke-width="1.6" stroke-linejoin="round"/>${arrowSvg(72, 50, 104, 62, '#ff9a68')}${plant(118, 76)}`;
+  else if (key === 'ruhr') body = `<path d="M10 14 Q36 4 50 24 Q58 44 36 54 Q12 56 8 34 Z" fill="#2a2a33" stroke="#9aa0b4" stroke-width="1.6"/><path d="M118 0 C126 24 100 44 112 66 S126 84 120 92" stroke="#27678f" stroke-width="12" fill="none" stroke-linecap="round"/><path d="M118 0 C126 24 100 44 112 66 S126 84 120 92" stroke="#4aa3e0" stroke-width="8" fill="none" stroke-linecap="round"/>${arrowSvg(52, 40, 78, 58, '#c8cde0')}${plant(88, 76)}`;
+  else body = `<path d="M-6 70 C30 60 60 72 90 50 S140 26 168 30" stroke="#27678f" stroke-width="20" fill="none" stroke-linecap="round"/><path d="M-6 70 C30 60 60 72 90 50 S140 26 168 30" stroke="#4aa3e0" stroke-width="15" fill="none" stroke-linecap="round"/><path d="M-6 70 C30 60 60 72 90 50 S140 26 168 30" stroke="#cfeaff" stroke-width="2" fill="none" opacity=".6"/>${arrowSvg(34, 60, 66, 53, '#cfeaff')}${plant(96, 40)}`;
+  return `<svg viewBox="0 0 160 92" aria-hidden="true">${defs}${land}${body}</svg>`;
+}
+
+// --- one render per change: controls, readout and the state card -------------------------------------------------
+function readout() {
+  const t = T[lang], v = lab.view, [wO, wC] = curW(), net = curNet();
+  if (v === 'triangle') {
+    const val = S.tri ? t.cost(fmt(coins(tcost(net, S.tri.P.x, S.tri.P.y, ...W0)))) : '?';
+    lab.setReadout(val, t.costSub, t.loads(nf(W0[0]), nf(W0[1])), '#e0a040');
+  } else if (v === 'heavy') {
+    const b = best(net, wO, wC);
+    lab.setReadout(`${Math.round(hyp(b.x - O[0], b.y - O[1]))} ${t.km}`, t.cost(fmt(coins(b.T))), t.loads(nf(wO), nf(wC)), '#c0623a');
+  } else {
+    const b = best(net, ...W0);
+    lab.setReadout(t.cost(fmt(coins(b.T))), t.costSub, S.R.river ? t.riverPill : t.loads(nf(W0[0]), nf(W0[1])), '#3b8fd0');
+  }
+}
+function renderLive() { // the numbers that follow a dragged plant (no DOM rebuild)
+  readout();
+  if (lab.view !== 'triangle' || !S.tri) return;
+  const t = T[lang], net = curNet(), b = best(net, ...W0), P = S.tri.P;
+  const km = Math.round(hyp(P.x - b.x, P.y - b.y)), extra = Math.max(0, Math.round(coins(tcost(net, P.x, P.y, ...W0) - b.T)));
+  const el = $('fsLive');
+  if (el) { el.textContent = t.fromBest(km, fmt(extra)); el.style.color = km <= 7 ? 'var(--ok)' : 'var(--wip)'; }
+}
+function render() {
+  const t = T[lang], v = lab.view, ans = answered(), net = curNet(), [wO, wC] = curW();
+  document.body.dataset.v = v;
+  buildHeat(net, wO, wC);
+  $('cv').style.touchAction = v === 'triangle' || railing() ? 'none' : 'pan-y';
+  $('fsHeavy').style.display = v === 'heavy' && ans ? 'block' : 'none';
+  $('fsReal').style.display = v === 'real' && ans ? 'block' : 'none';
+  // the question, the chips (they stay after the answer: right one green, a wrong tap red) and the verdict
+  let ask = '';
+  if (v === 'triangle') {
+    ask = `<div class="fs-q">${esc(t.triAsk)}</div>`;
+    if (S.tri) ask += `<div class="fs-v"><span style="color:${S.tri.right ? 'var(--ok)' : 'var(--wip)'}">${esc(S.tri.right ? t.triRight : t.triWrong)}</span><span class="fs-live" id="fsLive"></span></div>`;
+  } else {
+    const heavy = v === 'heavy', st = heavy ? S.H : S.R, right = heavy ? heavyRight() : realRight(), opts = heavy ? t.heavyOpts : t.realOpts;
+    ask = `<div class="fs-q">${esc(heavy ? t.heavyAsk : t.realAsk)}</div><div class="chips">${(heavy ? HEAVY_ORDER : REAL_ORDER).map((i) =>
+      `<button class="chip fs-c ${st.ans !== null ? 'fs-done' : ''} ${st.ans !== null && i === right ? 'fs-ok' : st.ans === i ? 'fs-bad' : ''}" type="button" data-pick="${i}">${esc(opts[i])}</button>`).join('')}</div>`;
+    if (st.ans !== null) ask += `<div class="fs-v" style="color:${st.ans === right ? 'var(--ok)' : 'var(--wip)'}">${esc(st.ans === right ? (heavy ? t.heavyRight : t.realRight) : (heavy ? t.heavyWrong : t.realWrong))}</div>`;
+  }
+  $('fsAsk').innerHTML = ask;
+  // sliders (built once; only their text and values change)
+  $('fsWoL').textContent = t.oreW; $('fsWcL').textContent = t.coalW;
+  const unit = lang === 'ru' ? 'т' : 't';
+  $('fsWoV').textContent = `${nf(S.H.wO)} ${unit}`; $('fsWcV').textContent = `${nf(S.H.wC)} ${unit}`;
+  if (+$('fsWo').value !== S.H.wO) $('fsWo').value = S.H.wO;
+  if (+$('fsWc').value !== S.H.wC) $('fsWc').value = S.H.wC;
+  // the river button and the real towns
+  $('fsRiverB').textContent = `🌊 ${t.addRiver}`; $('fsRiverB').className = `chip fs-c ${S.R.river ? 'on' : ''}`;
+  $('fsTownB').innerHTML = ['magn', 'ruhr', 'duna'].map((k) => `<button class="chip fs-c ${S.R.town === k ? 'on' : ''}" type="button" data-town="${k}">${esc(t.towns[k])}</button>`).join('');
+  const tk = S.R.town;
+  $('fsTown').innerHTML = tk ? `<div class="fs-tc">${sketch(tk)}<div><h4>${esc(t.towns[tk])}</h4><p>${esc(t.townText[tk])}</p><div class="fs-pulls">${
+    (tk === 'magn' ? [['⛰️', 'ore']] : tk === 'ruhr' ? [['⚫', 'coal'], ['🌊', 'river']] : [['🌊', 'river']]).map(([e, k]) => `<span>${e} ${esc(t.pull[k])}</span>`).join('')}</div></div></div>` : '';
+  // the two secrets
+  const open = secret.unlocked(), dis = open && !ans ? ' fs-dis' : '';
+  const sc = (k, emo, on) => `<button class="chip fs-c secret ${open ? 'open' : ''} ${on ? 'on' : ''}${dis}" type="button" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  $('fsSec').innerHTML = sc('a', '📐', S.sec === 'a') + sc('b', '🚂', S.sec === 'b' || !!S.rail);
+  // readout, glow, state card, facts
+  lab.setGlow(v === 'triangle' ? 'rgba(224, 160, 64, .26)' : v === 'heavy' ? 'rgba(192, 98, 58, .28)' : 'rgba(59, 143, 208, .28)');
+  renderLive();
+  let card;
+  if (S.sec === 'a' && ans) card = { emo: '📐', title: t.secrets.a[0], lead: t.weberText, body: '' };
+  else if (S.sec === 'b' && ans) card = { emo: '🚂', title: t.secrets.b[0], lead: S.rail ? t.secrets.b[1] : t.railText, body: '' };
+  else if (v === 'triangle' || ans) { const s = t.st[v]; card = { emo: s[0], title: s[1], lead: s[2], body: s[3] }; }
+  else card = { emo: t.st[v][0], title: v === 'heavy' ? t.heavyAsk : t.realAsk, lead: '', body: '' };
+  lab.setState({ ...card, extra: '' });
+  lab.setFacts(ans ? t.facts[v] : []);
+}
+render();
+</script>
+</body>
+</html>
