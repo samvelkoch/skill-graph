@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-06
 
 ### Labs
+- New lab `pythagoras` “Three Squares”: pour square tanks on a triangle’s sides into each other, rearrange four triangles, fly a drone straight across a city (375). (#324)
 - New lab `venice-trade` “The Pepper Road”: send pepper from India to Germany through Venice and count the hands, plan a galley’s harbours, race a second road round Africa (Venice series) (374). (#323)
 - New lab `venice-facades` “Palaces on the Grand Canal”: sort Venice’s palaces by the shape of their arches, build a palace, sail through seven centuries on one canal (Venice series) (373). (#322)
 - New lab `venice-piles` “A City on a Forest”: drive piles through Venice’s mud, flood St Mark’s Square with the Moon and the wind, float up a MOSE sea gate (Venice series) (372). (#321)
