@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-06
 
 ### Labs
+- New lab `migration` “Long Journeys”: follow an Arctic tern through two summers a year, three travellers and their reasons, plan a swallow’s year (379). (#328)
 - New lab `south-pole` “Race to the Pole”: send Amundsen and Scott across the ice, lay food stores for the way there and back, test dogs, ponies and engines on snow (378). (#327)
 - New lab `eye` “Inside the Eye”: send light from a tree into an eye and see the upside-down picture, dim the lights and watch the pupil, build a box camera with a hole and a lens (377). (#326)
 - New lab `times-as-many` “Times or More?”: build a bear’s tower from copies of a kitten’s, lay ribbons end to end, tell “times as many” from “more” in little stories (376). (#325)
