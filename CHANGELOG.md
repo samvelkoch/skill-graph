@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-06
 
 ### Labs
+- New lab `constantinople` “The City on Two Seas”: send ships and caravans through the crossroads of the world, attack the walls from sea and land, follow an emperor through 38 years (401). (#350)
 - New lab `inscribed-angle` “Angles in a Circle”: move a point around a circle and find the rule for its angle, stand on a semicircle, pick the seat that sees the goal widest (400). (#349)
 - New lab `factory-site` “Where to Build the Steelworks”: drag a steelworks around a map and watch the transport bill, make the ore heavier, add a river, visit real steel towns (399). (#348)
 - New lab `idioms` “Not Really Gold”: watch a painter take phrases literally and find what they really mean, match funny pictures to meanings, sort similes from metaphors (398). (#347)
