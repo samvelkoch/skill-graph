@@ -12,6 +12,11 @@ Hungarian is on the site: [What's new](https://samvelkoch.github.io/skill-graph/
 
 Counts in brackets are totals after that day.
 
+## 2026-11-06
+
+### Labs
+- New lab `venice-colour` “Light Through Paint”: thin see-through layers of paint and a light beam, a Venetian colour seller’s shop, colouring glass on Murano (Venice series) (370). (#319)
+
 ## 2026-11-05
 
 ### Labs
