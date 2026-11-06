@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-06
 
 ### Labs
+- New lab `roman-legacy` “Rome Is Still Here”: find Greece and Rome in a modern street with a Roman lens, build words from Latin and Greek roots, meet the Romans in the calendar (381). (#330)
 - New lab `glacier` “River of Ice”: pile snow on a glacier and warm its summers, follow a snowflake down into the ice, see the U-shaped valley a glacier leaves (380). (#329)
 - New lab `migration` “Long Journeys”: follow an Arctic tern through two summers a year, three travellers and their reasons, plan a swallow’s year (379). (#328)
 - New lab `south-pole` “Race to the Pole”: send Amundsen and Scott across the ice, lay food stores for the way there and back, test dogs, ponies and engines on snow (378). (#327)
