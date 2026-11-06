@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-06
 
 ### Labs
+- All labs with several parts: each tab carries its number, and under the lab a card says “Part 1 of 3” and has a big “Next: <part> →” button (on the last part, “Back to part 1”). Done once in `labs/lab.js` and `labs/lab.css`, so every lab built on the shell gets it. People did not notice parts 2 and 3 behind the tabs at the top. (#PR)
 - `next-word`: the Guess tab is now a loop. Before every word the child picks one of the three most common next words, the robot picks with the Surprise setting, and the lab says whether they matched, with a running score, until the sentence ends. Before, the child guessed once and the chips locked, and new words came only from a “Next word” button that few people noticed. (#353)
 - `seasons`, `shadows`: latitude labels read “47.5° N” / “47,5° с. ш.” / “é. sz. 47,5°”; the old “47,5° С” looked like degrees Celsius. (#352)
 - New lab `word-cousins` “Cousin Languages”: compare words for three, mother and water across nine languages, grow a family tree of languages, find where Hungarian’s cousins live (402). (#351)

@@ -40,7 +40,8 @@ const UI = {
         revSomeTitle: 'Some of it slipped', revSomeText: 'That’s normal: memory needs a second visit. Play with the lab again and try the questions in a week.',
         doneTitle: 'Unlocked!', doneText: 'Both secret experiments are open. Find them at the ends of the row.', go: 'Let’s go', marked: 'This lab’s topics are now marked “Learning” on the graph.',
         lic: 'Topics from the Marble Skill Taxonomy (ODbL 1.0 / CC BY-SA 4.0), translated. The lab is a simplified model, not a measuring tool.',
-        contrib: 'Skill Graph is open source: help build it', fact: 'Did you know?', nextFact: 'Another fact', why: 'Why' },
+        contrib: 'Skill Graph is open source: help build it', fact: 'Did you know?', nextFact: 'Another fact', why: 'Why',
+        part: (i, n) => `Part ${i} of ${n}`, partLast: (n) => `Part ${n} of ${n}: the last one`, partNext: 'Next', partFirst: 'Back to part 1' },
   ru: { brand: 'Лаборатории', back: 'Назад к графу', topics: 'В графе навыков', sound: 'Звук', views: 'Вид',
         secretKick: 'Секретная лаборатория', secretTitle: 'Два экстремальных опыта под замком.',
         secretAsk: (n) => `Ответь на <b>${n} ${ruPlural(n, 'короткий вопрос', 'коротких вопроса', 'коротких вопросов')}</b>, чтобы открыть оба.`, start: 'Принять вызов', later: 'Не сейчас',
@@ -55,7 +56,8 @@ const UI = {
         revSomeTitle: 'Кое-что забылось', revSomeText: 'Это нормально: памяти нужен второй заход. Поиграй с лабораторией ещё раз и вернись к вопросам через неделю.',
         doneTitle: 'Открыто!', doneText: 'Оба секретных опыта открыты. Они по краям ряда кнопок.', go: 'Вперёд', marked: 'Темы этой лаборатории отмечены на графе как «Изучаем».',
         lic: 'Темы из Marble Skill Taxonomy (ODbL 1.0 / CC BY-SA 4.0), перевод. Лаборатория — упрощённая модель, а не измерительный прибор.',
-        contrib: 'Skill Graph — открытый проект: его можно дополнить', fact: 'А знаешь ли ты?', nextFact: 'Ещё факт', why: 'Почему' },
+        contrib: 'Skill Graph — открытый проект: его можно дополнить', fact: 'А знаешь ли ты?', nextFact: 'Ещё факт', why: 'Почему',
+        part: (i, n) => `Часть ${i} из ${n}`, partLast: (n) => `Часть ${n} из ${n}, последняя`, partNext: 'Дальше', partFirst: 'Снова часть 1' },
   hu: { brand: 'Laborok', back: 'Vissza a gráfhoz', topics: 'A készségtérképen', sound: 'Hang', views: 'Nézet',
         secretKick: 'Titkos labor', secretTitle: 'Két extrém kísérlet le van zárva.',
         secretAsk: (n) => `Válaszolj <b>${n} rövid kérdésre</b>, és mindkettő kinyílik.`, start: 'Jöhet a kihívás', later: 'Most nem',
@@ -70,7 +72,8 @@ const UI = {
         revSomeTitle: 'Valami elfelejtődött', revSomeText: 'Ez természetes: az emlékezetnek kell egy második kör. Játssz még a laborral, és egy hét múlva próbáld újra a kérdéseket.',
         doneTitle: 'Kinyílt!', doneText: 'Mindkét titkos kísérlet elérhető. A gombsor két végén találod őket.', go: 'Gyerünk', marked: 'A labor témái a gráfon „Tanulja” jelölést kaptak.',
         lic: 'A témák a Marble Skill Taxonomyból származnak (ODbL 1.0 / CC BY-SA 4.0), fordítás. A labor egyszerűsített modell, nem mérőeszköz.',
-        contrib: 'A Skill Graph nyílt forráskódú: bárki hozzátehet', fact: 'Tudtad?', nextFact: 'Még egy', why: 'Miért' },
+        contrib: 'A Skill Graph nyílt forráskódú: bárki hozzátehet', fact: 'Tudtad?', nextFact: 'Még egy', why: 'Miért',
+        part: (i, n) => `${i}. rész / ${n}`, partLast: (n) => `${n}. rész / ${n}, az utolsó`, partNext: 'Tovább', partFirst: 'Vissza az 1. részhez' },
 };
 
 // --- sound: tiny synthesized blips, off until the visitor turns it on -------------------------------------
@@ -140,6 +143,7 @@ export function shell(cfg) {
     </section>
     <aside id="gauge"><div class="cap" id="gaugeCap"></div><div class="tube"><div class="fill" id="gFill"></div></div><div class="knob" id="gKnob"></div></aside>
   </main>
+  <nav id="parts" class="parts" hidden></nav>
   <footer class="foot" id="foot"></footer>
   <div id="secret"><div class="card box" id="secretBox" role="dialog" aria-modal="true"></div></div>`);
 
@@ -158,8 +162,17 @@ export function shell(cfg) {
     $('brand').innerHTML = `Skill Graph<i>.</i><small>${esc(u.brand)}</small>`;
     $('brand').title = u.back;
     $('langs').innerHTML = Object.entries(LANGS).map(([k, v]) => `<button data-lang="${k}" class="${k === lang ? 'on' : ''}">${v}</button>`).join('');
-    $('views').innerHTML = (cfg.views ?? []).map((v) => `<button role="tab" data-view="${v}" class="${v === lab.view ? 'on' : ''}">${T.views[v]}</button>`).join('');
-    const multi = cfg.views?.length > 1;
+    const views = cfg.views ?? [], multi = views.length > 1;
+    $('views').innerHTML = views.map((v, i) => `<button role="tab" data-view="${v}" class="${v === lab.view ? 'on' : ''}">${multi ? `<span class="n">${i + 1}</span>` : ''}${T.views[v]}</button>`).join('');
+    // under the lab: which part this is and a big button to the next one (people did not find parts 2 and 3 in the tabs)
+    const at = views.indexOf(lab.view), parts = $('parts');
+    parts.hidden = !multi || at < 0;
+    if (!parts.hidden) {
+      const last = at === views.length - 1, to = last ? views[0] : views[at + 1];
+      parts.innerHTML = `<div class="card parts-in"><div class="parts-where"><span class="parts-k">${esc(last ? u.partLast(views.length) : u.part(at + 1, views.length))}</span>
+        <span class="parts-dots" aria-hidden="true">${views.map((v, i) => `<i class="${i < at ? 'done' : i === at ? 'on' : ''}"></i>`).join('')}</span></div>
+        <button type="button" class="parts-go${last ? ' again' : ''}" data-view="${to}">${last ? '↺ ' : ''}<span class="parts-l">${esc(last ? u.partFirst : u.partNext)}:</span> ${T.views[to]}${last ? '' : ' →'}</button></div>`;
+    }
     $('views').style.display = multi ? '' : 'none';
     $('viewsRow').style.display = multi ? '' : 'none'; // no empty row; the cue is in the stage then
     // the step's "Why" button: right of the tabs when there are several views, under the picture otherwise
@@ -231,6 +244,13 @@ export function shell(cfg) {
     const v = ev.target.closest('button')?.dataset.view;
     if (!v || v === lab.view) return;
     lab.view = v; sfx.click(); renderChrome(); cfg.onView?.(v); checkStageSoon();
+  });
+  $('parts').addEventListener('click', (ev) => {
+    const v = ev.target.closest('button')?.dataset.view;
+    if (!v) return;
+    $('views').querySelector(`[data-view="${v}"]`)?.click(); // the tab's own click: labs that listen on the tabs see it too
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    requestAnimationFrame(() => $('stage').scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' }));
   });
   $('sound').onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); renderChrome(); sfx.click(); };
 
