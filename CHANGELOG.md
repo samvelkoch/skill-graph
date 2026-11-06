@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-06
 
 ### Labs
+- New lab `abstract` “From Tree to Lines”: simplify a tree step by step into lines and colour, mix lines and colours into a feeling, make your own abstract picture (385). (#334)
 - New lab `dino-hips` “Two Kinds of Hips”: swing the pubis to change a dinosaur’s group, sort six skeletons by their hips, find the branch where birds belong (384). (#333)
 - New lab `magnitude` “The Earthquake Ladder”: shake a seismograph, stack the energy of each magnitude step, place real earthquakes on the ladder (383). (#332)
 - New lab `egyptian-pose` “Draw Like an Egyptian”: turn each part of a figure to its clearest side, read a tomb painting for clues and drawing rules, draw on the 18-square grid (382). (#331)
