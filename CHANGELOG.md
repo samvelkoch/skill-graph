@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-06
 
 ### Labs
+- New lab `syncopation` “The Tripping Tune”: move notes off the beat and hear the music swing, compare a straight and a syncopated tune, play dotted rhythms (393). (#342)
 - New lab `six-eight` “Six Notes, Two Ways”: group six notes in threes or twos, conduct the big beats, sort little tunes by how they sway (392). (#341)
 - New lab `next-word` “Guess the Next Word”: watch a little robot write by guessing the next word, give it more text, see why it can sound sure and be wrong (391). (#340)
 - New lab `snowshoes` “Press Lightly”: stand on snow in boots, skis or snowshoes, drag along the pressure–area curve, compare high heels with an elephant (390). (#339)
