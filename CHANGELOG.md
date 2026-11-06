@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-06
 
 ### Labs
+- New lab `magnitude` “The Earthquake Ladder”: shake a seismograph, stack the energy of each magnitude step, place real earthquakes on the ladder (383). (#332)
 - New lab `egyptian-pose` “Draw Like an Egyptian”: turn each part of a figure to its clearest side, read a tomb painting for clues and drawing rules, draw on the 18-square grid (382). (#331)
 - New lab `roman-legacy` “Rome Is Still Here”: find Greece and Rome in a modern street with a Roman lens, build words from Latin and Greek roots, meet the Romans in the calendar (381). (#330)
 - New lab `glacier` “River of Ice”: pile snow on a glacier and warm its summers, follow a snowflake down into the ice, see the U-shaped valley a glacier leaves (380). (#329)
