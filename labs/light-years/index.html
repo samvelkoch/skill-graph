@@ -1,0 +1,775 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Light from Long Ago · Skill Graph</title>
+<meta name="description" content="Zoom from the Moon to the Andromeda galaxy and time the light, see when that light set off on a timeline of Earth, and find our place in the Milky Way. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  #stage canvas { border-radius: 18px; box-shadow: 0 0 0 1px rgba(130, 145, 190, .22), 0 14px 40px rgba(0, 0, 0, .45); }
+  .ly-ask { margin-bottom: 12px; }
+  .ly-q { font-weight: 800; font-size: 14px; color: #fff; margin-bottom: 8px; line-height: 1.3; }
+  .ly-opt { min-height: 38px; white-space: normal; text-align: center; line-height: 1.2; padding: 8px 14px; font-size: 13px; }
+  .ly-opt:disabled { cursor: default; opacity: 1; }
+  .ly-opt:disabled:not(.good):not(.bad) { opacity: .55; }
+  .ly-opt.good { background: rgba(61, 220, 151, .2); border-color: var(--ok); color: #d9ffee; }
+  .ly-opt.bad { background: rgba(255, 90, 80, .18); border-color: #ff5a50; color: #ffd9d5; }
+  .ly-verdict { margin-top: 9px; font-size: 13px; font-weight: 800; line-height: 1.35; }
+  .ly-verdict.ok { color: var(--ok); }
+  .ly-verdict.no { color: var(--wip); }
+  .ly-sec { margin-top: 4px; }
+  .ly-stops { display: flex; justify-content: space-between; gap: 4px; margin: 2px 0 0; }
+  .ly-stop { flex: 1 1 0; max-width: 52px; height: 40px; border-radius: 12px; border: 1px solid var(--stroke); background: rgba(20, 24, 38, .6);
+    font-size: 20px; line-height: 1; padding: 0; cursor: pointer; transition: background .15s, border-color .15s, box-shadow .15s; }
+  .ly-stop:hover { background: rgba(130, 145, 190, .16); }
+  .ly-stop.on { border-color: #ffd25a; background: rgba(255, 210, 90, .18); box-shadow: 0 0 0 2px rgba(255, 210, 90, .22); }
+  .ly-src { font-size: 11px; color: var(--faint); overflow-wrap: anywhere; }
+  #stage canvas { touch-action: pan-y; }
+  @media (max-width: 760px) {
+    body[data-v=past] #stage, body[data-v=galaxy] #stage { height: min(116vw, 470px); }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, ruPlural, lang } from '../lab.js';
+
+// --- numbers ------------------------------------------------------------------------------------------------
+const YR = 31557600;                                   // seconds in a year
+const huIns = (t) => t.replace(/ mp$/, ' másodperccel').replace(/ perc$/, ' perccel').replace(/ év$/, ' évvel'); // Hungarian instrumental: "8 perccel ezelőtt"
+const nb = (n) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ' '); // 26 000
+const dec = (x, d = 1) => { const s = x.toFixed(d).replace(/\.0+$/, ''); return lang === 'en' ? s : s.replace('.', ','); };
+// light travel time in seconds, the time one trip of the sped-up beam takes on screen, an emoji for the stop button
+const STOPS = [
+  { k: 'moon', s: 1.3, P: 1.3, emo: '🌙' }, { k: 'sun', s: 500, P: 4, emo: '☀️' }, { k: 'proxima', s: 4.2 * YR, P: 4, emo: '⭐' },
+  { k: 'sirius', s: 8.6 * YR, P: 4, emo: '✨' }, { k: 'betel', s: 550 * YR, P: 4, emo: '🔴' }, { k: 'andromeda', s: 2.5e6 * YR, P: 4, emo: '🌌' },
+];
+const LD = STOPS.map((o) => Math.log(o.s));            // natural log of the light time: the zoom is linear in this
+const LG = STOPS.map((o) => Math.log10(o.s));
+const BAR_S = [0.5, 1, 10, 60, 600, 3600, 86400, YR, 10 * YR, 100 * YR, 1e3 * YR, 1e4 * YR, 1e5 * YR, 1e6 * YR, 1e7 * YR];
+const TL_L = [0, Math.log10(60), Math.log10(3600), Math.log10(86400), Math.log10(YR), Math.log10(1e3 * YR), Math.log10(1e6 * YR)];
+const MARKS = [['born', 12], ['cars', 140], ['pyramids', 4500], ['ice', 11700], ['humans', 3e5], ['australo', 3e6]].map(([k, y]) => ({ k, L: Math.log10(y * YR) }));
+const RIGHT = { zoom: 1, past: 2, galaxy: 0 };         // index of the right chip in each prediction
+const SRC_B = 'https://en.wikipedia.org/wiki/Andromeda%E2%80%93Milky_Way_collision';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Light from Long Ago', title: 'Light from Long Ago',
+    lines: [['Zoom from the Moon to another galaxy', ' and time the light.'], ['See when the light set off', ' on a timeline of Earth.'], ['Find where we are', ' in the Milky Way.']],
+    views: { zoom: '🔭 Zoom', past: '⏳ The past', galaxy: '🌌 Galaxy' },
+    objs: { moon: 'Moon', sun: 'Sun', proxima: 'Proxima Centauri', sirius: 'Sirius', betel: 'Betelgeuse', andromeda: 'Andromeda galaxy' },
+    times: { moon: '1.3 s', sun: '8 min 20 s', proxima: '4.2 years', sirius: '8.6 years', betel: 'about 550 years', andromeda: 'about 2.5 million years' },
+    lightSub: 'light travel time', speed: (x) => `speed ×${x}`,
+    zoomAsk: 'Light from the Sun reaches us after…', zoomOpts: ['at once', 'about 8 minutes', 'about a year'],
+    zoomRight: 'Right! You see the Sun as it was 8 minutes ago.', zoomWrong: 'Not quite: watch the beam travel.',
+    marks: { born: 'you were born', cars: 'the first cars', pyramids: 'the pyramids of Giza', ice: 'the last ice age ends', humans: 'the first humans', australo: 'early human ancestors' },
+    left: (t) => `left ${t} ago`,
+    pastAsk: 'The light we see from Andromeda left it when…', pastOpts: ['last year', 'the pyramids were built', 'before there were any humans'],
+    pastRight: 'Right! It set off before the first humans walked on Earth.', pastWrong: 'Not quite: find 2.5 million years on the timeline.',
+    hereLbl: 'You are here', fromCentre: 'from the centre', across: '100 000 light-years across', ly: (n) => `${nb(n)} light-years`, top: 'top view', side: 'side view',
+    galAsk: 'Where is the Sun in the Milky Way?', galOpts: ['in an arm, about halfway out', 'in the centre', 'at the very edge'],
+    galRight: 'Right! In an arm, about halfway from the centre.', galWrong: 'Not quite: look at the marker on the spiral.',
+    now: 'just now', earth: 'Earth', mw: 'Milky Way', ago: (t) => `${t} ago`, agoHdr: 'ago ↓',
+    tl: ['1 s', '1 min', '1 hour', '1 day', '1 year', '1 000 years', '1 million years'],
+    bars: ['0.5 light-second', '1 light-second', '10 light-seconds', '1 light-minute', '10 light-minutes', '1 light-hour', '1 light-day', '1 light-year', '10 light-years', '100 light-years', '1 000 light-years', '10 000 light-years', '100 000 light-years', '1 million light-years', '10 million light-years'],
+    lyOne: '1 light-year', kmh: '100 km/h', home: '↺ Our place', ctr: 'centre', edge: 'edge', zoomLbl: 'Zoom',
+    yrs: (n) => (n >= 1e6 ? `${dec(n / 1e6)} million years` : n < 1.5 ? '1 year' : `${nb(n)} years`),
+    st: {
+      zoom: ['🔭', 'Distances in light-time', 'Light is the fastest thing there is, yet space is so big that light needs minutes, years, even millions of years to cross it.', 'A light-year is the distance light travels in a year. Astronomers use it because kilometres would be far too small a ruler.'],
+      past: ['⏳', 'Looking far is looking back', 'We see things when their light reaches us. So we see the Sun as it was 8 minutes ago and Andromeda as it was 2.5 million years ago.', 'The further we look, the older the picture: telescopes are time machines that only look backwards.'],
+      galaxy: ['🌌', 'Our home in the galaxy', 'The Sun is one of hundreds of billions of stars in the Milky Way, a spiral galaxy about 100 000 light-years across.', 'We live in one of its arms, about 26 000 light-years from the centre, not in the middle.']
+    },
+    facts: {
+      zoom: [{ emo: '⭐', text: 'The nearest star after the Sun, Proxima Centauri, is about 4.2 light-years away.', src: 'https://en.wikipedia.org/wiki/Proxima_Centauri' }],
+      past: [{ emo: '🌌', text: 'The Andromeda galaxy, about 2.5 million light-years away, can be seen without a telescope on a very dark night.', src: 'https://en.wikipedia.org/wiki/Andromeda_Galaxy' }],
+      galaxy: [{ emo: '🌀', text: 'The Milky Way is about 100 000 light-years across and holds hundreds of billions of stars.', src: 'https://en.wikipedia.org/wiki/Milky_Way' }]
+    },
+    secrets: { a: ['A light-year in kilometres', 'How long would a car take to drive one light-year?'], b: ['Andromeda is coming', 'See two galaxies on their way to meet.'] },
+    kmText: 'One light-year is about 9.46 trillion km. A car at 100 km/h would need about 10.8 million years to drive it.',
+    meetText: 'Andromeda is moving towards us. A 2025 study says the chance that it hits the Milky Way in the next 10 billion years is about one in two.',
+    quiz: [
+      { q: 'Why do we see Andromeda as it was 2.5 million years ago?', opts: ['Telescopes are slow', 'Andromeda is very old', 'Its light took that long to reach us'], ok: 2, hint: 'In The past tab, choose Andromeda.' },
+      { q: 'What does a light-year measure?', opts: ['A distance', 'A time', 'Brightness'], ok: 0, hint: 'Read the state card in the Zoom tab.' },
+      { q: 'Where is the Sun in our galaxy?', opts: ['In the centre', 'In an arm, about halfway out', 'Outside the galaxy'], ok: 1, hint: 'In the Galaxy tab, look at the marker.' }
+    ]
+  },
+  ru: {
+    name: 'Свет из прошлого', title: 'Свет из прошлого',
+    lines: [['Отдались от Луны до другой галактики', ' и засеки время света.'], ['Посмотри, когда свет вышел в путь', ' на ленте истории Земли.'], ['Найди, где мы', ' в Млечном Пути.']],
+    views: { zoom: '🔭 Зум', past: '⏳ Прошлое', galaxy: '🌌 Галактика' },
+    objs: { moon: 'Луна', sun: 'Солнце', proxima: 'Проксима Центавра', sirius: 'Сириус', betel: 'Бетельгейзе', andromeda: 'галактика Андромеды' },
+    times: { moon: '1,3 с', sun: '8 мин 20 с', proxima: '4,2 года', sirius: '8,6 года', betel: 'около 550 лет', andromeda: 'около 2,5 млн лет' },
+    lightSub: 'время пути света', speed: (x) => `скорость ×${x}`,
+    zoomAsk: 'Свет от Солнца доходит до нас через…', zoomOpts: ['мгновенно', 'около 8 минут', 'около года'],
+    zoomRight: 'Верно! Ты видишь Солнце таким, каким оно было 8 минут назад.', zoomWrong: 'Не совсем: посмотри, как летит луч.',
+    marks: { born: 'год твоего рождения', cars: 'первые автомобили', pyramids: 'пирамиды Гизы', ice: 'конец последнего ледникового периода', humans: 'первые люди', australo: 'древние предки людей' },
+    left: (t) => `вышел ${t} назад`,
+    pastAsk: 'Свет, который мы видим от Андромеды, вышел, когда…', pastOpts: ['в прошлом году', 'строили пирамиды', 'людей ещё не было'],
+    pastRight: 'Верно! Он вышел до того, как по Земле прошли первые люди.', pastWrong: 'Не совсем: найди 2,5 миллиона лет на ленте.',
+    hereLbl: 'Мы здесь', fromCentre: 'от центра', across: '100 000 световых лет в поперечнике', ly: (n) => `${nb(n)} световых лет`, top: 'вид сверху', side: 'вид сбоку',
+    galAsk: 'Где Солнце в Млечном Пути?', galOpts: ['в рукаве, примерно на полпути', 'в центре', 'на самом краю'],
+    galRight: 'Верно! В рукаве, примерно на полпути от центра.', galWrong: 'Не совсем: посмотри на отметку на спирали.',
+    now: 'только что', earth: 'Земля', mw: 'Млечный Путь', ago: (t) => `${t} назад`, agoHdr: 'назад ↓',
+    tl: ['1 с', '1 мин', '1 час', '1 день', '1 год', '1 000 лет', '1 млн лет'],
+    bars: ['0,5 световой секунды', '1 световая секунда', '10 световых секунд', '1 световая минута', '10 световых минут', '1 световой час', '1 световой день', '1 световой год', '10 световых лет', '100 световых лет', '1 000 световых лет', '10 000 световых лет', '100 000 световых лет', '1 млн световых лет', '10 млн световых лет'],
+    lyOne: '1 световой год', kmh: '100 км/ч', home: '↺ Наше место', ctr: 'центр', edge: 'край', zoomLbl: 'Зум',
+    yrs: (n) => (n >= 1e6 ? `${dec(n / 1e6)} млн лет` : n < 1.5 ? '1 год' : `${nb(n)} ${ruPlural(Math.round(n), 'год', 'года', 'лет')}`),
+    st: {
+      zoom: ['🔭', 'Расстояния во времени света', 'Свет — самое быстрое, что есть, но космос так огромен, что свету нужны минуты, годы и даже миллионы лет, чтобы его пересечь.', 'Световой год — это расстояние, которое свет проходит за год. Астрономы пользуются им, потому что километры — слишком мелкая линейка.'],
+      past: ['⏳', 'Смотреть далеко — смотреть в прошлое', 'Мы видим предметы, когда до нас доходит их свет. Поэтому Солнце мы видим таким, каким оно было 8 минут назад, а Андромеду — 2,5 миллиона лет назад.', 'Чем дальше смотрим, тем старше картинка: телескопы — машины времени, которые смотрят только назад.'],
+      galaxy: ['🌌', 'Наш дом в галактике', 'Солнце — одна из сотен миллиардов звёзд Млечного Пути, спиральной галактики около 100 000 световых лет в поперечнике.', 'Мы живём в одном из её рукавов, примерно в 26 000 световых лет от центра, а не в середине.']
+    },
+    facts: {
+      zoom: [{ emo: '⭐', text: 'Ближайшая после Солнца звезда, Проксима Центавра, находится примерно в 4,2 светового года.', src: 'https://en.wikipedia.org/wiki/Proxima_Centauri' }],
+      past: [{ emo: '🌌', text: 'Галактику Андромеды, до которой около 2,5 миллиона световых лет, в очень тёмную ночь видно без телескопа.', src: 'https://en.wikipedia.org/wiki/Andromeda_Galaxy' }],
+      galaxy: [{ emo: '🌀', text: 'Млечный Путь — около 100 000 световых лет в поперечнике, и в нём сотни миллиардов звёзд.', src: 'https://en.wikipedia.org/wiki/Milky_Way' }]
+    },
+    secrets: { a: ['Световой год в километрах', 'Сколько ехать на машине один световой год?'], b: ['Андромеда приближается', 'Посмотри на две галактики, которые летят навстречу.'] },
+    kmText: 'Один световой год — около 9,46 триллиона км. Машине на скорости 100 км/ч понадобилось бы около 10,8 миллиона лет.',
+    meetText: 'Андромеда движется к нам. По исследованию 2025 года, шанс, что она столкнётся с Млечным Путём в ближайшие 10 миллиардов лет, — примерно один к двум.',
+    quiz: [
+      { q: 'Почему мы видим Андромеду такой, какой она была 2,5 миллиона лет назад?', opts: ['Телескопы медленные', 'Андромеда очень старая', 'Её свет летел к нам так долго'], ok: 2, hint: 'Во вкладке «Прошлое» выбери Андромеду.' },
+      { q: 'Что измеряют световым годом?', opts: ['Расстояние', 'Время', 'Яркость'], ok: 0, hint: 'Прочитай карточку во вкладке «Зум».' },
+      { q: 'Где Солнце в нашей галактике?', opts: ['В центре', 'В рукаве, примерно на полпути', 'Вне галактики'], ok: 1, hint: 'Во вкладке «Галактика» посмотри на отметку.' }
+    ]
+  },
+  hu: {
+    name: 'Fény a régmúltból', title: 'Fény a régmúltból',
+    lines: [['Távolodj el a Holdtól egy másik galaxisig,', ' és mérd a fény idejét.'], ['Nézd meg, mikor indult el a fény', ' a Föld történetének szalagján.'], ['Keresd meg, hol vagyunk', ' a Tejútrendszerben.']],
+    views: { zoom: '🔭 Közelítés', past: '⏳ Múlt', galaxy: '🌌 Galaxis' },
+    objs: { moon: 'Hold', sun: 'Nap', proxima: 'Proxima Centauri', sirius: 'Szíriusz', betel: 'Betelgeuze', andromeda: 'Androméda-galaxis' },
+    times: { moon: '1,3 mp', sun: '8 perc 20 mp', proxima: '4,2 év', sirius: '8,6 év', betel: 'kb. 550 év', andromeda: 'kb. 2,5 millió év' },
+    lightSub: 'a fény útideje', speed: (x) => `sebesség ×${x}`,
+    zoomAsk: 'A Nap fénye ennyi idő alatt ér hozzánk:', zoomOpts: ['azonnal', 'kb. 8 perc', 'kb. egy év'],
+    zoomRight: 'Így van! A Napot olyannak látod, amilyen 8 perccel ezelőtt volt.', zoomWrong: 'Nem egészen: figyeld, ahogy a sugár halad.',
+    marks: { born: 'megszülettél', cars: 'az első autók', pyramids: 'a gízai piramisok', ice: 'vége az utolsó jégkorszaknak', humans: 'az első emberek', australo: 'korai emberelődök' },
+    left: (t) => `${huIns(t)} ezelőtt indult`,
+    pastAsk: 'Az Androméda fénye, amelyet látunk, akkor indult el, amikor…', pastOpts: ['tavaly', 'épültek a piramisok', 'még nem voltak emberek'],
+    pastRight: 'Így van! Még az első emberek előtt indult el.', pastWrong: 'Nem egészen: keresd meg a 2,5 millió évet a szalagon.',
+    hereLbl: 'Itt vagyunk', fromCentre: 'a középponttól', across: '100 000 fényév átmérő', ly: (n) => `${nb(n)} fényév`, top: 'felülnézet', side: 'oldalnézet',
+    galAsk: 'Hol van a Nap a Tejútrendszerben?', galOpts: ['egy karban, nagyjából félúton', 'a közepén', 'a legszélén'],
+    galRight: 'Így van! Egy karban, nagyjából félúton a középponttól.', galWrong: 'Nem egészen: nézd a jelet a spirálon.',
+    now: 'épp most', earth: 'Föld', mw: 'Tejútrendszer', ago: (t) => `${huIns(t)} ezelőtt`, agoHdr: 'ezelőtt ↓',
+    tl: ['1 mp', '1 perc', '1 óra', '1 nap', '1 év', '1 000 év', '1 millió év'],
+    bars: ['0,5 fénymásodperc', '1 fénymásodperc', '10 fénymásodperc', '1 fényperc', '10 fényperc', '1 fényóra', '1 fénynap', '1 fényév', '10 fényév', '100 fényév', '1 000 fényév', '10 000 fényév', '100 000 fényév', '1 millió fényév', '10 millió fényév'],
+    lyOne: '1 fényév', kmh: '100 km/h', home: '↺ A mi helyünk', ctr: 'közép', edge: 'szél', zoomLbl: 'Közelítés',
+    yrs: (n) => (n >= 1e6 ? `${dec(n / 1e6)} millió év` : n < 1.5 ? '1 év' : `${nb(n)} év`),
+    st: {
+      zoom: ['🔭', 'Távolságok fényidőben', 'A fény a leggyorsabb dolog, mégis olyan hatalmas az űr, hogy a fénynek percek, évek, sőt évmilliók kellenek az átszeléséhez.', 'A fényév az a távolság, amelyet a fény egy év alatt megtesz. A csillagászok azért használják, mert a kilométer túl kicsi mérce.'],
+      past: ['⏳', 'Messzire nézni annyi, mint visszanézni', 'Akkor látunk valamit, amikor a fénye ideér. Ezért a Napot olyannak látjuk, amilyen 8 perce volt, az Andromédát pedig olyannak, amilyen 2,5 millió éve.', 'Minél messzebbre nézünk, annál régebbi a kép: a távcsövek csak visszafelé néző időgépek.'],
+      galaxy: ['🌌', 'Otthonunk a galaxisban', 'A Nap egy a Tejútrendszer több százmilliárd csillaga közül; ez egy kb. 100 000 fényév átmérőjű spirálgalaxis.', 'Az egyik karjában élünk, kb. 26 000 fényévre a középponttól, nem a közepén.']
+    },
+    facts: {
+      zoom: [{ emo: '⭐', text: 'A Nap után a legközelebbi csillag, a Proxima Centauri kb. 4,2 fényévre van.', src: 'https://en.wikipedia.org/wiki/Proxima_Centauri' }],
+      past: [{ emo: '🌌', text: 'A kb. 2,5 millió fényévre lévő Androméda-galaxis nagyon sötét éjszakán távcső nélkül is látható.', src: 'https://en.wikipedia.org/wiki/Andromeda_Galaxy' }],
+      galaxy: [{ emo: '🌀', text: 'A Tejútrendszer kb. 100 000 fényév átmérőjű, és több százmilliárd csillag van benne.', src: 'https://en.wikipedia.org/wiki/Milky_Way' }]
+    },
+    secrets: { a: ['Egy fényév kilométerben', 'Mennyi ideig autózna valaki egy fényévet?'], b: ['Jön az Androméda', 'Nézd, ahogy két galaxis egymás felé tart.'] },
+    kmText: 'Egy fényév kb. 9,46 billió km. Egy 100 km/h-val haladó autónak kb. 10,8 millió év kellene hozzá.',
+    meetText: 'Az Androméda felénk tart. Egy 2025-ös tanulmány szerint körülbelül fele-fele az esélye, hogy a következő 10 milliárd évben összeütközik a Tejútrendszerrel.',
+    quiz: [
+      { q: 'Miért olyannak látjuk az Andromédát, amilyen 2,5 millió éve volt?', opts: ['A távcsövek lassúak', 'Az Androméda nagyon öreg', 'A fénye ennyi ideig tartott ideérni'], ok: 2, hint: 'A Múlt fülön válaszd az Andromédát.' },
+      { q: 'Mit mér a fényév?', opts: ['Távolságot', 'Időt', 'Fényességet'], ok: 0, hint: 'Olvasd el a kártyát a Közelítés fülön.' },
+      { q: 'Hol van a Nap a galaxisunkban?', opts: ['A közepén', 'Egy karban, nagyjából félúton', 'A galaxison kívül'], ok: 1, hint: 'A Galaxis fülön nézd meg a jelet.' }
+    ]
+  },
+};
+const TOPICS = [
+  { id: 'mt_v9uYnIY5-B', en: 'Galaxies and the universe', ru: 'Галактики и Вселенная', hu: 'Galaxisok és a világegyetem' },
+  { id: 'mt_aulwq39aj8', en: 'The Vast Scale of Space', ru: 'Огромные масштабы космоса', hu: 'Az univerzum óriási léptéke' },
+];
+
+// --- state -------------------------------------------------------------------------------------------------
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+const ease = (x) => x * x * (3 - 2 * x);
+const TWO_PI = Math.PI * 2;
+const rng = (a) => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+const armTh = (K) => (a, f) => a + Math.log(Math.max(f, 0.06) / 0.1) * K;     // log spiral: angle of an arm at radius fraction f
+const K_MW = 3.5;
+const ARMS_MW = [{ a: 0, w: 1 }, { a: Math.PI, w: 1 }, { a: Math.PI / 2, w: 0.55 }, { a: Math.PI * 1.5, w: 0.55 }];
+const S = {
+  zi: 1, zf: 1, zFrom: 1, zTo: 1, zT: 1, zD: 1, zv: 0, ph: 0,       // zoom stop, animated stop, tween, speed of the zoom, beam phase
+  r: 26000, ang: armTh(K_MW)(ARMS_MW[3].a, 0.52), rot: 0,             // the marker in the galaxy: light-years from the centre, angle in the galaxy's own frame
+  sec: null, secT: 0,
+};
+const A = { zoom: null, past: null, galaxy: null };                // the chip tapped in each prediction
+const G = { ox: 0, oy: 0, s: 1, on: false };                       // galaxy picture geometry, for dragging
+let SC = 1;                                                        // current design-box scale (canvas px per design unit)
+const DIM = { zoom: [360, 300], past: [360, 420], galaxy: [360, 420] };
+
+const lab = shell({ key: 'light-years', T, topics: TOPICS, views: ['zoom', 'past', 'galaxy'], onLang: render, onView: () => { S.sec = null; render(); } });
+const secret = secretLab('light-years', () => ({
+  secrets: [{ emo: '🛰️', title: T[lang].secrets.a[0], desc: T[lang].secrets.a[1] }, { emo: '🌌', title: T[lang].secrets.b[0], desc: T[lang].secrets.b[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div class="ly-ask" id="lyAsk"></div>
+  <div class="ly-sec" id="lyStops">
+    <input id="lyRange" class="big" type="range" min="0" max="5" step="1" value="1" style="--track: linear-gradient(90deg, #2a3a8a, #6f7fff 55%, #ffd25a)">
+    <div class="ly-stops" id="lyStopRow">${STOPS.map((o, i) => `<button type="button" class="ly-stop" data-i="${i}">${o.emo}</button>`).join('')}</div>
+  </div>
+  <div class="ly-sec" id="lyGal">
+    <input id="lyDist" class="big" type="range" min="0" max="50000" step="500" value="26000" style="--track: linear-gradient(90deg, #ffe7b0, #8fa4ff 55%, #2a3a8a)">
+    <div class="ends"><span id="lyEnd0"></span><span id="lyEnd1"></span></div>
+    <div class="row2" style="margin-top:0"><button type="button" class="chip" id="lyHome"></button></div>
+  </div>
+  <div class="row2" id="lySecRow"></div>`;
+
+// --- drawing helpers ---------------------------------------------------------------------------------------
+// every label is a dark rounded pill; sizes are given in screen px and divided by the design scale, so text stays >= 12 px
+function pill(c, text, x, y, o = {}) {
+  const k = 1 / SC, fs = (o.size || 12.5) * k;
+  c.font = `${o.weight || 800} ${fs}px Nunito, system-ui, sans-serif`;
+  const tw = c.measureText(text).width, px = 8 * k, h = (o.h || 22) * k, w = Math.min(354, tw + px * 2);
+  let x0 = o.align === 'l' ? x : o.align === 'r' ? x - w : x - w / 2;
+  x0 = clamp(x0, 3, 357 - w);
+  const y0 = y - h / 2;
+  c.beginPath(); c.roundRect(x0, y0, w, h, h / 2);
+  c.fillStyle = o.bg || 'rgba(8,10,24,.82)'; c.fill();
+  c.lineWidth = k; c.strokeStyle = o.border || 'rgba(150,165,215,.3)'; c.stroke();
+  c.fillStyle = o.color || '#e6ebff'; c.textAlign = 'left'; c.textBaseline = 'middle';
+  c.fillText(text, x0 + px, y0 + h / 2 + 0.5 * k);
+  return { x0, x1: x0 + w, y0, y1: y0 + h, w, h };
+}
+function wrap(c, text, maxW) {
+  const out = []; let cur = '';
+  for (const wd of text.split(' ')) {
+    const t = cur ? `${cur} ${wd}` : wd;
+    if (c.measureText(t).width > maxW && cur) { out.push(cur); cur = wd; } else cur = t;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+const poly = (c, pts) => { c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.closePath(); };
+function blob(c, pts, x, y, r) { // a smooth closed shape through points given in units of r
+  const P = pts.map(([a, b]) => [x + a * r, y + b * r]), n = P.length;
+  c.beginPath(); c.moveTo((P[0][0] + P[n - 1][0]) / 2, (P[0][1] + P[n - 1][1]) / 2);
+  for (let i = 0; i < n; i++) { const q = P[i], m = P[(i + 1) % n]; c.quadraticCurveTo(q[0], q[1], (q[0] + m[0]) / 2, (q[1] + m[1]) / 2); }
+  c.closePath();
+}
+const glow = (c, x, y, r, rgba, mid) => {
+  r = Math.max(0.1, r);
+  const g = c.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, rgba); if (mid) g.addColorStop(mid[0], mid[1]); g.addColorStop(1, rgba.replace(/[\d.]+\)$/, '0)'));
+  c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, TWO_PI); c.fill();
+};
+
+// --- spiral galaxies, painted once into a bitmap ------------------------------------------------------------
+function makeSpiral(N, seed, arms, K, nStars) {
+  const cv = document.createElement('canvas'); cv.width = cv.height = N;
+  const g = cv.getContext('2d'), R = N / 2 - 6, C = N / 2, r = rng(seed), u = N / 768, th = armTh(K);
+  const gauss = () => (r() + r() + r() - 1.5) / 0.5;
+  const pt = (f, t) => [C + f * R * Math.cos(t), C + f * R * Math.sin(t)];
+  const wsum = arms.reduce((s, a) => s + a.w, 0);
+  const pick = () => { let x = r() * wsum; for (const a of arms) { x -= a.w; if (x <= 0) return a; } return arms[0]; };
+  const dot = (x, y, rad, rgb, al) => { g.fillStyle = `rgba(${rgb},${al})`; g.beginPath(); g.arc(x, y, rad, 0, TWO_PI); g.fill(); };
+  g.globalCompositeOperation = 'lighter';
+  let gr = g.createRadialGradient(C, C, 0, C, C, R);                      // the diffuse disc
+  gr.addColorStop(0, 'rgba(255,238,205,.8)'); gr.addColorStop(0.16, 'rgba(235,225,235,.42)'); gr.addColorStop(0.5, 'rgba(160,185,255,.17)');
+  gr.addColorStop(0.85, 'rgba(110,140,240,.06)'); gr.addColorStop(1, 'rgba(90,120,230,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, N, N);
+  for (let i = 0; i < 1500; i++) {                                         // a soft glow along each arm
+    const a = pick(), f = 0.1 + 0.9 * Math.pow(r(), 0.8), [x, y] = pt(f, th(a.a, f) + gauss() * 0.11), rad = (0.035 + 0.075 * f) * R * (0.7 + r() * 0.6);
+    gr = g.createRadialGradient(x, y, 0, x, y, rad); gr.addColorStop(0, `rgba(150,180,255,${0.055 * a.w + 0.02})`); gr.addColorStop(1, 'rgba(150,180,255,0)');
+    g.fillStyle = gr; g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+  }
+  g.globalCompositeOperation = 'source-over';
+  for (const a of arms) for (let f = 0.15; f < 0.97; f += 0.006) {         // dust lanes on the inner edge of each arm
+    const t0 = th(a.a, f) - 0.2;
+    for (let j = 0; j < 5; j++) { const [x, y] = pt(f + gauss() * 0.012, t0 + gauss() * 0.045); dot(x, y, (0.006 + 0.012 * f) * R * (0.6 + r()), '6,4,14', 0.1); }
+  }
+  g.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < nStars; i++) {                                       // the stars of the arms
+    const a = pick(), f = 0.08 + 0.92 * Math.pow(r(), 0.75), [x, y] = pt(f, th(a.a, f) + gauss() * (0.13 + 0.05 * (1 - f)));
+    const q = r(), rgb = q < 0.74 ? '207,216,255' : q < 0.9 ? '255,255,255' : '255,170,205';
+    dot(x, y, (0.45 + 1.3 * r() * r()) * Math.max(0.7, u * 1.1), rgb, 0.35 + 0.55 * r());
+  }
+  for (let i = 0; i < 240; i++) {                                          // a few bright stars with a halo
+    const a = pick(), f = 0.15 + 0.85 * Math.pow(r(), 0.8), [x, y] = pt(f, th(a.a, f) + gauss() * 0.1);
+    dot(x, y, 3.4 * u + 1, '190,210,255', 0.12); dot(x, y, 1.2 * u + 0.4, '255,255,255', 0.95);
+  }
+  for (let i = 0; i < 2600; i++) { const f = Math.sqrt(r()), t = r() * TWO_PI, [x, y] = pt(f, t); dot(x, y, 0.6 * Math.max(0.7, u), '200,215,255', 0.1 + 0.22 * r()); }
+  for (let i = 0; i < 2200; i++) { dot(C + gauss() * 0.075 * R, C + gauss() * 0.075 * R, (0.5 + r()) * Math.max(0.7, u), '255,226,170', 0.3 + 0.5 * r()); }
+  gr = g.createRadialGradient(C, C, 0, C, C, 0.22 * R);                    // the bulge
+  gr.addColorStop(0, 'rgba(255,250,232,1)'); gr.addColorStop(0.3, 'rgba(255,224,155,.78)'); gr.addColorStop(1, 'rgba(255,190,110,0)');
+  g.fillStyle = gr; g.beginPath(); g.arc(C, C, 0.22 * R, 0, TWO_PI); g.fill();
+  g.save(); g.translate(C, C); g.rotate(0.55); g.scale(1, 0.28);           // the bar
+  gr = g.createRadialGradient(0, 0, 0, 0, 0, 0.34 * R); gr.addColorStop(0, 'rgba(255,230,180,.6)'); gr.addColorStop(1, 'rgba(255,210,150,0)');
+  g.fillStyle = gr; g.beginPath(); g.arc(0, 0, 0.34 * R, 0, TWO_PI); g.fill(); g.restore();
+  return cv;
+}
+const MW = makeSpiral(768, 11, ARMS_MW, K_MW, 9500);
+const ANDRO = makeSpiral(512, 77, [{ a: 0.4, w: 1 }, { a: 0.4 + Math.PI, w: 1 }], 5, 6000);
+const drawBmp = (c, bmp, x, y, rad, spin, tilt, squash, alpha = 1) => {      // a galaxy bitmap with radius `rad` (of the bright disc), tilted into an oval
+  const sz = bmp.width * rad / (bmp.width / 2 - 6);
+  c.save(); c.translate(x, y); c.rotate(tilt); c.scale(1, squash); c.rotate(spin); c.globalAlpha = alpha;
+  c.drawImage(bmp, -sz / 2, -sz / 2, sz, sz); c.restore();
+};
+
+// --- the sky ----------------------------------------------------------------------------------------------
+const STARS = (() => {
+  const r = rng(7), out = [];
+  for (let i = 0; i < 190; i++) { const z = i % 3; out.push({ x: r(), y: r(), z, s: [0.7, 1.05, 1.6][z] * (0.6 + r() * 0.8), a: 0.35 + r() * 0.6, p: r() * 6.28, c: r() < 0.14 ? '#ffd9b0' : r() < 0.3 ? '#b9d0ff' : '#ffffff' }); }
+  return out;
+})();
+function drawBackdrop(c, w, h, time) {
+  let g = c.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#0a0d24'); g.addColorStop(0.6, '#05060f'); g.addColorStop(1, '#04050c');
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+  g = c.createRadialGradient(w * 0.18, h * 0.22, 0, w * 0.18, h * 0.22, w * 0.7); g.addColorStop(0, 'rgba(90,80,210,.2)'); g.addColorStop(1, 'rgba(90,80,210,0)');
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+  g = c.createRadialGradient(w * 0.9, h * 0.85, 0, w * 0.9, h * 0.85, w * 0.75); g.addColorStop(0, 'rgba(30,130,190,.15)'); g.addColorStop(1, 'rgba(30,130,190,0)');
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+  c.lineCap = 'round';
+  for (const st of STARS) {
+    const x = ((((st.x - S.zf * 0.05 * (st.z + 1) - time * 0.002 * (st.z + 1)) % 1) + 1) % 1) * w, y = st.y * h;
+    const al = st.a * (0.72 + 0.28 * Math.sin(time * 1.5 + st.p)), len = Math.min(70, Math.abs(S.zv) * 20 * (st.z + 1));
+    c.globalAlpha = al; c.fillStyle = c.strokeStyle = st.c;
+    if (len > 2) { c.lineWidth = st.s; c.beginPath(); c.moveTo(x, y); c.lineTo(x + Math.sign(S.zv) * len, y); c.stroke(); }
+    c.beginPath(); c.arc(x, y, st.s, 0, TWO_PI); c.fill();
+    if (st.z === 2 && st.s > 1.3) { c.lineWidth = 0.7; c.beginPath(); c.moveTo(x - st.s * 3.2, y); c.lineTo(x + st.s * 3.2, y); c.moveTo(x, y - st.s * 3.2); c.lineTo(x, y + st.s * 3.2); c.stroke(); }
+  }
+  c.globalAlpha = 1;
+}
+
+// --- objects ------------------------------------------------------------------------------------------------
+function drawEarth(c, x, y, r) {
+  glow(c, x, y, r * 1.55, 'rgba(110,180,255,.5)', [0.62, 'rgba(90,160,255,.28)']);
+  let g = c.createRadialGradient(x - r * 0.38, y - r * 0.42, r * 0.1, x, y, r * 1.05);
+  g.addColorStop(0, '#a9deff'); g.addColorStop(0.45, '#3b86e0'); g.addColorStop(0.85, '#123a86'); g.addColorStop(1, '#07163f');
+  c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, TWO_PI); c.fill();
+  c.save(); c.beginPath(); c.arc(x, y, r, 0, TWO_PI); c.clip();
+  g = c.createLinearGradient(x - r, y - r, x + r, y + r); g.addColorStop(0, '#7fd08a'); g.addColorStop(1, '#3d8f55');
+  c.fillStyle = g;
+  blob(c, [[-0.5, -0.4], [-0.1, -0.58], [0.2, -0.32], [0.08, -0.04], [-0.22, 0.12], [-0.55, -0.02]], x, y, r); c.fill();
+  blob(c, [[0.22, 0.08], [0.55, -0.02], [0.78, 0.22], [0.5, 0.5], [0.22, 0.4]], x, y, r); c.fill();
+  blob(c, [[-0.44, 0.3], [-0.16, 0.34], [-0.1, 0.7], [-0.36, 0.76]], x, y, r); c.fill();
+  c.fillStyle = 'rgba(255,255,255,.4)';
+  for (const [a, b, rx, ry] of [[-0.2, -0.62, 0.34, 0.07], [0.3, -0.25, 0.3, 0.06], [-0.35, 0.55, 0.3, 0.06], [0.45, 0.62, 0.25, 0.05]]) { c.beginPath(); c.ellipse(x + a * r, y + b * r, rx * r, ry * r, -0.3, 0, TWO_PI); c.fill(); }
+  g = c.createRadialGradient(x - r * 0.45, y - r * 0.5, r * 0.3, x - r * 0.1, y - r * 0.1, r * 1.4);
+  g.addColorStop(0, 'rgba(0,5,25,0)'); g.addColorStop(1, 'rgba(0,5,25,.6)');
+  c.fillStyle = g; c.fillRect(x - r, y - r, r * 2, r * 2);
+  c.restore();
+  c.lineWidth = 1.5; c.strokeStyle = '#0a1a44'; c.beginPath(); c.arc(x, y, r, 0, TWO_PI); c.stroke();
+  c.lineWidth = 1.2; c.strokeStyle = 'rgba(255,255,255,.35)'; c.beginPath(); c.arc(x, y, r - 1.5, Math.PI * 1.05, Math.PI * 1.55); c.stroke();
+}
+const NAT = { moon: 15, sun: 28, proxima: 10, sirius: 13, betel: 26, andromeda: 50 };
+const DOT = { moon: '#e8e6e0', sun: '#ffd25a', proxima: '#ff7a50', sirius: '#cfe0ff', betel: '#ff8a40', andromeda: '#dfe6ff' };
+function drawObj(c, k, x, y, r, time) {
+  if (r < 4) { glow(c, x, y, 8, `rgba(${k === 'proxima' ? '255,110,70' : k === 'betel' ? '255,140,60' : '210,225,255'},.55)`); c.fillStyle = DOT[k]; c.beginPath(); c.arc(x, y, Math.max(1.1, r * 0.55), 0, TWO_PI); c.fill(); return; }
+  c.save();
+  if (k === 'moon') {
+    glow(c, x, y, r * 2.2, 'rgba(220,225,255,.22)');
+    const g = c.createRadialGradient(x - r * 0.4, y - r * 0.45, r * 0.1, x, y, r * 1.05);
+    g.addColorStop(0, '#fbfaf5'); g.addColorStop(0.45, '#cfcdc6'); g.addColorStop(0.85, '#8e8d90'); g.addColorStop(1, '#55555d');
+    c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, TWO_PI); c.fill();
+    for (const [a, b, q] of [[-0.3, -0.1, 0.24], [0.28, 0.3, 0.17], [0.1, -0.45, 0.12], [0.42, -0.1, 0.1], [-0.15, 0.48, 0.14], [-0.5, 0.25, 0.09]]) {
+      c.fillStyle = 'rgba(80,80,92,.38)'; c.beginPath(); c.arc(x + a * r, y + b * r, q * r, 0, TWO_PI); c.fill();
+      c.strokeStyle = 'rgba(255,255,255,.28)'; c.lineWidth = 1; c.beginPath(); c.arc(x + a * r, y + b * r, q * r, 0.2, 1.4); c.stroke();
+    }
+    c.lineWidth = 1.5; c.strokeStyle = 'rgba(30,30,42,.85)'; c.beginPath(); c.arc(x, y, r, 0, TWO_PI); c.stroke();
+  } else if (k === 'sun') {
+    glow(c, x, y, r * 3.2, 'rgba(255,215,100,.6)', [0.3, 'rgba(255,170,50,.28)']);
+    c.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 16; i++) {
+      const a = i / 16 * TWO_PI + time * 0.15, L = r * (1.65 + 0.35 * Math.sin(time * 1.3 + i * 2.1));
+      c.fillStyle = 'rgba(255,205,90,.2)'; c.beginPath(); c.moveTo(x + Math.cos(a - 0.08) * r * 0.9, y + Math.sin(a - 0.08) * r * 0.9);
+      c.lineTo(x + Math.cos(a) * L, y + Math.sin(a) * L); c.lineTo(x + Math.cos(a + 0.08) * r * 0.9, y + Math.sin(a + 0.08) * r * 0.9); c.fill();
+    }
+    c.globalCompositeOperation = 'source-over';
+    const g = c.createRadialGradient(x - r * 0.3, y - r * 0.32, r * 0.05, x, y, r * 1.02);
+    g.addColorStop(0, '#fffbd6'); g.addColorStop(0.5, '#ffd25a'); g.addColorStop(1, '#ff9a2c');
+    c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, TWO_PI); c.fill();
+    c.fillStyle = 'rgba(255,140,30,.22)';
+    for (const [a, b, q] of [[0.3, 0.2, 0.2], [-0.4, 0.35, 0.14], [0.1, -0.5, 0.12]]) { c.beginPath(); c.arc(x + a * r, y + b * r, q * r, 0, TWO_PI); c.fill(); }
+    c.lineWidth = 1.2; c.strokeStyle = 'rgba(255,255,255,.4)'; c.beginPath(); c.arc(x, y, r - 1.5, Math.PI * 1.05, Math.PI * 1.5); c.stroke();
+  } else if (k === 'proxima') {
+    glow(c, x, y, r * 4.4, 'rgba(255,100,60,.55)', [0.3, 'rgba(255,70,40,.2)']);
+    const g = c.createRadialGradient(x - r * 0.3, y - r * 0.35, r * 0.05, x, y, r * 1.05);
+    g.addColorStop(0, '#ffc0a0'); g.addColorStop(0.5, '#ff5a32'); g.addColorStop(1, '#8a1c10');
+    c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, TWO_PI); c.fill();
+    c.lineWidth = 1.2; c.strokeStyle = 'rgba(60,10,5,.7)'; c.stroke();
+  } else if (k === 'sirius') {
+    glow(c, x, y, r * 4.6, 'rgba(170,205,255,.6)', [0.25, 'rgba(150,190,255,.25)']);
+    c.globalCompositeOperation = 'lighter'; c.lineCap = 'round';
+    for (const [dx, dy, L] of [[1, 0, 3.6], [0, 1, 3.2], [-1, 0, 3.6], [0, -1, 3.2]]) {
+      const g = c.createLinearGradient(x, y, x + dx * r * L, y + dy * r * L); g.addColorStop(0, 'rgba(235,245,255,.9)'); g.addColorStop(1, 'rgba(180,210,255,0)');
+      c.strokeStyle = g; c.lineWidth = 1.6; c.beginPath(); c.moveTo(x, y); c.lineTo(x + dx * r * L, y + dy * r * L); c.stroke();
+    }
+    c.globalCompositeOperation = 'source-over';
+    const g = c.createRadialGradient(x - r * 0.25, y - r * 0.3, r * 0.05, x, y, r);
+    g.addColorStop(0, '#ffffff'); g.addColorStop(0.6, '#dce8ff'); g.addColorStop(1, '#8fb2ff');
+    c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, TWO_PI); c.fill();
+  } else if (k === 'betel') {
+    const rr = r * (1 + 0.025 * Math.sin(time * 1.1));
+    glow(c, x, y, rr * 2.7, 'rgba(255,110,50,.45)', [0.4, 'rgba(255,80,30,.18)']);
+    const g = c.createRadialGradient(x - rr * 0.35, y - rr * 0.4, rr * 0.08, x, y, rr * 1.05);
+    g.addColorStop(0, '#ffc99a'); g.addColorStop(0.5, '#ff7a30'); g.addColorStop(1, '#a8300f');
+    c.fillStyle = g; blob(c, [[0, -1.02], [0.74, -0.7], [1.04, 0.05], [0.7, 0.76], [-0.04, 1.02], [-0.78, 0.72], [-1.02, -0.06], [-0.7, -0.74]], x, y, rr); c.fill();
+    c.save(); blob(c, [[0, -1.02], [0.74, -0.7], [1.04, 0.05], [0.7, 0.76], [-0.04, 1.02], [-0.78, 0.72], [-1.02, -0.06], [-0.7, -0.74]], x, y, rr); c.clip();
+    c.fillStyle = 'rgba(120,20,5,.3)';
+    for (let i = 0; i < 6; i++) { const a = i * 1.9 + time * 0.12; c.beginPath(); c.arc(x + Math.cos(a) * rr * 0.5, y + Math.sin(a * 1.3) * rr * 0.5, rr * (0.17 + 0.05 * (i % 3)), 0, TWO_PI); c.fill(); }
+    c.fillStyle = 'rgba(255,230,170,.28)'; c.beginPath(); c.arc(x - rr * 0.3, y - rr * 0.35, rr * 0.22, 0, TWO_PI); c.fill();
+    c.restore();
+    c.lineWidth = 1.5; c.strokeStyle = 'rgba(90,20,5,.7)'; blob(c, [[0, -1.02], [0.74, -0.7], [1.04, 0.05], [0.7, 0.76], [-0.04, 1.02], [-0.78, 0.72], [-1.02, -0.06], [-0.7, -0.74]], x, y, rr); c.stroke();
+  } else { // andromeda: a tilted oval of stars
+    glow(c, x, y, r * 1.9, 'rgba(150,175,255,.3)', [0.4, 'rgba(120,150,255,.12)']);
+    drawBmp(c, ANDRO, x, y, r * 1.05, time * 0.03, -0.4, 0.36);
+    glow(c, x, y, r * 0.3, 'rgba(255,240,210,.55)');
+    for (const [dx, dy, q] of [[-0.95, 0.55, 0.1], [0.9, -0.65, 0.07]]) glow(c, x + dx * r, y + dy * r, r * q * 2.2, 'rgba(210,220,255,.55)');
+  }
+  c.restore();
+}
+
+// --- the zoom scene: Earth, the object, the beam; `cy` is its middle line, `compact` drops the scale bar and the ladder -----
+const EX = 58, DD = 236, LABEL_DY = { moon: 34, sun: 46, proxima: 30, sirius: 36, betel: 44, andromeda: 38 };
+function drawScene(c, cy, compact, asking, time) {
+  const t = T[lang], k = 1 / SC, zf = S.zf, i0 = Math.min(4, Math.floor(zf)), fr = zf - i0, ld = lerp(LD[i0], LD[i0 + 1], fr), near = Math.round(zf);
+  const pos = [];
+  for (let j = 0; j <= Math.min(5, i0 + 1); j++) {
+    let x, m;
+    if (j === i0 + 1) { x = EX + DD + (1 - ease(clamp01((fr - 0.35) / 0.65))) * 150; m = clamp01((fr - 0.55) / 0.45); }
+    else { x = EX + DD * Math.exp(LD[j] - ld); m = j === i0 ? clamp01(1 - fr * 3) : 0; }
+    pos.push({ j, x, m, r: lerp(2.6, NAT[STOPS[j].k], ease(m)) });
+  }
+  let endR = 0;
+  for (const p of pos) if (Math.abs(p.x - (EX + DD)) < 50) endR = Math.max(endR, p.m > 0 ? p.r : 0);
+  if (!endR) endR = 6;
+  for (let q = pos.length - 1; q >= 0; q--) { const p = pos[q]; if (p.x < EX + 20 || p.x > 430) continue; drawObj(c, STOPS[p.j].k, p.x, cy, p.r, time); }
+  // the beam: a faint line and three bright packets that run from the object to Earth
+  if (!asking) {
+    const x1 = EX + 22, x0 = EX + DD - endR * 0.8;
+    let g = c.createLinearGradient(x1, 0, x0, 0); g.addColorStop(0, 'rgba(255,226,150,.5)'); g.addColorStop(1, 'rgba(255,226,150,.08)');
+    c.strokeStyle = g; c.lineWidth = 2; c.setLineDash([2, 5]); c.beginPath(); c.moveTo(x1, cy); c.lineTo(x0, cy); c.stroke(); c.setLineDash([]);
+    c.globalCompositeOperation = 'lighter';
+    for (let q = 0; q < 3; q++) {
+      const p = (S.ph + q / 3) % 1, x = x0 - (x0 - x1) * p, L = 40;
+      g = c.createLinearGradient(x, 0, x + L, 0); g.addColorStop(0, 'rgba(255,240,190,.95)'); g.addColorStop(1, 'rgba(255,200,90,0)');
+      c.fillStyle = g; c.beginPath(); c.moveTo(x, cy); c.lineTo(x + L, cy - 2.5); c.lineTo(x + L, cy + 2.5); c.closePath(); c.fill();
+      glow(c, x, cy, 9, 'rgba(255,236,170,.9)', [0.35, 'rgba(255,215,110,.4)']);
+    }
+    c.globalCompositeOperation = 'source-over';
+  }
+  drawEarth(c, EX, cy, 28);
+  if (asking) {
+    if (!compact) pill(c, '?', EX + DD / 2 + 10, cy, { size: 15, h: 26, color: '#ffd25a', border: 'rgba(255,210,90,.5)' });
+  } else if (!compact) {                                   // names of the nearer objects that still have room, as dots
+    let lastX = -99;
+    for (const p of pos) if (p.j < near && p.x - EX >= 58 && p.x < EX + DD - 70 && p.x - lastX > 80) { lastX = p.x; pill(c, t.objs[STOPS[p.j].k], p.x, cy - 44, { size: 12.5 }); }
+  }
+  pill(c, t.earth, EX, cy + 28 + 18, { size: 12.5 });
+  for (const p of pos) if (p.m > 0.5 && p.j >= near - 0) pill(c, t.objs[STOPS[p.j].k], Math.min(p.x, 292), cy + Math.min(LABEL_DY[STOPS[p.j].k], compact ? 40 : 60), { color: '#fff3c4', border: 'rgba(255,210,90,.45)' });
+  if (compact || asking) return;
+  // the ladder of the six stops, the scale bar in light-time units, the speed of the beam
+  const lx = (i) => 34 + i * 58.4;
+  c.strokeStyle = 'rgba(150,165,215,.3)'; c.lineWidth = 2; c.beginPath(); c.moveTo(lx(0), 16); c.lineTo(lx(5), 16); c.stroke();
+  c.strokeStyle = 'rgba(255,210,90,.7)'; c.beginPath(); c.moveTo(lx(0), 16); c.lineTo(lx(zf), 16); c.stroke();
+  for (let i = 0; i < 6; i++) { c.fillStyle = i <= zf + 0.01 ? '#ffd25a' : 'rgba(150,165,215,.45)'; c.beginPath(); c.arc(lx(i), 16, 3.2, 0, TWO_PI); c.fill(); }
+  glow(c, lx(zf), 16, 11, 'rgba(255,225,140,.85)'); c.fillStyle = '#fff'; c.beginPath(); c.arc(lx(zf), 16, 3.6, 0, TWO_PI); c.fill();
+  const dCur = Math.exp(ld);
+  let bi = 0; for (let i = 0; i < BAR_S.length; i++) if (BAR_S[i] / dCur * DD <= DD * 0.46) bi = i;
+  const bl = Math.max(3, BAR_S[bi] / dCur * DD), by = cy + 100;
+  c.strokeStyle = '#ffd25a'; c.lineWidth = 2.5; c.lineCap = 'round';
+  c.beginPath(); c.moveTo(EX, by); c.lineTo(EX + bl, by); c.moveTo(EX, by - 6); c.lineTo(EX, by + 6); c.moveTo(EX + bl, by - 6); c.lineTo(EX + bl, by + 6); c.stroke();
+  pill(c, t.bars[bi], EX + bl / 2, by + 22, { size: 12.5, color: '#ffe9a8', border: 'rgba(255,210,90,.4)' });
+  const sp = STOPS[near], f = sp.s / sp.P, fs = f < 1000 ? nb(f) : nb(Number(f.toPrecision(2)));
+  pill(c, `⚡ ${t.speed(fs)}`, 180, cy + 150, { size: 12.5, color: '#fff3c4', border: 'rgba(255,210,90,.35)' });
+}
+
+// --- view 2: the ribbon of Earth's past ---------------------------------------------------------------------
+const RX = 118, RW = 16, RY0 = 134, RY1 = 402, DEC = (RY1 - RY0) / 14.5, yOf = (L) => RY0 + L * DEC;
+function drawPast(c, time, asking) {
+  const t = T[lang], k = 1 / SC, zf = S.zf, near = Math.round(zf);
+  drawScene(c, 44, true, asking, time);
+  const i0 = Math.min(4, Math.floor(zf)), Lk = lerp(LG[i0], LG[i0 + 1], zf - i0), yk = yOf(Lk), key = STOPS[near].k;
+  // the ribbon: white today, ochre for the early humans, green far back
+  let g = c.createLinearGradient(0, RY0, 0, RY1);
+  [[0, '#ffffff'], [0.27, '#f6efdc'], [0.52, '#ecdcae'], [0.65, '#e6c27a'], [0.78, '#d9a24f'], [0.9, '#c98a3a'], [0.95, '#7ea34e'], [1, '#3f9a58']].forEach(([p, col]) => g.addColorStop(p, col));
+  c.fillStyle = 'rgba(200,215,255,.07)'; c.beginPath(); c.roundRect(RX - RW / 2 - 5, RY0 - 5, RW + 10, RY1 - RY0 + 10, 14); c.fill();
+  c.fillStyle = g; c.beginPath(); c.roundRect(RX - RW / 2, RY0, RW, RY1 - RY0, 8); c.fill();
+  c.lineWidth = 1.5 * k; c.strokeStyle = 'rgba(10,12,30,.9)'; c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.35)'; c.beginPath(); c.roundRect(RX - RW / 2 + 2, RY0 + 4, 2.5, RY1 - RY0 - 8, 2); c.fill();
+  // the left axis: powers of ten in seconds, then named times
+  c.strokeStyle = 'rgba(150,165,215,.35)'; c.lineWidth = k; c.beginPath();
+  for (let L = 0; L <= 14; L++) { c.moveTo(RX - RW / 2 - 4, yOf(L)); c.lineTo(RX - RW / 2, yOf(L)); }
+  c.stroke(); c.strokeStyle = 'rgba(200,215,255,.7)'; c.beginPath();
+  TL_L.forEach((L) => { c.moveTo(RX - RW / 2 - 9, yOf(L)); c.lineTo(RX - RW / 2, yOf(L)); });
+  c.stroke();
+  TL_L.forEach((L, i) => pill(c, t.tl[i], RX - RW / 2 - 12, yOf(L), { align: 'r', bg: 'rgba(8,10,24,.6)', border: 'rgba(150,165,215,.18)', color: '#c3cbe8' }));
+  pill(c, t.agoHdr, 10, 116, { align: 'l', bg: 'rgba(8,10,24,.6)', border: 'rgba(150,165,215,.18)', color: '#9aa4c8' });
+  // the labels on the right: pushed apart so that they never overlap; each one has a leader line to its mark
+  c.font = `800 ${12.5 * k}px Nunito, system-ui, sans-serif`;
+  let nearK = null, nd = 99;
+  if (Lk >= 4) MARKS.forEach((m) => { const d = Math.abs(m.L - Lk); if (d < nd) { nd = d; nearK = m.k; } });
+  const items = MARKS.map((m) => ({ y: yOf(m.L), lines: wrap(c, t.marks[m.k], 200), key: m.k, gold: false }));
+  if (!asking) items.push({ y: yk, lines: wrap(c, t.left(t.times[key]), 200), key: '', gold: true });
+  items.sort((a, b) => a.y - b.y);
+  items.forEach((it) => { it.h = (it.lines.length * 15 + 9) * k; it.w = Math.max(...it.lines.map((s) => c.measureText(s).width)) + 14 * k; });
+  let prev = RY0 - 20;
+  for (const it of items) { it.top = Math.max(it.y - it.h / 2, prev + 4 * k); prev = it.top + it.h; }
+  let lim = 412;
+  for (let i = items.length - 1; i >= 0; i--) { const it = items[i]; if (it.top + it.h > lim) it.top = lim - it.h; lim = it.top - 4 * k; }
+  const LX = 150;
+  for (const it of items) {
+    const col = it.gold ? 'rgba(255,210,90,.7)' : it.key === nearK && !asking ? 'rgba(255,255,255,.75)' : 'rgba(200,215,255,.32)';
+    c.strokeStyle = col; c.lineWidth = k; c.beginPath(); c.moveTo(RX + RW / 2 + 3, it.y); c.lineTo(LX - 3, it.top + it.h / 2); c.stroke();
+    if (!it.gold) { c.fillStyle = '#fff'; c.strokeStyle = '#0a0c1e'; c.lineWidth = 1.5 * k; c.beginPath(); c.arc(RX, it.y, 4.2 * k, 0, TWO_PI); c.fill(); c.stroke(); }
+    c.beginPath(); c.roundRect(LX, it.top, Math.min(it.w, 357 - LX), it.h, 9 * k);
+    c.fillStyle = it.gold ? 'rgba(48,34,6,.9)' : 'rgba(8,10,24,.85)'; c.fill(); c.strokeStyle = col; c.lineWidth = k * (it.gold ? 1.5 : 1); c.stroke();
+    c.fillStyle = it.gold ? '#ffe9a8' : '#e6ebff'; c.textAlign = 'left'; c.textBaseline = 'middle';
+    it.lines.forEach((s, i) => c.fillText(s, LX + 7 * k, it.top + (4.5 + 7.5 + i * 15) * k));
+  }
+  // the marker: where the light left
+  if (!asking) {
+    const pulse = 0.5 + 0.5 * Math.sin(time * 3);
+    c.globalCompositeOperation = 'lighter'; glow(c, RX, yk, 26 + 5 * pulse, 'rgba(255,215,100,.7)', [0.35, 'rgba(255,190,70,.3)']); c.globalCompositeOperation = 'source-over';
+    c.strokeStyle = '#ffd25a'; c.lineWidth = 3 * k; c.lineCap = 'round'; c.beginPath(); c.moveTo(RX - RW / 2 - 6, yk); c.lineTo(RX + RW / 2 + 6, yk); c.stroke();
+    c.fillStyle = 'rgba(255,225,140,.95)'; c.strokeStyle = '#7a4d05'; c.lineWidth = 1.5 * k; c.beginPath(); c.arc(RX, yk, 6 * k, 0, TWO_PI); c.fill(); c.stroke();
+    c.fillStyle = '#ffd25a'; poly(c, [[RX - RW / 2 - 6, yk - 6 * k], [RX - RW / 2 - 6 - 8 * k, yk], [RX - RW / 2 - 6, yk + 6 * k]]); c.fill();
+  }
+}
+
+// --- view 3: the Milky Way from above and from the side -----------------------------------------------------
+const TX = 180, TY = 146, RP = 122, SY = 354, KPX = RP / 50000;
+function drawMarker(c, x, y, time, r) {
+  const pulse = 0.5 + 0.5 * Math.sin(time * 3);
+  c.globalCompositeOperation = 'lighter'; glow(c, x, y, r * 3 + 3 * pulse, 'rgba(255,215,100,.85)', [0.4, 'rgba(255,190,70,.3)']); c.globalCompositeOperation = 'source-over';
+  c.strokeStyle = 'rgba(255,225,140,.9)'; c.lineWidth = 1.5; c.beginPath(); c.arc(x, y, r * 1.7 + pulse * 1.5, 0, TWO_PI); c.stroke();
+  c.fillStyle = '#ffd25a'; c.strokeStyle = '#7a4d05'; c.lineWidth = 1.5; c.beginPath(); c.arc(x, y, r, 0, TWO_PI); c.fill(); c.stroke();
+  c.fillStyle = '#fffbe0'; c.beginPath(); c.arc(x - r * 0.25, y - r * 0.3, r * 0.4, 0, TWO_PI); c.fill();
+}
+function drawGalaxy(c, time, asking) {
+  const t = T[lang], k = 1 / SC, mx = TX + S.r * KPX * Math.cos(S.ang + S.rot), my = TY + S.r * KPX * Math.sin(S.ang + S.rot);
+  // top view
+  glow(c, TX, TY, RP * 1.3, 'rgba(110,130,255,.22)', [0.6, 'rgba(90,110,240,.08)']);
+  c.save(); c.translate(TX, TY); c.rotate(S.rot); const sz = MW.width * RP / (MW.width / 2 - 6); c.drawImage(MW, -sz / 2, -sz / 2, sz, sz); c.restore();
+  c.setLineDash([3, 5]); c.strokeStyle = 'rgba(160,180,255,.22)'; c.lineWidth = k; c.beginPath(); c.arc(TX, TY, RP, 0, TWO_PI); c.stroke(); c.setLineDash([]);
+  // 100 000 light-years across
+  const dy = TY + RP + 18;
+  c.strokeStyle = 'rgba(200,215,255,.55)'; c.lineWidth = k * 1.2; c.beginPath(); c.moveTo(TX - RP, dy); c.lineTo(TX + RP, dy);
+  c.moveTo(TX - RP, dy - 5); c.lineTo(TX - RP, dy + 5); c.moveTo(TX + RP, dy - 5); c.lineTo(TX + RP, dy + 5); c.stroke();
+  pill(c, t.across, TX, dy, { size: 12.5 });
+  pill(c, t.top, 10, 18, { align: 'l', bg: 'rgba(8,10,24,.6)', border: 'rgba(150,165,215,.18)', color: '#c3cbe8' });
+  // side view
+  c.strokeStyle = 'rgba(150,165,215,.2)'; c.lineWidth = k; c.beginPath(); c.moveTo(14, 312); c.lineTo(346, 312); c.stroke();
+  pill(c, t.side, 10, 326, { align: 'l', bg: 'rgba(8,10,24,.6)', border: 'rgba(150,165,215,.18)', color: '#c3cbe8' });
+  const hw = RP * 1.02;
+  let g = c.createLinearGradient(TX - hw, 0, TX + hw, 0); g.addColorStop(0, 'rgba(160,185,255,0)'); g.addColorStop(0.25, 'rgba(180,200,255,.5)'); g.addColorStop(0.5, 'rgba(230,236,255,.85)'); g.addColorStop(0.75, 'rgba(180,200,255,.5)'); g.addColorStop(1, 'rgba(160,185,255,0)');
+  glow(c, TX, SY, hw * 0.9, 'rgba(110,140,255,.1)');
+  c.fillStyle = g; c.beginPath(); c.ellipse(TX, SY, hw, 5.5, 0, 0, TWO_PI); c.fill();
+  c.fillStyle = 'rgba(8,5,16,.7)'; c.beginPath(); c.ellipse(TX, SY, hw * 0.92, 1.4, 0, 0, TWO_PI); c.fill();   // the dust lane
+  c.fillStyle = 'rgba(255,255,255,.8)';
+  for (let i = 0; i < 90; i++) { const q = rng(i * 13 + 5), x = TX + (q() * 2 - 1) * hw * (0.4 + q() * 0.6), yy = SY + (q() - 0.5) * (6 + 16 * Math.exp(-Math.abs(x - TX) / 40)); c.globalAlpha = 0.2 + 0.5 * q(); c.fillRect(x, yy, 1.1, 1.1); }
+  c.globalAlpha = 1;
+  g = c.createRadialGradient(TX, SY, 0, TX, SY, 38); g.addColorStop(0, 'rgba(255,248,225,1)'); g.addColorStop(0.35, 'rgba(255,222,150,.75)'); g.addColorStop(1, 'rgba(255,190,110,0)');
+  c.fillStyle = g; c.beginPath(); c.ellipse(TX, SY, 38, 26, 0, 0, TWO_PI); c.fill();
+  if (!asking) {
+    const near = Math.abs(S.r - 26000) < 100;
+    const ex = TX + S.r * KPX, ey = SY;
+    // top view: the line to the centre, the marker and its label
+    c.setLineDash([4, 4]); c.strokeStyle = 'rgba(255,225,140,.65)'; c.lineWidth = k * 1.4; c.beginPath(); c.moveTo(TX, TY); c.lineTo(mx, my); c.stroke(); c.setLineDash([]);
+    drawMarker(c, mx, my, time, 5);
+    if (near) {
+      const ux = Math.cos(S.ang + S.rot), uy = Math.sin(S.ang + S.rot), lx = mx + ux * 20, ly = my + uy * 20;
+      pill(c, t.hereLbl, lx, ly, { align: ux >= 0 ? 'l' : 'r', color: '#fff3c4', border: 'rgba(255,210,90,.55)' });
+    }
+    // side view: the marker on the disc and the ruler to the centre
+    const rl = SY + 36;
+    c.strokeStyle = 'rgba(255,225,140,.7)'; c.lineWidth = k * 1.3; c.beginPath(); c.moveTo(TX, rl); c.lineTo(ex, rl);
+    c.moveTo(TX, rl - 5); c.lineTo(TX, rl + 5); c.moveTo(ex, rl - 5); c.lineTo(ex, rl + 5); c.stroke();
+    c.setLineDash([2, 4]); c.strokeStyle = 'rgba(255,225,140,.4)'; c.beginPath(); c.moveTo(ex, ey + 6); c.lineTo(ex, rl - 5); c.stroke(); c.setLineDash([]);
+    drawMarker(c, ex, ey, time, 4);
+    pill(c, t.ly(S.r), TX + (S.r * KPX) / 2, rl, { color: '#fff3c4', border: 'rgba(255,210,90,.45)' });
+  }
+}
+
+// --- the two secrets ---------------------------------------------------------------------------------------
+function drawCar(c, x, y) {
+  glow(c, x + 17, y - 5, 12, 'rgba(255,240,170,.6)');
+  let g = c.createLinearGradient(0, y - 12, 0, y - 1); g.addColorStop(0, '#ff6b70'); g.addColorStop(1, '#b8272d');
+  c.fillStyle = g; c.strokeStyle = '#4a0c10'; c.lineWidth = 1.2; c.beginPath(); c.roundRect(x - 16, y - 12, 32, 9, 3); c.fill(); c.stroke();
+  c.fillStyle = '#d83c42'; poly(c, [[x - 9, y - 12], [x - 5, y - 18.5], [x + 6, y - 18.5], [x + 11, y - 12]]); c.fill(); c.stroke();
+  c.fillStyle = '#bfe3ff'; poly(c, [[x - 6.5, y - 13], [x - 3.8, y - 17.2], [x + 0.6, y - 17.2], [x + 0.6, y - 13]]); c.fill();
+  poly(c, [[x + 2, y - 13], [x + 2, y - 17.2], [x + 5.4, y - 17.2], [x + 8.6, y - 13]]); c.fill();
+  for (const dx of [-9, 9]) { c.fillStyle = '#1b1b24'; c.strokeStyle = '#8a8a99'; c.beginPath(); c.arc(x + dx, y - 2.5, 3.6, 0, TWO_PI); c.fill(); c.stroke(); }
+}
+function drawSecretA(c, tt, asking) {
+  const t = T[lang], k = 1 / SC, X0 = 40, X1 = 320, W = X1 - X0, loop = tt % 15;
+  const pl = ease(clamp01(loop / 3.2)), u = ease(clamp01((loop - 3.4) / 8)), yrs = loop < 3.4 ? 0 : 1 + (10.8e6 - 1) * u, pc = yrs / 10.8e6;
+  // the ruler: one light-year
+  c.strokeStyle = 'rgba(200,215,255,.6)'; c.lineWidth = k * 1.3; c.beginPath(); c.moveTo(X0, 44); c.lineTo(X1, 44); c.moveTo(X0, 38); c.lineTo(X0, 50); c.moveTo(X1, 38); c.lineTo(X1, 50); c.stroke();
+  pill(c, t.lyOne, 180, 44, { size: 13, color: '#fff3c4', border: 'rgba(255,210,90,.5)' });
+  // light lane
+  const ly = 112;
+  let g = c.createLinearGradient(X0, 0, X1, 0); g.addColorStop(0, 'rgba(255,226,150,.5)'); g.addColorStop(1, 'rgba(255,226,150,.15)');
+  c.strokeStyle = g; c.lineWidth = 3; c.lineCap = 'round'; c.beginPath(); c.moveTo(X0, ly); c.lineTo(X1, ly); c.stroke();
+  const lx = X0 + W * pl;
+  c.globalCompositeOperation = 'lighter';
+  g = c.createLinearGradient(lx - 60, 0, lx, 0); g.addColorStop(0, 'rgba(255,220,120,0)'); g.addColorStop(1, 'rgba(255,240,190,.9)');
+  c.fillStyle = g; c.beginPath(); c.moveTo(lx - 60, ly); c.lineTo(lx, ly - 3); c.lineTo(lx, ly + 3); c.closePath(); c.fill();
+  glow(c, lx, ly, 15, 'rgba(255,236,170,.95)', [0.35, 'rgba(255,215,110,.4)']);
+  c.globalCompositeOperation = 'source-over';
+  pill(c, `✨ ${t.yrs(1)}`, X0, ly - 28, { align: 'l', color: '#fff3c4', border: 'rgba(255,210,90,.45)' });
+  if (loop > 3.2) pill(c, '✓', X1, ly - 28, { align: 'r', color: '#3ddc97', border: 'rgba(61,220,151,.5)' });
+  // car lane
+  const cyy = 214;
+  c.fillStyle = '#1b2038'; c.strokeStyle = 'rgba(150,165,215,.35)'; c.lineWidth = k; c.beginPath(); c.roundRect(X0 - 8, cyy - 9, W + 16, 18, 6); c.fill(); c.stroke();
+  c.setLineDash([9, 8]); c.strokeStyle = '#e0c070'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(X0, cyy); c.lineTo(X1, cyy); c.stroke(); c.setLineDash([]);
+  drawCar(c, X0 + 14 + (W - 28) * pc, cyy + 6);
+  pill(c, `🚗 ${t.kmh}`, X0, cyy - 30, { align: 'l' });
+  const done = pc >= 0.999;
+  if (loop > 3.4) pill(c, `⏩ ${t.yrs(yrs)}`, 180, 262, { size: 14, h: 26, color: done ? '#3ddc97' : '#fff3c4', border: done ? 'rgba(61,220,151,.55)' : 'rgba(255,210,90,.45)' });
+}
+function drawSecretB(c, tt, time) {
+  const t = T[lang], loop = tt % 13, u = ease(clamp01((loop - 1) / 8)), fade = clamp01(Math.min(loop / 0.8, (13 - loop) / 1.2));
+  const sep = lerp(150, 50, u), xm = 180 - sep / 2, xa = 180 + sep / 2, cy = 140;
+  c.globalAlpha = fade;
+  glow(c, xm, cy, 110, 'rgba(120,150,255,.22)'); glow(c, xa, cy, 96, 'rgba(150,130,255,.2)');
+  drawBmp(c, MW, xm, cy, 74, time * 0.05, -0.32, 0.56);
+  drawBmp(c, ANDRO, xa, cy, 64, -time * 0.05, 0.4, 0.46);
+  if (u > 0.55) {                                                         // stars flung out as they near each other
+    const q = rng(3);
+    for (let i = 0; i < 70; i++) { const p = q(), a = (u - 0.55) * 2.2 * q(), x = lerp(xm, xa, p) + (q() - 0.5) * 20, yy = cy + (q() - 0.5) * 34 * Math.sin(p * Math.PI); c.globalAlpha = fade * clamp01(a) * (0.5 + 0.5 * Math.sin(time * 3 + i)); c.fillStyle = '#dfe6ff'; c.fillRect(x, yy, 1.3, 1.3); }
+    c.globalAlpha = fade;
+  }
+  c.strokeStyle = 'rgba(255,225,140,.7)'; c.lineWidth = 2.5; c.lineCap = 'round'; c.lineJoin = 'round';           // Andromeda comes this way
+  for (let i = 0; i < 3; i++) { const x = 324 - i * 11 - ((time * 12) % 11); c.globalAlpha = fade * (0.9 - i * 0.28); c.beginPath(); c.moveTo(x + 5, 232); c.lineTo(x, 238); c.lineTo(x + 5, 244); c.stroke(); }
+  c.globalAlpha = 1;
+  pill(c, t.mw, 14, 262, { align: 'l' }); pill(c, t.objs.andromeda, 346, 262, { align: 'r' });
+}
+
+// --- the loop ----------------------------------------------------------------------------------------------
+const target = () => { const v = lab.view; return v === 'zoom' && A.zoom === null ? 1 : v === 'past' && A.past === null ? 5 : S.zi; };
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  const v = lab.view, tg = target();
+  if (S.zTo !== tg) { S.zFrom = S.zf; S.zTo = tg; S.zT = 0; S.zD = 0.8 + 0.22 * Math.abs(tg - S.zf); }
+  const prev = S.zf;
+  if (S.zT < 1) { S.zT = Math.min(1, S.zT + dt / S.zD); S.zf = lerp(S.zFrom, S.zTo, ease(S.zT)); }
+  S.zv = dt > 0 ? (S.zf - prev) / dt : 0;
+  const i0 = Math.min(4, Math.floor(S.zf)), P = lerp(STOPS[i0].P, STOPS[i0 + 1].P, S.zf - i0);
+  S.ph = (S.ph + dt / P) % 1;
+  S.rot += dt * 0.018;
+  if (S.sec) S.secT += dt;
+  drawBackdrop(c, w, h, time);
+  const [W, H] = S.sec ? DIM.zoom : DIM[v], sc = Math.min(w / W, h / H), ox = (w - W * sc) / 2, oy = (h - H * sc) / 2;
+  SC = sc; c.save(); c.translate(ox, oy); c.scale(sc, sc);
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  const asking = A[v] === null;
+  G.on = false;
+  if (S.sec === 'a') drawSecretA(c, S.secT, false);
+  else if (S.sec === 'b') drawSecretB(c, S.secT, time);
+  else if (v === 'zoom') drawScene(c, 128, false, asking, time);
+  else if (v === 'past') drawPast(c, time, asking);
+  else { G.ox = ox; G.oy = oy; G.s = sc; G.on = true; drawGalaxy(c, time, asking); }
+  c.restore();
+});
+
+// --- dragging the marker in the galaxy ---------------------------------------------------------------------
+const setDist = (r) => {
+  r = clamp(Math.round(r / 100) * 100, 0, 50000);
+  if (Math.abs(r - 26000) <= 1500) r = 26000;                            // a little magnet at the Sun's real place
+  if (Math.floor(r / 5000) !== Math.floor(S.r / 5000)) sfx.tick();
+  S.r = r;
+};
+let dragging = false;
+function dragTo(ev) {
+  const b = $('cv').getBoundingClientRect(), x = (ev.clientX - b.left - G.ox) / G.s, y = (ev.clientY - b.top - G.oy) / G.s;
+  if (y < 312) { setDist(Math.hypot(x - TX, y - TY) / KPX); if (S.r > 0) S.ang = Math.atan2(y - TY, x - TX) - S.rot; }
+  else setDist(Math.abs(x - TX) / KPX);
+  render();
+}
+$('cv').addEventListener('pointerdown', (ev) => {
+  if (lab.view !== 'galaxy' || A.galaxy === null || S.sec || !G.on) return;
+  dragging = true; $('cv').setPointerCapture?.(ev.pointerId); dragTo(ev);
+});
+$('cv').addEventListener('pointermove', (ev) => { if (dragging) dragTo(ev); });
+['pointerup', 'pointercancel'].forEach((e) => $('cv').addEventListener(e, () => { dragging = false; }));
+
+// --- controls ---------------------------------------------------------------------------------------------
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+const setStop = (i) => { if (i === S.zi) return; S.zi = i; sfx.tick(); render(); };
+$('lyRange').addEventListener('input', (ev) => setStop(+ev.target.value));
+$('lyDist').addEventListener('input', (ev) => { setDist(+ev.target.value); render(); });
+$('ctrlBody').addEventListener('click', (ev) => {
+  const v = lab.view;
+  const o = ev.target.closest('.ly-opt');
+  if (o) {
+    if (A[v] !== null) return;
+    A[v] = +o.dataset.i; (A[v] === RIGHT[v] ? sfx.good : sfx.bad)();
+    if (v === 'zoom') S.zi = 1; else if (v === 'past') S.zi = 5;
+    render(); showStage(); return;
+  }
+  const st = ev.target.closest('.ly-stop'); if (st) { setStop(+st.dataset.i); return; }
+  if (ev.target.closest('#lyHome')) { S.r = 26000; S.ang = armTh(K_MW)(ARMS_MW[3].a, 0.52); sfx.click(); render(); return; }
+  const sc = ev.target.closest('[data-act=sec]');
+  if (sc) {
+    if (!secret.unlocked()) return secret.open();
+    const k = sc.dataset.k;
+    S.sec = S.sec === k ? null : k; S.secT = 0; sfx.click(); render(); showStage();
+  }
+});
+
+// --- one render per change: controls, readout and the state card ------------------------------------------
+const valHtml = (s) => { const m = s.match(/^(about |около |kb\. )(.*)$/); return m ? `<span style="font-size:.5em;font-weight:800;color:var(--mut)">${esc(m[1])}</span>${esc(m[2])}` : esc(s); };
+function render() {
+  const t = T[lang], v = lab.view, a = A[v], asking = a === null;
+  document.body.dataset.v = v;
+  $('cv').style.touchAction = v === 'galaxy' && !asking && !S.sec ? 'none' : '';
+  const q = { zoom: t.zoomAsk, past: t.pastAsk, galaxy: t.galAsk }[v], opts = { zoom: t.zoomOpts, past: t.pastOpts, galaxy: t.galOpts }[v];
+  const verdict = a === null ? '' : a === RIGHT[v] ? { zoom: t.zoomRight, past: t.pastRight, galaxy: t.galRight }[v] : { zoom: t.zoomWrong, past: t.pastWrong, galaxy: t.galWrong }[v];
+  $('lyAsk').innerHTML = `<div class="ly-q">${esc(q)}</div><div class="chips">${opts.map((o, i) => `<button type="button" class="chip ly-opt${a !== null && i === RIGHT[v] ? ' good' : a === i ? ' bad' : ''}" data-i="${i}"${a !== null ? ' disabled' : ''}>${esc(o)}</button>`).join('')}</div>${a !== null ? `<div class="ly-verdict ${a === RIGHT[v] ? 'ok' : 'no'}">${esc(verdict)}</div>` : ''}`;
+  $('lyStops').style.display = (v === 'zoom' || v === 'past') && !asking ? 'block' : 'none';
+  $('lyGal').style.display = v === 'galaxy' && !asking ? 'block' : 'none';
+  $('lyRange').value = S.zi; $('lyRange').setAttribute('aria-label', t.zoomLbl);
+  document.querySelectorAll('.ly-stop').forEach((b) => { const i = +b.dataset.i; b.classList.toggle('on', i === S.zi); b.setAttribute('aria-label', t.objs[STOPS[i].k]); });
+  $('lyDist').value = S.r; $('lyDist').setAttribute('aria-label', t.fromCentre); $('lyEnd0').textContent = `0 · ${t.ctr}`; $('lyEnd1').textContent = `${nb(50000)} · ${t.edge}`; $('lyHome').textContent = t.home;
+  const open = secret.unlocked();
+  $('lySecRow').innerHTML = [['a', '🛰️'], ['b', '🌌']].map(([k, emo]) => `<button type="button" class="chip secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`).join('');
+  if (S.sec) {                                                            // a secret is on: its own readout and caption
+    lab.setGlow('rgba(255,210,90,.25)');
+    lab.setReadout(S.sec === 'a' ? '🛰️' : '🌌', t.secrets[S.sec][0], '', '#b8741e');
+    lab.setState(S.sec === 'a' ? { emo: '🛰️', title: t.secrets.a[0], lead: t.kmText, body: '', extra: '' }
+      : { emo: '🌌', title: t.secrets.b[0], lead: t.meetText, body: '', extra: `<div class="ly-src">${esc(SRC_B)}</div>` });
+    lab.setFacts([]); return;
+  }
+  if (asking) {                                                           // while the child predicts, the answer stays hidden everywhere
+    lab.setGlow({ zoom: 'rgba(255,210,90,.22)', past: 'rgba(201,138,58,.22)', galaxy: 'rgba(110,130,255,.3)' }[v]);
+    lab.setReadout('?', '', v === 'zoom' ? t.objs.sun : v === 'galaxy' ? t.across : '', v === 'galaxy' ? '#5b6cff' : '#b8741e');
+    lab.setState({ emo: '🤔', title: q, lead: '', body: '', extra: '' });
+    lab.setFacts([]); return;
+  }
+  const [emo, title, lead, body] = t.st[v];
+  lab.setState({ emo, title, lead, body, extra: '' }); lab.setFacts(t.facts[v]);
+  if (v === 'zoom') {
+    const key = STOPS[S.zi].k;
+    lab.setGlow('rgba(255,210,90,.22)'); lab.setReadout(valHtml(t.times[key]), t.lightSub, t.objs[key], '#b8741e');
+  } else if (v === 'past') {
+    const key = STOPS[S.zi].k; let nk = null, nd = 99;
+    if (LG[S.zi] >= 4) MARKS.forEach((m) => { const d = Math.abs(m.L - LG[S.zi]); if (d < nd) { nd = d; nk = m.k; } });
+    lab.setGlow('rgba(201,138,58,.22)'); lab.setReadout(valHtml(t.ago(t.times[key])), t.objs[key], nk ? t.marks[nk] : t.now, '#b8741e');
+  } else {
+    lab.setGlow('rgba(110,130,255,.3)'); lab.setReadout(esc(t.ly(S.r)), t.fromCentre, t.across, '#5b6cff');
+  }
+}
+render();
+</script>
+</body>
+</html>
