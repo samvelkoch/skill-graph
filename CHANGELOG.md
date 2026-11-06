@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-06
 
 ### Labs
+- New lab `enzymes` “Tiny Scissors”: match enzyme scissors to the food they cut, warm and cool them to find their best temperature, chew a cracker and see what changes (397). (#346)
 - New lab `mad` “How Far from the Middle?”: tie strings from each value to the mean and lay them in a row, compare two teams with the same mean, add one far value (396). (#345)
 - New lab `triangle-types` “The Triangle Table”: drag a triangle through a table of side and angle names, fill every cell you can and find out why two stay empty (395). (#344)
 - New lab `light-years` “Light from Long Ago”: zoom from the Moon to Andromeda and time the light, see when it set off, find our place in the Milky Way (394). (#343)
