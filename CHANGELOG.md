@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-07
 
 ### Labs
+- `light-speed`: in Trips the child picks both cities (From and To) from 18 cities in Europe, Russia and the USA, or the Moon, instead of fixed pairs per language; the prediction question and its options are built for the chosen route. Distances are straight-line distances × 1.2 for road bends; across the ocean the car shows “no road”. (#356)
 - New lab `light-speed` “How Fast Is Light?”: race light, a snail and a car around the Earth through a tunnel, count light’s round trips between two cities in one second (city pairs differ by language: London–Edinburgh, Budapest–Poreč, Moscow–Vladivostok…, plus the Moon), and count the seconds from a lightning flash to the thunder (403). (#355)
 
 ## 2026-11-06
