@@ -12,6 +12,11 @@ Hungarian is on the site: [What's new](https://samvelkoch.github.io/skill-graph/
 
 Counts in brackets are totals after that day.
 
+## 2026-11-07
+
+### Labs
+- New lab `light-speed` “How Fast Is Light?”: race light, a snail and a car around the Earth through a tunnel, count light’s round trips between two cities in one second (city pairs differ by language: London–Edinburgh, Budapest–Poreč, Moscow–Vladivostok…, plus the Moon), and count the seconds from a lightning flash to the thunder (403). (#PR)
+
 ## 2026-11-06
 
 ### Labs
