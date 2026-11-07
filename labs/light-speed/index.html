@@ -1,0 +1,718 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>How Fast Is Light? · Skill Graph</title>
+<meta name="description" content="Race light, a snail and a car around the Earth, count light's trips between two cities in one second, and time the thunder after a flash. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  #stage canvas { border-radius: 18px; box-shadow: 0 0 0 1px rgba(130, 145, 190, .22), 0 14px 40px rgba(0, 0, 0, .45); touch-action: pan-y; }
+  .ls-ask { margin-bottom: 12px; }
+  .ls-q { font-weight: 800; font-size: 14px; color: #fff; margin-bottom: 8px; line-height: 1.3; }
+  .ls-opt { min-height: 38px; white-space: normal; text-align: center; line-height: 1.2; padding: 8px 14px; font-size: 13px; }
+  .ls-opt:disabled { cursor: default; opacity: 1; }
+  .ls-opt:disabled:not(.good):not(.bad) { opacity: .55; }
+  .ls-opt.good { background: rgba(61, 220, 151, .2); border-color: var(--ok); color: #d9ffee; }
+  .ls-opt.bad { background: rgba(255, 90, 80, .18); border-color: #ff5a50; color: #ffd9d5; }
+  .ls-verdict { margin-top: 9px; font-size: 13px; font-weight: 800; line-height: 1.35; }
+  .ls-verdict.ok { color: var(--ok); }
+  .ls-verdict.no { color: var(--wip); }
+  .ls-sec { margin-top: 4px; }
+  .ls-race .chip, .ls-dest .chip { min-height: 38px; }
+  .ls-dest { margin-bottom: 8px; }
+  .ls-dest .chip { white-space: normal; line-height: 1.2; }
+  .ls-race .chip.on, .ls-dest .chip.on { background: #fff; color: var(--bg); border-color: #fff; }
+  .ls-lbl { font-size: 12.5px; font-weight: 800; color: var(--soft); margin-bottom: 2px; }
+  .ls-lbl b { color: #fff; font-size: 15px; }
+  .ls-strike { width: 100%; min-height: 46px; justify-content: center; font-size: 16px; color: #fff; border: 0;
+    background: linear-gradient(180deg, #9a7bff, #5b3fd6); box-shadow: 0 6px 18px rgba(91, 63, 214, .45), inset 0 1px 0 rgba(255, 255, 255, .35); }
+  .ls-strike:hover { background: linear-gradient(180deg, #a98cff, #6a4fe0); }
+  .ls-src { font-size: 11px; color: var(--faint); overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, ruPlural, lang } from '../lab.js';
+
+// --- numbers (everything shown is computed from these) -------------------------------------------------------
+const C = 299792.458, EQ = 40075, MOON = 384400, SND = 0.343, WATER = 1.333;          // km/s, km, km, km/s, refractive index
+const RACERS = [
+  { k: 'snail', e: '🐌', v: 0.0036 }, { k: 'walk', e: '🚶', v: 5 }, { k: 'cheetah', e: '🐆', v: 100 },
+  { k: 'car', e: '🚗', v: 100 }, { k: 'plane', e: '✈️', v: 900 }, { k: 'light', e: '💡', v: C * 3600 },   // km/h
+];
+const RIGHT = { tunnel: 1, trips: 1, storm: 1 };       // index of the right chip in each prediction
+const nb = (n) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+const dec = (x, d = 1) => { const s = x.toFixed(d), r = s.includes('.') ? s.replace(/\.?0+$/, '') : s; return lang === 'en' ? r : r.replace('.', ','); };
+const U = { en: { s: 's', min: 'min', h: 'h' }, ru: { s: 'с', min: 'мин', h: 'ч' }, hu: { s: 'mp', min: 'perc', h: 'óra' } };
+const dayWord = (n, frac) => (lang === 'en' ? (n === 1 ? 'day' : 'days') : lang === 'ru' ? (frac ? 'дня' : ruPlural(n, 'день', 'дня', 'дней')) : 'nap');
+const yearWord = (n, frac) => (lang === 'en' ? (n === 1 ? 'year' : 'years') : lang === 'ru' ? (frac ? 'года' : ruPlural(n, 'год', 'года', 'лет')) : 'év');
+// time for a trip, in hours -> a readable string in the current language
+function fmtT(hours) {
+  const u = U[lang], sec = hours * 3600;
+  if (sec < 1) { const s = parseFloat(sec.toFixed(5)); return s === 0 ? `< ${dec(0.00001, 5)} ${u.s}` : `${dec(s, 5)} ${u.s}`; }
+  if (Math.round(sec * 10) / 10 < 60) return `${dec(sec, 1)} ${u.s}`;
+  const m = Math.round(sec / 60);
+  if (m < 60) return `${m} ${u.min}`;
+  if (hours < 48) { const h = Math.floor(m / 60), mm = m % 60; return mm ? `${h} ${u.h} ${mm} ${u.min}` : `${h} ${u.h}`; }
+  const days = hours / 24;
+  if (days < 365) { const n = days < 100 ? Math.round(days * 10) / 10 : Math.round(days); if (n < 365) return `${dec(n, 1)} ${dayWord(n, n % 1 !== 0)}`; }
+  const yrs = days / 365.25;
+  if (yrs < 10) { const n = Math.round(yrs * 10) / 10; return `${dec(n, 1)} ${yearWord(n, n % 1 !== 0)}`; }
+  const n = Math.round(yrs); return `${nb(n)} ${yearWord(n, false)}`;
+}
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'How Fast Is Light?', title: 'How Fast Is Light?',
+    lines: [['Race light around the Earth', ' through a tunnel.'], ['Count its trips', ' between two cities in one second.'], ['Watch a storm', ' and count to the thunder.']],
+    views: { tunnel: '🌍 Tunnel', trips: '🚗 Trips', storm: '⚡ Storm' },
+    racers: { snail: 'snail', walk: 'walking', cheetah: 'cheetah', car: 'car, 100 km/h', plane: 'plane', light: 'light' },
+    tunnelAsk: 'A tunnel goes all the way around the Earth. In one second, light runs around it…',
+    tunnelOpts: ['not even once', 'about 7 times', 'about 1000 times'],
+    tunnelRight: 'Right! About 7.5 laps in one second.', tunnelWrong: 'Not quite: watch the lap counter.',
+    lapSub: 'for one lap around the Earth', lapsPerSec: 'laps around the Earth in 1 second', lap: '1 lap', laps: 'laps', slow: 'slow motion ×10',
+    trips: [['London', 'Edinburgh', 650], ['London', 'Paris', 460], ['New York', 'Los Angeles', 4500], ['Earth', 'Moon', 384400]],
+    tripAsk: (a, b, t) => `By car, ${a} to ${b} takes about ${t}. How many times can light go there and back in one second?`,
+    tripOpts: ['not even once', 'about 230 times', 'about 23 000 times'],
+    tripRight: 'Right! Light makes about 230 round trips in one second.', tripWrong: 'Not quite: watch the counter on the road.',
+    byRacer: (r) => r, lightTrips: (n) => `light: ${nb(n)} round trips in 1 s`, moonLine: 'light: only 78 % of the way in 1 s',
+    tripBody: (d, n) => `The road is about ${nb(d)} km. Light covers about 300 000 km every second, so it could go there and back ${nb(n)} times.`,
+    moonBody: 'The Moon is about 384 400 km away. Even light needs 1.3 seconds to get there: after one second it is only three quarters of the way.',
+    stormAsk: 'Lightning strikes 3 km away. When do you hear the thunder?',
+    stormOpts: ['together with the flash', 'about 9 seconds later', 'about a minute later'],
+    stormRight: 'Right! The flash comes at once, the thunder about 9 seconds later.', stormWrong: 'Not quite: count from the flash to the boom.',
+    strike: '⚡ Strike!', dist: 'distance to the lightning', km: 'km', thunderSub: 'until you hear the thunder', lightAfter: (t) => `light: ${t}`, boom: 'BOOM',
+    st: {
+      tunnel: ['🌍', 'Light is fast, but not instant', 'Light covers about 300 000 km every second. A car would need more than two weeks to drive once around the Earth; light does it 7.5 times in one second.', 'Pick another racer and compare: the same lap, very different times.'],
+      trips: ['🚗', 'A long trip is a blink for light', '', ''],
+      storm: ['⚡', 'Why the thunder comes late', 'Lightning and thunder happen at the same moment. The flash reaches you almost at once, but sound walks only about 1 km every 3 seconds.', 'Count the seconds from the flash to the thunder and divide by 3: that is how many kilometres away the storm is.']
+    },
+    facts: {
+      tunnel: [{ emo: '📏', text: 'Light travels exactly 299 792 458 metres every second. Since 1983 the metre itself has been defined with this number.', src: 'https://en.wikipedia.org/wiki/Speed_of_light' },
+               { emo: '🐆', text: 'The cheetah is the fastest land animal: 93–104 km/h, as fast as a car on a country road, but only for short sprints.', src: 'https://en.wikipedia.org/wiki/Cheetah' }],
+      trips: [{ emo: '🔭', text: 'In 1676 Ole Rømer saw that Jupiter’s moon Io appeared late when Jupiter was far from Earth. This was the first proof that light needs time to travel.', src: 'https://en.wikipedia.org/wiki/R%C3%B8mer%27s_determination_of_the_speed_of_light' },
+              { emo: '🚀', text: 'Even our fastest spacecraft would need years to reach the nearest star, which light reaches in about 4 years.', src: 'https://en.wikipedia.org/wiki/Proxima_Centauri' }],
+      storm: [{ emo: '🔊', text: 'Sound travels about 343 metres per second in air at 20 °C: almost a million times slower than light.', src: 'https://en.wikipedia.org/wiki/Speed_of_sound' },
+              { emo: '🌍', text: 'Countries count it differently: in Europe you divide the seconds by 3 to get kilometres, in the USA by 5 to get miles. Both rules are right, only the units differ.', src: 'https://en.wikipedia.org/wiki/Thunder' }]
+    },
+    secrets: { a: ['Hello, Moon!', 'Send a radio message to the Moon and wait for the answer.'], b: ['Light in water', 'Fill the tunnel with water and race again.'] },
+    moonText: 'Radio waves are a kind of light you cannot see. A word sent to astronauts on the Moon arrives after 1.3 seconds, so every answer comes back after about 2.6 seconds.',
+    waterText: 'In water light slows down to about 225 000 km per second, so it runs only about 5.6 laps in a second. In glass it is slower still: about 200 000 km per second.',
+    quiz: [
+      { q: 'Why do we see lightning before we hear thunder?', opts: ['Light is much faster than sound', 'The thunder is made later', 'Eyes work faster than ears'], ok: 0, hint: 'In the Storm tab, watch where the flash and the sound start.' },
+      { q: 'Light leaves the Earth for the Moon. Where is it after one second?', opts: ['Already on the Moon', 'Still on the way', 'Back on Earth'], ok: 1, hint: 'In the Trips tab, choose the Moon.' },
+      { q: 'Does light need time to travel?', opts: ['No, it is everywhere at once', 'Yes, but very little on Earth', 'Yes, hours even on Earth'], ok: 1, hint: 'In the Tunnel tab, look at the clock while light runs.' }
+    ]
+  },
+  ru: {
+    name: 'Насколько быстр свет?', title: 'Насколько быстр свет?',
+    lines: [['Пусти свет вокруг Земли', ' по тоннелю.'], ['Посчитай, сколько раз', ' он успеет съездить между городами за секунду.'], ['Посмотри на грозу', ' и досчитай до грома.']],
+    views: { tunnel: '🌍 Тоннель', trips: '🚗 Поездки', storm: '⚡ Гроза' },
+    racers: { snail: 'улитка', walk: 'пешком', cheetah: 'гепард', car: 'машина, 100 км/ч', plane: 'самолёт', light: 'свет' },
+    tunnelAsk: 'Вокруг всей Земли проложили тоннель. За одну секунду свет пробежит по нему…',
+    tunnelOpts: ['ни разу не успеет', 'примерно 7 кругов', 'примерно 1000 кругов'],
+    tunnelRight: 'Верно! Около 7,5 круга за одну секунду.', tunnelWrong: 'Не совсем: смотри на счётчик кругов.',
+    lapSub: 'на один круг вокруг Земли', lapsPerSec: 'кругов вокруг Земли за 1 секунду', lap: '1 круг', laps: 'кругов', slow: 'замедлено в 10 раз',
+    trips: [['Будапешт', 'Пореч', 560], ['Москва', 'Санкт-Петербург', 700], ['Москва', 'Владивосток', 9300], ['Земля', 'Луна', 384400]],
+    tripAsk: (a, b, t) => `На машине от ${a === 'Будапешт' ? 'Будапешта' : 'Москвы'} до ${b === 'Пореч' ? 'Пореча' : b} ехать около ${t}. Сколько раз свет успеет съездить туда и обратно за одну секунду?`,
+    tripOpts: ['ни разу', 'около 270 раз', 'около 27 000 раз'],
+    tripRight: 'Верно! Около 270 раз туда и обратно за одну секунду.', tripWrong: 'Не совсем: смотри на счётчик над дорогой.',
+    byRacer: (r) => r,
+    lightTrips: (n) => `свет: ${nb(n)} ${ruPlural(n, 'раз', 'раза', 'раз')} туда и обратно за 1 с`, moonLine: 'свет: за 1 с только 78 % пути',
+    tripBody: (d, n) => `Дорога — около ${nb(d)} км. Свет за секунду пролетает около 300 000 км, поэтому мог бы съездить туда и обратно ${nb(n)} ${ruPlural(n, 'раз', 'раза', 'раз')}.`,
+    moonBody: 'До Луны около 384 400 км. Даже свету нужно 1,3 секунды, чтобы долететь: через секунду он пролетел только три четверти пути.',
+    stormAsk: 'Молния ударила в 3 км от тебя. Когда ты услышишь гром?',
+    stormOpts: ['вместе со вспышкой', 'секунд через 9', 'через минуту'],
+    stormRight: 'Верно! Вспышка видна сразу, гром — секунд через 9.', stormWrong: 'Не совсем: посчитай секунды от вспышки до грома.',
+    strike: '⚡ Молния!', dist: 'расстояние до молнии', km: 'км', thunderSub: 'пока не услышишь гром', lightAfter: (t) => `свет: ${t}`, boom: 'БАХ',
+    st: {
+      tunnel: ['🌍', 'Свет быстрый, но не мгновенный', 'Свет пролетает около 300 000 км в секунду. Машине нужно больше двух недель, чтобы объехать Землю один раз, а свет делает 7,5 круга за секунду.', 'Выбери другого бегуна и сравни: круг тот же, а время совсем разное.'],
+      trips: ['🚗', 'Долгая дорога для света — миг', '', ''],
+      storm: ['⚡', 'Почему гром опаздывает', 'Молния и гром случаются в один момент. Вспышка долетает почти сразу, а звук проходит всего около 1 км за 3 секунды.', 'Посчитай секунды от вспышки до грома и раздели на 3: столько километров до грозы.']
+    },
+    facts: {
+      tunnel: [{ emo: '📏', text: 'Свет проходит ровно 299 792 458 метров за секунду. С 1983 года сам метр определяют через это число.' },
+               { emo: '🐆', text: 'Гепард — самый быстрый зверь на суше: 93–104 км/ч, как машина на загородной дороге, но только в коротком рывке.' }],
+      trips: [{ emo: '🔭', text: 'В 1676 году Оле Рёмер заметил, что спутник Юпитера Ио появляется позже, когда Юпитер далеко от Земли. Так впервые доказали, что свету нужно время.' },
+              { emo: '🚀', text: 'Даже самым быстрым нашим космическим кораблям лететь до ближайшей звезды очень много лет, а свет долетает до неё примерно за 4 года.' }],
+      storm: [{ emo: '🔊', text: 'Звук в воздухе при 20 °C проходит около 343 метров в секунду — почти в миллион раз медленнее света.' },
+              { emo: '🌍', text: 'В разных странах считают по-разному: в Европе секунды делят на 3 и получают километры, в США делят на 5 и получают мили. Оба правила верны, отличаются только единицы.' }]
+    },
+    secrets: { a: ['Алло, Луна!', 'Отправь радиосообщение на Луну и дождись ответа.'], b: ['Свет в воде', 'Наполни тоннель водой и запусти свет снова.'] },
+    moonText: 'Радиоволны — это тоже свет, только невидимый. Слово, сказанное космонавтам на Луне, долетает за 1,3 секунды, поэтому каждый ответ приходит примерно через 2,6 секунды.',
+    waterText: 'В воде свет замедляется примерно до 225 000 км в секунду и успевает пробежать только около 5,6 круга за секунду. В стекле ещё медленнее: около 200 000 км в секунду.',
+    quiz: [
+      { q: 'Почему мы видим молнию раньше, чем слышим гром?', opts: ['Свет намного быстрее звука', 'Гром появляется позже', 'Глаза работают быстрее ушей'], ok: 0, hint: 'Во вкладке «Гроза» посмотри, откуда и когда выходят вспышка и звук.' },
+      { q: 'Свет вылетел с Земли к Луне. Где он через одну секунду?', opts: ['Уже на Луне', 'Ещё в пути', 'Снова на Земле'], ok: 1, hint: 'Во вкладке «Поездки» выбери Луну.' },
+      { q: 'Нужно ли свету время, чтобы долететь?', opts: ['Нет, он сразу везде', 'Да, но на Земле совсем чуть-чуть', 'Да, часы даже на Земле'], ok: 1, hint: 'Во вкладке «Тоннель» посмотри на часы, пока бежит свет.' }
+    ]
+  },
+  hu: {
+    name: 'Milyen gyors a fény?', title: 'Milyen gyors a fény?',
+    lines: [['Küldd körbe a fényt a Földön', ' egy alagútban.'], ['Számold meg, hányszor', ' jár két város között egy másodperc alatt.'], ['Figyelj meg egy vihart', ' és számolj a mennydörgésig.']],
+    views: { tunnel: '🌍 Alagút', trips: '🚗 Utak', storm: '⚡ Vihar' },
+    racers: { snail: 'csiga', walk: 'gyalog', cheetah: 'gepárd', car: 'autó, 100 km/h', plane: 'repülő', light: 'fény' },
+    tunnelAsk: 'Egy alagút körbeér az egész Földön. Egy másodperc alatt a fény körbefut benne…',
+    tunnelOpts: ['egyszer sem', 'kb. 7 kört', 'kb. 1000 kört'],
+    tunnelRight: 'Így van! Kb. 7,5 kört egy másodperc alatt.', tunnelWrong: 'Nem egészen: figyeld a körszámlálót.',
+    lapSub: 'egy kör a Föld körül', lapsPerSec: 'kör a Föld körül 1 másodperc alatt', lap: '1 kör', laps: 'kör', slow: '10× lassítva',
+    trips: [['Budapest', 'Poreč', 560], ['Budapest', 'Siófok', 105], ['Budapest', 'Bécs', 245], ['Föld', 'Hold', 384400]],
+    tripAsk: (a, b, t) => `Autóval Budapestről Porečbe kb. ${t} az út. Hány oda-vissza utat tesz meg a fény egy másodperc alatt?`,
+    tripOpts: ['egyet sem', 'kb. 270-et', 'kb. 27 000-et'],
+    tripRight: 'Így van! Kb. 270 oda-vissza utat egy másodperc alatt.', tripWrong: 'Nem egészen: figyeld a számlálót az út fölött.',
+    byRacer: (r) => r,
+    lightTrips: (n) => `fény: ${nb(n)} oda-vissza út 1 mp alatt`, moonLine: 'fény: 1 mp alatt csak az út 78%-a',
+    tripBody: (d, n) => `Az út kb. ${nb(d)} km. A fény másodpercenként kb. 300 000 km-t tesz meg, így ${nb(n)} oda-vissza utat tehetne meg.`,
+    moonBody: 'A Hold kb. 384 400 km-re van. Még a fénynek is 1,3 másodperc kell odáig: egy másodperc után csak az út háromnegyedénél jár.',
+    stormAsk: 'A villám 3 km-re csap le. Mikor hallod a mennydörgést?',
+    stormOpts: ['a villanással együtt', 'kb. 9 másodperc múlva', 'kb. egy perc múlva'],
+    stormRight: 'Így van! A villanás azonnal látszik, a dörgés kb. 9 másodperc múlva jön.', stormWrong: 'Nem egészen: számold a másodperceket a villanástól a dörgésig.',
+    strike: '⚡ Villám!', dist: 'távolság a villámig', km: 'km', thunderSub: 'amíg meghallod a dörgést', lightAfter: (t) => `fény: ${t}`, boom: 'BUMM',
+    st: {
+      tunnel: ['🌍', 'A fény gyors, de nem azonnali', 'A fény másodpercenként kb. 300 000 km-t tesz meg. Egy autónak több mint két hét kell, hogy egyszer körbeérjen a Földön, a fény egy másodperc alatt 7,5-ször.', 'Válassz másik versenyzőt és hasonlítsd össze: ugyanaz a kör, egészen más idő.'],
+      trips: ['🚗', 'A hosszú út a fénynek egy pillanat', '', ''],
+      storm: ['⚡', 'Miért késik a mennydörgés?', 'A villám és a dörgés ugyanabban a pillanatban keletkezik. A villanás szinte azonnal ideér, a hang viszont csak kb. 1 km-t tesz meg 3 másodperc alatt.', 'Számold a másodperceket a villanástól a dörgésig, és oszd el 3-mal: ennyi kilométerre van a vihar.']
+    },
+    facts: {
+      tunnel: [{ emo: '📏', text: 'A fény pontosan 299 792 458 métert tesz meg másodpercenként. 1983 óta magát a métert is ezzel a számmal határozzák meg.' },
+               { emo: '🐆', text: 'A gepárd a leggyorsabb szárazföldi állat: 93–104 km/h, mint egy autó az országúton, de csak rövid vágtában.' }],
+      trips: [{ emo: '🔭', text: '1676-ban Ole Rømer észrevette, hogy a Jupiter Io holdja később bukkan elő, amikor a Jupiter messze van a Földtől. Ez volt az első bizonyíték, hogy a fénynek idő kell.' },
+              { emo: '🚀', text: 'Még a leggyorsabb űrhajóinknak is nagyon sok év kellene a legközelebbi csillagig, ahová a fény kb. 4 év alatt ér el.' }],
+      storm: [{ emo: '🔊', text: 'A hang 20 °C-os levegőben kb. 343 métert tesz meg másodpercenként: majdnem milliószor lassabb a fénynél.' },
+              { emo: '🌍', text: 'Az országok másképp számolják: Európában a másodperceket 3-mal osztják, és kilométert kapnak, az USA-ban 5-tel, és mérföldet. Mindkét szabály jó, csak a mértékegység más.' }]
+    },
+    secrets: { a: ['Halló, Hold!', 'Küldj rádióüzenetet a Holdra, és várd meg a választ.'], b: ['Fény a vízben', 'Töltsd meg vízzel az alagutat, és versenyezz újra.'] },
+    moonText: 'A rádióhullám is fény, csak nem látjuk. A Holdon lévő űrhajósokhoz 1,3 másodperc alatt ér el egy szó, ezért minden válasz kb. 2,6 másodperc múlva jön vissza.',
+    waterText: 'Vízben a fény kb. 225 000 km/s-ra lassul, így egy másodperc alatt csak kb. 5,6 kört fut. Üvegben még lassabb: kb. 200 000 km/s.',
+    quiz: [
+      { q: 'Miért látjuk előbb a villámot, mint halljuk a dörgést?', opts: ['A fény sokkal gyorsabb a hangnál', 'A dörgés később keletkezik', 'A szem gyorsabb a fülnél'], ok: 0, hint: 'A Vihar fülön figyeld, honnan és mikor indul a villanás és a hang.' },
+      { q: 'A fény elindul a Földről a Hold felé. Hol van egy másodperc múlva?', opts: ['Már a Holdon', 'Még úton', 'Újra a Földön'], ok: 1, hint: 'Az Utak fülön válaszd a Holdat.' },
+      { q: 'Kell-e időbe telnie, amíg a fény odaér?', opts: ['Nem, azonnal mindenhol ott van', 'Igen, de a Földön nagyon kevés', 'Igen, a Földön is órákig tart'], ok: 1, hint: 'Az Alagút fülön nézd az órát, amíg a fény fut.' }
+    ]
+  },
+};
+const TOPICS = [
+  { id: 'mt_aulwq39aj8', en: 'The Vast Scale of Space', ru: 'Огромные масштабы космоса', hu: 'Az univerzum óriási léptéke' },
+  { id: 'mt_q-1a86ydgU', en: 'Speed & Distance-Time Graphs', ru: 'Скорость и графики пути и времени', hu: 'Sebesség és út–idő grafikonok' },
+  { id: 'mt_BO_AHGLCk0', en: 'Thunder & Lightning', ru: 'Гром и молния', hu: 'Mennydörgés és villámlás' },
+];
+
+// --- state -------------------------------------------------------------------------------------------------
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+const ease = (x) => x * x * (3 - 2 * x);
+const TWO_PI = Math.PI * 2;
+const rng = (a) => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+const S = {
+  racer: 'light', trRacer: 'car', dest: 0, dist: 3,
+  tl: 0, tr: 0,                       // clocks of the tunnel and trips pictures (screen seconds)
+  k: -1, boomed: false,               // storm: seconds since the strike (-1 = none yet)
+  sec: null, secT: 0,
+};
+const A = { tunnel: null, trips: null, storm: null };              // the chip tapped in each prediction
+let SC = 1;                                                        // current design-box scale (canvas px per design unit)
+const W = 360, H = 320;                                            // the design box of every picture
+
+const lab = shell({ key: 'light-speed', T, topics: TOPICS, views: ['tunnel', 'trips', 'storm'], onLang: render, onView: () => { S.sec = null; S.tl = 0; S.tr = 0; render(); } });
+const secret = secretLab('light-speed', () => ({
+  secrets: [{ emo: '🌙', title: T[lang].secrets.a[0], desc: T[lang].secrets.a[1] }, { emo: '💧', title: T[lang].secrets.b[0], desc: T[lang].secrets.b[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div class="ls-ask" id="lsAsk"></div>
+  <div class="ls-sec ls-dest" id="lsDest"><div class="chips" id="lsDestChips"></div></div>
+  <div class="ls-sec ls-race" id="lsRace"><div class="chips" id="lsRaceChips"></div></div>
+  <div class="ls-sec" id="lsStorm">
+    <div class="ls-lbl" id="lsDistLbl"></div>
+    <input id="lsDist" class="big" type="range" min="1" max="5" step="0.5" value="3" style="--track: linear-gradient(90deg, #ffe7b0, #8fa4ff 55%, #5b3fd6)">
+    <div class="ends"><span id="lsEnd0"></span><span id="lsEnd1"></span></div>
+    <button type="button" class="chip ls-strike" id="lsStrike"></button>
+  </div>
+  <div class="row2" id="lsSecRow"></div>`;
+
+// --- drawing helpers ---------------------------------------------------------------------------------------
+// every label is a dark rounded pill; sizes are given in screen px and divided by the design scale, so text stays >= 12 px
+function pill(c, text, x, y, o = {}) {
+  const k = 1 / SC, fs = (o.size || 12.5) * k;
+  c.font = `${o.weight || 800} ${fs}px Nunito, system-ui, sans-serif`;
+  const tw = c.measureText(text).width, px = 8 * k, h = (o.h || 22) * k, w = Math.min(354, tw + px * 2);
+  let x0 = o.align === 'l' ? x : o.align === 'r' ? x - w : x - w / 2;
+  x0 = clamp(x0, 3, 357 - w);
+  const y0 = y - h / 2;
+  c.beginPath(); c.roundRect(x0, y0, w, h, h / 2);
+  c.fillStyle = o.bg || 'rgba(8,10,24,.82)'; c.fill();
+  c.lineWidth = k; c.strokeStyle = o.border || 'rgba(150,165,215,.3)'; c.stroke();
+  c.fillStyle = o.color || '#e6ebff'; c.textAlign = 'left'; c.textBaseline = 'middle';
+  c.fillText(text, x0 + px, y0 + h / 2 + 0.5 * k);
+  return { x0, x1: x0 + w, y0, y1: y0 + h, w, h };
+}
+const GOLD = { color: '#fff3c4', border: 'rgba(255,210,90,.5)' };
+function blob(c, pts, x, y, r) { // a smooth closed shape through points given in units of r
+  const P = pts.map(([a, b]) => [x + a * r, y + b * r]), n = P.length;
+  c.beginPath(); c.moveTo((P[0][0] + P[n - 1][0]) / 2, (P[0][1] + P[n - 1][1]) / 2);
+  for (let i = 0; i < n; i++) { const q = P[i], m = P[(i + 1) % n]; c.quadraticCurveTo(q[0], q[1], (q[0] + m[0]) / 2, (q[1] + m[1]) / 2); }
+  c.closePath();
+}
+const glow = (c, x, y, r, rgba, mid) => {
+  r = Math.max(0.1, r);
+  const g = c.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, rgba); if (mid) g.addColorStop(mid[0], mid[1]); g.addColorStop(1, rgba.replace(/[\d.]+\)$/, '0)'));
+  c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, TWO_PI); c.fill();
+};
+
+// --- the sky ----------------------------------------------------------------------------------------------
+const STARS = (() => {
+  const r = rng(7), out = [];
+  for (let i = 0; i < 190; i++) { const z = i % 3; out.push({ x: r(), y: r(), z, s: [0.7, 1.05, 1.6][z] * (0.6 + r() * 0.8), a: 0.35 + r() * 0.6, p: r() * 6.28, c: r() < 0.14 ? '#ffd9b0' : r() < 0.3 ? '#b9d0ff' : '#ffffff' }); }
+  return out;
+})();
+function drawBackdrop(c, w, h, time, storm) {
+  let g = c.createLinearGradient(0, 0, 0, h);
+  if (storm) { g.addColorStop(0, '#070a1c'); g.addColorStop(0.55, '#171c42'); g.addColorStop(1, '#2a2a58'); }
+  else { g.addColorStop(0, '#0a0d24'); g.addColorStop(0.6, '#05060f'); g.addColorStop(1, '#04050c'); }
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+  if (!storm) {
+    g = c.createRadialGradient(w * 0.18, h * 0.22, 0, w * 0.18, h * 0.22, w * 0.7); g.addColorStop(0, 'rgba(90,80,210,.2)'); g.addColorStop(1, 'rgba(90,80,210,0)');
+    c.fillStyle = g; c.fillRect(0, 0, w, h);
+    g = c.createRadialGradient(w * 0.9, h * 0.85, 0, w * 0.9, h * 0.85, w * 0.75); g.addColorStop(0, 'rgba(30,130,190,.15)'); g.addColorStop(1, 'rgba(30,130,190,0)');
+    c.fillStyle = g; c.fillRect(0, 0, w, h);
+  }
+  c.lineCap = 'round';
+  for (const st of STARS) {
+    if (storm && st.y > 0.6) continue;
+    const x = ((((st.x - time * 0.002 * (st.z + 1)) % 1) + 1) % 1) * w, y = st.y * h;
+    const al = st.a * (0.72 + 0.28 * Math.sin(time * 1.5 + st.p)) * (storm ? 0.6 : 1);
+    c.globalAlpha = al; c.fillStyle = c.strokeStyle = st.c;
+    c.beginPath(); c.arc(x, y, st.s, 0, TWO_PI); c.fill();
+    if (st.z === 2 && st.s > 1.3) { c.lineWidth = 0.7; c.beginPath(); c.moveTo(x - st.s * 3.2, y); c.lineTo(x + st.s * 3.2, y); c.moveTo(x, y - st.s * 3.2); c.lineTo(x, y + st.s * 3.2); c.stroke(); }
+  }
+  c.globalAlpha = 1;
+}
+
+// --- the Earth: a globe seen from above the North Pole (pole = true) or from the side ---------------------------
+const LAND = [
+  [[[-0.55, -0.5], [-0.2, -0.72], [0.1, -0.55], [0.0, -0.28], [-0.3, -0.15], [-0.6, -0.25]], 0],
+  [[[0.3, -0.35], [0.65, -0.45], [0.85, -0.1], [0.6, 0.2], [0.35, 0.05]], 0],
+  [[[0.2, 0.55], [0.5, 0.45], [0.66, 0.68], [0.3, 0.84]], 1],
+  [[[-0.72, 0.15], [-0.42, 0.1], [-0.3, 0.45], [-0.55, 0.72], [-0.82, 0.45]], 1],
+  [[[-0.1, 0.72], [0.1, 0.68], [0.1, 0.92], [-0.1, 0.92]], 0],
+];
+function drawGlobe(c, x, y, r, rot, pole) {
+  glow(c, x, y, r * 1.5, 'rgba(110,180,255,.45)', [0.66, 'rgba(90,160,255,.22)']);
+  let g = c.createRadialGradient(x - r * 0.38, y - r * 0.42, r * 0.1, x, y, r * 1.05);
+  g.addColorStop(0, '#a9deff'); g.addColorStop(0.45, '#3b86e0'); g.addColorStop(0.85, '#123a86'); g.addColorStop(1, '#07163f');
+  c.fillStyle = g; c.beginPath(); c.arc(x, y, Math.max(0, r), 0, TWO_PI); c.fill();
+  c.save(); c.beginPath(); c.arc(x, y, Math.max(0, r), 0, TWO_PI); c.clip();
+  c.translate(x, y); c.rotate(rot);
+  const gg = c.createLinearGradient(-r, -r, r, r); gg.addColorStop(0, '#86d68f'); gg.addColorStop(1, '#3d8f55');
+  const go = c.createLinearGradient(-r, -r, r, r); go.addColorStop(0, '#e2c37a'); go.addColorStop(1, '#b08a46');
+  for (const [pts, ochre] of LAND) { c.fillStyle = ochre ? go : gg; blob(c, pts, 0, 0, r); c.fill(); c.lineWidth = 1; c.strokeStyle = 'rgba(10,50,30,.35)'; c.stroke(); }
+  c.fillStyle = 'rgba(255,255,255,.4)';
+  for (const [a, b, rx, ry] of [[-0.2, -0.62, 0.3, 0.06], [0.3, -0.2, 0.26, 0.05], [-0.35, 0.55, 0.26, 0.05], [0.45, 0.62, 0.22, 0.045]]) { c.beginPath(); c.ellipse(a * r, b * r, rx * r, ry * r, -0.3, 0, TWO_PI); c.fill(); }
+  if (pole) { const ic = c.createRadialGradient(0, 0, 0, 0, 0, r * 0.2); ic.addColorStop(0, '#ffffff'); ic.addColorStop(1, 'rgba(220,240,255,.85)'); c.fillStyle = ic; c.beginPath(); c.arc(0, 0, r * 0.2, 0, TWO_PI); c.fill(); }
+  c.restore();
+  c.save(); c.beginPath(); c.arc(x, y, Math.max(0, r), 0, TWO_PI); c.clip();
+  g = c.createRadialGradient(x - r * 0.45, y - r * 0.5, r * 0.3, x - r * 0.1, y - r * 0.1, r * 1.4);
+  g.addColorStop(0, 'rgba(0,5,25,0)'); g.addColorStop(1, 'rgba(0,5,25,.62)');
+  c.fillStyle = g; c.fillRect(x - r, y - r, r * 2, r * 2);
+  c.restore();
+  c.lineWidth = 1.5; c.strokeStyle = '#0a1a44'; c.beginPath(); c.arc(x, y, Math.max(0, r), 0, TWO_PI); c.stroke();
+  c.lineWidth = 1.2; c.strokeStyle = 'rgba(255,255,255,.35)'; c.beginPath(); c.arc(x, y, Math.max(0, r - 1.5), Math.PI * 1.05, Math.PI * 1.55); c.stroke();
+}
+function drawMoon(c, x, y, r) {
+  glow(c, x, y, r * 2.2, 'rgba(220,225,255,.22)');
+  const g = c.createRadialGradient(x - r * 0.4, y - r * 0.45, r * 0.1, x, y, r * 1.05);
+  g.addColorStop(0, '#fbfaf5'); g.addColorStop(0.45, '#cfcdc6'); g.addColorStop(0.85, '#8e8d90'); g.addColorStop(1, '#55555d');
+  c.fillStyle = g; c.beginPath(); c.arc(x, y, Math.max(0, r), 0, TWO_PI); c.fill();
+  for (const [a, b, q] of [[-0.3, -0.1, 0.24], [0.28, 0.3, 0.17], [0.1, -0.45, 0.12], [0.42, -0.1, 0.1], [-0.15, 0.48, 0.14], [-0.5, 0.25, 0.09]]) {
+    c.fillStyle = 'rgba(80,80,92,.38)'; c.beginPath(); c.arc(x + a * r, y + b * r, q * r, 0, TWO_PI); c.fill();
+    c.strokeStyle = 'rgba(255,255,255,.28)'; c.lineWidth = 1; c.beginPath(); c.arc(x + a * r, y + b * r, q * r, 0.2, 1.4); c.stroke();
+  }
+  c.lineWidth = 1.5; c.strokeStyle = 'rgba(30,30,42,.85)'; c.beginPath(); c.arc(x, y, Math.max(0, r), 0, TWO_PI); c.stroke();
+}
+// emoji on a soft round plate, opaque
+function emojiAt(c, e, x, y, size) {
+  c.save(); c.globalAlpha = 1;
+  glow(c, x, y + 2, size * 0.9, 'rgba(0,0,0,.35)');
+  c.fillStyle = 'rgba(12,16,34,.88)'; c.strokeStyle = 'rgba(160,175,230,.45)'; c.lineWidth = 1 / SC;
+  c.beginPath(); c.arc(x, y, size * 0.72, 0, TWO_PI); c.fill(); c.stroke();
+  c.font = `${size}px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#fff';
+  c.fillText(e, x, y + size * 0.06);
+  c.restore();
+}
+
+// --- view 1 + secret b: the tunnel around the Earth ----------------------------------------------------------
+const TCX = 180, TCY = 162, TR = 95, RR = 125, LAPS_SLOW = 10, HOLD = 1.5;
+// kind: 'light' | 'water' | a racer key; tt = clock; asking = prediction still open
+function drawTunnel(c, kind, tt, time, asking) {
+  const t = T[lang], k = 1 / SC, water = kind === 'water';
+  c.lineCap = 'round';
+  // the tube: a glow, a lighter wall, a dark core, then the inner line (or the water)
+  c.strokeStyle = 'rgba(110,150,255,.10)'; c.lineWidth = 26; c.beginPath(); c.arc(TCX, TCY, RR, 0, TWO_PI); c.stroke();
+  c.strokeStyle = 'rgba(140,160,230,.5)'; c.lineWidth = 18; c.beginPath(); c.arc(TCX, TCY, RR, 0, TWO_PI); c.stroke();
+  c.strokeStyle = '#0a1024'; c.lineWidth = 15; c.beginPath(); c.arc(TCX, TCY, RR, 0, TWO_PI); c.stroke();
+  if (water) {
+    const g = c.createLinearGradient(TCX - RR, TCY - RR, TCX + RR, TCY + RR); g.addColorStop(0, '#47b6ff'); g.addColorStop(1, '#0a5fb8');
+    c.strokeStyle = g; c.lineWidth = 12; c.beginPath(); c.arc(TCX, TCY, RR, 0, TWO_PI); c.stroke();
+    c.strokeStyle = 'rgba(210,240,255,.55)'; c.lineWidth = 1.6; c.beginPath(); c.arc(TCX, TCY, RR - 2.5, Math.PI * 1.05, Math.PI * 1.6); c.stroke();
+    c.lineWidth = 1.4; c.setLineDash([2, 9]); c.beginPath(); c.arc(TCX, TCY, RR + 1, time * 0.4, time * 0.4 + TWO_PI); c.stroke(); c.setLineDash([]);
+  } else {
+    c.strokeStyle = 'rgba(175,195,255,.6)'; c.lineWidth = 2; c.beginPath(); c.arc(TCX, TCY, RR, 0, TWO_PI); c.stroke();
+    c.strokeStyle = 'rgba(255,255,255,.28)'; c.lineWidth = 1.6; c.beginPath(); c.arc(TCX, TCY, RR + 6.5, Math.PI * 1.05, Math.PI * 1.55); c.stroke();
+  }
+  drawGlobe(c, TCX, TCY, TR, time * 0.1, true);
+  if (asking) { pill(c, '?', TCX, TCY - RR, { size: 20, h: 32, color: '#ffd25a', border: 'rgba(255,210,90,.6)' }); return; }
+  const isLight = kind === 'light' || water;
+  if (isLight) {
+    const sp = water ? C / WATER : C, per = LAPS_SLOW + HOLD, u = tt % per, holding = u >= LAPS_SLOW;
+    const lt = holding ? 1 : u / LAPS_SLOW, laps = sp * lt / EQ, th = -Math.PI / 2 + TWO_PI * laps;
+    c.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 26; i++) {
+      const f = i / 26;
+      c.strokeStyle = `rgba(255,${water ? 238 : 224},${water ? 190 : 130},${(Math.pow(1 - f, 1.7) * 0.85).toFixed(3)})`;
+      c.lineWidth = lerp(8, 1.5, f); c.beginPath(); c.arc(TCX, TCY, RR, th - (i + 1) * 0.04, th - i * 0.04); c.stroke();
+    }
+    const hx = TCX + RR * Math.cos(th), hy = TCY + RR * Math.sin(th);
+    glow(c, hx, hy, 20, 'rgba(255,240,180,.95)', [0.35, 'rgba(255,215,110,.45)']);
+    c.globalCompositeOperation = 'source-over';
+    c.fillStyle = '#fffdf0'; c.beginPath(); c.arc(hx, hy, 4.6, 0, TWO_PI); c.fill();
+    pill(c, `${t.laps}: ${Math.floor(laps)}`, 10, 16, { align: 'l', size: 13, ...GOLD });
+    pill(c, `${dec(lt, 2)} ${U[lang].s}`, 10, 42, { align: 'l', size: 13 });
+    pill(c, t.slow, 350, 16, { align: 'r', bg: 'rgba(8,10,24,.6)', border: 'rgba(150,165,215,.18)', color: '#c3cbe8' });
+    if (holding) pill(c, `1 ${U[lang].s}: ${dec(sp / EQ, 1)} ${t.laps}`, TCX, TCY, { size: 14, h: 28, color: '#3ddc97', border: 'rgba(61,220,151,.6)' });
+  } else {
+    const rc = RACERS.find((r) => r.k === kind), th = -Math.PI / 2 + TWO_PI * ((tt % 8) / 8);
+    emojiAt(c, rc.e, TCX + RR * Math.cos(th), TCY + RR * Math.sin(th), 22);
+    pill(c, `${t.lap} = ${fmtT(EQ / rc.v)}`, TCX, 306, { size: 13, ...GOLD });
+  }
+}
+
+// --- view 2: trips on a map, or to the Moon -----------------------------------------------------------------
+const RP = [[60, 250], [210, 262], [130, 100], [300, 82]];                         // the road: one cubic bezier
+const bez = (u) => {
+  const m = 1 - u, [a, b, d, e] = RP;
+  return [m * m * m * a[0] + 3 * m * m * u * b[0] + 3 * m * u * u * d[0] + u * u * u * e[0], m * m * m * a[1] + 3 * m * m * u * b[1] + 3 * m * u * u * d[1] + u * u * u * e[1]];
+};
+const ROAD = (() => { // arc-length table, so that a vehicle moves at an even pace
+  const pts = [], N = 120; let len = 0, prev = bez(0);
+  for (let i = 0; i <= N; i++) { const p = bez(i / N); len += Math.hypot(p[0] - prev[0], p[1] - prev[1]); pts.push({ p, len }); prev = p; }
+  return { pts, len };
+})();
+function roadAt(f) { // f in [0,1] along the road
+  const target = clamp01(f) * ROAD.len, P = ROAD.pts;
+  let i = 1; while (i < P.length - 1 && P[i].len < target) i++;
+  const a = P[i - 1], b = P[i], q = (target - a.len) / Math.max(1e-6, b.len - a.len);
+  return [lerp(a.p[0], b.p[0], q), lerp(a.p[1], b.p[1], q)];
+}
+function roadPath(c) { c.beginPath(); c.moveTo(...RP[0]); c.bezierCurveTo(...RP[1], ...RP[2], ...RP[3]); }
+function pin(c, x, y, col) {
+  c.save();
+  glow(c, x, y + 1, 14, 'rgba(0,0,0,.5)');
+  const g = c.createRadialGradient(x - 3, y - 21, 1, x, y - 16, 12); g.addColorStop(0, '#ff9a8a'); g.addColorStop(0.6, col); g.addColorStop(1, '#7a1020');
+  c.fillStyle = g; c.strokeStyle = '#3a0812'; c.lineWidth = 1.4;
+  c.beginPath(); c.moveTo(x, y); c.bezierCurveTo(x - 4, y - 7, x - 10, y - 11, x - 10, y - 17); c.arc(x, y - 17, 10, Math.PI, 0); c.bezierCurveTo(x + 10, y - 11, x + 4, y - 7, x, y); c.closePath(); c.fill(); c.stroke();
+  c.fillStyle = '#fff'; c.beginPath(); c.arc(x, y - 17, 3.8, 0, TWO_PI); c.fill();
+  c.fillStyle = 'rgba(255,255,255,.5)'; c.beginPath(); c.ellipse(x - 4.5, y - 21, 2.2, 3.4, -0.5, 0, TWO_PI); c.fill();
+  c.restore();
+}
+function drawMapCard(c) {
+  c.save();
+  c.shadowColor = 'rgba(0,0,0,.55)'; c.shadowBlur = 18; c.shadowOffsetY = 6;
+  const g = c.createLinearGradient(0, 8, 360, 312); g.addColorStop(0, '#16505a'); g.addColorStop(1, '#0a2c38');
+  c.fillStyle = g; c.beginPath(); c.roundRect(8, 8, 344, 304, 20); c.fill();
+  c.restore();
+  c.save(); c.beginPath(); c.roundRect(8, 8, 344, 304, 20); c.clip();
+  const r = rng(21);
+  for (const [x, y, rad, a] of [[60, 70, 70, 0.3], [250, 220, 80, 0.28], [170, 150, 55, 0.22], [310, 150, 45, 0.2], [100, 230, 40, 0.2]]) {
+    const q = c.createRadialGradient(x - rad * 0.3, y - rad * 0.3, 0, x, y, rad); q.addColorStop(0, `rgba(95,175,150,${a})`); q.addColorStop(1, 'rgba(95,175,150,0)');
+    c.fillStyle = q; c.beginPath(); c.arc(x, y, rad, 0, TWO_PI); c.fill();
+  }
+  c.strokeStyle = 'rgba(150,225,200,.1)'; c.lineWidth = 1;
+  for (const [x, y, rx, ry] of [[60, 70, 50, 32], [60, 70, 30, 18], [250, 220, 60, 36], [250, 220, 34, 20], [170, 150, 36, 24]]) { c.beginPath(); c.ellipse(x, y, rx, ry, -0.4, 0, TWO_PI); c.stroke(); }
+  c.fillStyle = 'rgba(40,120,190,.45)'; blob(c, [[0, -1], [0.9, -0.5], [0.8, 0.6], [-0.2, 1], [-0.95, 0.2]], 305, 255, 26); c.fill();
+  c.strokeStyle = 'rgba(190,230,255,.3)'; c.stroke();
+  for (let i = 0; i < 26; i++) { const x = 20 + r() * 320, y = 20 + r() * 285; c.fillStyle = `rgba(30,100,70,${(0.35 + r() * 0.3).toFixed(2)})`; c.beginPath(); c.arc(x, y, 3 + r() * 3, 0, TWO_PI); c.fill(); }
+  c.restore();
+  c.lineWidth = 1.5; c.strokeStyle = 'rgba(160,220,215,.3)'; c.beginPath(); c.roundRect(8, 8, 344, 304, 20); c.stroke();
+}
+function beamH(c, x0, x, y, col) { // a bright packet that has run from x0 to x
+  c.globalCompositeOperation = 'lighter';
+  if (x - x0 > 2) {
+    const g = c.createLinearGradient(x0, 0, x, 0); g.addColorStop(0, 'rgba(255,220,120,0)'); g.addColorStop(1, 'rgba(255,240,190,.9)');
+    c.fillStyle = g; c.beginPath(); c.moveTo(x0, y); c.lineTo(x, y - 3); c.lineTo(x, y + 3); c.closePath(); c.fill();
+  }
+  glow(c, x, y, 15, col || 'rgba(255,236,170,.95)', [0.35, 'rgba(255,215,110,.4)']);
+  c.globalCompositeOperation = 'source-over';
+  c.fillStyle = '#fffdf0'; c.beginPath(); c.arc(x, y, 3.8, 0, TWO_PI); c.fill();
+}
+const EXC = 62, MXC = 298, CYM = 170, ERm = 34, MRm = 20, X0M = EXC + ERm + 2, X1M = MXC - MRm - 2;
+const T1 = MOON / C;                                                    // light needs 1.28 s to the Moon
+function drawEarthMoon(c, t) {
+  drawGlobe(c, EXC, CYM, ERm, 0, false); drawMoon(c, MXC, CYM, MRm);
+  c.setLineDash([3, 6]); c.strokeStyle = 'rgba(160,175,230,.25)'; c.lineWidth = 1; c.beginPath(); c.moveTo(X0M, CYM); c.lineTo(X1M, CYM); c.stroke(); c.setLineDash([]);
+  pill(c, t.trips[3][0], EXC, CYM + ERm + 22, { size: 13 }); pill(c, t.trips[3][1], MXC, CYM + MRm + 22, { size: 13 });
+}
+function drawMoonTrip(c, tt) {
+  const t = T[lang];
+  drawEarthMoon(c, t);
+  const u = tt % 5.3, lt = u < 1 ? u : u < 2.5 ? 1 : Math.min(2 * T1, 1 + (u - 2.5)), holding = u >= 1 && u < 2.5;
+  const pos = lt <= T1 ? lt / T1 : Math.max(0, (2 * T1 - lt) / T1), x = lerp(X0M, X1M, pos);
+  beamH(c, X0M, x, CYM);
+  if (holding) {
+    c.setLineDash([3, 4]); c.strokeStyle = 'rgba(255,225,140,.6)'; c.lineWidth = 1.3; c.beginPath(); c.moveTo(x, CYM - 12); c.lineTo(x, CYM - 56); c.stroke(); c.setLineDash([]);
+    pill(c, `1 ${U[lang].s}`, x, CYM - 68, { size: 15, h: 26, ...GOLD });
+  }
+  pill(c, `${dec(lt, 2)} ${U[lang].s}`, 10, 16, { align: 'l', size: 13 });
+}
+function drawTrips(c, tt, time, asking) {
+  const t = T[lang], [from, to, d] = t.trips[S.dest];
+  if (S.dest === 3) { drawMoonTrip(c, tt); return; }
+  drawMapCard(c);
+  // the road: shadow, asphalt, edge lines, dashed middle
+  roadPath(c); c.strokeStyle = 'rgba(0,10,15,.5)'; c.lineWidth = 13; c.save(); c.translate(0, 2.5); c.stroke(); c.restore();
+  roadPath(c); c.strokeStyle = '#8fa3b4'; c.lineWidth = 11; c.stroke();
+  roadPath(c); c.strokeStyle = '#34414f'; c.lineWidth = 9; c.stroke();
+  roadPath(c); c.strokeStyle = '#e8cf86'; c.lineWidth = 1.4; c.setLineDash([6, 6]); c.stroke(); c.setLineDash([]);
+  const rc = RACERS.find((r) => r.k === S.trRacer), pa = RP[0], pb = RP[3];
+  if (!asking) {                                                           // light: bounces between the pins; the counter runs for one real second
+    const N = Math.floor(C / (2 * d)), u = tt % 3.5, e = u < 1 ? ease(u) : 1, rt = N * e;
+    const q = rt % 1, f = q < 0.5 ? q * 2 : 2 - q * 2;
+    const live = u < 1;
+    c.globalCompositeOperation = 'lighter';
+    roadPath(c); c.strokeStyle = `rgba(255,226,140,${live ? 0.5 : 0.2})`; c.lineWidth = 9; c.stroke();
+    roadPath(c); c.strokeStyle = `rgba(255,248,215,${live ? 0.85 : 0.35})`; c.lineWidth = 2.4; c.stroke();
+    c.globalCompositeOperation = 'source-over';
+    const [hx, hy] = roadAt(live ? f : 0);
+    glow(c, hx, hy, 17, 'rgba(255,240,180,.95)', [0.35, 'rgba(255,215,110,.45)']);
+    c.fillStyle = '#fffdf0'; c.beginPath(); c.arc(hx, hy, 4.2, 0, TWO_PI); c.fill();
+    pill(c, `🔁 ${nb(Math.floor(rt))}`, 14, 28, { align: 'l', size: 16, h: 28, color: '#ffe9a8', border: 'rgba(255,210,90,.6)' });
+    pill(c, `${u < 1 ? dec(u, 1) : '1'} ${U[lang].s}`, 346, 28, { align: 'r', size: 14, h: 26 });
+  }
+  // the slow racer, one way in 6 s, then back
+  const cyc = (tt % 12) / 6, pr = ease(cyc < 1 ? cyc : 2 - cyc), [rx, ry] = roadAt(pr);
+  emojiAt(c, rc.e, rx, ry - 2, 21);
+  pin(c, pa[0], pa[1] + 6, '#ff5a50'); pin(c, pb[0], pb[1] + 6, '#ff5a50');
+  pill(c, from, pa[0] + 8, pa[1] + 26, { size: 13, align: 'c' }); pill(c, to, pb[0] - 4, pb[1] - 36, { size: 13 });
+  pill(c, `${nb(d)} ${t.km}`, 180, 296, { size: 12.5, bg: 'rgba(8,10,24,.7)' });
+}
+
+// --- view 3: the storm ---------------------------------------------------------------------------------------
+const HX = 112, GY = 250;                                              // the house wall and the ground line
+const cloudX = (d) => lerp(150, 330, (d - 1) / 4);
+function drawStorm(c, time, asking) {
+  const t = T[lang], d = S.dist, sx = cloudX(d), tb = d / SND, ks = S.k;
+  const flash = ks >= 0 && ks < 0.25 ? 1 - ease(ks / 0.25) : 0;
+  const boomAge = ks >= tb ? ks - tb : -1;
+  const sh = boomAge >= 0 && boomAge < 0.5 ? (1 - boomAge / 0.5) : 0;
+  c.save(); c.translate(Math.sin(time * 90) * 3 * sh, Math.cos(time * 77) * 2 * sh);
+  // far hills, the meadow
+  c.fillStyle = '#0f1a2e'; c.beginPath(); c.moveTo(-1000, GY - 6); c.bezierCurveTo(40, GY - 30, 130, GY - 20, 200, GY - 12); c.bezierCurveTo(270, GY - 28, 330, GY - 22, 1400, GY - 8); c.lineTo(1400, GY + 4); c.lineTo(-1000, GY + 4); c.fill();
+  let g = c.createLinearGradient(0, GY, 0, GY + 90); g.addColorStop(0, '#1c3a28'); g.addColorStop(1, '#0a1a12');
+  c.fillStyle = g; c.fillRect(-1000, GY, 2400, 1000);
+  c.strokeStyle = 'rgba(120,200,140,.18)'; c.lineWidth = 1.2; c.lineCap = 'round';
+  const gr = rng(5); for (let i = 0; i < 40; i++) { const x = gr() * 360, y = GY + 8 + gr() * 60; c.beginPath(); c.moveTo(x, y); c.lineTo(x - 1.5, y - 5); c.moveTo(x + 2, y); c.lineTo(x + 3, y - 4); c.stroke(); }
+  // the house, with a lit window and a child in it
+  glow(c, 66, GY + 3, 66, 'rgba(0,0,0,.45)');
+  g = c.createLinearGradient(18, 196, 112, 252); g.addColorStop(0, '#6a5f86'); g.addColorStop(1, '#3a3452');
+  c.fillStyle = g; c.strokeStyle = '#1a1628'; c.lineWidth = 1.5; c.beginPath(); c.roundRect(18, 196, 94, 56, 3); c.fill(); c.stroke();
+  g = c.createLinearGradient(0, 158, 0, 200); g.addColorStop(0, '#b24a4a'); g.addColorStop(1, '#6a2634');
+  c.fillStyle = g; c.beginPath(); c.moveTo(8, 200); c.lineTo(65, 156); c.lineTo(122, 200); c.closePath(); c.fill(); c.stroke();
+  c.fillStyle = '#4a3a52'; c.fillRect(92, 164, 11, 22); c.strokeRect(92, 164, 11, 22);
+  c.fillStyle = '#2c2030'; c.beginPath(); c.roundRect(28, 222, 18, 30, [8, 8, 0, 0]); c.fill();
+  glow(c, 81, 224, 46, 'rgba(255,200,100,.35)');
+  g = c.createLinearGradient(0, 206, 0, 242); g.addColorStop(0, '#ffe9a0'); g.addColorStop(1, '#ffb347');
+  c.fillStyle = g; c.fillRect(63, 206, 36, 36);
+  c.save(); c.beginPath(); c.rect(63, 206, 36, 36); c.clip();
+  c.fillStyle = '#3d6fb5'; c.beginPath(); c.ellipse(81, 243, 16, 12, 0, 0, TWO_PI); c.fill();
+  g = c.createRadialGradient(78, 222, 1, 81, 225, 10); g.addColorStop(0, '#ffdcc0'); g.addColorStop(1, '#e8a982');
+  c.fillStyle = g; c.beginPath(); c.arc(81, 225, 9, 0, TWO_PI); c.fill();
+  c.fillStyle = '#4a2c1a'; c.beginPath(); c.arc(81, 223, 9.4, Math.PI * 1.02, Math.PI * 1.98); c.quadraticCurveTo(81, 221, 72, 223); c.fill();
+  c.fillStyle = '#2a1a10'; c.beginPath(); c.arc(78.2, 226, 1.3, 0, TWO_PI); c.arc(84.2, 226, 1.3, 0, TWO_PI); c.fill();
+  c.fillStyle = '#fff'; c.beginPath(); c.arc(78.6, 225.5, 0.5, 0, TWO_PI); c.arc(84.6, 225.5, 0.5, 0, TWO_PI); c.fill();
+  c.strokeStyle = '#a05a40'; c.lineWidth = 1; c.beginPath(); c.arc(81.6, 228, 2.2, 0.2, Math.PI - 0.2); c.stroke();
+  c.restore();
+  c.strokeStyle = '#2a1f1a'; c.lineWidth = 2.6; c.strokeRect(63, 206, 36, 36);
+  c.fillStyle = '#4a3a30'; c.fillRect(60, 242, 42, 4);
+  // the storm cloud
+  const cy = 72, puffs = [[-36, 8, 20], [-14, -6, 26], [14, -9, 27], [37, 5, 21], [0, 12, 25]];
+  glow(c, sx, cy + 30, 50, 'rgba(0,0,10,.25)');
+  for (const [dx, dy, r] of puffs) {
+    const q = c.createRadialGradient(sx + dx - r * 0.35, cy + dy - r * 0.45, r * 0.1, sx + dx, cy + dy, r * 1.05);
+    q.addColorStop(0, '#5a6396'); q.addColorStop(0.55, '#2b3050'); q.addColorStop(1, '#14182c');
+    c.fillStyle = q; c.beginPath(); c.arc(sx + dx, cy + dy, r, 0, TWO_PI); c.fill();
+  }
+  c.fillStyle = 'rgba(12,14,30,.55)'; c.beginPath(); c.ellipse(sx, cy + 26, 52, 9, 0, 0, TWO_PI); c.fill();
+  if (flash > 0) { c.fillStyle = `rgba(200,185,255,${(flash * 0.5).toFixed(3)})`; for (const [dx, dy, r] of puffs) { c.beginPath(); c.arc(sx + dx, cy + dy, r, 0, TWO_PI); c.fill(); } }
+  // the distance on the grass
+  const dy = GY + 24;
+  c.strokeStyle = 'rgba(220,230,255,.5)'; c.lineWidth = 1.3; c.setLineDash([4, 4]); c.beginPath(); c.moveTo(HX, dy); c.lineTo(sx, dy); c.stroke(); c.setLineDash([]);
+  c.beginPath(); c.moveTo(HX, dy - 5); c.lineTo(HX, dy + 5); c.moveTo(sx, dy - 5); c.lineTo(sx, dy + 5); c.stroke();
+  pill(c, `${dec(d, 1)} ${t.km}`, (HX + sx) / 2, dy + 22, { size: 13, ...GOLD });
+  // after the strike: sound rings travel at the real speed of sound
+  if (ks >= 0) {
+    const Lpx = sx - HX, vpx = Lpx / tb;
+    for (let i = 0; i < 4; i++) {
+      const rad = (ks - i * 0.45) * vpx;
+      if (rad <= 3 || rad > Lpx + 1) continue;
+      const al = clamp01(1 - rad / (Lpx + 10)) * 0.8 + 0.15;
+      c.strokeStyle = `rgba(200,210,255,${al.toFixed(3)})`; c.lineWidth = 3 - i * 0.5; c.beginPath(); c.arc(sx, GY - 2, Math.max(0, rad), Math.PI - 0.15, Math.PI + 1.1); c.stroke();
+    }
+    if (ks < 0.3) {                                                         // the bolt
+      const a = ks < 0.1 ? 1 : 1 - (ks - 0.1) / 0.2, xs = [0, 9, -8, 11, -10, 7, -5, 0], y0 = cy + 24, n = xs.length - 1;
+      const pts = xs.map((o, i) => [sx + o, lerp(y0, GY, i / n)]);
+      c.globalCompositeOperation = 'lighter'; c.lineJoin = 'round'; c.lineCap = 'round';
+      for (const [w, col] of [[14, `rgba(150,110,255,${(a * 0.35).toFixed(3)})`], [6, `rgba(205,190,255,${(a * 0.85).toFixed(3)})`], [2.4, `rgba(255,255,255,${a.toFixed(3)})`]]) {
+        c.strokeStyle = col; c.lineWidth = w; c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.stroke();
+        c.beginPath(); c.moveTo(pts[3][0], pts[3][1]); c.lineTo(pts[3][0] + 16, pts[3][1] + 24); c.lineTo(pts[3][0] + 12, pts[3][1] + 40); c.stroke();
+      }
+      glow(c, sx, GY, 30, `rgba(220,205,255,${(a * 0.8).toFixed(3)})`);
+      c.globalCompositeOperation = 'source-over';
+    }
+    glow(c, sx, GY - 1, 10, 'rgba(255,200,120,.3)');
+    if (flash > 0) glow(c, 81, 224, 60, `rgba(255,255,255,${(flash * 0.5).toFixed(3)})`);
+    pill(c, `${dec(Math.min(ks, tb), 1)} ${U[lang].s}`, 180, 24, { size: 20, h: 34, ...GOLD, border: 'rgba(255,210,90,.7)' });
+    if (boomAge >= 0) pill(c, t.boom, 66, 138, { size: 20, h: 34, color: '#fff', bg: 'rgba(120,30,40,.9)', border: 'rgba(255,170,150,.8)' });
+  }
+  c.restore();
+  if (flash > 0) { c.save(); c.fillStyle = `rgba(215,200,255,${(flash * 0.4).toFixed(3)})`; c.fillRect(-1000, -1000, 3000, 3000); c.restore(); }
+}
+
+// --- secret a: Hello, Moon! ----------------------------------------------------------------------------------
+function drawSecretA(c, tt) {
+  const t = T[lang];
+  drawEarthMoon(c, t);
+  const u = tt % 4.4, lt = Math.min(u, 2 * T1), out = lt <= T1, pos = out ? lt / T1 : (2 * T1 - lt) / T1, x = lerp(X0M, X1M, pos);
+  c.lineCap = 'round';
+  for (let i = 0; i < 4; i++) {
+    const back = i * 13, cxm = out ? EXC : MXC, rad = out ? x - EXC - back : MXC - x - back;
+    if (rad < (out ? ERm : MRm) + 2) continue;
+    const a = (1 - i / 4) * 0.9, w = 0.5;
+    c.strokeStyle = out ? `rgba(120,210,255,${a.toFixed(2)})` : `rgba(255,200,120,${a.toFixed(2)})`; c.lineWidth = 3 - i * 0.5;
+    c.beginPath(); if (out) c.arc(cxm, CYM, Math.max(0, rad), -w, w); else c.arc(cxm, CYM, Math.max(0, rad), Math.PI - w, Math.PI + w); c.stroke();
+  }
+  pill(c, `${dec(lt, 2)} ${U[lang].s}`, 180, 40, { size: 20, h: 34, ...GOLD, border: 'rgba(255,210,90,.7)' });
+}
+
+// --- the loop ----------------------------------------------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  const v = lab.view, tw = !S.sec && v === 'storm';
+  if (S.sec) S.secT += dt; else if (v === 'tunnel') S.tl += dt; else if (v === 'trips') S.tr += dt;
+  if (S.k >= 0) {
+    S.k = Math.min(S.k + dt, 600);
+    if (!S.boomed && S.k >= S.dist / SND) { S.boomed = true; sfx.push(); }
+  }
+  drawBackdrop(c, w, h, time, tw);
+  const sc = Math.min(w / W, h / H), ox = (w - W * sc) / 2, oy = (h - H * sc) / 2;
+  SC = sc; c.save(); c.translate(ox, oy); c.scale(sc, sc);
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  const asking = A[v] === null;
+  if (S.sec === 'a') drawSecretA(c, S.secT);
+  else if (S.sec === 'b') drawTunnel(c, 'water', S.secT, time, false);
+  else if (v === 'tunnel') drawTunnel(c, S.racer, S.tl, time, asking);
+  else if (v === 'trips') drawTrips(c, S.tr, time, asking);
+  else drawStorm(c, time, asking);
+  c.restore();
+});
+
+// --- controls ---------------------------------------------------------------------------------------------
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+function strike() { S.k = 0; S.boomed = false; sfx.snap(); }
+function idleStorm() { S.k = -1; S.boomed = false; }
+$('lsDist').addEventListener('input', (ev) => { S.dist = +ev.target.value; idleStorm(); render(); });
+$('ctrlBody').addEventListener('click', (ev) => {
+  const v = lab.view;
+  const o = ev.target.closest('.ls-opt');
+  if (o) {
+    if (A[v] !== null) return;
+    A[v] = +o.dataset.i; (A[v] === RIGHT[v] ? sfx.good : sfx.bad)();
+    if (v === 'tunnel') { S.racer = 'light'; S.tl = 0; } else if (v === 'trips') { S.dest = 0; S.trRacer = 'car'; S.tr = 0; } else { S.dist = 3; strike(); }
+    render(); showStage(); return;
+  }
+  const rc = ev.target.closest('.ls-r');
+  if (rc) { if (v === 'tunnel') { S.racer = rc.dataset.r; S.tl = 0; } else { S.trRacer = rc.dataset.r; S.tr = 0; } sfx.tick(); render(); return; }
+  const ds = ev.target.closest('.ls-d'); if (ds) { S.dest = +ds.dataset.d; S.tr = 0; sfx.tick(); render(); return; }
+  if (ev.target.closest('#lsStrike')) { strike(); return; }
+  const sc = ev.target.closest('[data-act=sec]');
+  if (sc) {
+    if (!secret.unlocked()) return secret.open();
+    const k = sc.dataset.k;
+    S.sec = S.sec === k ? null : k; S.secT = 0; sfx.click(); render(); showStage();
+  }
+});
+
+// --- one render per change: controls, readout and the state card ------------------------------------------
+function render() {
+  const t = T[lang], v = lab.view, a = A[v], asking = a === null, sec = S.sec;
+  document.body.dataset.v = v;
+  const [from, to, d] = t.trips[S.dest];
+  const q = { tunnel: t.tunnelAsk, trips: t.tripAsk(t.trips[0][0], t.trips[0][1], fmtT(Math.round(t.trips[0][2] / 100))), storm: t.stormAsk }[v];
+  const opts = { tunnel: t.tunnelOpts, trips: t.tripOpts, storm: t.stormOpts }[v];
+  const verdict = asking ? '' : a === RIGHT[v] ? { tunnel: t.tunnelRight, trips: t.tripRight, storm: t.stormRight }[v] : { tunnel: t.tunnelWrong, trips: t.tripWrong, storm: t.stormWrong }[v];
+  $('lsAsk').style.display = sec ? 'none' : '';
+  $('lsAsk').innerHTML = `<div class="ls-q">${esc(q)}</div><div class="chips">${opts.map((o, i) => `<button type="button" class="chip ls-opt${!asking && i === RIGHT[v] ? ' good' : a === i ? ' bad' : ''}" data-i="${i}"${asking ? '' : ' disabled'}>${esc(o)}</button>`).join('')}</div>${asking ? '' : `<div class="ls-verdict ${a === RIGHT[v] ? 'ok' : 'no'}">${esc(verdict)}</div>`}`;
+  const open = !sec && !asking;
+  $('lsDest').style.display = open && v === 'trips' ? '' : 'none';
+  $('lsRace').style.display = open && v !== 'storm' ? '' : 'none';
+  $('lsStorm').style.display = open && v === 'storm' ? '' : 'none';
+  $('lsDestChips').innerHTML = t.trips.map(([x, y], i) => `<button type="button" class="chip ls-d${i === S.dest ? ' on' : ''}" data-d="${i}">${esc(x)} – ${esc(y)}</button>`).join('');
+  const cur = v === 'tunnel' ? S.racer : S.trRacer;
+  $('lsRaceChips').innerHTML = RACERS.filter((r) => v === 'tunnel' || r.k !== 'light').map((r) => `<button type="button" class="chip ls-r${r.k === cur ? ' on' : ''}" data-r="${r.k}">${r.e} ${esc(t.racers[r.k])}</button>`).join('');
+  $('lsDist').value = S.dist; $('lsDist').setAttribute('aria-label', t.dist);
+  $('lsDistLbl').innerHTML = `${esc(t.dist)}: <b>${esc(dec(S.dist, 1))} ${esc(t.km)}</b>`;
+  $('lsEnd0').textContent = `1 ${t.km}`; $('lsEnd1').textContent = `5 ${t.km}`; $('lsStrike').textContent = t.strike;
+  const unlocked = secret.unlocked();
+  $('lsSecRow').innerHTML = [['a', '🌙'], ['b', '💧']].map(([k, emo]) => `<button type="button" class="chip secret ${unlocked ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${unlocked ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`).join('');
+  if (sec) {                                                              // a secret is on: its own readout and caption
+    lab.setGlow(sec === 'a' ? 'rgba(220,225,255,.22)' : 'rgba(60,160,255,.25)');
+    if (sec === 'a') lab.setReadout(esc(fmtT(2 * T1 / 3600)), t.secrets.a[0], '', '#6a7fc8');
+    else lab.setReadout(esc(dec(C / WATER / EQ, 1)), t.lapsPerSec, t.secrets.b[0], '#1d8be0');
+    lab.setState(sec === 'a' ? { emo: '🌙', title: t.secrets.a[0], lead: t.moonText, body: '', extra: '' }
+      : { emo: '💧', title: t.secrets.b[0], lead: t.waterText, body: '', extra: '' });
+    lab.setFacts([]); return;
+  }
+  if (asking) {                                                           // while the child predicts, the answer stays hidden everywhere
+    lab.setGlow({ tunnel: 'rgba(110,150,255,.25)', trips: 'rgba(60,160,150,.25)', storm: 'rgba(130,100,255,.3)' }[v]);
+    lab.setReadout('?', '', '', '#5b6cff');
+    lab.setState({ emo: '🤔', title: q, lead: '', body: '', extra: '' });
+    lab.setFacts([]); return;
+  }
+  const [emo, title, lead, body] = t.st[v];
+  const facts = t.facts[v].map((f, i) => ({ ...f, src: f.src || T.en.facts[v][i].src }));
+  if (v === 'tunnel') {
+    lab.setGlow('rgba(110,150,255,.25)'); lab.setState({ emo, title, lead, body, extra: '' }); lab.setFacts(facts);
+    const rc = RACERS.find((r) => r.k === S.racer);
+    if (S.racer === 'light') lab.setReadout(esc(dec(C / EQ, 1)), t.lapsPerSec, t.racers.light, '#5b6cff');
+    else lab.setReadout(esc(fmtT(EQ / rc.v)), t.lapSub, t.racers[S.racer], '#5b6cff');
+  } else if (v === 'trips') {
+    const rc = RACERS.find((r) => r.k === S.trRacer), n = Math.floor(C / (2 * d)), moon = S.dest === 3;
+    lab.setGlow('rgba(60,160,150,.25)'); lab.setFacts(facts);
+    lab.setState({ emo, title, lead: moon ? t.moonBody : t.tripBody(d, n), body: '', extra: '' });
+    lab.setReadout(esc(fmtT(d / rc.v)), t.byRacer(t.racers[S.trRacer]), moon ? t.moonLine : t.lightTrips(n), '#1d9a8e');
+  } else {
+    lab.setGlow('rgba(130,100,255,.3)'); lab.setState({ emo, title, lead, body, extra: '' }); lab.setFacts(facts);
+    const lt = fmtT(S.dist / C / 3600);
+    lab.setReadout(esc(fmtT(S.dist / SND / 3600)), t.thunderSub, t.lightAfter(lt), '#7a5bff');
+  }
+}
+render();
+</script>
+</body>
+</html>
