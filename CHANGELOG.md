@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-08
 
 ### Labs
+- New lab `five-notes` “Five Notes Around the World”: play only the black keys and hear why nothing clashes, try Amazing Grace and Ode to Joy on five notes, follow five-note music from Hungary to China, Java and the blues (427). (#362)
 - New lab `cross-sections` “Slice It”: cut a glass cube with a tilting plane and collect the shapes up to a hexagon, slice cylinders, cones and a sphere, guess a hidden solid from its scan (426). (#361)
 - New lab `ocean-floor` “Ping the Ocean Floor”: draw the ocean floor from echoes, name its parts, drop Mount Everest into the deepest trench (425). (#360)
 - New lab `newton-cannon` “Falling Around the Earth”: fire Newton’s cannon faster and faster, drop a ball on four worlds, watch the Moon fall for one minute (424). (#359)
