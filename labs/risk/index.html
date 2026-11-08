@@ -1,0 +1,833 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>How Risky? · Skill Graph</title>
+<meta name="description" content="Place hazards on a risk grid, add controls to a boiling-water experiment and watch each card move, then run the experiment a hundred times with and without a plan. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  .rk-sec { display: none; }
+  .rk-q { font-weight: 800; font-size: 14px; color: var(--ink); margin: 0 0 10px; line-height: 1.35; }
+  .rk-sec .chip, .rk-sec .btn { min-height: 40px; }
+  .rk-sec .seg.small button { min-height: 36px; }
+  .rk-sec .btn:disabled { opacity: .35; cursor: default; }
+  .rk-sec .chip:disabled { opacity: .35; cursor: default; }
+  .rk-note { font-size: 12px; color: var(--faint); margin-top: 10px; line-height: 1.4; }
+  body[data-drag="1"] #stage canvas { touch-action: none; }
+  @media (max-width: 760px) {
+    #stage { height: min(118vw, 560px); }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, store, $, esc, clamp, lerp, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'How Risky?', title: 'How Risky?',
+    lines: [['Put each hazard', 'on the risk grid.'], ['Add goggles, tongs and tape', 'and watch the cards move.'], ['Run the experiment', 'a hundred times.']],
+    views: { grid: '📍 Likely × bad', ctl: '🛡️ Controls', run: '🎲 Run it 100 times' },
+    ax: { x: 'How likely?', y: 'How bad?', cols: ['rarely', 'sometimes', 'often'], rows: ['a little', 'quite bad', 'very bad'] },
+    lvl: ['low', 'medium', 'high'], risk: (w) => `Risk: ${w}`,
+    hz: {
+      spill: ['Spilling cold water on the table', 'Cold water gets spilled all the time, and a cloth fixes it. It happens often and is only a little bad.'],
+      drop: ['A hot drop splashing on a hand', 'Hot water does splash now and then, and a burn really hurts. Sometimes, and quite bad.'],
+      cable: ['Tripping on a cable across the floor', 'People trip only sometimes, but a fall can pull the hot water down on you. Very bad.'],
+      touch: ['Touching the hot plate', 'You can usually see the plate is hot, so it is only sometimes. A burn is quite bad.'],
+      beaker: ['Breaking a beaker', 'Lab glass is tough and rarely breaks on its own. If it does, there are sharp pieces and hot water: quite bad.'],
+      hair: ['Long hair near the hot plate', 'It is rare for hair to really touch the plate, but then it could catch fire. Very bad.'],
+    },
+    hs: { drop: 'Hot drop', cable: 'Cable', touch: 'Hot plate', hair: 'Long hair' },
+    v1: { card: (i, n) => `Card ${i} of ${n}`, drag: 'Drag the card onto the grid, or tap a square. Where does it belong?', held: 'Your guess is on the grid. Move it, or check it.',
+      check: '✓ Check', next: '→ Next card', results: '→ Results', again: '↻ Again', verdict: ['Right!', 'Close!', 'Far off.'],
+      vlead: ['The same square as the experts.', 'The square next to it. Risk is a judgement, so close counts.', 'A few squares away. Read the reason.'],
+      endT: (a, b, c) => `${a} in the same square, ${b} next to it, ${c} far off`, endL: 'Risk is a judgement, so a neighbouring square is a good answer. Next: what can you do about the hazards?',
+      sub: 'hazards placed', ghost: 'your guess' },
+    v2: { start: 'The careless version', startL: 'Four hazards and no plan yet. Pick a control, then guess: does it make a hazard less likely, or less bad?',
+      pick: 'Drag a control onto the bench, or tap it.', q: (n) => `You picked: ${n}. What will it change?`, l1: '← Less likely', l2: '↓ Less bad',
+      kinds: ['less likely', 'less bad'], wrong: (k) => `Not this time: it makes the hazard ${k}.`, reset: '↺ Start again', sub: 'red · amber · green cards', applied: 'on',
+      allT: 'Every control is on', allL: 'The hazards are still there, but each card sits in a calmer square.' },
+    ct: {
+      goggles: ['Goggles', 'Goggles can’t stop a splash, but they keep it out of your eyes. The card moves down: less bad.'],
+      gloves: ['Tongs', 'Tongs and gloves keep your skin away from hot things. A slip still happens, but it hurts less: the card moves down.'],
+      tape: ['Tape', 'A cable taped along the bench edge can’t be tripped on. The card moves left: less likely.'],
+      hairtie: ['Hair tie', 'Tied-back hair stays away from the plate. The card moves left: less likely.'],
+      clamp: ['Clamp', 'A beaker in a clamp doesn’t slide or tip. A splash becomes less likely: the card moves left.'],
+      stand: ['Stand up', 'Standing up, not leaning over, means fewer bumps and slips near the plate. The card moves left: less likely.'],
+    },
+    v3: { np: 'No plan', pl: 'With plan', run: '▶ Run 100 times', again: '↻ Run again', q: 'How many runs out of 100 will have a serious mishap with the plan?',
+      opts: ['0', 'A few', 'About the same as without'], plan: 'The plan: goggles, tongs, tape on the cable, hair tied, beaker in a clamp, standing up. Every run rolls the four hazards from the grid: rarely 1 %, sometimes 5 %, often 20 %.',
+      readyT: 'The same experiment, 100 times', pickFirst: 'Choose an answer first, then run.', running: 'Running…', small: 'small mishap', serious: 'serious mishap', of: 'runs out of 100',
+      subSer: 'serious mishaps', pillSm: (n) => `${n} small`, bars: 'of 100 runs',
+      rightT: 'Right!', zeroT: 'Not zero.', sameT: 'Much fewer.',
+      res: (ps, pm, ns, nm) => `With the plan: ${ps} serious, ${pm} small. Without: ${ns} serious, ${nm} small.`,
+      zeroL: 'A plan makes mishaps rarer and milder. It does not make them impossible.', sameL: 'A plan changes the cards, so it changes the numbers.', rightL: 'Not zero, but far rarer.' },
+    secrets: { cheese: ['Swiss cheese', 'Slide the layers of a plan'], labels: ['Read the labels', 'Match signs to bottles'] },
+    ch: { tip: 'Drag a slice up or down. A hazard gets through only when all four holes line up.', shuffle: '🔀 Shuffle', hazard: '⚠️ Hazard', you: '🧑 You',
+      names: ['Goggles', 'Tidy cable', 'Hair tied', 'Teacher watching'], thru: (a, b) => `${a} of ${b} got through`, wait: 'Watch the arrows', waitL: 'Every layer has holes. Move the slices and see how often the holes line up.',
+      title: (a, b) => `${a} of ${b} got through`, lead: 'An accident needs the holes in all four layers to line up.' },
+    lb: { tip: 'Tap a sign, then the bottle it belongs on.', check: '✓ Check', again: '↻ Again', names: ['Ethanol', 'Drain cleaner', 'Bleach', 'Rat poison'], t0: 'Match the signs',
+      t0l: 'Four signs, four bottles. Each sign warns about one kind of danger.', right: (n) => `${n} of 4 right`, lead: 'Green lines are the right pairs. The same signs are used on bottles in many countries.' },
+    fine: 'Risk = how likely × how bad. Simplified model; the numbers are teaching values, not statistics.',
+    quiz: [
+      { q: 'When is a risk high?', opts: ['When it has a scary name', 'When it happened once before', 'When it is likely to happen and would be bad'], ok: 2, hint: 'In Likely × bad, look at the two sides of the grid.' },
+      { q: 'Safety goggles don’t stop a hot drop from splashing. What do they change?', opts: ['How bad it is if it happens', 'How likely it is to happen', 'Nothing, so you can skip them'], ok: 0, hint: 'Put the goggles on in Controls and see which way the card moves.' },
+      { q: 'With a good safety plan, can a mishap still happen?', opts: ['No, never', 'Yes, but much more rarely and less badly', 'Yes, just as often as without a plan'], ok: 1, hint: 'Run 100 times with and without the plan and compare.' },
+    ],
+    facts: {
+      grid: [{ emo: '⚠️', text: 'Safety people often say: a hazard is the thing that could hurt you (a hot plate), a risk is the chance it really does and how badly. A hot plate switched off and cold is still a hazard, but almost no risk.', src: 'UK Health and Safety Executive (HSE), “Managing risks and risk assessment at work”' }],
+      ctl: [{ emo: '🔶', text: 'Since 2003 most countries use the same hazard pictograms on chemicals: black symbols in a red diamond. A Hungarian, Russian and English bottle of bleach can carry the same signs.', src: 'UNECE, “Globally Harmonized System of Classification and Labelling of Chemicals (GHS)”' }],
+      run: [
+        { emo: '☢️', text: 'Marie Curie worked with radium without any protection. Her notebooks from the 1890s are still radioactive and are kept in lead-lined boxes in Paris.', src: 'Smithsonian Magazine, “Marie Curie’s notebooks are still radioactive” (2016); Bibliothèque nationale de France' },
+        { emo: '🧀', text: 'The psychologist James Reason compared safety to slices of Swiss cheese: every layer has holes, and an accident happens only when the holes in all the layers line up.', src: 'J. Reason, “Human error: models and management”, BMJ 2000;320:768' },
+      ],
+    },
+  },
+  ru: {
+    name: 'Насколько опасно?', title: 'Насколько опасно?',
+    lines: [['Расставь опасности', 'по сетке риска.'], ['Добавь очки, щипцы и скотч', 'и смотри, как двигаются карточки.'], ['Проведи опыт', 'сто раз.']],
+    views: { grid: '📍 Вероятно × плохо', ctl: '🛡️ Меры защиты', run: '🎲 100 раз' },
+    ax: { x: 'Насколько вероятно?', y: 'Насколько плохо?', cols: ['редко', 'иногда', 'часто'], rows: ['немного', 'довольно плохо', 'очень плохо'] },
+    lvl: ['низкий', 'средний', 'высокий'], risk: (w) => `Риск: ${w}`,
+    hz: {
+      spill: ['Пролить холодную воду на стол', 'Холодную воду проливают постоянно, и тряпка всё исправляет. Бывает часто и совсем не страшно.'],
+      drop: ['Горячая капля брызнула на руку', 'Горячая вода иногда брызгает, а ожог — это больно. Иногда, и довольно плохо.'],
+      cable: ['Споткнуться о провод на полу', 'Спотыкаются не так уж часто, но при падении на тебя может вылиться горячая вода. Очень плохо.'],
+      touch: ['Коснуться горячей плитки', 'Обычно видно, что плитка горячая, поэтому случается лишь иногда. Ожог — это довольно плохо.'],
+      beaker: ['Разбить стакан', 'Лабораторное стекло прочное и редко разбивается само. Но если разобьётся, будут осколки и горячая вода: довольно плохо.'],
+      hair: ['Длинные волосы у горячей плитки', 'Волосы редко касаются плитки по-настоящему, но тогда они могут загореться. Очень плохо.'],
+    },
+    hs: { drop: 'Горячая капля', cable: 'Провод', touch: 'Плитка', hair: 'Волосы' },
+    v1: { card: (i, n) => `Карточка ${i} из ${n}`, drag: 'Перетащи карточку на сетку или нажми на клетку. Где её место?', held: 'Твоя догадка уже на сетке. Передвинь её или проверь.',
+      check: '✓ Проверить', next: '→ Следующая', results: '→ Итоги', again: '↻ Ещё раз', verdict: ['Верно!', 'Близко!', 'Далеко.'],
+      vlead: ['Та же клетка, что у специалистов.', 'Соседняя клетка. Риск — это оценка, так что близко тоже хорошо.', 'Несколько клеток в стороне. Прочитай объяснение.'],
+      endT: (a, b, c) => `В той же клетке: ${a}, в соседней: ${b}, далеко: ${c}`, endL: 'Риск — это оценка, поэтому соседняя клетка тоже хороший ответ. Дальше: что можно сделать с опасностями?',
+      sub: 'опасностей на сетке', ghost: 'твоя догадка' },
+    v2: { start: 'Неосторожный вариант', startL: 'Четыре опасности и пока никакого плана. Выбери меру защиты и сначала угадай: она делает опасность менее вероятной или менее тяжёлой?',
+      pick: 'Перетащи меру защиты на стол или нажми на неё.', q: (n) => `Ты выбрал: ${n}. Что это изменит?`, l1: '← Менее вероятно', l2: '↓ Не так плохо',
+      kinds: ['менее вероятной', 'менее тяжёлой'], wrong: (k) => `В этот раз нет: опасность становится ${k}.`, reset: '↺ Сначала', sub: 'красных · жёлтых · зелёных карточек', applied: 'есть',
+      allT: 'Все меры защиты включены', allL: 'Опасности никуда не делись, но каждая карточка стоит в более спокойной клетке.' },
+    ct: {
+      goggles: ['Очки', 'Очки не мешают брызгам, но защищают глаза. Карточка опускается вниз: не так плохо.'],
+      gloves: ['Щипцы', 'Щипцы и перчатки не дают коже касаться горячего. Промах всё равно возможен, но боль слабее: карточка опускается вниз.'],
+      tape: ['Скотч', 'Провод, приклеенный вдоль края стола, не заденешь ногой. Карточка движется влево: менее вероятно.'],
+      hairtie: ['Резинка', 'Убранные волосы не окажутся над плиткой. Карточка движется влево: менее вероятно.'],
+      clamp: ['Штатив', 'Стакан в зажиме не съезжает и не опрокидывается. Брызги становятся менее вероятными: карточка движется влево.'],
+      stand: ['Встань', 'Если стоять прямо и не наклоняться, меньше шансов задеть плитку или поскользнуться рядом с ней. Карточка движется влево: менее вероятно.'],
+    },
+    v3: { np: 'Без плана', pl: 'С планом', run: '▶ Провести 100 раз', again: '↻ Ещё раз', q: 'В скольких опытах из 100 случится серьёзная неприятность, если действовать по плану?',
+      opts: ['0', 'В нескольких', 'Примерно столько же, как без плана'], plan: 'План: очки, щипцы, провод приклеен скотчем, волосы убраны, стакан в зажиме, ты стоишь прямо. В каждом опыте для четырёх опасностей бросается жребий по сетке: редко — 1 %, иногда — 5 %, часто — 20 %.',
+      readyT: 'Один и тот же опыт, 100 раз', pickFirst: 'Сначала выбери ответ, потом запускай.', running: 'Идёт опыт…', small: 'небольшая неприятность', serious: 'серьёзная неприятность', of: 'опытов из 100',
+      subSer: 'серьёзных неприятностей', pillSm: (n) => `небольших: ${n}`, bars: 'из 100 опытов',
+      rightT: 'Верно!', zeroT: 'Не ноль.', sameT: 'Гораздо меньше.',
+      res: (ps, pm, ns, nm) => `С планом: серьёзных ${ps}, небольших ${pm}. Без плана: серьёзных ${ns}, небольших ${nm}.`,
+      zeroL: 'План делает неприятности реже и мягче, но не делает их невозможными.', sameL: 'План меняет карточки, а значит, и числа.', rightL: 'Не ноль, но гораздо реже.' },
+    secrets: { cheese: ['Сырные ломтики', 'Двигай слои защиты'], labels: ['Читай этикетки', 'Знаки и бутылки'] },
+    ch: { tip: 'Двигай ломтик вверх и вниз. Опасность проходит, только если дырки во всех четырёх ломтиках совпали.', shuffle: '🔀 Перемешать', hazard: '⚠️ Опасность', you: '🧑 Ты',
+      names: ['Очки', 'Провод убран', 'Волосы убраны', 'Учитель рядом'], thru: (a, b) => `прошло ${a} из ${b}`, wait: 'Смотри на стрелы', waitL: 'В каждом слое есть дырки. Двигай ломтики и смотри, как часто дырки совпадают.',
+      title: (a, b) => `Прошло ${a} из ${b}`, lead: 'Чтобы случилась авария, дырки во всех четырёх слоях должны совпасть.' },
+    lb: { tip: 'Нажми на знак, потом на бутылку, к которой он относится.', check: '✓ Проверить', again: '↻ Ещё раз', names: ['Спирт', 'Средство для труб', 'Отбеливатель', 'Крысиный яд'], t0: 'Подбери знаки',
+      t0l: 'Четыре знака и четыре бутылки. Каждый знак предупреждает об одном виде опасности.', right: (n) => `Верно ${n} из 4`, lead: 'Зелёные линии — правильные пары. Такие же знаки стоят на бутылках во многих странах.' },
+    fine: 'Риск = насколько вероятно × насколько плохо. Упрощённая модель; числа учебные, а не статистика.',
+    quiz: [
+      { q: 'Когда риск высокий?', opts: ['Когда у опасности страшное название', 'Когда это уже случалось однажды', 'Когда это вероятно и было бы плохо'], ok: 2, hint: 'В «Вероятно × плохо» посмотри на обе стороны сетки.' },
+      { q: 'Очки не мешают горячей капле брызнуть. Что они меняют?', opts: ['Насколько плохо будет, если это случится', 'Насколько вероятно, что это случится', 'Ничего, их можно не надевать'], ok: 0, hint: 'Надень очки в «Мерах защиты» и посмотри, куда сдвинется карточка.' },
+      { q: 'С хорошим планом безопасности неприятность всё ещё может случиться?', opts: ['Нет, никогда', 'Да, но гораздо реже и не так серьёзно', 'Да, так же часто, как без плана'], ok: 1, hint: 'Проведи опыт 100 раз с планом и без и сравни.' },
+    ],
+    facts: {
+      grid: [{ emo: '⚠️', text: 'Специалисты по безопасности различают: опасность — то, что может навредить (горячая плитка), а риск — насколько вероятно, что навредит, и как сильно. Выключенная холодная плитка — всё ещё опасность, но риска почти нет.', src: 'UK Health and Safety Executive (HSE), “Managing risks and risk assessment at work”' }],
+      ctl: [{ emo: '🔶', text: 'С 2003 года большинство стран используют одинаковые знаки опасности на химикатах: чёрный рисунок в красном ромбе. На венгерской, русской и английской бутылке отбеливателя могут быть одни и те же знаки.', src: 'UNECE, “Globally Harmonized System of Classification and Labelling of Chemicals (GHS)”' }],
+      run: [
+        { emo: '☢️', text: 'Мария Кюри работала с радием без всякой защиты. Её тетради 1890-х годов до сих пор радиоактивны и хранятся в Париже в коробках, выложенных свинцом.', src: 'Smithsonian Magazine, “Marie Curie’s notebooks are still radioactive” (2016); Bibliothèque nationale de France' },
+        { emo: '🧀', text: 'Психолог Джеймс Ризон сравнил безопасность с ломтиками сыра с дырками: в каждом слое защиты есть дыры, и авария случается, только когда дыры во всех слоях совпадут.', src: 'J. Reason, “Human error: models and management”, BMJ 2000;320:768' },
+      ],
+    },
+  },
+  hu: {
+    name: 'Mennyire kockázatos?', title: 'Mennyire kockázatos?',
+    lines: [['Helyezd el a veszélyeket', 'a kockázati rácson.'], ['Adj hozzá szemüveget, fogót és ragasztót,', 'és nézd, hogyan mozdulnak a kártyák.'], ['Végezd el a kísérletet', 'százszor.']],
+    views: { grid: '📍 Valószínű × rossz', ctl: '🛡️ Védekezés', run: '🎲 Százszor' },
+    ax: { x: 'Mennyire valószínű?', y: 'Mennyire rossz?', cols: ['ritkán', 'néha', 'gyakran'], rows: ['kicsit', 'elég rossz', 'nagyon rossz'] },
+    lvl: ['alacsony', 'közepes', 'magas'], risk: (w) => `Kockázat: ${w}`,
+    hz: {
+      spill: ['Hideg vizet kiöntesz az asztalra', 'Hideg vizet állandóan kiöntenek, és egy ronggyal rendbe jön. Gyakran megtörténik, és csak egy kicsit rossz.'],
+      drop: ['Forró csepp kifröccsen a kezedre', 'A forró víz néha kifröccsen, és az égés nagyon fáj. Néha fordul elő, és elég rossz.'],
+      cable: ['Megbotlasz a padlón húzódó kábelben', 'Csak néha botlik meg valaki, de az esés magára húzhatja a forró vizet. Nagyon rossz.'],
+      touch: ['Megérinted a forró főzőlapot', 'Általában látszik, hogy a lap forró, ezért csak néha esik meg. Az égés elég rossz.'],
+      beaker: ['Összetörik egy főzőpohár', 'A laborüveg erős, magától ritkán törik el. Ha mégis, éles szilánkok és forró víz lesznek: elég rossz.'],
+      hair: ['Hosszú haj a forró főzőlap mellett', 'Ritkán ér a haj tényleg a laphoz, de akkor meggyulladhat. Nagyon rossz.'],
+    },
+    hs: { drop: 'Forró csepp', cable: 'Kábel', touch: 'Főzőlap', hair: 'Hosszú haj' },
+    v1: { card: (i, n) => `${i}. kártya / ${n}`, drag: 'Húzd a kártyát a rácsra, vagy koppints egy mezőre. Hová való?', held: 'A tipped a rácson van. Told odébb, vagy ellenőrizd.',
+      check: '✓ Ellenőrzés', next: '→ Következő kártya', results: '→ Eredmény', again: '↻ Újra', verdict: ['Így van!', 'Közel!', 'Messze.'],
+      vlead: ['Ugyanaz a mező, mint a szakembereké.', 'A szomszédos mező. A kockázat megítélés kérdése, ezért a közeli is jó.', 'Néhány mezővel odébb. Olvasd el az indoklást.'],
+      endT: (a, b, c) => `${a} ugyanabban a mezőben, ${b} a szomszédban, ${c} messze`, endL: 'A kockázat megítélés kérdése, ezért a szomszédos mező is jó válasz. Most jön: mit tehetsz a veszélyekkel?',
+      sub: 'kártya a rácson', ghost: 'a tipped' },
+    v2: { start: 'A figyelmetlen változat', startL: 'Négy veszély, még nincs terv. Válassz egy védekezést, és előbb tippelj: kevésbé valószínűvé teszi a veszélyt, vagy kevésbé súlyossá?',
+      pick: 'Húzz egy védekezést a laborasztalra, vagy koppints rá.', q: (n) => `Ezt választottad: ${n}. Mit változtat meg?`, l1: '← Kevésbé valószínű', l2: '↓ Kevésbé rossz',
+      kinds: ['kevésbé valószínű', 'kevésbé rossz'], wrong: (k) => `Most nem: a veszély ${k} lesz.`, reset: '↺ Elölről', sub: 'piros · sárga · zöld kártya', applied: 'fent',
+      allT: 'Minden védekezés be van kapcsolva', allL: 'A veszélyek megvannak, de minden kártya nyugodtabb mezőben áll.' },
+    ct: {
+      goggles: ['Szemüveg', 'A szemüveg nem állítja meg a fröccsenést, de a szemedet megvédi. A kártya lefelé mozdul: kevésbé rossz.'],
+      gloves: ['Fogó', 'A fogó és a kesztyű távol tartja a bőrödet a forró dolgoktól. Elcsúszni még lehet, de kevésbé fáj: a kártya lefelé mozdul.'],
+      tape: ['Ragasztó', 'A pad szélére ragasztott kábelben nem lehet megbotlani. A kártya balra mozdul: kevésbé valószínű.'],
+      hairtie: ['Hajgumi', 'A hátrakötött haj távol marad a laptól. A kártya balra mozdul: kevésbé valószínű.'],
+      clamp: ['Tartó', 'A befogott főzőpohár nem csúszik el és nem borul fel. A fröccsenés kevésbé valószínű: a kártya balra mozdul.'],
+      stand: ['Állj fel', 'Ha állsz, és nem hajolsz rá, kevesebb a lökés és a csúszás a lap mellett. A kártya balra mozdul: kevésbé valószínű.'],
+    },
+    v3: { np: 'Terv nélkül', pl: 'Tervvel', run: '▶ Futtatás százszor', again: '↻ Még egyszer', q: 'A 100 kísérletből hánynál lesz súlyos baj, ha tervvel dolgozol?',
+      opts: ['0', 'Néhánynál', 'Nagyjából annyinál, mint terv nélkül'], plan: 'A terv: szemüveg, fogó, kábel leragasztva, haj hátrakötve, pohár befogva, állva dolgozol. Minden futtatásnál a négy veszélyre külön sorsolunk a rács szerint: ritkán 1 %, néha 5 %, gyakran 20 %.',
+      readyT: 'Ugyanaz a kísérlet, százszor', pickFirst: 'Előbb válassz egy választ, aztán futtass.', running: 'Fut a kísérlet…', small: 'kisebb baj', serious: 'súlyos baj', of: 'kísérlet a 100-ból',
+      subSer: 'súlyos baj', pillSm: (n) => `${n} kisebb`, bars: 'a 100 kísérletből',
+      rightT: 'Így van!', zeroT: 'Nem nulla.', sameT: 'Sokkal kevesebb.',
+      res: (ps, pm, ns, nm) => `Tervvel: ${ps} súlyos, ${pm} kisebb. Terv nélkül: ${ns} súlyos, ${nm} kisebb.`,
+      zeroL: 'A terv ritkábbá és enyhébbé teszi a bajt, de nem teszi lehetetlenné.', sameL: 'A terv megváltoztatja a kártyákat, így a számokat is.', rightL: 'Nem nulla, de sokkal ritkább.' },
+    secrets: { cheese: ['Ementáli', 'Told el a terv rétegeit'], labels: ['Olvasd a címkéket', 'Jelek és üvegek'] },
+    ch: { tip: 'Húzd a szeleteket fel-le. A veszély csak akkor jut át, ha mind a négy lyuk egy vonalba esik.', shuffle: '🔀 Keverés', hazard: '⚠️ Veszély', you: '🧑 Te',
+      names: ['Szemüveg', 'Rendes kábel', 'Haj hátrakötve', 'Tanár figyel'], thru: (a, b) => `${b}-ből ${a} jutott át`, wait: 'Figyeld a nyilakat', waitL: 'Minden rétegen vannak lyukak. Told a szeleteket, és nézd, milyen ritkán esnek egybe a lyukak.',
+      title: (a, b) => `${b}-ből ${a} jutott át`, lead: 'Baleset csak akkor lesz, ha mind a négy réteg lyuka egy vonalba esik.' },
+    lb: { tip: 'Koppints egy jelre, aztán arra az üvegre, amelyikhez tartozik.', check: '✓ Ellenőrzés', again: '↻ Újra', names: ['Szesz', 'Lefolyótisztító', 'Hipó', 'Patkányméreg'], t0: 'Párosítsd a jeleket',
+      t0l: 'Négy jel, négy üveg. Mindegyik jel egyfajta veszélyre figyelmeztet.', right: (n) => `4-ből ${n} jó`, lead: 'A zöld vonalak a helyes párok. Ugyanezek a jelek sok országban az üvegeken vannak.' },
+    fine: 'Kockázat = mennyire valószínű × mennyire rossz. Egyszerűsített modell; a számok tanulási értékek, nem statisztika.',
+    quiz: [
+      { q: 'Mikor nagy egy kockázat?', opts: ['Ha ijesztő a neve', 'Ha egyszer már megtörtént', 'Ha valószínű, és nagy baj lenne belőle'], ok: 2, hint: 'A Valószínű × rossz részben nézd meg a rács két oldalát!' },
+      { q: 'A védőszemüveg nem akadályozza meg, hogy egy forró csepp kifröccsenjen. Mit változtat meg?', opts: ['Hogy mekkora baj lesz, ha megtörténik', 'Hogy mennyire valószínű', 'Semmit, el is lehet hagyni'], ok: 0, hint: 'Tedd fel a szemüveget a Védekezés részben, és nézd meg, merre mozdul a kártya!' },
+      { q: 'Jó biztonsági tervvel is történhet baj?', opts: ['Nem, soha', 'Igen, de sokkal ritkábban és kisebb', 'Igen, ugyanolyan gyakran, mint terv nélkül'], ok: 1, hint: 'Futtasd le százszor tervvel és terv nélkül, és hasonlítsd össze!' },
+    ],
+    facts: {
+      grid: [{ emo: '⚠️', text: 'A biztonsági szakemberek megkülönböztetik: a veszély az, ami árthat (a forró főzőlap), a kockázat pedig az, mennyire valószínű, hogy tényleg árt, és mennyire. A kikapcsolt, hideg főzőlap is veszély, de szinte nincs kockázata.', src: 'UK Health and Safety Executive (HSE), “Managing risks and risk assessment at work”' }],
+      ctl: [{ emo: '🔶', text: '2003 óta a legtöbb ország ugyanazokat a veszélyjeleket használja a vegyszereken: fekete rajz piros rombuszban. Egy magyar, egy orosz és egy angol hipós flakonon ugyanazok a jelek lehetnek.', src: 'UNECE, “Globally Harmonized System of Classification and Labelling of Chemicals (GHS)”' }],
+      run: [
+        { emo: '☢️', text: 'Marie Curie védőfelszerelés nélkül dolgozott rádiummal. Az 1890-es évekbeli jegyzetfüzetei ma is radioaktívak, ólommal bélelt dobozokban őrzik őket Párizsban.', src: 'Smithsonian Magazine, “Marie Curie’s notebooks are still radioactive” (2016); Bibliothèque nationale de France' },
+        { emo: '🧀', text: 'James Reason pszichológus a biztonságot ementáli sajtszeletekhez hasonlította: minden rétegen vannak lyukak, és baleset csak akkor történik, ha az összes réteg lyukai egy vonalba esnek.', src: 'J. Reason, “Human error: models and management”, BMJ 2000;320:768' },
+      ],
+    },
+  },
+};
+const TOPICS = [
+  { id: 'mt_v5pOal_23d', en: 'Risks and safety plans', ru: 'Риски и планы безопасности', hu: 'Kockázatok és biztonsági tervek' },
+  { id: 'mt_TTH2ouwyTW', en: 'Safe steps in science tests', ru: 'Безопасные шаги в научных опытах', hu: 'Biztonságos lépések a tudományos kísérletekben' },
+];
+
+// --- model ---------------------------------------------------------------------------------------------------
+const W = 360, H = 428, GX = 66, CW = 96, GY = 178, CH = 46;
+const cellC = (l, s) => [GX + l * CW + CW / 2, GY + (2 - s) * CH + CH / 2];
+const cellAt = (x, y) => { const l = Math.floor((x - GX) / CW), r = Math.floor((y - GY) / CH); return l < 0 || l > 2 || r < 0 || r > 2 ? null : [l, 2 - r]; };
+const lvl = (l, s) => { const p = (l + 1) * (s + 1); return p <= 2 ? 0 : p <= 4 ? 1 : 2; };
+const LC = ['#3ddc97', '#f5c84c', '#ff5a4d'];
+const HZ = { spill: ['💧', [2, 0]], drop: ['♨️', [1, 1]], cable: ['🔌', [1, 2]], touch: ['🖐️', [1, 1]], beaker: ['🧪', [0, 1]], hair: ['💇', [0, 2]] };
+const ORDER1 = ['spill', 'drop', 'cable', 'touch', 'beaker', 'hair'];
+const BASE2 = { drop: [1, 1], cable: [1, 2], touch: [1, 1], hair: [1, 2] };
+const CT = { goggles: ['🥽', 'bad', ['drop']], gloves: ['🧤', 'bad', ['touch']], tape: ['🩹', 'likely', ['cable']], hairtie: ['🎀', 'likely', ['hair']], clamp: ['🗜️', 'likely', ['drop']], stand: ['🧍', 'likely', ['touch']] };
+const CORD = Object.keys(CT);
+const cellsWith = (applied) => {
+  const r = {};
+  for (const h in BASE2) {
+    let [l, s] = BASE2[h];
+    for (const c of applied) if (CT[c][2].includes(h)) { if (CT[c][1] === 'likely') l = Math.max(0, l - 1); else s = Math.max(0, s - 1); }
+    r[h] = [l, s];
+  }
+  return r;
+};
+const EMO = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+const FONT = 'Nunito, sans-serif';
+const now = () => performance.now() / 1000;
+const ease = (t) => (t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+
+// tween objects
+const mk = (x, y) => ({ x, y, fx: x, fy: y, tx: x, ty: y, t0: 0, d: 0, sz: 30, drag: false });
+const go = (o, x, y, d = .5) => { if (o.drag) return; o.fx = o.x; o.fy = o.y; o.tx = x; o.ty = y; o.t0 = now(); o.d = d; };
+const step = (o, t, dsz) => {
+  if (!o.drag && o.d > 0) { const u = clamp((t - o.t0) / o.d, 0, 1), e = ease(u); o.x = lerp(o.fx, o.tx, e); o.y = lerp(o.fy, o.ty, e); if (u >= 1) o.d = 0; }
+  o.sz += (dsz - o.sz) * 0.25;
+};
+
+// --- state ---------------------------------------------------------------------------------------------------
+const S = { sec: null };
+const K1 = {}; ORDER1.forEach((id) => { K1[id] = { ...mk(180, 392), st: 'wait', cell: null, ghost: null }; });
+K1[ORDER1[0]].st = 'hold';
+const S1 = { i: 0, guess: null, rev: false, res: [] };
+const K2 = {}; Object.keys(BASE2).forEach((h) => { K2[h] = mk(...cellC(...BASE2[h])); });
+const S2 = { applied: [], pend: null, msg: null };
+const rng = (a) => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+const PLAN_CELLS = Object.values(cellsWith(CORD)), NOPLAN_CELLS = Object.values(BASE2);
+const simRun = (seed, cells) => { const r = rng(seed), P = [.01, .05, .2], out = []; for (let i = 0; i < 100; i++) { let w = 0; for (const h of cells) if (r() < P[h[0]]) w = Math.max(w, h[1] === 2 ? 2 : 1); out.push(w); } return out; };
+const cnt = (a, v) => a.filter((x) => x === v).length;
+let SIM = null;
+for (let k = 0, base = Math.floor(Math.random() * 1e6); k < 3000 && !SIM; k++) {
+  const np = simRun(base + k, NOPLAN_CELLS), pl = simRun(base + k + 7919, PLAN_CELLS);
+  const ps = cnt(pl, 2), ns = cnt(np, 2);
+  if (ps >= 1 && ps <= 4 && ns >= ps * 2 + 2 && cnt(np, 1) + ns > 2 * (cnt(pl, 1) + ps)) SIM = { np, pl };
+}
+SIM ??= { np: simRun(11, NOPLAN_CELLS), pl: simRun(7930, PLAN_CELLS) };
+const S3 = { mode: 'np', pred: null, ran: false, rev: false, runAt: -99 };
+// secrets
+const SLICE_X = [80, 150, 220, 290], HOLES = [[50, 130, 215], [75, 160, 240], [35, 110, 195], [90, 175, 245]];
+const S4 = { sl: [0, 1, 2, 3].map(() => ({ off: (Math.random() - .5) * 60 })), ar: [], spawn: 0, tries: 0, thru: 0 };
+const DIA = [0, 1, 2, 3], BOT = [2, 0, 3, 1]; // diamond i is right for the bottle showing item i; bottles show items BOT[pos]
+const S5 = { sel: null, pair: [-1, -1, -1, -1], checked: false };
+
+const lab = shell({ key: 'risk', T, topics: TOPICS, views: ['grid', 'ctl', 'run'], onLang: () => render(), onView: () => { S.sec = null; render(); } });
+const secret = secretLab('risk', () => ({
+  secrets: [{ emo: '🧀', title: T[lang].secrets.cheese[0], desc: T[lang].secrets.cheese[1] }, { emo: '🔶', title: T[lang].secrets.labels[0], desc: T[lang].secrets.labels[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="s1" class="rk-sec"><div class="rk-q" id="q1"></div><div class="row2" style="margin-top:0"><button class="btn" id="b1c"></button><button class="btn ghost" id="b1n"></button></div></div>
+  <div id="s2" class="rk-sec"><div class="rk-q" id="q2"></div><div class="chips" id="pr2"></div><div class="row2"><button class="chip" id="b2r"></button></div></div>
+  <div id="s3" class="rk-sec"><div class="rk-q" id="q3"></div><div class="chips" id="pr3"></div>
+    <div class="row2"><div class="card seg small" id="md3"></div><button class="btn" id="b3r"></button></div></div>
+  <div id="sc" class="rk-sec"><div class="rk-q" id="qc"></div><div class="row2" style="margin-top:0"><button class="chip" id="bcs"></button></div></div>
+  <div id="sl" class="rk-sec"><div class="rk-q" id="ql"></div><div class="row2" style="margin-top:0"><button class="btn" id="blc"></button></div></div>
+  <div class="row2" id="secRow"></div>
+  <div class="rk-note" id="fine"></div>`;
+
+// --- drawing helpers -----------------------------------------------------------------------------------------
+const rr = (c, x, y, w, h, r) => { c.beginPath(); c.roundRect(x, y, w, h, Math.max(0, r)); };
+const wrap = (c, text, maxW) => {
+  const words = String(text).split(' '), out = []; let cur = '';
+  for (const w of words) { const t = cur ? cur + ' ' + w : w; if (cur && c.measureText(t).width > maxW) { out.push(cur); cur = w; } else cur = t; }
+  if (cur) out.push(cur); return out;
+};
+// text on a dark rounded pill; align 'c' | 'l' | 'r' at x; keeps itself inside [4, W-4]
+function pill(c, text, x, y, o = {}) {
+  const size = o.size || 12, maxW = o.maxW || 140, al = o.al || 'c';
+  c.save(); c.font = `800 ${size}px ${FONT}`; c.textBaseline = 'middle'; c.textAlign = 'left';
+  const ls = wrap(c, text, maxW), lh = size + 3, tw = Math.max(...ls.map((s) => c.measureText(s).width)), bw = tw + 12, bh = ls.length * lh + 6;
+  let bx = al === 'c' ? x - bw / 2 : al === 'l' ? x : x - bw;
+  bx = clamp(bx, 3, W - 3 - bw);
+  rr(c, bx, y - bh / 2, bw, bh, Math.min(10, bh / 2)); c.fillStyle = o.bg || 'rgba(10,12,20,.82)'; c.fill();
+  if (o.stroke) { c.strokeStyle = o.stroke; c.lineWidth = 1.2; c.stroke(); }
+  c.fillStyle = o.color || '#EDEFF7';
+  ls.forEach((s, i) => { c.fillText(s, bx + 6 + (tw - c.measureText(s).width) / 2, y - bh / 2 + 3 + lh * (i + .5)); });
+  c.restore(); return bh;
+}
+function tok(c, x, y, emo, sz, o = {}) {
+  c.save(); c.globalAlpha = 1;
+  c.shadowColor = 'rgba(0,0,0,.45)'; c.shadowBlur = 8; c.shadowOffsetY = 3;
+  rr(c, x - sz / 2, y - sz / 2, sz, sz, sz * .28);
+  const g = c.createLinearGradient(x - sz / 2, y - sz / 2, x + sz / 2, y + sz / 2); g.addColorStop(0, o.dim ? '#c9d0e2' : '#ffffff'); g.addColorStop(1, o.dim ? '#98a2bd' : '#cdd7f0');
+  c.fillStyle = g; c.fill(); c.shadowColor = 'transparent';
+  c.lineWidth = o.ring ? 2.5 : 1.5; c.strokeStyle = o.ring || '#2a3355'; c.stroke();
+  c.font = `${Math.round(sz * .58)}px ${EMO}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#222';
+  c.fillText(emo, x, y + sz * .04);
+  c.restore();
+}
+
+// --- the bench scene (design box 360 × 160) ---------------------------------------------------------------------
+function drawScene(c, t, o) {
+  c.save(); c.lineJoin = 'round'; c.lineCap = 'round';
+  // wall and floor
+  let g = c.createLinearGradient(0, 0, 0, 120); g.addColorStop(0, '#34406a'); g.addColorStop(1, '#222a4a');
+  c.fillStyle = g; c.fillRect(0, 0, W, 124);
+  g = c.createRadialGradient(40, -10, 10, 40, -10, 260); g.addColorStop(0, 'rgba(255,240,205,.30)'); g.addColorStop(1, 'rgba(255,240,205,0)');
+  c.fillStyle = g; c.fillRect(0, 0, W, 124);
+  g = c.createLinearGradient(0, 138, 0, 160); g.addColorStop(0, '#1d2340'); g.addColorStop(1, '#12162b'); c.fillStyle = g; c.fillRect(0, 138, W, 22);
+  // socket
+  rr(c, 12, 82, 20, 26, 5); c.fillStyle = '#e6e9f2'; c.fill(); c.strokeStyle = '#7b84a0'; c.lineWidth = 1.2; c.stroke();
+  c.fillStyle = '#4a5270'; c.fillRect(18, 90, 3, 6); c.fillRect(24, 90, 3, 6); c.beginPath(); c.arc(22, 100, 2, 0, 7); c.fill();
+  // sink
+  g = c.createLinearGradient(0, 84, 0, 112); g.addColorStop(0, '#dfe5f2'); g.addColorStop(1, '#9aa5bf');
+  rr(c, 296, 86, 54, 28, 6); c.fillStyle = g; c.fill(); c.strokeStyle = '#59627f'; c.lineWidth = 1.4; c.stroke();
+  c.beginPath(); c.ellipse(323, 91, 22, 4, 0, 0, 7); c.fillStyle = '#5d6786'; c.fill();
+  c.strokeStyle = '#aeb8d0'; c.lineWidth = 4; c.beginPath(); c.moveTo(323, 84); c.lineTo(323, 62); c.quadraticCurveTo(323, 54, 313, 54); c.stroke();
+  c.strokeStyle = '#59627f'; c.lineWidth = 1; c.stroke();
+  // stand rod and thermometer
+  g = c.createLinearGradient(266, 0, 274, 0); g.addColorStop(0, '#e6ebf6'); g.addColorStop(1, '#8993ad');
+  c.fillStyle = g; rr(c, 267, 30, 5, 82, 2); c.fill();
+  c.strokeStyle = '#8993ad'; c.lineWidth = 3.4; c.beginPath(); c.moveTo(270, 50); c.lineTo(208, 50); c.stroke();
+  c.fillStyle = '#eef2fb'; rr(c, 205, 42, 4, 52, 2); c.fill(); c.strokeStyle = '#6d7692'; c.lineWidth = 1; c.stroke();
+  c.fillStyle = '#ff5a4d'; c.fillRect(206.2, 70, 1.6, 22); c.beginPath(); c.arc(207, 94, 3, 0, 7); c.fill();
+  // person (behind the bench)
+  const hx = o.stand ? 96 : 122, hy = o.stand ? 64 : 82;
+  g = c.createLinearGradient(hx - 24, 0, hx + 24, 0); g.addColorStop(0, '#f6f8ff'); g.addColorStop(1, '#bcc6e0');
+  c.beginPath(); c.moveTo(hx - 17, hy + 12); c.lineTo(hx + 17, hy + 12); c.lineTo(hx + 28, 122); c.lineTo(hx - 28, 122); c.closePath(); c.fillStyle = g; c.fill(); c.strokeStyle = '#7b86a8'; c.lineWidth = 1.4; c.stroke();
+  c.strokeStyle = '#d9e0f2'; c.lineWidth = 8; c.beginPath(); c.moveTo(hx + 14, hy + 22); c.lineTo(150, 108); c.stroke();
+  c.strokeStyle = '#7b86a8'; c.lineWidth = 1; c.stroke();
+  // hair behind
+  if (!o.hairtie) {
+    g = c.createLinearGradient(0, hy - 14, 0, hy + 34); g.addColorStop(0, '#8a5a30'); g.addColorStop(1, '#5a3819');
+    c.fillStyle = g; c.beginPath(); c.ellipse(hx - 3, hy + 4, 16, 18, 0, 0, 7); c.fill();
+    const tipX = o.stand ? hx - 15 : hx + 24, tipY = o.stand ? hy + 34 : hy + 33;
+    c.beginPath(); c.moveTo(hx + 6, hy + 8); c.quadraticCurveTo(hx + 18, hy + 18, tipX, tipY); c.lineTo(tipX - 7, tipY + 1); c.quadraticCurveTo(hx + 4, hy + 20, hx - 2, hy + 10); c.closePath(); c.fill();
+  } else {
+    c.fillStyle = '#6b4423'; c.beginPath(); c.arc(hx - 16, hy - 3, 6.5, 0, 7); c.fill();
+    c.fillStyle = '#ff5a4d'; rr(c, hx - 15, hy - 11, 4, 7, 2); c.fill();
+  }
+  // head
+  g = c.createRadialGradient(hx - 4, hy - 5, 2, hx, hy, 15); g.addColorStop(0, '#ffdcbc'); g.addColorStop(1, '#e8a77d');
+  c.beginPath(); c.arc(hx, hy, 13, 0, 7); c.fillStyle = g; c.fill(); c.strokeStyle = '#a56d47'; c.lineWidth = 1.4; c.stroke();
+  c.fillStyle = '#7a4c25'; c.beginPath(); c.arc(hx, hy, 13.4, Math.PI * 1.02, Math.PI * 1.98); c.quadraticCurveTo(hx + 4, hy - 7, hx - 13, hy - 1); c.fill();
+  c.fillStyle = '#fff'; c.beginPath(); c.ellipse(hx + 6, hy + 1, 3.6, 3.4, 0, 0, 7); c.fill(); c.fillStyle = '#26324f'; c.beginPath(); c.arc(hx + 7.2, hy + 1.2, 1.9, 0, 7); c.fill();
+  c.fillStyle = '#fff'; c.beginPath(); c.arc(hx + 7.8, hy + .4, .7, 0, 7); c.fill();
+  c.strokeStyle = '#a0513c'; c.lineWidth = 1.2; c.beginPath(); c.arc(hx + 4, hy + 7, 3, .2, 2.6); c.stroke();
+  if (o.goggles) {
+    c.strokeStyle = '#2a3b5c'; c.lineWidth = 2; c.beginPath(); c.moveTo(hx - 13, hy - 1); c.lineTo(hx - 1, hy - 1); c.stroke();
+    rr(c, hx - 1, hy - 6, 19, 10, 4); c.fillStyle = 'rgba(140,215,255,.6)'; c.fill(); c.strokeStyle = '#1f6f95'; c.lineWidth = 1.6; c.stroke();
+  }
+  // bench
+  g = c.createLinearGradient(0, 112, 0, 124); g.addColorStop(0, '#dca873'); g.addColorStop(1, '#bd8c5a'); c.fillStyle = g; c.fillRect(0, 112, W, 12);
+  g = c.createLinearGradient(0, 124, 0, 140); g.addColorStop(0, '#8e6542'); g.addColorStop(1, '#6d4a2e'); c.fillStyle = g; c.fillRect(0, 124, W, 14);
+  c.fillStyle = 'rgba(255,255,255,.25)'; c.fillRect(0, 112, W, 1.4); c.fillStyle = 'rgba(0,0,0,.28)'; c.fillRect(0, 124, W, 1.4);
+  // stand base and clamp ring
+  g = c.createLinearGradient(0, 108, 0, 114); g.addColorStop(0, '#b8c1d8'); g.addColorStop(1, '#7c86a2'); c.fillStyle = g; rr(c, 252, 108, 40, 6, 2); c.fill();
+  // plate and beaker
+  g = c.createLinearGradient(0, 100, 0, 113); g.addColorStop(0, '#59617d'); g.addColorStop(1, '#2d3248'); c.fillStyle = g; rr(c, 158, 100, 80, 13, 4); c.fill(); c.strokeStyle = '#1a1e30'; c.lineWidth = 1.4; c.stroke();
+  c.fillStyle = '#ff7a3d'; c.fillRect(226, 105, 5, 3);
+  c.beginPath(); c.ellipse(198, 100, 38, 5, 0, 0, 7); c.fillStyle = '#26293c'; c.fill();
+  c.strokeStyle = `rgba(255,${120 + 40 * Math.sin(t * 3) | 0},60,.95)`; c.lineWidth = 1.6; c.beginPath(); c.ellipse(198, 100, 30, 3.6, 0, 0, 7); c.stroke(); c.beginPath(); c.ellipse(198, 100, 18, 2.2, 0, 0, 7); c.stroke();
+  const bx = 198;
+  if (o.clamp) {
+    c.strokeStyle = '#8993ad'; c.lineWidth = 3.4; c.beginPath(); c.moveTo(270, 80); c.lineTo(bx + 16, 80); c.stroke();
+    c.beginPath(); c.ellipse(bx, 80, 16, 3, 0, 0, 7); c.stroke();
+  }
+  c.beginPath(); c.moveTo(bx - 15, 64); c.lineTo(bx - 15, 96); c.quadraticCurveTo(bx - 15, 100, bx - 11, 100); c.lineTo(bx + 11, 100); c.quadraticCurveTo(bx + 15, 100, bx + 15, 96); c.lineTo(bx + 15, 64); c.closePath();
+  c.fillStyle = 'rgba(205,232,255,.20)'; c.fill();
+  c.save(); c.clip();
+  g = c.createLinearGradient(0, 74, 0, 100); g.addColorStop(0, 'rgba(155,220,255,.9)'); g.addColorStop(1, 'rgba(70,160,230,.9)'); c.fillStyle = g; c.fillRect(bx - 16, 74 + Math.sin(t * 5) * .6, 32, 28);
+  for (let i = 0; i < 4; i++) { const u = (t * .7 + i * .27) % 1; c.fillStyle = 'rgba(255,255,255,.7)'; c.beginPath(); c.arc(bx - 8 + i * 5.5 + Math.sin(t * 4 + i) * 1.5, 98 - u * 22, 1.4 + (i % 2), 0, 7); c.fill(); }
+  c.restore();
+  c.strokeStyle = 'rgba(230,245,255,.9)'; c.lineWidth = 1.6; c.beginPath(); c.moveTo(bx - 15, 64); c.lineTo(bx - 15, 96); c.quadraticCurveTo(bx - 15, 100, bx - 11, 100); c.lineTo(bx + 11, 100); c.quadraticCurveTo(bx + 15, 100, bx + 15, 96); c.lineTo(bx + 15, 64); c.stroke();
+  c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 2; c.beginPath(); c.moveTo(bx - 11, 70); c.lineTo(bx - 11, 92); c.stroke();
+  c.strokeStyle = 'rgba(255,255,255,.4)'; c.lineWidth = 1; for (let i = 0; i < 3; i++) { c.beginPath(); c.moveTo(bx + 15, 78 + i * 7); c.lineTo(bx + 10, 78 + i * 7); c.stroke(); }
+  // steam
+  c.lineWidth = 3; for (let i = 0; i < 3; i++) {
+    const u = (t * .45 + i * .33) % 1; c.strokeStyle = `rgba(235,244,255,${.42 * (1 - u)})`;
+    c.beginPath(); c.moveTo(bx - 8 + i * 8, 62); for (let k = 1; k <= 5; k++) c.lineTo(bx - 8 + i * 8 + Math.sin(t * 2 + i + k) * 3.5, 62 - k * 5 - u * 6);
+    c.stroke();
+  }
+  // hand, mitt and tongs
+  if (o.gloves) {
+    c.strokeStyle = '#c4cde0'; c.lineWidth = 2.4; c.beginPath(); c.moveTo(148, 106); c.lineTo(183, 86); c.moveTo(150, 111); c.lineTo(183, 92); c.stroke();
+    g = c.createRadialGradient(146, 104, 1, 148, 108, 8); g.addColorStop(0, '#ffc27a'); g.addColorStop(1, '#f08a2e'); c.fillStyle = g;
+  } else { g = c.createRadialGradient(147, 105, 1, 149, 108, 7); g.addColorStop(0, '#ffdcbc'); g.addColorStop(1, '#e8a77d'); c.fillStyle = g; }
+  c.beginPath(); c.arc(149, 108, 6.5, 0, 7); c.fill(); c.strokeStyle = o.gloves ? '#b25d12' : '#a56d47'; c.lineWidth = 1.4; c.stroke();
+  // cable
+  c.lineWidth = 4; c.strokeStyle = '#4b5372'; const cab = () => { c.beginPath();
+    if (o.tape) { c.moveTo(160, 111); c.lineTo(34, 108); c.quadraticCurveTo(24, 106, 23, 100); }
+    else { c.moveTo(160, 111); c.quadraticCurveTo(128, 117, 112, 122); c.quadraticCurveTo(100, 130, 96, 146); c.quadraticCurveTo(94, 156, 70, 154); c.quadraticCurveTo(40, 152, 34, 140); c.quadraticCurveTo(26, 122, 23, 102); } c.stroke(); };
+  cab(); c.lineWidth = 2.2; c.strokeStyle = '#eef0f8'; cab();
+  if (o.tape) { c.fillStyle = '#f2e7a8'; c.strokeStyle = '#a99c4a'; c.lineWidth = 1; for (const x of [132, 92, 52]) { c.save(); c.translate(x, 109); c.rotate(-.04); rr(c, -4, -4.5, 8, 9, 1.5); c.fill(); c.stroke(); c.restore(); } }
+  // stool
+  c.fillStyle = '#3a4268'; c.fillRect(310, 146, 2.4, 14); c.fillRect(332, 146, 2.4, 14);
+  g = c.createLinearGradient(0, 140, 0, 150); g.addColorStop(0, '#6c78a8'); g.addColorStop(1, '#434b73'); c.beginPath(); c.ellipse(322, 145, 22, 6, 0, 0, 7); c.fillStyle = g; c.fill(); c.strokeStyle = '#2a3150'; c.lineWidth = 1.4; c.stroke();
+  c.restore();
+}
+
+// --- the grid --------------------------------------------------------------------------------------------------
+function drawGrid(c, hl) {
+  const t = T[lang], ax = t.ax;
+  for (let l = 0; l < 3; l++) for (let s = 0; s < 3; s++) {
+    const x = GX + l * CW, y = GY + (2 - s) * CH, col = LC[lvl(l, s)];
+    const g = c.createLinearGradient(x, y, x + CW, y + CH); g.addColorStop(0, col + 'a8'); g.addColorStop(1, col + '55');
+    rr(c, x + 1.5, y + 1.5, CW - 3, CH - 3, 8); c.fillStyle = '#12162a'; c.fill(); c.fillStyle = g; c.fill();
+    c.strokeStyle = 'rgba(255,255,255,.2)'; c.lineWidth = 1; c.stroke();
+    if (hl && hl[0] === l && hl[1] === s) { rr(c, x + 1, y + 1, CW - 2, CH - 2, 8); c.strokeStyle = '#fff'; c.lineWidth = 2.5; c.stroke(); }
+  }
+  for (let s = 0; s < 3; s++) pill(c, ax.rows[s], GX - 5, GY + (2 - s) * CH + CH / 2, { al: 'r', maxW: GX - 16 });
+  for (let l = 0; l < 3; l++) pill(c, ax.cols[l], GX + l * CW + CW / 2, GY + 3 * CH + 11, { maxW: CW - 6 });
+  pill(c, ax.x + ' →', GX + 1.5 * CW, GY + 3 * CH + 33, { maxW: 200 });
+  pill(c, '↑ ' + ax.y, 4, GY - 11, { al: 'l', maxW: 200 });
+}
+
+// --- the 100 beakers -------------------------------------------------------------------------------------------
+function beaker(c, x, y, lit, w, t) {
+  c.save(); c.lineJoin = 'round';
+  c.beginPath(); c.moveTo(x - 7, y - 9); c.lineTo(x - 7, y + 7); c.quadraticCurveTo(x - 7, y + 9, x - 5, y + 9); c.lineTo(x + 5, y + 9); c.quadraticCurveTo(x + 7, y + 9, x + 7, y + 7); c.lineTo(x + 7, y - 9);
+  c.fillStyle = lit ? 'rgba(200,230,255,.28)' : 'rgba(130,145,190,.10)'; c.fill();
+  if (lit) { const g = c.createLinearGradient(0, y - 1, 0, y + 9); g.addColorStop(0, '#9bdcff'); g.addColorStop(1, '#4aa8e8'); c.save(); c.clip(); c.fillStyle = g; c.fillRect(x - 8, y - 2, 16, 12); c.restore(); }
+  c.strokeStyle = lit ? 'rgba(230,245,255,.9)' : 'rgba(150,165,205,.45)'; c.lineWidth = 1.2; c.stroke();
+  if (lit && w === 1) { c.beginPath(); c.moveTo(x + 9, y - 14); c.lineTo(x + 15, y - 3); c.lineTo(x + 3, y - 3); c.closePath(); c.fillStyle = '#f5a623'; c.fill(); c.strokeStyle = '#7a4a05'; c.lineWidth = 1; c.stroke(); c.fillStyle = '#4a2c00'; c.fillRect(x + 8.4, y - 11, 1.2, 4.5); c.fillRect(x + 8.4, y - 5.4, 1.2, 1.2); }
+  if (lit && w === 2) { c.beginPath(); c.arc(x + 9, y - 8, 6.5, 0, 7); c.fillStyle = '#ff4d3d'; c.fill(); c.strokeStyle = '#7a0e06'; c.lineWidth = 1; c.stroke(); c.fillStyle = '#fff'; c.fillRect(x + 8.2, y - 12, 1.7, 5.5); c.fillRect(x + 8.2, y -5, 1.7, 1.7); }
+  c.restore();
+}
+function drawRuns(c, t) {
+  const done = S3.ran ? clamp((t - S3.runAt) * 100 / 3, 0, 100) : 0, res = SIM[S3.mode];
+  for (let i = 0; i < 100; i++) {
+    const cx = 30 + (i % 10) * 33.3, cy = 28 + Math.floor(i / 10) * 27, lit = S3.ran && i < done;
+    beaker(c, cx, cy, lit, lit ? res[i] : 0, t);
+  }
+  pill(c, T[lang].v3[S3.mode], 4, 301, { al: 'l', size: 13 });
+  const lg = T[lang].v3; c.save(); c.font = `800 12px ${FONT}`;
+  pill(c, '▲ ' + lg.small, 356, 301, { al: 'r', color: '#ffc863', maxW: 130 });
+  pill(c, '● ' + lg.serious, 356, 322, { al: 'r', color: '#ff8a7e', maxW: 130 });
+  c.restore();
+  if (S3.rev) {
+    const mx = Math.max(40, 1.2 * Math.max(...['np', 'pl'].map((k) => cnt(SIM[k], 1) + cnt(SIM[k], 2))));
+    ['np', 'pl'].forEach((k, j) => {
+      const y = 346 + j * 38, m = cnt(SIM[k], 1), s = cnt(SIM[k], 2), sc = 230 / mx;
+      c.save(); rr(c, 100, y - 11, 238, 22, 8); c.fillStyle = 'rgba(130,145,190,.14)'; c.fill();
+      let g = c.createLinearGradient(0, y - 11, 0, y + 11); g.addColorStop(0, '#ff7a6e'); g.addColorStop(1, '#d9382a'); rr(c, 100, y - 11, Math.max(0, s * sc), 22, 8); c.fillStyle = g; if (s) c.fill();
+      g = c.createLinearGradient(0, y - 11, 0, y + 11); g.addColorStop(0, '#ffc863'); g.addColorStop(1, '#e0911a'); rr(c, 100 + s * sc, y - 11, Math.max(0, m * sc), 22, 8); c.fillStyle = g; if (m) c.fill();
+      c.restore();
+      pill(c, lg[k], 4, y, { al: 'l', maxW: 90 });
+      pill(c, `${s} + ${m}`, 104 + (s + m) * sc, y, { al: 'l', size: 13 });
+    });
+    pill(c, lg.bars, 356, 410, { al: 'r', size: 12 });
+  }
+}
+
+// --- secret: Swiss cheese ------------------------------------------------------------------------------------
+function drawCheese(c, dt) {
+  const t = T[lang];
+  let g = c.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#222a4a'); g.addColorStop(1, '#171c36'); c.fillStyle = g; c.fillRect(0, 0, W, H);
+  // arrows (drawn first: slices cover them, so they show only through holes and in the gaps)
+  S4.spawn -= dt;
+  if (S4.spawn <= 0 && S4.ar.length < 6) { S4.spawn = .5; S4.ar.push({ y: 80 + Math.random() * 200, x: 20, st: 'fly', k: 0, a: 1, fl: 0 }); }
+  for (const a of S4.ar) {
+    if (a.st === 'fly') {
+      const nx = a.x + 200 * dt;
+      for (let i = a.k; i < 4; i++) {
+        const sx = SLICE_X[i] - 18;
+        if (a.x < sx && nx >= sx) {
+          const top = 40 + S4.sl[i].off, ok = HOLES[i].some((h) => Math.abs(a.y - (top + h)) <= 10);
+          if (!ok) { a.st = 'stop'; a.x = sx - 4; a.a = 1; S4.tries++; sfx.tick(); break; }
+          a.k = i + 1;
+        }
+      }
+      if (a.st === 'fly') { a.x = nx; if (a.x > 330) { a.st = 'thru'; S4.tries++; S4.thru++; sfx.bad(); render(); } }
+    } else a.a -= dt * (a.st === 'stop' ? 1.4 : 1.8);
+    if (a.st === 'stop' && a.a < 0 && !a.counted) { a.counted = true; render(); }
+  }
+  S4.ar = S4.ar.filter((a) => a.a > 0);
+  for (const a of S4.ar) {
+    c.save(); c.globalAlpha = clamp(a.a, 0, 1); c.lineCap = 'round';
+    c.strokeStyle = '#ff5a4d'; c.lineWidth = 4; c.shadowColor = '#ff5a4d'; c.shadowBlur = 8;
+    c.beginPath(); c.moveTo(a.x - 30, a.y); c.lineTo(a.x, a.y); c.stroke();
+    c.beginPath(); c.moveTo(a.x - 6, a.y - 6); c.lineTo(a.x + 3, a.y); c.lineTo(a.x - 6, a.y + 6); c.stroke();
+    c.restore();
+  }
+  // slices
+  for (let i = 0; i < 4; i++) {
+    const x = SLICE_X[i], top = 40 + S4.sl[i].off, h = 280, hw = 18;
+    c.save(); c.lineJoin = 'round';
+    c.shadowColor = 'rgba(0,0,0,.4)'; c.shadowBlur = 10; c.shadowOffsetY = 4;
+    c.fillStyle = '#d99a2c'; c.beginPath(); c.moveTo(x + hw, top); c.lineTo(x + hw + 8, top - 5); c.lineTo(x + hw + 8, top + h - 5); c.lineTo(x + hw, top + h); c.closePath(); c.fill();
+    c.shadowColor = 'transparent';
+    c.fillStyle = '#f0c35e'; c.beginPath(); c.moveTo(x - hw, top); c.lineTo(x - hw + 8, top - 5); c.lineTo(x + hw + 8, top - 5); c.lineTo(x + hw, top); c.closePath(); c.fill();
+    c.beginPath(); rr(c, x - hw, top, hw * 2, h, 5);
+    for (const hy of HOLES[i]) { c.moveTo(x + 11, top + hy); c.ellipse(x, top + hy, 11, 12, 0, 0, Math.PI * 2); }
+    g = c.createLinearGradient(x - hw, top, x + hw, top + h); g.addColorStop(0, '#ffe38f'); g.addColorStop(1, '#f2b94a'); c.fillStyle = g; c.fill('evenodd');
+    c.strokeStyle = '#a8741a'; c.lineWidth = 1.5; rr(c, x - hw, top, hw * 2, h, 5); c.stroke();
+    for (const hy of HOLES[i]) { c.beginPath(); c.ellipse(x, top + hy, 11, 12, 0, 0, Math.PI * 2); c.stroke(); }
+    c.restore();
+    const emo = ['🥽', '🔌', '🎀', '🧑‍🏫'][i];
+    tok(c, x, 350, emo, 34, { ring: '#f2b94a' });
+    pill(c, t.ch.names[i], x, 386, { maxW: 70 });
+  }
+  pill(c, t.ch.hazard, 4, 18, { al: 'l' }); pill(c, t.ch.you, 356, 18, { al: 'r' });
+}
+
+// --- secret: hazard labels -------------------------------------------------------------------------------------
+const DX = [48, 136, 224, 312];
+function diamond(c, x, y, k, sel, st) {
+  c.save(); c.translate(x, y); c.lineJoin = 'round';
+  c.shadowColor = 'rgba(0,0,0,.45)'; c.shadowBlur = 8; c.shadowOffsetY = 3;
+  c.rotate(Math.PI / 4); rr(c, -26, -26, 52, 52, 3); c.fillStyle = '#fff'; c.fill(); c.shadowColor = 'transparent';
+  c.lineWidth = 5; c.strokeStyle = '#e0261b'; c.stroke(); c.rotate(-Math.PI / 4);
+  if (sel) { c.rotate(Math.PI / 4); rr(c, -31, -31, 62, 62, 5); c.strokeStyle = '#5ab0ff'; c.lineWidth = 3; c.stroke(); c.rotate(-Math.PI / 4); }
+  c.fillStyle = '#111'; c.strokeStyle = '#111'; c.lineCap = 'round';
+  if (k === 0) { c.beginPath(); c.moveTo(0, -17); c.bezierCurveTo(14, -4, 14, 4, 11, 9); c.bezierCurveTo(9, 15, 3, 17, 0, 17); c.bezierCurveTo(-8, 17, -13, 11, -11, 3); c.bezierCurveTo(-10, -1, -5, -3, -4, -9); c.bezierCurveTo(-1, -6, 0, -12, 0, -17); c.fill(); c.fillStyle = '#fff'; c.beginPath(); c.moveTo(0, 5); c.bezierCurveTo(5, 8, 5, 13, 0, 14); c.bezierCurveTo(-5, 13, -5, 8, 0, 5); c.fill(); }
+  if (k === 1) { c.save(); c.translate(-4, -8); c.rotate(-.6); rr(c, -3, -8, 6, 14, 2); c.fill(); c.restore();
+    c.beginPath(); c.moveTo(4, 2); c.quadraticCurveTo(7, 6, 4, 8); c.quadraticCurveTo(1, 6, 4, 2); c.fill(); c.beginPath(); c.moveTo(-6, 5); c.quadraticCurveTo(-3, 9, -6, 11); c.quadraticCurveTo(-9, 9, -6, 5); c.fill();
+    c.fillRect(-14, 12, 28, 4); c.clearRect(0, 0, 0, 0); c.fillStyle = '#fff'; c.beginPath(); c.moveTo(-3, 12); c.lineTo(0, 16); c.lineTo(3, 12); c.fill(); }
+  if (k === 2) { rr(c, -3.5, -17, 7, 21, 3); c.fill(); c.beginPath(); c.arc(0, 11, 4.2, 0, 7); c.fill(); }
+  if (k === 3) { c.lineWidth = 4; c.beginPath(); c.moveTo(-13, 6); c.lineTo(13, 16); c.moveTo(13, 6); c.lineTo(-13, 16); c.stroke();
+    c.beginPath(); c.arc(0, -4, 11, 0, 7); c.fill(); rr(c, -6, 4, 12, 8, 2); c.fill(); c.fillStyle = '#fff'; c.beginPath(); c.arc(-4.2, -4, 3.2, 0, 7); c.arc(4.2, -4, 3.2, 0, 7); c.fill(); c.beginPath(); c.moveTo(0, 0); c.lineTo(-1.6, 3); c.lineTo(1.6, 3); c.fill(); c.fillRect(-1, 5, 2, 7); }
+  c.restore();
+}
+const BOTC = [['#8fd0ff', '#4aa0e0'], ['#d9a0ff', '#9a52d8'], ['#fff3a8', '#e4c640'], ['#9be39b', '#4aa84a']];
+function bottle(c, x, y, item, sel) {
+  c.save(); c.lineJoin = 'round'; c.shadowColor = 'rgba(0,0,0,.45)'; c.shadowBlur = 8; c.shadowOffsetY = 3;
+  const g = c.createLinearGradient(x - 22, 0, x + 22, 0); g.addColorStop(0, BOTC[item][0]); g.addColorStop(1, BOTC[item][1]);
+  c.beginPath(); c.moveTo(x - 6, y - 38); c.lineTo(x + 6, y - 38); c.lineTo(x + 6, y - 28); c.quadraticCurveTo(x + 22, y - 22, x + 22, y - 6); c.lineTo(x + 22, y + 34); c.quadraticCurveTo(x + 22, y + 40, x + 16, y + 40); c.lineTo(x - 16, y + 40); c.quadraticCurveTo(x - 22, y + 40, x - 22, y + 34); c.lineTo(x - 22, y - 6); c.quadraticCurveTo(x - 22, y - 22, x - 6, y - 28); c.closePath();
+  c.fillStyle = g; c.fill(); c.shadowColor = 'transparent'; c.lineWidth = sel ? 3 : 1.5; c.strokeStyle = sel ? '#5ab0ff' : '#1d2340'; c.stroke();
+  c.fillStyle = '#2b3150'; rr(c, x - 7, y - 46, 14, 9, 3); c.fill();
+  c.fillStyle = 'rgba(255,255,255,.85)'; rr(c, x - 15, y - 2, 30, 24, 3); c.fill();
+  c.fillStyle = 'rgba(255,255,255,.35)'; rr(c, x - 17, y - 18, 4, 40, 2); c.fill();
+  c.restore();
+}
+function drawLabels(c) {
+  const t = T[lang], lb = t.lb;
+  let g = c.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#222a4a'); g.addColorStop(1, '#171c36'); c.fillStyle = g; c.fillRect(0, 0, W, H);
+  const dy = 100, by = 275;
+  // lines
+  for (let i = 0; i < 4; i++) {
+    const p = S5.pair[i]; if (p < 0) continue;
+    const right = BOT[p] === i;
+    c.save(); c.lineCap = 'round';
+    c.strokeStyle = !S5.checked ? '#5ab0ff' : right ? '#3ddc97' : '#ff5a4d'; c.lineWidth = 3.5;
+    c.beginPath(); c.moveTo(DX[i], dy + 34); c.lineTo(DX[p], by - 52); c.stroke(); c.restore();
+  }
+  if (S5.checked) for (let i = 0; i < 4; i++) {
+    const p = BOT.indexOf(i); if (S5.pair[i] === p) continue;
+    c.save(); c.setLineDash([6, 6]); c.strokeStyle = '#3ddc97'; c.lineWidth = 3; c.beginPath(); c.moveTo(DX[i], dy + 34); c.lineTo(DX[p], by - 52); c.stroke(); c.restore();
+  }
+  for (let i = 0; i < 4; i++) diamond(c, DX[i], dy, i, S5.sel === i, S5.checked);
+  for (let p = 0; p < 4; p++) { bottle(c, DX[p], by, BOT[p], false); pill(c, lb.names[BOT[p]], DX[p], by + 66, { maxW: 80 }); }
+}
+function tapLabels(x, y) {
+  if (S5.checked) return;
+  for (let i = 0; i < 4; i++) if (Math.hypot(x - DX[i], y - 100) < 38) { S5.sel = S5.sel === i ? null : i; sfx.tick(); render(); return; }
+  for (let p = 0; p < 4; p++) if (Math.abs(x - DX[p]) < 40 && y > 220 && y < 360) {
+    if (S5.sel === null) { const j = S5.pair.indexOf(p); if (j >= 0) { S5.sel = j; S5.pair[j] = -1; sfx.tick(); render(); } return; }
+    for (let j = 0; j < 4; j++) if (S5.pair[j] === p) S5.pair[j] = -1;
+    S5.pair[S5.sel] = p; S5.sel = null; sfx.snap(); render(); return;
+  }
+}
+
+// --- the main loop ---------------------------------------------------------------------------------------------
+let VW = { sc: 1, ox: 0, oy: 0 };
+canvasLoop($('cv'), (c, w, h, dt, t) => {
+  const sc = Math.min(w / W, h / H, 1.7); VW = { sc, ox: (w - W * sc) / 2, oy: (h - H * sc) / 2 };
+  c.save(); c.translate(VW.ox, VW.oy); c.scale(sc, sc);
+  c.beginPath(); c.rect(0, 0, W, H); c.clip();
+  const v = lab.view;
+  if (S.sec === 'cheese') drawCheese(c, dt);
+  else if (S.sec === 'labels') drawLabels(c);
+  else if (v === 'grid') drawV1(c, t);
+  else if (v === 'ctl') drawV2(c, t);
+  else {
+    const g = c.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#222a4a'); g.addColorStop(1, '#171c36'); c.fillStyle = g; c.fillRect(0, 0, W, H);
+    if (S3.ran && !S3.rev && t - S3.runAt > 3.3) { S3.rev = true; render(); }
+    drawRuns(c, t);
+  }
+  c.restore();
+});
+function bg(c) { const g = c.createLinearGradient(0, 160, 0, H); g.addColorStop(0, '#1b2140'); g.addColorStop(1, '#141830'); c.fillStyle = g; c.fillRect(0, 160, W, H - 160); }
+
+let drag = null;
+function drawV1(c, t) {
+  bg(c); drawScene(c, t, {});
+  const cur = K1[ORDER1[S1.i]], hl = S1.rev ? cur.cell : null;
+  drawGrid(c, hl);
+  for (const id of ORDER1) {
+    const k = K1[id]; if (k.st === 'wait') continue;
+    step(k, t, k.st === 'hold' || k.drag ? 44 : 30);
+    const ring = k.st === 'done' ? LC[lvl(...k.cell)] : null;
+    if (k.st === 'done' && id === ORDER1[S1.i] && k.ghost && (k.ghost[0] !== k.cell[0] || k.ghost[1] !== k.cell[1])) {
+      const [gx, gy] = cellC(...k.ghost); c.save(); c.setLineDash([4, 4]); c.strokeStyle = 'rgba(255,255,255,.85)'; c.lineWidth = 1.6; rr(c, gx - 15, gy - 15, 30, 30, 8); c.stroke(); c.restore();
+    }
+    tok(c, k.x, k.y, HZ[id][0], k.sz, { ring });
+  }
+  if (S1.rev && cur.st === 'done') {
+    const [cx, cy] = cellC(...cur.cell);
+    pill(c, T[lang].risk(T[lang].lvl[lvl(...cur.cell)]), cx, Math.max(GY + 8, cy - 31), { maxW: 120, stroke: LC[lvl(...cur.cell)] });
+  }
+  if (S1.rev && cur.ghost && (cur.ghost[0] !== cur.cell[0] || cur.ghost[1] !== cur.cell[1])) { const [gx, gy] = cellC(...cur.ghost); pill(c, T[lang].v1.ghost, gx, gy + 28, { maxW: 90, size: 12 }); }
+  // tray hint
+  if (!S1.rev && cur.st === 'hold') pill(c, '↑', 180 + 40, 392, { al: 'l', size: 16 });
+}
+function drawV2(c, t) {
+  bg(c);
+  const o = { stand: S2.applied.includes('stand') ? 1 : 0, goggles: S2.applied.includes('goggles'), gloves: S2.applied.includes('gloves'), tape: S2.applied.includes('tape'), hairtie: S2.applied.includes('hairtie'), clamp: S2.applied.includes('clamp') };
+  drawScene(c, t, o);
+  drawGrid(c, null);
+  for (const h in K2) {
+    const k = K2[h], cl = cells2now()[h]; step(k, t, 30);
+    tok(c, k.x, k.y, HZ[h][0], k.sz, { ring: LC[lvl(...cl)] });
+  }
+  CORD.forEach((id, i) => {
+    const x = 30 + i * 60, y = 386, ap = S2.applied.includes(id), pend = S2.pend === id, dg = drag && drag.id === id;
+    const px = dg ? drag.x : x, py = dg ? drag.y : pend ? 52 : y;
+    if (pend && !dg) { c.save(); c.setLineDash([4, 4]); c.strokeStyle = '#5ab0ff'; c.lineWidth = 2; rr(c, x - 24, y - 24, 48, 48, 12); c.stroke(); c.restore(); }
+    tok(c, px, py, CT[id][0], dg || pend ? 46 : 42, { dim: ap, ring: pend ? '#5ab0ff' : null });
+    if (ap) { c.save(); c.beginPath(); c.arc(x + 17, y - 17, 8, 0, 7); c.fillStyle = '#3ddc97'; c.fill(); c.strokeStyle = '#0b3a26'; c.lineWidth = 1.4; c.stroke(); c.strokeStyle = '#0b3a26'; c.lineWidth = 2; c.beginPath(); c.moveTo(x + 13.5, y - 17); c.lineTo(x + 16.5, y - 14); c.lineTo(x + 21, y - 20); c.stroke(); c.restore(); }
+    pill(c, T[lang].ct[id][0], x, 417, { maxW: 58 });
+  });
+}
+const cells2now = () => cellsWith(S2.applied);
+function layout2(d = .6) {
+  const cs = cells2now(), groups = {};
+  for (const h in K2) (groups[cs[h].join()] ??= []).push(h);
+  for (const key in groups) { const g = groups[key], [l, s] = cs[g[0]], [cx, cy] = cellC(l, s), sp = Math.min(34, (CW - 8) / g.length); g.forEach((h, j) => go(K2[h], cx + (j - (g.length - 1) / 2) * sp, cy, d)); }
+}
+layout2(0);
+function layout1() {
+  const groups = {};
+  for (const id of ORDER1) { const k = K1[id]; if (k.cell) (groups[k.cell.join()] ??= []).push(k); else if (k.st === 'hold') go(k, 180, 392, .35); }
+  for (const key in groups) { const g = groups[key], [l, s] = g[0].cell, [cx, cy] = cellC(l, s), sp = Math.min(32, (CW - 8) / g.length); g.forEach((k, j) => go(k, cx + (j - (g.length - 1) / 2) * sp, cy, .55)); }
+}
+
+// --- input ---------------------------------------------------------------------------------------------------
+const cv = $('cv');
+const dp = (ev) => { const r = cv.getBoundingClientRect(); return [(ev.clientX - r.left - VW.ox) / VW.sc, (ev.clientY - r.top - VW.oy) / VW.sc]; };
+function setGuess(cl) { const cur = K1[ORDER1[S1.i]]; S1.guess = cl; cur.st = cl ? 'guess' : 'hold'; cur.cell = cl; layout1(); if (cl) sfx.snap(); render(); }
+cv.addEventListener('pointerdown', (ev) => {
+  const [x, y] = dp(ev), v = lab.view;
+  if (S.sec === 'cheese') {
+    for (let i = 0; i < 4; i++) if (Math.abs(x - SLICE_X[i]) < 26 && y > 20 && y < 340) { drag = { kind: 'slice', i, y0: y, o0: S4.sl[i].off }; break; }
+  } else if (S.sec === 'labels') { tapLabels(x, y); return; }
+  else if (v === 'grid' && !S1.rev) {
+    const cur = K1[ORDER1[S1.i]];
+    if (Math.hypot(x - cur.x, y - cur.y) < 28) { drag = { kind: 'tok', sx: x, sy: y, moved: false }; cur.drag = true; cur.d = 0; }
+    else { const cl = cellAt(x, y); if (cl) setGuess(cl); }
+  } else if (v === 'ctl' && !S2.pend) {
+    CORD.forEach((id, i) => { if (!drag && !S2.applied.includes(id) && Math.hypot(x - (30 + i * 60), y - 386) < 28) drag = { kind: 'ctrl', id, sx: x, sy: y, x, y, moved: false }; });
+  }
+  if (drag) { try { cv.setPointerCapture(ev.pointerId); } catch { /* ignore */ } }
+});
+cv.addEventListener('pointermove', (ev) => {
+  if (!drag) return; const [x, y] = dp(ev);
+  if (drag.kind === 'slice') { S4.sl[drag.i].off = clamp(drag.o0 + (y - drag.y0), -32, 32); return; }
+  if (Math.hypot(x - drag.sx, y - drag.sy) > 6) drag.moved = true;
+  if (drag.kind === 'tok') { const cur = K1[ORDER1[S1.i]]; cur.x = x; cur.y = y; } else { drag.x = x; drag.y = y; }
+});
+const endDrag = (ev) => {
+  if (!drag) return; const d = drag; drag = null; const [x, y] = dp(ev);
+  if (d.kind === 'tok') {
+    const cur = K1[ORDER1[S1.i]]; cur.drag = false;
+    if (d.moved) { const cl = cellAt(x, y); setGuess(cl); if (!cl) go(cur, 180, 392, .35); }
+    else { cur.x = cur.fx = cur.tx = cur.x; layout1(); }
+  } else if (d.kind === 'ctrl') {
+    if (!d.moved || y < 170) { S2.pend = d.id; S2.msg = null; sfx.click(); render(); }
+  }
+};
+cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
+
+const showStage = () => { const r = $('stage').getBoundingClientRect(); if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+function check1() {
+  if (S1.rev || !S1.guess) return;
+  const id = ORDER1[S1.i], cur = K1[id], ex = HZ[id][1], g = S1.guess, d = Math.max(Math.abs(g[0] - ex[0]), Math.abs(g[1] - ex[1]));
+  cur.ghost = g; cur.cell = ex; cur.st = 'done'; S1.rev = true; S1.res.push(Math.min(2, d)); layout1(); (d === 0 ? sfx.good : d === 1 ? sfx.snap : sfx.bad)(); showStage(); render();
+}
+function next1() {
+  if (!S1.rev) return;
+  if (S1.i >= 5) { S1.i = 6; render(); return; }
+  S1.i++; S1.guess = null; S1.rev = false; K1[ORDER1[S1.i]].st = 'hold'; go(K1[ORDER1[S1.i]], 180, 392, 0); K1[ORDER1[S1.i]].x = 180; K1[ORDER1[S1.i]].y = 392; sfx.click(); render();
+}
+function again1() {
+  ORDER1.forEach((id) => { Object.assign(K1[id], mk(180, 392), { st: 'wait', cell: null, ghost: null }); });
+  Object.assign(S1, { i: 0, guess: null, rev: false, res: [] }); K1[ORDER1[0]].st = 'hold'; sfx.click(); render();
+}
+function predict2(kind) {
+  const id = S2.pend; if (!id) return;
+  const right = (CT[id][1] === 'likely') === (kind === 0);
+  S2.applied.push(id); S2.pend = null; S2.msg = { id, right };
+  layout2(.7); (right ? sfx.good : sfx.bad)(); showStage(); render();
+}
+function runSim() {
+  if (!S3.rev && S3.pred === null) return;
+  S3.ran = true; S3.runAt = now(); S3.rev = false; sfx.click(); render();
+}
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return; const id = b.id;
+  if (id === 'b1c') check1(); else if (id === 'b1n') (S1.i >= 6 ? again1() : next1());
+  else if (id === 'b2r') { S2.applied = []; S2.pend = null; S2.msg = null; layout2(.6); sfx.click(); render(); }
+  else if (b.dataset.p2 !== undefined) predict2(+b.dataset.p2);
+  else if (b.dataset.p3 !== undefined) { S3.pred = +b.dataset.p3; sfx.tick(); render(); }
+  else if (b.dataset.md) { S3.mode = b.dataset.md; if (S3.rev) S3.runAt = -99; sfx.click(); render(); }
+  else if (id === 'b3r') runSim();
+  else if (id === 'bcs') { S4.sl.forEach((s) => { s.off = (Math.random() - .5) * 64; }); S4.tries = 0; S4.thru = 0; S4.ar = []; sfx.click(); render(); }
+  else if (id === 'blc') {
+    if (S5.checked) { S5.pair = [-1, -1, -1, -1]; S5.sel = null; S5.checked = false; sfx.click(); }
+    else if (S5.pair.every((p) => p >= 0)) { S5.checked = true; S5.sel = null; (S5.pair.every((p, i) => BOT[p] === i) ? sfx.good : sfx.bad)(); }
+    render();
+  } else if (b.dataset.sec) {
+    if (!secret.unlocked()) return secret.open();
+    S.sec = S.sec === b.dataset.sec ? null : b.dataset.sec; sfx.click(); render();
+  }
+});
+
+// --- one render per change ---------------------------------------------------------------------------------------
+function render() {
+  const t = T[lang], v = lab.view, sec = S.sec;
+  document.body.dataset.drag = sec === 'cheese' || (!sec && (v === 'grid' || v === 'ctl')) ? '1' : '0';
+  const show = (id, on) => { $(id).style.display = on ? 'block' : 'none'; };
+  show('s1', !sec && v === 'grid'); show('s2', !sec && v === 'ctl'); show('s3', !sec && v === 'run'); show('sc', sec === 'cheese'); show('sl', sec === 'labels');
+  const open = secret.unlocked(), sc = (k, emo) => `<button class="chip secret ${open ? 'open' : ''} ${sec === k ? 'on' : ''}" data-sec="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  $('secRow').innerHTML = sc('cheese', '🧀') + sc('labels', '🔶');
+  $('fine').textContent = t.fine;
+  lab.setFacts(t.facts[v]);
+  if (sec === 'cheese') return renderCheese(t);
+  if (sec === 'labels') return renderLabels(t);
+  if (v === 'grid') renderV1(t); else if (v === 'ctl') renderV2(t); else renderV3(t);
+}
+function renderV1(t) {
+  const q = t.v1, end = S1.i >= 6, id = ORDER1[Math.min(S1.i, 5)], cur = K1[id];
+  lab.setGlow('rgba(245, 200, 76, .22)');
+  $('b1c').style.display = end ? 'none' : ''; $('b1c').textContent = q.check; $('b1c').disabled = S1.rev || !S1.guess;
+  $('b1n').style.display = end || S1.rev ? '' : 'none'; $('b1n').textContent = end ? q.again : S1.i >= 5 ? q.results : q.next;
+  if (end) {
+    const a = cnt(S1.res, 0), b = cnt(S1.res, 1), c_ = cnt(S1.res, 2);
+    $('q1').textContent = '';
+    lab.setReadout(`${a}/6`, t.v1.sub, '', '#f5c84c');
+    lab.setState({ emo: '📍', title: q.endT(a, b, c_), lead: q.endL, body: '', extra: '' });
+    return;
+  }
+  $('q1').textContent = S1.rev ? '' : t.hz[id][0] + ' — ' + (S1.guess ? q.held : q.drag);
+  if (!S1.rev) {
+    lab.setReadout('?', q.card(S1.i + 1, 6), '', '#f5c84c');
+    lab.setState({ emo: HZ[id][0], title: t.hz[id][0], lead: S1.guess ? q.held : q.drag, body: '', extra: '' });
+  } else {
+    const d = S1.res[S1.i], w = t.lvl[lvl(...cur.cell)];
+    lab.setReadout(t.risk(w), q.card(S1.i + 1, 6), q.verdict[d], LC[lvl(...cur.cell)]);
+    lab.setState({ emo: d === 0 ? '✅' : '📍', title: `${q.verdict[d]} ${t.risk(w)}`, lead: q.vlead[d], body: t.hz[id][1], extra: '' });
+  }
+}
+function renderV2(t) {
+  const q = t.v2, cs = cells2now(), lv = Object.values(cs).map((c_) => lvl(...c_)), n = (k) => lv.filter((x) => x === k).length;
+  lab.setGlow('rgba(61, 220, 151, .2)');
+  lab.setReadout(`<span style="color:${LC[2]}">${n(2)}</span> · <span style="color:${LC[1]}">${n(1)}</span> · <span style="color:${LC[0]}">${n(0)}</span>`, q.sub, '', '#3ddc97');
+  $('pr2').innerHTML = S2.pend ? `<button class="chip" data-p2="0">${esc(q.l1)}</button><button class="chip" data-p2="1">${esc(q.l2)}</button>` : '';
+  $('q2').textContent = S2.pend ? q.q(t.ct[S2.pend][0]) : q.pick;
+  $('b2r').style.display = S2.applied.length ? '' : 'none'; $('b2r').textContent = q.reset;
+  let st;
+  if (S2.pend) st = { emo: CT[S2.pend][0], title: q.q(t.ct[S2.pend][0]), lead: `${q.l1} / ${q.l2}`, body: '' };
+  else if (S2.msg) { const m = S2.msg, k = CT[m.id][1] === 'likely' ? 0 : 1; st = { emo: m.right ? '✅' : '🤔', title: m.right ? T[lang].v1.verdict[0] : q.wrong(q.kinds[k]), lead: t.ct[m.id][1], body: '' }; }
+  else st = { emo: '🧪', title: q.start, lead: q.startL, body: '' };
+  if (!S2.pend && S2.applied.length === CORD.length) st = { emo: '🛡️', title: q.allT, lead: q.allL, body: S2.msg ? t.ct[S2.msg.id][1] : '' };
+  lab.setState({ ...st, extra: '' });
+}
+function renderV3(t) {
+  const q = t.v3, np = SIM.np, pl = SIM.pl, res = SIM[S3.mode];
+  lab.setGlow('rgba(255, 90, 77, .2)');
+  const first = !S3.ran;
+  $('pr3').innerHTML = !S3.rev && !S3.ran ? q.opts.map((o, i) => `<button class="chip ${S3.pred === i ? 'on' : ''}" data-p3="${i}">${esc(o)}</button>`).join('') : '';
+  $('q3').textContent = !S3.rev && !S3.ran ? q.q : '';
+  $('md3').innerHTML = ['np', 'pl'].map((k) => `<button data-md="${k}" class="${S3.mode === k ? 'on' : ''}">${esc(q[k])}</button>`).join('');
+  $('b3r').textContent = S3.ran ? q.again : q.run; $('b3r').disabled = first && S3.pred === null;
+  if (!S3.rev) {
+    lab.setReadout('?', q.of, '', '#ff5a4d');
+    lab.setState({ emo: S3.ran ? '🎲' : '🤔', title: S3.ran ? q.running : first && S3.pred === null ? q.readyT : q.readyT, lead: first && S3.pred === null ? q.pickFirst : q.plan, body: S3.ran ? '' : q.plan, extra: '' });
+    if (first) lab.setState({ emo: '🤔', title: q.readyT, lead: S3.pred === null ? q.q : q.plan, body: S3.pred === null ? q.plan : '', extra: '' });
+    return;
+  }
+  const ps = cnt(pl, 2), pm = cnt(pl, 1), ns = cnt(np, 2), nm = cnt(np, 1), s = cnt(res, 2), m = cnt(res, 1);
+  lab.setReadout(s, q.subSer, q.pillSm(m), '#ff5a4d');
+  const p = S3.pred, title = p === 1 ? q.rightT : p === 0 ? q.zeroT : q.sameT, lead = p === 1 ? q.rightL : p === 0 ? q.zeroL : q.sameL;
+  lab.setState({ emo: p === 1 ? '✅' : '🎲', title, lead, body: q.res(ps, pm, ns, nm), extra: '' });
+}
+function renderCheese(t) {
+  const c = t.ch; lab.setGlow('rgba(242, 185, 74, .22)');
+  $('qc').textContent = c.tip; $('bcs').textContent = c.shuffle;
+  lab.setReadout(S4.tries ? `${S4.thru}/${S4.tries}` : '?', c.thru(S4.thru, S4.tries), '', '#f2b94a');
+  lab.setState(S4.tries ? { emo: '🧀', title: c.title(S4.thru, S4.tries), lead: c.lead, body: '', extra: '' } : { emo: '🧀', title: c.wait, lead: c.waitL, body: '', extra: '' });
+}
+function renderLabels(t) {
+  const l = t.lb; lab.setGlow('rgba(224, 38, 27, .22)');
+  $('ql').textContent = l.tip; $('blc').textContent = S5.checked ? l.again : l.check; $('blc').disabled = !S5.checked && !S5.pair.every((p) => p >= 0);
+  if (!S5.checked) { lab.setReadout('?', `${S5.pair.filter((p) => p >= 0).length}/4`, '', '#e0261b'); lab.setState({ emo: '🔶', title: l.t0, lead: l.t0l, body: '', extra: '' }); }
+  else { const n = S5.pair.filter((p, i) => BOT[p] === i).length; lab.setReadout(`${n}/4`, l.right(n), '', n === 4 ? '#3ddc97' : '#e0261b'); lab.setState({ emo: n === 4 ? '✅' : '🔶', title: l.right(n), lead: l.lead, body: '', extra: '' }); }
+}
+render();
+</script>
+</body>
+</html>
