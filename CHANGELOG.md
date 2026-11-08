@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-08
 
 ### Labs
+- New lab `atmosphere` “Up Through the Air”: ride a weather balloon until it bursts, slice the sky into layers, weigh the air above one square metre (429). (#364)
 - New lab `diffusion` “The Great Spread”: drop ink into hot and cold water and graph how it spreads, count oxygen crossing a thin wall both ways, race a small cell against a big one (428). (#363)
 - New lab `five-notes` “Five Notes Around the World”: play only the black keys and hear why nothing clashes, try Amazing Grace and Ode to Joy on five notes, follow five-note music from Hungary to China, Java and the blues (427). (#362)
 - New lab `cross-sections` “Slice It”: cut a glass cube with a tilting plane and collect the shapes up to a hexagon, slice cylinders, cones and a sphere, guess a hidden solid from its scan (426). (#361)
