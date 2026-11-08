@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-08
 
 ### Labs
+- New lab `printmaking` “Back to Front”: carve a stamp and see the print come out mirrored, print a picture one colour block at a time, print an edition of ten (451). (#386)
 - New lab `growing-orchestra` “The Growing Orchestra”: watch the orchestra fill the stage from 1720 to 1910, find where composers lived and worked, meet new instruments as they join (450). (#385)
 - New lab `around-1900` “One Street, Thirty Years”: move one city street from 1880 to 1910, put six inventions in order, look into a home of 1910 (449). (#384)
 - New lab `human-or-machine` “Human or Machine?”: race a robot at five tasks, chat with two strangers and spot the machine, sort photos as a team (448). (#383)
