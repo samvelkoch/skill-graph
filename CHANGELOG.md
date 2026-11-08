@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-08
 
 ### Labs
+- New lab `around-1900` “One Street, Thirty Years”: move one city street from 1880 to 1910, put six inventions in order, look into a home of 1910 (449). (#384)
 - New lab `human-or-machine` “Human or Machine?”: race a robot at five tasks, chat with two strangers and spot the machine, sort photos as a team (448). (#383)
 - New lab `where-am-i` “Where Am I?”: zoom from the planet to a front door like nesting dolls, name the continents and oceans, count a country’s neighbours (447). (#382)
 - New lab `learn-or-memorise` “Learned or Memorised?”: train a memorising robot and a rule-finding robot on alien fruits, test them on new ones, give them more examples, catch a cheat test (446). (#381)
