@@ -1,0 +1,893 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Slice It · Skill Graph</title>
+<meta name="description" content="Cut a glass cube with a tilting plane and collect the shapes, slice cylinders, cones and a sphere, and guess a hidden solid from its scan. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  #csDrag { position: absolute; left: 0; top: 0; width: 0; height: 0; touch-action: none; cursor: grab; z-index: 1; }
+  #csDrag:active { cursor: grabbing; }
+  .cs-q { font: 800 13px/1.35 var(--sans); color: var(--soft); margin: 0 0 8px; }
+  .cs-cr { gap: 8px; }
+  .cs-pc { min-height: 36px; white-space: normal; text-align: left; line-height: 1.25; }
+  .chip.cs-ok { background: rgba(61, 220, 151, .18); border-color: var(--ok); color: var(--ok); }
+  .chip.cs-bad { background: rgba(255, 59, 48, .16); border-color: #ff6b61; color: #ffb0a8; }
+  .chip.cs-dim { opacity: .55; }
+  .cs-done .chip { pointer-events: none; }
+  .cs-vd { margin-top: 8px; font-weight: 800; font-size: 13px; line-height: 1.4; }
+  .cs-vd.ok { color: var(--ok); }
+  .cs-vd.bad { color: #ffb0a8; }
+  .cs-chip { min-height: 36px; }
+  .cs-off { opacity: .42; pointer-events: none; }
+  #csSl { margin-top: 10px; }
+  .cs-sr { display: grid; grid-template-columns: 74px minmax(0, 1fr) 46px; align-items: center; gap: 8px; margin-top: 4px; }
+  .cs-l { font-size: 12.5px; font-weight: 800; color: var(--mut); }
+  .cs-v { font-size: 12.5px; font-weight: 800; color: var(--soft); text-align: right; font-variant-numeric: tabular-nums; }
+  .cs-sr input[type=range].big { --track: linear-gradient(90deg, #3d3366, #b39ddb); }
+  #csFound { margin-top: 12px; gap: 8px; }
+  .chip.cs-got { background: rgba(244, 201, 93, .18); border-color: #f4c95d; color: #f4c95d; }
+  .chip.cs-got svg polygon { fill: rgba(244, 201, 93, .4); }
+  .cs-ic { width: 14px; height: 14px; flex: none; }
+  .cs-ic polygon { fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linejoin: round; }
+  .cs-pop { animation: csPop .6s cubic-bezier(.2, 1.6, .4, 1); }
+  @keyframes csPop { 0% { transform: scale(.7); } 100% { transform: scale(1); } }
+  #csSolids { margin-top: 12px; gap: 8px; }
+  #csSec { margin-top: 12px; }
+  #csNext { margin-top: 12px; }
+  @media (prefers-reduced-motion: reduce) { .cs-pop { animation: none; } }
+  @media (max-width: 760px) {
+    #stage { height: min(125vw, 520px); }
+    body[data-v=scanner] #stage { height: min(92vw, 400px); }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Slice It', title: 'Slice It',
+    lines: [['Cut a glass cube', ' with a flat plane.'], ['Tilt the cut', ' and watch the slice change.'], ['Guess a hidden solid', ' from its slices.']],
+    views: { cube: '🧊 Cube', solids: '🔷 Solids', scanner: '🩻 Scanner' },
+    tilt: 'tilt', turn: 'turn', pos: 'position', found: (k, n) => `found ${k} of ${n}`, allFound: 'all 5 found',
+    sides: (n) => `${n} sides`, shapes: { triangle: 'triangle', square: 'square', rectangle: 'rectangle', quad: 'quadrilateral', pentagon: 'pentagon', hexagon: 'hexagon', circle: 'circle', ellipse: 'ellipse', mixed: 'curve and line' },
+    solidsNames: { cylinder: 'cylinder', cone: 'cone', pyramid: 'pyramid', sphere: 'sphere' },
+    cubeAsk: 'Can one flat cut through a cube give a hexagon (6 sides)?', cubeOpts: ['No, at most 4 sides', 'Yes, it can', 'No, at most 5 sides'],
+    cubeRight: 'Right! Tilt the cut across a corner and it crosses all 6 faces.', cubeWrong: 'Look: a cut through the middle, tilted towards a corner, crosses all 6 faces.',
+    solidsAsk: 'We tilt the cut through a cylinder. What shape is the slice?', solidsOpts: ['a circle', 'a rectangle', 'an ellipse'],
+    solidsRight: 'Right! A slanted cut stretches the circle into an ellipse.', solidsWrong: 'Watch the side panel as the cut tilts.',
+    scanAsk: 'Which solid is hiding in the scanner?', scanOpts: ['cone', 'sphere', 'cylinder'], round: (k) => `round ${k} of 3`, score: (s) => `score ${s}`, next: 'Next',
+    scanRight: 'Right!', scanWrong: (name) => `It was a ${name}. Look at how the slices grow and shrink.`,
+    st: {
+      cube: ['🧊', 'A slice is a flat shape', 'Where a flat cut meets a solid, it leaves a flat shape: the cross-section.', 'Each side of a cube’s slice lies on one face of the cube. A cube has 6 faces, so no slice can have more than 6 sides.'],
+      solids: ['🔷', 'Curved solids, curved slices', 'Cut a cylinder or a cone straight across and you get a circle; tilt the cut and the circle stretches into an ellipse.', 'Cut a cylinder along its length and you get a rectangle. A sphere is different: every slice of it is a circle.'],
+      scanner: ['🩻', 'Slices tell the shape', 'A stack of slices is like a map of the solid: watch how they grow and shrink from top to bottom.', 'Doctors read the body this way: a scanner takes many thin slices and a computer stacks them.']
+    },
+    facts: {
+      cube: [{ emo: '🖨️', text: 'A 3-D printer starts by cutting the model into hundreds of thin flat slices, then prints them one on top of another.', src: 'https://en.wikipedia.org/wiki/Slicer_(3D_printing)' }],
+      solids: [{ emo: '📜', text: 'Around 200 BC Apollonius of Perga wrote eight books about the curves you get by slicing a cone.', src: 'https://en.wikipedia.org/wiki/Apollonius_of_Perga' }],
+      scanner: [{ emo: '🏥', text: 'Godfrey Hounsfield built the first CT scanner; the first patient was scanned in 1971, and he shared the Nobel Prize in 1979.', src: 'https://en.wikipedia.org/wiki/Godfrey_Hounsfield' }]
+    },
+    secrets: { a: ['A square from a pyramid', 'Cut a triangle pyramid and find a square inside.'], b: ['A cube on its corner', 'Sweep a cut up through a cube standing on a corner.'] },
+    tetraText: 'Cut a pyramid made of four triangles halfway, parallel to two opposite edges: the slice is a perfect square.', cornerText: 'Stand a cube on a corner and slice it flat: point, triangle, hexagon, triangle, point.',
+    quiz: [
+      { q: 'What is the largest number of sides a slice of a cube can have?', opts: ['4', '5', '6'], ok: 2, hint: 'In the Cube tab, count the faces a tilted cut crosses.' },
+      { q: 'A cone stands on its base. A level (horizontal) cut gives…', opts: ['a circle', 'a triangle', 'an ellipse'], ok: 0, hint: 'In the Solids tab, pick the cone and set the tilt to 0.' },
+      { q: 'You tilt a cut through a sphere. The slice is…', opts: ['an ellipse', 'still a circle', 'a square'], ok: 1, hint: 'In the Solids tab, pick the sphere and tilt the cut.' }
+    ]
+  },
+  ru: {
+    name: 'Разрежь!', title: 'Разрежь!',
+    lines: [['Разрежь стеклянный куб', ' плоскостью.'], ['Наклони разрез', ' и посмотри, как меняется срез.'], ['Угадай спрятанное тело', ' по его срезам.']],
+    views: { cube: '🧊 Куб', solids: '🔷 Тела', scanner: '🩻 Сканер' },
+    tilt: 'наклон', turn: 'поворот', pos: 'положение', found: (k, n) => `найдено ${k} из ${n}`, allFound: 'найдены все 5',
+    sides: (n) => `сторон: ${n}`, shapes: { triangle: 'треугольник', square: 'квадрат', rectangle: 'прямоугольник', quad: 'четырёхугольник', pentagon: 'пятиугольник', hexagon: 'шестиугольник', circle: 'круг', ellipse: 'эллипс', mixed: 'кривая и отрезок' },
+    solidsNames: { cylinder: 'цилиндр', cone: 'конус', pyramid: 'пирамида', sphere: 'шар' },
+    cubeAsk: 'Может ли один плоский разрез куба дать шестиугольник (6 сторон)?', cubeOpts: ['Нет, не больше 4 сторон', 'Да, может', 'Нет, не больше 5 сторон'],
+    cubeRight: 'Верно! Наклони разрез к вершине, и он пересечёт все 6 граней.', cubeWrong: 'Смотри: разрез через середину, наклонённый к вершине, пересекает все 6 граней.',
+    solidsAsk: 'Наклоняем разрез цилиндра. Какой получится срез?', solidsOpts: ['круг', 'прямоугольник', 'эллипс'],
+    solidsRight: 'Верно! Косой разрез вытягивает круг в эллипс.', solidsWrong: 'Смотри на боковую панель, пока разрез наклоняется.',
+    scanAsk: 'Какое тело спряталось в сканере?', scanOpts: ['конус', 'шар', 'цилиндр'], round: (k) => `раунд ${k} из 3`, score: (s) => `очки: ${s}`, next: 'Дальше',
+    scanRight: 'Верно!', scanWrong: (name) => `Это был ${name}. Посмотри, как срезы растут и уменьшаются.`,
+    st: {
+      cube: ['🧊', 'Срез — плоская фигура', 'Там, где плоский разрез встречает тело, остаётся плоская фигура — сечение.', 'Каждая сторона среза куба лежит на одной его грани. У куба 6 граней, поэтому у среза не может быть больше 6 сторон.'],
+      solids: ['🔷', 'Круглые тела, круглые срезы', 'Разрежь цилиндр или конус поперёк — получится круг; наклони разрез — круг вытянется в эллипс.', 'Разрежь цилиндр вдоль — получится прямоугольник. Шар особенный: любой его срез — круг.'],
+      scanner: ['🩻', 'Срезы выдают форму', 'Стопка срезов — как карта тела: смотри, как они растут и уменьшаются сверху вниз.', 'Так врачи смотрят внутрь тела: сканер делает много тонких срезов, а компьютер складывает их в стопку.']
+    },
+    facts: {
+      cube: [{ emo: '🖨️', text: '3D-принтер сначала режет модель на сотни тонких плоских слоёв, а потом печатает их один на другом.', src: 'https://en.wikipedia.org/wiki/Slicer_(3D_printing)' }],
+      solids: [{ emo: '📜', text: 'Около 200 года до н. э. Аполлоний Пергский написал восемь книг о кривых, которые получаются, если разрезать конус.', src: 'https://en.wikipedia.org/wiki/Apollonius_of_Perga' }],
+      scanner: [{ emo: '🏥', text: 'Первый компьютерный томограф построил Годфри Хаунсфилд; первого пациента обследовали в 1971 году, а в 1979-м Хаунсфилд получил Нобелевскую премию.', src: 'https://en.wikipedia.org/wiki/Godfrey_Hounsfield' }]
+    },
+    secrets: { a: ['Квадрат из пирамиды', 'Разрежь треугольную пирамиду и найди внутри квадрат.'], b: ['Куб на вершине', 'Проведи разрез снизу вверх через куб, стоящий на вершине.'] },
+    tetraText: 'Разрежь пирамиду из четырёх треугольников посередине, параллельно двум противоположным рёбрам: срез — ровный квадрат.', cornerText: 'Поставь куб на вершину и режь его горизонтально: точка, треугольник, шестиугольник, треугольник, точка.',
+    quiz: [
+      { q: 'Сколько сторон может быть у среза куба самое большее?', opts: ['4', '5', '6'], ok: 2, hint: 'Во вкладке «Куб» посчитай грани, которые пересекает наклонный разрез.' },
+      { q: 'Конус стоит на основании. Горизонтальный разрез даёт…', opts: ['круг', 'треугольник', 'эллипс'], ok: 0, hint: 'Во вкладке «Тела» выбери конус и поставь наклон 0.' },
+      { q: 'Наклоняешь разрез шара. Срез будет…', opts: ['эллипсом', 'всё равно кругом', 'квадратом'], ok: 1, hint: 'Во вкладке «Тела» выбери шар и наклони разрез.' }
+    ]
+  },
+  hu: {
+    name: 'Vágd szét!', title: 'Vágd szét!',
+    lines: [['Vágj el egy üvegkockát', ' egy síkkal.'], ['Döntsd meg a vágást,', ' és nézd, hogyan változik a metszet.'], ['Találd ki az elrejtett testet', ' a szeleteiből.']],
+    views: { cube: '🧊 Kocka', solids: '🔷 Testek', scanner: '🩻 Szkenner' },
+    tilt: 'dőlés', turn: 'forgatás', pos: 'helyzet', found: (k, n) => `${k} / ${n} megvan`, allFound: 'mind az 5 megvan',
+    sides: (n) => `${n} oldal`, shapes: { triangle: 'háromszög', square: 'négyzet', rectangle: 'téglalap', quad: 'négyszög', pentagon: 'ötszög', hexagon: 'hatszög', circle: 'kör', ellipse: 'ellipszis', mixed: 'görbe és szakasz' },
+    solidsNames: { cylinder: 'henger', cone: 'kúp', pyramid: 'gúla', sphere: 'gömb' },
+    cubeAsk: 'Adhat-e egyetlen sík vágás a kockából hatszöget (6 oldalt)?', cubeOpts: ['Nem, legfeljebb 4 oldalt', 'Igen, adhat', 'Nem, legfeljebb 5 oldalt'],
+    cubeRight: 'Így van! Döntsd a vágást egy csúcs felé, és mind a 6 lapot elmetszi.', cubeWrong: 'Nézd: a közepén át, egy csúcs felé döntött vágás mind a 6 lapot elmetszi.',
+    solidsAsk: 'Megdöntjük a henger vágását. Milyen alakú a metszet?', solidsOpts: ['kör', 'téglalap', 'ellipszis'],
+    solidsRight: 'Így van! A ferde vágás ellipszissé nyújtja a kört.', solidsWrong: 'Figyeld az oldalsó panelt, ahogy a vágás dől.',
+    scanAsk: 'Melyik test rejtőzik a szkennerben?', scanOpts: ['kúp', 'gömb', 'henger'], round: (k) => `${k}. kör a 3-ból`, score: (s) => `pont: ${s}`, next: 'Tovább',
+    scanRight: 'Így van!', scanWrong: (name) => `Ez egy ${name} volt. Nézd, hogyan nőnek és fogynak a szeletek.`,
+    st: {
+      cube: ['🧊', 'A metszet sík alakzat', 'Ahol egy sík vágás találkozik a testtel, sík alakzat marad: a keresztmetszet.', 'A kocka metszetének minden oldala a kocka egy lapján fekszik. A kockának 6 lapja van, ezért a metszetnek legfeljebb 6 oldala lehet.'],
+      solids: ['🔷', 'Görbe testek, görbe metszetek', 'Vágd el a hengert vagy a kúpot keresztben: kört kapsz; döntsd meg a vágást, és a kör ellipszissé nyúlik.', 'Ha a hengert hosszában vágod, téglalapot kapsz. A gömb más: minden metszete kör.'],
+      scanner: ['🩻', 'A szeletek elárulják az alakot', 'A szeletek halma olyan, mint a test térképe: figyeld, hogyan nőnek és fogynak fentről lefelé.', 'Az orvosok így látnak bele a testbe: a szkenner sok vékony szeletet készít, a számítógép pedig egymásra rakja őket.']
+    },
+    facts: {
+      cube: [{ emo: '🖨️', text: 'A 3D-nyomtató először több száz vékony, sík rétegre vágja a modellt, aztán egymásra nyomtatja őket.', src: 'https://en.wikipedia.org/wiki/Slicer_(3D_printing)' }],
+      solids: [{ emo: '📜', text: 'Pergai Apollóniosz Kr. e. 200 körül nyolc könyvet írt azokról a görbékről, amelyeket a kúp elvágásával kapunk.', src: 'https://en.wikipedia.org/wiki/Apollonius_of_Perga' }],
+      scanner: [{ emo: '🏥', text: 'Az első CT-készüléket Godfrey Hounsfield építette; az első beteget 1971-ben vizsgálták meg vele, Hounsfield pedig 1979-ben Nobel-díjat kapott.', src: 'https://en.wikipedia.org/wiki/Godfrey_Hounsfield' }]
+    },
+    secrets: { a: ['Négyzet a gúlából', 'Vágj el egy háromszög alapú gúlát, és találj benne négyzetet.'], b: ['Kocka a csúcsán', 'Vezess végig alulról felfelé egy vágást a csúcsán álló kockán.'] },
+    tetraText: 'Vágd félbe a négy háromszögből álló gúlát két szemközti élével párhuzamosan: a metszet szabályos négyzet.', cornerText: 'Állítsd a kockát a csúcsára, és vágd vízszintesen: pont, háromszög, hatszög, háromszög, pont.',
+    quiz: [
+      { q: 'Legfeljebb hány oldala lehet egy kockametszetnek?', opts: ['4', '5', '6'], ok: 2, hint: 'A Kocka fülön számold meg, hány lapot metsz a ferde vágás.' },
+      { q: 'Egy kúp az alapján áll. A vízszintes vágás…', opts: ['kört ad', 'háromszöget ad', 'ellipszist ad'], ok: 0, hint: 'A Testek fülön válaszd a kúpot, és állítsd a dőlést 0-ra.' },
+      { q: 'Megdöntöd a gömb vágását. A metszet…', opts: ['ellipszis', 'továbbra is kör', 'négyzet'], ok: 1, hint: 'A Testek fülön válaszd a gömböt, és döntsd meg a vágást.' }
+    ]
+  },
+};
+const TOPICS = [
+  { id: 'mt_nRksLqt-iR', en: '3-D shapes (age 11+)', ru: 'Объёмные фигуры (11+ лет)', hu: 'Testek (11+ év)' },
+  { id: 'mt_vnJEztczji', en: 'Nets of 3-D Shapes', ru: 'Развёртки объёмных фигур', hu: 'Testek hálói' },
+];
+
+// --- small vector helpers (points and directions are [x, y, z], y is up) ---------------------------------------
+const TAU = Math.PI * 2;
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+const mul = (a, k) => [a[0] * k, a[1] * k, a[2] * k];
+const len = (a) => Math.hypot(a[0], a[1], a[2]);
+const unit = (a) => { const l = len(a) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+const mix3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+const easeOutBack = (t) => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+const c01 = (x) => Math.min(1, Math.max(0, x));
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+// two unit vectors that span the plane with normal n (right-handed: e1 x e2 = n)
+const basis = (n) => { const a = Math.abs(n[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0], e1 = unit(cross(a, n)); return [e1, cross(n, e1)]; };
+
+// --- solids: line segments in 3-D -------------------------------------------------------------------------------
+// seg = { a, b, n1, n2 (outward normals of the two faces that meet there), draw, curved (smooth surface), rim (edge of a flat cap) }
+const H = 1.2; // half height of the cylinder, cone and pyramid
+const mkSolid = (id, poly) => ({ id, poly, segs: [], verts: [], faces: [], Rb: 1.7, ymin: -1 });
+const seg = (S, a, b, n1, n2, o = {}) => S.segs.push({ a, b, n1, n2, draw: o.draw !== false, curved: !!o.curved, rim: !!o.rim });
+function finish(S) {
+  S.Rb = Math.max(...S.verts.map(len)); S.ymin = Math.min(...S.verts.map((p) => p[1]));
+  for (const f of S.faces) { f.c = mul(f.idx.map((i) => S.verts[i]).reduce(add, [0, 0, 0]), 1 / f.idx.length); }
+  return S;
+}
+function faceOrder(V, idx, n) { // vertex indices of one face, in order round it
+  const [e1, e2] = basis(n), c = mul(idx.map((i) => V[i]).reduce(add, [0, 0, 0]), 1 / idx.length);
+  return idx.slice().sort((i, j) => Math.atan2(dot(sub(V[i], c), e2), dot(sub(V[i], c), e1)) - Math.atan2(dot(sub(V[j], c), e2), dot(sub(V[j], c), e1)));
+}
+function mkCube() {
+  const S = mkSolid('cube', true);
+  for (let i = 0; i < 8; i++) S.verts.push([i & 1 ? 1 : -1, i & 2 ? 1 : -1, i & 4 ? 1 : -1]);
+  const V = S.verts;
+  for (let i = 0; i < 8; i++) for (let j = i + 1; j < 8; j++) {
+    const x = i ^ j; if (x !== 1 && x !== 2 && x !== 4) continue;
+    const k = x === 1 ? 0 : x === 2 ? 1 : 2, o = [0, 1, 2].filter((q) => q !== k), n1 = [0, 0, 0], n2 = [0, 0, 0];
+    n1[o[0]] = V[i][o[0]]; n2[o[1]] = V[i][o[1]];
+    seg(S, V[i], V[j], n1, n2);
+  }
+  for (let k = 0; k < 3; k++) for (const sg of [-1, 1]) {
+    const n = [0, 0, 0]; n[k] = sg;
+    S.faces.push({ idx: faceOrder(V, [0, 1, 2, 3, 4, 5, 6, 7].filter((i) => V[i][k] === sg), n), n });
+  }
+  return finish(S);
+}
+function mkTetra() { // regular tetrahedron: four corners of a cube
+  const S = mkSolid('tetra', true);
+  S.verts = [[1, 1, 1], [1, -1, -1], [-1, 1, -1], [-1, -1, 1]];
+  const V = S.verts, fn = V.map((v) => mul(unit(v), -1)); // the face opposite corner k looks away from it
+  for (let i = 0; i < 4; i++) for (let j = i + 1; j < 4; j++) {
+    const o = [0, 1, 2, 3].filter((q) => q !== i && q !== j);
+    seg(S, V[i], V[j], fn[o[0]], fn[o[1]]);
+  }
+  for (let k = 0; k < 4; k++) S.faces.push({ idx: faceOrder(V, [0, 1, 2, 3].filter((q) => q !== k), fn[k]), n: fn[k] });
+  return finish(S);
+}
+function mkPyramid() {
+  const S = mkSolid('pyramid', true);
+  S.verts = [[-1, -H, -1], [1, -H, -1], [1, -H, 1], [-1, -H, 1], [0, H, 0]];
+  const V = S.verts, sn = [[0, 1, -2 * H], [2 * H, 1, 0], [0, 1, 2 * H], [-2 * H, 1, 0]].map(unit); // side faces: -z, +x, +z, -x
+  const bn = [0, -1, 0];
+  for (let i = 0; i < 4; i++) seg(S, V[i], V[(i + 1) % 4], bn, sn[i]); // base edge i lies under side face i
+  const near = [[0, 3], [0, 1], [1, 2], [2, 3]]; // apex edge to corner i touches these two side faces
+  for (let i = 0; i < 4; i++) seg(S, V[4], V[i], sn[near[i][0]], sn[near[i][1]]);
+  S.faces.push({ idx: [0, 1, 2, 3], n: bn });
+  for (let i = 0; i < 4; i++) S.faces.push({ idx: [i, (i + 1) % 4, 4], n: sn[i] });
+  return finish(S);
+}
+const NG = 96;
+function mkCyl(Hh) {
+  const S = mkSolid('cylinder', false);
+  for (let i = 0; i < NG; i++) {
+    const f = i / NG * TAU, c = Math.cos(f), s = Math.sin(f), n = [c, 0, s];
+    seg(S, [c, -Hh, s], [c, Hh, s], n, n, { curved: true, draw: i % 4 === 0 });
+    S.verts.push([c, -Hh, s], [c, Hh, s]);
+  }
+  for (const y of [Hh, -Hh]) for (let i = 0; i < NG; i++) {
+    const f0 = i / NG * TAU, f1 = (i + 1) / NG * TAU, fm = (f0 + f1) / 2;
+    seg(S, [Math.cos(f0), y, Math.sin(f0)], [Math.cos(f1), y, Math.sin(f1)], [0, Math.sign(y), 0], [Math.cos(fm), 0, Math.sin(fm)], { rim: true });
+  }
+  return finish(S);
+}
+function mkCone(Hh) {
+  const S = mkSolid('cone', false), apex = [0, Hh, 0], k = 2 * Hh;
+  S.verts.push(apex);
+  for (let i = 0; i < NG; i++) {
+    const f = i / NG * TAU, c = Math.cos(f), s = Math.sin(f), n = unit([k * c, 1, k * s]);
+    seg(S, apex, [c, -Hh, s], n, n, { curved: true, draw: i % 4 === 0 });
+    S.verts.push([c, -Hh, s]);
+  }
+  for (let i = 0; i < NG; i++) {
+    const f0 = i / NG * TAU, f1 = (i + 1) / NG * TAU, fm = (f0 + f1) / 2;
+    seg(S, [Math.cos(f0), -Hh, Math.sin(f0)], [Math.cos(f1), -Hh, Math.sin(f1)], [0, -1, 0], unit([k * Math.cos(fm), 1, k * Math.sin(fm)]), { rim: true });
+  }
+  return finish(S);
+}
+function mkSphere(R) {
+  const S = mkSolid('sphere', false), M = 48, N = 48;
+  const P = (th, f) => [R * Math.sin(th) * Math.cos(f), R * Math.cos(th), R * Math.sin(th) * Math.sin(f)];
+  for (let m = 0; m < M; m++) {
+    const f = m / M * TAU;
+    for (let i = 0; i < N; i++) {
+      const a = P(i / N * Math.PI, f), b = P((i + 1) / N * Math.PI, f), n = unit(add(a, b));
+      seg(S, a, b, n, n, { curved: true, draw: m % 4 === 0 });
+    }
+  }
+  for (let lat = -75; lat <= 75; lat += 15) {
+    const th = (90 - lat) * Math.PI / 180;
+    for (let i = 0; i < N; i++) {
+      const a = P(th, i / N * TAU), b = P(th, (i + 1) / N * TAU), n = unit(add(a, b));
+      seg(S, a, b, n, n, { curved: true, draw: lat % 30 === 0 });
+      S.verts.push(a);
+    }
+  }
+  S.verts.push([0, R, 0], [0, -R, 0]);
+  return finish(S);
+}
+function mkLyingCyl(L, R) { // axis along x
+  const S = mkSolid('cylinder', false);
+  for (let i = 0; i < NG; i++) {
+    const f = i / NG * TAU, c = Math.cos(f), s = Math.sin(f), n = [0, c, s];
+    seg(S, [-L, c, s], [L, c, s], n, n, { curved: true, draw: i % 4 === 0 });
+    S.verts.push([-L, c * R, s * R], [L, c * R, s * R]);
+  }
+  for (const x of [L, -L]) for (let i = 0; i < NG; i++) {
+    const f0 = i / NG * TAU, f1 = (i + 1) / NG * TAU, fm = (f0 + f1) / 2;
+    seg(S, [x, Math.cos(f0), Math.sin(f0)], [x, Math.cos(f1), Math.sin(f1)], [Math.sign(x), 0, 0], [0, Math.cos(fm), Math.sin(fm)], { rim: true });
+  }
+  return finish(S);
+}
+function rotSolid(S, id, ey, ex) { // new axes: ey becomes "up"
+  const ez = cross(ex, ey), f = (p) => [dot(ex, p), dot(ey, p), dot(ez, p)];
+  const O = mkSolid(id, S.poly);
+  O.verts = S.verts.map(f);
+  O.segs = S.segs.map((s) => ({ ...s, a: f(s.a), b: f(s.b), n1: f(s.n1), n2: f(s.n2) }));
+  O.faces = S.faces.map((q) => ({ idx: q.idx, n: f(q.n) }));
+  return finish(O);
+}
+const SOL = { cube: mkCube(), tetra: mkTetra(), pyramid: mkPyramid(), cylinder: mkCyl(H), cone: mkCone(H), sphere: mkSphere(1.2) };
+SOL.corner = rotSolid(SOL.cube, 'corner', unit([1, 1, 1]), unit([1, 0, -1])); // a cube standing on a corner
+function scaleSolid(S, id, k) {
+  const f = (p) => [p[0] * k[0], p[1] * k[1], p[2] * k[2]], O = mkSolid(id, S.poly);
+  O.verts = S.verts.map(f); O.segs = S.segs.map((q) => ({ ...q, a: f(q.a), b: f(q.b) })); O.faces = S.faces.map((q) => ({ idx: q.idx, n: q.n }));
+  return finish(O);
+}
+const BOX = scaleSolid(SOL.cube, 'box', [1.2, 1, 1]); // the same dark box stands in for every mystery object
+const SCN = ['cone', 'sphere', 'cylinder'];
+const SC = { cone: mkCone(1), sphere: mkSphere(1), cylinder: mkLyingCyl(1.2, 1) }; // the scanner's mystery objects: y from -1 to 1
+const SLY = [0, 1, 2, 3, 4, 5, 6].map((k) => 1 - (2 * k + 1) / 7); // heights of the 7 slices, top first
+
+// --- the cut: where a plane meets a convex solid ----------------------------------------------------------------
+// flags of a point: 1 = on a straight edge, 2 = on a smooth surface, 4 = on the edge of a flat cap
+function sectionOf(solid, n, d) {
+  const raw = [], eps = 1e-9;
+  for (const s of solid.segs) {
+    const da = dot(n, s.a) - d, db = dot(n, s.b) - d, f = s.rim ? 4 : s.curved ? 2 : 1;
+    if (Math.abs(da) < eps) raw.push({ p: s.a, f });
+    if (Math.abs(db) < eps) raw.push({ p: s.b, f });
+    if ((da < -eps && db > eps) || (da > eps && db < -eps)) raw.push({ p: mix3(s.a, s.b, da / (da - db)), f });
+  }
+  const out = [];
+  for (const q of raw) {
+    const hit = out.find((o) => Math.abs(o.p[0] - q.p[0]) + Math.abs(o.p[1] - q.p[1]) + Math.abs(o.p[2] - q.p[2]) < 1e-6);
+    if (hit) hit.f |= q.f; else out.push({ p: q.p, f: q.f });
+  }
+  return out;
+}
+function dropCollinear(P, tol) {
+  let again = true;
+  while (again && P.length > 3) {
+    again = false;
+    for (let i = 0; i < P.length; i++) {
+      const a = P[(i + P.length - 1) % P.length], b = P[i], c = P[(i + 1) % P.length];
+      const abx = b.u - a.u, aby = b.v - a.v, bcx = c.u - b.u, bcy = c.v - b.v;
+      if (Math.abs(abx * bcy - aby * bcx) < tol * Math.hypot(abx, aby) * Math.hypot(bcx, bcy) + 1e-12) { P.splice(i, 1); again = true; break; }
+    }
+  }
+  return P;
+}
+function axisInfo(P) { // the longest distance between two points, the direction of it, and the width across it
+  let D = 0, ia = 0, ib = 1;
+  for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++) {
+    const dd = Math.hypot(P[i].u - P[j].u, P[i].v - P[j].v);
+    if (dd > D) { D = dd; ia = i; ib = j; }
+  }
+  const ang = Math.atan2(P[ib].v - P[ia].v, P[ib].u - P[ia].u), nu = -Math.sin(ang), nv = Math.cos(ang);
+  let lo = 1e9, hi = -1e9;
+  for (const q of P) { const w = q.u * nu + q.v * nv; if (w < lo) lo = w; if (w > hi) hi = w; }
+  return { D, W: hi - lo, ang };
+}
+function quadKind(P) {
+  const sl = [], an = [];
+  for (let i = 0; i < 4; i++) {
+    const a = P[i], b = P[(i + 1) % 4], z = P[(i + 3) % 4];
+    sl.push(Math.hypot(b.u - a.u, b.v - a.v));
+    const x1 = z.u - a.u, y1 = z.v - a.v, x2 = b.u - a.u, y2 = b.v - a.v;
+    an.push(Math.acos(clamp((x1 * x2 + y1 * y2) / ((Math.hypot(x1, y1) * Math.hypot(x2, y2)) || 1), -1, 1)) * 180 / Math.PI);
+  }
+  const mean = (sl[0] + sl[1] + sl[2] + sl[3]) / 4;
+  const right = an.every((g) => Math.abs(g - 90) < 1), eq = sl.every((x) => Math.abs(x - mean) / mean < 0.02);
+  return right ? (eq ? 'square' : 'rectangle') : 'quad';
+}
+const NONE = { P: [], cls: { name: null, sides: null }, theta: 0 };
+function analyse(solid, n, d) {
+  const raw = sectionOf(solid, n, d);
+  if (raw.length < 3) return NONE;
+  const [e1, e2] = basis(n);
+  let P = raw.map((q) => ({ p: q.p, f: q.f, u: dot(q.p, e1), v: dot(q.p, e2), a: 0 }));
+  let cu = 0, cv = 0;
+  for (const q of P) { cu += q.u; cv += q.v; }
+  cu /= P.length; cv /= P.length;
+  for (const q of P) q.a = Math.atan2(q.v - cv, q.u - cu);
+  P.sort((x, y) => x.a - y.a);
+  const nL = P.filter((q) => (q.f & 2) && !(q.f & 4)).length;
+  let cls, theta;
+  if (!solid.poly && nL >= 3) {
+    const ax = axisInfo(P);
+    theta = ax.ang;
+    cls = P.some((q) => q.f & 4) ? { name: 'mixed', sides: null } : { name: ax.W / ax.D > 0.98 ? 'circle' : 'ellipse', sides: null };
+  } else {
+    P = dropCollinear(P, solid.poly ? 1e-6 : 0.03); // a smooth solid's near-straight side may carry a stray point
+    const m = P.length;
+    if (m < 3) return NONE;
+    cls = m === 3 ? { name: 'triangle', sides: 3 } : m === 4 ? { name: quadKind(P), sides: 4 } : m === 5 ? { name: 'pentagon', sides: 5 } : m === 6 ? { name: 'hexagon', sides: 6 } : { name: 'mixed', sides: null };
+    if (m <= 8) {
+      let best = -1; theta = 0;
+      for (let i = 0; i < m; i++) { const a = P[i], b = P[(i + 1) % m], l = Math.hypot(b.u - a.u, b.v - a.v); if (l > best) { best = l; theta = Math.atan2(b.v - a.v, b.u - a.u); } }
+    } else theta = axisInfo(P).ang;
+  }
+  return { P, cls, theta };
+}
+function extent(S, n) { let lo = 1e9, hi = -1e9; for (const p of S.verts) { const q = dot(n, p); if (q < lo) lo = q; if (q > hi) hi = q; } return [lo, hi]; }
+function planeFor(solid, P) { // tilt and turn give the normal; position runs through the solid's own extent along it
+  const t = P.tilt * Math.PI / 180, f = P.turn * Math.PI / 180;
+  const n = [Math.sin(t) * Math.cos(f), Math.cos(t), Math.sin(t) * Math.sin(f)], [lo, hi] = extent(solid, n);
+  return { n, d: (lo + hi) / 2 + P.pos * 0.96 * (hi - lo) / 2 };
+}
+
+// --- state -------------------------------------------------------------------------------------------------------
+const nowS = () => performance.now() / 1000;
+const SHAPES5 = ['triangle', 'square', 'rectangle', 'pentagon', 'hexagon'];
+const ORDERS = [[1, 0, 2], [2, 1, 0], [0, 2, 1]]; // which chip is right in rounds 1, 2, 3 (cone 0, sphere 1, cylinder 2)
+const S = {
+  yaw: -0.62, pitch: 0.4, touched: false, camT: null, camForce: false, sec: null, secT0: 0, planeA: 0, theta: null, conf: null, rk: '', game: 0,
+  cube: { tilt: 0, turn: 0, pos: 0, asked: false, ans: null, glide: null, found: { triangle: 0, square: 0, rectangle: 0, pentagon: 0, hexagon: 0 }, pop: '' },
+  sol: { id: 'cylinder', tilt: 0, turn: 0, pos: 0, asked: false, ans: null, glide: null },
+  scan: { round: 0, order: ORDERS[0], ans: null, score: 0, t0: nowS(), reveal: 0, sl: {} },
+};
+let dragEl = null;
+let lastDrag = '';
+const lab = shell({ key: 'cross-sections', T, topics: TOPICS, views: ['cube', 'solids', 'scanner'], onLang: render, onView: (v) => { S.sec = null; if (v === 'scanner') S.scan.t0 = nowS(); render(); } });
+const secret = secretLab('cross-sections', () => ({
+  secrets: [{ emo: '🔺', title: T[lang].secrets.a[0], desc: T[lang].secrets.a[1] }, { emo: '🎲', title: T[lang].secrets.b[0], desc: T[lang].secrets.b[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+// --- controls ----------------------------------------------------------------------------------------------------
+$('ctrlBody').innerHTML = `
+  <div id="csAsk" class="cs-ask"></div>
+  <div id="csSolids" class="chips"></div>
+  <div id="csSl">
+    <div class="cs-sr" id="csRowTilt"><span class="cs-l" id="csLTilt"></span><input class="big" type="range" min="0" max="80" step="any" value="0" data-k="tilt" aria-labelledby="csLTilt"><span class="cs-v" id="csVTilt"></span></div>
+    <div class="cs-sr" id="csRowTurn"><span class="cs-l" id="csLTurn"></span><input class="big" type="range" min="0" max="360" step="any" value="0" data-k="turn" aria-labelledby="csLTurn"><span class="cs-v" id="csVTurn"></span></div>
+    <div class="cs-sr" id="csRowPos"><span class="cs-l" id="csLPos"></span><input class="big" type="range" min="-1" max="1" step="any" value="0" data-k="pos" aria-labelledby="csLPos"><span class="cs-v" id="csVPos"></span></div>
+  </div>
+  <div id="csFound" class="chips"></div>
+  <div id="csNext" class="row2"><button class="btn" type="button" data-act="next" id="csNextB"></button></div>
+  <div id="csSec" class="row2"></div>`;
+dragEl = document.createElement('div'); dragEl.id = 'csDrag'; $('overlay').append(dragEl);
+
+const pts = (n, r, rot) => Array.from({ length: n }, (_, i) => { const a = (rot + i * 360 / n) * Math.PI / 180; return `${(7 + r * Math.cos(a)).toFixed(1)},${(7 + r * Math.sin(a)).toFixed(1)}`; }).join(' ');
+const ICONS = { triangle: pts(3, 6.6, -90), square: '2.5,2.5 11.5,2.5 11.5,11.5 2.5,11.5', rectangle: '0.8,3.6 13.2,3.6 13.2,10.4 0.8,10.4', pentagon: pts(5, 6.6, -90), hexagon: pts(6, 6.6, 0) };
+const svgIcon = (k) => `<svg class="cs-ic" viewBox="0 0 14 14" aria-hidden="true"><polygon points="${ICONS[k]}"/></svg>`;
+const foundCount = () => SHAPES5.filter((k) => S.cube.found[k]).length;
+const mystery = () => SCN[S.scan.order[S.scan.round]];
+
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+function startGlide(P, to, dur, delay = 0) {
+  if (reduceMotion) { Object.assign(P, to); P.glide = null; return false; }
+  P.glide = { t0: nowS() + delay, dur, from: { tilt: P.tilt, turn: P.turn, pos: P.pos }, to };
+  return true;
+}
+function stepGlide(P, now) { // true on the frame the glide ends
+  const g = P.glide; if (!g) return false;
+  const k = c01((now - g.t0) / g.dur), e = ease(k);
+  for (const key of ['tilt', 'turn', 'pos']) P[key] = g.from[key] + (g.to[key] - g.from[key]) * e;
+  if (k >= 1) { P.glide = null; return true; }
+  return false;
+}
+function currentParams() { return lab.view === 'cube' ? S.cube : S.sol; }
+function sceneInfo(now) { // the solid, the plane and the slice for the cube and solids views
+  const v = lab.view;
+  let solid, pl, show;
+  if (S.sec === 'a') { solid = SOL.tetra; pl = { n: [1, 0, 0], d: lerp(-0.7, 0, ease(c01((now - S.secT0) / 2.4))) }; show = true; }
+  else if (S.sec === 'b') { solid = SOL.corner; pl = { n: [0, 1, 0], d: -Math.sqrt(3) * 0.992 * Math.cos((now - S.secT0) / 9 * TAU) }; show = true; }
+  else { const P = currentParams(); solid = v === 'cube' ? SOL.cube : SOL[S.sol.id]; pl = planeFor(solid, P); show = P.asked; }
+  return { v, solid, pl, an: analyse(solid, pl.n, pl.d), show };
+}
+function checkFound() { // the child made a shape by moving a slider
+  if (lab.view !== 'cube' || S.sec) return;
+  const info = sceneInfo(nowS()), k = info.an.cls.name;
+  if (k && SHAPES5.includes(k) && !S.cube.found[k]) {
+    S.cube.found[k] = 1; S.cube.pop = k; sfx.good();
+    if (foundCount() === SHAPES5.length) { S.conf = { t0: nowS(), p: null }; }
+    render();
+  }
+}
+
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b) return;
+  const act = b.dataset.act, C = S.cube, O = S.sol, K = S.scan;
+  if (act === 'pick') {
+    const i = +b.dataset.i, v = lab.view;
+    if (v === 'cube' && C.ans === null) {
+      C.ans = i; C.asked = true; (i === 1 ? sfx.good : sfx.bad)();
+      startGlide(C, { tilt: Math.acos(1 / Math.sqrt(3)) * 180 / Math.PI, turn: 45, pos: 0 }, 1.5);
+      if (!C.glide) { C.found.hexagon = 1; C.pop = 'hexagon'; }
+      showStage();
+    } else if (v === 'solids' && O.ans === null) {
+      O.ans = i; O.asked = true; (i === 2 ? sfx.good : sfx.bad)();
+      Object.assign(O, { tilt: 0, turn: 0, pos: 0 });
+      startGlide(O, { tilt: 40, turn: 0, pos: 0 }, 1.8, 0.35);
+      showStage();
+    } else if (v === 'scanner' && K.ans === null) {
+      K.ans = i; if (i === K.order[K.round]) { K.score++; sfx.good(); } else sfx.bad();
+      showStage();
+    }
+  } else if (act === 'solid') { S.sol.id = b.dataset.id; sfx.click(); }
+  else if (act === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    S.sec = S.sec === b.dataset.k ? null : b.dataset.k; S.secT0 = nowS(); sfx.click();
+  } else if (act === 'next') {
+    if (K.round < 2) K.round++; else { K.round = 0; K.score = 0; S.game++; K.order = ORDERS[S.game % 3]; }
+    K.ans = null; K.t0 = nowS(); sfx.click();
+  }
+  render();
+});
+$('ctrlBody').addEventListener('input', (ev) => {
+  const el = ev.target.closest('input[data-k]'); if (!el) return;
+  const P = currentParams();
+  P[el.dataset.k] = +el.value; P.glide = null; S.touched = true;
+  syncSliders(false); checkFound();
+});
+['pointerdown'].forEach((e) => $('ctrl').addEventListener(e, () => { S.touched = true; }, { passive: true }));
+
+// drag the picture to turn the solid
+let drag = null;
+dragEl.addEventListener('pointerdown', (ev) => { drag = { id: ev.pointerId, x: ev.clientX, y: ev.clientY }; S.touched = true; try { dragEl.setPointerCapture(ev.pointerId); } catch { /* no capture */ } });
+dragEl.addEventListener('pointermove', (ev) => {
+  if (!drag || ev.pointerId !== drag.id) return;
+  S.yaw += (ev.clientX - drag.x) * 0.009; S.pitch = clamp(S.pitch + (ev.clientY - drag.y) * 0.009, -1.047, 1.047);
+  drag.x = ev.clientX; drag.y = ev.clientY;
+});
+const endDrag = (ev) => { if (drag && ev.pointerId === drag.id) drag = null; };
+dragEl.addEventListener('pointerup', endDrag); dragEl.addEventListener('pointercancel', endDrag);
+
+// --- drawing helpers ---------------------------------------------------------------------------------------------
+function layout(w, h, v) {
+  if (v === 'scanner') { const lw = Math.round(w * 0.54); return { solid: { x: 0, y: 0, w: lw, h }, card: { x: lw + 2, y: 6, w: w - lw - 8, h: h - 12 } }; }
+  if (w < 600) { const sh = Math.round(h * 0.66); return { solid: { x: 0, y: 0, w, h: sh }, card: { x: 10, y: sh + 2, w: w - 20, h: h - sh - 8 } }; }
+  const sw = Math.round(w * 0.62); return { solid: { x: 0, y: 0, w: sw, h }, card: { x: sw + 2, y: 6, w: w - sw - 8, h: h - 12 } };
+}
+function makeCam(rect, hs, fill) {
+  const cy_ = Math.cos(S.yaw), sy = Math.sin(S.yaw), cp = Math.cos(S.pitch), sp = Math.sin(S.pitch), D = 7;
+  const u = fill * Math.min(rect.w, rect.h) / (hs * 1.414), cx = rect.x + rect.w / 2, cy = rect.y + rect.h / 2;
+  const rot = (p) => { const x = p[0] * cy_ + p[2] * sy, z = -p[0] * sy + p[2] * cy_; return [x, p[1] * cp - z * sp, p[1] * sp + z * cp]; };
+  const proj = (p) => { const r = rot(p), k = D / (D - r[2]); return [cx + u * r[0] * k, cy - u * r[1] * k, r[2]]; };
+  return { rect, rot, proj, u, sp, C: [-D * cp * sy, D * sp, D * cp * cy_] };
+}
+function hull(pts) {
+  const p = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]), cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lo = [], up = [];
+  for (const q of p) { while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); }
+  for (let i = p.length - 1; i >= 0; i--) { const q = p[i]; while (up.length >= 2 && cr(up[up.length - 2], up[up.length - 1], q) <= 0) up.pop(); up.push(q); }
+  up.pop(); lo.pop();
+  return lo.concat(up);
+}
+const path = (c, P) => { c.beginPath(); P.forEach((q, i) => (i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]))); c.closePath(); };
+const LIGHT = unit([-0.45, 0.75, 0.5]);
+function pill(c, text, x, y, bx0, bx1) { // text on a dark rounded pill, kept inside [bx0, bx1]
+  c.save(); c.font = '800 13px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  const w = c.measureText(text).width + 20, X = clamp(x - w / 2, bx0 + 2, Math.max(bx0 + 2, bx1 - w - 2));
+  c.beginPath(); c.roundRect(X, y - 12, w, 24, 12); c.fillStyle = 'rgba(10,12,20,.84)'; c.fill();
+  c.lineWidth = 1; c.strokeStyle = 'rgba(244,201,93,.45)'; c.stroke();
+  c.fillStyle = '#fff'; c.fillText(text, X + w / 2, y + 1); c.restore();
+}
+function goldShape(c, P, a, dots) { // a flat gold slice, P = [[x, y], ...]
+  if (P.length < 3) return;
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  for (const q of P) { x0 = Math.min(x0, q[0]); y0 = Math.min(y0, q[1]); x1 = Math.max(x1, q[0]); y1 = Math.max(y1, q[1]); }
+  c.save(); c.globalAlpha *= a; c.lineJoin = 'round';
+  const g = c.createLinearGradient(x0, y0, x1 + 0.01, y1 + 0.01); g.addColorStop(0, '#ffe8a8'); g.addColorStop(1, '#f0bd48');
+  path(c, P); c.shadowColor = 'rgba(244,201,93,.75)'; c.shadowBlur = 14; c.fillStyle = g; c.fill();
+  c.shadowBlur = 0; c.lineWidth = 2; c.strokeStyle = '#c99a2e'; c.stroke();
+  if (dots) for (const q of P) { c.beginPath(); c.arc(q[0], q[1], 3.3, 0, TAU); c.fillStyle = '#fff6d6'; c.fill(); c.lineWidth = 1.2; c.strokeStyle = '#c99a2e'; c.stroke(); }
+  c.restore();
+}
+function drawShadow(c, cam, y, r, a) {
+  const [X, Y] = cam.proj([0, y, 0]), rx = cam.u * r * 1.15, ry = rx * Math.max(0.16, Math.abs(cam.sp));
+  c.save(); c.translate(X, Y); c.scale(1, ry / rx);
+  const g = c.createRadialGradient(0, 0, 0, 0, 0, rx); g.addColorStop(0, `rgba(0,0,0,${0.55 * a})`); g.addColorStop(1, 'rgba(0,0,0,0)');
+  c.fillStyle = g; c.beginPath(); c.arc(0, 0, rx, 0, TAU); c.fill(); c.restore();
+}
+function drawBed(c, cam, y, R) { // the scanner's round bed
+  const P = [], Q = [];
+  for (let i = 0; i < 56; i++) { const a = i / 56 * TAU, p = cam.proj([R * Math.cos(a), y, R * Math.sin(a)]); P.push(p); Q.push([p[0], p[1] + cam.u * 0.16]); }
+  c.save(); c.lineJoin = 'round';
+  path(c, Q); c.fillStyle = '#10142a'; c.fill();
+  const hp = hull(P.concat(Q));
+  path(c, hp); c.fillStyle = '#161b36'; c.fill(); c.lineWidth = 1; c.strokeStyle = 'rgba(154,209,255,.25)'; c.stroke();
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  for (const q of P) { x0 = Math.min(x0, q[0]); y0 = Math.min(y0, q[1]); x1 = Math.max(x1, q[0]); y1 = Math.max(y1, q[1]); }
+  const g = c.createLinearGradient(x0, y0, x1, y1); g.addColorStop(0, '#2d3560'); g.addColorStop(1, '#171c38');
+  path(c, P); c.fillStyle = g; c.fill(); c.strokeStyle = 'rgba(154,209,255,.35)'; c.stroke();
+  c.restore();
+}
+function drawGlass(c, cam, solid, a) { // the faces of the glass: a faint tint, lit from the top left
+  if (solid.poly) {
+    const fs = solid.faces.map((f) => ({ f, front: dot(f.n, sub(cam.C, f.c)) > 0 }));
+    for (const pass of [false, true]) for (const q of fs) {
+      if (q.front !== pass) continue;
+      const lit = Math.max(0, dot(cam.rot(q.f.n), LIGHT));
+      path(c, q.f.idx.map((i) => cam.proj(solid.verts[i]))); c.fillStyle = `rgba(154,209,255,${a * (pass ? 0.07 + 0.1 * lit : 0.04)})`; c.fill();
+    }
+  } else {
+    const hp = hull(solid.verts.map((p) => cam.proj(p)));
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    for (const q of hp) { x0 = Math.min(x0, q[0]); y0 = Math.min(y0, q[1]); x1 = Math.max(x1, q[0]); y1 = Math.max(y1, q[1]); }
+    const g = c.createLinearGradient(x0, y0, x1, y1); g.addColorStop(0, `rgba(200,230,255,${0.2 * a})`); g.addColorStop(1, `rgba(110,170,240,${0.05 * a})`);
+    path(c, hp); c.fillStyle = g; c.fill(); c.lineWidth = 1.3; c.strokeStyle = `rgba(154,209,255,${0.55 * a})`; c.stroke();
+  }
+}
+function collectEdges(cam, solid, pl) { // pieces of the drawn edges: in front of the plane or behind it, hidden by the solid or not
+  const out = { nv: [], nh: [], fv: [], fh: [] }, C = cam.C, dc = pl ? dot(pl.n, C) - pl.d : 0;
+  for (const s of solid.segs) {
+    if (!s.draw) continue;
+    const cv = sub(C, mix3(s.a, s.b, 0.5)), vis = dot(s.n1, cv) > 0 || dot(s.n2, cv) > 0;
+    const piece = (p, q, side) => {
+      const near = !pl || (side > 0) === (dc > 0), A = cam.proj(p), B = cam.proj(q);
+      out[(near ? 'n' : 'f') + (vis ? 'v' : 'h')].push([A[0], A[1], B[0], B[1]]);
+    };
+    if (!pl) { piece(s.a, s.b, 1); continue; }
+    const da = dot(pl.n, s.a) - pl.d, db = dot(pl.n, s.b) - pl.d;
+    if (da * db < 0) { const m = mix3(s.a, s.b, da / (da - db)); piece(s.a, m, da); piece(m, s.b, db); }
+    else piece(s.a, s.b, da + db);
+  }
+  return out;
+}
+function strokeLines(c, L, color, lw, dash, glow) {
+  if (!L.length) return;
+  c.save(); c.strokeStyle = color; c.lineWidth = lw; c.setLineDash(dash || []);
+  if (glow) { c.shadowColor = 'rgba(154,209,255,.55)'; c.shadowBlur = 6; }
+  c.beginPath(); for (const q of L) { c.moveTo(q[0], q[1]); c.lineTo(q[2], q[3]); } c.stroke(); c.restore();
+}
+function drawEdges(c, E, near, a) {
+  const k = near ? 'n' : 'f';
+  strokeLines(c, E[k + 'h'], `rgba(154,209,255,${0.35 * a})`, 1, [4, 4]);
+  strokeLines(c, E[k + 'v'], near ? `rgba(196,228,255,${0.97 * a})` : `rgba(154,209,255,${0.7 * a})`, near ? 1.7 : 1.4, null, near);
+}
+function drawQuad(c, cam, pl, hs, a) { // the cutting plane: a violet disc with a faint grid
+  const [e1, e2] = basis(pl.n), c0 = mul(pl.n, pl.d), at = (x, y) => cam.proj(add(c0, add(mul(e1, x * hs), mul(e2, y * hs))));
+  const Q = Array.from({ length: 64 }, (_, i) => at(Math.cos(i / 64 * TAU), Math.sin(i / 64 * TAU)));
+  c.save(); c.lineJoin = 'round';
+  path(c, Q); c.fillStyle = `rgba(179,157,219,${0.18 * a})`; c.fill();
+  c.strokeStyle = `rgba(179,157,219,${0.13 * a})`; c.lineWidth = 1; c.beginPath();
+  for (const f of [-0.5, 0, 0.5]) { const h2 = Math.sqrt(1 - f * f), p = at(f, -h2), q = at(f, h2), r = at(-h2, f), s2 = at(h2, f); c.moveTo(p[0], p[1]); c.lineTo(q[0], q[1]); c.moveTo(r[0], r[1]); c.lineTo(s2[0], s2[1]); }
+  c.stroke();
+  path(c, Q); c.strokeStyle = `rgba(179,157,219,${0.9 * a})`; c.lineWidth = 1; c.stroke();
+  c.restore();
+}
+function drawBox(c, cam, a) { // the hidden object: a dark frosted box, the same for every mystery
+  const fs = BOX.faces.map((f) => ({ f, front: dot(f.n, sub(cam.C, f.c)) > 0 }));
+  c.save(); c.lineJoin = 'round';
+  for (const pass of [false, true]) for (const q of fs) {
+    if (q.front !== pass) continue;
+    const lit = Math.max(0, dot(cam.rot(q.f.n), LIGHT)), P = q.f.idx.map((i) => cam.proj(BOX.verts[i]));
+    path(c, P);
+    c.fillStyle = pass ? `rgba(${44 + 40 * lit | 0},${54 + 44 * lit | 0},${92 + 50 * lit | 0},${0.94 * a})` : `rgba(20,25,46,${0.7 * a})`; c.fill();
+    c.lineWidth = 1.2; c.strokeStyle = pass ? `rgba(170,185,235,${0.4 * a})` : `rgba(130,145,190,${0.2 * a})`; c.stroke();
+  }
+  c.restore();
+}
+function drawRing(c, cam, y, R, a, front, fill) { // the scanner's gold ring
+  const N = 72, P = [];
+  for (let i = 0; i <= N; i++) P.push(cam.proj([R * Math.cos(i / N * TAU), y, R * Math.sin(i / N * TAU)]));
+  const zc = cam.proj([0, y, 0])[2];
+  c.save(); c.lineCap = 'round';
+  if (fill && !front) { path(c, P.slice(0, N)); c.fillStyle = `rgba(244,201,93,${0.08 * a})`; c.fill(); }
+  c.beginPath();
+  for (let i = 0; i < N; i++) if (((P[i][2] + P[i + 1][2]) / 2 > zc) === front) { c.moveTo(P[i][0], P[i][1]); c.lineTo(P[i + 1][0], P[i + 1][1]); }
+  c.strokeStyle = `rgba(244,201,93,${(front ? 1 : 0.55) * a})`; c.lineWidth = front ? 4.5 : 3;
+  if (front) { c.shadowColor = 'rgba(244,201,93,.8)'; c.shadowBlur = 12; }
+  c.stroke(); c.restore();
+}
+// one solid with its plane. o: alpha (of the glass), planeA, ring (R) instead of the violet sheet, bed, mystery, slice (an, a)
+function drawScene(c, cam, solid, pl, o) {
+  const ba = o.alpha, pa = o.planeA, r = cam.rect;
+  c.save(); c.beginPath(); c.rect(r.x, r.y, r.w, r.h); c.clip(); c.lineJoin = 'round'; c.lineCap = 'round';
+  if (o.bed) drawBed(c, cam, -1.25, 1.78);
+  drawShadow(c, cam, o.bed ? -1.24 : solid.ymin - 0.02, solid.Rb * 0.85, 1);
+  const withPlane = pl && pa > 0.01, E = ba > 0.01 ? collectEdges(cam, solid, withPlane ? pl : null) : null;
+  if (E) { drawGlass(c, cam, solid, ba); drawEdges(c, E, false, ba); }
+  if (o.ring && withPlane) drawRing(c, cam, pl.d, o.ring, pa, false, true);
+  if (o.mystery > 0.01) {
+    const [X, Y] = cam.proj([0, 0, 0]);
+    drawBox(c, cam, o.mystery);
+    c.save(); c.font = `900 ${Math.round(cam.u * 1.1)}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = `rgba(200,210,245,${0.45 * o.mystery})`; c.fillText('?', X, Y); c.restore();
+  }
+  if (withPlane && !o.ring) drawQuad(c, cam, pl, o.hs, pa);
+  let SP = null;
+  if (o.slice && o.slice.an.P.length >= 3) { SP = o.slice.an.P.map((q) => cam.proj(q.p)); goldShape(c, SP, o.slice.a, false); }
+  if (E) drawEdges(c, E, true, ba);
+  if (o.ring && withPlane) drawRing(c, cam, pl.d, o.ring, pa, true, false);
+  if (SP && o.slice.dots && o.slice.an.cls.sides) for (const q of SP) { c.beginPath(); c.arc(q[0], q[1], 3.3, 0, TAU); c.fillStyle = '#fff6d6'; c.fill(); c.lineWidth = 1.2; c.strokeStyle = '#c99a2e'; c.stroke(); }
+  c.restore();
+}
+function drawCard(c, R) {
+  c.save(); c.beginPath(); c.roundRect(R.x, R.y, R.w, R.h, 16); c.fillStyle = 'rgba(12,15,26,.72)'; c.fill();
+  c.lineWidth = 1; c.strokeStyle = 'rgba(130,145,190,.3)'; c.stroke(); c.restore();
+}
+function drawFlat(c, R, an, show, cam, dt, t) { // the slice laid flat, in true size and with its longest side level
+  drawCard(c, R);
+  c.save(); c.beginPath(); c.roundRect(R.x, R.y, R.w, R.h, 16); c.clip();
+  const capH = 36, cx = R.x + R.w / 2, cy = R.y + (R.h - capH) / 2 + 4;
+  const ps = Math.min(R.w * 0.92 / 3.3, (R.h - capH - 8) * 0.92 / 2.9, cam.u);
+  c.strokeStyle = 'rgba(130,145,190,.11)'; c.lineWidth = 1; c.beginPath();
+  for (let g = -4; g <= 4; g++) { c.moveTo(cx + g * ps, R.y); c.lineTo(cx + g * ps, R.y + R.h); c.moveTo(R.x, cy + g * ps); c.lineTo(R.x + R.w, cy + g * ps); }
+  c.stroke();
+  if (!show || an.P.length < 3) {
+    c.setLineDash([6, 5]); c.strokeStyle = 'rgba(244,201,93,.35)'; c.lineWidth = 1.5; c.beginPath(); c.roundRect(cx - ps, cy - ps, ps * 2, ps * 2, 10); c.stroke(); c.setLineDash([]);
+    c.font = `900 ${Math.round(ps * 1.1)}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = 'rgba(244,201,93,.4)'; c.fillText(show ? '·' : '?', cx, cy + 2);
+  } else {
+    if (S.theta === null) S.theta = an.theta;
+    let df = ((an.theta - S.theta + Math.PI / 2) % Math.PI + Math.PI) % Math.PI - Math.PI / 2; // shortest turn between directions (mod 180 degrees)
+    S.theta += df * (1 - Math.exp(-dt * 14));
+    const co = Math.cos(S.theta), si = Math.sin(S.theta);
+    const R2 = an.P.map((q) => [q.u * co + q.v * si, -q.u * si + q.v * co]);
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    for (const q of R2) { x0 = Math.min(x0, q[0]); y0 = Math.min(y0, q[1]); x1 = Math.max(x1, q[0]); y1 = Math.max(y1, q[1]); }
+    const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+    goldShape(c, R2.map((q) => [cx + (q[0] - mx) * ps, cy - (q[1] - my) * ps]), 1, an.cls.sides && an.cls.sides <= 6);
+  }
+  c.restore();
+  if (show && an.cls.name) {
+    const tt = T[lang], nm = tt.shapes[an.cls.name];
+    pill(c, an.cls.sides && R.w > 240 ? `${tt.sides(an.cls.sides)} · ${nm}` : nm, R.x + R.w / 2, R.y + R.h - 20, R.x, R.x + R.w);
+  }
+}
+function drawConfetti(c, w, h, dt, now) {
+  const K = S.conf; if (!K) return;
+  if (!K.p) K.p = Array.from({ length: 70 }, (_, i) => ({ x: w * (0.25 + 0.5 * Math.random()), y: -10 - Math.random() * 40, vx: (Math.random() - 0.5) * 160, vy: 40 + Math.random() * 120, r: Math.random() * TAU, vr: (Math.random() - 0.5) * 10, col: ['#f4c95d', '#b39ddb', '#9ad1ff', '#ffffff', '#3ddc97'][i % 5] }));
+  const age = now - K.t0; if (age > 2.6) { S.conf = null; return; }
+  c.save();
+  for (const q of K.p) {
+    q.vy += 260 * dt; q.x += q.vx * dt; q.y += q.vy * dt; q.r += q.vr * dt;
+    c.globalAlpha = c01(2.6 - age); c.save(); c.translate(q.x, q.y); c.rotate(q.r); c.fillStyle = q.col; c.fillRect(-3, -2, 6, 4); c.restore();
+  }
+  c.restore();
+}
+
+// --- the scanner: a gold ring goes down through the hidden object, seven slices pile up on the right -------------
+const TS = 6.8; // one sweep: 4.2 s down, hold, fade
+function scanSlices(id) {
+  if (!S.scan.sl[id]) S.scan.sl[id] = SLY.map((y) => analyse(SC[id], [0, 1, 0], y).P.map((q) => [q.p[0], q.p[2]]));
+  return S.scan.sl[id];
+}
+function drawScanner(c, w, h, dt, now) {
+  const K = S.scan, L = layout(w, h, 'scanner'), id = mystery();
+  const p = (((now - K.t0) % TS) + TS) % TS;
+  const s = p < 4.2 ? ease(p / 4.2) : 1, slA = p < 6 ? 1 : p < 6.5 ? 1 - (p - 6) / 0.5 : 0, ringA = p < 0.3 ? p / 0.3 : slA;
+  const ringY = 1.25 - 2.5 * s;
+  const tg = K.ans !== null ? 1 : 0; K.reveal += clamp(tg - K.reveal, -dt / 0.3, dt / 0.6);
+  const cam = makeCam(L.solid, 1.62, 0.6), pl = { n: [0, 1, 0], d: ringY };
+  const an = Math.abs(ringY) < 0.999 ? analyse(SC[id], pl.n, pl.d) : NONE;
+  drawScene(c, cam, SC[id], pl, { alpha: ease(K.reveal), planeA: ringA, ring: 1.62, bed: true, mystery: 1 - ease(K.reveal), slice: { an, a: ringA, dots: false } });
+  // the stack
+  const R = L.card; drawCard(c, R);
+  const sls = scanSlices(id), SQ = 0.42, pad = 14, thick = 5;
+  const avail = R.h - 2 * pad - thick, ps = Math.min(R.w * 0.86 / 2.4, avail / 3.84), sp = (avail - 0.84 * ps) / 6, cx = R.x + R.w / 2;
+  c.save(); c.beginPath(); c.roundRect(R.x, R.y, R.w, R.h, 16); c.clip(); c.lineJoin = 'round';
+  for (let k = 6; k >= 0; k--) {
+    const pk = c01((SLY[k] - ringY) / 0.3) * slA; if (pk < 0.01 || sls[k].length < 3) continue;
+    const cyk = R.y + pad + 0.42 * ps + k * sp, sc = 0.6 + 0.4 * easeOutBack(pk);
+    const T2 = sls[k].map((q) => [cx + q[0] * ps * sc, cyk + q[1] * ps * SQ * sc]);
+    c.save(); c.globalAlpha = c01(pk * 1.5);
+    path(c, T2.map((q) => [q[0], q[1] + thick])); c.fillStyle = '#8a6a1f'; c.fill();
+    const on = Math.abs(ringY - SLY[k]) < 0.14 && ringA > 0.5;
+    goldShape(c, T2, 1, false);
+    if (on) { path(c, T2); c.lineWidth = 2.5; c.strokeStyle = '#fff1c2'; c.stroke(); }
+    c.restore();
+  }
+  c.restore();
+}
+
+// --- the loop ----------------------------------------------------------------------------------------------------
+let readKey = '';
+// the camera keeps looking at the plane from a good angle: at most 55 degrees off its normal; after the hexagon reveal about 30
+function autoCam(n, dt) {
+  const cp = Math.cos(S.pitch), sp = Math.sin(S.pitch), cd = [-cp * Math.sin(S.yaw), sp, cp * Math.cos(S.yaw)];
+  const ns = dot(n, cd) >= 0 ? n : mul(n, -1), cosA = clamp(dot(ns, cd), -1, 1);
+  if (S.camForce || (!S.camT && Math.acos(cosA) > 0.96)) {
+    const phi = S.camForce ? 0.52 : 0.61; S.camForce = false;
+    let tv = sub(cd, mul(ns, cosA)); if (len(tv) < 1e-4) tv = cross(ns, Math.abs(ns[0]) < 0.9 ? [1, 0, 0] : [0, 0, 1]);
+    tv = unit(tv);
+    const v = add(mul(ns, Math.cos(phi)), mul(tv, Math.sin(phi)));
+    S.camT = { yaw: Math.atan2(-v[0], v[2]), pitch: clamp(Math.asin(clamp(v[1], -1, 1)), -1.047, 1.047) };
+  }
+  if (!S.camT) return;
+  const k = reduceMotion ? 1 : 1 - Math.exp(-dt * 5.5);
+  const dy = ((S.camT.yaw - S.yaw + Math.PI) % TAU + TAU) % TAU - Math.PI, dp = S.camT.pitch - S.pitch;
+  S.yaw += dy * k; S.pitch += dp * k;
+  if (Math.abs(dy) < 0.005 && Math.abs(dp) < 0.005) S.camT = null;
+}
+canvasLoop($('cv'), (c, w, h, dt, t) => {
+  const now = nowS(), v = lab.view;
+  if (!S.touched && !reduceMotion && (v === 'scanner' || S.planeA < 0.01)) S.yaw += dt * 0.3;
+  const L = layout(w, h, v), key = `${v}|${Math.round(L.solid.x)}|${Math.round(L.solid.y)}|${Math.round(L.solid.w)}|${Math.round(L.solid.h)}`;
+  if (key !== lastDrag) { lastDrag = key; Object.assign(dragEl.style, { left: `${L.solid.x}px`, top: `${L.solid.y}px`, width: `${L.solid.w}px`, height: `${L.solid.h}px` }); }
+  if (v === 'scanner') {
+    drawScanner(c, w, h, dt, now);
+    const K = S.scan, rk = `${K.round}|${K.score}`;
+    if (rk !== S.rk) { S.rk = rk; updateReadout(null); }
+    drawConfetti(c, w, h, dt, now);
+    return;
+  }
+  // glides of the plane
+  for (const P of [S.cube, S.sol]) {
+    if (stepGlide(P, now)) {
+      if (P === S.cube) { S.camT = null; S.camForce = true; P.found.hexagon = 1; P.pop = 'hexagon'; sfx.good(); if (foundCount() === 5) S.conf = { t0: now, p: null }; }
+      render();
+    }
+  }
+  if (S.cube.glide || S.sol.glide) syncSliders(true);
+  const info = sceneInfo(now); 
+  S.planeA += clamp((info.show ? 1 : 0) - S.planeA, -dt * 5, dt * 5);
+  if (drag) { S.camT = null; S.camForce = false; } else if (info.show) autoCam(info.pl.n, dt);
+  const hs = info.solid.Rb + 0.05, cam = makeCam(L.solid, Math.max(info.solid.Rb, 1.5), 0.636);
+  const pa = ease(S.planeA);
+  drawScene(c, cam, info.solid, info.pl, { alpha: 1, planeA: pa, hs, slice: info.show ? { an: info.an, a: pa, dots: true } : null });
+  drawFlat(c, L.card, info.an, info.show, cam, dt, now);
+  updateReadout(info);
+  drawConfetti(c, w, h, dt, now);
+});
+
+// --- readout, controls and state card, one render per change ------------------------------------------------------
+function updateReadout(info) {
+  const t = T[lang], v = lab.view, C = S.cube, O = S.sol, K = S.scan;
+  let val, sub, pill_, col;
+  if (v === 'scanner') { val = t.round(K.round + 1); sub = ''; pill_ = t.score(K.score); col = '#a9791a'; }
+  else if (v === 'cube') {
+    const k = foundCount(); pill_ = k === SHAPES5.length ? t.allFound : t.found(k, SHAPES5.length); col = '#7e63c4';
+    const nm = info && info.show ? info.an.cls.name : null;
+    if (!(info && info.show)) { val = '?'; sub = ''; } else if (!nm) { val = '–'; sub = ''; } else { val = info.an.cls.sides ? t.sides(info.an.cls.sides) : t.shapes[nm]; sub = info.an.cls.sides ? t.shapes[nm] : ''; }
+  } else {
+    pill_ = t.solidsNames[S.sol.id]; col = '#3f8fd6';
+    const nm = info && info.show ? info.an.cls.name : null;
+    if (!(info && info.show)) { val = '?'; sub = ''; } else if (!nm) { val = '–'; sub = ''; } else { val = t.shapes[nm]; sub = info.an.cls.sides ? t.sides(info.an.cls.sides) : ''; }
+  }
+  const key = `${lang}|${v}|${val}|${sub}|${pill_}`;
+  if (key === readKey) return;
+  readKey = key; lab.setReadout(esc(val), sub, pill_, col);
+}
+function askHTML(q, opts, right, ans, okTxt, badTxt) {
+  const chips = opts.map((o, i) => {
+    let cls = 'chip cs-pc';
+    if (ans !== null) cls += i === right ? ' cs-ok' : i === ans ? ' cs-bad' : ' cs-dim';
+    return `<button type="button" class="${cls}" data-act="pick" data-i="${i}">${esc(o)}</button>`;
+  }).join('');
+  const vd = ans === null ? '' : `<div class="cs-vd ${ans === right ? 'ok' : 'bad'}">${esc(ans === right ? okTxt : badTxt)}</div>`;
+  return `<div class="cs-q">${esc(q)}</div><div class="chips cs-cr">${chips}</div>${vd}`;
+}
+function syncSliders(skipActive) {
+  const P = currentParams(), t = T[lang];
+  for (const el of document.querySelectorAll('#csSl input[data-k]')) {
+    const k = el.dataset.k;
+    if (!(skipActive && document.activeElement === el)) el.value = String(P[k]);
+    $(k === 'tilt' ? 'csVTilt' : k === 'turn' ? 'csVTurn' : 'csVPos').textContent = k === 'pos' ? `${Math.round(P[k] * 100)}%` : `${Math.round(P[k])}°`;
+  }
+  $('csLTilt').textContent = t.tilt; $('csLTurn').textContent = t.turn; $('csLPos').textContent = t.pos;
+}
+function render() {
+  const t = T[lang], v = lab.view, C = S.cube, O = S.sol, K = S.scan;
+  document.body.dataset.v = v;
+  const isCube = v === 'cube', isSol = v === 'solids', isScan = v === 'scanner';
+  const P = currentParams(), asked = isCube ? C.asked : isSol ? O.asked : true;
+  let ask, ans;
+  if (isCube) { ans = C.ans; ask = askHTML(t.cubeAsk, t.cubeOpts, 1, ans, t.cubeRight, t.cubeWrong); }
+  else if (isSol) { ans = O.ans; ask = askHTML(t.solidsAsk, t.solidsOpts, 2, ans, t.solidsRight, t.solidsWrong); }
+  else { ans = K.ans; const rt = K.order[K.round]; ask = askHTML(t.scanAsk, t.scanOpts, rt, ans, t.scanRight, t.scanWrong(t.scanOpts[rt])); }
+  $('csAsk').innerHTML = ask; $('csAsk').className = 'cs-ask' + (ans !== null ? ' cs-done' : '');
+  // sliders: built once, only their state changes here
+  const locked = !asked || !!P.glide || !!S.sec;
+  $('csSl').style.display = isScan ? 'none' : 'block'; $('csSl').classList.toggle('cs-off', locked);
+  $('csRowTurn').style.display = isCube || (isSol && O.id === 'pyramid') ? 'grid' : 'none';
+  const tl = document.querySelector('#csSl input[data-k=tilt]'); tl.max = isCube ? '80' : '90';
+  document.querySelectorAll('#csSl input').forEach((el) => { el.disabled = locked; });
+  syncSliders(false);
+  // chips
+  $('csFound').style.display = isCube && C.asked ? 'flex' : 'none'; // the shapes would give the answer away before the guess
+  $('csFound').innerHTML = SHAPES5.map((k) => `<span class="chip cs-chip${C.found[k] ? ' cs-got' : ''}${C.pop === k && C.found[k] ? ' cs-pop' : ''}" style="cursor:default">${svgIcon(k)}${esc(t.shapes[k])}</span>`).join('');
+  C.pop = '';
+  $('csSolids').style.display = isSol ? 'flex' : 'none';
+  $('csSolids').className = 'chips' + (O.asked ? '' : ' cs-off');
+  $('csSolids').innerHTML = ['cylinder', 'cone', 'pyramid', 'sphere'].map((k) => `<button type="button" class="chip cs-chip${O.id === k ? ' on' : ''}" data-act="solid" data-id="${k}">${esc(t.solidsNames[k])}</button>`).join('');
+  $('csNext').style.display = isScan && K.ans !== null ? 'flex' : 'none'; $('csNextB').textContent = `${t.next} →`;
+  const open = secret.unlocked();
+  $('csSec').style.display = isCube || isSol ? 'flex' : 'none';
+  $('csSec').className = 'row2' + (asked ? '' : ' cs-off');
+  $('csSec').innerHTML = [['a', '🔺'], ['b', '🎲']].map(([k, emo]) => `<button type="button" class="chip secret cs-chip ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`).join('');
+  // state card
+  lab.setGlow(isCube ? 'rgba(150, 120, 220, .28)' : isSol ? 'rgba(80, 150, 230, .28)' : 'rgba(224, 176, 80, .24)');
+  if (S.sec === 'a') lab.setState({ emo: '🔺', title: t.secrets.a[0], lead: t.tetraText, body: '', extra: '' });
+  else if (S.sec === 'b') lab.setState({ emo: '🎲', title: t.secrets.b[0], lead: t.cornerText, body: '', extra: '' });
+  else if (isScan && ans === null) lab.setState({ emo: '🤔', title: t.scanAsk, lead: '', body: '', extra: '' });
+  else if (isScan) { const s = t.st.scanner; lab.setState({ emo: s[0], title: s[1], lead: s[2], body: s[3], extra: '' }); }
+  else if (!asked) lab.setState({ emo: '🤔', title: isCube ? t.cubeAsk : t.solidsAsk, lead: '', body: '', extra: '' });
+  else { const s = isCube ? t.st.cube : t.st.solids; lab.setState({ emo: s[0], title: s[1], lead: s[2], body: s[3], extra: '' }); }
+  lab.setFacts(t.facts[isCube ? 'cube' : isSol ? 'solids' : 'scanner']);
+  readKey = '';
+  updateReadout(isScan ? null : sceneInfo(nowS()));
+}
+render();
+</script>
+</body>
+</html>
