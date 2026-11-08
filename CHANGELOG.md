@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-08
 
 ### Labs
+- New lab `learn-or-memorise` “Learned or Memorised?”: train a memorising robot and a rule-finding robot on alien fruits, test them on new ones, give them more examples, catch a cheat test (446). (#381)
 - New lab `pollination` “Little Helpers”: net an apple branch and count the apples, send ladybirds after aphids, watch beetles and worms recycle a cow pat (445). (#380)
 - New lab `mouse-dragon-me` “Mouse, Dragon or Me?”: try three voices in everyday situations and see how both children feel, say a kind and firm no, build an I-statement (444). (#379)
 - New lab `rome-falls` “How Rome Fell”: watch the Western Empire break up region by region, load a pillar with problems, follow the two halves of one empire (443). (#378)
