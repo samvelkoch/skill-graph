@@ -1,0 +1,834 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Between the Panels · Skill Graph</title>
+<meta name="description" content="Put a wordless comic in order, guess what happens in the gap between two panels, choose close or far shots, and hang speech balloons on the right speakers. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #cv, #gauge { display: none; }
+  #overlay > svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #overlay > svg[hidden] { display: none; }
+  #svBal { touch-action: none; }
+  .cm-p { cursor: pointer; }
+  .cm-p .cm-hl { opacity: 0; }
+  .cm-p.on .cm-hl { opacity: 1; }
+  .cm-slide { transition: transform .85s cubic-bezier(.3, .9, .25, 1); }
+  .cm-bal { cursor: grab; }
+  .cm-shot { cursor: pointer; }
+  .cm-door { transition: transform .7s cubic-bezier(.4, .1, .2, 1); }
+  .cm-rev { transition: transform .9s cubic-bezier(.2, .9, .25, 1.05), opacity .5s; }
+  #ctrlBody .chip { min-height: 36px; }
+  #ctrlBody .btn { min-height: 40px; padding: 9px 18px; }
+  #ctrlBody .btn:disabled { opacity: .35; cursor: default; }
+  .cm-opt { display: block; width: 100%; text-align: left; padding: 10px 14px; min-height: 40px; border-radius: 14px; border: 1px solid var(--stroke2);
+    background: rgba(130, 145, 190, .1); color: var(--ink); font-weight: 800; font-size: 14px; line-height: 1.3; cursor: pointer; margin-top: 8px; }
+  .cm-opt:hover:not(:disabled) { background: rgba(130, 145, 190, .22); }
+  .cm-opt.ok { border-color: var(--ok); background: rgba(61, 220, 151, .18); }
+  .cm-opt.no { border-color: #ff7a6b; background: rgba(255, 122, 107, .14); opacity: .8; }
+  .cm-n { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-weight: 700; }
+  .cm-qt { font: 500 20px/1.2 var(--serif); color: #fff; margin: 4px 0 2px; text-wrap: balance; }
+  .cm-verdict { font-weight: 900; margin-top: 10px; }
+  .cm-cap { font-size: 13px; color: var(--soft); margin: 4px 0 10px; line-height: 1.45; }
+  .cm-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+  .cm-sec { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--stroke); }
+  @media (max-width: 760px) {
+    #stage { height: min(96vw, 460px); }
+    .cm-qt { font-size: 18px; }
+  }
+  @media (min-width: 761px) {
+    #stage { height: clamp(420px, 52vw, 600px); }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, secretLab, sfx, store, $, esc, clamp, lerp, ruPlural, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const SRC = {
+  order: 'Scott McCloud, "Understanding Comics" (1993), ch. 3.',
+  shots: 'The Walt Disney Family Museum, "The Storyboard"; Britannica, "Storyboard".',
+  balloons: 'Britannica, "Manga".',
+};
+const T = {
+  en: {
+    name: 'Between the Panels', title: 'What happens between the pictures?',
+    lines: [['Put the story', 'in order.'], ['Close or far:', 'pick the shot.'], ['Hang each balloon', 'on its speaker.']],
+    views: { order: '🔢 Order', shots: '🔍 Close or far', balloons: '💬 Balloons' },
+    o: {
+      pick: ['Put the story in order', 'Tap the pictures one by one, in the order the story goes. Numbers show your order. Tap a picture again to take it back.'],
+      ready: ['Happy with your order?', 'Press Check.'],
+      ok: ['Right!', 'The pictures follow each other, and a story appears.'],
+      bad: ['Not quite.', 'The pictures slid into the story’s order. Press Play to watch them move.'],
+      check: '✓ Check', shuffle: '↺ Shuffle', play: '▶ Play', stop: '■ Stop', gapBtn: '❓ Gap question', back: '← Pictures', sub: 'pictures numbered',
+      playT: ['The pictures become a film', 'Each picture is one frame. The frames in between are drawn for you.'],
+      gapT: 'What happened in between?', gapLead: 'These are pictures 2 and 4. Behind the door is picture 3: guess what it shows.',
+      gapOpts: ['The cat fell asleep on the table.', 'The bowl tipped over and splashed the cat.', 'The mouse brought the cat a towel.'], gapOk: 1,
+      gapRight: 'You filled the gap yourself, without a single word.', gapWrong: 'Picture 3 shows the bowl tipping over. The wet cat in picture 4 was the clue.',
+    },
+    sec: { film: ['Make it a film', 'Turn the pictures into a storyboard'], time: ['One panel, many times', 'The same picture twice, only the clock changes'] },
+    fl: { pan: 'pan', zin: 'zoom in', zout: 'zoom out', st: ['A storyboard', 'Dashed box: where the camera starts. Solid box: where it ends. The arrow shows the move.'],
+      play: '▶ Play film', playing: ['Action!', 'The camera moves as the arrows say.'] },
+    tm: { chips: [['1 minute', '1 minute later'], ['1 hour', '1 hour later'], ['5 hours', '5 hours later']],
+      st: ['Same picture, different time', 'Only the clock changed. The wider the gutter, the more time passes.'] },
+    s: {
+      names: { wide: 'Wide', mid: 'Medium', close: 'Close-up' },
+      q: ['Which shot shows where we are?', 'Which shot shows how scared the mouse is?', 'Which shot shows what both are doing?'],
+      cap: ['The wide shot shows the whole kitchen: that is where we are.', 'The close-up shows only the eyes, big and round: very scared.',
+        'The medium shot holds the cat and the mouse: the cat looks away, the mouse peeks.'],
+      pick: ['Which shot?', 'Tap the picture that answers the question.'], n: (i) => `Question ${i} of 3`, next: '→ Next', again: '↺ Again',
+      ok: 'Right!', bad: 'Not quite.', end: (k) => `${k} of 3 right.`,
+      endLead: 'The artist chooses how close we stand: wide for where, medium for what is going on, close-up for feelings.',
+    },
+    b: {
+      pick: ['Who is talking?', 'Drag each balloon onto the picture. Then drag the yellow dot at the end of its tail to the one who says or thinks it.'],
+      ready: ['Tails pointing?', 'When all three balloons are on the picture, press Check.'],
+      check: '✓ Check', reset: '↺ Start over', read: '📖 Reading order', back: '← Balloons', west: 'Left → right', manga: 'Manga: right → left',
+      ok: ['Right!', 'Every tail points to the one who says it.'], bad: (k) => [`${k} of 3 right.`, 'The wrong tails slid to the right speaker.'],
+      sub: 'balloons on the picture',
+      rdW: ['Read left to right', 'Start at the top left, go right, then down to the next row. Follow the numbers.'],
+      rdM: ['Manga reads right to left', 'Start at the top right, go left, then down. The pictures keep their order; the page is mirrored.'],
+      txt: { speech: ['Hello,', 'neighbour!'], thought: ['I’d love', 'a snack…'], shout: ['RUN!'] },
+    },
+    quiz: [
+      { q: 'Panel 1: a ball flies towards a window. Panel 2: broken glass on the floor. What did your mind add?', opts: ['Someone opened the window', 'Nothing happened in between', 'The ball hit the window'], ok: 2, hint: 'Think of the gap question in Order.' },
+      { q: 'To show how scared a character is, which shot works best?', opts: ['A close-up of its face', 'A wide view of the whole street', 'A view from far above'], ok: 0, hint: 'Try the three shots in Close or far.' },
+      { q: 'Whose words are in a speech balloon?', opts: ['The character nearest to it', 'The character its tail points to', 'The one at the top of the panel'], ok: 1, hint: 'Drag the balloon tails in Balloons.' },
+    ],
+    facts: {
+      order: [{ emo: '🕳️', text: 'The comics artist Scott McCloud called the empty strip between panels “the gutter”, and the reader’s filling-in “closure”: the story happens partly in your head.' }],
+      shots: [{ emo: '🎬', text: 'Storyboards, comic-like plans of a film shot by shot, were developed at the Walt Disney studio in the early 1930s.' }],
+      balloons: [{ emo: '📚', text: 'Japanese manga are read from right to left, starting at what a European reader would call the back of the book.' }],
+    },
+  },
+  ru: {
+    name: 'Между кадрами', title: 'Что происходит между картинками?',
+    lines: [['Расставь историю', 'по порядку.'], ['Близко или далеко:', 'выбери план.'], ['Повесь каждый пузырь', 'тому, кто говорит.']],
+    views: { order: '🔢 Порядок', shots: '🔍 Близко или далеко', balloons: '💬 Пузыри' },
+    o: {
+      pick: ['Расставь историю по порядку', 'Нажимай на картинки по одной в том порядке, в каком идёт история. Цифры показывают твой порядок. Нажми на картинку ещё раз, чтобы убрать её.'],
+      ready: ['Порядок устраивает?', 'Нажми «Проверить».'],
+      ok: ['Верно!', 'Картинки идут одна за другой — и получается история.'],
+      bad: ['Не совсем.', 'Картинки встали в порядок истории. Нажми «Смотреть», чтобы увидеть, как они оживают.'],
+      check: '✓ Проверить', shuffle: '↺ Перемешать', play: '▶ Смотреть', stop: '■ Стоп', gapBtn: '❓ Что между кадрами?', back: '← К картинкам', sub: 'картинок пронумеровано',
+      playT: ['Картинки оживают', 'Каждая картинка — один кадр. Промежуточные кадры дорисованы за тебя.'],
+      gapT: 'Что случилось между кадрами?', gapLead: 'Это картинки 2 и 4. За дверью картинка 3: угадай, что на ней.',
+      gapOpts: ['Кот уснул на столе.', 'Аквариум опрокинулся и окатил кота водой.', 'Мышка принесла коту полотенце.'], gapOk: 1,
+      gapRight: 'Ты сам заполнил пропуск — и без единого слова.', gapWrong: 'На картинке 3 аквариум опрокидывается. Мокрый кот на картинке 4 был подсказкой.',
+    },
+    sec: { film: ['Сделай фильм', 'Превратить картинки в раскадровку'], time: ['Один кадр, много времени', 'Одна и та же картинка дважды, меняются только часы'] },
+    fl: { pan: 'панорама', zin: 'наезд', zout: 'отъезд', st: ['Раскадровка', 'Пунктир — где камера начинает, сплошная рамка — где заканчивает. Стрелка показывает движение.'],
+      play: '▶ Запустить фильм', playing: ['Мотор!', 'Камера движется так, как показывают стрелки.'] },
+    tm: { chips: [['1 минута', 'Через 1 минуту'], ['1 час', 'Через 1 час'], ['5 часов', 'Через 5 часов']],
+      st: ['Та же картинка, другое время', 'Изменились только часы. Чем шире канавка, тем больше времени прошло.'] },
+    s: {
+      names: { wide: 'Общий', mid: 'Средний', close: 'Крупный' },
+      q: ['Какой план показывает, где мы находимся?', 'Какой план показывает, как сильно испугалась мышка?', 'Какой план показывает, что делают оба?'],
+      cap: ['Общий план показывает всю кухню: вот где мы.', 'Крупный план — только глаза, большие и круглые: очень страшно.',
+        'На среднем плане кот и мышка вместе: кот смотрит в сторону, мышка выглядывает.'],
+      pick: ['Какой план?', 'Нажми на картинку, которая отвечает на вопрос.'], n: (i) => `Вопрос ${i} из 3`, next: '→ Дальше', again: '↺ Ещё раз',
+      ok: 'Верно!', bad: 'Не совсем.', end: (k) => `Верно: ${k} из 3.`,
+      endLead: 'Художник выбирает, как близко мы стоим: общий план — где, средний — что происходит, крупный — что чувствует герой.',
+    },
+    b: {
+      pick: ['Кто говорит?', 'Перетащи каждый пузырь на картинку. Потом перетащи жёлтую точку на конце хвостика к тому, кто это говорит или думает.'],
+      ready: ['Хвостики на месте?', 'Когда все три пузыря на картинке, нажми «Проверить».'],
+      check: '✓ Проверить', reset: '↺ Сначала', read: '📖 Порядок чтения', back: '← К пузырям', west: 'Слева направо', manga: 'Манга: справа налево',
+      ok: ['Верно!', 'Каждый хвостик указывает на того, кто говорит.'], bad: (k) => [`Верно: ${k} из 3.`, 'Неверные хвостики переехали к тому, кто говорит.'],
+      sub: 'пузырей на картинке',
+      rdW: ['Читаем слева направо', 'Начни с верхнего левого угла, иди вправо, потом вниз, в следующий ряд. Следуй за цифрами.'],
+      rdM: ['Манга читается справа налево', 'Начни с верхнего правого угла, иди влево, потом вниз. Кадры идут в том же порядке, а страница зеркальная.'],
+      txt: { speech: ['Привет,', 'сосед!'], thought: ['Чего бы', 'поесть…'], shout: ['БЕГИ!'] },
+    },
+    quiz: [
+      { q: 'Кадр 1: мяч летит в окно. Кадр 2: на полу разбитое стекло. Что додумала твоя голова?', opts: ['Кто-то открыл окно', 'Между кадрами ничего не было', 'Мяч попал в окно'], ok: 2, hint: 'Вспомни вопрос про промежуток в «Порядке».' },
+      { q: 'Чтобы показать, как сильно испугался герой, какой план лучше?', opts: ['Крупный план лица', 'Общий вид всей улицы', 'Вид издалека сверху'], ok: 0, hint: 'Попробуй три плана в «Близко или далеко».' },
+      { q: 'Чьи слова в пузыре реплики?', opts: ['Того героя, кто ближе к пузырю', 'Того, на кого указывает хвостик', 'Того, кто выше всех в кадре'], ok: 1, hint: 'Потаскай хвостики пузырей в «Пузырях».' },
+    ],
+    facts: {
+      order: [{ emo: '🕳️', text: 'Художник комиксов Скотт Макклауд назвал пустую полоску между кадрами «канавкой» (gutter), а то, как читатель додумывает пропущенное, — «замыканием»: часть истории происходит у тебя в голове.' }],
+      shots: [{ emo: '🎬', text: 'Раскадровку — план фильма кадр за кадром, похожий на комикс, — придумали на студии Уолта Диснея в начале 1930-х.' }],
+      balloons: [{ emo: '📚', text: 'Японскую мангу читают справа налево — начиная с того, что европейский читатель назвал бы концом книги.' }],
+    },
+  },
+  hu: {
+    name: 'A képkockák között', title: 'Mi történik a képek között?',
+    lines: [['Rakd sorba', 'a történetet!'], ['Közel vagy távol:', 'válassz képet!'], ['Akaszd a buborékot', 'a beszélőre!']],
+    views: { order: '🔢 Sorrend', shots: '🔍 Közel vagy távol', balloons: '💬 Buborékok' },
+    o: {
+      pick: ['Rakd sorba a történetet!', 'Koppints a képekre egyenként, a történet sorrendjében. A számok mutatják a sorrendedet. Koppints újra egy képre, ha visszavennéd.'],
+      ready: ['Jó a sorrend?', 'Nyomd meg az Ellenőrzés gombot!'],
+      ok: ['Így van!', 'A képek egymás után sorakoznak, és történet lesz belőlük.'],
+      bad: ['Majdnem.', 'A képek a történet sorrendjébe csúsztak. Nyomd meg a Lejátszást, és nézd meg, hogyan mozognak!'],
+      check: '✓ Ellenőrzés', shuffle: '↺ Keverés', play: '▶ Lejátszás', stop: '■ Állj', gapBtn: '❓ Mi van közben?', back: '← A képek', sub: 'kép megszámozva',
+      playT: ['A képekből film lesz', 'Minden kép egy képkocka. A köztes kockákat helyetted megrajzoltuk.'],
+      gapT: 'Mi történt a két kép között?', gapLead: 'Ez a 2. és a 4. kép. Az ajtó mögött a 3. kép van: találd ki, mi látszik rajta!',
+      gapOpts: ['A macska elaludt az asztalon.', 'A tál felborult, és lefröcskölte a macskát.', 'Az egér törülközőt hozott a macskának.'], gapOk: 1,
+      gapRight: 'Te magad töltötted ki a hézagot, egyetlen szó nélkül.', gapWrong: 'A 3. képen a tál éppen felborul. A 4. kép vizes macskája volt a nyom.',
+    },
+    sec: { film: ['Csinálj filmet!', 'A képekből storyboard lesz'], time: ['Egy kép, sok idő', 'Ugyanaz a kép kétszer, csak az óra változik'] },
+    fl: { pan: 'pásztázás', zin: 'ráközelítés', zout: 'eltávolodás', st: ['Storyboard', 'Szaggatott keret: innen indul a kamera. Folytonos keret: itt ér véget. A nyíl a mozgást mutatja.'],
+      play: '▶ Film indítása', playing: ['Felvétel!', 'A kamera úgy mozog, ahogy a nyilak mutatják.'] },
+    tm: { chips: [['1 perc', '1 perc múlva'], ['1 óra', '1 óra múlva'], ['5 óra', '5 óra múlva']],
+      st: ['Ugyanaz a kép, más idő', 'Csak az óra változott. Minél szélesebb a sáv, annál több idő telt el.'] },
+    s: {
+      names: { wide: 'Távoli', mid: 'Közepes', close: 'Közeli' },
+      q: ['Melyik kép mutatja meg, hol vagyunk?', 'Melyik kép mutatja meg, mennyire fél az egér?', 'Melyik kép mutatja meg, mit csinál a két szereplő?'],
+      cap: ['A távoli kép az egész konyhát mutatja: itt vagyunk.', 'A közeli kép csak a szemét mutatja, nagyra tágulva: nagyon fél.',
+        'A közepes képen együtt van a macska és az egér: a macska félrenéz, az egér kikukucskál.'],
+      pick: ['Melyik kép?', 'Koppints arra a képre, amelyik válaszol a kérdésre!'], n: (i) => `${i}. kérdés a 3-ból`, next: '→ Tovább', again: '↺ Újra',
+      ok: 'Így van!', bad: 'Majdnem.', end: (k) => `3-ból ${k} jó.`,
+      endLead: 'A rajzoló választja meg, milyen közel vagyunk: távoli – hol, közepes – mi történik, közeli – mit érez a szereplő.',
+    },
+    b: {
+      pick: ['Ki beszél?', 'Húzd mindegyik buborékot a képre! Aztán húzd a farka végén lévő sárga pontot arra, aki mondja vagy gondolja!'],
+      ready: ['Jó helyen a farkak?', 'Ha mind a három buborék a képen van, nyomd meg az Ellenőrzést!'],
+      check: '✓ Ellenőrzés', reset: '↺ Elölről', read: '📖 Olvasási sorrend', back: '← Buborékok', west: 'Balról jobbra', manga: 'Manga: jobbról balra',
+      ok: ['Így van!', 'Minden farok arra mutat, aki mondja.'], bad: (k) => [`3-ból ${k} jó.`, 'A rossz farkak átcsúsztak a megfelelő beszélőre.'],
+      sub: 'buborék a képen',
+      rdW: ['Balról jobbra olvasunk', 'Kezdd a bal felső saroknál, menj jobbra, aztán le a következő sorba. Kövesd a számokat!'],
+      rdM: ['A mangát jobbról balra olvassák', 'Kezdd a jobb felső saroknál, menj balra, aztán le. A képek sorrendje ugyanaz, az oldal tükrözött.'],
+      txt: { speech: ['Szia,', 'szomszéd!'], thought: ['Most jólesne', 'egy falat…'], shout: ['FUSS!'] },
+    },
+    quiz: [
+      { q: '1. kép: egy labda repül az ablak felé. 2. kép: üvegcserepek a padlón. Mit tett hozzá a fejed?', opts: ['Valaki kinyitotta az ablakot', 'A kettő között nem történt semmi', 'A labda betörte az ablakot'], ok: 2, hint: 'Gondolj a hézagról szóló kérdésre a Sorrend részben!' },
+      { q: 'Melyik kép mutatja meg legjobban, mennyire fél egy szereplő?', opts: ['Közeli az arcáról', 'Távoli kép az egész utcáról', 'Messziről, felülről'], ok: 0, hint: 'Próbáld ki a három képet a Közel vagy távol részben!' },
+      { q: 'Kinek a szavai vannak egy szövegbuborékban?', opts: ['Azé, aki a legközelebb van hozzá', 'Azé, akire a buborék farka mutat', 'Azé, aki a kép tetején van'], ok: 1, hint: 'Húzogasd a buborékok farkát a Buborékok részben!' },
+    ],
+    facts: {
+      order: [{ emo: '🕳️', text: 'Scott McCloud képregényrajzoló a képek közötti üres sávot „ereszcsatornának” (gutter) nevezte, azt pedig, ahogy az olvasó kitölti a hiányt, „lezárásnak”: a történet egy része a fejedben játszódik.' }],
+      shots: [{ emo: '🎬', text: 'A storyboardot, a film képregényszerű, képről képre haladó tervét a Walt Disney stúdióban dolgozták ki az 1930-as évek elején.' }],
+      balloons: [{ emo: '📚', text: 'A japán mangát jobbról balra olvassák, attól az oldaltól kezdve, amit egy európai olvasó a könyv végének tartana.' }],
+    },
+  },
+};
+const TOPICS = [
+  { id: 'sg_art_36', en: 'Comics and Storyboards', ru: 'Комиксы и раскадровка', hu: 'Képregény és storyboard' },
+  { id: 'sg_art_14', en: 'Illustrating a Story', ru: 'Иллюстрирование сказки и рассказа', hu: 'Mese és történet illusztrálása' },
+];
+
+// --- drawing kit: inline SVG, ink outlines, soft cel shading, light from the top left ---------------------------
+const INK = '#3b2a24';
+const ease = (t) => (t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+const easeOut = (t) => 1 - Math.pow(1 - t, 3);
+const c01 = (x) => Math.min(1, Math.max(0, x));
+const DEFS = `<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<radialGradient id="gCat" cx=".35" cy=".3" r=".85"><stop offset="0" stop-color="#ffd3a0"/><stop offset=".55" stop-color="#f5a053"/><stop offset="1" stop-color="#d4702a"/></radialGradient>
+<linearGradient id="gWall" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fdf2d9"/><stop offset="1" stop-color="#edd6a4"/></linearGradient>
+<linearGradient id="gFloor" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#dcae78"/><stop offset="1" stop-color="#b8844f"/></linearGradient>
+<linearGradient id="gTable" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c8935f"/><stop offset="1" stop-color="#9a6439"/></linearGradient>
+<linearGradient id="gSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d4f0fd"/><stop offset="1" stop-color="#9fd2ee"/></linearGradient>
+<radialGradient id="gGlass" cx=".35" cy=".3" r=".85"><stop offset="0" stop-color="#fff" stop-opacity=".5"/><stop offset="1" stop-color="#cfeaf7" stop-opacity=".12"/></radialGradient>
+<linearGradient id="gWater" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#a6def8"/><stop offset="1" stop-color="#5eb1e0"/></linearGradient>
+<radialGradient id="gFish" cx=".35" cy=".3" r=".85"><stop offset="0" stop-color="#ffd27a"/><stop offset=".6" stop-color="#ff9a2a"/><stop offset="1" stop-color="#e5700f"/></radialGradient>
+<radialGradient id="gMouse" cx=".35" cy=".3" r=".85"><stop offset="0" stop-color="#e3e6ee"/><stop offset=".6" stop-color="#b4bac9"/><stop offset="1" stop-color="#8a91a4"/></radialGradient>
+<linearGradient id="gBucket" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#a8c9e8"/><stop offset=".5" stop-color="#7ea5cf"/><stop offset="1" stop-color="#5a82ae"/></linearGradient>
+<radialGradient id="gHole" cx=".5" cy=".7" r=".8"><stop offset="0" stop-color="#3a2a22"/><stop offset="1" stop-color="#120b08"/></radialGradient>
+<clipPath id="cpPanel"><rect width="170" height="150" rx="6"/></clipPath>
+<clipPath id="cpWide"><rect width="336" height="146" rx="6"/></clipPath>
+<clipPath id="cpSq"><rect width="162" height="140" rx="6"/></clipPath>
+<clipPath id="cpBig"><rect width="340" height="232" rx="6"/></clipPath>
+<marker id="mkY" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#f5c84c" stroke="#3b2a24" stroke-width="1"/></marker>
+<marker id="mkR" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#e5484d"/></marker>
+</defs></svg>`;
+
+// an eye with a white highlight; o: rx, ry, pr (pupil), wide, lx/ly (look, -1..1), closed, sulk (lid), lid colour
+function eye(x, y, o) {
+  const wide = o.wide || 0, rx = o.rx * (1 + .3 * wide), ry = o.ry * (1 + .35 * wide);
+  if (o.closed) return `<path d="M${x - rx},${y + 1} Q${x},${y - ry * 1.2} ${x + rx},${y + 1}" fill="none" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/>`;
+  const pr = Math.max(.8, o.pr - wide * .9), px = x + (o.lx || 0) * Math.max(0, rx - pr - .3), py = y + (o.ly || 0) * Math.max(0, ry - pr - .3);
+  let s = `<ellipse cx="${x}" cy="${y}" rx="${rx}" ry="${ry}" fill="#fff" stroke="${INK}" stroke-width="1.4"/>`;
+  s += `<circle cx="${px}" cy="${py}" r="${pr}" fill="${INK}"/><circle cx="${px + pr * .35}" cy="${py - pr * .4}" r="${Math.max(.5, pr * .38)}" fill="#fff"/>`;
+  if (o.sulk > 0) {
+    const lh = ry * (.35 + .75 * o.sulk * .6);
+    s += `<rect x="${x - rx - .6}" y="${y - ry - .8}" width="${2 * rx + 1.2}" height="${lh + .8}" fill="${o.lid || '#f0a050'}"/><path d="M${x - rx - .6},${y - ry + lh} H${x + rx + .6}" stroke="${INK}" stroke-width="1.4"/>`;
+  }
+  return s;
+}
+
+// Pip the cat; origin = feet, y up is negative. mouth: 0 smile, 1 open, 2 frown, 3 lick
+function cat(o = {}) {
+  const { x = 0, y = 0, s = 1, hx = 0, hy = 0, lx = 0, ly = 0, wide = 0, sulk = 0, wet = 0, reach = 0, tail = 0, mouth = 0 } = o;
+  const tcp = `M14,-9 C${lerp(32, 36, tail)},${lerp(-9, -8, tail)} ${lerp(38, 40, tail)},${lerp(-30, -1, tail)} ${lerp(34, 36, tail)},${lerp(-40, 6, tail)}`;
+  let g = `<g transform="translate(${x},${y}) scale(${s})">`;
+  g += `<ellipse cx="0" cy="0" rx="23" ry="4" fill="rgba(40,20,5,.2)"/>`;
+  g += `<path d="${tcp}" fill="none" stroke="${INK}" stroke-width="9" stroke-linecap="round"/><path d="${tcp}" fill="none" stroke="#f0933f" stroke-width="5.6" stroke-linecap="round"/>`;
+  g += `<ellipse cx="0" cy="-14" rx="19" ry="15" fill="url(#gCat)" stroke="${INK}" stroke-width="2"/><ellipse cx="0" cy="-10" rx="10" ry="9" fill="#ffe3b8" opacity=".8"/>`;
+  g += `<ellipse cx="-9" cy="-1.5" rx="6.6" ry="4" fill="url(#gCat)" stroke="${INK}" stroke-width="1.6"/><ellipse cx="9" cy="-1.5" rx="6.6" ry="4" fill="url(#gCat)" stroke="${INK}" stroke-width="1.6"/>`;
+  if (reach > .02) {
+    const ex = 8 + 10 + 26 * reach, ey = -20 - 3 * reach;
+    g += `<path d="M8,-19 L${ex},${ey}" stroke="${INK}" stroke-width="8.4" stroke-linecap="round"/><path d="M8,-19 L${ex},${ey}" stroke="#f5a053" stroke-width="5.2" stroke-linecap="round"/><circle cx="${ex}" cy="${ey}" r="4.4" fill="#ffc98e" stroke="${INK}" stroke-width="1.6"/>`;
+  }
+  if (wet > 0) g += `<ellipse cx="0" cy="-14" rx="19" ry="15" fill="rgba(60,120,190,${wet * .3})"/>`;
+  const d = sulk * 4;
+  g += `<g transform="translate(${hx},${-36 + hy})">`;
+  g += `<path d="M-13,${-5 + d} L${-11 - sulk * 5},${-21 + d * 2.4} L-2,-11 Z" fill="#f0933f" stroke="${INK}" stroke-width="2" stroke-linejoin="round"/><path d="M-10.5,${-9 + d} L${-9.5 - sulk * 4},${-17 + d * 2.2} L-5,-11.5 Z" fill="#f4a6b8"/>`;
+  g += `<path d="M13,${-5 + d} L${11 + sulk * 5},${-21 + d * 2.4} L2,-11 Z" fill="#f0933f" stroke="${INK}" stroke-width="2" stroke-linejoin="round"/><path d="M10.5,${-9 + d} L${9.5 + sulk * 4},${-17 + d * 2.2} L5,-11.5 Z" fill="#f4a6b8"/>`;
+  g += `<ellipse cx="0" cy="0" rx="15" ry="13.5" fill="url(#gCat)" stroke="${INK}" stroke-width="2"/>`;
+  g += `<path d="M-3,-12 L-2,-7 M0,-13 L0,-8 M3,-12 L2,-7" stroke="#c5622a" stroke-width="1.6" stroke-linecap="round"/><ellipse cx="0" cy="5.5" rx="8" ry="5.5" fill="#ffe6c4"/>`;
+  const ec = { rx: 4.2, ry: 4.8, pr: 2.4, wide, lx, ly, sulk };
+  g += eye(-6, -1, ec) + eye(6, -1, ec);
+  g += `<path d="M-1.9,3.6 L1.9,3.6 L0,5.8 Z" fill="#e8798f" stroke="${INK}" stroke-width="1" stroke-linejoin="round"/>`;
+  if (mouth === 1) g += `<ellipse cx="0" cy="9.6" rx="2.6" ry="3.2" fill="#7a2f3a" stroke="${INK}" stroke-width="1.1"/>`;
+  else if (mouth === 2) g += `<path d="M-4.2,10.6 Q0,6.6 4.2,10.6" fill="none" stroke="${INK}" stroke-width="1.5" stroke-linecap="round"/>`;
+  else {
+    g += `<path d="M-4.4,7.6 Q-2.2,10.4 0,6.4 Q2.2,10.4 4.4,7.6" fill="none" stroke="${INK}" stroke-width="1.4" stroke-linecap="round"/>`;
+    if (mouth === 3) g += `<ellipse cx="2.4" cy="10.6" rx="2" ry="2.4" fill="#f27b94" stroke="${INK}" stroke-width="1"/>`;
+  }
+  g += `<path d="M-9,4.5 L-20,2.5 M-9,7 L-20,8 M9,4.5 L20,2.5 M9,7 L20,8" stroke="${INK}" stroke-width=".9" stroke-linecap="round" opacity=".7"/>`;
+  if (wet > 0) g += `<ellipse cx="0" cy="0" rx="15" ry="13.5" fill="rgba(60,120,190,${wet * .3})"/><path d="M-8,-12 Q-6,-8 -9,-5 M6,-13 Q9,-9 6,-5" fill="none" stroke="rgba(40,70,120,${wet * .5})" stroke-width="1.4" stroke-linecap="round"/>`;
+  g += `</g>`;
+  if (wet > 0) {
+    const dr = (cx, cy, r) => `<path d="M${cx},${cy - r * 1.6} Q${cx + r},${cy} ${cx},${cy + r} Q${cx - r},${cy} ${cx},${cy - r * 1.6} Z" fill="#8fd0f2" stroke="#4f9bc4" stroke-width=".8" opacity="${wet}"/>`;
+    g += dr(-16, -4, 2.3) + dr(17, -10, 2) + dr(-3, 4, 1.8) + dr(-19, -26, 1.8 + sulk * .01);
+  }
+  return g + `</g>`;
+}
+
+// a mouse's head at its origin; scared: wide eyes and a drop of sweat
+function mouseHead(o = {}) {
+  const { wide = 0, lx = 0, ly = 0, laugh = 0 } = o;
+  let g = `<circle cx="-7" cy="-6.5" r="5.4" fill="url(#gMouse)" stroke="${INK}" stroke-width="1.8"/><circle cx="-7" cy="-6.5" r="3" fill="#f4a6b8"/>`;
+  g += `<circle cx="7" cy="-6.5" r="5.4" fill="url(#gMouse)" stroke="${INK}" stroke-width="1.8"/><circle cx="7" cy="-6.5" r="3" fill="#f4a6b8"/>`;
+  g += `<ellipse cx="0" cy="0" rx="8.6" ry="8" fill="url(#gMouse)" stroke="${INK}" stroke-width="1.9"/>`;
+  const ec = { rx: 2.9, ry: 3.3, pr: 1.7, wide, lx, ly, closed: laugh > .5 };
+  g += eye(-3.7, -1, ec) + eye(3.7, -1, ec);
+  g += `<ellipse cx="0" cy="3.4" rx="3.6" ry="2.6" fill="#e6e8ef" opacity=".8"/><circle cx="0" cy="2.7" r="1.5" fill="#e8798f" stroke="${INK}" stroke-width=".9"/>`;
+  if (laugh > .5) g += `<path d="M-3.4,4.6 Q0,10.4 3.4,4.6 Z" fill="#7a2f3a" stroke="${INK}" stroke-width="1.1" stroke-linejoin="round"/>`;
+  else if (wide > .4) g += `<ellipse cx="0" cy="5.6" rx="1.2" ry="1.5" fill="#7a2f3a"/>`;
+  g += `<path d="M-4,3.6 L-11,2.6 M-4,5 L-11,6.2 M4,3.6 L11,2.6 M4,5 L11,6.2" stroke="${INK}" stroke-width=".8" stroke-linecap="round" opacity=".7"/>`;
+  if (wide > .4) g += `<path d="M11,-6 Q13,-2 11,-1.2 Q9,-2 11,-6 Z" fill="#8fd0f2" stroke="#4f9bc4" stroke-width=".7"/>`;
+  return g;
+}
+function mouse(o = {}) {
+  const { x = 0, y = 0, s = 1, laugh = 0 } = o;
+  let g = `<g transform="translate(${x},${y}) scale(${s})"><ellipse cx="0" cy="0" rx="12" ry="2.6" fill="rgba(40,20,5,.2)"/>`;
+  g += `<path d="M7,-5 C20,-4 22,-14 30,-10" fill="none" stroke="${INK}" stroke-width="3.6" stroke-linecap="round"/><path d="M7,-5 C20,-4 22,-14 30,-10" fill="none" stroke="#f4a6b8" stroke-width="1.8" stroke-linecap="round"/>`;
+  g += `<ellipse cx="0" cy="-9" rx="8.5" ry="9" fill="url(#gMouse)" stroke="${INK}" stroke-width="1.9"/><ellipse cx="0" cy="-7" rx="4.6" ry="5.6" fill="#eceef4"/>`;
+  g += `<ellipse cx="-4" cy="-1" rx="3.6" ry="2" fill="#c9cedb" stroke="${INK}" stroke-width="1.3"/><ellipse cx="4" cy="-1" rx="3.6" ry="2" fill="#c9cedb" stroke="${INK}" stroke-width="1.3"/>`;
+  if (laugh > .5) g += `<ellipse cx="-8" cy="-9" rx="2.4" ry="2.1" fill="#c9cedb" stroke="${INK}" stroke-width="1.2"/><ellipse cx="8" cy="-9" rx="2.4" ry="2.1" fill="#c9cedb" stroke="${INK}" stroke-width="1.2"/>`;
+  g += `<g transform="translate(0,${-22 - laugh * 1}) rotate(${-laugh * 9})">${mouseHead(o)}</g></g>`;
+  return g;
+}
+
+// a goldfish, facing right (dir = 1) or left (dir = -1)
+function fish(o = {}) {
+  const { x = 0, y = 0, s = 1, rot = 0, joy = 0, dir = 1 } = o;
+  let g = `<g transform="translate(${x},${y}) rotate(${rot}) scale(${dir * s},${s})">`;
+  g += `<path d="M-8,0 C-13,-7 -18,-9 -17,-1 C-16.5,0 -16.5,1 -17,2 C-18,9 -13,7 -8,0 Z" fill="#ff7a14" stroke="${INK}" stroke-width="1.3" stroke-linejoin="round"/>`;
+  g += `<path d="M-3,-5.6 Q1,-12 6,-5.2 Z" fill="#ff8a1f" stroke="${INK}" stroke-width="1.2" stroke-linejoin="round"/>`;
+  g += `<ellipse cx="0" cy="0" rx="10" ry="6.5" fill="url(#gFish)" stroke="${INK}" stroke-width="1.5"/><ellipse cx="1" cy="-2.6" rx="5" ry="1.7" fill="#fff" opacity=".35"/>`;
+  g += `<path d="M-1,1.5 Q-5,7 1,7 Z" fill="#ff8a1f" stroke="${INK}" stroke-width="1.1" stroke-linejoin="round"/><path d="M2.4,-4 Q0.4,0 2.4,4" fill="none" stroke="rgba(130,50,0,.5)" stroke-width="1"/>`;
+  g += `<circle cx="5.6" cy="-1.4" r="2.4" fill="#fff" stroke="${INK}" stroke-width="1"/><circle cx="6.1" cy="-1.3" r="1.2" fill="${INK}"/><circle cx="6.5" cy="-1.8" r=".5" fill="#fff"/>`;
+  g += joy > .5 ? `<path d="M7.6,2 Q9,5 5.4,4.2 Z" fill="#a63a3a" stroke="${INK}" stroke-width=".9"/>` : `<path d="M8.6,1.8 Q7,3.6 5.4,2.6" fill="none" stroke="${INK}" stroke-width="1" stroke-linecap="round"/>`;
+  return g + `</g>`;
+}
+
+// the round bowl: water behind the fish, glass in front. A bowl is a sphere, so tilting it does not change its outline.
+function bowlBack(cx, cy, r, water) {
+  const d = r * (1 - 2 * water);
+  if (water <= .02) return '';
+  const w = Math.sqrt(Math.max(0, r * r - d * d));
+  return `<path d="M${cx - w},${cy + d} A${r},${r} 0 ${d < 0 ? 1 : 0} 0 ${cx + w},${cy + d} Z" fill="url(#gWater)" opacity=".85"/><ellipse cx="${cx}" cy="${cy + d}" rx="${w}" ry="${Math.min(2.4, w / 4)}" fill="#cdeefc" opacity=".85"/>`;
+}
+function bowlFront(cx, cy, r, th) {
+  const px = cx + r * .9 * Math.sin(th), py = cy - r * .9 * Math.cos(th);
+  return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="url(#gGlass)" stroke="#4f86a8" stroke-width="1.8"/>
+    <path d="M${cx - r * .66},${cy - r * .2} A${r * .68},${r * .68} 0 0 1 ${cx - r * .2},${cy - r * .66}" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" opacity=".85"/>
+    <ellipse cx="${px}" cy="${py}" rx="${r * .42}" ry="${r * .13}" transform="rotate(${th * 180 / Math.PI} ${px} ${py})" fill="rgba(255,255,255,.35)" stroke="#4f86a8" stroke-width="1.3"/>`;
+}
+const windowSVG = (x, y, w, h) => `<rect x="${x - 3}" y="${y - 3}" width="${w + 6}" height="${h + 6}" rx="3" fill="#a8703f" stroke="${INK}" stroke-width="2"/><rect x="${x}" y="${y}" width="${w}" height="${h}" fill="url(#gSky)"/>
+  <circle cx="${x + w * .72}" cy="${y + h * .3}" r="${h * .17}" fill="#fff6c2" opacity=".9"/><ellipse cx="${x + w * .3}" cy="${y + h * .62}" rx="${w * .2}" ry="${h * .09}" fill="#fff" opacity=".9"/>
+  <path d="M${x + w / 2},${y} V${y + h} M${x},${y + h / 2} H${x + w}" stroke="#a8703f" stroke-width="2.2"/><rect x="${x}" y="${y}" width="${w}" height="${h}" fill="none" stroke="${INK}" stroke-width="1.2"/>`;
+function clockSVG(cx, cy, r, min) {
+  const ha = (min / 720) * 2 * Math.PI, ma = ((min % 60) / 60) * 2 * Math.PI, hp = (a, l) => `${cx + Math.sin(a) * l},${cy - Math.cos(a) * l}`;
+  let g = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#fffdf5" stroke="${INK}" stroke-width="2.2"/>`;
+  for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6; g += `<path d="M${hp(a, r * .8)} L${hp(a, r * .92)}" stroke="${INK}" stroke-width="1.2"/>`; }
+  g += `<path d="M${cx},${cy} L${hp(ha, r * .5)}" stroke="${INK}" stroke-width="2.4" stroke-linecap="round"/><path d="M${cx},${cy} L${hp(ma, r * .76)}" stroke="${INK}" stroke-width="1.6" stroke-linecap="round"/><circle cx="${cx}" cy="${cy}" r="1.5" fill="#e5484d"/>`;
+  return g;
+}
+
+// --- the story: four poses of one kitchen scene, in panel coordinates 170 x 150 ----------------------------------
+const P0 = { cx: 30, cy: 120, hx: 0, hy: 0, lx: 0, ly: 0, wide: 0, sulk: 0, wet: 0, reach: 0, tail: 0, mouth: 0,
+  bowlA: 1, bx: 135, rot: 0, water: .85, splash: 0, fx: 135, fy: 66, fr: 0, joy: 0, mouseA: 0, laugh: 0, bucketA: 0, puddle: 0 };
+const A = { ...P0, hx: 2, hy: -1, lx: .8, ly: -.9 };
+const B = { ...A, cx: 80, cy: 78, hx: 5, hy: 0, lx: 1, ly: -.2, reach: 1, mouth: 3 };
+const C = { ...B, hx: 7, hy: -1, wide: 1, lx: .2, ly: .4, reach: .6, mouth: 1, bx: 150, rot: 42, water: .3, splash: 1, fx: 154, fy: 32, fr: -35 };
+const D = { ...P0, cy: 120, sulk: 1, wet: 1, tail: 1, mouth: 2, hy: 3, ly: .6, bowlA: 0, bx: 150, rot: 42, water: .3, fx: 128, fy: 98, fr: -15, joy: 1, mouseA: 1, laugh: 1, bucketA: 1, puddle: 1 };
+const POSES = [A, B, C, D];
+function mix(a, b, t, seg) {
+  const e = ease(t), o = {};
+  for (const k in P0) o[k] = lerp(a[k], b[k], e);
+  o.mouth = t < .5 ? a.mouth : b.mouth;
+  if (seg === 0) o.cy -= 24 * Math.sin(Math.PI * e);
+  return o;
+}
+
+function scene(p, o = {}) {
+  const r = 17, th = p.rot * Math.PI / 180, bcx = p.bx + r * Math.sin(th), bcy = 78 - r * Math.cos(th);
+  let s = `<rect width="170" height="150" fill="url(#gWall)"/>`;
+  for (let x = 6; x < 170; x += 22) s += `<rect x="${x}" y="0" width="9" height="112" fill="#fff" opacity=".16"/>`;
+  s += `<rect y="114" width="170" height="36" fill="url(#gFloor)"/><path d="M0,130 H170 M0,142 H170" stroke="rgba(80,40,10,.14)"/><rect y="111" width="170" height="5" fill="#fff5de" stroke="${INK}" stroke-width="1"/>`;
+  s += windowSVG(10, 10, 42, 34) + `<polygon points="14,46 50,46 122,114 72,114" fill="#fffbe0" opacity=".14"/>`;
+  if (o.clock !== undefined) s += clockSVG(96, 28, 13, o.clock);
+  s += `<ellipse cx="115" cy="121" rx="64" ry="4" fill="rgba(60,30,10,.18)"/>`;
+  s += `<rect x="58" y="86" width="7" height="32" fill="#9a6439" stroke="${INK}" stroke-width="1.6"/><rect x="158" y="86" width="7" height="32" fill="#9a6439" stroke="${INK}" stroke-width="1.6"/>`;
+  s += `<rect x="50" y="78" width="130" height="9" rx="3" fill="url(#gTable)" stroke="${INK}" stroke-width="2"/><path d="M55,80.2 H175" stroke="#fff" stroke-width="1.4" opacity=".35"/>`;
+  if (p.puddle > .01) s += `<ellipse cx="${p.cx}" cy="119" rx="${34 * p.puddle}" ry="${6 * p.puddle}" fill="rgba(110,180,225,.65)" stroke="rgba(60,120,170,.7)" stroke-width="1"/>`;
+  if (p.bucketA > .01) s += `<ellipse cx="128" cy="96" rx="14" ry="3.6" fill="#4d7aa6" stroke="${INK}" stroke-width="1.6" opacity="${p.bucketA}"/>`;
+  if (p.bowlA > .01) s += `<g opacity="${p.bowlA}">${bowlBack(bcx, bcy, r, p.water)}</g>`;
+  s += fish({ x: p.fx, y: p.fy, rot: p.fr, joy: p.joy });
+  if (p.bowlA > .01) s += `<g opacity="${p.bowlA}">${bowlFront(bcx, bcy, r, th)}</g>`;
+  if (p.bucketA > .01) s += `<g opacity="${p.bucketA}"><path d="M114,96 L117,120 H139 L142,96 Z" fill="url(#gBucket)" stroke="${INK}" stroke-width="2" stroke-linejoin="round"/><path d="M118,100 L120,116" stroke="#fff" stroke-width="2" opacity=".5" stroke-linecap="round"/><path d="M114,96 Q128,106 142,96" fill="none" stroke="${INK}" stroke-width="1.6"/></g>`;
+  if (p.mouseA > .01) s += `<g opacity="${p.mouseA}">${mouse({ x: 84, y: 120, laugh: p.laugh })}</g>`;
+  s += cat({ x: p.cx, y: p.cy, hx: p.hx, hy: p.hy, lx: p.lx, ly: p.ly, wide: p.wide, sulk: p.sulk, wet: p.wet, reach: p.reach, tail: p.tail, mouth: p.mouth });
+  if (p.splash > .02) {
+    [[18, -20, 3], [27, -8, 2.4], [31, 7, 2.8], [20, -31, 2.2], [35, -19, 2.6], [11, -32, 2], [29, 17, 2.2]].forEach(([dx, dy, rr]) => {
+      s += `<circle cx="${bcx + dx * p.splash}" cy="${bcy + dy * p.splash}" r="${rr}" fill="#9bd7f4" stroke="#4f9bc4" stroke-width=".9" opacity="${Math.min(1, p.splash * 1.3)}"/>`;
+    });
+  }
+  return s;
+}
+// a panel in its own group: shadow, scene clipped to the frame, thick ink outline
+const panelSVG = (p, o = {}) => `<rect x="3" y="4" width="170" height="150" rx="6" fill="#000" opacity=".16"/><g clip-path="url(#cpPanel)">${scene(p, o)}</g><rect width="170" height="150" rx="6" fill="none" stroke="${INK}" stroke-width="3"/>`;
+const pill = (x, y, txt, anchor = 'middle', size = 12.5) => {
+  const w = txt.length * size * .58 + 14;
+  const rx = anchor === 'middle' ? x - w / 2 : anchor === 'end' ? x - w : x;
+  return `<rect x="${rx}" y="${y - size - 2}" width="${w}" height="${size + 8}" rx="${(size + 8) / 2}" fill="rgba(20,20,34,.82)"/><text x="${rx + w / 2}" y="${y + 1}" text-anchor="middle" font-size="${size}" font-weight="800" fill="#fff" font-family="Nunito, sans-serif">${esc(txt)}</text>`;
+};
+const badge = (x, y, n, col = '#f5c84c', r = 11) => `<circle cx="${x}" cy="${y}" r="${r}" fill="${col}" stroke="${INK}" stroke-width="2"/><text x="${x}" y="${y + 5}" text-anchor="middle" font-size="14" font-weight="900" fill="${INK}" font-family="Nunito, sans-serif">${n}</text>`;
+
+// --- state -------------------------------------------------------------------------------------------------
+const shuffle = () => { let p; do { p = [0, 1, 2, 3]; for (let i = 3; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [p[i], p[j]] = [p[j], p[i]]; } } while (p.some((v, i) => v === i)); return p; };
+const SHOTQ = ['wide', 'close', 'mid'];
+const BK = ['speech', 'thought', 'shout'];
+const BWHO = ['fish', 'cat', 'mouse'];
+const BD = { speech: { rx: 48, ry: 24 }, thought: { rx: 48, ry: 24 }, shout: { rx: 47, ry: 28 } };
+const TRAY = [[68, 284], [180, 284], [292, 284]];
+const ZONE = { cat: { x: 80, y: 178, rx: 42, ry: 44, tx: 90, ty: 168 }, fish: { x: 194, y: 146, rx: 32, ry: 32, tx: 194, ty: 146 }, mouse: { x: 300, y: 196, rx: 28, ry: 36, tx: 300, ty: 186 } };
+const newBal = () => BK.map((k, i) => ({ x: TRAY[i][0], y: TRAY[i][1], tx: TRAY[i][0], ty: TRAY[i][1] + BD[k].ry + 16, wrong: false }));
+const S = {
+  mode: 'grid', perm: shuffle(), picks: [], checked: false, ok: false, gapPick: null, sec: null, filmPlaying: false, timeIdx: 1,
+  qi: 0, shotPick: null, right: [],
+  bal: newBal(), z: [0, 1, 2], balChecked: false, score: 0, read: false, manga: false, drag: null,
+};
+const lab = shell({ key: 'comics', T, topics: TOPICS, views: ['order', 'shots', 'balloons'], onLang: render, onView: () => { stopAnim(); if (S.mode === 'play') S.mode = 'grid'; S.filmPlaying = false; render(); } });
+const secret = secretLab('comics', () => ({
+  secrets: [{ emo: '🎬', title: T[lang].sec.film[0], desc: T[lang].sec.film[1] }, { emo: '⏳', title: T[lang].sec.time[0], desc: T[lang].sec.time[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+document.body.insertAdjacentHTML('beforeend', DEFS);
+$('overlay').innerHTML = `
+<svg id="svOrder" viewBox="0 0 360 336" preserveAspectRatio="xMidYMid meet" role="img"></svg>
+<svg id="svShots" viewBox="0 0 360 318" preserveAspectRatio="xMidYMid meet" role="img" hidden></svg>
+<svg id="svBal" viewBox="0 0 360 336" preserveAspectRatio="xMidYMid meet" role="img" hidden></svg>`;
+const slot = (k) => [10 + (k % 2) * 180, 12 + (k >> 1) * 162];
+
+// view 1 skeleton: the page, the four panels (built once so they can slide), and one group per mode
+$('svOrder').innerHTML = `<rect x="0" y="0" width="360" height="336" rx="14" fill="#f8f4ea"/>
+  <g id="oGrid">${[0, 1, 2, 3].map((p) => `<g class="cm-p cm-slide" data-p="${p}" style="transform:translate(10px,12px)">${panelSVG(POSES[p])}<rect class="cm-hl" x="-2" y="-2" width="174" height="154" rx="8" fill="none" stroke="#f5c84c" stroke-width="4"/><g class="cm-badge" style="display:none"></g></g>`).join('')}</g>
+  <g id="oPlay" style="display:none"><rect x="8" y="16" width="344" height="304" rx="10" fill="#fff"/><g transform="translate(10,18) scale(2)"><g clip-path="url(#cpPanel)" id="oPlayScene"></g></g><rect x="10" y="18" width="340" height="300" rx="10" fill="none" stroke="${INK}" stroke-width="4"/><g id="oPlayPill"></g></g>
+  <g id="oGap" style="display:none"></g>
+  <g id="oFilm" style="display:none"></g>
+  <g id="oFilmPlay" style="display:none"><rect x="8" y="16" width="344" height="304" rx="10" fill="#fff"/><g transform="translate(10,18) scale(2)"><g clip-path="url(#cpPanel)"><g id="oFilmScene"></g></g></g><rect x="10" y="18" width="340" height="300" rx="10" fill="none" stroke="${INK}" stroke-width="4"/><g id="oFilmPill"></g></g>
+  <g id="oTime" style="display:none"></g>`;
+
+// --- helpers: animation, scrolling -------------------------------------------------------------------------------
+let token = 0;
+const stopAnim = () => { token++; };
+function anim(dur, step, done) {
+  const my = ++token, t0 = performance.now();
+  const loop = (now) => { if (my !== token) return; const t = Math.min(1, (now - t0) / dur); step(t); if (t < 1) requestAnimationFrame(loop); else if (done) done(); };
+  requestAnimationFrame(loop);
+}
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+const show = (id, on) => { $(id).style.display = on ? '' : 'none'; };
+
+// --- view 1: order -------------------------------------------------------------------------------------------------
+const HOLD = .8, TW = 1;
+function playFrame(time) {
+  const seg = Math.min(3, Math.floor(time / (HOLD + TW))), u = time - seg * (HOLD + TW);
+  if (u < HOLD || seg === 3) return { p: POSES[seg], n: seg + 1 };
+  const t = (u - HOLD) / TW;
+  return { p: mix(POSES[seg], POSES[seg + 1], t, seg), n: t < .5 ? seg + 1 : seg + 2 };
+}
+function startPlay() {
+  S.mode = 'play'; sfx.click(); render();
+  const total = 3 * (HOLD + TW) + HOLD + .4;
+  anim(total * 1000, (t) => {
+    const f = playFrame(Math.min(total - .4, t * total));
+    $('oPlayScene').innerHTML = scene(f.p);
+    $('oPlayPill').innerHTML = badge(36, 46, f.n, '#f5c84c', 14);
+  }, () => { S.mode = 'grid'; render(); });
+}
+const CAM = [{ a: [60, 100, 1.3], b: [110, 62, 1.3], k: 'pan' }, { a: [95, 70, 1.05], b: [112, 60, 2], k: 'zin' },
+  { a: [85, 55, 1.4], b: [86, 38, 2.8], k: 'zin' }, { a: [40, 90, 2.2], b: [85, 75, 1], k: 'zout' }];
+const camFix = ([cx, cy, z]) => [clamp(cx, 85 / z, 170 - 85 / z), clamp(cy, 75 / z, 150 - 75 / z), z];
+function filmSVG(t) {
+  let s = `<rect x="0" y="0" width="360" height="336" rx="14" fill="#f8f4ea"/>`;
+  [0, 1, 2, 3].forEach((p) => {
+    const [x, y] = slot(p), c = CAM[p], a = camFix(c.a), b = camFix(c.b), box = ([cx, cy, z], dash) =>
+      `<rect x="${cx - 85 / z}" y="${cy - 75 / z}" width="${170 / z}" height="${150 / z}" fill="none" stroke="${dash ? '#fff' : '#f5c84c'}" stroke-width="2.4" ${dash ? 'stroke-dasharray="5 3"' : ''}/>`;
+    s += `<g transform="translate(${x},${y})">${panelSVG(POSES[p])}${box(a, true)}${box(b, false)}
+      <path d="M${a[0]},${a[1]} L${b[0]},${b[1]}" stroke="#e5484d" stroke-width="3" stroke-linecap="round" marker-end="url(#mkR)"/>
+      ${badge(14, 14, p + 1)}${pill(85, 140, t.fl[c.k])}</g>`;
+  });
+  return s;
+}
+function startFilm() {
+  S.filmPlaying = true; sfx.click(); render();
+  const SHOT = 2;
+  anim(SHOT * 4 * 1000, (t) => {
+    const time = t * SHOT * 4, i = Math.min(3, Math.floor(time / SHOT)), u = (time - i * SHOT) / SHOT, c = CAM[i];
+    const k = ease(c01((u - .1) / .8)), a = camFix(c.a), b = camFix(c.b), cam = [lerp(a[0], b[0], k), lerp(a[1], b[1], k), lerp(a[2], b[2], k)];
+    $('oFilmScene').setAttribute('transform', `translate(${85 - cam[0] * cam[2]} ${75 - cam[1] * cam[2]}) scale(${cam[2]})`);
+    $('oFilmScene').innerHTML = scene(POSES[i]);
+    $('oFilmPill').innerHTML = badge(36, 46, i + 1, '#f5c84c', 14) + pill(180, 304, T[lang].fl[c.k], 'middle', 13);
+  }, () => { S.filmPlaying = false; render(); });
+}
+const GAPPOS = { l: [10, 38], r: [200, 38] };
+function buildGap(t) {
+  const o = t.o;
+  let s = `<text x="180" y="26" text-anchor="middle" font-size="15" font-weight="900" fill="${INK}" font-family="Nunito, sans-serif">${esc(o.gapT)}</text>`;
+  s += `<g transform="translate(10,38) scale(.88)">${panelSVG(POSES[1])}${badge(14, 14, 2)}</g><g transform="translate(200,38) scale(.88)">${panelSVG(POSES[3])}${badge(14, 14, 4)}</g>`;
+  s += `<rect x="161" y="38" width="38" height="132" fill="#fff"/>`;
+  s += `<g class="cm-door" id="gapDoor" style="transform-origin:167px 110px"><path d="M167,160 V82 A13,13 0 0 1 193,82 V160 Z" fill="#a8703f" stroke="${INK}" stroke-width="2.2"/><circle cx="188" cy="118" r="2.4" fill="#f5c84c" stroke="${INK}" stroke-width="1"/><text x="180" y="116" text-anchor="middle" font-size="22" font-weight="900" fill="#fff" stroke="${INK}" stroke-width="1" font-family="Nunito, sans-serif" transform="translate(-4 0)">?</text></g>`;
+  s += `<g id="gapPlace"><rect x="105" y="186" width="150" height="132" rx="6" fill="rgba(0,0,0,.05)" stroke="rgba(59,42,36,.45)" stroke-width="2" stroke-dasharray="6 4"/><text x="180" y="266" text-anchor="middle" font-size="44" font-weight="900" fill="rgba(59,42,36,.35)" font-family="Nunito, sans-serif">?</text></g>`;
+  s += `<g id="gapRev"></g>`;
+  $('oGap').innerHTML = s;
+}
+function openGap() {
+  const door = $('gapDoor'); if (door) door.style.transform = 'scaleX(.06)';
+  $('gapPlace').style.display = 'none';
+  $('gapRev').innerHTML = `<g class="cm-rev" id="gapC" style="transform:translate(172px,70px) scale(.12);opacity:0">${panelSVG(POSES[2])}${badge(14, 14, 3)}</g>`;
+  void $('gapC').getBoundingClientRect();
+  requestAnimationFrame(() => { const c = $('gapC'); if (c) { c.style.transform = 'translate(105px,186px) scale(.88)'; c.style.opacity = '1'; } });
+}
+function buildTime(t) {
+  const idx = S.timeIdx, gut = [14, 50, 84][idx], mins = [1, 60, 300][idx], x0 = 40, top = 10;
+  const ph = 120, pw = 136, k = .8, y2 = top + ph + gut;
+  let s = `<rect x="0" y="0" width="360" height="336" rx="14" fill="#f8f4ea"/>`;
+  s += `<g transform="translate(${x0},${top}) scale(${k})">${panelSVG(A, { clock: 180 })}</g>`;
+  s += `<rect x="${x0}" y="${top + ph}" width="${pw}" height="${gut}" fill="#fff"/>`;
+  s += `<g transform="translate(${x0},${y2}) scale(${k})">${panelSVG(A, { clock: 180 + mins })}</g>`;
+  const cy = top + ph + gut / 2;
+  s += `<path d="M${x0 + pw / 2},${top + ph + 2} V${y2 - 4}" stroke="#a49a85" stroke-width="2.4" stroke-dasharray="2 5" stroke-linecap="round" marker-end="url(#mkR)"/>`;
+  s += pill(268, cy + 4, t.tm.chips[idx][1], 'middle', 14);
+  $('oTime').innerHTML = s;
+}
+function renderOrder(t) {
+  const o = t.o, film = S.sec === 'film', time = S.sec === 'time';
+  show('oGrid', !S.sec && S.mode === 'grid'); show('oPlay', !S.sec && S.mode === 'play'); show('oGap', !S.sec && S.mode === 'gap');
+  show('oFilm', film && !S.filmPlaying); show('oFilmPlay', film && S.filmPlaying); show('oTime', time);
+  if (film && !S.filmPlaying) $('oFilm').innerHTML = filmSVG(t);
+  if (time) buildTime(t);
+  // grid: positions, picked highlights and numbers
+  [0, 1, 2, 3].forEach((p) => {
+    const g = document.querySelector(`#oGrid .cm-p[data-p="${p}"]`), k = S.checked ? p : S.perm.indexOf(p), [x, y] = slot(k), n = S.picks.indexOf(p);
+    g.style.transform = `translate(${x}px,${y}px)`;
+    g.classList.toggle('on', n >= 0 && !S.checked);
+    const bd = g.querySelector('.cm-badge');
+    if (S.checked) { bd.style.display = ''; bd.innerHTML = badge(14, 14, p + 1, S.ok ? '#3ddc97' : '#f5c84c'); }
+    else if (n >= 0) { bd.style.display = ''; bd.innerHTML = badge(14, 14, n + 1); }
+    else bd.style.display = 'none';
+  });
+  lab.setGlow('rgba(242, 153, 74, .26)');
+  lab.setReadout(`${S.picks.length}/4`, o.sub, '', '#f2994a');
+  let st;
+  if (film) st = S.filmPlaying ? { emo: '🎬', title: t.fl.playing[0], lead: t.fl.playing[1] } : { emo: '🎞️', title: t.fl.st[0], lead: t.fl.st[1] };
+  else if (time) st = { emo: '⏳', title: t.tm.st[0], lead: t.tm.st[1] };
+  else if (S.mode === 'play') st = { emo: '🎞️', title: o.playT[0], lead: o.playT[1] };
+  else if (S.mode === 'gap') {
+    if (S.gapPick === null) st = { emo: '❓', title: o.gapT, lead: o.gapLead };
+    else { const r = S.gapPick === o.gapOk; st = { emo: r ? '✅' : '💭', title: r ? t.s.ok : t.s.bad, lead: r ? o.gapRight : o.gapWrong }; }
+  } else if (!S.checked) st = S.picks.length < 4 ? { emo: '🧩', title: o.pick[0], lead: o.pick[1] } : { emo: '🤔', title: o.ready[0], lead: o.ready[1] };
+  else st = S.ok ? { emo: '✅', title: o.ok[0], lead: o.ok[1] } : { emo: '🧩', title: o.bad[0], lead: o.bad[1] };
+  lab.setState({ ...st, body: '', extra: '' });
+  lab.setFacts(t.facts.order.map((f) => ({ ...f, src: SRC.order })));
+  // controls
+  let h = '';
+  if (!S.sec) {
+    if (S.mode === 'play') h = `<div class="cm-row"><button class="btn ghost" data-act="stop">${esc(o.stop)}</button></div>`;
+    else if (S.mode === 'gap') {
+      if (S.gapPick === null) h = o.gapOpts.map((tx, i) => `<button class="cm-opt" data-act="gapopt" data-i="${i}">${esc(tx)}</button>`).join('');
+      else h = o.gapOpts.map((tx, i) => `<div class="cm-opt ${i === o.gapOk ? 'ok' : i === S.gapPick ? 'no' : ''}">${esc(tx)}</div>`).join('') + `<div class="cm-row"><button class="btn" data-act="back">${esc(o.back)}</button></div>`;
+    } else if (!S.checked) h = `<div class="cm-row"><button class="btn" data-act="check"${S.picks.length < 4 ? ' disabled' : ''}>${esc(o.check)}</button><button class="btn ghost" data-act="shuffle">${esc(o.shuffle)}</button></div>`;
+    else h = `<div class="cm-row"><button class="btn" data-act="play">${esc(o.play)}</button><button class="btn" data-act="gap">${esc(o.gapBtn)}</button><button class="btn ghost" data-act="shuffle">${esc(o.shuffle)}</button></div>`;
+  } else if (film) h = S.filmPlaying ? `<div class="cm-row"><button class="btn ghost" data-act="stopfilm">${esc(o.stop)}</button></div>` : `<div class="cm-row"><button class="btn" data-act="playfilm">${esc(t.fl.play)}</button></div>`;
+  else h = `<div class="cm-row">${t.tm.chips.map((c, i) => `<button class="chip ${i === S.timeIdx ? 'on' : ''}" data-act="time" data-i="${i}">${esc(c[0])}</button>`).join('')}</div>`;
+  const open = secret.unlocked(), sc = (k, emo, nm) => `<button class="chip secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(nm)}` : '🔒 ???'}</button>`;
+  h += `<div class="cm-sec"><div class="chips">${sc('film', '🎬', t.sec.film[0])}${sc('time', '⏳', t.sec.time[0])}</div></div>`;
+  $('ctrlBody').innerHTML = h;
+}
+
+// --- view 2: close or far --------------------------------------------------------------------------------------
+function world() {
+  const hole = 'M44,114 L44,100 A16,16 0 0 1 76,100 L76,114 Z';
+  let s = `<rect x="-300" y="-300" width="900" height="414" fill="url(#gWall)"/>`;
+  for (let x = -300; x < 600; x += 24) s += `<rect x="${x}" y="-300" width="11" height="410" fill="#fff" opacity=".16"/>`;
+  s += `<rect x="-300" y="114" width="900" height="400" fill="url(#gFloor)"/><path d="M-300,134 H600 M-300,158 H600" stroke="rgba(80,40,10,.14)"/><rect x="-300" y="108" width="900" height="7" fill="#fff5de" stroke="${INK}" stroke-width="1"/>`;
+  s += windowSVG(226, 16, 70, 60) + `<polygon points="230,78 292,78 300,114 190,114" fill="#fffbe0" opacity=".14"/>`;
+  s += `<ellipse cx="144" cy="124" rx="46" ry="8" fill="#c8584a" stroke="${INK}" stroke-width="1.6"/>`;
+  s += `<path d="${hole}" fill="none" stroke="#8a5a35" stroke-width="6"/><path d="${hole}" fill="url(#gHole)" stroke="${INK}" stroke-width="2"/>`;
+  s += `<g transform="translate(60,106)">${mouseHead({ wide: 1, lx: 1, ly: 0 })}</g>`;
+  s += cat({ x: 144, y: 124, s: 1.15, hx: 2, lx: .9, ly: -.3, tail: 0, mouth: 0 });
+  return s;
+}
+const CAMS = {
+  wide: { x: 12, y: 10, w: 336, h: 146, cp: 'cpWide', cam: [168, 75, 1] },
+  mid: { x: 12, y: 166, w: 162, h: 140, cp: 'cpSq', cam: [104, 96, 1.35] },
+  close: { x: 186, y: 166, w: 162, h: 140, cp: 'cpSq', cam: [60, 106, 6.5] },
+};
+function buildShotsStatic() {
+  let s = `<rect x="0" y="0" width="360" height="318" rx="14" fill="#f8f4ea"/><defs><g id="cmWorld" class="ns">${world()}</g></defs>`;
+  for (const k in CAMS) {
+    const c = CAMS[k], [cx, cy, z] = c.cam;
+    s += `<g class="cm-shot" data-shot="${k}" transform="translate(${c.x},${c.y})"><rect x="3" y="4" width="${c.w}" height="${c.h}" rx="6" fill="#000" opacity=".16"/>
+      <g clip-path="url(#${c.cp})"><g class="ns" transform="translate(${c.w / 2 - cx * z} ${c.h / 2 - cy * z}) scale(${z})"><use href="#cmWorld"/></g></g>
+      <rect width="${c.w}" height="${c.h}" rx="6" fill="none" stroke="${INK}" stroke-width="3"/><rect class="cm-frame" width="${c.w}" height="${c.h}" rx="6" fill="none" stroke="transparent" stroke-width="6"/><g class="cm-lbl"></g></g>`;
+  }
+  $('svShots').innerHTML = s;
+}
+buildShotsStatic();
+const shotStyle = document.createElement('style'); shotStyle.textContent = '.ns *{vector-effect:non-scaling-stroke}'; document.head.append(shotStyle);
+function renderShots(t) {
+  const s = t.s, over = S.qi >= 3, ans = SHOTQ[Math.min(S.qi, 2)];
+  document.querySelectorAll('#svShots .cm-shot').forEach((g) => {
+    const k = g.dataset.shot, fr = g.querySelector('.cm-frame'), c = CAMS[k];
+    let col = 'transparent';
+    if (!over && S.shotPick !== null) col = k === ans ? '#3ddc97' : k === S.shotPick ? '#ff7a6b' : 'transparent';
+    fr.setAttribute('stroke', col);
+    g.querySelector('.cm-lbl').innerHTML = pill(c.w / 2, c.h - 8, s.names[k], 'middle', 13);
+  });
+  lab.setGlow('rgba(95, 143, 208, .26)');
+  const k = S.right.filter(Boolean).length;
+  let h = '', st;
+  if (over) {
+    lab.setReadout(`${k}/3`, '', '', '#5f8fd0');
+    st = { emo: '🏆', title: s.end(k), lead: s.endLead };
+    h = `<div class="cm-verdict">${esc(s.end(k))}</div><div class="cm-cap">${esc(s.endLead)}</div><div class="cm-row"><button class="btn" data-act="sagain">${esc(s.again)}</button></div>`;
+  } else {
+    lab.setReadout(`${S.qi + 1}/3`, '', '', '#5f8fd0');
+    h = `<div class="cm-n">${esc(s.n(S.qi + 1))}</div><div class="cm-qt">${esc(s.q[S.qi])}</div>`;
+    if (S.shotPick === null) { st = { emo: '🔍', title: s.q[S.qi], lead: s.pick[1] }; h += `<div class="cm-cap">${esc(s.pick[1])}</div>`; }
+    else {
+      const r = S.shotPick === ans;
+      st = { emo: r ? '✅' : '💭', title: r ? s.ok : s.bad, lead: s.cap[S.qi] };
+      h += `<div class="cm-verdict" style="color:${r ? 'var(--ok)' : 'var(--wip)'}">${esc(r ? s.ok : s.bad)}</div><div class="cm-cap">${esc(s.cap[S.qi])}</div><div class="cm-row"><button class="btn" data-act="snext">${esc(s.next)}</button></div>`;
+    }
+  }
+  lab.setState({ ...st, body: '', extra: '' });
+  lab.setFacts(t.facts.shots.map((f) => ({ ...f, src: SRC.shots })));
+  $('ctrlBody').innerHTML = h;
+}
+
+// --- view 3: balloons --------------------------------------------------------------------------------------------
+const balScene = () => {
+  let s = `<rect width="340" height="232" fill="url(#gWall)"/>`;
+  for (let x = 6; x < 340; x += 24) s += `<rect x="${x}" y="0" width="10" height="164" fill="#fff" opacity=".16"/>`;
+  s += `<rect y="166" width="340" height="66" fill="url(#gFloor)"/><path d="M0,190 H340 M0,212 H340" stroke="rgba(80,40,10,.14)"/><rect y="162" width="340" height="6" fill="#fff5de" stroke="${INK}" stroke-width="1"/>`;
+  s += windowSVG(262, 22, 56, 44);
+  s += `<ellipse cx="184" cy="170" rx="74" ry="5" fill="rgba(60,30,10,.18)"/><rect x="128" y="168" width="8" height="46" fill="#9a6439" stroke="${INK}" stroke-width="1.6"/><rect x="232" y="168" width="8" height="46" fill="#9a6439" stroke="${INK}" stroke-width="1.6"/>`;
+  s += `<rect x="118" y="158" width="132" height="11" rx="3" fill="url(#gTable)" stroke="${INK}" stroke-width="2"/>`;
+  s += bowlBack(184, 138, 20, .85) + fish({ x: 184, y: 142, s: 1.15, joy: 1, dir: -1, rot: -8 }) + bowlFront(184, 138, 20, 0);
+  s += cat({ x: 70, y: 206, s: 1.45, hx: 3, lx: 1, ly: -.25, wide: .25, mouth: 3 });
+  s += mouse({ x: 292, y: 212, s: 1.5, wide: 1, lx: -1, ly: -.2 });
+  return s;
+};
+function tailPath(b, k) {
+  const { rx, ry } = BD[k], dx = b.tx - b.x, dy = b.ty - b.y;
+  if (Math.hypot(dx / rx, dy / ry) < 1.15) return { back: '', front: '' };
+  const th = Math.atan2(dy / ry, dx / rx), pt = (a, m) => `${b.x + rx * m * Math.cos(a)},${b.y + ry * m * Math.sin(a)}`;
+  if (k === 'thought') {
+    const e = { x: b.x + rx * Math.cos(th), y: b.y + ry * Math.sin(th) }, L = Math.hypot(b.tx - e.x, b.ty - e.y);
+    return { back: [[.22, 6.5], [.55, 4.8], [.9, 3.2]].map(([f, r]) => `<circle cx="${e.x + (b.tx - e.x) * f}" cy="${e.y + (b.ty - e.y) * f}" r="${Math.min(r, L / 4)}" fill="#fff" stroke="${INK}" stroke-width="2"/>`).join(''), front: '' };
+  }
+  const w = k === 'shout' ? .2 : .3;
+  return {
+    back: `<path d="M${pt(th - w, 1)} L${b.tx},${b.ty} L${pt(th + w, 1)} Z" fill="${k === 'shout' ? '#fff3a8' : '#fff'}" stroke="${INK}" stroke-width="2.2" stroke-linejoin="round"/>`,
+    front: `<path d="M${pt(th - w + .03, .9)} L${b.x + (b.tx - b.x) * .97},${b.y + (b.ty - b.y) * .97} L${pt(th + w - .03, .9)} Z" fill="${k === 'shout' ? '#fff3a8' : '#fff'}"/>`,
+  };
+}
+function balloonSVG(i, t) {
+  const b = S.bal[i], k = BK[i], { rx, ry } = BD[k], lines = t.b.txt[k], tl = tailPath(b, k);
+  let body;
+  if (k === 'speech') body = `<ellipse cx="${b.x}" cy="${b.y}" rx="${rx}" ry="${ry}" fill="#fff" stroke="${INK}" stroke-width="2.2"/>`;
+  else if (k === 'thought') {
+    const bumps = Array.from({ length: 10 }, (_, j) => { const a = j * Math.PI / 5; return [b.x + (rx - 6) * Math.cos(a), b.y + (ry - 5) * Math.sin(a)]; });
+    body = bumps.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="9.5" fill="#fff" stroke="${INK}" stroke-width="2.2"/>`).join('') + `<ellipse cx="${b.x}" cy="${b.y}" rx="${rx - 6}" ry="${ry - 5}" fill="#fff" stroke="${INK}" stroke-width="2.2"/>`
+      + bumps.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="8.2" fill="#fff"/>`).join('') + `<ellipse cx="${b.x}" cy="${b.y}" rx="${rx - 7}" ry="${ry - 6}" fill="#fff"/>`;
+  } else {
+    const pts = Array.from({ length: 20 }, (_, j) => { const a = j * Math.PI / 10, m = j % 2 ? .76 : 1; return `${b.x + rx * m * Math.cos(a)},${b.y + ry * m * Math.sin(a)}`; }).join(' ');
+    body = `<polygon points="${pts}" fill="#fff3a8" stroke="${INK}" stroke-width="2.2" stroke-linejoin="round"/>`;
+  }
+  const fs = k === 'shout' ? 15 : 12.5, y0 = b.y + (lines.length === 1 ? fs * .35 : -fs * .1);
+  const txt = `<text text-anchor="middle" font-size="${fs}" font-weight="${k === 'shout' ? 900 : 800}" ${k === 'thought' ? 'font-style="italic"' : ''} fill="${INK}" font-family="Nunito, sans-serif">${lines.map((l, j) => `<tspan x="${b.x}" y="${y0 + j * 14}">${esc(l)}</tspan>`).join('')}</text>`;
+  let tip = '';
+  if (!S.balChecked) tip = `<circle cx="${b.tx}" cy="${b.ty}" r="8" fill="#f5c84c" stroke="${INK}" stroke-width="2.2"/><circle cx="${b.tx}" cy="${b.ty}" r="19" fill="rgba(0,0,0,.001)" class="cm-tip" data-b="${i}" data-part="tip" style="cursor:grab"/>`;
+  else if (b.wrong) tip = `<circle cx="${b.tx}" cy="${b.ty}" r="9" fill="#ff7a6b" stroke="${INK}" stroke-width="2"/>`;
+  else tip = `<circle cx="${b.tx}" cy="${b.ty}" r="9" fill="#3ddc97" stroke="${INK}" stroke-width="2"/>`;
+  return `<g class="cm-bal" data-b="${i}" data-part="body">${tl.back}${body}${tl.front}${txt}</g>${tip}`;
+}
+function drawBalloons() {
+  const t = T[lang];
+  $('gBal').innerHTML = S.z.map((i) => balloonSVG(i, t)).join('');
+  if (S.balChecked) {
+    $('gMarks').innerHTML = BK.map((_, i) => { const z = ZONE[BWHO[i]]; return `<ellipse cx="${z.x}" cy="${z.y}" rx="${z.rx}" ry="${z.ry}" fill="none" stroke="#3ddc97" stroke-width="3" stroke-dasharray="6 4" opacity="${S.bal[i].wrong ? 1 : .5}"/>`; }).join('');
+  } else $('gMarks').innerHTML = '';
+}
+function buildBalStatic() {
+  $('svBal').innerHTML = `<rect x="0" y="0" width="360" height="336" rx="14" fill="#f8f4ea"/>
+    <g id="gScene"><rect x="13" y="12" width="340" height="232" rx="6" fill="#000" opacity=".16"/><g transform="translate(10,8)"><g clip-path="url(#cpBig)">${balScene()}</g><rect width="340" height="232" rx="6" fill="none" stroke="${INK}" stroke-width="3"/></g>
+      <rect x="10" y="250" width="340" height="78" rx="12" fill="#ece5d2" stroke="#b8ad92" stroke-width="2" stroke-dasharray="6 4"/><g id="gMarks"></g><g id="gBal"></g></g>
+    <g id="gRead" style="display:none"></g>`;
+}
+buildBalStatic();
+function readSVG() {
+  // panels in reading order: slot s holds the story panel that comes s-th (mirrored for manga)
+  const col = (s) => (S.manga ? 1 - (s % 2) : s % 2), row = (s) => s >> 1;
+  let s = '';
+  for (let n = 0; n < 4; n++) s += `<g transform="translate(${10 + col(n) * 180},${12 + row(n) * 162})">${panelSVG(POSES[n])}</g>`;
+  const c = (n) => [10 + col(n) * 180 + 85, 12 + row(n) * 162 + 75];
+  const arrow = (a, b, bend) => `<path d="M${a[0]},${a[1]} Q${bend[0]},${bend[1]} ${b[0]},${b[1]}" fill="none" stroke="#e5484d" stroke-width="4.5" stroke-linecap="round" marker-end="url(#mkR)" opacity=".95"/>`;
+  const sh = (a, b, k) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k];
+  const c0 = c(0), c1 = c(1), c2 = c(2), c3 = c(3), mid = [180, 168];
+  s += arrow(sh(c0, c1, .28), sh(c0, c1, .75), [(c0[0] + c1[0]) / 2, c0[1] - 6]);
+  s += arrow(sh(c1, c2, .2), sh(c1, c2, .8), [mid[0] + (c1[0] < c2[0] ? 36 : -36), mid[1] - 30]);
+  s += arrow(sh(c2, c3, .28), sh(c2, c3, .75), [(c2[0] + c3[0]) / 2, c2[1] - 6]);
+  for (let n = 0; n < 4; n++) { const [x, y] = [10 + col(n) * 180, 12 + row(n) * 162]; s += badge(x + 16, y + 16, n + 1, '#f5c84c', 13); }
+  return s;
+}
+function svgPt(ev) {
+  const svg = $('svBal'), m = svg.getScreenCTM(); if (!m) return { x: 0, y: 0 };
+  const p = new DOMPoint(ev.clientX, ev.clientY).matrixTransform(m.inverse()); return { x: p.x, y: p.y };
+}
+const svBal = $('svBal');
+svBal.addEventListener('pointerdown', (ev) => {
+  if (S.balChecked || S.read) return;
+  const el = ev.target.closest('[data-b]'); if (!el) return;
+  const i = +el.dataset.b, part = el.dataset.part, p = svgPt(ev), b = S.bal[i];
+  S.drag = { i, part, ox: (part === 'tip' ? b.tx : b.x) - p.x, oy: (part === 'tip' ? b.ty : b.y) - p.y };
+  S.z = S.z.filter((j) => j !== i).concat(i);
+  try { svBal.setPointerCapture(ev.pointerId); } catch { /* not capturable */ }
+  ev.preventDefault(); sfx.tick(); drawBalloons();
+});
+svBal.addEventListener('pointermove', (ev) => {
+  const d = S.drag; if (!d) return;
+  const p = svgPt(ev), b = S.bal[d.i], { rx, ry } = BD[BK[d.i]];
+  if (d.part === 'tip') { b.tx = clamp(p.x + d.ox, 6, 354); b.ty = clamp(p.y + d.oy, 6, 330); }
+  else {
+    const nx = clamp(p.x + d.ox, rx + 4, 356 - rx), ny = clamp(p.y + d.oy, ry + 4, 332 - ry), dx = nx - b.x, dy = ny - b.y;
+    b.x = nx; b.y = ny; b.tx = clamp(b.tx + dx, 6, 354); b.ty = clamp(b.ty + dy, 6, 330);
+  }
+  drawBalloons();
+});
+const endDrag = () => {
+  if (!S.drag) return; S.drag = null; sfx.click(); render();
+};
+svBal.addEventListener('pointerup', endDrag);
+svBal.addEventListener('pointercancel', endDrag);
+const placed = () => S.bal.filter((b) => b.y < 232).length;
+const inZone = (b, z) => ((b.tx - z.x) / (z.rx + 6)) ** 2 + ((b.ty - z.y) / (z.ry + 6)) ** 2 <= 1;
+function checkBalloons() {
+  S.balChecked = true;
+  S.bal.forEach((b, i) => { b.wrong = !inZone(b, ZONE[BWHO[i]]); });
+  S.score = S.bal.filter((b) => !b.wrong).length;
+  (S.score === 3 ? sfx.good : sfx.bad)();
+  const from = S.bal.map((b) => [b.tx, b.ty]);
+  anim(750, (t) => {
+    const e = ease(t);
+    S.bal.forEach((b, i) => { if (b.wrong) { const z = ZONE[BWHO[i]]; b.tx = lerp(from[i][0], z.tx, e); b.ty = lerp(from[i][1], z.ty, e); } });
+    drawBalloons();
+  });
+  render(); showStage();
+}
+function renderBalloons(t) {
+  const b = t.b;
+  show('gScene', !S.read); show('gRead', S.read);
+  if (S.read) $('gRead').innerHTML = readSVG(); else drawBalloons();
+  lab.setGlow('rgba(217, 130, 95, .26)');
+  lab.setReadout(`${placed()}/3`, b.sub, '', '#d9825f');
+  let st;
+  if (S.read) st = { emo: '📖', title: (S.manga ? b.rdM : b.rdW)[0], lead: (S.manga ? b.rdM : b.rdW)[1] };
+  else if (!S.balChecked) st = placed() < 3 ? { emo: '💬', title: b.pick[0], lead: b.pick[1] } : { emo: '🤔', title: b.ready[0], lead: b.ready[1] };
+  else if (S.score === 3) st = { emo: '✅', title: b.ok[0], lead: b.ok[1] };
+  else { const r = b.bad(S.score); st = { emo: '💭', title: r[0], lead: r[1] }; }
+  lab.setState({ ...st, body: '', extra: '' });
+  lab.setFacts(t.facts.balloons.map((f) => ({ ...f, src: SRC.balloons })));
+  let h = '';
+  if (S.read) h = `<div class="cm-row"><button class="chip ${S.manga ? '' : 'on'}" data-act="west">${esc(b.west)}</button><button class="chip ${S.manga ? 'on' : ''}" data-act="manga">${esc(b.manga)}</button></div><div class="cm-row"><button class="btn ghost" data-act="rback">${esc(b.back)}</button></div>`;
+  else if (!S.balChecked) h = `<div class="cm-row"><button class="btn" data-act="bcheck"${placed() < 3 ? ' disabled' : ''}>${esc(b.check)}</button><button class="btn ghost" data-act="breset">${esc(b.reset)}</button></div>`;
+  else h = `<div class="cm-row"><button class="btn" data-act="read">${esc(b.read)}</button><button class="btn ghost" data-act="breset">${esc(b.reset)}</button></div>`;
+  $('ctrlBody').innerHTML = h;
+}
+
+// --- events --------------------------------------------------------------------------------------------------------
+$('svOrder').addEventListener('click', (ev) => {
+  const g = ev.target.closest('.cm-p'); if (!g || S.sec || S.mode !== 'grid' || S.checked) return;
+  const p = +g.dataset.p, n = S.picks.indexOf(p);
+  if (n >= 0) S.picks.splice(n, 1); else S.picks.push(p);
+  sfx.tick(); render();
+});
+$('svShots').addEventListener('click', (ev) => {
+  const g = ev.target.closest('.cm-shot'); if (!g || S.qi >= 3 || S.shotPick !== null) return;
+  S.shotPick = g.dataset.shot; const ok = S.shotPick === SHOTQ[S.qi];
+  S.right[S.qi] = ok; (ok ? sfx.good : sfx.bad)(); render(); showStage();
+});
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const a = b.dataset.act;
+  if (a === 'check') {
+    S.checked = true; S.ok = S.picks.join() === '0,1,2,3'; (S.ok ? sfx.good : sfx.snap)(); render(); showStage();
+  } else if (a === 'shuffle') { stopAnim(); S.perm = shuffle(); S.picks = []; S.checked = false; S.ok = false; S.mode = 'grid'; S.gapPick = null; sfx.click(); render(); }
+  else if (a === 'play') startPlay();
+  else if (a === 'stop') { stopAnim(); S.mode = 'grid'; render(); }
+  else if (a === 'gap') { S.mode = 'gap'; S.gapPick = null; buildGap(T[lang]); sfx.click(); render(); showStage(); }
+  else if (a === 'gapopt') { S.gapPick = +b.dataset.i; (S.gapPick === T[lang].o.gapOk ? sfx.good : sfx.bad)(); openGap(); render(); showStage(); }
+  else if (a === 'back') { S.mode = 'grid'; sfx.click(); render(); }
+  else if (a === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    stopAnim(); S.filmPlaying = false; S.sec = S.sec === b.dataset.k ? null : b.dataset.k; sfx.click(); render();
+  } else if (a === 'playfilm') startFilm();
+  else if (a === 'stopfilm') { stopAnim(); S.filmPlaying = false; render(); }
+  else if (a === 'time') { S.timeIdx = +b.dataset.i; sfx.tick(); render(); }
+  else if (a === 'snext') { S.qi++; S.shotPick = null; sfx.click(); render(); }
+  else if (a === 'sagain') { S.qi = 0; S.shotPick = null; S.right = []; sfx.click(); render(); }
+  else if (a === 'bcheck') checkBalloons();
+  else if (a === 'breset') { stopAnim(); S.bal = newBal(); S.z = [0, 1, 2]; S.balChecked = false; S.read = false; sfx.click(); render(); }
+  else if (a === 'read') { S.read = true; S.manga = false; sfx.click(); render(); }
+  else if (a === 'rback') { S.read = false; sfx.click(); render(); }
+  else if (a === 'west' || a === 'manga') { S.manga = a === 'manga'; sfx.click(); render(); }
+});
+
+// --- one render per change ---------------------------------------------------------------------------------------
+function render() {
+  const t = T[lang], v = lab.view;
+  $('svOrder').toggleAttribute('hidden', v !== 'order'); $('svShots').toggleAttribute('hidden', v !== 'shots'); $('svBal').toggleAttribute('hidden', v !== 'balloons');
+  if (v === 'order') {
+    if (S.mode === 'gap' && (S.gapPick === null || !$('oGap').firstChild)) buildGap(t);
+    renderOrder(t);
+  } else if (v === 'shots') renderShots(t);
+  else renderBalloons(t);
+}
+render();
+</script>
+</body>
+</html>
