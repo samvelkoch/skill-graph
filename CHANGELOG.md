@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-08
 
 ### Labs
+- New lab `rome-falls` “How Rome Fell”: watch the Western Empire break up region by region, load a pillar with problems, follow the two halves of one empire (443). (#378)
 - New lab `round-earth` “How the Greeks Knew”: watch a ship sink over the horizon, catch the Earth’s round shadow on the Moon, walk south and watch Canopus rise (442). (#377)
 - New lab `plant-cell` “Inside a Leaf Cell”: build a plant cell and an animal cell, water a plant and watch its cells, shine light on leaf, stem and root (441). (#376)
 - New lab `molting` “Armour That Doesn’t Grow”: watch a crab grow in steps as it molts, find out why insects stay small, sort arthropods by body plan (440). (#375)
