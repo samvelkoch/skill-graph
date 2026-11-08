@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-08
 
 ### Labs
+- New lab `weather-station` “My Weather Station”: turn the wind and read a vane and an anemometer, catch rain in a thin gauge and a wide bucket, hang the thermometer in the right place (437). (#372)
 - New lab `asteroid` “The Day the Sky Went Dark”: watch the world darken after the asteroid, dig a cliff for the iridium clue, sort animals into survivors and those that died out (436). (#371)
 - New lab `absolute-value` “How Far from Zero?”: ride a lift below the ground floor and measure the rope from zero, compare heights above and below the sea, tell “smaller” from “closer to zero” (435). (#370)
 - New lab `elapsed-time` “How Long Until?”: hop along a time line to time a train ride, ride a night bus across midnight, plan a trip with a change (434). (#369)
