@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-08
 
 ### Labs
+- New lab `asteroid` “The Day the Sky Went Dark”: watch the world darken after the asteroid, dig a cliff for the iridium clue, sort animals into survivors and those that died out (436). (#371)
 - New lab `absolute-value` “How Far from Zero?”: ride a lift below the ground floor and measure the rope from zero, compare heights above and below the sea, tell “smaller” from “closer to zero” (435). (#370)
 - New lab `elapsed-time` “How Long Until?”: hop along a time line to time a train ride, ride a night bus across midnight, plan a trip with a change (434). (#369)
 - New lab `pass-it-on` “Pass It On”: whisper a phrase along a line of six friends and watch it change, say it back to keep it right, take turns to be heard (433). (#368)
