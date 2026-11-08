@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-08
 
 ### Labs
+- New lab `scramble-africa` “Africa Divided”: switch a dot map of Africa from 1880 to 1914, look at who sat at the Berlin table, find the two countries that stayed independent (453). (#388)
 - New lab `typefaces` “Letters Have a Voice”: read a shop sign from far away in five typefaces, give each shop the right letters, space letters so they look even (452). (#387)
 - New lab `printmaking` “Back to Front”: carve a stamp and see the print come out mirrored, print a picture one colour block at a time, print an edition of ten (451). (#386)
 - New lab `growing-orchestra` “The Growing Orchestra”: watch the orchestra fill the stage from 1720 to 1910, find where composers lived and worked, meet new instruments as they join (450). (#385)
