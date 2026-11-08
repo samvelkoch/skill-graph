@@ -1,0 +1,830 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Count by Weighing · Skill Graph</title>
+<meta name="description" content="Count rice grains without counting them, put carbon and magnesium on a balance, and build molecules to find how much a mole of them weighs. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  #stage canvas { touch-action: pan-y; }
+  .mo-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0 0; }
+  .mo-t { min-height: 38px; }
+  .mo-t b { font-weight: 900; }
+  .mo-t small { font-size: 11px; opacity: .7; font-weight: 700; }
+  .mo-go { display: flex; }
+  .mo-q { font: 500 19px/1.2 var(--serif); color: #fff; margin: 0 0 8px; text-wrap: balance; }
+  .mo-opts { display: flex; flex-wrap: wrap; gap: 8px; }
+  .mo-o { min-height: 40px; padding: 8px 16px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1); font-weight: 800; font-size: 14px; cursor: pointer; color: var(--ink); }
+  .mo-o:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .mo-o.ok { background: rgba(61, 220, 151, .22); border-color: var(--ok); color: #fff; }
+  .mo-o.no { background: rgba(255, 59, 48, .16); border-color: var(--red); }
+  .mo-o.dim { opacity: .45; }
+  .mo-v { font-weight: 900; margin: 8px 0 0; font-size: 14px; }
+  .mo-note { margin: 8px 0 0; font-size: 12.5px; color: var(--mut); line-height: 1.5; }
+  .mo-lock { opacity: .4; pointer-events: none; }
+  .mo-sl { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+  .mo-sl span { min-width: 92px; font-weight: 800; font-size: 13.5px; }
+  .mo-sl input { flex: 1; }
+  .mo-sec { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--stroke); }
+  .mo-big { margin-top: 10px; }
+  @media (max-width: 760px) { .mo-q { font-size: 17px; } }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, store, $, esc, clamp, lerp, ruPlural, lang } from '../lab.js';
+
+// --- number helpers ----------------------------------------------------------------------------------------
+const dec = (s) => (lang === 'en' ? String(s) : String(s).replace('.', ','));
+const fx = (x, k) => dec(x.toFixed(k));
+const fxt = (x, k) => dec(String(parseFloat(x.toFixed(k))));
+const num = (n) => (lang === 'en' ? Math.round(n).toLocaleString('en-US')
+  : n >= 10000 ? Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ') : String(Math.round(n)));
+const SUPD = '⁰¹²³⁴⁵⁶⁷⁸⁹', SUBD = '₀₁₂₃₄₅₆₇₈₉';
+const supOf = (n) => String(n).split('').map((ch) => (ch === '-' ? '⁻' : SUPD[+ch])).join('');
+const NA = 6.02214076e23;
+function sciParts(x) {
+  if (!(x > 0)) return null;
+  let e = Math.floor(Math.log10(x)), m = Math.round((x / 10 ** e) * 100) / 100;
+  if (m >= 10) { m /= 10; e++; }
+  return { m: m.toFixed(2), e };
+}
+const times = () => (lang === 'en' ? '×' : '·');
+const sciTxt = (x) => { const p = sciParts(x); return p ? `${dec(p.m)} ${times()} 10${supOf(p.e)}` : '0'; };
+const sciHtml = (x) => { const p = sciParts(x); return p ? `${dec(p.m)} ${times()} 10<sup>${p.e}</sup>` : '0'; };
+const sciSegs = (x) => { const p = sciParts(x); return p ? [`${dec(p.m)} ${times()} 10`, { t: String(p.e), sup: true }] : ['0']; };
+const sub = (n) => (n === 1 ? '' : String(n).split('').map((d) => SUBD[+d]).join(''));
+
+// "about 602 thousand billion billion"
+function words(N) {
+  if (!(N >= 1000)) return '';
+  let e3 = Math.floor(Math.log10(N) / 3) * 3, m = N / 10 ** e3;
+  m = m >= 100 ? Math.round(m) : m >= 10 ? Math.round(m) : Math.round(m * 10) / 10;
+  if (m >= 1000) { m /= 1000; e3 += 3; }
+  const rem = e3 % 9, b = Math.floor(e3 / 9), u = [];
+  if (rem === 3) u.push('th'); if (rem === 6) u.push('mi');
+  for (let i = 0; i < b; i++) u.push('bi');
+  const mt = dec(String(m));
+  if (!u.length) return mt;
+  if (lang === 'ru') {
+    const F = { th: ['тысяча', 'тысячи', 'тысяч'], mi: ['миллион', 'миллиона', 'миллионов'], bi: ['миллиард', 'миллиарда', 'миллиардов'] };
+    const first = Number.isInteger(m) ? ruPlural(m, ...F[u[0]]) : F[u[0]][1];
+    return `около ${mt} ${[first, ...u.slice(1).map((k) => F[k][2])].join(' ')}`;
+  }
+  const W = lang === 'hu' ? { th: 'ezer', mi: 'millió', bi: 'milliárd' } : { th: 'thousand', mi: 'million', bi: 'billion' };
+  return `${lang === 'hu' ? 'körülbelül' : 'about'} ${mt} ${u.map((k) => W[k]).join(' ')}`;
+}
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Count by Weighing', title: 'Count without counting',
+    lines: [['Weigh a few,', 'know how many.'], ['Put atoms on a balance', 'and compare.'], ['Build molecules', 'and weigh a mole.']],
+    views: { rice: '🍚 Rice and beans', atoms: '⚖️ Atoms on a balance', mol: '🧪 Molecules' },
+    u: { g: 'g', kg: 'kg', mol: 'mol', mL: 'mL', L: 'L', gmol: 'g/mol' }, right: 'Right!', notq: 'Not quite.',
+    grains: (n) => `${num(n)} grains`, beans: (n) => `${num(n)} beans`, grain1: 'one grain', bean1: 'one bean',
+    r: {
+      pour: 'Put 100 grains on the pan', sub0: 'nothing on the pan yet',
+      s0: ['🍚', 'A sack of rice', 'Counting grains one by one would take forever. Weigh a few instead.', 'The sack holds 1 kg of rice. Put exactly 100 grains on the pan and read the scale.'],
+      s1: (m) => ['🤔', `100 grains weigh ${m} g`, 'Now think about the whole sack.', 'It holds 1 kg = 1000 g of the same rice.'],
+      q: 'How many grains are in the 1 kg sack?',
+      s2: ['🍚', `${num(40000)} grains = 1 kg`, `1000 g ÷ ${dec('2.5')} g = 400 piles of 100 grains, and 400 × 100 = ${num(40000)}.`, 'Nobody counted that many: we weighed 100 and compared masses.'],
+      s3: ['🫘', `${num(40000)} beans = 20 kg`, `One bean weighs 20 times as much as one grain: ${dec('0.5')} ÷ ${dec('0.025')} = 20.`, 'Equal numbers of different things: their masses are in the ratio of one bean to one grain.'],
+      hint: 'Tap an answer to see how it works out.',
+    },
+    a: {
+      left: 'Left pan', right: 'Right pan', mass: (g) => `Mass: ${g} g`, atoms: 'atoms', locked: 'The sliders unlock after your guess.',
+      q: '12 g of carbon and 24 g of magnesium: which has more atoms?', opts: ['Carbon', 'Magnesium', 'The same'],
+      molLine: (g, ar, n) => `${g} g ÷ ${ar} = ${n} mol`,
+      pend: ['🤔', '12 g of carbon and 24 g of magnesium', 'Look at the balance, then pick an answer.', 'The atoms stay hidden until you do.'],
+      rev: () => ['🎯', `Both have ${sciTxt(NA)} atoms`, `12 g ÷ 12 = 1 mol and 24 g ÷ 24 = 1 mol, and one mole is ${sciTxt(NA)} atoms.`, 'The magnesium pan is heavier, because each magnesium atom weighs more. Now try other elements and masses. Tap a pan to choose which one to change.'],
+      free: ['⚖️', 'Grams, moles, atoms', `moles = grams ÷ Ar, atoms = moles × ${sciTxt(NA)}.`, 'Can you make both pans hold the same number of atoms? Tap a pan to choose which one to change. The bubbles show how big one atom of each element is (not to scale).'],
+      sameN: ['🟰', 'Same number of atoms', 'The masses differ: the same number of heavier atoms weighs more.', 'This is why a mole of each element has its own mass.'],
+      sameM: ['⚖️', 'Same mass, different numbers', 'The atoms of the lighter element weigh less each, so more of them fit into the same mass.', 'Count by weighing only works when you divide by the mass of one atom.'],
+      sameS: ['🟰', 'The same sample on both pans', 'Same element, same mass: the same number of atoms.', ''],
+    },
+    m: {
+      q: (f) => `One mole of ${f} weighs…`, clear: 'Clear', remove: 'Tap an atom in the picture to take it away.',
+      zsum: 'That adds up the atomic numbers. Add the relative masses instead.', cnt: 'That counts the atoms. Add the relative masses instead.',
+      pend: (f) => ['🤔', `One mole of ${f}`, 'Add up the relative masses of its atoms, then pick an answer.', ''],
+      empty: ['⚛️', 'Build a molecule', 'Tap atoms below, or pick a ready-made molecule.', 'A mole of molecules weighs as many grams as the molecule’s relative mass Mr.'],
+      free: (f, s) => ['🧪', f, `Mr = ${s}`, 'One mole of molecules, 6.02 × 10²³ of them, weighs Mr grams.'],
+      water: 'About one tablespoon of water is a mole of H₂O.', gas: 'A mole of any gas at room temperature fills about 24 litres, like a big balloon.',
+      mole1: (f) => `1 mol of ${f}`,
+    },
+    secrets: { a: ['A mole of rice', 'Pour it over all the land'], b: ['Count a drop', 'Molecules in one drop of water'] },
+    sa: (d) => ['🌾', `About ${d} m of rice`, `One grain is about 0.03 cm³. ${sciTxt(NA)} grains spread over all the land on Earth (about 150 million km²) make a layer…`, `${d} m deep, like a 40-storey building everywhere. The picture is not to scale.`],
+    sb: (n) => ['💧', `${sciTxt(n)} molecules`, `One drop: 0.05 g. 0.05 g ÷ 18 g/mol ≈ 0.0028 mol.`, 'That is about 200 billion times more molecules than there are people on Earth (8 billion).'],
+    again: '↻ Again', back: '← Back', people: 'people on Earth', moleculesL: 'molecules in a drop', dropL: 'one drop = 0.05 g', ofRice: 'grains of rice', ns: 'not to scale',
+    facts: {
+      rice: [{ emo: '🪙', text: 'Banks and shops often count coins by weighing them instead of counting one by one.', src: 'European Central Bank / national mints: coin-weighing scales and coin-counting by weight' }],
+      atoms: [
+        { emo: '📏', text: 'Since 2019 the mole has an exact number: 602,214,076,000,000,000,000,000 particles.', src: 'BIPM, The International System of Units (SI Brochure, 9th edition, 2019)' },
+        { emo: '🎉', text: 'Chemists celebrate Mole Day on 23 October from 6:02 am to 6:02 pm: 6.02 × 10²³.', src: 'National Mole Day Foundation' }],
+      mol: [
+        { emo: '🔤', text: 'Books write the same idea in different letters: amount of substance is n in English and Hungarian books and often ν (nu) in Russian ones; molar mass is M everywhere.', src: 'IUPAC Green Book; Russian school chemistry textbooks (e.g. Rudzitis & Feldman)' },
+        { emo: '👨‍🔬', text: 'The number is named after Amedeo Avogadro (1776–1856), though he never knew its value: Josef Loschmidt first estimated it in 1865.', src: 'Encyclopaedia Britannica, “Avogadro’s number”' }],
+    },
+    quiz: [
+      { q: '12 g of carbon (Ar 12) and 24 g of magnesium (Ar 24). Which has more atoms?', opts: ['The same number', 'Carbon', 'Magnesium'], ok: 0, hint: 'Put both on the balance in part 2 and read the atom counter.' },
+      { q: '1,000 beans weigh 400 g. How many beans are in 2 kg of the same beans?', opts: ['5,000', '2,000', '800'], ok: 0, hint: 'In part 1: weigh a known number first, then compare the masses.' },
+      { q: 'What is the mass of one mole of water, H₂O?', opts: ['18 g', '10 g', '3 g'], ok: 0, hint: 'Add the relative masses: H is 1, O is 16.' },
+    ],
+  },
+  ru: {
+    name: 'Считаем на весах', title: 'Считаем, не считая',
+    lines: [['Взвесь немного —', 'узнаешь, сколько всего.'], ['Положи атомы на весы', 'и сравни.'], ['Собери молекулы', 'и взвесь моль.']],
+    views: { rice: '🍚 Рис и фасоль', atoms: '⚖️ Атомы на весах', mol: '🧪 Молекулы' },
+    u: { g: 'г', kg: 'кг', mol: 'моль', mL: 'мл', L: 'л', gmol: 'г/моль' }, right: 'Верно!', notq: 'Не совсем.',
+    grains: (n) => `${num(n)} ${ruPlural(n, 'рисинка', 'рисинки', 'рисинок')}`, beans: (n) => `${num(n)} ${ruPlural(n, 'фасолина', 'фасолины', 'фасолин')}`, grain1: 'одна рисинка', bean1: 'одна фасолина',
+    r: {
+      pour: 'Положить 100 рисинок на чашу', sub0: 'на чаше пока пусто',
+      s0: ['🍚', 'Мешок риса', 'Считать рисинки по одной можно целую вечность. Лучше взвесить несколько.', 'В мешке 1 кг риса. Положи на чашу ровно 100 рисинок и посмотри на весы.'],
+      s1: (m) => ['🤔', `100 рисинок весят ${m} г`, 'Теперь подумай про весь мешок.', 'В нём 1 кг = 1000 г такого же риса.'],
+      q: 'Сколько рисинок в мешке на 1 кг?',
+      s2: ['🍚', `${num(40000)} рисинок = 1 кг`, `1000 г ÷ 2,5 г = 400 порций по 100 рисинок, а 400 × 100 = ${num(40000)}.`, 'Столько рисинок никто не считал: взвесили 100 и сравнили массы.'],
+      s3: ['🫘', `${num(40000)} фасолин = 20 кг`, 'Одна фасолина весит в 20 раз больше, чем одна рисинка: 0,5 ÷ 0,025 = 20.', 'Поровну разных предметов: их массы относятся как масса одной фасолины к массе одной рисинки.'],
+      hint: 'Выбери ответ — и посмотри, как это получается.',
+    },
+    a: {
+      left: 'Левая чаша', right: 'Правая чаша', mass: (g) => `Масса: ${g} г`, atoms: 'атомов', locked: 'Ползунки откроются после твоего ответа.',
+      q: '12 г углерода и 24 г магния. Где больше атомов?', opts: ['В углероде', 'В магнии', 'Поровну'],
+      molLine: (g, ar, n) => `${g} г ÷ ${ar} = ${n} моль`,
+      pend: ['🤔', '12 г углерода и 24 г магния', 'Посмотри на весы и выбери ответ.', 'Атомы остаются скрытыми, пока ты не ответишь.'],
+      rev: () => ['🎯', `В обоих по ${sciTxt(NA)} атомов`, `12 г ÷ 12 = 1 моль и 24 г ÷ 24 = 1 моль, а в одном моле ${sciTxt(NA)} атомов.`, 'Чаша с магнием тяжелее, потому что каждый атом магния тяжелее. Теперь попробуй другие элементы и массы. Нажми на чашу, чтобы выбрать, какую менять.'],
+      free: ['⚖️', 'Граммы, моли, атомы', `моль = граммы ÷ Ar, атомов = моли × ${sciTxt(NA)}.`, 'Сможешь сделать так, чтобы на обеих чашах было поровну атомов? Нажми на чашу, чтобы выбрать, какую менять. Пузырьки показывают размер одного атома (без масштаба).'],
+      sameN: ['🟰', 'Атомов поровну', 'Массы разные: одинаковое число более тяжёлых атомов весит больше.', 'Поэтому у моля каждого элемента своя масса.'],
+      sameM: ['⚖️', 'Масса одна, атомов разное число', 'Атомы лёгкого элемента весят меньше, поэтому в той же массе их больше.', 'Считать по массе можно, только разделив её на массу одного атома.'],
+      sameS: ['🟰', 'На обеих чашах одно и то же', 'Тот же элемент, та же масса: столько же атомов.', ''],
+    },
+    m: {
+      q: (f) => `Один моль ${f} весит…`, clear: 'Очистить', remove: 'Нажми на атом на рисунке, чтобы убрать его.',
+      zsum: 'Так сложены атомные номера. Сложи вместо них относительные массы.', cnt: 'Так посчитаны атомы. Сложи вместо этого относительные массы.',
+      pend: (f) => ['🤔', `Один моль ${f}`, 'Сложи относительные массы атомов и выбери ответ.', ''],
+      empty: ['⚛️', 'Собери молекулу', 'Нажимай на атомы внизу или выбери готовую молекулу.', 'Моль молекул весит столько граммов, чему равна её относительная масса Mr.'],
+      free: (f, s) => ['🧪', f, `Mr = ${s}`, 'Один моль молекул, их 6,02 · 10²³, весит Mr граммов.'],
+      water: 'Примерно столовая ложка воды — это моль H₂O.', gas: 'Моль любого газа при комнатной температуре занимает около 24 литров, как большой шар.',
+      mole1: (f) => `1 моль ${f}`,
+    },
+    secrets: { a: ['Моль риса', 'Рассыпь по всей суше'], b: ['Посчитай каплю', 'Молекулы в одной капле воды'] },
+    sa: (d) => ['🌾', `Около ${d} м риса`, `Одна рисинка — около 0,03 см³. ${sciTxt(NA)} рисинок, рассыпанные по всей суше Земли (около 150 миллионов км²), дадут слой…`, `глубиной ${d} м — как 40-этажный дом повсюду. Рисунок без масштаба.`],
+    sb: (n) => ['💧', `${sciTxt(n)} молекул`, 'Одна капля: 0,05 г. 0,05 г ÷ 18 г/моль ≈ 0,0028 моль.', 'Это примерно в 200 миллиардов раз больше, чем людей на Земле (8 миллиардов).'],
+    again: '↻ Ещё раз', back: '← Назад', people: 'людей на Земле', moleculesL: 'молекул в капле', dropL: 'одна капля = 0,05 г', ofRice: 'рисинок', ns: 'без масштаба',
+    facts: {
+      rice: [{ emo: '🪙', text: 'Банки и магазины часто считают монеты взвешиванием, а не поштучно.', src: 'European Central Bank / national mints: coin-weighing scales and coin-counting by weight' }],
+      atoms: [
+        { emo: '📏', text: 'С 2019 года в моле ровно 602 214 076 000 000 000 000 000 частиц.', src: 'BIPM, The International System of Units (SI Brochure, 9th edition, 2019)' },
+        { emo: '🎉', text: 'Химики отмечают День моля 23 октября с 6:02 утра до 6:02 вечера — в честь 6,02 · 10²³.', src: 'National Mole Day Foundation' }],
+      mol: [
+        { emo: '🔤', text: 'В разных учебниках одно и то же обозначают по-разному: количество вещества в английских и венгерских книгах — n, а в российских часто ν («ню»); молярная масса везде M.', src: 'IUPAC Green Book; Russian school chemistry textbooks (e.g. Rudzitis & Feldman)' },
+        { emo: '👨‍🔬', text: 'Число названо в честь Амедео Авогадро (1776–1856), хотя сам он его значения не знал: впервые его оценил Йозеф Лошмидт в 1865 году.', src: 'Encyclopaedia Britannica, “Avogadro’s number”' }],
+    },
+    quiz: [
+      { q: '12 г углерода (Ar = 12) и 24 г магния (Ar = 24). Где больше атомов?', opts: ['Поровну', 'В углероде', 'В магнии'], ok: 0, hint: 'Положи оба на весы в части 2 и посмотри на счётчик атомов.' },
+      { q: '1000 фасолин весят 400 г. Сколько фасолин в 2 кг такой же фасоли?', opts: ['5000', '2000', '800'], ok: 0, hint: 'В части 1: сначала взвесь известное число, потом сравни массы.' },
+      { q: 'Какова масса одного моля воды H₂O?', opts: ['18 г', '10 г', '3 г'], ok: 0, hint: 'Сложи относительные массы: у H — 1, у O — 16.' },
+    ],
+  },
+  hu: {
+    name: 'Számolás mérleggel', title: 'Számolás számolás nélkül',
+    lines: [['Mérj le keveset,', 'tudd meg, mennyi az összes.'], ['Tegyél atomokat a mérlegre', 'és hasonlítsd össze őket.'], ['Rakj össze molekulákat,', 'és mérd le a mólt.']],
+    views: { rice: '🍚 Rizs és bab', atoms: '⚖️ Atomok a mérlegen', mol: '🧪 Molekulák' },
+    u: { g: 'g', kg: 'kg', mol: 'mol', mL: 'ml', L: 'l', gmol: 'g/mol' }, right: 'Így van!', notq: 'Nem egészen.',
+    grains: (n) => `${num(n)} rizsszem`, beans: (n) => `${num(n)} bab`, grain1: 'egy rizsszem', bean1: 'egy bab',
+    r: {
+      pour: 'Tegyél 100 rizsszemet a mérlegre', sub0: 'még nincs semmi a mérlegen',
+      s0: ['🍚', 'Egy zsák rizs', 'Egyesével megszámolni a szemeket örökké tartana. Mérj le inkább néhányat!', 'A zsákban 1 kg rizs van. Tegyél a mérlegre pontosan 100 szemet, és olvasd le a tömegét!'],
+      s1: (m) => ['🤔', `100 rizsszem tömege ${m} g`, 'Most gondolkodj a teljes zsákról!', 'Benne 1 kg = 1000 g ugyanilyen rizs van.'],
+      q: 'Hány rizsszem van az 1 kg-os zsákban?',
+      s2: ['🍚', `${num(40000)} rizsszem = 1 kg`, `1000 g ÷ 2,5 g = 400 adag, egyenként 100 szem; 400 × 100 = ${num(40000)}.`, 'Ennyit senki sem számolt meg: lemértünk 100-at, és összehasonlítottuk a tömegeket.'],
+      s3: ['🫘', `${num(40000)} bab = 20 kg`, 'Egy bab 20-szor nehezebb egy rizsszemnél: 0,5 ÷ 0,025 = 20.', 'Ugyanannyi különböző dolog: a tömegük aránya egy bab és egy rizsszem tömegének aránya.'],
+      hint: 'Válassz egy választ, és nézd meg, hogyan jön ki!',
+    },
+    a: {
+      left: 'Bal serpenyő', right: 'Jobb serpenyő', mass: (g) => `Tömeg: ${g} g`, atoms: 'atom', locked: 'A csúszkák a tipped után nyílnak ki.',
+      q: '12 g szén és 24 g magnézium. Melyikben van több atom?', opts: ['A szénben', 'A magnéziumban', 'Ugyanannyi'],
+      molLine: (g, ar, n) => `${g} g ÷ ${ar} = ${n} mol`,
+      pend: ['🤔', '12 g szén és 24 g magnézium', 'Nézd meg a mérleget, aztán válassz!', 'Az atomok rejtve maradnak, amíg nem válaszolsz.'],
+      rev: () => ['🎯', `Mindkettőben ${sciTxt(NA)} atom van`, `12 g ÷ 12 = 1 mol és 24 g ÷ 24 = 1 mol, egy mólban pedig ${sciTxt(NA)} atom van.`, 'A magnéziumos serpenyő nehezebb, mert egy magnéziumatom nehezebb. Most próbálj ki más elemeket és tömegeket! Koppints egy serpenyőre, hogy kiválaszd, melyiket módosítod.'],
+      free: ['⚖️', 'Gramm, mól, atom', `mól = gramm ÷ Ar, atomok = mól × ${sciTxt(NA)}.`, 'Ki tudod hozni, hogy mindkét serpenyőben ugyanannyi atom legyen? Koppints egy serpenyőre, hogy kiválaszd, melyiket módosítod. A buborékok egy atom méretét mutatják (nem méretarányosan).'],
+      sameN: ['🟰', 'Ugyanannyi atom', 'A tömegek különböznek: ugyanannyi nehezebb atom többet nyom.', 'Ezért van minden elem móljának saját tömege.'],
+      sameM: ['⚖️', 'Ugyanakkora tömeg, különböző darabszám', 'A könnyebb elem atomjai egyenként kevesebbet nyomnak, ezért ugyanabban a tömegben több van belőlük.', 'Tömegméréssel úgy lehet számolni, ha elosztod egy atom tömegével.'],
+      sameS: ['🟰', 'Mindkét serpenyőben ugyanaz van', 'Ugyanaz az elem, ugyanakkora tömeg: ugyanannyi atom.', ''],
+    },
+    m: {
+      q: (f) => `Egy mól ${f} tömege…`, clear: 'Törlés', remove: 'Koppints egy atomra a képen, hogy elvedd.',
+      zsum: 'Ez a rendszámokat adja össze. Inkább a relatív tömegeket add össze!', cnt: 'Ez az atomokat számolja meg. Inkább a relatív tömegeket add össze!',
+      pend: (f) => ['🤔', `Egy mól ${f}`, 'Add össze az atomjai relatív tömegét, aztán válassz!', ''],
+      empty: ['⚛️', 'Rakj össze egy molekulát', 'Koppints az alsó atomokra, vagy válassz egy kész molekulát!', 'Egy mól molekula tömege annyi gramm, amennyi a molekula relatív tömege (Mr).'],
+      free: (f, s) => ['🧪', f, `Mr = ${s}`, 'Egy mól molekula, azaz 6,02 · 10²³ darab, Mr grammot nyom.'],
+      water: 'Körülbelül egy evőkanálnyi víz egy mól H₂O.', gas: 'Egy mól bármilyen gáz szobahőmérsékleten kb. 24 litert tölt ki, mint egy nagy léggömb.',
+      mole1: (f) => `1 mol ${f}`,
+    },
+    secrets: { a: ['Egy mól rizs', 'Önts szét az összes szárazföldön'], b: ['Számold meg a cseppet', 'Molekulák egyetlen vízcseppben'] },
+    sa: (d) => ['🌾', `Kb. ${d} m rizs`, `Egy rizsszem kb. 0,03 cm³. ${sciTxt(NA)} szem, szétterítve a Föld összes szárazföldjén (kb. 150 millió km²), egy ilyen réteget adna…`, `${d} m mélyet, mint egy 40 emeletes ház mindenhol. A kép nem méretarányos.`],
+    sb: (n) => ['💧', `${sciTxt(n)} molekula`, 'Egy csepp: 0,05 g. 0,05 g ÷ 18 g/mol ≈ 0,0028 mol.', 'Ez kb. 200 milliárdszor több molekula, mint ahány ember él a Földön (8 milliárd).'],
+    again: '↻ Újra', back: '← Vissza', people: 'ember a Földön', moleculesL: 'molekula egy cseppben', dropL: 'egy csepp = 0,05 g', ofRice: 'rizsszem', ns: 'nem méretarányos',
+    facts: {
+      rice: [{ emo: '🪙', text: 'A bankok és boltok gyakran mérlegeléssel számolják meg az érméket, nem egyesével.', src: 'European Central Bank / national mints: coin-weighing scales and coin-counting by weight' }],
+      atoms: [
+        { emo: '📏', text: '2019 óta egy mól pontosan 602 214 076 000 000 000 000 000 részecske.', src: 'BIPM, The International System of Units (SI Brochure, 9th edition, 2019)' },
+        { emo: '🎉', text: 'A vegyészek október 23-án reggel 6:02-től este 6:02-ig ünneplik a mól napját: 6,02 · 10²³.', src: 'National Mole Day Foundation' }],
+      mol: [
+        { emo: '🔤', text: 'Ugyanazt a mennyiséget máshogy jelölik: az anyagmennyiség az angol és a magyar könyvekben n, az oroszokban gyakran ν (nű); a moláris tömeg mindenhol M.', src: 'IUPAC Green Book; Russian school chemistry textbooks (e.g. Rudzitis & Feldman)' },
+        { emo: '👨‍🔬', text: 'A szám Amedeo Avogadróról (1776–1856) kapta a nevét, pedig ő nem ismerte az értékét: először Josef Loschmidt becsülte meg 1865-ben.', src: 'Encyclopaedia Britannica, “Avogadro’s number”' }],
+    },
+    quiz: [
+      { q: '12 g szén (Ar = 12) és 24 g magnézium (Ar = 24). Melyikben van több atom?', opts: ['Ugyanannyi', 'A szénben', 'A magnéziumban'], ok: 0, hint: 'Tedd mindkettőt a mérlegre a 2. részben, és nézd meg az atomszámlálót!' },
+      { q: '1000 bab tömege 400 g. Hány bab van 2 kg ugyanilyen babban?', opts: ['5000', '2000', '800'], ok: 0, hint: 'Az 1. részben: előbb mérj le ismert darabszámot, aztán hasonlítsd össze a tömegeket!' },
+      { q: 'Mekkora egy mól víz (H₂O) tömege?', opts: ['18 g', '10 g', '3 g'], ok: 0, hint: 'Add össze a relatív tömegeket: a H 1, az O 16.' },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'sg_sci_36', en: 'Relative Mass and the Mole', ru: 'Относительная масса и моль', hu: 'Relatív tömeg és mól' },
+];
+
+// --- elements ----------------------------------------------------------------------------------------------
+const EL = [ // view 2: symbol, Ar, atomic radius (pm), colour
+  { s: 'H', ar: 1, pm: 25, col: '#dfe8fa' }, { s: 'C', ar: 12, pm: 70, col: '#5a6070' }, { s: 'O', ar: 16, pm: 60, col: '#e5483f' },
+  { s: 'Mg', ar: 24, pm: 150, col: '#6fcf8a' }, { s: 'Fe', ar: 56, pm: 140, col: '#c2703a' }, { s: 'Au', ar: 197, pm: 135, col: '#f2c53d' },
+];
+const MA = { H: 1, C: 12, N: 14, O: 16, Na: 23, Cl: 35.5 }, MZ = { H: 1, C: 6, N: 7, O: 8, Na: 11, Cl: 17 };
+const MC = { H: '#dfe8fa', C: '#5a6070', N: '#4f7bd8', O: '#e5483f', Na: '#a779d8', Cl: '#5fcf7a' };
+const MR_PX = { H: 11, C: 16, N: 15.5, O: 15, Na: 20, Cl: 18 };
+const ORDER = ['C', 'N', 'Na', 'H', 'O', 'Cl'], BTN = ['H', 'C', 'N', 'O', 'Na', 'Cl'], CENTRE = ['C', 'N', 'O', 'Cl', 'Na', 'H'];
+const PRE = [{ k: 'H2O', c: { H: 2, O: 1 } }, { k: 'CO2', c: { C: 1, O: 2 } }, { k: 'NH3', c: { N: 1, H: 3 } }, { k: 'NaCl', c: { Na: 1, Cl: 1 } }, { k: 'CH4', c: { C: 1, H: 4 } }];
+const PERM = [[0, 1, 2], [1, 2, 0], [2, 0, 1], [1, 0, 2], [2, 1, 0]];
+const GAS = new Set(['C1O2', 'N1H3', 'C1H4', 'H2', 'O2', 'N2', 'H1Cl1', 'Cl2']);
+const cnt = (c, e) => c[e] || 0;
+const formulaOf = (c) => ORDER.filter((e) => cnt(c, e) > 0).map((e) => e + sub(c[e])).join('');
+const mrOf = (c) => ORDER.reduce((s, e) => s + cnt(c, e) * MA[e], 0);
+const zOf = (c) => ORDER.reduce((s, e) => s + cnt(c, e) * MZ[e], 0);
+const nOf = (c) => ORDER.reduce((s, e) => s + cnt(c, e), 0);
+const sumOf = (c) => {
+  const parts = ORDER.filter((e) => cnt(c, e) > 0).map((e) => (c[e] === 1 ? '' : `${c[e]} × `) + dec(MA[e]));
+  return parts.length === 1 && nOf(c) === 1 ? dec(mrOf(c)) : `${parts.join(' + ')} = ${dec(mrOf(c))}`;
+};
+const keyOf = (c) => ORDER.filter((e) => cnt(c, e) > 0).map((e) => e + (c[e] === 1 && nOf(c) > 1 ? 1 : (c[e] === 1 ? '' : c[e]))).join('');
+const presetOf = (c) => PRE.findIndex((p) => ORDER.every((e) => cnt(p.c, e) === cnt(c, e)));
+
+// --- state -------------------------------------------------------------------------------------------------
+const W = 360, H = 300;
+const S = {
+  sec: null, secT: 0,
+  r: { pourT: -1, ready: false, pick: null, mode: 'grain', disp: 0, swapT: -9, last: 0 },
+  a: { act: 0, el: [1, 3], g: [12, 24], pick: null, tilt: 0, vel: 0, revT: -9 },
+  m: { c: { H: 2, O: 1 }, pend: 'H2O', done: {}, verdict: null, disp: 0, cur: {}, popKey: '', popT: -9 },
+};
+const XF = { ox: 0, oy: 0, s: 1 };
+
+const lab = shell({ key: 'mole', T, topics: TOPICS, views: ['rice', 'atoms', 'mol'], onLang: render, onView: () => { S.sec = null; render(); } });
+const secret = secretLab('mole', () => ({
+  secrets: [{ emo: '🌾', title: T[lang].secrets.a[0], desc: T[lang].secrets.a[1] }, { emo: '💧', title: T[lang].secrets.b[0], desc: T[lang].secrets.b[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = '<div id="mo-view"></div><div id="mo-sec" class="mo-sec"></div>';
+
+// --- drawing helpers ---------------------------------------------------------------------------------------
+const rr = (c, x, y, w, h, r) => { r = Math.max(0, Math.min(r, w / 2, h / 2)); c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); };
+const lg = (c, x0, y0, x1, y1, stops) => { const g = c.createLinearGradient(x0, y0, x1, y1); stops.forEach(([o, col]) => g.addColorStop(o, col)); return g; };
+const mixHex = (a, b, t) => { const A = parseInt(a.slice(1), 16), B = parseInt(b.slice(1), 16); const ch = (s) => Math.round(((A >> s) & 255) * (1 - t) + ((B >> s) & 255) * t); return '#' + [16, 8, 0].map((s) => ch(s).toString(16).padStart(2, '0')).join(''); };
+const dark = (h, t) => mixHex(h, '#000000', t), light = (h, t) => mixHex(h, '#ffffff', t);
+const ease = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : 1 - (1 - x) ** 3);
+const backOut = (x) => { if (x <= 0) return 0; if (x >= 1) return 1; const s = 1.9; return 1 + (s + 1) * (x - 1) ** 3 + s * (x - 1) ** 2; };
+const FONT = 'Nunito, system-ui, sans-serif';
+
+function ball(c, x, y, r, col, shadow = true) {
+  r = Math.max(0.5, r);
+  if (shadow) { c.save(); c.fillStyle = 'rgba(0,0,0,.28)'; c.beginPath(); c.ellipse(x + r * 0.25, y + r * 0.9, r * 0.9, r * 0.3, 0, 0, 7); c.fill(); c.restore(); }
+  const g = c.createRadialGradient(x - r * 0.38, y - r * 0.42, r * 0.1, x, y, r * 1.05);
+  g.addColorStop(0, light(col, 0.65)); g.addColorStop(0.45, col); g.addColorStop(1, dark(col, 0.38));
+  c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, 7); c.fill();
+  c.lineWidth = 1.3; c.strokeStyle = dark(col, 0.6); c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.55)'; c.beginPath(); c.ellipse(x - r * 0.4, y - r * 0.45, r * 0.22, r * 0.14, -0.6, 0, 7); c.fill();
+}
+// text on a dark pill; segs: strings or { t, sup }
+function pill(c, cx, cy, segs, size = 14, o = {}) {
+  c.save(); c.textBaseline = 'middle'; c.textAlign = 'left';
+  const main = `800 ${size}px ${FONT}`, small = `800 ${Math.round(size * 0.72)}px ${FONT}`;
+  const parts = segs.map((s) => (typeof s === 'string' ? { t: s } : s));
+  let tw = 0; parts.forEach((p) => { c.font = p.sup ? small : main; p.w = c.measureText(p.t).width; tw += p.w; });
+  const pw = tw + 20, ph = size + 12, x = clamp(cx - pw / 2, 2, W - pw - 2), y = cy - ph / 2;
+  rr(c, x, y, pw, ph, ph / 2); c.fillStyle = o.bg || 'rgba(10,12,22,.84)'; c.fill();
+  c.lineWidth = o.on ? 2 : 1; c.strokeStyle = o.on ? '#4ea8ff' : 'rgba(255,255,255,.2)'; c.stroke();
+  let px = x + 10; c.fillStyle = o.color || '#fff';
+  parts.forEach((p) => { c.font = p.sup ? small : main; c.fillText(p.t, px, p.sup ? cy - size * 0.28 : cy + 0.5); px += p.w; });
+  c.restore();
+  return { x, y, w: pw, h: ph };
+}
+function backdrop(c, w, h, tableY) {
+  c.fillStyle = lg(c, 0, 0, 0, h, [[0, '#1c2744'], [1, '#0f1424']]); c.fillRect(0, 0, w, h);
+  const g = c.createRadialGradient(w * 0.2, 0, 10, w * 0.2, 0, Math.max(w, h)); g.addColorStop(0, 'rgba(255,255,255,.10)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+  if (tableY != null) {
+    const ty = XF.oy + tableY * XF.s;
+    c.fillStyle = lg(c, 0, ty, 0, h, [[0, '#9a6a40'], [0.15, '#82552f'], [1, '#4f3119']]); c.fillRect(0, ty, w, h - ty);
+    c.fillStyle = 'rgba(255,255,255,.22)'; c.fillRect(0, ty, w, 2);
+    c.strokeStyle = 'rgba(0,0,0,.14)'; c.lineWidth = 1;
+    for (let i = 1; i < 4; i++) { c.beginPath(); c.moveTo(0, ty + 10 * i + 4); c.lineTo(w, ty + 10 * i + 4); c.stroke(); }
+  }
+}
+function drawScale(c, cx, by, wd, reading, items) {
+  const x0 = cx - wd / 2, bh = wd * 0.42, top = by - bh, py = top - 6;
+  c.save(); c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.ellipse(cx + 4, by + 3, wd * 0.56, 7, 0, 0, 7); c.fill(); c.restore();
+  rr(c, x0, top, wd, bh, 14); c.fillStyle = lg(c, x0, top, x0 + wd * 0.35, by, [[0, '#f3f6fc'], [0.55, '#c3cadb'], [1, '#8b94aa']]); c.fill();
+  c.lineWidth = 1.6; c.strokeStyle = '#555e74'; c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.55)'; rr(c, x0 + 8, top + 3, wd - 16, 3, 1.5); c.fill();
+  const dw = wd * 0.74, dh = bh * 0.42, dx = cx - dw / 2, dy = top + bh * 0.2;
+  rr(c, dx, dy, dw, dh, 8); c.fillStyle = lg(c, dx, dy, dx, dy + dh, [[0, '#0b2818'], [1, '#143c27']]); c.fill(); c.lineWidth = 1.6; c.strokeStyle = '#38405a'; c.stroke();
+  c.save(); c.font = `900 ${Math.round(dh * 0.66)}px ${FONT}`; c.textAlign = 'right'; c.textBaseline = 'middle';
+  c.fillStyle = '#9dffb4'; c.shadowColor = '#4cff8a'; c.shadowBlur = 8; c.fillText(reading, dx + dw - 9, dy + dh / 2 + 1); c.restore();
+  [-1, 1].forEach((s) => { c.beginPath(); c.ellipse(cx + s * wd * 0.14, top + bh * 0.8, 9, 4.5, 0, 0, 7); c.fillStyle = lg(c, 0, top + bh * 0.74, 0, top + bh * 0.86, [[0, '#e9edf7'], [1, '#98a1b8']]); c.fill(); c.lineWidth = 1; c.strokeStyle = '#59627a'; c.stroke(); });
+  rr(c, cx - 9, py - 1, 18, 10, 3); c.fillStyle = '#7c859c'; c.fill();
+  c.beginPath(); c.ellipse(cx, py, wd * 0.5, 9, 0, 0, 7); c.fillStyle = lg(c, cx - wd * 0.5, py - 9, cx + wd * 0.4, py + 9, [[0, '#f6f8fd'], [0.5, '#bcc4d8'], [1, '#8d96ad']]); c.fill();
+  c.lineWidth = 1.4; c.strokeStyle = '#555e74'; c.stroke();
+  c.beginPath(); c.ellipse(cx, py - 1, wd * 0.44, 6, 0, 0, 7); c.fillStyle = 'rgba(40,48,70,.28)'; c.fill();
+  items(c, cx, py - 1);
+  c.beginPath(); c.ellipse(cx, py, wd * 0.5, 9, 0, 0.06, Math.PI - 0.06); c.lineWidth = 2.4; c.strokeStyle = 'rgba(255,255,255,.55)'; c.stroke();
+  return py;
+}
+const rnd = (seed) => () => { seed |= 0; seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+function genHeap(n, hw, hh, seed) {
+  const r = rnd(seed), a = [];
+  for (let i = 0; i < n; i++) { const x = r() + r() - 1, top = Math.pow(Math.max(0, 1 - x * x), 0.7), f = Math.sqrt(r()); a.push({ x: x * hw, y: -f * top * hh, a: (r() - 0.5) * 3, k: r() }); }
+  return a.sort((p, q) => q.y - p.y);
+}
+const HG1 = genHeap(100, 56, 32, 7), HG2 = genHeap(230, 66, 44, 11), HB1 = genHeap(110, 66, 52, 5);
+function grain(c, x, y, a, k) {
+  c.save(); c.translate(x, y); c.rotate(a); c.beginPath(); c.ellipse(0, 0, 4.5, 2.3, 0, 0, 7);
+  c.fillStyle = k > 0.5 ? '#fbf3d9' : '#f0e3bd'; c.fill(); c.lineWidth = 0.9; c.strokeStyle = '#a28f5c'; c.stroke(); c.restore();
+}
+function bean(c, x, y, a, k) {
+  c.save(); c.translate(x, y); c.rotate(a); c.beginPath(); c.ellipse(0, 0, 7.5, 4.6, 0, 0, 7);
+  c.fillStyle = lg(c, -6, -4, 6, 4, [[0, k > 0.5 ? '#d56a56' : '#c75a48'], [1, '#8a2c26']]); c.fill(); c.lineWidth = 1; c.strokeStyle = '#561a16'; c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.4)'; c.beginPath(); c.ellipse(-2.5, -1.8, 2.8, 1, -0.3, 0, 7); c.fill(); c.restore();
+}
+
+// --- view 1: rice and beans --------------------------------------------------------------------------------
+const fmtMass = (g) => {
+  const u = T[lang].u;
+  if (g < 10) return `${fx(g, 1)} ${u.g}`;
+  if (g < 1000) return `${num(g)} ${u.g}`;
+  const kg = g / 1000;
+  return `${fxt(kg, kg < 10 ? 2 : 1)} ${u.kg}`;
+};
+const r1Stage = () => (S.r.pick === null ? (S.r.pourT < 0 ? 0 : 1) : 2);
+function landedNow() { return clamp(Math.floor((S.r.pourT - 0.1 - 0.3) / 1.1 * 100) + 1, 0, 100); }
+function sack(c) {
+  c.save(); c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.ellipse(86, 272, 54, 7, 0, 0, 7); c.fill(); c.restore();
+  c.beginPath(); c.moveTo(66, 170); c.bezierCurveTo(40, 187, 32, 228, 40, 268); c.quadraticCurveTo(80, 280, 120, 268); c.bezierCurveTo(128, 228, 120, 187, 94, 170); c.closePath();
+  c.fillStyle = lg(c, 36, 170, 124, 270, [[0, '#ecd29b'], [0.6, '#c9a566'], [1, '#9c7a40']]); c.fill(); c.lineWidth = 1.8; c.strokeStyle = '#6f552a'; c.stroke();
+  c.save(); c.clip(); c.strokeStyle = 'rgba(90,64,28,.18)'; c.lineWidth = 1;
+  for (let i = 0; i < 10; i++) { c.beginPath(); c.moveTo(30, 178 + i * 10); c.lineTo(130, 184 + i * 10); c.stroke(); }
+  c.restore();
+  c.beginPath(); c.ellipse(80, 168, 20, 6, 0, 0, 7); c.fillStyle = '#f4ecd0'; c.fill(); c.lineWidth = 1.4; c.strokeStyle = '#6f552a'; c.stroke();
+  for (let i = 0; i < 12; i++) grain(c, 68 + (i % 6) * 5 + (i > 5 ? 2 : 0), 166 + (i > 5 ? 3 : 0), i * 0.7, 0.7);
+  rr(c, 60, 172, 40, 8, 4); c.fillStyle = lg(c, 0, 172, 0, 180, [[0, '#b0884a'], [1, '#7b5b2b']]); c.fill(); c.lineWidth = 1.2; c.strokeStyle = '#4d3817'; c.stroke();
+  c.save(); c.translate(80, 232); c.rotate(-0.05); rr(c, -26, -16, 52, 32, 6); c.fillStyle = '#f8f2e0'; c.fill(); c.lineWidth = 1.4; c.strokeStyle = '#8b7648'; c.stroke();
+  c.fillStyle = '#3b2f1c'; c.font = `900 17px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(`1 ${T[lang].u.kg}`, 0, 1); c.restore();
+}
+function sceneRice(c, dt, time) {
+  const R = S.r, t = T[lang], st = r1Stage();
+  if (R.pourT >= 0) R.pourT += dt;
+  const landed = landedNow();
+  if (landed > R.last && st === 1) { if (landed % 8 === 0 || landed === 100) sfx.tick(); }
+  R.last = landed;
+  let target;
+  if (st < 2) target = landed * 0.025; else target = R.mode === 'grain' ? 1000 : 20000;
+  if (st < 2) R.disp = target; else { R.disp += (target - R.disp) * (1 - Math.exp(-dt * 5)); if (Math.abs(target - R.disp) < target * 0.003) R.disp = target; }
+  sack(c);
+  const cap = st < 2 ? (st === 0 ? null : t.grains(landed)) : (R.mode === 'grain' ? t.grains(40000) : t.beans(40000));
+  const pop = backOut((time - R.swapT) / 0.5);
+  const py = drawScale(c, 250, 268, 170, fmtMass(R.disp), (cc, x, y) => {
+    if (st === 0) return;
+    if (st === 1) {
+      const T0 = R.pourT;
+      HG1.forEach((g, i) => {
+        const ts = 0.1 + i / 100 * 1.1, tl = ts + 0.3; if (T0 < ts) return;
+        const yy = T0 < tl ? lerp(-140, g.y, ease((T0 - ts) / 0.3)) : g.y;
+        grain(cc, x + g.x, y + yy, g.a, g.k);
+      });
+    } else {
+      const sc = lerp(0.88, 1, pop);
+      cc.save(); cc.translate(x, y); cc.scale(sc, sc);
+      if (R.mode === 'grain') HG2.forEach((g) => grain(cc, g.x, g.y, g.a, g.k)); else HB1.forEach((g) => bean(cc, g.x, g.y, g.a, g.k));
+      cc.restore();
+    }
+  });
+  if (cap) pill(c, 250, Math.max(24, py - (st === 2 ? 76 : 56)), [cap], 15);
+  // the sack's bubble: the answer stays hidden until the guess
+  const bub = st === 2 ? t.grains(40000) : `? ${t.grains(0).replace(/^0\s*/, '')}`;
+  pill(c, 80, 138, [bub], 14, { color: st === 2 ? '#9dffb4' : '#fff' });
+  if (st === 2 && R.mode === 'bean') {
+    // one grain and one bean
+    const k = ease((time - R.swapT) / 0.6);
+    c.save(); c.globalAlpha = k;
+    rr(c, 14, 14, 332, 0, 0);
+    grain(c, 40, 40, -0.3, 0.7); grain(c, 40, 40, 0.5, 0.2);
+    pill(c, 100, 40, [`${t.grain1}: ${dec('0.025')} ${t.u.g}`], 13);
+    bean(c, 40, 74, -0.3, 0.7);
+    pill(c, 106, 74, [`${t.bean1}: ${dec('0.5')} ${t.u.g}`], 13);
+    pill(c, 290, 58, [`${dec('0.5')} ÷ ${dec('0.025')} = 20`], 15, { color: '#ffd58a' });
+    c.restore();
+  }
+}
+
+// --- view 2: atoms on a balance ---------------------------------------------------------------------------
+const A_PEND = () => S.a.pick === null;
+function sample(c, x, y, g, el) {
+  const k = g < 25 ? 2 : 3, r = 6 + 6 * Math.sqrt(g / 200);
+  for (let row = 0; row < k; row++) {
+    const nn = k - row;
+    for (let i = 0; i < nn; i++) ball(c, x + (i - (nn - 1) / 2) * r * 1.75, y - r - row * r * 1.45, r, el.col, row === 0);
+  }
+}
+function bubble(c, x, y, el) {
+  const R = 30; c.save();
+  c.beginPath(); c.arc(x, y, R, 0, 7); c.fillStyle = lg(c, x - R, y - R, x + R, y + R, [[0, 'rgba(120,160,230,.30)'], [1, 'rgba(20,30,60,.55)']]); c.fill(); c.lineWidth = 1.8; c.strokeStyle = 'rgba(190,210,255,.65)'; c.stroke();
+  c.clip(); const r = Math.max(3, el.pm * 0.08), d = r * 1.05;
+  [[0, -d * 0.9], [-d, d * 0.8], [d, d * 0.8]].forEach(([dx, dy]) => ball(c, x + dx, y + dy + 1, r, el.col, false));
+  c.restore();
+  c.beginPath(); c.arc(x, y, R, 3.5, 4.5); c.lineWidth = 3; c.strokeStyle = 'rgba(255,255,255,.55)'; c.stroke();
+}
+function sceneAtoms(c, dt, time) {
+  const A = S.a, t = T[lang], pend = A_PEND();
+  const m = A.g.map((g, i) => g), d = (m[1] - m[0]) / Math.max(m[0], m[1], 1);
+  const target = 0.26 * Math.tanh(2.4 * d);
+  A.vel += ((target - A.tilt) * 55 - A.vel * 7) * dt; A.tilt += A.vel * dt;
+  const th = A.tilt, px = 180, py = 76, L = 100;
+  // stand
+  c.save(); c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.ellipse(184, 291, 78, 7, 0, 0, 7); c.fill(); c.restore();
+  rr(c, 108, 276, 144, 16, 8); c.fillStyle = lg(c, 108, 276, 108, 292, [[0, '#c9a25a'], [1, '#7d5c28']]); c.fill(); c.lineWidth = 1.5; c.strokeStyle = '#4d3817'; c.stroke();
+  rr(c, 172, py, 16, 204, 6); c.fillStyle = lg(c, 172, 0, 188, 0, [[0, '#e6c987'], [0.5, '#b58d44'], [1, '#7d5c28']]); c.fill(); c.lineWidth = 1.4; c.strokeStyle = '#4d3817'; c.stroke();
+  // pans
+  const ends = [-1, 1].map((s) => ({ s, x: px + s * L * Math.cos(th), y: py + s * L * Math.sin(th) }));
+  ends.forEach((e, i) => {
+    const el = EL[A.el[i]], pyn = e.y + 66, g = A.g[i];
+    c.strokeStyle = '#8f7a4a'; c.lineWidth = 1.6;
+    [-52, 0, 52].forEach((o) => { c.beginPath(); c.moveTo(e.x, e.y); c.lineTo(e.x + o, pyn); c.stroke(); });
+    c.beginPath(); c.ellipse(e.x, pyn, 56, 9, 0, 0, 7); c.fillStyle = lg(c, e.x - 56, pyn - 9, e.x + 40, pyn + 9, [[0, '#f6f8fd'], [0.5, '#bcc4d8'], [1, '#8d96ad']]); c.fill(); c.lineWidth = 1.4; c.strokeStyle = '#555e74'; c.stroke();
+    c.beginPath(); c.ellipse(e.x, pyn - 1, 49, 6, 0, 0, 7); c.fillStyle = 'rgba(40,48,70,.28)'; c.fill();
+    sample(c, e.x, pyn - 1, g, el);
+    c.beginPath(); c.ellipse(e.x, pyn, 56, 9, 0, 0.06, Math.PI - 0.06); c.lineWidth = 2.4; c.strokeStyle = 'rgba(255,255,255,.5)'; c.stroke();
+    e.pyn = pyn;
+  });
+  // beam
+  c.save(); c.translate(px, py); c.rotate(th); rr(c, -L - 8, -5, 2 * L + 16, 10, 5); c.fillStyle = lg(c, 0, -5, 0, 5, [[0, '#f0d594'], [0.5, '#c39a4e'], [1, '#876427']]); c.fill(); c.lineWidth = 1.4; c.strokeStyle = '#4d3817'; c.stroke();
+  [-1, 1].forEach((s) => { c.beginPath(); c.arc(s * L, 0, 5, 0, 7); c.fillStyle = '#e8c779'; c.fill(); c.stroke(); }); c.restore();
+  ball(c, px, py, 10, '#d9b15f', false);
+  // labels
+  ends.forEach((e, i) => {
+    const el = EL[A.el[i]], g = A.g[i];
+    pill(c, e.x, e.pyn + 27, [`${g} ${t.u.g} ${el.s}`], 14, { on: A.act === i });
+    if (!pend) {
+      const N = (g / el.ar) * NA;
+      pill(c, e.x, e.pyn + 54, [...sciSegs(N), ` ${t.a.atoms}`], 14, { color: '#9dffb4' });
+      bubble(c, i ? 280 : 80, 258, el);
+    }
+  });
+}
+
+// --- view 3: molecules -------------------------------------------------------------------------------------
+function layout(cc) {
+  const list = []; ORDER.forEach((e) => { for (let i = 0; i < cnt(cc, e); i++) list.push({ e, i, key: `${e}#${i}` }); });
+  const n = list.length, cx = 180, cy = 78;
+  if (n === 0) return list;
+  if (n === 1) { list[0].x = cx; list[0].y = cy; return list; }
+  if (n === 2) { const g = MR_PX[list[0].e] + MR_PX[list[1].e] + 1; list[0].x = cx - g / 2; list[1].x = cx + g / 2; list[0].y = list[1].y = cy; return list; }
+  const ce = CENTRE.find((e) => cnt(cc, e) > 0), ci = list.findIndex((a) => a.e === ce), cen = list.splice(ci, 1)[0];
+  cen.x = cx; cen.y = cy;
+  const k = list.length, big = Math.max(...list.map((a) => MR_PX[a.e]));
+  const D = Math.max(MR_PX[ce] + big + 7, (k * (big * 2 + 3)) / (2 * Math.PI));
+  list.forEach((a, j) => {
+    let ang = -Math.PI / 2 + (j * 2 * Math.PI) / k;
+    if (ce === 'O' && k === 2 && list.every((q) => q.e === 'H')) ang = Math.PI / 2 + (j ? 1 : -1) * 0.91;
+    if (k === 2 && ce !== 'O') ang = j ? 0 : Math.PI;
+    a.x = cx + D * Math.cos(ang); a.y = cy + D * Math.sin(ang);
+  });
+  list.push(cen); cen.centre = true; return list;
+}
+function sceneMol(c, dt, time) {
+  const M = S.m, t = T[lang], cc = M.c, pend = !!M.pend;
+  const fl = layout(cc), seen = new Set();
+  // panel
+  rr(c, 12, 8, 336, 148, 18); c.fillStyle = lg(c, 0, 8, 0, 156, [[0, 'rgba(120,150,220,.16)'], [1, 'rgba(20,30,60,.45)']]); c.fill(); c.lineWidth = 1.5; c.strokeStyle = 'rgba(160,180,230,.4)'; c.stroke();
+  fl.forEach((a) => {
+    seen.add(a.key);
+    const cur = M.cur[a.key] || (M.cur[a.key] = { x: a.x, y: a.y - 26 });
+    const k = 1 - Math.exp(-dt * 10); cur.x += (a.x - cur.x) * k; cur.y += (a.y - cur.y) * k; a.cx = cur.x; a.cy = cur.y;
+  });
+  Object.keys(M.cur).forEach((k) => { if (!seen.has(k)) delete M.cur[k]; });
+  M.fl = fl;
+  const cen = fl.find((a) => a.centre);
+  if (cen) fl.forEach((a) => {
+    if (a === cen) return;
+    c.lineCap = 'round'; c.strokeStyle = '#2a3350'; c.lineWidth = 9; c.beginPath(); c.moveTo(cen.cx, cen.cy); c.lineTo(a.cx, a.cy); c.stroke();
+    c.strokeStyle = '#cdd5e8'; c.lineWidth = 5.5; c.beginPath(); c.moveTo(cen.cx, cen.cy); c.lineTo(a.cx, a.cy); c.stroke();
+  });
+  fl.slice().sort((p, q) => (p.centre ? 1 : 0) - (q.centre ? 1 : 0)).forEach((a) => {
+    const pk = a.key === M.popKey ? backOut((time - M.popT) / 0.45) : 1;
+    ball(c, a.cx, a.cy, MR_PX[a.e] * clamp(pk, 0.05, 1.25), MC[a.e]);
+    c.save(); c.font = `900 ${Math.max(12, Math.round(MR_PX[a.e] * 0.95))}px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillStyle = a.e === 'H' ? '#2a3350' : '#fff'; c.shadowColor = 'rgba(0,0,0,.4)'; c.shadowBlur = a.e === 'H' ? 0 : 3; c.fillText(a.e, a.cx + 0.5, a.cy + 1); c.restore();
+  });
+  if (!fl.length) pill(c, 180, 84, [t.m.empty[1]], 15);
+  else pill(c, 62, 136, [formulaOf(cc)], 15);
+  // the mass of one mole
+  const mr = mrOf(cc);
+  if (!pend && M.disp < mr * 0.999) M.disp += (mr - M.disp) * (1 - Math.exp(-dt * 6)); else if (!pend) M.disp = mr;
+  const reading = pend ? `? ${t.u.g}` : (mr === 0 ? `0 ${t.u.g}` : `${fxt(M.disp, 1)} ${t.u.g}`);
+  const has = fl.length > 0;
+  drawScale(c, 104, 288, 150, has ? reading : `0 ${t.u.g}`, (cc2, x, y) => {
+    if (!has) return;
+    for (let i = 0; i < 14; i++) { const e = fl[i % fl.length].e, r = 5.5, row = i < 7 ? 0 : 1, j = i < 7 ? i : i - 7, n = i < 7 ? 7 : 6; ball(cc2, x + (j - (n - 1) / 2) * 11, y - r - row * 8, r, MC[e], false); }
+  });
+  if (has) pill(c, 104, 172, [`1 ${t.u.mol}`], 15);
+  if (pend || !has) return;
+  const key = keyOf(cc), px = 268;
+  if (key === 'H2O1' || key === 'H2O') {
+    c.beginPath(); c.moveTo(292, 238); c.lineTo(346, 204); c.lineCap = 'round'; c.lineWidth = 10; c.strokeStyle = '#7d869c'; c.stroke(); c.lineWidth = 6.5; c.strokeStyle = '#d4dbea'; c.stroke();
+    c.beginPath(); c.ellipse(px, 244, 40, 21, 0.1, 0, 7); c.fillStyle = lg(c, px - 40, 224, px + 30, 266, [[0, '#f4f7fd'], [1, '#8d96ad']]); c.fill(); c.lineWidth = 1.5; c.strokeStyle = '#555e74'; c.stroke();
+    c.beginPath(); c.ellipse(px, 243, 33, 15, 0.1, 0, 7); c.fillStyle = lg(c, 0, 228, 0, 258, [[0, '#a9defa'], [1, '#3c93df']]); c.fill();
+    c.beginPath(); c.ellipse(px - 9, 238, 13, 4, 0.1, 0, 7); c.fillStyle = 'rgba(255,255,255,.5)'; c.fill();
+    pill(c, px, 188, [`≈ ${mr} ${t.u.mL}`], 15);
+  } else if (GAS.has(key)) {
+    c.beginPath(); c.moveTo(px, 280); c.quadraticCurveTo(px - 12, 290, px + 4, 297); c.lineWidth = 1.6; c.strokeStyle = '#cfd6e8'; c.stroke();
+    c.beginPath(); c.ellipse(px, 238, 38, 44, 0, 0, 7); c.fillStyle = (() => { const g = c.createRadialGradient(px - 14, 218, 4, px, 238, 50); g.addColorStop(0, '#ff9b8f'); g.addColorStop(0.55, '#e5483f'); g.addColorStop(1, '#8e231e'); return g; })(); c.fill();
+    c.lineWidth = 1.6; c.strokeStyle = '#6e1a16'; c.stroke();
+    c.beginPath(); c.moveTo(px - 5, 281); c.lineTo(px + 5, 281); c.lineTo(px, 276); c.closePath(); c.fillStyle = '#a82a24'; c.fill();
+    c.fillStyle = 'rgba(255,255,255,.5)'; c.beginPath(); c.ellipse(px - 15, 220, 7, 12, 0.5, 0, 7); c.fill();
+    pill(c, px, 176, [`≈ 24 ${t.u.L}`], 15);
+  } else {
+    const r = rnd(3);
+    for (let i = 0; i < 26; i++) { const x = (r() + r() - 1) * 52, y = -Math.pow(1 - Math.min(1, (x / 56) ** 2), 0.8) * 38 * Math.sqrt(r()); ball(c, px + x, 272 + y, 6, MC[fl[i % fl.length].e], i < 8); }
+    pill(c, px, 196, sciSegs(NA), 14);
+  }
+}
+
+// --- secrets -----------------------------------------------------------------------------------------------
+const LAND = [[-120, -20, 46, 30, 0.3], [-90, 10, 24, 30, 0.1], [-6, -34, 34, 22, -0.2], [10, 20, 26, 40, 0.1], [60, -22, 52, 30, 0.2], [96, 40, 22, 14, 0], [150, -30, 26, 20, 0.2], [-168, 40, 30, 16, 0.1]];
+function sceneRiceGlobe(c, dt, time) {
+  const t = T[lang]; S.secT += dt;
+  const p = ease(S.secT / 5), cx = 150, cy = 140, R = 92, depth = Math.round(120 * p);
+  c.save(); c.fillStyle = 'rgba(0,0,0,.3)'; c.beginPath(); c.ellipse(cx + 6, cy + R + 14, R * 0.8, 8, 0, 0, 7); c.fill(); c.restore();
+  c.save(); c.beginPath(); c.arc(cx, cy, R, 0, 7); c.clip();
+  c.fillStyle = lg(c, cx - R, cy - R, cx + R, cy + R, [[0, '#4f9be0'], [1, '#17407a']]); c.fillRect(cx - R, cy - R, 2 * R, 2 * R);
+  const off = (time * 14) % 360, rise = 7 * p;
+  for (const base of [-360, 0, 360]) {
+    LAND.forEach(([lx, ly, rx, ry, rot]) => {
+      const X = cx + lx - off + base + 180 - 180;
+      if (X < cx - R - 60 || X > cx + R + 60) return;
+      const sc = Math.max(0.35, Math.cos(((X - cx) / R) * 1.2));
+      const draw = (dx, dy, fill, stroke) => {
+        c.beginPath(); c.ellipse(X + dx, cy + ly * 0.9 + dy, rx * sc, ry, rot, 0, 7); c.fillStyle = fill; c.fill(); if (stroke) { c.lineWidth = 1; c.strokeStyle = stroke; c.stroke(); }
+        c.beginPath(); c.ellipse(X + dx + rx * 0.4 * sc, cy + ly * 0.9 + dy + ry * 0.3, rx * 0.6 * sc, ry * 0.7, rot + 0.5, 0, 7); c.fillStyle = fill; c.fill();
+      };
+      if (p > 0) draw(0, 0, '#a58e55'); // side wall of the layer
+      draw(0, -rise, p > 0.02 ? mixHex('#58a65a', '#f6ecc9', clamp(p * 3, 0, 1)) : '#58a65a', p > 0.02 ? '#b8a46a' : '#2f6d35');
+    });
+  }
+  const sh = c.createRadialGradient(cx - R * 0.4, cy - R * 0.45, R * 0.1, cx, cy, R * 1.05);
+  sh.addColorStop(0, 'rgba(255,255,255,.28)'); sh.addColorStop(0.5, 'rgba(255,255,255,0)'); sh.addColorStop(1, 'rgba(0,10,40,.6)');
+  c.fillStyle = sh; c.fillRect(cx - R, cy - R, 2 * R, 2 * R); c.restore();
+  c.beginPath(); c.arc(cx, cy, R, 0, 7); c.lineWidth = 2; c.strokeStyle = 'rgba(150,200,255,.5)'; c.stroke();
+  // depth meter
+  const mx = 300, my0 = 40, my1 = 236;
+  rr(c, mx - 10, my0, 20, my1 - my0, 10); c.fillStyle = 'rgba(10,12,22,.7)'; c.fill(); c.lineWidth = 1.4; c.strokeStyle = 'rgba(255,255,255,.28)'; c.stroke();
+  const fh = (my1 - my0 - 6) * p;
+  if (fh > 1) { rr(c, mx - 7, my1 - 3 - fh, 14, fh, 7); c.fillStyle = lg(c, 0, my1, 0, my0, [[0, '#d9c58a'], [1, '#fbf3d9']]); c.fill(); }
+  pill(c, mx - 16, my0 - 4 + 0, [`${depth} ${t.u.g === 'г' ? 'м' : 'm'}`], 15, { color: '#ffd58a' });
+  pill(c, 150, 258, [...sciSegs(NA), ` ${t.ofRice}`], 14);
+  pill(c, 150, 24, [t.ns], 13);
+}
+function sceneDrop(c, dt, time) {
+  const t = T[lang]; S.secT += dt;
+  const p1 = ease(S.secT / 1.6), p2 = ease((S.secT - 1.3) / 2.2), p3 = ease((S.secT - 3.2) / 0.7);
+  const X0 = 24, scale = 300 / 24, DROP = 1.6728e21, PEOPLE = 8e9;
+  // drop icon
+  const dx = 44, dy = 52, wob = Math.sin(time * 2) * 1.2;
+  c.save(); c.fillStyle = 'rgba(0,0,0,.25)'; c.beginPath(); c.ellipse(dx + 3, dy + 24, 14, 4, 0, 0, 7); c.fill(); c.restore();
+  c.beginPath(); c.moveTo(dx, dy - 22 + wob); c.bezierCurveTo(dx + 6, dy - 8, dx + 18, dy + 2, dx + 14, dy + 14); c.bezierCurveTo(dx + 11, dy + 26, dx - 11, dy + 26, dx - 14, dy + 14); c.bezierCurveTo(dx - 18, dy + 2, dx - 6, dy - 8, dx, dy - 22 + wob);
+  c.fillStyle = lg(c, dx - 14, dy - 20, dx + 14, dy + 24, [[0, '#c4ebff'], [0.5, '#4aa6ec'], [1, '#1d5aa8']]); c.fill(); c.lineWidth = 1.5; c.strokeStyle = '#163f78'; c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.7)'; c.beginPath(); c.ellipse(dx - 6, dy + 4, 3, 7, 0.4, 0, 7); c.fill();
+  pill(c, 200, 52, [t.dropL], 14);
+  // bars on a log scale
+  const bar = (y, col, e, p, label, segs, hi) => {
+    rr(c, X0, y, 300, 26, 13); c.fillStyle = 'rgba(10,12,22,.55)'; c.fill();
+    const w = Math.max(0, e * scale * p);
+    if (w > 4) { rr(c, X0, y, w, 26, 13); c.fillStyle = lg(c, 0, y, 0, y + 26, [[0, light(col, 0.35)], [1, dark(col, 0.2)]]); c.fill(); c.lineWidth = 1.4; c.strokeStyle = dark(col, 0.55); c.stroke(); }
+    pill(c, X0 + 150, y - 15, [label], 13);
+    if (p > 0.95) pill(c, clamp(X0 + w - 10, 100, 280), y + 13, segs, 14, { color: hi });
+  };
+  bar(112, '#41b3a3', Math.log10(PEOPLE), p1, t.people, ['8 ' + times() + ' ', { t: '', sup: true }, '10', { t: '9', sup: true }], '#9dffb4');
+  bar(172, '#4aa6ec', Math.log10(DROP), p2, t.moleculesL, sciSegs(DROP), '#9dffb4');
+  // log axis
+  c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(X0, 218); c.lineTo(X0 + 300, 218); c.stroke();
+  [0, 6, 12, 18, 24].forEach((e) => {
+    const x = X0 + e * scale; c.beginPath(); c.moveTo(x, 214); c.lineTo(x, 222); c.stroke();
+    c.save(); c.fillStyle = '#c6cde0'; c.font = `800 13px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle'; const w1 = c.measureText('10').width;
+    c.fillText('10', x - 3, 236); c.font = `800 10px ${FONT}`; c.textAlign = 'left'; c.fillText(String(e), x - 3 + w1 / 2 + 1, 231); c.restore();
+  });
+  if (p3 > 0) { c.save(); c.globalAlpha = p3; pill(c, 190, 268, ['≈ ' + num(200000000000) + ' ×'], 15, { color: '#ffd58a' }); c.restore(); }
+}
+
+// --- the single canvas -------------------------------------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  const s = Math.min(w / W, h / H); XF.s = s; XF.ox = (w - W * s) / 2; XF.oy = (h - H * s) / 2;
+  const v = lab.view;
+  backdrop(c, w, h, S.sec ? null : (v === 'rice' || v === 'mol') ? (v === 'rice' ? 246 : 252) : null);
+  c.save(); c.translate(XF.ox, XF.oy); c.scale(s, s);
+  if (S.sec === 'rice') sceneRiceGlobe(c, dt, time);
+  else if (S.sec === 'drop') sceneDrop(c, dt, time);
+  else if (v === 'rice') sceneRice(c, dt, time);
+  else if (v === 'atoms') sceneAtoms(c, dt, time);
+  else sceneMol(c, dt, time);
+  c.restore();
+  roFrame();
+});
+$('cv').addEventListener('click', (ev) => {
+  const r = $('cv').getBoundingClientRect(), x = (ev.clientX - r.left - XF.ox) / XF.s, y = (ev.clientY - r.top - XF.oy) / XF.s;
+  if (S.sec) return;
+  if (lab.view === 'atoms' && !A_PEND()) { S.a.act = x < 180 ? 0 : 1; sfx.click(); render(); }
+  else if (lab.view === 'mol' && !S.m.pend && S.m.fl) {
+    const hit = S.m.fl.slice().reverse().find((a) => Math.hypot(a.cx - x, a.cy - y) <= MR_PX[a.e] + 4);
+    if (hit) { S.m.c[hit.e] = Math.max(0, cnt(S.m.c, hit.e) - 1); S.m.verdict = null; sfx.snap(); render(); }
+  }
+});
+
+// --- controls ----------------------------------------------------------------------------------------------
+const optBtns = (opts, picked, ok, act) => opts.map((o, i) => `<button class="mo-o ${picked === null ? '' : i === ok ? 'ok' : i === picked ? 'no' : 'dim'}" data-act="${act}" data-i="${i}"${picked === null ? '' : ' disabled'}>${esc(o)}</button>`).join('');
+function buildCtrl(t, v) {
+  const el = $('mo-view'); let h = '';
+  if (S.sec) {
+    h = `<div class="mo-row"><button class="chip mo-t" data-act="secAgain">${esc(t.again)}</button><button class="chip mo-t" data-act="secBack">${esc(t.back)}</button></div>`;
+  } else if (v === 'rice') {
+    const R = S.r, st = r1Stage();
+    if (st === 0) h = `<button class="btn mo-go" data-act="pour">${esc(t.r.pour)}</button>`;
+    else if (st === 1) h = R.ready ? `<div class="mo-q">${esc(t.r.q)}</div><div class="mo-opts">${[4000, 40000, 400000].map((n, i) => `<button class="mo-o" data-act="rpick" data-i="${i}">${esc(num(n))}</button>`).join('')}</div>` : `<div class="mo-note">${esc(t.r.sub0.length ? '…' : '')}</div>`;
+    else {
+      const ok = R.pick === 1;
+      h = `<div class="mo-q">${esc(t.r.q)}</div><div class="mo-opts">${[4000, 40000, 400000].map((n, i) => `<button class="mo-o ${i === 1 ? 'ok' : i === R.pick ? 'no' : 'dim'}" disabled>${esc(num(n))}</button>`).join('')}</div>
+        <div class="mo-v" style="color:${ok ? 'var(--ok)' : 'var(--wip)'}">${esc(ok ? t.right : t.notq)} 1000 ${t.u.g} ÷ ${dec('2.5')} ${t.u.g} × 100 = ${esc(num(40000))}</div>
+        <div class="mo-row"><button class="chip mo-t ${R.mode === 'grain' ? 'on' : ''}" data-act="rmode" data-m="grain">🍚 ${esc(t.grains(40000))}</button><button class="chip mo-t ${R.mode === 'bean' ? 'on' : ''}" data-act="rmode" data-m="bean">🫘 ${esc(t.beans(40000))}</button></div>`;
+    }
+  } else if (v === 'atoms') {
+    const A = S.a, pend = A_PEND(), e = EL[A.el[A.act]];
+    h = pend ? `<div class="mo-q">${esc(t.a.q)}</div><div class="mo-opts">${optBtns(t.a.opts, null, 2, 'apick')}</div>`
+      : `<div class="mo-v" style="color:${A.pick === 2 ? 'var(--ok)' : 'var(--wip)'}">${esc(A.pick === 2 ? t.right : t.notq)}</div>`;
+    h += `<div class="${pend ? 'mo-lock' : ''}"><div class="mo-row"><button class="chip mo-t ${A.act === 0 ? 'on' : ''}" data-act="pan" data-i="0">${esc(t.a.left)}</button><button class="chip mo-t ${A.act === 1 ? 'on' : ''}" data-act="pan" data-i="1">${esc(t.a.right)}</button></div>
+      <div class="mo-row">${EL.map((x, i) => `<button class="chip mo-t ${A.el[A.act] === i ? 'on' : ''}" data-act="el" data-i="${i}"><b>${x.s}</b> <small>${x.ar}</small></button>`).join('')}</div>
+      <div class="mo-sl"><span id="mo-gl">${esc(t.a.mass(A.g[A.act]))}</span><input class="big" id="mo-g" type="range" min="1" max="200" step="1" value="${A.g[A.act]}" style="--track:linear-gradient(90deg,#2a3350,${e.col})"></div></div>
+      ${pend ? `<div class="mo-note">${esc(t.a.locked)}</div>` : ''}`;
+  } else {
+    const M = S.m, pi = presetOf(M.c), f = formulaOf(M.c);
+    if (M.pend) {
+      const p = PRE.find((q) => q.k === M.pend), ix = PRE.indexOf(p), perm = PERM[ix], vals = [`${fxt(mrOf(p.c), 1)} ${t.u.g}`, `${zOf(p.c)} ${t.u.g}`, `${nOf(p.c)} ${t.u.g}`];
+      h = `<div class="mo-q">${esc(t.m.q(formulaOf(p.c)))}</div><div class="mo-opts">${perm.map((k, i) => `<button class="mo-o" data-act="mpick" data-i="${k}">${esc(vals[k])}</button>`).join('')}</div>`;
+    } else if (M.verdict) {
+      h = `<div class="mo-q">${esc(t.m.q(M.verdict.f))}</div><div class="mo-opts">${M.verdict.perm.map((k) => `<button class="mo-o ${k === 0 ? 'ok' : k === M.verdict.pick ? 'no' : 'dim'}" disabled>${esc(M.verdict.vals[k])}</button>`).join('')}</div>
+        <div class="mo-v" style="color:${M.verdict.pick === 0 ? 'var(--ok)' : 'var(--wip)'}">${esc(M.verdict.pick === 0 ? t.right : t.notq)} ${esc(M.verdict.pick === 1 ? t.m.zsum : M.verdict.pick === 2 ? t.m.cnt : '')}</div>`;
+    }
+    h += `<div class="mo-row">${PRE.map((p, i) => `<button class="chip mo-t ${pi === i ? 'on' : ''}" data-act="pre" data-i="${i}"><b>${formulaOf(p.c)}</b></button>`).join('')}</div>
+      <div class="mo-row ${M.pend ? 'mo-lock' : ''}">${BTN.map((e) => `<button class="chip mo-t" data-act="atom" data-e="${e}"><b style="color:${MC[e] === '#5a6070' ? '#aab3c8' : MC[e]}">${e}</b> <small>${dec(MA[e])}</small></button>`).join('')}<button class="chip mo-t" data-act="clr">${esc(t.m.clear)}</button></div>
+      <div class="mo-note">${esc(t.m.remove)}</div>`;
+  }
+  el.innerHTML = h;
+  const open = secret.unlocked(), sc = (k, emo) => `<button class="chip mo-t secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  $('mo-sec').innerHTML = `<div class="mo-row" style="margin:0">${sc('a', '🌾')}${sc('b', '💧')}</div>`;
+}
+
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const act = b.dataset.act, i = +b.dataset.i;
+  if (act === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    const k = b.dataset.k; S.sec = S.sec === k ? null : k; S.secT = 0; sfx.click();
+    if (S.sec === 'rice') lab.setGlow('rgba(210,190,120,.28)');
+  } else if (act === 'secAgain') { S.secT = 0; sfx.click(); }
+  else if (act === 'secBack') { S.sec = null; sfx.click(); }
+  else if (act === 'pour') {
+    S.r.pourT = 0; S.r.ready = false; sfx.push();
+    setTimeout(() => { S.r.ready = true; if (lab.view === 'rice') render(); }, 1700);
+  } else if (act === 'rpick') {
+    S.r.pick = i; S.r.swapT = performance.now() / 1000; (i === 1 ? sfx.good : sfx.bad)(); showStage();
+  } else if (act === 'rmode') { S.r.mode = b.dataset.m; S.r.swapT = performance.now() / 1000; sfx.click(); }
+  else if (act === 'apick') {
+    S.a.pick = i; S.a.g = [12, 24]; S.a.el = [1, 3]; (i === 2 ? sfx.good : sfx.bad)(); showStage();
+  } else if (act === 'pan') { S.a.act = i; sfx.click(); }
+  else if (act === 'el') { S.a.el[S.a.act] = i; sfx.tick(); }
+  else if (act === 'pre') {
+    const p = PRE[i]; S.m.c = { ...p.c }; S.m.verdict = null; S.m.disp = 0;
+    S.m.pend = S.m.done[p.k] ? null : p.k; sfx.click();
+  } else if (act === 'mpick') {
+    const p = PRE.find((q) => q.k === S.m.pend), ix = PRE.indexOf(p), perm = PERM[ix];
+    const vals = [`${fxt(mrOf(p.c), 1)} ${T[lang].u.g}`, `${zOf(p.c)} ${T[lang].u.g}`, `${nOf(p.c)} ${T[lang].u.g}`];
+    S.m.verdict = { f: formulaOf(p.c), perm, pick: i, vals }; S.m.done[p.k] = true; S.m.pend = null; S.m.disp = 0; (i === 0 ? sfx.good : sfx.bad)(); showStage();
+  } else if (act === 'atom') {
+    const e = b.dataset.e, tot = nOf(S.m.c); if (tot >= 12) return sfx.bad();
+    S.m.c[e] = cnt(S.m.c, e) + 1; S.m.verdict = null; S.m.popKey = `${e}#${S.m.c[e] - 1}`; S.m.popT = performance.now() / 1000; sfx.snap();
+  } else if (act === 'clr') { S.m.c = {}; S.m.verdict = null; sfx.click(); }
+  render();
+});
+$('ctrlBody').addEventListener('input', (ev) => {
+  if (ev.target.id !== 'mo-g') return;
+  S.a.g[S.a.act] = +ev.target.value; $('mo-gl').textContent = T[lang].a.mass(S.a.g[S.a.act]); card(); ro();
+});
+function showStage() {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+// --- readout, state card, render ---------------------------------------------------------------------------
+let lastRO = '';
+function setRO(val, sub, pillT, col) {
+  const k = [val, sub, pillT, col].join('|'); if (k === lastRO) return; lastRO = k;
+  lab.setReadout(val, sub, pillT, col);
+}
+function ro() {
+  const t = T[lang], v = lab.view;
+  if (S.sec === 'rice') { const d = Math.round(120 * ease(S.secT / 5)); return setRO(`${d} ${lang === 'en' || lang === 'hu' ? 'm' : 'м'}`, `${sciTxt(NA)} ${t.ofRice}`, '', '#d9c58a'); }
+  if (S.sec === 'drop') return setRO(sciHtml(1.6728e21), `${dec('0.05')} ${t.u.g} ÷ 18 ${t.u.gmol} ≈ ${dec('0.0028')} ${t.u.mol}`, '', '#4aa6ec');
+  if (v === 'rice') {
+    const R = S.r, st = r1Stage(), landed = landedNow();
+    if (st === 0) return setRO(fmtMass(0), t.r.sub0, '', '#d9b15f');
+    if (st === 1) return setRO(fmtMass(R.disp), t.grains(landed), '', '#d9b15f');
+    return setRO(fmtMass(R.disp), R.mode === 'grain' ? t.grains(40000) : t.beans(40000), R.mode === 'bean' ? `${dec('0.5')} ÷ ${dec('0.025')} = 20` : '', '#d9b15f');
+  }
+  if (v === 'atoms') {
+    const A = S.a;
+    if (A_PEND()) return setRO('?', '', '', '#4ea8ff');
+    const e = EL[A.el[A.act]], g = A.g[A.act], n = g / e.ar, N = n * NA;
+    return setRO(sciHtml(N), t.a.molLine(g, e.ar, n >= 100 ? num(n) : n >= 10 ? fx(n, 1) : fx(n, 2)) + ` · ${e.s}`, words(N), e.col === '#5a6070' ? '#7a8196' : e.col);
+  }
+  const M = S.m, mr = mrOf(M.c);
+  if (M.pend) return setRO('?', '', '', '#5fcf7a');
+  if (!nOf(M.c)) return setRO(`0 ${t.u.g}`, '', '', '#5fcf7a');
+  return setRO(`${fxt(M.disp, 1)} ${t.u.g}`, `${t.m.mole1(formulaOf(M.c))}: ${sumOf(M.c)}`, `Mr = ${dec(mr)}`, '#5fcf7a');
+}
+let lastFrame = '';
+function roFrame() { // animated readouts (scale reading, secrets) follow the canvas
+  if (S.sec || lab.view === 'rice' || lab.view === 'mol') ro();
+}
+function card() {
+  const t = T[lang], v = lab.view; let s;
+  if (S.sec === 'rice') { s = t.sa(120); lab.setGlow('rgba(210,190,120,.28)'); lab.setState({ emo: s[0], title: s[1], lead: s[2], body: s[3] }); return lab.setFacts([]); }
+  if (S.sec === 'drop') { s = t.sb(1.6728e21); lab.setGlow('rgba(74,166,236,.3)'); lab.setState({ emo: s[0], title: s[1], lead: s[2], body: s[3] }); return lab.setFacts([]); }
+  if (v === 'rice') {
+    const st = r1Stage(); lab.setGlow('rgba(217,177,95,.26)');
+    s = st === 0 ? t.r.s0 : st === 1 ? t.r.s1(fmtMass(2.5).replace(/ .*/, '')) : (S.r.mode === 'grain' ? t.r.s2 : t.r.s3);
+    lab.setFacts(t.facts.rice);
+  } else if (v === 'atoms') {
+    const A = S.a; lab.setGlow('rgba(78,168,255,.26)');
+    if (A_PEND()) s = t.a.pend;
+    else if (A.pick !== null && A.g[0] === 12 && A.g[1] === 24 && A.el[0] === 1 && A.el[1] === 3) s = t.a.rev();
+    else {
+      const nL = A.g[0] / EL[A.el[0]].ar, nR = A.g[1] / EL[A.el[1]].ar;
+      if (A.el[0] === A.el[1] && A.g[0] === A.g[1]) s = t.a.sameS;
+      else if (Math.abs(nL - nR) / Math.max(nL, nR) < 0.005) s = t.a.sameN;
+      else if (A.g[0] === A.g[1]) s = t.a.sameM;
+      else s = t.a.free;
+    }
+    lab.setFacts(t.facts.atoms);
+  } else {
+    const M = S.m, f = formulaOf(M.c); lab.setGlow('rgba(95,207,138,.24)');
+    if (M.pend) s = t.m.pend(formulaOf(PRE.find((q) => q.k === M.pend).c));
+    else if (!nOf(M.c)) s = t.m.empty;
+    else {
+      s = t.m.free(f, sumOf(M.c)); const key = keyOf(M.c);
+      if (key === 'H2O1' || key === 'H2O') s = [s[0], s[1], s[2], `${t.m.water} ${s[3]}`];
+      else if (GAS.has(key)) s = [s[0], s[1], s[2], `${t.m.gas} ${s[3]}`];
+    }
+    lab.setFacts(t.facts.mol);
+  }
+  lab.setState({ emo: s[0], title: s[1], lead: s[2], body: s[3] });
+}
+function render() {
+  const t = T[lang], v = lab.view;
+  document.body.dataset.v = v;
+  lastRO = '';
+  buildCtrl(t, v); card(); ro();
+}
+render();
+</script>
+</body>
+</html>
