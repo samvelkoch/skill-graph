@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-08
 
 ### Labs
+- New lab `million` “How Big Is a Million?”: zoom out from one dot to a cube of a million, build seven-digit numbers on a train, count to a million one second at a time (431). (#366)
 - New lab `peter-port` “A Window on the Sea”: sail two sea roads from Russia to Europe and time them, build St Petersburg on the Neva marshes year by year, climb the Table of Ranks (430). (#365)
 - New lab `atmosphere` “Up Through the Air”: ride a weather balloon until it bursts, slice the sky into layers, weigh the air above one square metre (429). (#364)
 - New lab `diffusion` “The Great Spread”: drop ink into hot and cold water and graph how it spreads, count oxygen crossing a thin wall both ways, race a small cell against a big one (428). (#363)
