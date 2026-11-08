@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-08
 
 ### Labs
+- New lab `molting` “Armour That Doesn’t Grow”: watch a crab grow in steps as it molts, find out why insects stay small, sort arthropods by body plan (440). (#375)
 - New lab `circuit-diagrams` “Draw the Circuit”: match a real circuit to its diagram, read a diagram to say which bulbs light, draw circuits with symbols (439). (#374)
 - New lab `swim-bladder` “How a Fish Floats”: fill a fish’s swim bladder and watch it rise or sink, look inside the gills, stop a shark that has no bladder (438). (#373)
 - New lab `weather-station` “My Weather Station”: turn the wind and read a vane and an anemometer, catch rain in a thin gauge and a wide bucket, hang the thermometer in the right place (437). (#372)
