@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-09
 
 ### Labs
+- New lab `longship` “The Viking Longship”: race a deep ship and a longship up a shallow river, sail with the wind or row without it, follow the Vikings as far as America (474). (#409)
 - New lab `peacock` “The Peacock’s Tail”: choose between peacocks like a peahen, evolve tail length over 100 generations with tigers about, sort antlers, claws and dances (473). (#408)
 - New lab `pop-pyramid` “The Shape of a Country”: match three countries to their age pyramids, run a country to 2100 with births and life expectancy, plan its schools, jobs and pensions (472). (#407)
 - New lab `electromagnet` “Wire, Nail, Battery”: wrap a nail in wire and switch the current on and off, find the rule for how many paperclips it lifts, sort scrap with an electromagnet crane (471). (#406)
