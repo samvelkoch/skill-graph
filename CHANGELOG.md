@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-09
 
 ### Labs
+- New lab `star-life` “A Star’s Life”: slide a star’s mass and watch its colour and lifetime, play the lives of four stars to their endings, follow star dust into a new sun (455). (#390)
 - New lab `constellations` “Join the Stars”: join the Big Dipper star by star, turn the night sky around the North Star, find the W, Orion’s belt and the ladle (454). (#389)
 
 ## 2026-11-08
