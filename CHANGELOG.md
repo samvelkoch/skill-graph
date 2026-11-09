@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-09
 
 ### Labs
+- New lab `relative-motion` “Who Is Moving?”: throw a ball in a moving train and watch it from the platform, ride beside another train, steer a boat across a flowing river with velocity arrows (466). (#401)
 - New lab `greek-theatre` “Fourteen Thousand Seats”: shape the seats of a Greek theatre and test what each seat sees and hears, look at masks from the top row, drop a coin on the stage at Epidaurus (465). (#400)
 - New lab `alphabet` “Letters on the Move”: count the signs a scribe must learn, turn old picture-signs into today’s letters, sail the alphabet from Tyre to Greece, Rome and the Slavs (464). (#399)
 - New lab `static` “Rub a Balloon”: rub a balloon on a jumper and count the charges that hop across, hang two charged balloons side by side, shuffle across a carpet to a spark (463). (#398)
