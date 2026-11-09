@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-09
 
 ### Labs
+- New lab `volcanic-winter` “Ash in the Sky”: set off eruptions of different sizes and watch the world’s temperature, visit a village in June 1816, compare Pinatubo, Tambora and Toba (501). (#432)
 - New lab `film-music` “Music for a Scene”: play one short scene with three soundtracks, build music for a chase or a sunrise, recognise characters by their tunes (500). (#431)
 - New lab `medieval-clothes` “Dress for 1300”: dress a peasant and a noble, dye cloth with woad, madder and weld, put a knight’s armour on layer by layer and weigh it (499). (#430)
 - New lab `roman-roads` “Straight Roads, Strong Shields”: build a Roman road layer by layer and send rain over it, walk a straight and a winding road, lock shields into a tortoise (498). (#429)
