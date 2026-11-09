@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-09
 
 ### Labs
+- New lab `thermopylae` “Hold the Pass”: make the pass at Thermopylae wider or narrower and see how many can fight at once, follow the mountain path behind the Greeks, run the road from Marathon (461). (#396)
 - New lab `chart-tricks` “Chart Tricks”: peel the sticker off a chart’s axis and watch the headline change, stretch a cat picture and compare areas, spot the trick in five newspaper charts (460). (#395)
 - New lab `tsunami` “The Giant Wave”: shake the sea floor and watch a low, fast wave grow tall at the shore, read the warning signs and get everyone uphill, race the wave across the Pacific (459). (#394)
 - New lab `drinking-water` “Only a Drop to Drink”: pour all Earth’s water into 100 glasses and find the fresh part, salt the water until an egg floats, make fresh water from the sea with a sun still (458). (#393)
