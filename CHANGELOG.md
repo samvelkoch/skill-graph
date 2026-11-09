@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-09
 
 ### Labs
+- New lab `hastings` “A Story Stitched in Wool”: meet the three men who wanted the English crown in 1066, scroll along the Bayeux Tapestry, ask who made it and for whom (496). (#427)
 - New lab `pendulum` “Tick, Tock, Swing”: change one thing at a time on a pendulum and count swings, predict a hidden pendulum behind a curtain, set a grandfather clock to tick once a second (495). (#426)
 - New lab `troy-layers` “City on City”: dig down through nine cities at Troy, watch Schliemann’s trench cut through the layers, sort clues for a real war and for the poem (494). (#425)
 - New lab `mummy` “How to Keep Forever”: dry one apple in salt and leave one out, put the steps of mummification in order, wrap a figure in linen (493). (#424)
