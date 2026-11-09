@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-09
 
 ### Labs
+- New lab `hilbert-hotel` “Hilbert’s Hotel”: find a room for a new guest in a full hotel with endless rooms, fit a whole endless bus, pair whole numbers with even numbers and meet Cantor’s diagonal (470). (#405)
 - New lab `gps` “Three Circles Find You”: listen to towers one by one until the circles meet in one place, turn signal time into distance and see what a clock error does, count the satellites overhead (469). (#404)
 - New lab `groundwater` “Water Under Your Feet”: zoom into sand, gravel and clay to see where groundwater sits, dig a well through a dry summer, follow a spill as it seeps towards the well (468). (#403)
 - New lab `blind-spot` “What the Driver Can’t See”: hide cyclists around a lorry and reveal what the driver sees in the mirrors, watch the trailer cut the corner on a right turn, find the safe place by the driver’s face (467). (#402)
