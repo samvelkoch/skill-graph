@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-09
 
 ### Labs
+- New lab `roman-roads` “Straight Roads, Strong Shields”: build a Roman road layer by layer and send rain over it, walk a straight and a winding road, lock shields into a tortoise (498). (#429)
 - New lab `minotaur-maze` “The Minotaur’s Maze”: lead Theseus into the labyrinth and back, try to get out with no thread, put the myth of Theseus in order (497). (#428)
 - New lab `hastings` “A Story Stitched in Wool”: meet the three men who wanted the English crown in 1066, scroll along the Bayeux Tapestry, ask who made it and for whom (496). (#427)
 - New lab `pendulum` “Tick, Tock, Swing”: change one thing at a time on a pendulum and count swings, predict a hidden pendulum behind a curtain, set a grandfather clock to tick once a second (495). (#426)
