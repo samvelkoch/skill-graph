@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-09
 
 ### Labs
+- New lab `art-genres` “What Is the Picture About?”: move a golden frame around one garden scene to make a portrait, a landscape or a still life, sort six small paintings, pick a tall or wide page (487). (#422)
 - New lab `dino-sizes` “How Big Were They?”: line up five dinosaurs beside a bus and a child, stand next to a Velociraptor, step into a T. rex footprint (486). (#421)
 - New lab `plant-bends` “Which Way Will It Grow?”: move a lamp around a seedling and play the days, lay a jar on its side and watch root and shoot turn, see which flowers open with light and which with warmth (485). (#420)
 - New lab `separating` “Sort Out the Mess”: separate gravel, sand, iron, salt and water with a sieve, a magnet, a filter and a flame, match each tool to its trick, sort pure substances from mixtures (484). (#419)
