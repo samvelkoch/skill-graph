@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-09
 
 ### Labs
+- New lab `groundwater` “Water Under Your Feet”: zoom into sand, gravel and clay to see where groundwater sits, dig a well through a dry summer, follow a spill as it seeps towards the well (468). (#403)
 - New lab `blind-spot` “What the Driver Can’t See”: hide cyclists around a lorry and reveal what the driver sees in the mirrors, watch the trailer cut the corner on a right turn, find the safe place by the driver’s face (467). (#402)
 - New lab `relative-motion` “Who Is Moving?”: throw a ball in a moving train and watch it from the platform, ride beside another train, steer a boat across a flowing river with velocity arrows (466). (#401)
 - New lab `greek-theatre` “Fourteen Thousand Seats”: shape the seats of a Greek theatre and test what each seat sees and hears, look at masks from the top row, drop a coin on the stage at Epidaurus (465). (#400)
