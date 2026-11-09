@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-09
 
 ### Labs
+- New lab `tsunami` “The Giant Wave”: shake the sea floor and watch a low, fast wave grow tall at the shore, read the warning signs and get everyone uphill, race the wave across the Pacific (459). (#394)
 - New lab `drinking-water` “Only a Drop to Drink”: pour all Earth’s water into 100 glasses and find the fresh part, salt the water until an egg floats, make fresh water from the sea with a sun still (458). (#393)
 - New lab `dino-tracks` “Footprints in the Mud”: send a dinosaur across the mud and read its speed from the stride, guess size and gait from bare trackways, pick the story a rock surface tells (457). (#392)
 - New lab `half-life` “The Atom Clock”: flip a coin for each of 400 atoms and watch the curve, predict the shape of decay, date a bone, wood, charcoal and Ötzi with carbon-14 (456). (#391)
