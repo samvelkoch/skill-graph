@@ -1,0 +1,1177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>When Coral Turns White · Skill Graph</title>
+<meta name="description" content="Zoom into a coral, warm the sea week by week and make it more acidic: see what happens to a reef. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  .co-q { font: 500 19px/1.2 var(--serif); color: #fff; margin: 0 0 10px; text-wrap: balance; }
+  .co-q2 { font-size: 12.5px; line-height: 1.35; color: var(--mut); margin: 0 0 6px; }
+  .co-opts { display: flex; flex-wrap: wrap; gap: 8px; }
+  .co-opt { flex: 1 1 auto; min-height: 40px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    color: var(--soft); font: 800 13.5px var(--sans); cursor: pointer; text-align: center; }
+  .co-opt:hover { background: rgba(130, 145, 190, .25); }
+  .co-verdict { font-size: 13.5px; line-height: 1.4; color: var(--soft); margin: 0 0 12px; }
+  .co-verdict b { font-weight: 900; }
+  .co-verdict.good b { color: var(--ok); }
+  .co-verdict.bad b { color: var(--wip); }
+  .co-sl { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin: 10px 0 0; font-size: 13px; color: var(--soft); font-weight: 800; }
+  .co-sl b { color: #fff; font-weight: 900; font-size: 15px; }
+  .co-hint { font-size: 12px; line-height: 1.4; color: var(--faint); margin-top: 8px; }
+  .co-leg { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 12px; }
+  .co-leg span { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 800; color: var(--soft); }
+  .co-leg i { width: 13px; height: 13px; border-radius: 50%; display: inline-block; border: 1px solid rgba(10, 12, 20, .7); flex: none; }
+  .co-ends { display: flex; justify-content: space-between; font-size: 12px; color: var(--mut); margin: 2px 4px 0; font-weight: 700; }
+  #coHit { position: absolute; display: none; touch-action: none; cursor: ns-resize; border-radius: 6px; }
+  .btn:disabled { opacity: .35; cursor: default; }
+  #secRow { margin-top: 14px; }
+  @media (max-width: 760px) {
+    body[data-v=partners] #stage { height: min(96vw, 420px); }
+    body[data-v=heat] #stage { height: min(120vw, 520px); }
+    body[data-v=acid] #stage { height: min(104vw, 460px); }
+    body[data-v=seca] #stage { height: min(96vw, 400px); }
+    body[data-v=secb] #stage { height: min(100vw, 440px); }
+    .co-q { font-size: 17px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, ruPlural, lang } from '../lab.js';
+
+// --- the model: degree heating weeks (DHW), as NOAA's Coral Reef Watch defines it ---------------------------------
+// weekly sea temperature is stored as degrees above the usual summer maximum. A week counts only when it is at least
+// 1 °C above that maximum (the bleaching threshold); a counted week adds its whole excess. DHW = the sum over 12 weeks.
+const WEEKS = 12, T_START = 4, T_SEVERE = 8, YMAX = 4, WEEK_S = 0.55, COOL_S = 0.42;
+const exOf = (a) => (a >= 1 ? a : 0);
+const dhwOf = (tmp, from, to) => { let d = 0; for (let i = from; i < to; i++) d += exOf(tmp[i]); return d; };
+const stOf = (d) => (d >= T_SEVERE ? 'severe' : d >= T_START ? 'bleaching' : 'healthy');
+const bleachOf = (d) => (d < T_START ? 0 : 0.2 + 0.8 * clamp((d - T_START) / (T_SEVERE - T_START), 0, 1));
+const deadOf = (d) => (d < T_SEVERE ? 0 : clamp((d - T_SEVERE) / 6, 0, 1));
+const pat = (s, n) => Array.from({ length: WEEKS }, (_, i) => (i < n ? s : 0));
+const PA = { s: 1, n: 2 }, PB = { s: 2, n: 6 }; // the two heatwaves of the prediction
+const dA = dhwOf(pat(PA.s, PA.n), 0, WEEKS), dB = dhwOf(pat(PB.s, PB.n), 0, WEEKS); // 2 and 12, computed
+const STC = { healthy: '#2fae78', bleaching: '#e08a1e', severe: '#e0364a' };
+
+// --- small helpers -----------------------------------------------------------------------------------------------
+const TAU = Math.PI * 2;
+const ease = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+const frac = (x) => x - Math.floor(x);
+function rng(seed) {
+  return () => { seed |= 0; seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+function hex2rgb(h) { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+function mix(a, b, t) { t = clamp(t, 0, 1); const A = hex2rgb(a), B = hex2rgb(b); return '#' + A.map((v, i) => Math.round(v + (B[i] - v) * t).toString(16).padStart(2, '0')).join(''); }
+const shade = (hex, k) => mix(hex, k > 0 ? '#000000' : '#ffffff', Math.abs(k)); // k > 0 darker, k < 0 lighter (hex in, hex out)
+const fx = (x, d) => { const s = x.toFixed(d); return lang === 'en' ? s : s.replace('.', ','); };
+const num = (x) => { const s = String(Math.round(x * 100) / 100); return lang === 'en' ? s : s.replace('.', ','); };
+const dg = (s) => `+${num(s)} °C`;
+const wk = (n) => (lang === 'ru' ? `${n} ${ruPlural(n, 'неделя', 'недели', 'недель')}` : lang === 'hu' ? `${n} hét` : `${n} ${n === 1 ? 'week' : 'weeks'}`);
+const dur = (n) => (lang === 'ru' ? `на ${n} ${ruPlural(n, 'неделю', 'недели', 'недель')}` : lang === 'hu' ? `${n} hétig` : `for ${wk(n)}`);
+const wkS = (n) => (lang === 'ru' ? `${n} нед.` : lang === 'hu' ? `${n} hét` : `${n} wk`);
+const stN = (k) => T[lang].st[k];
+const rr = (c, x, y, w, h, r) => { c.beginPath(); c.roundRect(x, y, w, h, r); };
+let CW = 0, CH = 0; // current canvas size, for clamping labels
+
+// --- texts -------------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'When Coral Turns White', title: 'When Coral Turns White',
+    lines: [['Zoom into a coral', 'and meet its tiny partner.'], ['Warm the sea', 'week by week.'], ['Make the water', 'a little more acidic.']],
+    views: { partners: '🪸 Partners', heat: '🌡️ Heat', acid: '🍋 Acid' },
+    right: 'Right!', notq: 'Not quite.', weeksWord: 'weeks',
+    st: { healthy: 'healthy', bleaching: 'bleaching', severe: 'severe' },
+    p: {
+      q: 'Where does a coral get most of its food?', opts: ['It catches fish', 'From algae living inside it, which use sunlight', 'From the sand'],
+      detailRight: 'Tiny algae live inside the coral. They use sunlight to make sugar and share it with the coral.',
+      detailWrong: 'Watch the bubble: tiny algae inside the coral make sugar from sunlight and share it with the coral.',
+      askTitle: 'Zoom into a coral', askLead: 'A reef is built by many tiny animals called polyps. The bubble zooms into one of them.', askBody: 'Where does it get its food? Pick an answer, then watch.',
+      sun: '☀️ Sunlight', algae: '🟢 Algae inside', hint: 'Tap to switch each one on or off.',
+      sSun: ['🍬', 'Sunlight → sugar → coral', 'The algae (zooxanthellae) use sunlight to make sugar and pass it to the coral. The coral gives them a safe home, and they give it its colour.', 'Most of the coral’s food comes from this partnership.'],
+      sDark: ['🌙', 'No light, no sugar', 'Without sunlight the algae cannot make sugar. The coral has to make do with the little food it can catch itself.', ''],
+      sOut: ['🤍', 'White and hungry', 'Without its algae the coral has lost its colour and most of its food. This is called bleaching.', 'In a real reef the algae need months to move back in.'],
+      val: ['Plenty', 'Little', 'None'], sub: 'sugar from the algae', pill: ['well fed', 'less food', 'hungry'],
+      tagAlgae: 'algae', tagPolyp: 'coral polyp',
+      facts: [{ emo: '🌏', text: 'The Great Barrier Reef is about 2,300 km long and can be seen from space.', src: 'https://whc.unesco.org/en/list/154/' }],
+    },
+    h: {
+      q: (a, b) => `${dg(a.s)} above the usual summer high ${dur(a.n)}, or ${dg(b.s)} ${dur(b.n)}: which one bleaches the reef?`,
+      opt: (L, P) => `${L}: ${dg(P.s)} ${dur(P.n)}`,
+      detail: (a, b) => `Heat is counted in degree heating weeks (DHW): A adds up to ${num(a)}, B to ${num(b)}.`,
+      askTitle: 'Two heatwaves', askLead: 'Each chart shows 12 weeks of sea temperature, in degrees above the usual summer high.', askBody: 'Pick an answer, then watch what happens to both reefs.',
+      revTitle: 'Heat that adds up',
+      revLead: (a, b) => `A week at least 1 °C above the usual summer high (the dashed line) counts its whole excess. Add up the 12 weeks: A = ${num(a)}, B = ${num(b)}.`,
+      revBody: (a, b) => `From DHW 4 corals start to bleach, from DHW 8 many die. Reef A: ${stN(stOf(a))}. Reef B: ${stN(stOf(b))}.`,
+      revSub: 'DHW · A and B', tryOwn: 'Try your own heatwave →',
+      planTitle: 'Plan a heatwave', planLead: 'Drag the bars or use the sliders, then press Play. Weeks above the dashed line (+1 °C) add to DHW.', planBody: 'DHW 4 or more: bleaching starts. DHW 8 or more: severe, many corals die.',
+      live: {
+        healthy: ['🪸', 'Stressed, but fine', (D) => `DHW ${num(D)} is below 4: the corals keep their algae.`, ''],
+        bleaching: ['🤍', 'Bleaching', (D) => `DHW ${num(D)}: the corals push out their algae and start to turn white.`, 'They are still alive, but hungry.'],
+        severe: ['⚠️', 'Severe bleaching', (D) => `DHW ${num(D)} is 8 or more: many corals starve and die. The dead ones turn grey-brown as other algae grow on them.`, 'Fish leave a dying reef.'],
+      },
+      coolHint: 'Press “Let the sea cool” and watch.',
+      cool: ['🌊', 'The sea cools', (D) => `The hot weeks slide out of the 12-week window and DHW falls: ${num(D)}.`, 'When the stress is gone, algae can move back in.'],
+      rec: ['🪸', 'The reef recovered', 'The corals took their algae back and their colour returned. Bleached does not always mean dead.', 'In a real reef this takes months.'],
+      part: ['🌱', 'Part of the reef is gone', 'The corals that survived got their colour back. The dead ones did not.', 'A reef like this needs about ten years or more to grow back.'],
+      strength: 'Heatwave strength', length: 'Length', play: 'Play', again: 'Play again', coolBtn: 'Let the sea cool', reset: 'Reset',
+      subPlan: 'degree heating weeks · plan', subPlay: (w) => `degree heating weeks · week ${w}`, subCool: (j) => `degree heating weeks · ${j} ${j === 1 ? 'week' : 'weeks'} later`,
+      axis: '°C above the usual summer high', later: (j) => `${j} ${j === 1 ? 'week' : 'weeks'} later`,
+      facts: [{ emo: '🌊', text: 'From 2014 to 2017 a global bleaching event hit about 70% of the world’s coral reefs.', src: 'https://coralreefwatch.noaa.gov/satellite/analyses_guidance/global_coral_bleaching_2014-17_status.php' }],
+    },
+    c: {
+      q: 'If the sea becomes more acidic, coral skeletons grow…', opts: ['faster', 'slower', 'the same'],
+      detail: 'Corals build their skeletons from minerals in the sea water, and more acidic water makes that harder. Drag the pH down and watch.',
+      askTitle: 'The sea soaks up CO₂', askLead: 'Sea water takes in some of the CO₂ from the air. Corals and snails build their skeletons and shells from minerals in the water.', askBody: 'What will more CO₂ do to them? Pick an answer.',
+      slider: 'pH of the sea water',
+      s1: ['🐚', 'The sea around 1750', 'pH 8.2: shells and skeletons grow at the full rate of this model.'],
+      s2: ['🌊', 'The sea today', (r) => `pH about 8.1: the water is about ${r}× as acidic as around 1750.`],
+      s3: ['🫧', 'More CO₂, lower pH', (p, r) => `pH ${p}: ${r}× as acidic as around 1750. The shell and the skeleton wear away a little and grow more slowly.`],
+      s4: ['⚠️', 'A sea like 2100?', (p, r) => `pH ${p}: some projections reach about 7.8 by 2100 if emissions stay very high. That is ${r}× as acidic as around 1750.`],
+      s5: ['⚠️', 'Even lower', (p, r) => `pH ${p}: ${r}× as acidic as around 1750. Shells and skeletons are thinner and growth is slower still.`],
+      model: 'This is a simplified model, not a forecast. Real corals differ, and warm water adds to the trouble.',
+      growth: (g) => `growth ${g}% · simple model`, pill: (r) => `acidity ×${r}`,
+      co2: 'CO₂ in the air', shell: 'snail shell', skel: 'coral skeleton', rul: ['1750', 'today', '≈2100'],
+      facts: [{ emo: '🧪', text: 'Since the 1700s the ocean’s surface pH has dropped from about 8.2 to 8.1 — that is about 30% more acidic.', src: 'https://www.noaa.gov/education/resource-collections/ocean-coasts/ocean-acidification' }],
+    },
+    secrets: { a: ['Watching from space', 'Satellites track sea heat above every reef.'], b: ['Coral nurseries', 'Divers grow coral pieces and plant them on damaged reefs.'] },
+    sat: {
+      title: 'NOAA’s Coral Reef Watch', lead: 'NOAA’s Coral Reef Watch uses satellite sea temperatures to warn about bleaching weeks ahead. Every patch of sea gets its own DHW.',
+      body: 'Move the weeks. A warm patch of water drifts along the strip, and each reef changes colour as its DHW grows.', note: 'schematic sea, not a real map',
+      leg: ['no heat stress', 'heat building', 'bleaching likely: DHW 4+', 'severe: DHW 8+'], week: 'Week', play: 'Play', again: 'Play again', tap: 'Tap a reef to see its DHW.',
+      val: (n, N) => `${n} of ${N}`, sub: 'reefs at DHW 4 or more', pill: (k) => `week ${k}`, tag: (i, D) => `reef ${i}: DHW ${num(D)}`,
+    },
+    nur: {
+      title: 'Replant a reef', lead: 'In a real nursery, divers grow small coral pieces on underwater frames, then plant them on damaged reefs. Tap a glowing spot to plant one.',
+      tree: 'coral tree', placed: (n, N) => `${n} of ${N} pieces are in place. Now fast-forward the years.`,
+      bareTitle: 'Still bare', bareLead: 'No pieces, no new corals. A damaged reef can take about ten years or more to come back on its own.',
+      grow: 'The pieces grow into colonies, and fish come back to the reef.', growBody: 'The more pieces you plant, the more alive the reef gets.',
+      y1: '+1 year', y10: 'To year 10', reset: 'Start over', year: (y) => `Year ${y}`, sub: (n, N) => `${n} of ${N} pieces planted`, pill: ['bare reef', 'coming back', 'alive again'],
+      hint: 'Tap a glowing spot on the reef.',
+    },
+    quiz: [
+      { q: 'Why does a bleached coral turn white?', opts: ['It is covered by sand', 'The algae that give it colour have left', 'It is painted by fish'], ok: 1, hint: 'Look into the zoom bubble in the Partners view.' },
+      { q: 'What causes most coral bleaching?', opts: ['Sea water that stays too warm for weeks', 'Cold winters', 'Too many fish'], ok: 0, hint: 'Play a heatwave in the Heat view.' },
+      { q: 'Is a bleached coral dead?', opts: ['Yes, always', 'It was never alive', 'Not yet — it can recover if the water cools'], ok: 2, hint: 'Watch what happens after the heatwave ends.' },
+    ],
+  },
+  ru: {
+    name: 'Когда коралл белеет', title: 'Когда коралл белеет',
+    lines: [['Загляни внутрь коралла', 'и познакомься с его крошечным другом.'], ['Согрей море', 'неделя за неделей.'], ['Сделай воду', 'чуть кислее.']],
+    views: { partners: '🪸 Друзья', heat: '🌡️ Жара', acid: '🍋 pH' },
+    right: 'Верно!', notq: 'Не совсем.', weeksWord: 'недели',
+    st: { healthy: 'здоров', bleaching: 'белеет', severe: 'гибнет' },
+    p: {
+      q: 'Откуда коралл получает большую часть еды?', opts: ['Ловит рыбок', 'От водорослей, которые живут внутри него и используют солнечный свет', 'Из песка'],
+      detailRight: 'Внутри коралла живут крошечные водоросли. Они делают сахар из солнечного света и делятся им с кораллом.',
+      detailWrong: 'Посмотри на пузырь: крошечные водоросли внутри коралла делают сахар из солнечного света и делятся им с кораллом.',
+      askTitle: 'Заглянем внутрь коралла', askLead: 'Риф строят множество крошечных животных — полипов. Пузырь показывает одного из них.', askBody: 'Откуда он берёт еду? Выбери ответ, а потом смотри.',
+      sun: '☀️ Солнце', algae: '🟢 Водоросли внутри', hint: 'Нажимай, чтобы включать и выключать.',
+      sSun: ['🍬', 'Солнце → сахар → коралл', 'Водоросли (зооксантеллы) делают из солнечного света сахар и отдают его кораллу. Коралл даёт им надёжный дом, а они дают ему цвет.', 'Большую часть еды коралл получает именно от этого союза.'],
+      sDark: ['🌙', 'Нет света — нет сахара', 'Без солнца водоросли не могут делать сахар. Кораллу приходится обходиться той малостью еды, которую он ловит сам.', ''],
+      sOut: ['🤍', 'Белый и голодный', 'Без водорослей коралл потерял цвет и большую часть еды. Это и называется обесцвечиванием.', 'В настоящем рифе водорослям нужны месяцы, чтобы вернуться.'],
+      val: ['Много', 'Мало', 'Нет'], sub: 'сахара от водорослей', pill: ['сыт', 'еды меньше', 'голодный'],
+      tagAlgae: 'водоросли', tagPolyp: 'полип коралла',
+      facts: [{ emo: '🌏', text: 'Большой Барьерный риф тянется примерно на 2300 км, и его видно из космоса.', src: 'https://whc.unesco.org/en/list/154/' }],
+    },
+    h: {
+      q: (a, b) => `${dg(a.s)} к обычному летнему максимуму ${dur(a.n)}, или ${dg(b.s)} ${dur(b.n)}: что обесцветит риф?`,
+      opt: (L, P) => `${L}: ${dg(P.s)} ${dur(P.n)}`,
+      detail: (a, b) => `Жару считают в градусо-неделях нагрева (DHW): у A получается ${num(a)}, у B — ${num(b)}.`,
+      askTitle: 'Две волны жары', askLead: 'Каждый график — 12 недель температуры моря в градусах выше обычного летнего максимума.', askBody: 'Выбери ответ, а потом смотри, что случится с обоими рифами.',
+      revTitle: 'Жара, которая копится',
+      revLead: (a, b) => `Неделя, когда вода теплее обычного летнего максимума хотя бы на 1 °C (пунктир), добавляет в DHW весь свой перегрев. Сложим 12 недель: A = ${num(a)}, B = ${num(b)}.`,
+      revBody: (a, b) => `От DHW 4 кораллы начинают белеть, от DHW 8 многие гибнут. Риф A: ${stN(stOf(a))}. Риф B: ${stN(stOf(b))}.`,
+      revSub: 'DHW · A и B', tryOwn: 'Устрой свою жару →',
+      planTitle: 'Придумай жару', planLead: 'Тяни столбики или двигай ползунки, а потом нажми «Пуск». Недели выше пунктира (+1 °C) прибавляют к DHW.', planBody: 'DHW от 4: начинается обесцвечивание. DHW от 8: сильное, многие кораллы гибнут.',
+      live: {
+        healthy: ['🪸', 'Стресс, но всё в порядке', (D) => `DHW ${num(D)} меньше 4: кораллы не теряют водоросли.`, ''],
+        bleaching: ['🤍', 'Обесцвечивание', (D) => `DHW ${num(D)}: кораллы выбрасывают водоросли и начинают белеть.`, 'Они ещё живы, но голодны.'],
+        severe: ['⚠️', 'Сильное обесцвечивание', (D) => `DHW ${num(D)} — это 8 или больше: многие кораллы голодают и гибнут. Погибшие становятся серо-бурыми: на них разрастаются другие водоросли.`, 'Рыбы покидают гибнущий риф.'],
+      },
+      coolHint: 'Нажми «Пусть море остынет» и смотри.',
+      cool: ['🌊', 'Море остывает', (D) => `Жаркие недели выходят из 12-недельного окна, и DHW падает: ${num(D)}.`, 'Когда стресс проходит, водоросли могут вернуться.'],
+      rec: ['🪸', 'Риф восстановился', 'Кораллы вернули водоросли и цвет. Обесцвеченный — не всегда мёртвый.', 'В настоящем рифе на это уходят месяцы.'],
+      part: ['🌱', 'Часть рифа потеряна', 'Выжившие кораллы вернули цвет. Погибшие — нет.', 'Такому рифу нужно около десяти лет или больше, чтобы вырасти заново.'],
+      strength: 'Сила жары', length: 'Длительность', play: 'Пуск', again: 'Ещё раз', coolBtn: 'Пусть море остынет', reset: 'Сброс',
+      subPlan: 'градусо-недели нагрева · план', subPlay: (w) => `градусо-недели нагрева · неделя ${w}`, subCool: (j) => `градусо-недели нагрева · через ${j} ${ruPlural(j, 'неделю', 'недели', 'недель')}`,
+      axis: '°C выше обычного летнего максимума', later: (j) => `через ${j} ${ruPlural(j, 'неделю', 'недели', 'недель')}`,
+      facts: [{ emo: '🌊', text: 'С 2014 по 2017 год глобальное обесцвечивание затронуло около 70 % коралловых рифов мира.', src: 'https://coralreefwatch.noaa.gov/satellite/analyses_guidance/global_coral_bleaching_2014-17_status.php' }],
+    },
+    c: {
+      q: 'Если море станет кислее, скелеты кораллов будут расти…', opts: ['быстрее', 'медленнее', 'так же'],
+      detail: 'Кораллы строят скелет из минералов морской воды, а в более кислой воде это труднее. Опускай pH и смотри.',
+      askTitle: 'Море впитывает CO₂', askLead: 'Морская вода поглощает часть CO₂ из воздуха. Кораллы и улитки строят скелеты и раковины из минералов, растворённых в воде.', askBody: 'Что сделает с ними больше CO₂? Выбери ответ.',
+      slider: 'pH морской воды',
+      s1: ['🐚', 'Море около 1750 года', 'pH 8,2: раковины и скелеты растут с полной скоростью этой модели.'],
+      s2: ['🌊', 'Море сегодня', (r) => `pH около 8,1: вода примерно в ${r} раза кислее, чем около 1750 года.`],
+      s3: ['🫧', 'Больше CO₂ — ниже pH', (p, r) => `pH ${p}: в ${r} раза кислее, чем около 1750 года. Раковина и скелет понемногу разрушаются и растут медленнее.`],
+      s4: ['⚠️', 'Море как в 2100-м?', (p, r) => `pH ${p}: по некоторым прогнозам, к 2100 году будет около 7,8, если выбросы останутся очень большими. Это в ${r} раза кислее, чем около 1750 года.`],
+      s5: ['⚠️', 'Ещё ниже', (p, r) => `pH ${p}: в ${r} раза кислее, чем около 1750 года. Раковины и скелеты тоньше, а рост ещё медленнее.`],
+      model: 'Это упрощённая модель, а не прогноз. Настоящие кораллы разные, а тёплая вода добавляет им бед.',
+      growth: (g) => `рост ${g}% · простая модель`, pill: (r) => `кислотность ×${r}`,
+      co2: 'CO₂ в воздухе', shell: 'раковина улитки', skel: 'скелет коралла', rul: ['1750', 'сегодня', '≈2100'],
+      facts: [{ emo: '🧪', text: 'С XVIII века pH поверхности океана упал примерно с 8,2 до 8,1 — вода стала примерно на 30 % кислее.', src: 'https://www.noaa.gov/education/resource-collections/ocean-coasts/ocean-acidification' }],
+    },
+    secrets: { a: ['Взгляд из космоса', 'Спутники следят за теплом моря над каждым рифом.'], b: ['Коралловые питомники', 'Дайверы выращивают кусочки коралла и подсаживают их на повреждённые рифы.'] },
+    sat: {
+      title: 'Coral Reef Watch от NOAA', lead: 'Служба NOAA Coral Reef Watch по спутниковым данным о температуре моря предупреждает об обесцвечивании за несколько недель. Для каждого участка моря считается свой DHW.',
+      body: 'Двигай недели. Тёплое пятно воды плывёт вдоль полосы, и каждый риф меняет цвет по мере роста его DHW.', note: 'схема моря, не настоящая карта',
+      leg: ['нет теплового стресса', 'жара нарастает', 'обесцвечивание вероятно: DHW от 4', 'сильное: DHW от 8'], week: 'Неделя', play: 'Пуск', again: 'Ещё раз', tap: 'Нажми на риф, чтобы увидеть его DHW.',
+      val: (n, N) => `${n} из ${N}`, sub: 'рифов с DHW от 4', pill: (k) => `неделя ${k}`, tag: (i, D) => `риф ${i}: DHW ${num(D)}`,
+    },
+    nur: {
+      title: 'Подсади риф', lead: 'В настоящем питомнике дайверы выращивают маленькие кусочки коралла на подводных каркасах, а потом пересаживают их на повреждённые рифы. Нажми на светящееся место, чтобы посадить кусочек.',
+      tree: 'коралловое дерево', placed: (n, N) => `Посажено ${n} из ${N}. Теперь промотай годы.`,
+      bareTitle: 'Пока голо', bareLead: 'Нет кусочков — нет новых кораллов. Повреждённому рифу может понадобиться около десяти лет или больше, чтобы восстановиться самому.',
+      grow: 'Кусочки вырастают в колонии, и рыбы возвращаются на риф.', growBody: 'Чем больше кусочков посадишь, тем живее становится риф.',
+      y1: '+1 год', y10: 'До 10-го года', reset: 'Заново', year: (y) => `Год ${y}`, sub: (n, N) => `посажено ${n} из ${N}`, pill: ['голый риф', 'оживает', 'снова жив'],
+      hint: 'Нажми на светящееся место на рифе.',
+    },
+    quiz: [
+      { q: 'Почему обесцвеченный коралл белый?', opts: ['Его засыпал песок', 'Водоросли, которые дают ему цвет, ушли', 'Его раскрасили рыбы'], ok: 1, hint: 'Загляни в увеличительный пузырь на вкладке «Друзья».' },
+      { q: 'Что вызывает большую часть обесцвечивания кораллов?', opts: ['Морская вода, которая неделями остаётся слишком тёплой', 'Холодные зимы', 'Слишком много рыбы'], ok: 0, hint: 'Устрой волну жары на вкладке «Жара».' },
+      { q: 'Мёртв ли обесцвеченный коралл?', opts: ['Да, всегда', 'Он никогда не был живым', 'Ещё нет: он может оправиться, если вода остынет'], ok: 2, hint: 'Посмотри, что происходит после того, как жара закончилась.' },
+    ],
+  },
+  hu: {
+    name: 'Amikor a korall kifehéredik', title: 'Amikor a korall kifehéredik',
+    lines: [['Nézz be egy korallba', 'és ismerd meg apró társát.'], ['Melegítsd a tengert', 'hétről hétre.'], ['Tedd a vizet', 'egy kicsit savasabbá.']],
+    views: { partners: '🪸 Társak', heat: '🌡️ Hőség', acid: '🍋 Sav' },
+    right: 'Így van!', notq: 'Nem egészen.', weeksWord: 'hét',
+    st: { healthy: 'egészséges', bleaching: 'fehéredik', severe: 'súlyosan sérül' },
+    p: {
+      q: 'Honnan kapja a korall az élelme nagy részét?', opts: ['Halakat fog', 'A benne élő algáktól, amelyek a napfényt használják', 'A homokból'],
+      detailRight: 'Apró algák élnek a korallban. A napfényből cukrot készítenek, és megosztják a korallal.',
+      detailWrong: 'Nézd a buborékot: a korallban élő apró algák a napfényből cukrot készítenek, és megosztják a korallal.',
+      askTitle: 'Nézzünk be egy korallba', askLead: 'A zátonyt sok apró állat, polip építi. A buborék az egyiket nagyítja ki.', askBody: 'Honnan kapja az ételét? Válassz, aztán figyeld meg.',
+      sun: '☀️ Napfény', algae: '🟢 Alga bent', hint: 'Koppints, hogy be- vagy kikapcsold.',
+      sSun: ['🍬', 'Napfény → cukor → korall', 'Az algák (zooxantellák) a napfényből cukrot készítenek, és átadják a korallnak. A korall biztonságos otthont ad nekik, ők pedig színt adnak neki.', 'A korall ételének nagy részét ez az együttműködés adja.'],
+      sDark: ['🌙', 'Nincs fény, nincs cukor', 'Napfény nélkül az algák nem tudnak cukrot készíteni. A korallnak be kell érnie azzal a kevéssel, amit maga el tud kapni.', ''],
+      sOut: ['🤍', 'Fehér és éhes', 'Algái nélkül a korall elvesztette a színét és az étele nagy részét. Ezt hívják kifehéredésnek.', 'Egy igazi zátonyon az algáknak hónapokba telik, mire visszatérnek.'],
+      val: ['Sok', 'Kevés', 'Nincs'], sub: 'cukor az algáktól', pill: ['jóllakott', 'kevesebb étel', 'éhes'],
+      tagAlgae: 'algák', tagPolyp: 'korallpolip',
+      facts: [{ emo: '🌏', text: 'A Nagy-korallzátony nagyjából 2300 km hosszú, és az űrből is látszik.', src: 'https://whc.unesco.org/en/list/154/' }],
+    },
+    h: {
+      q: (a, b) => `${dg(a.s)} a szokásos nyári csúcs fölött ${dur(a.n)}, vagy ${dg(b.s)} ${dur(b.n)}: melyik fehéríti ki a zátonyt?`,
+      opt: (L, P) => `${L}: ${dg(P.s)} ${dur(P.n)}`,
+      detail: (a, b) => `A hőséget fokhetekben (DHW) számoljuk: A összege ${num(a)}, B-é ${num(b)}.`,
+      askTitle: 'Két hőhullám', askLead: 'Minden grafikon 12 hét tengerhőmérsékletét mutatja, a szokásos nyári csúcs fölötti fokokban.', askBody: 'Válassz, aztán figyeld meg mindkét zátonyt.',
+      revTitle: 'Összeadódó hőség',
+      revLead: (a, b) => `Az a hét, amelyen a víz legalább 1 °C-kal a szokásos nyári csúcs fölött van (szaggatott vonal), a teljes többletét hozzáadja a DHW-hez. Adjuk össze a 12 hetet: A = ${num(a)}, B = ${num(b)}.`,
+      revBody: (a, b) => `DHW 4-től a korallok fehéredni kezdenek, DHW 8-tól sok elpusztul. Az A zátony: ${stN(stOf(a))}. A B zátony: ${stN(stOf(b))}.`,
+      revSub: 'DHW · A és B', tryOwn: 'Próbáld ki a saját hőhullámodat →',
+      planTitle: 'Tervezz hőhullámot', planLead: 'Húzd az oszlopokat vagy használd a csúszkákat, aztán nyomd meg a Lejátszást. A szaggatott vonal (+1 °C) fölötti hetek hozzáadnak a DHW-hez.', planBody: 'DHW 4-től kezdődik a fehéredés. DHW 8-tól súlyos, sok korall elpusztul.',
+      live: {
+        healthy: ['🪸', 'Megviselt, de bírja', (D) => `A DHW (${num(D)}) 4 alatt van: a korallok megtartják az algáikat.`, ''],
+        bleaching: ['🤍', 'Fehéredés', (D) => `DHW ${num(D)}: a korallok kidobják az algáikat, és fehéredni kezdenek.`, 'Még élnek, de éhesek.'],
+        severe: ['⚠️', 'Súlyos fehéredés', (D) => `A DHW (${num(D)}) legalább 8: sok korall éhen hal. Az elpusztultak szürkésbarnák lesznek, mert más algák nőnek rajtuk.`, 'A halak elhagyják a haldokló zátonyt.'],
+      },
+      coolHint: 'Nyomd meg a „Hűljön le a tenger” gombot, és figyelj.',
+      cool: ['🌊', 'A tenger lehűl', (D) => `A forró hetek kicsúsznak a 12 hetes ablakból, a DHW csökken: ${num(D)}.`, 'Ha elmúlt a stressz, az algák visszaköltözhetnek.'],
+      rec: ['🪸', 'A zátony felépült', 'A korallok visszakapták az algáikat és a színüket. A kifehéredett nem mindig halott.', 'Egy igazi zátonyon ez hónapokig tart.'],
+      part: ['🌱', 'A zátony egy része elveszett', 'A túlélő korallok visszakapták a színüket. Az elpusztultak nem.', 'Egy ilyen zátonynak nagyjából tíz év vagy több kell, hogy újranőjön.'],
+      strength: 'Hőhullám ereje', length: 'Hossza', play: 'Lejátszás', again: 'Újra', coolBtn: 'Hűljön le a tenger', reset: 'Újrakezdés',
+      subPlan: 'fokhetek (DHW) · terv', subPlay: (w) => `fokhetek · ${w}. hét`, subCool: (j) => `fokhetek · ${j} héttel később`,
+      axis: '°C a szokásos nyári csúcs fölött', later: (j) => `${j} héttel később`,
+      facts: [{ emo: '🌊', text: '2014 és 2017 között egy globális fehéredési hullám a világ korallzátonyainak mintegy 70%-át érintette.', src: 'https://coralreefwatch.noaa.gov/satellite/analyses_guidance/global_coral_bleaching_2014-17_status.php' }],
+    },
+    c: {
+      q: 'Ha a tenger savasabb lesz, a korallvázak…', opts: ['gyorsabban nőnek', 'lassabban nőnek', 'ugyanúgy nőnek'],
+      detail: 'A korallok a tengervíz ásványi anyagaiból építik a vázukat, és a savasabb víz ezt megnehezíti. Húzd lejjebb a pH-t, és figyeld.',
+      askTitle: 'A tenger felveszi a CO₂-t', askLead: 'A tengervíz felvesz egy részt a levegő CO₂-jából. A korallok és a csigák a vízben lévő ásványi anyagokból építik a vázukat és a házukat.', askBody: 'Mit tesz velük több CO₂? Válassz.',
+      slider: 'A tengervíz pH-ja',
+      s1: ['🐚', 'A tenger 1750 körül', 'pH 8,2: a házak és a vázak a modell teljes sebességével nőnek.'],
+      s2: ['🌊', 'A tenger ma', (r) => `pH körülbelül 8,1: a víz kb. ${r}-szer savasabb, mint 1750 körül.`],
+      s3: ['🫧', 'Több CO₂, alacsonyabb pH', (p, r) => `pH ${p}: ${r}-szer savasabb, mint 1750 körül. A csigaház és a korallváz kicsit kopik, és lassabban nő.`],
+      s4: ['⚠️', 'Tenger 2100-ban?', (p, r) => `pH ${p}: egyes előrejelzések szerint 2100-ra kb. 7,8 lesz, ha a kibocsátás nagyon magas marad. Ez ${r}-szer savasabb, mint 1750 körül.`],
+      s5: ['⚠️', 'Még alacsonyabb', (p, r) => `pH ${p}: ${r}-szer savasabb, mint 1750 körül. A házak és a vázak vékonyabbak, a növekedés még lassabb.`],
+      model: 'Ez egyszerűsített modell, nem előrejelzés. A valódi korallok különbözőek, és a meleg víz még tetézi a bajt.',
+      growth: (g) => `növekedés ${g}% · egyszerű modell`, pill: (r) => `savasság ×${r}`,
+      co2: 'CO₂ a levegőben', shell: 'csigaház', skel: 'korallváz', rul: ['1750', 'ma', '≈2100'],
+      facts: [{ emo: '🧪', text: 'Az 1700-as évek óta az óceán felszínének pH-ja kb. 8,2-ről 8,1-re csökkent — ez kb. 30%-kal savasabb.', src: 'https://www.noaa.gov/education/resource-collections/ocean-coasts/ocean-acidification' }],
+    },
+    secrets: { a: ['Megfigyelés az űrből', 'Műholdak figyelik a tenger melegét minden zátony fölött.'], b: ['Korallkertek', 'Búvárok korallrészeket nevelnek, és sérült zátonyokra ültetik őket.'] },
+    sat: {
+      title: 'A NOAA Coral Reef Watch', lead: 'A NOAA Coral Reef Watch műholdas tengerhőmérsékleti adatokkal hetekkel előre jelzi a fehéredést. A tenger minden foltjának saját DHW-ja van.',
+      body: 'Tekerd a heteket. Egy meleg vízfolt végigvonul a sávon, és minden zátony színe változik, ahogy a DHW nő.', note: 'sematikus tenger, nem valódi térkép',
+      leg: ['nincs hőstressz', 'épül a hőség', 'fehéredés valószínű: DHW 4+', 'súlyos: DHW 8+'], week: 'Hét', play: 'Lejátszás', again: 'Újra', tap: 'Koppints egy zátonyra, és látod a DHW-ját.',
+      val: (n, N) => `${n} / ${N}`, sub: 'zátony DHW 4 vagy több', pill: (k) => `${k}. hét`, tag: (i, D) => `${i}. zátony: DHW ${num(D)}`,
+    },
+    nur: {
+      title: 'Ültess újra egy zátonyt', lead: 'Egy igazi korallkertben a búvárok víz alatti kereteken nevelnek apró korallrészeket, aztán sérült zátonyokra ültetik őket. Koppints egy világító helyre, és ültess egyet.',
+      tree: 'korallfa', placed: (n, N) => `${n} / ${N} darab a helyén. Most pörgesd előre az éveket.`,
+      bareTitle: 'Még kopár', bareLead: 'Nincs darab, nincs új korall. Egy sérült zátonynak magától nagyjából tíz év vagy több kell, hogy felépüljön.',
+      grow: 'A darabokból telepek nőnek, és a halak visszatérnek a zátonyra.', growBody: 'Minél több darabot ültetsz, annál élőbb a zátony.',
+      y1: '+1 év', y10: 'A 10. évig', reset: 'Újrakezdés', year: (y) => `${y}. év`, sub: (n, N) => `${n} / ${N} darab elültetve`, pill: ['kopár zátony', 'éledezik', 'újra él'],
+      hint: 'Koppints egy világító helyre a zátonyon.',
+    },
+    quiz: [
+      { q: 'Miért fehér a kifehéredett korall?', opts: ['Homok borítja', 'Elhagyták az őt színező algák', 'A halak kifestették'], ok: 1, hint: 'Nézz be a nagyító buborékba a Társak nézetben.' },
+      { q: 'Mi okozza a korallfehéredés nagy részét?', opts: ['A hetekig túl meleg tengervíz', 'A hideg telek', 'A túl sok hal'], ok: 0, hint: 'Játssz le egy hőhullámot a Hőség nézetben.' },
+      { q: 'Halott-e a kifehéredett korall?', opts: ['Igen, mindig', 'Soha nem is élt', 'Még nem: felépülhet, ha a víz lehűl'], ok: 2, hint: 'Figyeld meg, mi történik a hőhullám vége után.' },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_EXO1bJ3G_v', en: 'Coral Bleaching & Acidification', ru: 'Обесцвечивание кораллов и закисление океана', hu: 'Korallfehéredés és savasodás' },
+];
+
+// --- the reef: colonies, fish, algae cells (geometry made once, in unit coordinates) ------------------------------
+function gen(r, depth, x, y, ang, len, wid, out) {
+  const x2 = x + Math.sin(ang) * len, y2 = y - Math.cos(ang) * len;
+  out[depth].push([x, y, x2, y2, wid]);
+  if (depth >= 4) return;
+  const n = depth === 0 ? 3 : (r() < 0.35 ? 3 : 2);
+  for (let i = 0; i < n; i++) {
+    const spread = (i / (n - 1) - 0.5) * (0.9 + 0.3 * r());
+    gen(r, depth + 1, x2, y2, ang + spread + (r() - 0.5) * 0.25, len * (0.68 + 0.1 * r()), wid * 0.68, out);
+  }
+}
+function makeBranch(seed) { // a branching coral, normalised: root at (0, 0), top at y = -1
+  const r = rng(seed), out = [[], [], [], [], []];
+  gen(r, 0, 0, 0, (r() - 0.5) * 0.2, 0.30, 0.09, out);
+  let minY = 0, minX = 0, maxX = 0;
+  out.forEach((a) => a.forEach(([x1, y1, x2, y2]) => { minY = Math.min(minY, y1, y2); minX = Math.min(minX, x1, x2); maxX = Math.max(maxX, x1, x2); }));
+  const H = -minY, cx = (minX + maxX) / 2;
+  return out.map((a) => a.map(([x1, y1, x2, y2, w]) => [(x1 - cx) / H, y1 / H, (x2 - cx) / H, y2 / H, w / H]));
+}
+function makeBrain(seed) { // wavy grooves across a dome
+  const r = rng(seed), g = [];
+  for (let k = 0; k < 8; k++) {
+    const y0 = -0.05 - k * 0.058, ph = r() * 6, pts = [];
+    for (let i = 0; i <= 14; i++) pts.push([-0.6 + i * 0.0857, y0 + Math.sin(i * 1.35 + ph) * 0.028 + (r() - 0.5) * 0.012]);
+    g.push(pts);
+  }
+  return g;
+}
+const BRANCH_GEO = [1, 2, 3, 4].map((i) => makeBranch(7 + i * 31));
+const BRAIN_GEO = [1, 2, 3].map((i) => makeBrain(11 + i * 13));
+const SPEC = [ // type, x (0..1), base line (0..1), height (of the picture), colour
+  ['branch', 0.14, 0.84, 0.40, '#f08a4b'], ['brain', 0.34, 0.84, 0.19, '#e9b24c'], ['branch', 0.52, 0.83, 0.46, '#e8607a'],
+  ['branch', 0.74, 0.84, 0.36, '#c35aa0'], ['brain', 0.90, 0.84, 0.20, '#f0745e'], ['brain', 0.20, 0.95, 0.22, '#e86f6f'],
+  ['branch', 0.40, 0.96, 0.30, '#f2a84e'], ['branch', 0.64, 0.96, 0.33, '#ee6a58'], ['brain', 0.84, 0.96, 0.24, '#d85f94'],
+];
+const THR = [0.55, 0.2, 0.8, 0.35, 0.65, 0.45, 0.9, 0.15, 0.7]; // each colony dies at its own level of "dead"
+const COLS = SPEC.map(([type, u, v, s, col], i) => ({ type, u, v, s, col, thr: THR[i], ph: i * 1.7, geo: type === 'branch' ? BRANCH_GEO[i % 4] : BRAIN_GEO[i % 3] })).sort((a, b) => a.v - b.v);
+const LENS = COLS.find((q) => q.u === 0.14);
+const FISH = [
+  { k: 0, u: 0.28, v: 0.36, ax: 0.16, ay: 0.04, sp: 0.50, ph: 0.0, sz: 0.050, thr: 0.10 }, { k: 1, u: 0.62, v: 0.28, ax: 0.20, ay: 0.05, sp: 0.38, ph: 2.1, sz: 0.058, thr: 0.30 },
+  { k: 2, u: 0.46, v: 0.52, ax: 0.14, ay: 0.06, sp: 0.55, ph: 4.0, sz: 0.045, thr: 0.50 }, { k: 3, u: 0.80, v: 0.44, ax: 0.12, ay: 0.05, sp: 0.62, ph: 1.2, sz: 0.036, thr: 0.20 },
+  { k: 0, u: 0.12, v: 0.58, ax: 0.10, ay: 0.04, sp: 0.45, ph: 3.3, sz: 0.042, thr: 0.65 }, { k: 1, u: 0.36, v: 0.18, ax: 0.22, ay: 0.04, sp: 0.33, ph: 5.0, sz: 0.050, thr: 0.80 },
+  { k: 2, u: 0.70, v: 0.64, ax: 0.12, ay: 0.05, sp: 0.58, ph: 2.7, sz: 0.040, thr: 0.40 }, { k: 3, u: 0.22, v: 0.30, ax: 0.14, ay: 0.04, sp: 0.70, ph: 0.8, sz: 0.034, thr: 0.72 },
+];
+const FK = [
+  { b: '#ff8a3d', l: '#ffc08a', d: '#c4551a', tail: '#ff8a3d', stripe: true }, { b: '#2f7fe0', l: '#7db6ff', d: '#1a4c9a', tail: '#ffd84a' },
+  { b: '#ffd84a', l: '#fff3a0', d: '#c9a21c', tail: '#ffd84a', band: true }, { b: '#ff7aa8', l: '#ffc0d6', d: '#c24a78', tail: '#ff7aa8' },
+];
+const BONE = '#f1ece0', DEADC = '#8a8a72', ALGAEC = '#6f8a3e', SKEL = '#f2e8d0', CORAL_T = '#ee6a58';
+const mkScene = () => ({ fp: FISH.map(() => 1) });
+
+const CELLS = (() => { // the algae inside the polyp, in the unit coordinates of the zoom bubble
+  const r = rng(5), out = [];
+  for (let tries = 0; out.length < 26 && tries < 3000; tries++) {
+    const y = -0.28 + r() * 0.80, side = r() < 0.5 ? -1 : 1;
+    const gw = 0.2 * Math.sqrt(Math.max(0, 1 - ((y - 0.14) / 0.38) ** 2));
+    const x = side * (gw + 0.05 + r() * Math.max(0.02, 0.36 - gw - 0.05));
+    if (out.some((q) => (q.hx - x) ** 2 + (q.hy - y) ** 2 < 0.085 ** 2)) continue;
+    const th = (r() - 0.5) * 1.5;
+    out.push({ id: out.length, hx: x, hy: y, r: 0.046 + r() * 0.014, u: 0, wait: 0, spd: 1 / (1.4 + r() * 1.8), dx: Math.sin(th), dy: -Math.cos(th) });
+  }
+  return out;
+})();
+const TAGC = CELLS.reduce((b, q, i) => ((q.hx + 0.3) ** 2 + (q.hy - 0.25) ** 2 < (CELLS[b].hx + 0.3) ** 2 + (CELLS[b].hy - 0.25) ** 2 ? i : b), 0);
+
+// the shell and the skeleton of the acid view: noise for the notches, pits
+const NZ = [0, 1, 2, 3, 4].map((k) => { const r = rng(90 + k * 7); return Array.from({ length: 48 }, () => r()); });
+const PITS = (() => { const r = rng(77); return Array.from({ length: 16 }, () => [(r() - 0.5) * 0.7, -0.08 - r() * 0.8, 0.016 + r() * 0.016]); })();
+const SAT_SPOTS = [[0.08, 0.42], [0.18, 0.70], [0.29, 0.30], [0.38, 0.62], [0.47, 0.38], [0.56, 0.74], [0.65, 0.34], [0.76, 0.60], [0.86, 0.30], [0.93, 0.68]];
+const SAT_LAND = [[0.14, 0.56, 1.2], [0.33, 0.46, 1], [0.58, 0.52, 1.3], [0.80, 0.46, 1], [0.92, 0.50, 0.9]];
+const satAnom = (u, w) => Math.round(2.5 * Math.exp(-(((u - (0.1 + 0.07 * w)) / 0.2) ** 2)) * 2) / 2;
+const satD = (i, k) => { let d = 0; for (let w = 0; w < k; w++) d += exOf(satAnom(SAT_SPOTS[i][0], w)); return d; };
+const satCol = (D) => (D <= 0 ? '#4fb4e6' : D < T_START ? '#ffe066' : D < T_SEVERE ? '#ff8a3d' : '#e0203f');
+const NUR_SLOTS = [[0.30, 0.95], [0.43, 0.93], [0.56, 0.95], [0.69, 0.93], [0.82, 0.95], [0.93, 0.93], [0.36, 0.88], [0.74, 0.88]];
+const PIECE_COL = ['#f08a4b', '#e8607a', '#f2a84e', '#c35aa0', '#ee6a58', '#e9b24c', '#d85f94', '#f0745e'];
+
+// --- state -------------------------------------------------------------------------------------------------------
+const OK = { p: 1, h: 1, c: 1 };
+function mkSim(temps) { return { temps, k: 0, j: 0, mode: 'plan', d: 0, bV: 0, dV: 0, warm: 0 }; }
+const S = {
+  ans: { p: null, h: null, c: null }, sec: null,
+  sun: true, sunV: 1, algaeOut: false, bl: 0, fed: 0, acc: 0, sugar: [],
+  hfree: false, hStr: 2, hLen: 3, sim: mkSim(pat(2, 3)), simA: mkSim(pat(PA.s, PA.n)), simB: mkSim(pat(PB.s, PB.n)), hitWant: 'none', hitKey: '',
+  ph: 8.2, phV: 8.2, phAuto: false,
+  satK: 0, satKf: 0, satPlay: false, satAcc: 0, satSel: null, geoA: null,
+  ny: 0, yV: 0, slots: NUR_SLOTS.map(() => null), geoB: null,
+  scP: mkScene(), scH: mkScene(), scA: mkScene(), scB: mkScene(), scN: mkScene(),
+  lastR: 0, wasBusy: false,
+};
+
+// --- simulation of a heatwave ------------------------------------------------------------------------------------
+function simD(s) {
+  if (s.mode === 'plan') return 0;
+  if (s.mode === 'play' || s.mode === 'done') return dhwOf(s.temps, 0, Math.floor(s.k + 1e-9));
+  return dhwOf(s.temps, Math.min(WEEKS, Math.floor(s.j + 1e-9)), WEEKS);
+}
+function stepSim(s, dt) {
+  if (s.mode === 'play') { s.k = Math.min(WEEKS, s.k + dt / WEEK_S); if (s.k >= WEEKS) { s.k = WEEKS; s.mode = 'done'; } }
+  else if (s.mode === 'cool') { s.j = Math.min(WEEKS, s.j + dt / COOL_S); if (s.j >= WEEKS) { s.j = WEEKS; s.mode = 'cooled'; } }
+  const D = simD(s);
+  s.d = Math.max(s.d, deadOf(D)); // what died stays dead
+  s.bV += clamp(bleachOf(D) - s.bV, -dt * 0.22, dt * 0.7); // the colour goes fast and returns slowly
+  s.dV += clamp(s.d - s.dV, -dt, dt * 0.35);
+  const w = s.mode === 'play' ? s.temps[Math.min(WEEKS - 1, Math.floor(s.k))] : 0;
+  s.warm += (w / YMAX - s.warm) * Math.min(1, dt * 3);
+  return D;
+}
+const healthOf = (s) => (1 - s.dV) * (1 - 0.55 * s.bV);
+const resetSim = () => { S.sim = mkSim(S.sim.temps.slice()); };
+const heatMode = () => (S.ans.h === null ? 'ask' : S.hfree ? 'free' : 'rev');
+
+// --- shell, quiz, controls ---------------------------------------------------------------------------------------
+const lab = shell({ key: 'coral', T, topics: TOPICS, views: ['partners', 'heat', 'acid'], onLang: render, onView: () => { S.sec = null; render(); } });
+const secret = secretLab('coral', () => ({
+  secrets: [{ emo: '🛰️', title: T[lang].secrets.a[0], desc: T[lang].secrets.a[1] }, { emo: '🧪', title: T[lang].secrets.b[0], desc: T[lang].secrets.b[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="pA"><div id="qA"></div>
+    <div id="cA" hidden><div class="chips"><button class="chip" data-act="sun" id="bSun"></button><button class="chip" data-act="algae" id="bAlg"></button></div><div class="co-hint" id="hA"></div></div></div>
+  <div id="pH"><div id="qH"></div>
+    <div id="rH" hidden><button class="btn" data-act="free" id="bFree"></button></div>
+    <div id="cH" hidden>
+      <div class="co-sl"><span id="lStr"></span><b id="vStr"></b></div>
+      <input type="range" class="big" id="hStr" min="0" max="3" step="0.5" aria-labelledby="lStr" style="--track: linear-gradient(90deg, #5ec8d8, #ffb04d, #ff3f4d)">
+      <div class="co-sl"><span id="lLen"></span><b id="vLen"></b></div>
+      <input type="range" class="big" id="hLen" min="1" max="12" step="1" aria-labelledby="lLen" style="--track: linear-gradient(90deg, #3b4a78, #8f9bc8)">
+      <div class="row2"><button class="btn" data-act="play" id="bPlay"></button><button class="chip" data-act="cool" id="bCool" hidden></button><button class="chip" data-act="reset" id="bReset"></button></div>
+    </div></div>
+  <div id="pC"><div id="qC"></div>
+    <div id="cC" hidden><div class="co-sl"><span id="lPh"></span><b id="vPh"></b></div>
+      <input type="range" class="big" id="phS" min="0" max="10" step="1" aria-labelledby="lPh" style="--track: linear-gradient(90deg, #2fb4c9, #c9c24a)">
+      <div class="co-ends"><span>8,2</span><span>7,7</span></div></div></div>
+  <div id="sA" hidden>
+    <div class="co-sl"><span id="lSat"></span><b id="vSat"></b></div>
+    <input type="range" class="big" id="satW" min="0" max="12" step="1" aria-labelledby="lSat" style="--track: linear-gradient(90deg, #4fb4e6, #ffe066, #ff8a3d, #e0203f)">
+    <div class="row2"><button class="btn" data-act="satplay" id="bSatPlay"></button></div>
+    <div class="co-leg" id="satLeg"></div><div class="co-hint" id="hSat"></div></div>
+  <div id="sB" hidden>
+    <div class="row2" style="margin-top: 0"><button class="btn" data-act="y1" id="bY1"></button><button class="btn" data-act="y10" id="bY10"></button><button class="chip" data-act="nreset" id="bNR"></button></div>
+    <div class="co-hint" id="hNur"></div></div>
+  <div class="row2" id="secRow"></div>`;
+const hit = Object.assign(document.createElement('div'), { id: 'coHit' });
+$('overlay').append(hit);
+
+// --- drawing helpers ---------------------------------------------------------------------------------------------
+function pill(c, text, x, y, o = {}) { // dark rounded label; x, y = left / top (or centre if o.center), clamped inside the canvas
+  c.save(); c.font = '800 12px Nunito, sans-serif'; c.textBaseline = 'middle'; c.textAlign = 'left';
+  const pw = c.measureText(text).width + (o.dot ? 28 : 16), ph = 22;
+  let px = o.center ? x - pw / 2 : x, py = y;
+  px = clamp(px, 4, Math.max(4, CW - pw - 4)); py = clamp(py, 4, Math.max(4, CH - ph - 4));
+  c.fillStyle = 'rgba(8,12,24,.82)'; rr(c, px, py, pw, ph, 11); c.fill();
+  if (o.dot) { c.fillStyle = o.dot; c.beginPath(); c.arc(px + 12, py + ph / 2, 5, 0, TAU); c.fill(); }
+  c.fillStyle = '#fff'; c.fillText(text, px + (o.dot ? 22 : 8), py + ph / 2 + 0.5);
+  c.restore();
+  return [px, py, pw, ph];
+}
+function wavePath(c, x, w, y0, amp, n, ph, yb) {
+  const pts = [];
+  for (let i = 0; i <= n; i++) pts.push([x + w * i / n, y0 + Math.sin(i * 1.9 + ph) * amp + Math.cos(i * 0.9 + ph * 2) * amp * 0.5]);
+  c.beginPath(); c.moveTo(x, yb); c.lineTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < n; i++) c.quadraticCurveTo(pts[i][0], pts[i][1], (pts[i][0] + pts[i + 1][0]) / 2, (pts[i][1] + pts[i + 1][1]) / 2);
+  c.lineTo(pts[n][0], pts[n][1]); c.lineTo(x + w, yb); c.closePath();
+}
+function shafts(c, x, y, w, h, t, n, a) { // soft light shafts from the top left, rippling
+  c.save(); c.globalCompositeOperation = 'lighter';
+  for (let k = 0; k < n; k++) {
+    const sx = x + w * ((k + 0.3) / (n + 0.2)) + Math.sin(t * 0.35 + k * 1.9) * w * 0.035, tw = w * 0.05, bw = w * 0.13, dr = h * 0.25;
+    const g = c.createLinearGradient(0, y, 0, y + h * 0.8);
+    g.addColorStop(0, `rgba(235,255,255,${a * (0.2 + 0.05 * Math.sin(t * 0.8 + k))})`); g.addColorStop(1, 'rgba(235,255,255,0)');
+    c.fillStyle = g; c.beginPath(); c.moveTo(sx, y); c.lineTo(sx + tw, y); c.lineTo(sx + tw + dr + bw, y + h * 0.85); c.lineTo(sx + dr - bw * 0.2, y + h * 0.85); c.closePath(); c.fill();
+  }
+  c.restore();
+}
+function caustics(c, x, y, w, h, t, a) { // bright wobbling arcs on the sand
+  c.save(); c.globalCompositeOperation = 'lighter'; c.lineWidth = 1.6; c.lineCap = 'round';
+  for (let i = 0; i < 18; i++) {
+    const px = x + frac(i * 0.618 + 0.13) * w, py = y + (0.15 + frac(i * 0.37 + 0.2) * 0.8) * h, r = 7 + (i % 4) * 4, a0 = i + t * 0.35;
+    c.strokeStyle = `rgba(255,255,225,${a * (0.12 + 0.07 * Math.sin(t * 1.5 + i))})`; c.beginPath(); c.arc(px, py, r, a0, a0 + 2.1); c.stroke();
+  }
+  c.restore();
+}
+function drawFish(c, x, y, size, dir, k, t) {
+  const f = FK[k], wag = Math.sin(t * 9 + k * 2) * 0.16;
+  c.save(); c.translate(x, y); c.scale(dir * size, size); c.lineJoin = 'round';
+  c.fillStyle = f.tail; c.strokeStyle = f.d; c.lineWidth = 0.05;
+  c.beginPath(); c.moveTo(-0.55, 0); c.quadraticCurveTo(-0.95, -0.2 + wag, -1.12, -0.5 + wag); c.quadraticCurveTo(-0.92, 0.02, -1.12, 0.5 + wag); c.quadraticCurveTo(-0.95, 0.22 + wag, -0.55, 0); c.closePath(); c.fill(); c.stroke();
+  c.fillStyle = f.d; c.beginPath(); c.moveTo(-0.3, -0.36); c.quadraticCurveTo(0, -0.72, 0.35, -0.36); c.closePath(); c.fill();
+  const g = c.createLinearGradient(0, -0.45, 0, 0.45); g.addColorStop(0, f.l); g.addColorStop(0.5, f.b); g.addColorStop(1, f.d);
+  c.fillStyle = g; c.beginPath(); c.ellipse(0, 0, 0.72, 0.44, 0, 0, TAU); c.fill(); c.stroke();
+  if (f.stripe || f.band) {
+    c.save(); c.beginPath(); c.ellipse(0, 0, 0.72, 0.44, 0, 0, TAU); c.clip();
+    if (f.stripe) { c.fillStyle = '#fff'; c.fillRect(0.12, -0.5, 0.16, 1); c.fillRect(-0.4, -0.5, 0.14, 1); }
+    else { c.fillStyle = '#1d2230'; c.fillRect(0.3, -0.5, 0.1, 1); }
+    c.restore();
+  }
+  c.fillStyle = 'rgba(255,255,255,.28)'; c.beginPath(); c.ellipse(0.05, -0.22, 0.4, 0.09, 0, 0, TAU); c.fill();
+  c.fillStyle = '#fff'; c.beginPath(); c.arc(0.44, -0.1, 0.11, 0, TAU); c.fill();
+  c.fillStyle = '#111'; c.beginPath(); c.arc(0.46, -0.1, 0.062, 0, TAU); c.fill();
+  c.fillStyle = '#fff'; c.beginPath(); c.arc(0.48, -0.125, 0.022, 0, TAU); c.fill();
+  c.restore();
+}
+const colTint = (co, bleach, dd) => mix(mix(co.col, BONE, bleach), DEADC, dd);
+function drawBranch(c, geo, x, y, S0, col, dd, sway, e = 0) { // e: erosion (acid view): thinner branches, shorter tips
+  c.save(); c.translate(x, y); c.transform(1, 0, sway, 1, 0, 0); c.scale(S0, S0); c.lineCap = 'round'; c.lineJoin = 'round';
+  const dark = shade(col, 0.3), light = shade(col, -0.32), wf = 1 - 0.34 * e;
+  const lists = e > 0 ? geo.map((a, d) => (d < 3 ? a : a.map(([x1, y1, x2, y2, w]) => { const k = 1 - e * (d === 4 ? 0.5 : 0.22); return [x1, y1, x1 + (x2 - x1) * k, y1 + (y2 - y1) * k, w]; }))) : geo;
+  for (let pass = 0; pass < 3; pass++) {
+    for (let d = 0; d < lists.length; d++) {
+      const list = lists[d]; if (!list.length) continue;
+      const w0 = list[0][4] * wf, o = pass === 2 ? -w0 * 0.18 : 0;
+      c.strokeStyle = pass === 0 ? dark : pass === 1 ? col : light;
+      c.lineWidth = Math.max(pass === 0 ? w0 + 0.012 : pass === 1 ? w0 * 0.78 : w0 * 0.3, 1.2 / S0);
+      c.beginPath();
+      for (const [x1, y1, x2, y2] of list) { c.moveTo(x1 + o, y1 + o * 0.6); c.lineTo(x2 + o, y2 + o * 0.6); }
+      c.stroke();
+    }
+  }
+  if (e === 0 && dd < 0.5) { // living polyps: pale dots at the tips
+    c.fillStyle = shade(col, -0.45); c.beginPath();
+    for (const [, , x2, y2, w] of geo[4]) { c.moveTo(x2 + w * 0.5, y2); c.arc(x2, y2, w * 0.5, 0, TAU); }
+    c.fill();
+  }
+  if (dd > 0.15 && e === 0) { // dead: fuzzy turf algae
+    c.globalAlpha = dd * 0.55; c.strokeStyle = ALGAEC; c.setLineDash([0.012, 0.02]);
+    for (let d = 2; d < geo.length; d++) { if (!geo[d].length) continue; c.lineWidth = geo[d][0][4] * 1.15; c.beginPath(); for (const [x1, y1, x2, y2] of geo[d]) { c.moveTo(x1, y1); c.lineTo(x2, y2); } c.stroke(); }
+    c.setLineDash([]); c.globalAlpha = 1;
+  }
+  c.restore();
+}
+function drawBrain(c, grooves, x, y, S0, col, dd) {
+  c.save(); c.translate(x, y); c.scale(S0, S0);
+  c.fillStyle = 'rgba(0,0,0,.22)'; c.beginPath(); c.ellipse(0.02, 0.01, 0.62, 0.07, 0, 0, TAU); c.fill();
+  c.beginPath(); c.moveTo(-0.55, 0); c.ellipse(0, 0, 0.55, 0.5, 0, Math.PI, TAU); c.closePath();
+  const g = c.createRadialGradient(-0.2, -0.3, 0.05, 0, -0.1, 0.8); g.addColorStop(0, shade(col, -0.4)); g.addColorStop(0.45, col); g.addColorStop(1, shade(col, 0.38));
+  c.fillStyle = g; c.fill(); c.lineWidth = Math.max(0.015, 1.3 / S0); c.strokeStyle = shade(col, 0.45); c.stroke();
+  c.save(); c.clip(); c.lineCap = 'round'; c.lineJoin = 'round';
+  c.strokeStyle = shade(col, 0.35); c.globalAlpha = 0.6; c.lineWidth = 0.02;
+  for (const pts of grooves) { c.beginPath(); pts.forEach(([px, py], i) => (i ? c.lineTo(px, py) : c.moveTo(px, py))); c.stroke(); }
+  c.strokeStyle = shade(col, -0.35); c.globalAlpha = 0.35; c.lineWidth = 0.01;
+  for (const pts of grooves) { c.beginPath(); pts.forEach(([px, py], i) => (i ? c.lineTo(px, py + 0.014) : c.moveTo(px, py + 0.014))); c.stroke(); }
+  if (dd > 0.15) { c.globalAlpha = dd * 0.5; c.fillStyle = ALGAEC; [[-0.3, -0.2, 0.14], [0.2, -0.3, 0.1], [0.05, -0.1, 0.12], [-0.05, -0.38, 0.07]].forEach(([bx, by, br]) => { c.beginPath(); c.ellipse(bx, by, br * 1.4, br, 0, 0, TAU); c.fill(); }); }
+  c.restore(); c.restore();
+}
+
+// one reef picture inside a rounded rectangle: water, light, sea bed, colonies, fish.
+// st: { bleach, dead, warm, health, dt, far, round }
+function drawScene(c, sc, x, y, w, h, t, st) {
+  const U = Math.min(h, w * 0.78), dt = st.dt ?? 0.016;
+  c.save(); rr(c, x, y, w, h, st.round ?? 14); c.clip();
+  let g = c.createLinearGradient(0, y, 0, y + h); g.addColorStop(0, '#3dbad8'); g.addColorStop(0.45, '#1a8bb2'); g.addColorStop(1, '#0b4c74');
+  c.fillStyle = g; c.fillRect(x, y, w, h);
+  g = c.createRadialGradient(x + w * 0.2, y, 0, x + w * 0.2, y, w * 0.8); g.addColorStop(0, 'rgba(200,250,255,.35)'); g.addColorStop(1, 'rgba(200,250,255,0)');
+  c.fillStyle = g; c.fillRect(x, y, w, h);
+  if (st.warm > 0.01) { c.fillStyle = `rgba(255,120,60,${0.2 * st.warm})`; c.fillRect(x, y, w, h); }
+  shafts(c, x, y, w, h, t, 5, 1);
+  // rock bed and sand
+  g = c.createLinearGradient(0, y + h * 0.8, 0, y + h); g.addColorStop(0, '#2f6d8c'); g.addColorStop(1, '#143d5c');
+  c.fillStyle = g; wavePath(c, x, w, y + h * 0.81, h * 0.02, 8, 1, y + h); c.fill();
+  g = c.createLinearGradient(0, y + h * 0.88, 0, y + h); g.addColorStop(0, '#e8d6ac'); g.addColorStop(1, '#bfa77c');
+  c.fillStyle = g; wavePath(c, x, w, y + h * 0.9, h * 0.012, 6, 3, y + h); c.fill();
+  caustics(c, x, y + h * 0.9, w, h * 0.1, t, 1);
+  // colonies, far to near
+  for (const co of COLS) {
+    if (st.far && co.v > 0.9) continue;
+    const dd = clamp((st.dead - co.thr) * 10, 0, 1), col = colTint(co, st.bleach, dd), px = x + co.u * w, py = y + co.v * h;
+    if (co.type === 'branch') {
+      c.fillStyle = 'rgba(0,0,0,.2)'; c.beginPath(); c.ellipse(px, py + 1, co.s * U * 0.28, co.s * U * 0.04, 0, 0, TAU); c.fill();
+      drawBranch(c, co.geo, px, py, co.s * U, col, dd, Math.sin(t * 0.9 + co.ph) * 0.04 * (1 - dd * 0.7));
+    } else drawBrain(c, co.geo, px, py, co.s * U / 0.5, col, dd);
+  }
+  // fish: they leave a poor reef and come back to a good one
+  FISH.forEach((f, i) => {
+    sc.fp[i] += clamp((st.health ?? 1) > f.thr ? 1 - sc.fp[i] : -sc.fp[i], -dt * 0.45, dt * 0.45);
+    const p = sc.fp[i]; if (p <= 0.001) return;
+    const ph = f.sp * t + f.ph, away = (1 - ease(p)) * (i % 2 ? w * 0.8 : -w * 0.8);
+    drawFish(c, x + (f.u + f.ax * Math.sin(ph)) * w + away, y + (f.v + f.ay * Math.sin(ph * 1.7)) * h, Math.max(5, U * f.sz), Math.cos(ph) >= 0 ? 1 : -1, f.k, t + i);
+  });
+  // marine snow and a few bubbles
+  c.fillStyle = 'rgba(255,255,255,.34)';
+  for (let i = 0; i < 14; i++) { c.beginPath(); c.arc(x + frac(i * 0.618 + 0.1) * w + Math.sin(t * 0.4 + i) * 4, y + h * (1 - frac(t * (0.015 + 0.01 * (i % 3)) + i * 0.173)), 0.8 + (i % 3) * 0.5, 0, TAU); c.fill(); }
+  c.strokeStyle = 'rgba(255,255,255,.5)'; c.lineWidth = 1;
+  for (let i = 0; i < 5; i++) { const q = frac(t * 0.12 + i * 0.21); c.beginPath(); c.arc(x + w * (0.18 + i * 0.17) + Math.sin(t * 2 + i) * 3, y + h * (0.85 - q * 0.8), 1.5 + (i % 3), 0, TAU); c.stroke(); }
+  c.restore();
+}
+
+// --- Partners: the zoom bubble with one polyp ---------------------------------------------------------------------
+function cellPos(cl, t) {
+  const bx = Math.sin(t * 1.3 + cl.id) * 0.007, by = Math.cos(t * 1.1 + cl.id * 1.7) * 0.007, u = cl.u;
+  if (u <= 0) return [cl.hx + bx, cl.hy + by];
+  if (u < 0.45) { const e = ease(u / 0.45); return [lerp(cl.hx, 0, e) + bx * (1 - e), lerp(cl.hy, -0.36, e)]; }
+  const q = (u - 0.45) / 0.55;
+  return [cl.dx * q * 1.3 + Math.sin(q * 6 + cl.id) * 0.03, -0.36 + cl.dy * q * 1.3];
+}
+function updateCells(dt, ans) {
+  S.sunV += clamp((S.sun ? 1 : 0) - S.sunV, -dt * 3, dt * 3);
+  const tg = S.algaeOut ? 1 : 0; let sum = 0, present = 0;
+  for (const cl of CELLS) {
+    if (cl.u !== tg) { if (cl.wait > 0) cl.wait -= dt; else cl.u += clamp(tg - cl.u, -dt * cl.spd, dt * cl.spd); }
+    sum += cl.u; if (cl.u < 0.15) present++;
+  }
+  S.bl = sum / CELLS.length;
+  if (ans && S.sunV > 0.5 && present) {
+    S.acc += dt * 7 * present / CELLS.length;
+    while (S.acc >= 1) {
+      S.acc -= 1;
+      for (let k = 0; k < 10; k++) {
+        const cl = CELLS[Math.floor(Math.random() * CELLS.length)];
+        if (cl.u < 0.15) { S.sugar.push({ x0: cl.hx, y0: cl.hy, x1: (Math.random() - 0.5) * 0.14, y1: 0.12 + (Math.random() - 0.5) * 0.2, t: 0, dur: 1.2 + Math.random() * 0.7 }); break; }
+      }
+    }
+  }
+  for (const p of S.sugar) p.t += dt;
+  S.sugar = S.sugar.filter((p) => p.t < p.dur).slice(-70);
+  S.fed += clamp((ans && S.sun && present > CELLS.length / 2 ? 1 : 0) - S.fed, -dt * 1.5, dt * 1.5);
+}
+function drawPolyp(c, cx, cy, R, t, o) {
+  c.save(); c.translate(cx, cy); c.scale(R, R); c.lineCap = 'round'; c.lineJoin = 'round';
+  c.beginPath(); c.arc(0, 0, 1, 0, TAU); c.clip();
+  let g = c.createRadialGradient(-0.3, -0.55, 0.05, 0, 0, 1.5); g.addColorStop(0, '#43c3dc'); g.addColorStop(0.55, '#168bb4'); g.addColorStop(1, '#0a4672');
+  c.fillStyle = g; c.fillRect(-1, -1, 2, 2);
+  if (o.rays > 0.02) shafts(c, -1, -1, 2, 2, t, 4, o.rays);
+  c.fillStyle = `rgba(4,12,34,${0.55 * (1 - o.sunV)})`; c.fillRect(-1, -1, 2, 2);
+  // skeleton cup
+  c.beginPath(); c.moveTo(-1.1, 1.1); c.lineTo(-1.1, 0.62); c.quadraticCurveTo(-0.7, 0.50, -0.52, 0.56); c.quadraticCurveTo(0, 0.70, 0.52, 0.56); c.quadraticCurveTo(0.7, 0.50, 1.1, 0.62); c.lineTo(1.1, 1.1); c.closePath();
+  g = c.createLinearGradient(0, 0.5, 0, 1.1); g.addColorStop(0, '#f6efdf'); g.addColorStop(1, '#c4b390'); c.fillStyle = g; c.fill();
+  c.strokeStyle = 'rgba(120,100,70,.28)'; c.lineWidth = 0.012; c.beginPath();
+  for (let k = 0; k < 8; k++) { c.moveTo(-0.5 + k * 0.143, 0.62); c.lineTo(-0.7 + k * 0.2, 1.1); }
+  c.stroke();
+  const tis = mix(CORAL_T, BONE, o.bl * 1.1), tent = mix(tis, '#ffffff', 0.25), hu = clamp(o.bl * 1.3, 0, 1);
+  // tentacles
+  c.strokeStyle = tent; c.lineWidth = 0.042; c.fillStyle = mix(tent, '#ffffff', 0.3);
+  for (let i = 0; i < 9; i++) {
+    const f = i / 8 - 0.5, bx = f * 0.8, by = -0.35, ang = f * 1.7, L = 0.36 * (1 - 0.2 * hu);
+    c.beginPath(); c.moveTo(bx, by);
+    let lx = bx, ly = by;
+    for (let s = 1; s <= 10; s++) {
+      const q = s / 10; lx = bx + Math.sin(ang) * q * L + Math.sin(t * (1.6 - 0.7 * hu) + i * 0.9 + q * 3) * 0.035 * q;
+      ly = by - Math.cos(ang) * q * L + hu * 0.22 * q * q; c.lineTo(lx, ly);
+    }
+    c.stroke(); c.beginPath(); c.arc(lx, ly, 0.045, 0, TAU); c.fill();
+  }
+  // the living sac
+  c.beginPath(); c.moveTo(-0.42, 0.60); c.bezierCurveTo(-0.56, 0.30, -0.52, -0.10, -0.40, -0.34); c.quadraticCurveTo(0, -0.46, 0.40, -0.34); c.bezierCurveTo(0.52, -0.10, 0.56, 0.30, 0.42, 0.60); c.closePath();
+  g = c.createLinearGradient(-0.5, 0, 0.5, 0); g.addColorStop(0, shade(tis, 0.25)); g.addColorStop(0.45, mix(tis, '#ffffff', 0.18)); g.addColorStop(1, shade(tis, 0.25));
+  c.globalAlpha = 0.95; c.fillStyle = g; c.fill(); c.globalAlpha = 1; c.lineWidth = 0.014; c.strokeStyle = shade(tis, 0.4); c.stroke();
+  // gut, mouth
+  c.save(); c.beginPath(); c.ellipse(0, 0.14, 0.2, 0.36, 0, 0, TAU);
+  g = c.createRadialGradient(-0.04, 0.05, 0.02, 0, 0.14, 0.4); g.addColorStop(0, mix(tis, '#ffffff', 0.55)); g.addColorStop(1, mix(tis, '#ffffff', 0.15));
+  c.globalAlpha = 0.75; c.fillStyle = g; c.fill(); c.globalAlpha = 1;
+  if (o.fed > 0.02) { c.fillStyle = `rgba(255,226,122,${0.4 * o.fed})`; c.fill(); }
+  c.restore();
+  c.strokeStyle = shade(tis, 0.3); c.globalAlpha = 0.7; c.lineWidth = 0.07; c.beginPath(); c.moveTo(0, -0.38); c.lineTo(0, -0.16); c.stroke(); c.globalAlpha = 1;
+  c.fillStyle = shade(tis, 0.55); c.beginPath(); c.ellipse(0, -0.375, 0.09, 0.028, 0, 0, TAU); c.fill();
+  // algae cells
+  for (const cl of CELLS) {
+    const [x, y] = cellPos(cl, t), r = cl.r;
+    if (o.rays > 0.3 && cl.u < 0.2) { c.fillStyle = `rgba(200,255,120,${0.28 * o.rays})`; c.beginPath(); c.arc(x, y, r * 1.9, 0, TAU); c.fill(); }
+    g = c.createRadialGradient(x - r * 0.35, y - r * 0.4, r * 0.1, x, y, r * 1.05); g.addColorStop(0, '#d8dc7c'); g.addColorStop(0.55, '#9ba03a'); g.addColorStop(1, '#675f22');
+    c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, TAU); c.fill(); c.lineWidth = 0.008; c.strokeStyle = 'rgba(50,60,15,.8)'; c.stroke();
+    c.fillStyle = 'rgba(58,74,16,.8)';
+    for (const [kx, ky] of [[-0.3, 0.15], [0.25, -0.1], [0.05, 0.38]]) { c.beginPath(); c.arc(x + kx * r, y + ky * r, r * 0.2, 0, TAU); c.fill(); }
+  }
+  // sugar on its way from the algae to the coral
+  for (const p of S.sugar) {
+    const a = p.t / p.dur, e = ease(a), x = lerp(p.x0, p.x1, e) + Math.sin(a * 9 + p.x0 * 20) * 0.012, y = lerp(p.y0, p.y1, e), al = a > 0.85 ? (1 - a) / 0.15 : 1;
+    c.fillStyle = `rgba(255,226,122,${0.35 * al})`; c.beginPath(); c.arc(x, y, 0.04, 0, TAU); c.fill();
+    c.fillStyle = `rgba(255,248,190,${al})`; c.beginPath(); c.arc(x, y, 0.018, 0, TAU); c.fill();
+    c.strokeStyle = `rgba(255,200,60,${al})`; c.lineWidth = 0.008; c.beginPath(); c.arc(x, y, 0.018, 0, TAU); c.stroke();
+  }
+  c.restore();
+}
+function drawSun(c, x, y, r, a, t) {
+  c.save(); c.globalAlpha = a; c.translate(x, y);
+  c.strokeStyle = '#ffd24a'; c.lineWidth = 2; c.lineCap = 'round';
+  for (let i = 0; i < 8; i++) { const an = i * TAU / 8 + t * 0.2; c.beginPath(); c.moveTo(Math.cos(an) * r * 1.3, Math.sin(an) * r * 1.3); c.lineTo(Math.cos(an) * r * 1.75, Math.sin(an) * r * 1.75); c.stroke(); }
+  const g = c.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r); g.addColorStop(0, '#fff6b0'); g.addColorStop(1, '#ffb62e');
+  c.fillStyle = g; c.beginPath(); c.arc(0, 0, r, 0, TAU); c.fill(); c.restore();
+}
+function drawPartners(c, w, h, dt, t) {
+  const p = T[lang].p, ans = S.ans.p !== null;
+  updateCells(dt, ans);
+  drawScene(c, S.scP, 0, 0, w, h, t, { bleach: S.bl, dead: 0, warm: 0, health: 1 - 0.5 * S.bl, dt });
+  c.save(); rr(c, 0, 0, w, h, 14); c.clip(); c.fillStyle = 'rgba(6,16,40,.32)'; c.fillRect(0, 0, w, h); c.restore();
+  const R = Math.min(w * 0.38, h * 0.45), bx = w * 0.58, by = h * 0.5, U = Math.min(h, w * 0.78);
+  const lx = LENS.u * w, ly = LENS.v * h - LENS.s * U * 0.5;
+  // the magnifier: a wedge from the little ring on a coral to the bubble
+  const dx = bx - lx, dy = by - ly, d = Math.hypot(dx, dy), th = Math.atan2(dy, dx);
+  if (d > R + 20) {
+    const a = Math.asin(R / d), len = Math.sqrt(d * d - R * R);
+    const p1 = [lx + Math.cos(th + a) * len, ly + Math.sin(th + a) * len], p2 = [lx + Math.cos(th - a) * len, ly + Math.sin(th - a) * len];
+    c.fillStyle = 'rgba(255,255,255,.08)'; c.beginPath(); c.moveTo(lx, ly); c.lineTo(...p1); c.lineTo(...p2); c.closePath(); c.fill();
+    c.strokeStyle = 'rgba(255,255,255,.4)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(lx, ly); c.lineTo(...p1); c.moveTo(lx, ly); c.lineTo(...p2); c.stroke();
+  }
+  c.strokeStyle = '#fff'; c.lineWidth = 2.2; c.beginPath(); c.arc(lx, ly, 14, 0, TAU); c.stroke();
+  c.fillStyle = 'rgba(0,0,0,.28)'; c.beginPath(); c.arc(bx + 3, by + 5, R, 0, TAU); c.fill();
+  drawPolyp(c, bx, by, R, t, { bl: S.bl, sunV: S.sunV, rays: ans ? S.sunV : 0, fed: S.fed });
+  c.strokeStyle = 'rgba(255,255,255,.92)'; c.lineWidth = 4; c.beginPath(); c.arc(bx, by, R, 0, TAU); c.stroke();
+  c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 3; c.beginPath(); c.arc(bx, by, R * 0.9, Math.PI * 1.1, Math.PI * 1.45); c.stroke();
+  if (ans) {
+    drawSun(c, 24, 24, 11, 0.25 + 0.75 * S.sunV, t);
+    const cl = CELLS[TAGC], [cx, cy] = cellPos(cl, t);
+    if (S.bl < 0.5) {
+      const ax = bx - R * 0.98, ay = by + R * 0.42, [px, py, pw, ph] = pill(c, p.tagAlgae, ax, ay);
+      c.strokeStyle = 'rgba(255,255,255,.8)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(px + pw / 2, py); c.lineTo(bx + cx * R, by + cy * R); c.stroke();
+      pill(c, p.tagAlgae, ax, ay);
+    }
+    const tx = bx - R * 0.98, ty = by - R * 0.70, [qx, qy, qw, qh] = pill(c, p.tagPolyp, tx, ty);
+    c.strokeStyle = 'rgba(255,255,255,.8)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(qx + qw, qy + qh / 2); c.lineTo(bx - R * 0.46, by - R * 0.16); c.stroke();
+    pill(c, p.tagPolyp, tx, ty);
+  }
+  return false;
+}
+
+// --- Heat: reef and a 12-week temperature chart --------------------------------------------------------------------
+const heatCol = (v) => mix('#ffb04d', '#ff3f4d', (v - 1) / 3);
+function drawChart(c, x, y, w, h, s, o) {
+  const cp = !!o.compact, pl = cp ? 8 : 32, pr = cp ? 8 : 10, pt = 30, pb = cp ? 8 : 22;
+  c.save();
+  c.fillStyle = 'rgba(8,14,30,.86)'; c.strokeStyle = 'rgba(130,145,190,.3)'; c.lineWidth = 1; rr(c, x, y, w, h, 12); c.fill(); c.stroke();
+  const px = x + pl, py = y + pt, pw = w - pl - pr, ph = h - pt - pb;
+  c.font = '800 12px Nunito, sans-serif'; c.textBaseline = 'middle'; c.textAlign = 'left';
+  let pillW = 0;
+  if (o.dhw !== null && o.dhw !== undefined) {
+    const txt = `DHW ${num(o.dhw)}`; pillW = c.measureText(txt).width + 16;
+    c.fillStyle = o.plan ? 'rgba(130,145,190,.4)' : STC[o.state]; rr(c, x + w - 8 - pillW, y + 5, pillW, 20, 10); c.fill();
+    c.fillStyle = '#fff'; c.textAlign = 'center'; c.fillText(txt, x + w - 8 - pillW / 2, y + 15.5); c.textAlign = 'left';
+  }
+  let title = o.title || ''; const avail = w - 20 - pillW - 6;
+  if (c.measureText(title).width > avail) { while (title.length > 3 && c.measureText(title + '…').width > avail) title = title.slice(0, -1); title += '…'; }
+  c.fillStyle = '#98A0B8'; c.fillText(title, x + 10, y + 15.5);
+  // grid, y labels
+  for (let v = 0; v <= YMAX; v++) {
+    const gy = py + ph * (1 - v / YMAX);
+    c.strokeStyle = v === 1 ? 'rgba(255,192,120,.9)' : 'rgba(255,255,255,.08)'; c.lineWidth = v === 1 ? 1.6 : 1; c.setLineDash(v === 1 ? [5, 4] : []);
+    c.beginPath(); c.moveTo(px, gy); c.lineTo(px + pw, gy); c.stroke();
+    if (!cp) { c.fillStyle = v === 1 ? '#ffc078' : '#98A0B8'; c.textAlign = 'right'; c.fillText(v ? `+${v}` : '0', px - 5, gy); c.textAlign = 'left'; }
+  }
+  c.setLineDash([]);
+  // columns (the 12-week window; while the sea cools it slides to the left)
+  c.save(); c.beginPath(); c.rect(px, y + 2, pw, h - 4); c.clip();
+  const shift = s.mode === 'cool' || s.mode === 'cooled' ? s.j : 0, base = Math.floor(shift + 1e-9), fr = shift - base, colW = pw / WEEKS, bw = colW * 0.74;
+  const kk = Math.floor(s.k + 1e-9), play = s.mode === 'play';
+  for (let i = 0; i <= WEEKS; i++) {
+    const wi = base + i, bx = px + (i - fr) * colW + (colW - bw) / 2;
+    if (bx > px + pw) break;
+    const val = wi < WEEKS ? s.temps[wi] : 0; let alpha = 1, vv = val;
+    if (play) { if (wi > kk) alpha = 0.38; else if (wi === kk) vv = val * ease(s.k - kk); }
+    if (!cp && s.mode === 'plan') { c.fillStyle = 'rgba(255,255,255,.05)'; rr(c, bx, py, bw, ph, 4); c.fill(); }
+    c.globalAlpha = alpha;
+    if (vv <= 0.01) { c.fillStyle = 'rgba(120,190,255,.45)'; rr(c, bx, py + ph - 3, bw, 3, 1.5); c.fill(); }
+    else {
+      const bh = ph * vv / YMAX, g = c.createLinearGradient(0, py + ph - bh, 0, py + ph);
+      g.addColorStop(0, vv < 1 ? '#7fe0ee' : heatCol(vv)); g.addColorStop(1, vv < 1 ? '#2d86ac' : '#d9642a');
+      c.fillStyle = g; rr(c, bx, py + ph - bh, bw, bh, Math.min(4, bw / 2)); c.fill();
+      c.fillStyle = 'rgba(255,255,255,.28)'; c.fillRect(bx + 1.5, py + ph - bh + 3, 2, Math.max(0, bh - 6));
+    }
+    c.globalAlpha = 1;
+  }
+  if (play && kk < WEEKS) { c.strokeStyle = 'rgba(255,255,255,.9)'; c.lineWidth = 1.5; rr(c, px + kk * colW + (colW - bw) / 2 - 2, py - 2, bw + 4, ph + 4, 5); c.stroke(); }
+  c.restore();
+  if (!cp && shift === 0) {
+    c.fillStyle = '#98A0B8'; c.textAlign = 'center'; c.fillText('1', px + colW / 2, py + ph + 12); c.fillText('12', px + pw - colW / 2, py + ph + 12);
+    c.fillText(T[lang].weeksWord, px + pw / 2, py + ph + 12);
+  }
+  c.restore();
+  return { x: px, y: py, w: pw, h: ph };
+}
+function drawHeat(c, w, h, dt, t) {
+  const mode = heatMode(), tt = T[lang].h, m = 8;
+  if (mode === 'free') {
+    const s = S.sim, D = stepSim(s, dt), reefH = Math.round((h - 3 * m) * 0.52), cy = m * 2 + reefH, planD = dhwOf(s.temps, 0, WEEKS);
+    drawScene(c, S.scH, m, m, w - 2 * m, reefH, t, { bleach: s.bV, dead: s.dV, warm: s.warm, health: healthOf(s), dt });
+    const plan = s.mode === 'plan', cool = s.mode === 'cool' || s.mode === 'cooled';
+    const r = drawChart(c, m, cy, w - 2 * m, h - cy - m, s, { title: cool ? tt.later(Math.floor(s.j)) : tt.axis, dhw: plan ? planD : D, state: stOf(plan ? planD : D), plan });
+    const key = [r.x, r.y, r.w, r.h].map(Math.round).join(',');
+    if (key !== S.hitKey) { S.hitKey = key; Object.assign(hit.style, { left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px` }); }
+    S.hitWant = plan ? 'block' : 'none';
+    return s.mode === 'play' || s.mode === 'cool';
+  }
+  const ask = mode === 'ask', pw = (w - 3 * m) / 2, ph = h - 2 * m, rh = Math.round(ph * 0.5);
+  [['A', PA, S.simA, S.scA, m], ['B', PB, S.simB, S.scB, 2 * m + pw]].forEach(([L, P, s, sc, px]) => {
+    const D = ask ? 0 : stepSim(s, dt);
+    drawScene(c, sc, px, m, pw, rh, t, { bleach: s.bV, dead: s.dV, warm: s.warm, health: healthOf(s), dt, round: 12 });
+    drawChart(c, px, m + rh + 6, pw, ph - rh - 6, s, { compact: true, title: `${L} · ${dg(P.s)} · ${wkS(P.n)}`, dhw: ask ? null : D, state: stOf(D) });
+  });
+  return !ask && (S.simA.mode === 'play' || S.simB.mode === 'play');
+}
+
+// --- Acid: a snail shell and a coral skeleton in sea water of falling pH --------------------------------------------
+function ellipsePoly(c, cx, cy, rx, ry, e, k) {
+  const N = 48, f = 1 - 0.07 * e; c.beginPath();
+  for (let i = 0; i < N; i++) {
+    const a = i / N * TAU, bite = clamp((NZ[k][i] - 0.5) * 2.4, 0, 1), m = f * (1 - e * 0.3 * (1 + 0.4 * k / 4) * bite);
+    const px = cx + Math.cos(a) * rx * m, py = cy + Math.sin(a) * ry * m; i ? c.lineTo(px, py) : c.moveTo(px, py);
+  }
+  c.closePath();
+}
+function drawShell(c, x, y, S0, e) {
+  const WH = [[-0.20, 0.50, 0.24], [-0.46, 0.40, 0.20], [-0.66, 0.30, 0.16], [-0.82, 0.19, 0.13], [-0.95, 0.09, 0.08]];
+  c.save(); c.translate(x, y); c.scale(S0, S0); c.lineJoin = 'round'; c.lineCap = 'round';
+  c.fillStyle = 'rgba(0,0,0,.25)'; c.beginPath(); c.ellipse(0.03, 0.04, 0.58, 0.07, 0, 0, TAU); c.fill();
+  const chalk = 0.6 * e;
+  WH.forEach(([cy, rx, ry], k) => {
+    ellipsePoly(c, 0, cy, rx, ry, e, k);
+    const g = c.createLinearGradient(-rx, 0, rx, 0); g.addColorStop(0, mix('#f7d9b6', '#f4f1ea', chalk)); g.addColorStop(0.5, mix('#e0a070', '#ece6d8', chalk)); g.addColorStop(1, mix('#a8663e', '#c7bfae', chalk));
+    c.fillStyle = g; c.fill(); c.lineWidth = 0.014; c.strokeStyle = 'rgba(122,74,46,.8)'; c.stroke();
+    c.save(); c.clip(); c.strokeStyle = mix('#b86a45', '#d8d0c0', chalk); c.globalAlpha = 0.5; c.lineWidth = 0.03;
+    for (let j = -1; j <= 1; j++) { c.beginPath(); c.moveTo(j * rx * 0.55 - rx * 0.3, cy - ry); c.lineTo(j * rx * 0.55 + rx * 0.3, cy + ry); c.stroke(); }
+    c.restore();
+    c.fillStyle = 'rgba(255,255,255,.35)'; c.beginPath(); c.ellipse(-rx * 0.4, cy - ry * 0.35, rx * 0.25, ry * 0.18, -0.4, 0, TAU); c.fill();
+  });
+  const ag = c.createRadialGradient(0.18, -0.1, 0.01, 0.18, -0.1, 0.18); ag.addColorStop(0, '#4a1f18'); ag.addColorStop(1, '#8a4a38');
+  c.fillStyle = ag; c.beginPath(); c.ellipse(0.18, -0.1, 0.17, 0.12, -0.3, 0, TAU); c.fill(); c.strokeStyle = '#f8e3c8'; c.lineWidth = 0.03; c.stroke();
+  const n = Math.round(e * 16);
+  for (let i = 0; i < n; i++) { const [px, py, pr] = PITS[i]; c.fillStyle = 'rgba(80,40,25,.5)'; c.beginPath(); c.ellipse(px, py, pr * 1.3, pr, 0, 0, TAU); c.fill(); c.strokeStyle = 'rgba(255,245,225,.45)'; c.lineWidth = 0.008; c.beginPath(); c.arc(px, py + 0.004, pr * 1.2, 0.2, 2.9); c.stroke(); }
+  c.restore();
+}
+function drawCO2(c, x, y, a) {
+  c.save(); c.globalAlpha = a; c.fillStyle = '#e5484d'; c.beginPath(); c.arc(x - 4.8, y, 2.8, 0, TAU); c.arc(x + 4.8, y, 2.8, 0, TAU); c.fill();
+  c.fillStyle = '#9aa3b4'; c.beginPath(); c.arc(x, y, 3.6, 0, TAU); c.fill(); c.fillStyle = 'rgba(255,255,255,.6)'; c.beginPath(); c.arc(x - 1, y - 1.2, 1.1, 0, TAU); c.fill(); c.restore();
+}
+function drawAcid(c, w, h, dt, t) {
+  const tc = T[lang].c, ans = S.ans.c !== null;
+  if (S.phAuto) { S.ph = Math.max(7.8, S.ph - dt * 0.13); if (S.ph <= 7.8) { S.ph = 7.8; S.phAuto = false; } }
+  S.phV += (S.ph - S.phV) * Math.min(1, dt * 8);
+  const e = clamp((8.2 - S.phV) / 0.5, 0, 1), sky = h * 0.15, floorY = h - 66;
+  let g = c.createLinearGradient(0, 0, 0, sky); g.addColorStop(0, '#bfe3f5'); g.addColorStop(1, '#8fc3de'); c.fillStyle = g; c.fillRect(0, 0, w, sky);
+  g = c.createLinearGradient(0, sky, 0, h); g.addColorStop(0, '#2fb0d0'); g.addColorStop(0.5, '#156f98'); g.addColorStop(1, '#0b3f66'); c.fillStyle = g; c.fillRect(0, sky, w, h - sky);
+  c.fillStyle = `rgba(200,210,70,${0.2 * e})`; c.fillRect(0, sky, w, h - sky);
+  shafts(c, 0, sky, w, h - sky, t, 5, 0.8);
+  c.strokeStyle = 'rgba(255,255,255,.7)'; c.lineWidth = 2; c.beginPath();
+  for (let x = 0; x <= w; x += 6) { const y = sky + Math.sin(x * 0.05 + t * 1.5) * 1.8; x ? c.lineTo(x, y) : c.moveTo(x, y); }
+  c.stroke();
+  // CO2 from the air dissolves in the water
+  const nC = Math.round(5 + 14 * e);
+  for (let i = 0; i < nC; i++) {
+    const p = frac(t * 0.3 + i / nC), x = frac(i * 0.618 + 0.2) * w + Math.sin(t + i) * 6, y = lerp(h * 0.02, sky + h * 0.14, p);
+    drawCO2(c, x, y, y < sky ? 1 : Math.max(0, 1 - (y - sky) / (h * 0.14)));
+  }
+  g = c.createLinearGradient(0, floorY - 10, 0, h); g.addColorStop(0, '#e8d6ac'); g.addColorStop(1, '#bfa77c'); c.fillStyle = g; wavePath(c, 0, w, floorY - 8, 3, 6, 0.5, h); c.fill();
+  caustics(c, 0, floorY, w, 40, t, 0.8);
+  const avail = floorY - sky - 12, size = Math.min(avail * 0.78, w * 0.34);
+  drawShell(c, w * 0.27, floorY + 2, size, e);
+  c.fillStyle = 'rgba(0,0,0,.22)'; c.beginPath(); c.ellipse(w * 0.72, floorY + 4, size * 0.4, size * 0.05, 0, 0, TAU); c.fill();
+  drawBranch(c, BRANCH_GEO[2], w * 0.72, floorY + 2, size * 1.08, SKEL, 0, Math.sin(t * 0.8) * 0.03, e);
+  pill(c, tc.co2, 8, 6);
+  pill(c, tc.shell, w * 0.27, floorY - size - 30, { center: true });
+  pill(c, tc.skel, w * 0.72, floorY - size * 1.08 - 30, { center: true });
+  // the pH ruler
+  const rh = 54, ry = h - rh - 6; c.fillStyle = 'rgba(8,12,24,.82)'; rr(c, 8, ry, w - 16, rh, 12); c.fill();
+  const lx = 28, rx = w - 28, px = (ph) => lx + (8.2 - ph) / 0.5 * (rx - lx), yL = ry + 30;
+  const lg = c.createLinearGradient(lx, 0, rx, 0); lg.addColorStop(0, '#2fb4c9'); lg.addColorStop(1, '#c9c24a');
+  c.strokeStyle = lg; c.lineWidth = 4; c.lineCap = 'round'; c.beginPath(); c.moveTo(lx, yL); c.lineTo(rx, yL); c.stroke();
+  c.font = '800 12px Nunito, sans-serif'; c.textBaseline = 'middle'; c.textAlign = 'center';
+  [[8.2, tc.rul[0], '8.2'], [8.1, tc.rul[1], '8.1'], [7.8, tc.rul[2], '7.8'], [7.7, '', '7.7']].forEach(([ph, up, dn]) => {
+    const x = px(ph); c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x, yL - 5); c.lineTo(x, yL + 5); c.stroke();
+    c.fillStyle = '#c6cde0'; if (up) c.fillText(up, x, ry + 12); c.fillStyle = '#98A0B8'; c.fillText(lang === 'en' ? dn : dn.replace('.', ','), x, yL + 14);
+  });
+  const mx = px(S.phV); c.fillStyle = '#fff'; c.strokeStyle = '#0a0c14'; c.lineWidth = 2; c.beginPath(); c.arc(mx, yL, 7, 0, TAU); c.fill(); c.stroke();
+  return S.phAuto;
+}
+
+// --- Secret a: a satellite map strip -------------------------------------------------------------------------------
+function drawSat(c, w, h, dt, t) {
+  const ts = T[lang].sat;
+  if (S.satPlay) { S.satAcc += dt; if (S.satAcc > 0.8) { S.satAcc = 0; if (S.satK < WEEKS) S.satK++; if (S.satK >= WEEKS) S.satPlay = false; } }
+  S.satKf += clamp(S.satK - S.satKf, -dt * 2.5, dt * 2.5);
+  const spaceH = h * 0.27, mx = 8, my = spaceH + 4, mw = w - 16, mh = h - my - 8, kf = S.satKf;
+  let g = c.createLinearGradient(0, 0, 0, spaceH + 4); g.addColorStop(0, '#04050d'); g.addColorStop(1, '#10173a'); c.fillStyle = g; c.save(); rr(c, 0, 0, w, spaceH + 10, 14); c.clip(); c.fillRect(0, 0, w, spaceH + 10);
+  c.fillStyle = '#fff'; for (let i = 0; i < 40; i++) { c.globalAlpha = 0.3 + 0.5 * frac(i * 0.37 + Math.sin(t + i) * 0.1); c.fillRect(frac(i * 0.618) * w, frac(i * 0.381 + 0.3) * spaceH * 0.9, 1.5, 1.5); }
+  c.globalAlpha = 1; c.restore();
+  // the satellite and its beam
+  const sx = w * 0.5 + Math.sin(t * 0.3) * w * 0.18, sy = spaceH * 0.42;
+  c.fillStyle = 'rgba(120,220,255,.12)'; c.beginPath(); c.moveTo(sx, sy + 6); c.lineTo(sx - w * 0.28, my + mh * 0.5); c.lineTo(sx + w * 0.28, my + mh * 0.5); c.closePath(); c.fill();
+  c.save(); c.translate(sx, sy);
+  [-1, 1].forEach((d) => { c.fillStyle = '#2f5fb0'; c.fillRect(d > 0 ? 9 : -31, -5, 22, 10); c.strokeStyle = '#a8c4f0'; c.lineWidth = 0.8; c.strokeRect(d > 0 ? 9 : -31, -5, 22, 10); c.beginPath(); c.moveTo(d > 0 ? 20 : -20, -5); c.lineTo(d > 0 ? 20 : -20, 5); c.stroke(); });
+  g = c.createLinearGradient(-9, 0, 9, 0); g.addColorStop(0, '#e6eaf2'); g.addColorStop(1, '#9aa3b4'); c.fillStyle = g; rr(c, -9, -8, 18, 16, 3); c.fill();
+  c.fillStyle = '#d9d9a0'; c.beginPath(); c.arc(0, 11, 4, 0, Math.PI); c.fill(); c.restore();
+  // the sea strip
+  c.save(); rr(c, mx, my, mw, mh, 14); c.clip();
+  g = c.createLinearGradient(0, my, 0, my + mh); g.addColorStop(0, '#12699b'); g.addColorStop(1, '#093a63'); c.fillStyle = g; c.fillRect(mx, my, mw, mh);
+  c.strokeStyle = 'rgba(255,255,255,.06)'; c.lineWidth = 1; c.beginPath();
+  for (let i = 1; i < 6; i++) { c.moveTo(mx + mw * i / 6, my); c.lineTo(mx + mw * i / 6, my + mh); } for (let i = 1; i < 4; i++) { c.moveTo(mx, my + mh * i / 4); c.lineTo(mx + mw, my + mh * i / 4); }
+  c.stroke();
+  SAT_LAND.forEach(([u, v, s], i) => { const x = mx + u * mw, y = my + v * mh, r = mw * 0.03 * s; c.save(); c.translate(x, y); c.rotate(i); const lg = c.createRadialGradient(-r * 0.3, -r * 0.3, 1, 0, 0, r * 1.4); lg.addColorStop(0, '#7fae6a'); lg.addColorStop(1, '#3f6e45'); c.fillStyle = lg; c.strokeStyle = '#e9d9a8'; c.lineWidth = 2; c.beginPath(); c.ellipse(0, 0, r * 1.4, r * 0.8, 0, 0, TAU); c.fill(); c.stroke(); c.restore(); });
+  if (kf > 0) { // the warm patch of water
+    const pc = mx + (0.1 + 0.07 * Math.max(0, kf - 0.5)) * mw;
+    c.save(); c.translate(pc, my + mh / 2); c.scale(1, mh / (mw * 0.5)); const pg = c.createRadialGradient(0, 0, 0, 0, 0, mw * 0.25); pg.addColorStop(0, 'rgba(255,120,60,.5)'); pg.addColorStop(1, 'rgba(255,120,60,0)');
+    c.fillStyle = pg; c.beginPath(); c.arc(0, 0, mw * 0.25, 0, TAU); c.fill(); c.restore();
+  }
+  const f0 = Math.floor(kf), fr = kf - f0, f1 = Math.min(WEEKS, f0 + 1), rS = Math.max(9, mw * 0.03);
+  S.geoA = [];
+  SAT_SPOTS.forEach(([u, v], i) => {
+    const D = lerp(satD(i, f0), satD(i, f1), fr), x = mx + u * mw, y = my + v * mh, col = satCol(D);
+    S.geoA.push({ x, y, D });
+    const gl = c.createRadialGradient(x, y, 0, x, y, rS * 2.2); gl.addColorStop(0, col); gl.addColorStop(1, 'rgba(0,0,0,0)'); c.globalAlpha = 0.45; c.fillStyle = gl; c.beginPath(); c.arc(x, y, rS * 2.2, 0, TAU); c.fill(); c.globalAlpha = 1;
+    c.fillStyle = col; c.strokeStyle = '#fff'; c.lineWidth = S.satSel === i ? 3 : 1.5; c.beginPath(); c.arc(x, y, rS, 0, TAU); c.fill(); c.stroke();
+    c.fillStyle = 'rgba(255,255,255,.4)'; c.beginPath(); c.arc(x - rS * 0.3, y - rS * 0.3, rS * 0.3, 0, TAU); c.fill();
+  });
+  c.restore();
+  pill(c, ts.note, mx + 6, my + mh - 28);
+  if (S.satSel !== null && S.geoA[S.satSel]) { const q = S.geoA[S.satSel]; pill(c, ts.tag(S.satSel + 1, q.D), q.x, q.y - rS - 30, { center: true, dot: satCol(q.D) }); }
+  return S.satPlay || Math.abs(S.satK - S.satKf) > 0.01;
+}
+
+// --- Secret b: a coral nursery --------------------------------------------------------------------------------------
+const growOf = (age) => 1 - Math.exp(-Math.max(0, age) / 3.5);
+function nurLife() { let s = 0; S.slots.forEach((p) => { if (p !== null) s += growOf(S.yV - p); }); return s / NUR_SLOTS.length; }
+function drawTree(c, x, base, H, t, lbl) {
+  c.save(); c.translate(x, base);
+  c.fillStyle = 'rgba(0,0,0,.25)'; c.beginPath(); c.ellipse(0, 2, 16, 4, 0, 0, TAU); c.fill();
+  const g = c.createLinearGradient(-3, 0, 3, 0); g.addColorStop(0, '#fbfcfd'); g.addColorStop(1, '#a6aeb9'); c.fillStyle = g; rr(c, -3, -H, 6, H, 3); c.fill();
+  [0.35, 0.6, 0.85].forEach((f, i) => {
+    const y = -H * f, L = H * 0.17 + i * 2; c.fillStyle = g; rr(c, -L, y - 2.5, L * 2, 5, 2.5); c.fill();
+    for (let k = -1; k <= 1; k += 2) {
+      const lx = k * L * 0.85; c.strokeStyle = 'rgba(255,255,255,.6)'; c.lineWidth = 1; c.beginPath(); c.moveTo(lx, y); c.lineTo(lx, y + 12 + Math.sin(t + i + k) * 1.2); c.stroke();
+      drawBranch(c, BRANCH_GEO[(i + (k > 0 ? 1 : 0)) % 4], lx, y + 24 + Math.sin(t + i + k) * 1.2, 14, PIECE_COL[(i * 2 + (k > 0 ? 1 : 0)) % 8], 0, Math.sin(t + i) * 0.05);
+    }
+  });
+  c.restore();
+  pill(c, lbl, x, base - H - 30, { center: true });
+}
+function drawNur(c, w, h, dt, t) {
+  const tn = T[lang].nur;
+  S.yV += clamp(S.ny - S.yV, -dt * 2, dt * 2);
+  const life = nurLife(), U = Math.min(h, w * 0.78);
+  drawScene(c, S.scN, 0, 0, w, h, t, { bleach: 0, dead: 1, warm: 0, health: 0.08 + 0.92 * life, dt, far: true });
+  drawTree(c, w * 0.08, h * 0.9, h * 0.5, t, tn.tree);
+  S.geoB = [];
+  NUR_SLOTS.forEach(([u, v], i) => {
+    const x = u * w, y = v * h, p = S.slots[i];
+    S.geoB.push({ x, y: y - U * 0.05 });
+    if (p === null) {
+      const r = Math.max(11, w * 0.034) * (1 + 0.1 * Math.sin(t * 3 + i));
+      c.strokeStyle = `rgba(255,236,150,${0.65 + 0.3 * Math.sin(t * 3 + i)})`; c.lineWidth = 2; c.setLineDash([4, 4]); c.beginPath(); c.arc(x, y - U * 0.05, r, t * 0.5, t * 0.5 + TAU); c.stroke(); c.setLineDash([]);
+      c.beginPath(); c.moveTo(x - 4, y - U * 0.05); c.lineTo(x + 4, y - U * 0.05); c.moveTo(x, y - U * 0.05 - 4); c.lineTo(x, y - U * 0.05 + 4); c.stroke();
+    } else {
+      const gr = growOf(S.yV - p), pop = clamp((t - (S.slotT?.[i] ?? -9)) / 0.35, 0, 1), sc = 1 + 0.25 * Math.sin(pop * Math.PI);
+      c.fillStyle = 'rgba(0,0,0,.2)'; c.beginPath(); c.ellipse(x, y + 1, U * (0.03 + 0.1 * gr), U * 0.012, 0, 0, TAU); c.fill();
+      drawBranch(c, BRANCH_GEO[i % 4], x, y, U * (0.07 + 0.26 * gr) * sc, PIECE_COL[i % 8], 0, Math.sin(t * 0.9 + i) * 0.04);
+    }
+  });
+  return Math.abs(S.ny - S.yV) > 0.01;
+}
+
+// --- loop: one dispatcher; while something animates the readouts are redrawn a few times a second ------------------
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  CW = w; CH = h; S.hitWant = 'none';
+  let busy;
+  c.save(); // every view starts from a clean context (alignment, dashes, alpha)
+  if (S.sec === 'a') busy = drawSat(c, w, h, dt, time);
+  else if (S.sec === 'b') busy = drawNur(c, w, h, dt, time);
+  else if (lab.view === 'partners') busy = drawPartners(c, w, h, dt, time);
+  else if (lab.view === 'heat') busy = drawHeat(c, w, h, dt, time);
+  else busy = drawAcid(c, w, h, dt, time);
+  c.restore();
+  if (hit.style.display !== S.hitWant) hit.style.display = S.hitWant;
+  if (busy) { S.wasBusy = true; if (time - S.lastR > 0.12) { S.lastR = time; render(); } }
+  else if (S.wasBusy) { S.wasBusy = false; render(); }
+});
+
+// --- input -------------------------------------------------------------------------------------------------------
+const showStage = () => { // on a phone the controls sit below the picture: bring the reveal into view
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+function syncSliders() { S.hStr = Math.max(0, ...S.sim.temps); S.hLen = Math.max(1, S.sim.temps.filter((v) => v > 0).length); }
+function setBar(ev) {
+  if (S.sim.mode !== 'plan') return;
+  const r = hit.getBoundingClientRect(), i = clamp(Math.floor((ev.clientX - r.left) / r.width * WEEKS), 0, WEEKS - 1);
+  const v = clamp(Math.round((1 - (ev.clientY - r.top) / r.height) * YMAX * 2) / 2, 0, 3); // the strength slider ends at +3 °C, so the bars do too
+  if (S.sim.temps[i] !== v) { S.sim.temps[i] = v; syncSliders(); sfx.tick(); render(); }
+}
+let dragging = false;
+hit.addEventListener('pointerdown', (ev) => { dragging = true; try { hit.setPointerCapture(ev.pointerId); } catch { /* fine */ } setBar(ev); });
+hit.addEventListener('pointermove', (ev) => { if (dragging) setBar(ev); });
+['pointerup', 'pointercancel'].forEach((n) => hit.addEventListener(n, () => { dragging = false; }));
+$('hStr').addEventListener('input', () => { S.hStr = +$('hStr').value; resetSim(); S.sim.temps = pat(S.hStr, S.hLen); sfx.tick(); render(); });
+$('hLen').addEventListener('input', () => { S.hLen = +$('hLen').value; resetSim(); S.sim.temps = pat(S.hStr, S.hLen); sfx.tick(); render(); });
+$('phS').addEventListener('input', () => { S.phAuto = false; S.ph = 8.2 - 0.05 * (+$('phS').value); sfx.tick(); render(); });
+$('satW').addEventListener('input', () => { S.satPlay = false; S.satK = +$('satW').value; sfx.tick(); render(); });
+$('cv').addEventListener('pointerdown', (ev) => {
+  const r = $('cv').getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+  if (S.sec === 'a' && S.geoA) {
+    let best = -1, bd = 32 * 32;
+    S.geoA.forEach((p, i) => { const d = (p.x - x) ** 2 + (p.y - y) ** 2; if (d < bd) { bd = d; best = i; } });
+    if (best >= 0) { S.satSel = best; sfx.tick(); render(); }
+  } else if (S.sec === 'b' && S.geoB) {
+    let best = -1, bd = 30 * 30;
+    S.geoB.forEach((p, i) => { const d = (p.x - x) ** 2 + (p.y - y) ** 2; if (S.slots[i] === null && d < bd) { bd = d; best = i; } });
+    if (best >= 0) { S.slots[best] = S.yV; (S.slotT ??= [])[best] = performance.now() / 1000; sfx.snap(); render(); }
+  }
+});
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const a = b.dataset.act;
+  if (a === 'ans') {
+    const k = b.dataset.k, i = +b.dataset.i; S.ans[k] = i; (i === OK[k] ? sfx.good : sfx.bad)();
+    if (k === 'h') { S.simA.mode = 'play'; S.simB.mode = 'play'; }
+    if (k === 'c') S.phAuto = true;
+    showStage();
+  } else if (a === 'sun') { S.sun = !S.sun; sfx.click(); }
+  else if (a === 'algae') { S.algaeOut = !S.algaeOut; CELLS.forEach((cl) => { cl.wait = Math.random(); }); sfx.click(); }
+  else if (a === 'free') { S.hfree = true; sfx.click(); }
+  else if (a === 'play') { if (S.sim.mode !== 'plan') resetSim(); S.sim.mode = 'play'; sfx.click(); showStage(); }
+  else if (a === 'cool') { S.sim.mode = 'cool'; S.sim.j = 0; sfx.click(); }
+  else if (a === 'reset') { resetSim(); sfx.click(); }
+  else if (a === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    S.sec = S.sec === b.dataset.k ? null : b.dataset.k; sfx.click(); if (S.sec) showStage();
+  } else if (a === 'satplay') { if (S.satK >= WEEKS) { S.satK = 0; S.satKf = 0; } S.satPlay = true; S.satAcc = 0.8; sfx.click(); }
+  else if (a === 'y1') { S.ny = Math.min(10, Math.round(S.ny) + 1); sfx.click(); }
+  else if (a === 'y10') { S.ny = 10; sfx.click(); }
+  else if (a === 'nreset') { S.ny = 0; S.yV = 0; S.slots = NUR_SLOTS.map(() => null); sfx.click(); }
+  render();
+});
+
+// --- one render per change: controls, readout and the state card ----------------------------------------------------
+function qHtml(t, key, q, opts, ans, detail) {
+  if (ans === null) return `<div class="co-q">${esc(q)}</div><div class="co-opts">${opts.map((o, i) => `<button class="co-opt" data-act="ans" data-k="${key}" data-i="${i}">${esc(o)}</button>`).join('')}</div>`;
+  const ok = ans === OK[key];
+  return `<div class="co-q2">${esc(q)}</div><div class="co-verdict ${ok ? 'good' : 'bad'}"><b>${esc(ok ? t.right : t.notq)}</b> ${esc(detail)}</div>`;
+}
+function render() {
+  const t = T[lang], v = lab.view;
+  document.body.dataset.v = S.sec ? 'sec' + S.sec : v;
+  $('pA').hidden = !!S.sec || v !== 'partners'; $('pH').hidden = !!S.sec || v !== 'heat'; $('pC').hidden = !!S.sec || v !== 'acid';
+  $('sA').hidden = S.sec !== 'a'; $('sB').hidden = S.sec !== 'b';
+  const open = secret.unlocked();
+  $('secRow').innerHTML = [['a', '🛰️'], ['b', '🧪']].map(([k, e]) => `<button class="chip secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${e} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`).join('');
+  if (S.sec === 'a') renderSat(t); else if (S.sec === 'b') renderNur(t);
+  else if (v === 'partners') renderPartners(t); else if (v === 'heat') renderHeat(t); else renderAcid(t);
+}
+function renderPartners(t) {
+  const p = t.p, a = S.ans.p, ans = a !== null;
+  $('qA').innerHTML = qHtml(t, 'p', p.q, p.opts, a, a === OK.p ? p.detailRight : p.detailWrong);
+  $('cA').hidden = !ans;
+  $('bSun').className = 'chip' + (S.sun ? ' on' : ''); $('bSun').textContent = p.sun;
+  $('bAlg').className = 'chip' + (!S.algaeOut ? ' on' : ''); $('bAlg').textContent = p.algae;
+  $('hA').textContent = p.hint;
+  lab.setGlow('rgba(238, 106, 88, .26)');
+  if (!ans) {
+    lab.setReadout('?', '', '', '#ee6a58'); lab.setFacts([]);
+    lab.setState({ emo: '🔍', title: p.askTitle, lead: p.askLead, body: p.askBody, extra: '' });
+    return;
+  }
+  const i = S.algaeOut ? 2 : S.sun ? 0 : 1, s = [p.sSun, p.sDark, p.sOut][i];
+  lab.setReadout(p.val[i === 0 ? 0 : i === 1 ? 1 : 2], p.sub, p.pill[i], ['#2fae78', '#e08a1e', '#e0364a'][i]);
+  lab.setState({ emo: s[0], title: s[1], lead: s[2], body: s[3], extra: '' });
+  lab.setFacts(p.facts);
+}
+function renderHeat(t) {
+  const h = t.h, a = S.ans.h, mode = heatMode(), s = S.sim;
+  lab.setGlow('rgba(255, 140, 70, .26)');
+  $('qH').hidden = mode === 'free';
+  $('qH').innerHTML = mode === 'free' ? '' : qHtml(t, 'h', h.q(PA, PB), [h.opt('A', PA), h.opt('B', PB)], a, h.detail(dA, dB));
+  $('rH').hidden = mode !== 'rev'; $('bFree').textContent = h.tryOwn;
+  $('cH').hidden = mode !== 'free';
+  if (mode === 'ask') {
+    lab.setReadout('?', '', '', '#e08a1e'); lab.setFacts([]);
+    lab.setState({ emo: '🌡️', title: h.askTitle, lead: h.askLead, body: h.askBody, extra: '' });
+    return;
+  }
+  lab.setFacts(h.facts);
+  if (mode === 'rev') {
+    const DA = simD(S.simA), DB = simD(S.simB), fin = S.simA.mode === 'done' && S.simB.mode === 'done';
+    lab.setReadout(`${num(DA)} · ${num(DB)}`, h.revSub, fin ? `A ${stN(stOf(DA))} · B ${stN(stOf(DB))}` : '', '#e08a1e');
+    lab.setState({ emo: '🌡️', title: h.revTitle, lead: h.revLead(dA, dB), body: h.revBody(dA, dB), extra: '' });
+    return;
+  }
+  $('lStr').textContent = h.strength; $('vStr').textContent = dg(S.hStr); $('hStr').value = S.hStr;
+  $('lLen').textContent = h.length; $('vLen').textContent = wk(S.hLen); $('hLen').value = S.hLen;
+  const planD = dhwOf(s.temps, 0, WEEKS), D = simD(s), plan = s.mode === 'plan', fin = s.mode === 'done' || s.mode === 'cooled';
+  $('bPlay').textContent = '▶ ' + (fin ? h.again : h.play); $('bPlay').disabled = s.mode === 'play' || s.mode === 'cool';
+  $('bCool').hidden = !(s.mode === 'done' && planD >= T_START); $('bCool').textContent = '🌊 ' + h.coolBtn;
+  $('bReset').textContent = '↺ ' + h.reset; $('bReset').disabled = plan;
+  if (plan) {
+    lab.setReadout(`DHW ${num(planD)}`, h.subPlan, stN(stOf(planD)), STC[stOf(planD)]);
+    lab.setState({ emo: '🌡️', title: h.planTitle, lead: h.planLead, body: h.planBody, extra: '' });
+  } else if (s.mode === 'play' || s.mode === 'done') {
+    const w = Math.min(WEEKS, Math.floor(s.k + 1e-9)), st = stOf(D), L = h.live[st];
+    lab.setReadout(`DHW ${num(D)}`, h.subPlay(w), stN(st), STC[st]);
+    lab.setState({ emo: L[0], title: L[1], lead: L[2](D), body: s.mode === 'done' && planD >= T_START ? h.coolHint : L[3], extra: '' });
+  } else {
+    const st = stOf(D), j = Math.floor(s.j + 1e-9);
+    lab.setReadout(`DHW ${num(D)}`, h.subCool(j), stN(st), STC[st]);
+    const R = s.mode === 'cooled' ? (s.d > 0 ? h.part : h.rec) : h.cool;
+    lab.setState({ emo: R[0], title: R[1], lead: typeof R[2] === 'function' ? R[2](D) : R[2], body: R[3], extra: '' });
+  }
+}
+function renderAcid(t) {
+  const c = t.c, a = S.ans.c, ans = a !== null;
+  $('qC').innerHTML = qHtml(t, 'c', c.q, c.opts, a, c.detail);
+  $('cC').hidden = !ans;
+  $('lPh').textContent = c.slider; $('vPh').textContent = fx(S.ph, 2); $('phS').value = Math.round((8.2 - S.ph) / 0.05); $('phS').disabled = S.phAuto;
+  $('cC').querySelector('.co-ends').innerHTML = `<span>${fx(8.2, 1)}</span><span>${fx(7.7, 1)}</span>`;
+  lab.setGlow('rgba(201, 194, 74, .24)');
+  if (!ans) {
+    lab.setReadout(`pH ${fx(8.2, 1)}`, '', '', '#2fb4c9'); lab.setFacts([]);
+    lab.setState({ emo: '🧪', title: c.askTitle, lead: c.askLead, body: c.askBody, extra: '' });
+    return;
+  }
+  const ph = S.ph, e = clamp((8.2 - ph) / 0.5, 0, 1), g = Math.round(100 - 45 * e), r = fx(Math.pow(10, 8.2 - ph), 1), ps = fx(ph, 2);
+  lab.setReadout(`pH ${ps}`, c.growth(g), c.pill(r), '#c0a02a');
+  const pr = Math.round(ph * 100) / 100; // the slider moves in steps of 0.05: compare the rounded value
+  const s = pr >= 8.15 ? [c.s1[0], c.s1[1], c.s1[2]] : pr >= 8.05 ? [c.s2[0], c.s2[1], c.s2[2](r)] : pr > 7.85 ? [c.s3[0], c.s3[1], c.s3[2](ps, r)]
+    : pr >= 7.75 ? [c.s4[0], c.s4[1], c.s4[2](ps, r)] : [c.s5[0], c.s5[1], c.s5[2](ps, r)];
+  lab.setState({ emo: s[0], title: s[1], lead: s[2], body: c.model, extra: '' });
+  lab.setFacts(c.facts);
+}
+function renderSat(t) {
+  const s = t.sat, k = S.satK;
+  $('lSat').textContent = s.week; $('vSat').textContent = `${k} / ${WEEKS}`; $('satW').value = k;
+  $('bSatPlay').textContent = '▶ ' + (k >= WEEKS ? s.again : s.play); $('bSatPlay').disabled = S.satPlay;
+  $('hSat').textContent = s.tap;
+  const cols = ['#4fb4e6', '#ffe066', '#ff8a3d', '#e0203f'];
+  $('satLeg').innerHTML = s.leg.map((l, i) => `<span><i style="background:${cols[i]}"></i>${esc(l)}</span>`).join('');
+  const n = SAT_SPOTS.filter((_, i) => satD(i, k) >= T_START).length;
+  lab.setGlow('rgba(79, 180, 230, .26)');
+  lab.setReadout(s.val(n, SAT_SPOTS.length), s.sub, s.pill(k), n ? '#e0364a' : '#2fae78');
+  lab.setState({ emo: '🛰️', title: s.title, lead: s.lead, body: s.body, extra: '' });
+  lab.setFacts([]);
+}
+function renderNur(t) {
+  const n = t.nur, y = Math.round(S.yV), N = NUR_SLOTS.length, placed = S.slots.filter((p) => p !== null).length, life = nurLife();
+  $('bY1').textContent = '⏩ ' + n.y1; $('bY10').textContent = '⏩⏩ ' + n.y10; $('bNR').textContent = '↺ ' + n.reset; $('hNur').textContent = n.hint;
+  $('bY1').disabled = S.ny >= 10; $('bY10').disabled = S.ny >= 10;
+  lab.setGlow('rgba(110, 200, 130, .26)');
+  lab.setReadout(n.year(y), n.sub(placed, N), n.pill[life < 0.05 ? 0 : life < 0.6 ? 1 : 2], life < 0.05 ? '#e0364a' : life < 0.6 ? '#e08a1e' : '#2fae78');
+  let s;
+  if (!placed && S.ny === 0) s = ['🧪', n.title, n.lead, ''];
+  else if (!placed) s = ['🌫️', n.bareTitle, n.bareLead, ''];
+  else if (S.ny === 0) s = ['🪸', n.title, n.placed(placed, N), ''];
+  else s = ['🌱', n.year(y), n.grow, n.growBody];
+  lab.setState({ emo: s[0], title: s[1], lead: s[2], body: s[3], extra: '' });
+  lab.setFacts([]);
+}
+render();
+</script>
+</body>
+</html>
