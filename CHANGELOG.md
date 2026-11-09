@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-09
 
 ### Labs
+- New lab `game-ai` “How the Guard Decides”: switch a game guard’s rules on and off, work out a hidden rule from how a guard moves, tune a game until it feels fair (503). (#434)
 - New lab `dino-continents` “Fossils Across the Sea”: fit the continents together by their fossils, slide 250 million years of drifting land, dig for dinosaurs on every continent (502). (#433)
 - New lab `volcanic-winter` “Ash in the Sky”: set off eruptions of different sizes and watch the world’s temperature, visit a village in June 1816, compare Pinatubo, Tambora and Toba (501). (#432)
 - New lab `film-music` “Music for a Scene”: play one short scene with three soundtracks, build music for a chase or a sunrise, recognise characters by their tunes (500). (#431)
