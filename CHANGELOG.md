@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-09
 
 ### Labs
+- New lab `gps` “Three Circles Find You”: listen to towers one by one until the circles meet in one place, turn signal time into distance and see what a clock error does, count the satellites overhead (469). (#404)
 - New lab `groundwater` “Water Under Your Feet”: zoom into sand, gravel and clay to see where groundwater sits, dig a well through a dry summer, follow a spill as it seeps towards the well (468). (#403)
 - New lab `blind-spot` “What the Driver Can’t See”: hide cyclists around a lorry and reveal what the driver sees in the mirrors, watch the trailer cut the corner on a right turn, find the safe place by the driver’s face (467). (#402)
 - New lab `relative-motion` “Who Is Moving?”: throw a ball in a moving train and watch it from the platform, ride beside another train, steer a boat across a flowing river with velocity arrows (466). (#401)
