@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-09
 
 ### Labs
+- New lab `pop-pyramid` “The Shape of a Country”: match three countries to their age pyramids, run a country to 2100 with births and life expectancy, plan its schools, jobs and pensions (472). (#407)
 - New lab `electromagnet` “Wire, Nail, Battery”: wrap a nail in wire and switch the current on and off, find the rule for how many paperclips it lifts, sort scrap with an electromagnet crane (471). (#406)
 - New lab `hilbert-hotel` “Hilbert’s Hotel”: find a room for a new guest in a full hotel with endless rooms, fit a whole endless bus, pair whole numbers with even numbers and meet Cantor’s diagonal (470). (#405)
 - New lab `gps` “Three Circles Find You”: listen to towers one by one until the circles meet in one place, turn signal time into distance and see what a clock error does, count the satellites overhead (469). (#404)
