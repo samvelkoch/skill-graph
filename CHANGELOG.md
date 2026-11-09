@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-09
 
 ### Labs
+- New lab `scatter` “Do They Go Together?”: predict the pattern before the dots fall, drag points to make r strong or weak, ask whether ice cream really causes drowning (475). (#410)
 - New lab `longship` “The Viking Longship”: race a deep ship and a longship up a shallow river, sail with the wind or row without it, follow the Vikings as far as America (474). (#409)
 - New lab `peacock` “The Peacock’s Tail”: choose between peacocks like a peahen, evolve tail length over 100 generations with tigers about, sort antlers, claws and dances (473). (#408)
 - New lab `pop-pyramid` “The Shape of a Country”: match three countries to their age pyramids, run a country to 2100 with births and life expectancy, plan its schools, jobs and pensions (472). (#407)
