@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-09
 
 ### Labs
+- New lab `greek-theatre` “Fourteen Thousand Seats”: shape the seats of a Greek theatre and test what each seat sees and hears, look at masks from the top row, drop a coin on the stage at Epidaurus (465). (#400)
 - New lab `alphabet` “Letters on the Move”: count the signs a scribe must learn, turn old picture-signs into today’s letters, sail the alphabet from Tyre to Greece, Rome and the Slavs (464). (#399)
 - New lab `static` “Rub a Balloon”: rub a balloon on a jumper and count the charges that hop across, hang two charged balloons side by side, shuffle across a carpet to a spark (463). (#398)
 - New lab `cladogram` “Family Tree of Animals”: grow a branching tree from seven shared traits, guess who is whose closer relative with the tree hidden, follow the bird branch past the asteroid (462). (#397)
