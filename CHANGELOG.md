@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-09
 
 ### Labs
+- New lab `static` “Rub a Balloon”: rub a balloon on a jumper and count the charges that hop across, hang two charged balloons side by side, shuffle across a carpet to a spark (463). (#398)
 - New lab `cladogram` “Family Tree of Animals”: grow a branching tree from seven shared traits, guess who is whose closer relative with the tree hidden, follow the bird branch past the asteroid (462). (#397)
 - New lab `thermopylae` “Hold the Pass”: make the pass at Thermopylae wider or narrower and see how many can fight at once, follow the mountain path behind the Greeks, run the road from Marathon (461). (#396)
 - New lab `chart-tricks` “Chart Tricks”: peel the sticker off a chart’s axis and watch the headline change, stretch a cat picture and compare areas, spot the trick in five newspaper charts (460). (#395)
