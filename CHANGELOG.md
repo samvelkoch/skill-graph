@@ -12,6 +12,11 @@ Hungarian is on the site: [What's new](https://samvelkoch.github.io/skill-graph/
 
 Counts in brackets are totals after that day.
 
+## 2026-11-09
+
+### Labs
+- New lab `constellations` “Join the Stars”: join the Big Dipper star by star, turn the night sky around the North Star, find the W, Orion’s belt and the ladle (454). (#389)
+
 ## 2026-11-08
 
 ### Labs
