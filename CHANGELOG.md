@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-09
 
 ### Labs
+- New lab `heat-capacity` “Same Heat, Different Warmth”: heat water, oil and sand on identical hotplates and watch the graph, find Q = mcΔT, compare the sand and the sea through a sunny day (481). (#416)
 - New lab `weather-map` “Read the Forecast”: read the symbols on a weather map, pack a bag for a trip to one town, move a band of rain east across the country (480). (#415)
 - New lab `trebuchet` “Siege!”: load a trebuchet and fling stones at a castle wall, defend with walls, a moat and arrow slits, count how long the food lasts (479). (#414)
 - New lab `insect-records` “If You Were a Flea”: jump like a flea, pull like a dung beetle and hunt like a dragonfly, then scale each record up to your own size (478). (#413)
