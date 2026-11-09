@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-09
 
 ### Labs
+- New lab `dino-tracks` “Footprints in the Mud”: send a dinosaur across the mud and read its speed from the stride, guess size and gait from bare trackways, pick the story a rock surface tells (457). (#392)
 - New lab `half-life` “The Atom Clock”: flip a coin for each of 400 atoms and watch the curve, predict the shape of decay, date a bone, wood, charcoal and Ötzi with carbon-14 (456). (#391)
 - New lab `star-life` “A Star’s Life”: slide a star’s mass and watch its colour and lifetime, play the lives of four stars to their endings, follow star dust into a new sun (455). (#390)
 - New lab `constellations` “Join the Stars”: join the Big Dipper star by star, turn the night sky around the North Star, find the W, Orion’s belt and the ladle (454). (#389)
