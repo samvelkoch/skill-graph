@@ -1,0 +1,954 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Three Circles Find You · Skill Graph</title>
+<meta name="description" content="Find yourself with three circles: listen to towers, turn signal time into distance, and count the satellites over your head. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  .gp-q { font: 500 19px/1.2 var(--serif); color: #fff; margin: 0 0 10px; text-wrap: balance; }
+  .gp-opts { display: flex; flex-wrap: wrap; gap: 8px; }
+  .gp-opt { flex: 1 1 auto; min-height: 40px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    color: var(--soft); font: 800 13.5px var(--sans); cursor: pointer; text-align: center; }
+  .gp-opt:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .gp-opt:disabled { cursor: default; }
+  .gp-opt.good { background: rgba(61, 220, 151, .2); border-color: var(--ok); color: #fff; }
+  .gp-opt.bad { background: rgba(255, 59, 48, .22); border-color: var(--red); color: #fff; }
+  .gp-opt.dim { opacity: .55; }
+  .gp-verdict { margin-top: 10px; font-weight: 800; font-size: 13.5px; line-height: 1.35; }
+  .gp-verdict.good { color: var(--ok); } .gp-verdict.bad { color: var(--wip); }
+  .gp-sl { margin-top: 12px; }
+  .gp-sl:first-child { margin-top: 0; }
+  .gp-sl label { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-weight: 700; margin-bottom: 2px; }
+  .gp-sl label b { color: var(--soft); letter-spacing: 0; text-transform: none; font-size: 13px; font-weight: 800; }
+  .gp-sl input[type=range] { width: 100%; }
+  .gp-btn { min-height: 38px; }
+  #gpMode { margin-right: auto; }
+  .gp-tip { font-size: 11.5px; line-height: 1.4; color: var(--faint); margin-top: 8px; }
+  .gp-sh { display: inline-block; width: 1em; text-align: center; margin-right: 2px; }
+  .chip.gp-sys { min-height: 36px; }
+  .chip.gp-sys:not(.on) { opacity: .6; }
+  @media (max-width: 760px) {
+    #stage { height: min(84vw, 460px); }
+    body[data-v=sats] #stage, body[data-v=sec] #stage { height: min(100vw, 500px); }
+    .gp-q { font-size: 17px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, store, $, esc, clamp, lerp, ruPlural, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Three Circles Find You', title: 'Three Circles Find You',
+    lines: [['Listen to the towers,', 'draw the circles.'], ['Turn time into distance,', 'and see why a clock matters.'], ['Count the satellites', 'over your head.']],
+    views: { circles: '⭕ Circles', time: '⏱️ Time', sats: '🛰️ Sats' },
+    you: 'You', km: 'km', m: 'm', mu: 'µs', dir: ['N', 'E', 'S', 'W'],
+    c: {
+      listen: (L) => `📡 Listen to tower ${L}`, newp: '🎲 New place', sub: 'towers heard', pillOn: '🔍 searching', pillDone: '📍 found you',
+      s0: ['🌳', 'You are hidden in the park', 'You can’t see anything, but the towers around the map can help.', 'Listen to a tower: it tells you how far away you are.'],
+      s1: (d) => ['⭕', 'You are somewhere on this circle', `Tower A says you are ${d} away, so you could be at any spot that far from it.`, 'One tower is not enough. Listen to the next one.'],
+      s2: ['🤔', 'Two circles, two crossing points', 'You are at one of the two glowing points. Which one?', ''],
+      s2b: ['🤔', 'Two crossing points again', 'You are at one of them. Tower C will tell which one.', ''],
+      s3: ['📍', 'Three circles, one spot', 'Only one point is on all three circles. That is where you are!', 'The other crossing point misses circle C. Real GPS does the same in 3-D, where circles become spheres.'],
+      ask: 'Two circles, two crossing points. How many more towers do you need to be sure?',
+      opts: ['None', 'One more', 'Ten more'], ok: 1,
+      v: ['Not quite.', 'Right!', 'Not that many.'],
+      t: ['Two circles still leave two possible spots. One more tower settles it: watch.', 'Tower C’s circle passes through only one of the two points.', 'You never need ten. One more tower is enough: watch.'],
+      fact: 'The GPS satellites fly about 20,200 km above the Earth and go round it twice a day.',
+    },
+    t: {
+      ask: 'Your receiver’s clock is 1 microsecond wrong. How big is the error?', askLead: 'A microsecond is one millionth of a second.',
+      opts: ['1 cm', 'About 300 m', '1 km'], ok: 1,
+      v: ['Not quite.', 'Right!', 'Not quite.'],
+      t: ['Radio signals are very fast: in one microsecond they already cover about 300 m. See the ring on the map.',
+        'Radio signals cover about 300 m in each microsecond, so a clock that is 1 µs off makes every distance 300 m wrong.',
+        'A little less than that: a radio signal covers about 300 m in one microsecond. See the ring on the map.'],
+      mode: ['⏱️ Signal time', '⏰ Clock error'], tLbl: 'Signal travel time', eLbl: 'Receiver clock error', fix: '🔧 Fix the clock',
+      sub: (t) => `${t} µs × 300 m per µs`, hit: '📍 reaches you', eSub: (e) => `from a ${e} µs clock error`, pillBad: '🔺 no common point', pillOk: '✓ one common point',
+      s1: (t, d) => ['⏱️', 'Time becomes distance', `In ${t} µs the signal covers ${d}.`, 'The receiver multiplies the time by the speed of light, 299 792 km/s.'],
+      sHit: (t, d) => ['📍', 'The signal reaches you', `It took ${t} µs, so the receiver knows you are ${d} from tower A.`, 'This is how every circle gets its size: distance = speed of light × travel time.'],
+      e0: ['⏰', 'A perfect clock', 'All three circles meet in one point: you.', 'Now let the receiver’s clock drift.'],
+      e1: (e, m) => ['🔺', 'The circles no longer meet', `The clock is ${e} µs off, so every distance comes out ${m} too long, by the same amount.`,
+        'Instead of one point you get a small triangle. A real receiver listens to a 4th satellite: three give the position, the fourth reveals the clock error, and the receiver fixes its own clock.'],
+      fact: 'Radio signals travel about 300 metres in one millionth of a second.',
+    },
+    s: {
+      ask: 'How many satellites can you usually “see” from one place?', askLead: 'Drag the time slider and watch the satellites go round.',
+      opts: ['1', 'About 8', 'All 30'], ok: 1,
+      v: ['Not quite.', 'Right!', 'Not quite.'],
+      t: (lo, hi) => [`You usually see many more than one: between ${lo} and ${hi} over a day.`, `Over a day you see between ${lo} and ${hi}, depending on the moment.`, `The Earth hides the satellites on the far side: you see only between ${lo} and ${hi}.`],
+      tLbl: 'Time of day', play: '▶ Play', pause: '⏸ Pause', city: '🏙️ Tall buildings', sub: 'satellites in view', pillOk: '✓ enough for a fix', pillLow: '⚠️ fewer than 4',
+      st: (n) => ['🛰️', `${n} satellites in view`, 'These are above your horizon, the flat disc at your feet: you can hear them.', ''],
+      stCity: (n, n0) => ['🏙️', `${n} in view between tall buildings`, `Tall buildings hide the low satellites: in the open you would see ${n0}.`, n < 4 ? 'Fewer than four: not enough for a fix.' : ''],
+      cap: 'Satellites 20 200 km up', sky: 'Sky above you',
+      fact: 'The first GPS satellite was launched in 1978; the system became free for everyone to use in the 1980s and fully accurate for civilians in 2000.',
+    },
+    secrets: { a: ['Einstein in your pocket', 'Clocks in orbit tick faster.'], b: ['Four systems', 'GPS, GLONASS, Galileo, BeiDou.'] },
+    sa: {
+      days: 'Days without correction', corr: '🛠️ Correct the clocks', after: (d) => `after ${d} ${d === 1 ? 'day' : 'days'}`, pillBad: '⚠️ drifting', pillOk: '✓ corrected', ground: 'On the ground', orbit: 'In orbit', gps: 'GPS says',
+      s0: ['⏱️', 'Einstein in your pocket', 'Satellite clocks run about 38 µs a day faster than clocks on the ground, because of relativity.', 'Move the slider to let the days pass.'],
+      s1: (d, us, km) => ['⏱️', 'Einstein in your pocket', `Satellite clocks run about 38 µs a day faster than clocks on the ground, because of relativity. After ${d} ${d === 1 ? 'day' : 'days'}: ${us} µs ahead.`, `Uncorrected, GPS would think you are ${km} km from where you really are.`],
+      s2: (km) => ['⏱️', 'Einstein in your pocket', 'The satellite clocks are corrected for this, so the error never builds up.', `Without the correction GPS would drift by about ${km} km every day.`],
+    },
+    sb: {
+      sys: ['GPS (USA)', 'GLONASS (Russia)', 'Galileo (EU)', 'BeiDou (China)'], pill: (k) => `${k} of 4 systems`,
+      st: (n, k) => ['🛰️', `${n} satellites in view`, `A phone can listen to several systems at once: now it hears ${k} ${k === 1 ? 'system' : 'systems'}.`, 'Switch the other systems on with the buttons: more satellites come into view.'],
+    },
+    quiz: [
+      { q: 'One satellite tells you that you are 20,000 km away. Where can you be?', opts: ['Exactly under it', 'Anywhere on a circle (sphere) of that size', 'Nowhere'], ok: 1, hint: 'Look at the first circle in the Circles view.' },
+      { q: 'How does a GPS receiver know the distance to a satellite?', opts: ['From the satellite’s colour', 'It asks the internet', 'From how long the signal took to arrive'], ok: 2, hint: 'Move the travel-time slider in the Time view.' },
+      { q: 'Why does GPS work worse between tall buildings?', opts: ['Buildings block some satellites', 'Satellites avoid cities', 'Buildings make the Earth smaller'], ok: 0, hint: 'Turn on the tall buildings in the Sats view.' },
+    ],
+  },
+  ru: {
+    name: 'Три круга найдут тебя', title: 'Три круга найдут тебя',
+    lines: [['Послушай вышки,', 'нарисуй круги.'], ['Преврати время в расстояние', 'и узнай, зачем нужны часы.'], ['Сосчитай спутники', 'над головой.']],
+    views: { circles: '⭕ Круги', time: '⏱️ Время', sats: '🛰️ Небо' },
+    you: 'Ты', km: 'км', m: 'м', mu: 'мкс', dir: ['С', 'В', 'Ю', 'З'],
+    c: {
+      listen: (L) => `📡 Послушать вышку ${L}`, newp: '🎲 Другое место', sub: 'вышек услышано', pillOn: '🔍 ищем', pillDone: '📍 нашли тебя',
+      s0: ['🌳', 'Ты спрятан в парке', 'Ты ничего не видишь, но вышки по краям карты помогут.', 'Послушай вышку: она скажет, как далеко ты от неё.'],
+      s1: (d) => ['⭕', 'Ты где-то на этом круге', `Вышка A говорит: до тебя ${d}. Значит, ты можешь быть в любой точке на таком расстоянии от неё.`, 'Одной вышки мало. Послушай следующую.'],
+      s2: ['🤔', 'Два круга, две точки пересечения', 'Ты в одной из двух светящихся точек. В какой?', ''],
+      s2b: ['🤔', 'Снова две точки пересечения', 'Ты в одной из них. Вышка C подскажет, в какой.', ''],
+      s3: ['📍', 'Три круга, одно место', 'Только одна точка лежит на всех трёх кругах. Ты там!', 'Вторая точка пересечения мимо круга C. Настоящий GPS делает то же в пространстве, где круги становятся сферами.'],
+      ask: 'Два круга, две точки пересечения. Сколько ещё вышек нужно, чтобы быть уверенным?',
+      opts: ['Ни одной', 'Ещё одна', 'Ещё десять'], ok: 1,
+      v: ['Не совсем.', 'Верно!', 'Столько не нужно.'],
+      t: ['Два круга всё ещё оставляют два места. Ещё одна вышка всё решит: смотри.', 'Круг вышки C проходит только через одну из двух точек.', 'Десять не нужно никогда. Хватит одной вышки: смотри.'],
+      fact: 'Спутники GPS летают примерно на высоте 20 200 км над Землёй и облетают её дважды в сутки.',
+    },
+    t: {
+      ask: 'Часы твоего приёмника ошибаются на 1 микросекунду. Насколько велика ошибка?', askLead: 'Микросекунда — это одна миллионная доля секунды.',
+      opts: ['1 см', 'Около 300 м', '1 км'], ok: 1,
+      v: ['Не совсем.', 'Верно!', 'Не совсем.'],
+      t: ['Радиосигнал очень быстрый: за одну микросекунду он проходит около 300 м. Посмотри на кольцо на карте.',
+        'Радиосигнал проходит около 300 м за каждую микросекунду, поэтому часы, которые ошибаются на 1 мкс, делают каждое расстояние неверным на 300 м.',
+        'Чуть меньше: радиосигнал проходит около 300 м за одну микросекунду. Посмотри на кольцо на карте.'],
+      mode: ['⏱️ Время сигнала', '⏰ Ошибка часов'], tLbl: 'Время в пути сигнала', eLbl: 'Ошибка часов приёмника', fix: '🔧 Исправить часы',
+      sub: (t) => `${t} мкс × 300 м на мкс`, hit: '📍 дошёл до тебя', eSub: (e) => `из-за ошибки часов в ${e} мкс`, pillBad: '🔺 общей точки нет', pillOk: '✓ одна общая точка',
+      s1: (t, d) => ['⏱️', 'Время превращается в расстояние', `За ${t} мкс сигнал проходит ${d}.`, 'Приёмник умножает время на скорость света: 299 792 км/с.'],
+      sHit: (t, d) => ['📍', 'Сигнал дошёл до тебя', `Он шёл ${t} мкс, значит, приёмник знает: до вышки A ${d}.`, 'Так получается размер каждого круга: расстояние = скорость света × время в пути.'],
+      e0: ['⏰', 'Идеальные часы', 'Все три круга сходятся в одной точке: это ты.', 'Теперь пусть часы приёмника начнут ошибаться.'],
+      e1: (e, m) => ['🔺', 'Круги больше не сходятся', `Часы ошибаются на ${e} мкс, поэтому все расстояния получаются длиннее на одну и ту же величину: ${m}.`,
+        'Вместо точки получается маленький треугольник. Настоящий приёмник слушает ещё и 4-й спутник: три дают положение, четвёртый выдаёт ошибку часов, и приёмник сам исправляет свои часы.'],
+      fact: 'Радиосигнал проходит около 300 метров за одну миллионную долю секунды.',
+    },
+    s: {
+      ask: 'Сколько спутников ты обычно «видишь» из одного места?', askLead: 'Двигай ползунок времени и смотри, как спутники летят по орбитам.',
+      opts: ['1', 'Около 8', 'Все 30'], ok: 1,
+      v: ['Не совсем.', 'Верно!', 'Не совсем.'],
+      t: (lo, hi) => [`Обычно гораздо больше одного: за сутки от ${lo} до ${hi}.`, `За сутки от ${lo} до ${hi}, в зависимости от момента.`, `Земля закрывает спутники с другой стороны: видно только от ${lo} до ${hi}.`],
+      tLbl: 'Время суток', play: '▶ Пуск', pause: '⏸ Пауза', city: '🏙️ Высокие дома', sub: 'спутников видно', pillOk: '✓ хватает для места', pillLow: '⚠️ меньше 4',
+      st: (n) => ['🛰️', `${n} ${ruPlural(n, 'спутник', 'спутника', 'спутников')} над горизонтом`, 'Они над твоим горизонтом, над плоским кружком у тебя под ногами: их можно слышать.', ''],
+      stCity: (n, n0) => ['🏙️', `${n} ${ruPlural(n, 'спутник', 'спутника', 'спутников')} между высокими домами`, `Высокие дома закрывают низкие спутники: на открытом месте было бы ${n0}.`, n < 4 ? 'Меньше четырёх: для определения места не хватает.' : ''],
+      cap: 'Спутники на высоте 20 200 км', sky: 'Небо над тобой',
+      fact: 'Первый спутник GPS запустили в 1978 году; в 1980-х система стала бесплатной для всех, а с 2000 года гражданские пользователи получили полную точность.',
+    },
+    secrets: { a: ['Эйнштейн в кармане', 'Часы на орбите идут быстрее.'], b: ['Четыре системы', 'GPS, ГЛОНАСС, Galileo, BeiDou.'] },
+    sa: {
+      days: 'Дней без поправки', corr: '🛠️ Поправить часы', after: (d) => `через ${d} ${ruPlural(d, 'день', 'дня', 'дней')}`, pillBad: '⚠️ уходит', pillOk: '✓ поправлено', ground: 'На земле', orbit: 'На орбите', gps: 'GPS думает',
+      s0: ['⏱️', 'Эйнштейн в кармане', 'Часы на спутниках идут примерно на 38 мкс в сутки быстрее земных: так работает теория относительности.', 'Подвинь ползунок, чтобы прошли дни.'],
+      s1: (d, us, km) => ['⏱️', 'Эйнштейн в кармане', `Часы на спутниках идут примерно на 38 мкс в сутки быстрее земных: так работает теория относительности. Через ${d} ${ruPlural(d, 'день', 'дня', 'дней')} опережение уже ${us} мкс.`, `Без поправки GPS решил бы, что ты в ${km} км от того места, где ты на самом деле.`],
+      s2: (km) => ['⏱️', 'Эйнштейн в кармане', 'На это в часах спутников делают поправку, поэтому ошибка не накапливается.', `Без поправки GPS уходил бы примерно на ${km} км каждый день.`],
+    },
+    sb: {
+      sys: ['GPS (США)', 'ГЛОНАСС (Россия)', 'Galileo (ЕС)', 'BeiDou (Китай)'], pill: (k) => `${k} из 4 систем`,
+      st: (n, k) => ['🛰️', `${n} ${ruPlural(n, 'спутник', 'спутника', 'спутников')} над горизонтом`, `Телефон может слушать сразу несколько систем: сейчас он слышит ${k} ${ruPlural(k, 'систему', 'системы', 'систем')}.`, 'Включай другие системы кнопками: спутников в небе становится больше.'],
+    },
+    quiz: [
+      { q: 'Один спутник говорит, что ты в 20 000 км от него. Где ты можешь быть?', opts: ['Прямо под ним', 'Где угодно на круге (сфере) такого размера', 'Нигде'], ok: 1, hint: 'Посмотри на первый круг на вкладке «Круги».' },
+      { q: 'Как приёмник GPS узнаёт расстояние до спутника?', opts: ['По цвету спутника', 'Он спрашивает у интернета', 'По тому, сколько шёл сигнал'], ok: 2, hint: 'Подвигай ползунок времени на вкладке «Время».' },
+      { q: 'Почему GPS хуже работает между высокими домами?', opts: ['Дома закрывают часть спутников', 'Спутники избегают городов', 'Дома делают Землю меньше'], ok: 0, hint: 'Включи высокие дома на вкладке «Небо».' },
+    ],
+  },
+  hu: {
+    name: 'Három kör megtalál', title: 'Három kör megtalál',
+    lines: [['Hallgasd a tornyokat,', 'és rajzold meg a köröket.'], ['Változtasd az időt távolsággá,', 'és nézd meg, miért fontos az óra.'], ['Számold meg a műholdakat', 'a fejed felett.']],
+    views: { circles: '⭕ Körök', time: '⏱️ Idő', sats: '🛰️ Égbolt' },
+    you: 'Te', km: 'km', m: 'm', mu: 'µs', dir: ['É', 'K', 'D', 'Ny'],
+    c: {
+      listen: (L) => `📡 Figyeld ${L === "A" ? "az" : "a"} ${L} tornyot`, newp: '🎲 Új hely', sub: 'hallgatott torony', pillOn: '🔍 keresünk', pillDone: '📍 megtalált',
+      s0: ['🌳', 'Elbújtál a parkban', 'Nem látsz semmit, de a térkép szélén álló tornyok segítenek.', 'Hallgass bele egy toronyba: megmondja, milyen messze vagy tőle.'],
+      s1: (d) => ['⭕', 'Valahol ezen a körön vagy', `Az A torony szerint ${d} távolságra vagy tőle, tehát bármelyik ilyen messzi pont lehetsz.`, 'Egy torony kevés. Hallgasd meg a következőt.'],
+      s2: ['🤔', 'Két kör, két metszéspont', 'A két izzó pont egyikében vagy. Melyikben?', ''],
+      s2b: ['🤔', 'Megint két metszéspont', 'Az egyikben vagy. A C torony megmondja, melyikben.', ''],
+      s3: ['📍', 'Három kör, egy hely', 'Csak egy pont van mind a három körön. Itt vagy!', 'A másik metszéspont elkerüli a C kört. A valódi GPS ugyanezt teszi térben, ahol a körökből gömbök lesznek.'],
+      ask: 'Két kör, két metszéspont. Hány további torony kell, hogy biztos legyél?',
+      opts: ['Egy sem', 'Még egy', 'Még tíz'], ok: 1,
+      v: ['Nem egészen.', 'Így van!', 'Ennyi nem kell.'],
+      t: ['Két kör még két lehetséges helyet hagy. Egy újabb torony eldönti: nézd.', 'A C torony köre csak a két pont egyikén megy át.', 'Tízre sosincs szükség. Egy torony elég: nézd.'],
+      fact: 'A GPS-műholdak körülbelül 20 200 km magasan keringenek a Föld felett, és naponta kétszer megkerülik.',
+    },
+    t: {
+      ask: 'A vevőd órája 1 mikroszekundumot téved. Mekkora a hiba?', askLead: 'Egy mikroszekundum a másodperc egymilliomod része.',
+      opts: ['1 cm', 'Kb. 300 m', '1 km'], ok: 1,
+      v: ['Nem egészen.', 'Így van!', 'Nem egészen.'],
+      t: ['A rádiójel nagyon gyors: egy mikroszekundum alatt már kb. 300 métert tesz meg. Nézd a gyűrűt a térképen.',
+        'A rádiójel mikroszekundumonként kb. 300 métert tesz meg, ezért az 1 µs-ot tévedő óra miatt minden távolság 300 métert eltér a valóditól.',
+        'Egy kicsit kevesebb: a rádiójel egy mikroszekundum alatt kb. 300 métert tesz meg. Nézd a gyűrűt a térképen.'],
+      mode: ['⏱️ Jel ideje', '⏰ Óra hibája'], tLbl: 'A jel útideje', eLbl: 'A vevő órájának hibája', fix: '🔧 Óra javítása',
+      sub: (t) => `${t} µs × 300 m/µs`, hit: '📍 elért hozzád', eSub: (e) => `${e} µs órahiba miatt`, pillBad: '🔺 nincs közös pont', pillOk: '✓ egy közös pont',
+      s1: (t, d) => ['⏱️', 'Az idő távolsággá válik', `${t} µs alatt a jel ${d} távolságot tesz meg.`, 'A vevő az időt megszorozza a fény sebességével: 299 792 km/s.'],
+      sHit: (t, d) => ['📍', 'A jel elért hozzád', `${t} µs-ig tartott, így a vevő tudja: ${d} távolságra vagy az A toronytól.`, 'Így kapja meg minden kör a méretét: távolság = fénysebesség × útidő.'],
+      e0: ['⏰', 'Tökéletes óra', 'Mindhárom kör egy pontban találkozik: ez vagy te.', 'Most hagyd, hogy a vevő órája elcsússzon.'],
+      e1: (e, m) => ['🔺', 'A körök már nem találkoznak', `Az óra ${e} µs-ot téved, ezért minden távolság ugyanannyival, ${m}-rel jön ki hosszabbnak.`,
+        'Egy pont helyett kis háromszög keletkezik. A valódi vevő egy 4. műholdat is hallgat: három adja a helyzetet, a negyedik elárulja az óra hibáját, és a vevő maga kijavítja az óráját.'],
+      fact: 'A rádiójel körülbelül 300 métert tesz meg egymilliomod másodperc alatt.',
+    },
+    s: {
+      ask: 'Hány műholdat „látsz” általában egy helyről?', askLead: 'Húzd az időcsúszkát, és nézd, ahogy a műholdak keringenek.',
+      opts: ['1', 'Kb. 8', 'Mind a 30'], ok: 1,
+      v: ['Nem egészen.', 'Így van!', 'Nem egészen.'],
+      t: (lo, hi) => [`Általában jóval több, mint egy: egy nap alatt ${lo} és ${hi} között.`, `Egy nap alatt ${lo} és ${hi} között, a pillanattól függően.`, `A Föld eltakarja a túloldali műholdakat: csak ${lo} és ${hi} között látsz.`],
+      tLbl: 'Napszak', play: '▶ Lejátszás', pause: '⏸ Szünet', city: '🏙️ Magas házak', sub: 'műhold látszik', pillOk: '✓ elég a helyhez', pillLow: '⚠️ kevesebb mint 4',
+      st: (n) => ['🛰️', `${n} műhold a láthatáron felül`, 'Ezek a horizontod felett vannak, a lábadnál lévő lapos korong felett: hallod őket.', ''],
+      stCity: (n, n0) => ['🏙️', `${n} műhold a magas házak között`, `A magas házak eltakarják az alacsonyan álló műholdakat: nyílt terepen ${n0} látszana.`, n < 4 ? 'Négynél kevesebb: nem elég a helyzet meghatározásához.' : ''],
+      cap: 'Műholdak 20 200 km magasan', sky: 'Az égbolt fölötted',
+      fact: 'Az első GPS-műholdat 1978-ban lőtték fel; a rendszer az 1980-as években lett mindenki számára ingyenes, a polgári felhasználók számára pedig 2000-től teljesen pontos.',
+    },
+    secrets: { a: ['Einstein a zsebedben', 'A pályán lévő órák gyorsabban járnak.'], b: ['Négy rendszer', 'GPS, GLONASSZ, Galileo, BeiDou.'] },
+    sa: {
+      days: 'Napok javítás nélkül', corr: '🛠️ Órák javítása', after: (d) => `${d} nap után`, pillBad: '⚠️ elcsúszik', pillOk: '✓ javítva', ground: 'A földön', orbit: 'Pályán', gps: 'A GPS szerint',
+      s0: ['⏱️', 'Einstein a zsebedben', 'A műholdak órái a relativitáselmélet miatt naponta kb. 38 µs-mal gyorsabban járnak a földi óráknál.', 'Told a csúszkát, hadd teljenek a napok.'],
+      s1: (d, us, km) => ['⏱️', 'Einstein a zsebedben', `A műholdak órái a relativitáselmélet miatt naponta kb. 38 µs-mal gyorsabban járnak a földi óráknál. ${d} nap után ${us} µs az előnyük.`, `Javítás nélkül a GPS azt hinné, hogy ${km} km-re vagy attól, ahol valójában vagy.`],
+      s2: (km) => ['⏱️', 'Einstein a zsebedben', 'A műholdak óráit ezért kijavítják, így a hiba sosem halmozódik fel.', `Javítás nélkül a GPS naponta kb. ${km} km-t csúszna el.`],
+    },
+    sb: {
+      sys: ['GPS (USA)', 'GLONASSZ (Oroszország)', 'Galileo (EU)', 'BeiDou (Kína)'], pill: (k) => `${k} / 4 rendszer`,
+      st: (n, k) => ['🛰️', `${n} műhold a láthatáron felül`, `A telefon több rendszert is hallgathat egyszerre: most ${k} rendszert hall.`, 'Kapcsold be a többi rendszert a gombokkal: egyre több műhold látszik.'],
+    },
+    quiz: [
+      { q: 'Egy műhold szerint 20 000 km-re vagy tőle. Hol lehetsz?', opts: ['Pont alatta', 'Bárhol egy ekkora körön (gömbön)', 'Sehol'], ok: 1, hint: 'Nézd meg az első kört a Körök nézetben.' },
+      { q: 'Honnan tudja a GPS-vevő, milyen messze van egy műhold?', opts: ['A műhold színéből', 'Megkérdezi az internetet', 'Abból, mennyi ideig tartott a jel'], ok: 2, hint: 'Mozgasd az útidő-csúszkát az Idő nézetben.' },
+      { q: 'Miért működik rosszabbul a GPS magas házak között?', opts: ['A házak eltakarnak néhány műholdat', 'A műholdak elkerülik a városokat', 'A házak kisebbé teszik a Földet'], ok: 0, hint: 'Kapcsold be a magas házakat az Égbolt nézetben.' },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'sg_geo_07', en: 'Digital Geography Tools', ru: 'Цифровые инструменты географии', hu: 'Digitális földrajzi eszközök' },
+];
+const FACT_SRC = { c: 'https://www.gps.gov/systems/gps/space/', t: 'https://en.wikipedia.org/wiki/Speed_of_light', s: 'https://en.wikipedia.org/wiki/Global_Positioning_System' };
+
+// --- numbers and small helpers -----------------------------------------------------------------------------
+const D2R = Math.PI / 180, TAU = Math.PI * 2;
+const W = 3000, H = 2400, PAD = 12;                       // the district in metres, and the padding around it in px
+const CUS = 299792458 / 1e6;                              // metres a radio signal covers in one microsecond (c = 299 792 km/s)
+const DRIFT = 38e-6 * 299792458 / 1000;                   // km of drift per day from 38 µs of clock gain per day
+const GREEN = '#3ddc97', AMBER = '#f5c84c';
+const TW = [
+  { x: 210, y: 2100, col: '#4ea8ff', L: 'A' },
+  { x: 1500, y: 150, col: AMBER, L: 'B' },
+  { x: 2790, y: 2070, col: '#ff7a9c', L: 'C' },
+];
+const ease = (x) => 1 - Math.pow(1 - clamp(x, 0, 1, ), 3);
+const hexN = (h) => parseInt(h.slice(1), 16);
+const rgba = (hex, a) => { const n = hexN(hex); return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`; };
+const mix = (a, b, t) => { const p = hexN(a), q = hexN(b); return '#' + [16, 8, 0].map((s) => Math.round(((p >> s) & 255) * (1 - t) + ((q >> s) & 255) * t).toString(16).padStart(2, '0')).join(''); };
+const dec = (x, n = 2) => { const s = String(+x.toFixed(n)); return lang === 'en' ? s : s.replace('.', ','); };
+const grp = (n) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+const fmtM = (d) => `${grp(Math.round(d / 10) * 10)} ${T[lang].m}`;
+const fmtKm = (d) => `${dec(d / 1000, 2)} ${T[lang].km}`;
+const pad2 = (n) => String(n).padStart(2, '0');
+const hhmm = (h) => { const m = Math.round(h * 60) % 1440; return `${pad2(Math.floor(m / 60))}:${pad2(m % 60)}`; };
+const now = () => performance.now() / 1000;
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+const rr = (c, x, y, w, h, r) => { c.beginPath(); c.roundRect(x, y, w, h, Math.max(0, r)); };
+const mulberry = (a) => () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+
+// geometry of circles
+function inter(a, ra, b, rb) {
+  const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy), l = (ra * ra - rb * rb + d * d) / (2 * d), h = Math.sqrt(Math.max(0, ra * ra - l * l));
+  const mx = a.x + l * dx / d, my = a.y + l * dy / d;
+  return [{ x: mx + h * dy / d, y: my - h * dx / d }, { x: mx - h * dy / d, y: my + h * dx / d }];
+}
+function reflect(p, a, b) {
+  const dx = b.x - a.x, dy = b.y - a.y, t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy), fx = a.x + t * dx, fy = a.y + t * dy;
+  return { x: 2 * fx - p.x, y: 2 * fy - p.y };
+}
+const lineDist = (p, a, b) => Math.abs((b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)) / Math.hypot(b.x - a.x, b.y - a.y);
+const inMap = (p, m) => p.x >= m && p.x <= W - m && p.y >= m && p.y <= H - m;
+
+// the river, a smooth curve through a few points (also used to keep the hidden spot out of the water)
+const RIVER_CTRL = [[-150, 1150], [420, 1230], [900, 1500], [1350, 1700], [1500, 2100], [1450, 2600]];
+function catmull(pts, n) {
+  const out = [];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(pts.length - 1, i + 2)];
+    for (let k = 0; k < n; k++) {
+      const t = k / n, t2 = t * t, t3 = t2 * t, f = (j) => 0.5 * (2 * p1[j] + (-p0[j] + p2[j]) * t + (2 * p0[j] - 5 * p1[j] + 4 * p2[j] - p3[j]) * t2 + (-p0[j] + 3 * p1[j] - 3 * p2[j] + p3[j]) * t3);
+      out.push([f(0), f(1)]);
+    }
+  }
+  out.push(pts[pts.length - 1]);
+  return out;
+}
+const RIVER = catmull(RIVER_CTRL, 24);
+const riverDist = (x, y) => { let m = 1e9; for (const [rx, ry] of RIVER) m = Math.min(m, Math.hypot(rx - x, ry - y)); return m; };
+
+// a new hidden place: both crossing points of towers A and B stay on the map, and tower C tells them apart
+function newSpot() {
+  for (let i = 0; i < 800; i++) {
+    const p = { x: 420 + Math.random() * (W - 840), y: 420 + Math.random() * (H - 840) }, q = reflect(p, TW[0], TW[1]);
+    if (!inMap(q, 150) || lineDist(p, TW[0], TW[1]) < 300) continue;
+    if (Math.abs(dist(q, TW[2]) - dist(p, TW[2])) < 250 || TW.some((t) => dist(p, t) < 450)) continue;
+    if (riverDist(p.x, p.y) < 170 || riverDist(q.x, q.y) < 120) continue;
+    return p;
+  }
+  return { x: 1500, y: 1000 };
+}
+function placeData(P) {
+  const D = TW.map((t) => dist(P, t)), ab = inter(TW[0], D[0], TW[1], D[1]);
+  const iP = dist(ab[0], P) <= dist(ab[1], P) ? 0 : 1;
+  return { D, p: ab[iP], q: ab[1 - iP] };
+}
+
+// --- satellites: simple circular orbits, a receiver at 47.5° N ---------------------------------------------
+const MU = 398600.4418, RE = 6371;
+const CONS = [
+  { alt: 20200, inc: 55, planes: 6, per: 4, raan: 0, col: '#7fd0ff' },     // GPS: 24 satellites in 6 planes
+  { alt: 19130, inc: 64.8, planes: 3, per: 8, raan: 0, col: '#ff8a7a' },   // GLONASS
+  { alt: 23222, inc: 56, planes: 3, per: 8, raan: 30, col: '#b9a3ff' },    // Galileo
+  { alt: 21528, inc: 55, planes: 3, per: 8, raan: 60, col: '#ffd166' },    // BeiDou
+];
+for (const cn of CONS) { cn.a = (RE + cn.alt) / RE; cn.Th = 2 * Math.PI * Math.sqrt((RE + cn.alt) ** 3 / MU) / 3600; }
+const LAT = 47.5 * D2R, LON0 = 20, SID = 15.0411, MASK = 25;
+const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const orbitPt = (cn, p, u) => {
+  const O = (cn.raan + p * 360 / cn.planes) * D2R, i = cn.inc * D2R, co = Math.cos(O), so = Math.sin(O), ci = Math.cos(i), cu = Math.cos(u), su = Math.sin(u);
+  return [cn.a * (co * cu - so * ci * su), cn.a * (so * cu + co * ci * su), cn.a * Math.sin(i) * su];
+};
+function rec(hour) {
+  const th = (LON0 + SID * hour) * D2R, cl = Math.cos(LAT);
+  return { n: [cl * Math.cos(th), cl * Math.sin(th), Math.sin(LAT)], e: [-Math.sin(th), Math.cos(th), 0], no: [-Math.sin(LAT) * Math.cos(th), -Math.sin(LAT) * Math.sin(th), Math.cos(LAT)] };
+}
+function satsOf(ci, hour, R) {
+  const cn = CONS[ci], out = [];
+  for (let p = 0; p < cn.planes; p++) for (let j = 0; j < cn.per; j++) {
+    const u = (j * 360 / cn.per + p * 360 / (cn.planes * cn.per) + hour * 360 / cn.Th) * D2R, s = orbitPt(cn, p, u);
+    const v = [s[0] - R.n[0], s[1] - R.n[1], s[2] - R.n[2]], d = Math.hypot(v[0], v[1], v[2]);
+    out.push({ p: s, el: Math.asin(dot3(v, R.n) / d) / D2R, az: Math.atan2(dot3(v, R.e), dot3(v, R.no)) });
+  }
+  return out;
+}
+const countAbove = (list, mask) => list.reduce((n, s) => n + (s.el > mask ? 1 : 0), 0);
+// how many GPS satellites a receiver here sees over one day (computed, so the texts match the model)
+const RANGE = (() => {
+  let lo = 99, hi = 0;
+  for (let h = 0; h < 24; h += 0.1) { const n = countAbove(satsOf(0, h, rec(h)), 0); lo = Math.min(lo, n); hi = Math.max(hi, n); }
+  return [lo, hi];
+})();
+// orbit rings, drawn tilted: camera a little above the equator
+const PSI = -28 * D2R, EPS = 24 * D2R, cP = Math.cos(PSI), sP = Math.sin(PSI), cE = Math.cos(EPS), sE = Math.sin(EPS);
+const proj = (p, sc, cx, cy) => { const x1 = p[0] * cP - p[1] * sP, y1 = p[0] * sP + p[1] * cP; return [cx + x1 * sc, cy - (y1 * sE + p[2] * cE) * sc, -y1 * cE + p[2] * sE]; };
+const RINGS = Array.from({ length: CONS[0].planes }, (_, p) => Array.from({ length: 61 }, (_, k) => orbitPt(CONS[0], p, k * 6 * D2R)));
+const STARS = (() => { const r = mulberry(7); return Array.from({ length: 70 }, () => [r(), r(), 0.4 + r() * 1.1, r() * TAU]); })();
+const JAG = (() => { const r = mulberry(21); return Array.from({ length: 72 }, () => r()); })();
+
+// --- state -------------------------------------------------------------------------------------------------
+const S = {
+  P: null, PD: null, n: 0, heard: [0, 0, 0], pred1: null, showV1: false,
+  pred2: null, mode2: 'time', t2: 1, t2s: 0, e2: 0, e2s: 0, fixing: false,
+  pred3: null, hour: 3, play: false, canyon: false, lastKey: '',
+  sec: null, days: 3, corr: false, driftS: 0, sysOn: [true, false, false, false],
+};
+S.P = newSpot(); S.PD = placeData(S.P);
+let CW = 0, CH = 0, mapKey = '';
+const mapCv = document.createElement('canvas');
+
+const lab = shell({ key: 'gps', T, topics: TOPICS, views: ['circles', 'time', 'sats'], onLang: render, onView: viewChanged });
+const secret = secretLab('gps', () => ({
+  secrets: [{ emo: '⏱️', title: T[lang].secrets.a[0], desc: T[lang].secrets.a[1] }, { emo: '🛰️', title: T[lang].secrets.b[0], desc: T[lang].secrets.b[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="gp1">
+    <div id="gp1q"></div>
+    <div class="row2" id="gp1row"><button type="button" class="btn gp-btn" data-act="listen" id="gpListen"></button></div>
+  </div>
+  <div id="gp2">
+    <div id="gp2q"></div>
+    <div id="gp2c">
+      <div class="row2" style="margin-top:0"><div class="card seg small" id="gpMode"></div></div>
+      <div class="gp-sl" id="gpTBox"><label><span id="gpTLbl"></span><b id="gpTVal"></b></label><input type="range" class="big" id="gpT" min="0" max="10" step="0.05" value="1"></div>
+      <div class="gp-sl" id="gpEBox"><label><span id="gpELbl"></span><b id="gpEVal"></b></label><input type="range" class="big" id="gpE" min="0" max="3" step="0.05" value="0">
+        <div class="row2"><button type="button" class="chip gp-btn" data-act="fix" id="gpFix"></button></div></div>
+    </div>
+  </div>
+  <div id="gp3q"></div>
+  <div id="gpTime">
+    <div class="gp-sl"><label><span id="gpHLbl"></span><b id="gpHVal"></b></label><input type="range" class="big" id="gpH" min="0" max="24" step="0.05" value="3"></div>
+    <div class="row2"><button type="button" class="chip gp-btn" data-act="play" id="gpPlay"></button><button type="button" class="chip gp-btn" data-act="city" id="gpCity"></button></div>
+  </div>
+  <div id="gpSecA">
+    <div class="gp-sl"><label><span id="gpDLbl"></span><b id="gpDVal"></b></label><input type="range" class="big" id="gpD" min="0" max="10" step="1" value="3"></div>
+    <div class="row2"><button type="button" class="chip gp-btn" data-act="corr" id="gpCorr"></button></div>
+  </div>
+  <div id="gpSecB"><div class="chips" id="gpSys"></div></div>
+  <div class="row2" id="gpNewRow"><button type="button" class="chip gp-btn" data-act="new" id="gpNew"></button></div>
+  <div class="row2" id="gpSecs"></div>`;
+
+// --- the map, painted once per size into an off-screen canvas ------------------------------------------------
+const BX = [-300, 420, 1010, 1650, 2260, 3300], BY = [-300, 380, 900, 1450, 1980, 2700], HS = 45;
+function buildMap(pw, ph, k) {
+  mapCv.width = pw; mapCv.height = ph;
+  const c = mapCv.getContext('2d'), rnd = mulberry(11);
+  c.setTransform(k, 0, 0, k, 0, 0); c.lineJoin = 'round'; c.lineCap = 'round';
+  c.save(); rr(c, 0, 0, W, H, 110); c.clip();
+  let g = c.createLinearGradient(0, 0, W, H); g.addColorStop(0, '#2d3c4e'); g.addColorStop(1, '#25383b'); c.fillStyle = g; c.fillRect(0, 0, W, H);
+  // blocks of roofs, light from the top left
+  const roofs = ['#4a5272', '#434b69', '#505878', '#3f4764', '#565c7c', '#485069'], GAP = HS + 26;
+  for (let i = 0; i < 5; i++) for (let j = 0; j < 5; j++) {
+    if (i === 3 && (j === 1 || j === 2)) continue;
+    const x0 = BX[i] + (i === 0 ? 0 : GAP), x1 = BX[i + 1] - (i === 4 ? 0 : GAP), y0 = BY[j] + (j === 0 ? 0 : GAP), y1 = BY[j + 1] - (j === 4 ? 0 : GAP);
+    const cols = 1 + Math.floor(rnd() * 2.4), rows = 1 + Math.floor(rnd() * 2.4), gw = 26, rw = (x1 - x0 - gw * (cols - 1)) / cols, rh = (y1 - y0 - gw * (rows - 1)) / rows;
+    for (let a = 0; a < cols; a++) for (let b = 0; b < rows; b++) {
+      const ins = rnd() * 18, rx = x0 + a * (rw + gw) + ins, ry = y0 + b * (rh + gw) + ins, w = rw - ins * 2, h = rh - ins * 2, base = roofs[Math.floor(rnd() * roofs.length)];
+      c.fillStyle = 'rgba(6,8,18,.34)'; rr(c, rx + 16, ry + 22, w, h, 12); c.fill();
+      const rg = c.createLinearGradient(rx, ry, rx + w, ry + h); rg.addColorStop(0, mix(base, '#b5c0e8', .22)); rg.addColorStop(1, base);
+      c.fillStyle = rg; rr(c, rx, ry, w, h, 12); c.fill();
+      c.lineWidth = 3; c.strokeStyle = 'rgba(8,10,22,.45)'; c.stroke();
+      c.strokeStyle = 'rgba(255,255,255,.14)'; c.lineWidth = 3; c.beginPath(); c.moveTo(rx + 8, ry + h - 10); c.lineTo(rx + 8, ry + 8); c.lineTo(rx + w - 10, ry + 8); c.stroke();
+    }
+  }
+  // streets
+  const streets = (fn) => { for (const x of BX.slice(1, 5)) fn('v', x); for (const y of BY.slice(1, 5)) fn('h', y); };
+  const line = (t, v) => { c.beginPath(); if (t === 'v') { c.moveTo(v, -300); c.lineTo(v, H + 300); } else { c.moveTo(-300, v); c.lineTo(W + 300, v); } c.stroke(); };
+  c.setLineDash([]); c.lineWidth = HS * 2 + 12; c.strokeStyle = '#1b2034'; streets(line);
+  c.lineWidth = HS * 2; c.strokeStyle = '#4d5574'; streets(line);
+  c.lineWidth = 7; c.strokeStyle = 'rgba(255,235,170,.34)'; c.setLineDash([60, 52]); streets(line); c.setLineDash([]);
+  // the park with a pond and paths
+  const px0 = BX[3] + HS + 14, px1 = BX[4] - HS - 14, py0 = BY[1] + HS + 14, py1 = BY[3] - HS - 14, pcx = (px0 + px1) / 2, pcy = 1440;
+  g = c.createLinearGradient(px0, py0, px1, py1); g.addColorStop(0, '#4a9068'); g.addColorStop(1, '#2b6148');
+  c.fillStyle = 'rgba(6,8,18,.3)'; rr(c, px0 + 14, py0 + 20, px1 - px0, py1 - py0, 90); c.fill();
+  c.fillStyle = g; rr(c, px0, py0, px1 - px0, py1 - py0, 90); c.fill();
+  c.lineWidth = 6; c.strokeStyle = 'rgba(255,255,255,.18)'; c.stroke();
+  c.lineWidth = 30; c.strokeStyle = 'rgba(224,214,164,.55)';
+  c.beginPath(); c.moveTo(px0 + 10, 1150); c.bezierCurveTo(1900, 1020, 2010, 1260, px1 - 10, 1170); c.stroke();
+  c.beginPath(); c.moveTo(pcx, py0 + 10); c.bezierCurveTo(pcx - 160, 1150, pcx + 120, 1300, pcx - 40, 1440); c.stroke();
+  c.beginPath(); c.moveTo(pcx - 40, 1440); c.bezierCurveTo(pcx - 190, 1620, pcx + 100, 1700, pcx + 20, py1 - 10); c.stroke();
+  g = c.createLinearGradient(pcx - 190, pcy - 150, pcx + 190, pcy + 150); g.addColorStop(0, '#5fb0e4'); g.addColorStop(1, '#2c6fa8');
+  c.beginPath(); c.ellipse(pcx + 20, pcy, 185, 140, -0.2, 0, TAU); c.fillStyle = g; c.fill();
+  c.lineWidth = 16; c.strokeStyle = '#cfd8a8'; c.stroke();
+  c.beginPath(); c.ellipse(pcx - 20, pcy - 40, 80, 38, -0.2, 0, TAU); c.fillStyle = 'rgba(255,255,255,.14)'; c.fill();
+  // the river
+  const path = () => { c.beginPath(); RIVER.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); };
+  path(); c.lineWidth = 250; c.strokeStyle = 'rgba(122,150,128,.5)'; c.stroke();
+  g = c.createLinearGradient(0, 1100, 1500, 2500); g.addColorStop(0, '#2c6aa0'); g.addColorStop(1, '#4b9bd2');
+  path(); c.lineWidth = 175; c.strokeStyle = g; c.stroke();
+  path(); c.lineWidth = 90; c.strokeStyle = 'rgba(255,255,255,.08)'; c.stroke();
+  // bridges where streets cross the water
+  for (let i = 0; i < RIVER.length - 1; i++) {
+    const a = RIVER[i], b = RIVER[i + 1];
+    for (const X of BX.slice(1, 5)) if ((a[0] - X) * (b[0] - X) <= 0 && a[0] !== b[0]) bridge(c, 'v', X, a[1] + (X - a[0]) / (b[0] - a[0]) * (b[1] - a[1]));
+    for (const Y of BY.slice(1, 5)) if ((a[1] - Y) * (b[1] - Y) <= 0 && a[1] !== b[1]) bridge(c, 'h', Y, a[0] + (Y - a[1]) / (b[1] - a[1]) * (b[0] - a[0]));
+  }
+  // trees: in the park and along the streets
+  const trees = [];
+  for (let i = 0; i < 70; i++) {
+    const tx = px0 + 50 + rnd() * (px1 - px0 - 100), ty = py0 + 50 + rnd() * (py1 - py0 - 100);
+    if (((tx - pcx - 20) / 250) ** 2 + ((ty - pcy) / 205) ** 2 > 1) trees.push([tx, ty, 30 + rnd() * 16]);
+  }
+  const park = (x, y) => x > px0 - 80 && x < px1 + 80 && y > py0 - 80 && y < py1 + 80;
+  for (let t = -100; t < H + 100; t += 120) for (const X of BX.slice(1, 5)) for (const sd of [-1, 1]) {
+    const tx = X + sd * (HS + 18), ty = t + rnd() * 50;
+    if (rnd() < 0.55 && !park(tx, ty) && riverDist(tx, ty) > 190 && BY.slice(1, 5).every((y) => Math.abs(ty - y) > 90)) trees.push([tx, ty, 24 + rnd() * 10]);
+  }
+  for (let t = -100; t < W + 100; t += 120) for (const Y of BY.slice(1, 5)) for (const sd of [-1, 1]) {
+    const tx = t + rnd() * 50, ty = Y + sd * (HS + 18);
+    if (rnd() < 0.55 && !park(tx, ty) && riverDist(tx, ty) > 190 && BX.slice(1, 5).every((x) => Math.abs(tx - x) > 90)) trees.push([tx, ty, 24 + rnd() * 10]);
+  }
+  for (const [tx, ty, r] of trees) {
+    c.fillStyle = 'rgba(4,10,12,.32)'; c.beginPath(); c.ellipse(tx + 14, ty + 20, r, r * 0.85, 0, 0, TAU); c.fill();
+    const tg = c.createRadialGradient(tx - r * 0.35, ty - r * 0.4, r * 0.1, tx, ty, r);
+    tg.addColorStop(0, '#8fd8a0'); tg.addColorStop(0.55, '#3f9462'); tg.addColorStop(1, '#276c47');
+    c.fillStyle = tg; c.beginPath(); c.arc(tx, ty, r, 0, TAU); c.fill();
+  }
+  // soft vignette
+  g = c.createRadialGradient(W / 2, H / 2, H * 0.42, W / 2, H / 2, H * 0.98); g.addColorStop(0, 'rgba(4,7,16,0)'); g.addColorStop(1, 'rgba(4,7,16,.42)');
+  c.fillStyle = g; c.fillRect(0, 0, W, H);
+  c.restore();
+}
+function bridge(c, t, v, q) { // a short deck across the river, with rails
+  const hw = HS + 16, hl = 190;
+  c.save(); c.translate(t === 'v' ? v : q, t === 'v' ? q : v); if (t === 'h') c.rotate(-Math.PI / 2);
+  c.fillStyle = '#585f80'; c.fillRect(-hw, -hl, hw * 2, hl * 2);
+  c.fillStyle = '#4d5574'; c.fillRect(-HS, -hl, HS * 2, hl * 2);
+  c.strokeStyle = '#cfd6ee'; c.globalAlpha = 0.55; c.lineWidth = 7; c.beginPath(); c.moveTo(-hw + 3, -hl); c.lineTo(-hw + 3, hl); c.moveTo(hw - 3, -hl); c.lineTo(hw - 3, hl); c.stroke();
+  c.restore();
+}
+
+// --- canvas helpers -----------------------------------------------------------------------------------------
+function pill(c, text, x, y, col = '#fff', align = 'center') {
+  c.save(); c.font = '800 12px Nunito, sans-serif'; c.textBaseline = 'middle';
+  const tw = c.measureText(text).width + 14, hh = 20;
+  let x0 = align === 'center' ? x - tw / 2 : align === 'left' ? x : x - tw;
+  x0 = clamp(x0, 4, Math.max(4, CW - tw - 4)); const y0 = clamp(y - hh / 2, 4, Math.max(4, CH - hh - 4));
+  c.fillStyle = 'rgba(10,12,20,.82)'; rr(c, x0, y0, tw, hh, 10); c.fill();
+  c.lineWidth = 1; c.strokeStyle = rgba('#ffffff', 0.18); c.stroke();
+  c.fillStyle = col; c.textAlign = 'left'; c.fillText(text, x0 + 7, y0 + hh / 2 + 0.5);
+  c.restore();
+}
+function glowCircle(c, X, Y, R, col, a = 1, lw = 3) {
+  c.save(); c.beginPath(); c.arc(X, Y, Math.max(0, R), 0, TAU);
+  c.fillStyle = rgba(col, 0.07 * a); c.fill();
+  c.shadowColor = col; c.shadowBlur = 12; c.strokeStyle = rgba(col, 0.95 * a); c.lineWidth = lw; c.stroke();
+  c.shadowBlur = 0; c.strokeStyle = rgba('#ffffff', 0.35 * a); c.lineWidth = 1; c.stroke();
+  c.restore();
+}
+function mapClip(c, g) { rr(c, g.ox, g.oy, W * g.s, H * g.s, 110 * g.s); c.clip(); }
+function drawPin(c, x, y, k = 1, label = '') {
+  const r = 10 * k, cy = y - 23 * k;
+  c.save();
+  c.fillStyle = 'rgba(0,0,0,.4)'; c.beginPath(); c.ellipse(x, y + 1, 8 * k, 3 * k, 0, 0, TAU); c.fill();
+  c.beginPath(); c.moveTo(x, y); c.bezierCurveTo(x - r * 0.2, y - 9 * k, x - r, cy + r * 0.8, x - r, cy); c.arc(x, cy, r, Math.PI, 0); c.bezierCurveTo(x + r, cy + r * 0.8, x + r * 0.2, y - 9 * k, x, y); c.closePath();
+  const g = c.createLinearGradient(x - r, cy - r, x + r, cy + r); g.addColorStop(0, '#8ff5c6'); g.addColorStop(1, '#1fa872');
+  c.shadowColor = GREEN; c.shadowBlur = 10; c.fillStyle = g; c.fill(); c.shadowBlur = 0;
+  c.lineWidth = 1.6; c.strokeStyle = '#0b3b29'; c.stroke();
+  c.fillStyle = '#fff'; c.beginPath(); c.arc(x, cy, r * 0.42, 0, TAU); c.fill();
+  c.restore();
+  if (label) pill(c, label, x, cy - r - 14, '#fff');
+}
+function drawTower(c, x, y, tw, on, time, ph, cue) {
+  c.save();
+  const col = on ? tw.col : '#8a93b0';
+  c.lineWidth = 2;
+  for (let k = 0; k < 2; k++) { const q = (time * 0.8 + ph + k * 0.5) % 1; c.strokeStyle = rgba(col, (1 - q) * (on ? 0.8 : 0.4)); c.beginPath(); c.arc(x, y, 14 + q * 20, 0, TAU); c.stroke(); }
+  if (cue) { c.setLineDash([4, 5]); c.lineDashOffset = -time * 14; c.strokeStyle = 'rgba(255,255,255,.85)'; c.lineWidth = 1.6; c.beginPath(); c.arc(x, y, 21, 0, TAU); c.stroke(); c.setLineDash([]); }
+  c.strokeStyle = '#0b0e1a'; c.lineWidth = 2; c.beginPath(); c.moveTo(x, y - 12); c.lineTo(x, y - 20); c.stroke();
+  c.fillStyle = col; c.beginPath(); c.arc(x, y - 21, 3, 0, TAU); c.fill();
+  c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.ellipse(x + 1, y + 11, 11, 4, 0, 0, TAU); c.fill();
+  const g = c.createRadialGradient(x - 4, y - 5, 1, x, y, 13); g.addColorStop(0, mix(col, '#ffffff', 0.5)); g.addColorStop(1, col);
+  c.fillStyle = g; c.beginPath(); c.arc(x, y, 12.5, 0, TAU); c.fill();
+  c.lineWidth = 1.6; c.strokeStyle = '#0b0e1a'; c.stroke();
+  c.fillStyle = '#0b0e1a'; c.font = '900 13px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(tw.L, x, y + 0.5);
+  c.restore();
+}
+function circleLabel(c, g, i, r, text, bias) { // a pill on the part of the circle that is inside the map
+  const tw = TW[i], cx = g.ox + tw.x * g.s, cy = g.oy + tw.y * g.s, R = r * g.s;
+  const a0 = Math.atan2(g.oy + H * g.s / 2 - cy, g.ox + W * g.s / 2 - cx) + bias;
+  for (let k = 0; k < 72; k++) {
+    const a = a0 + (k % 2 ? -1 : 1) * Math.ceil(k / 2) * (Math.PI / 36), x = cx + Math.cos(a) * R, y = cy + Math.sin(a) * R;
+    if (x > g.ox + 36 && x < g.ox + W * g.s - 36 && y > g.oy + 16 && y < g.oy + H * g.s - 16) { pill(c, text, x, y, tw.col); return; }
+  }
+}
+function mark(c, shape, x, y, r, col) { // a satellite marker: circle, square, diamond, triangle
+  c.save(); c.shadowColor = col; c.shadowBlur = 8; c.fillStyle = col; c.beginPath();
+  if (shape === 0) c.arc(x, y, r, 0, TAU);
+  else if (shape === 1) c.rect(x - r * 0.85, y - r * 0.85, r * 1.7, r * 1.7);
+  else if (shape === 2) { c.moveTo(x, y - r * 1.2); c.lineTo(x + r * 1.1, y); c.lineTo(x, y + r * 1.2); c.lineTo(x - r * 1.1, y); c.closePath(); }
+  else { c.moveTo(x, y - r * 1.15); c.lineTo(x + r * 1.1, y + r * 0.85); c.lineTo(x - r * 1.1, y + r * 0.85); c.closePath(); }
+  c.fill(); c.shadowBlur = 0; c.lineWidth = 1; c.strokeStyle = 'rgba(8,10,22,.7)'; c.stroke(); c.restore();
+}
+function panel(c, w, h, time) {
+  c.save(); rr(c, 0, 0, w, h, 18); c.clip();
+  const g = c.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.1, w / 2, h / 2, Math.max(w, h) * 0.75); g.addColorStop(0, '#16204a'); g.addColorStop(1, '#070a15');
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+  for (const [sx, sy, r, ph] of STARS) { c.fillStyle = `rgba(220,230,255,${0.35 + 0.3 * Math.sin(time * 1.3 + ph)})`; c.beginPath(); c.arc(sx * w, sy * h, r, 0, TAU); c.fill(); }
+  c.restore();
+  c.save(); c.lineWidth = 1; c.strokeStyle = 'rgba(130,145,190,.28)'; rr(c, 0.5, 0.5, w - 1, h - 1, 18); c.stroke(); c.restore();
+}
+// a sky plot: the receiver is in the middle, the horizon is the rim; a satellite's place = its compass direction and height
+function drawSky(c, cx, cy, r, items, mask, big, dir) {
+  c.save();
+  const bg = c.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.1, cx, cy, r); bg.addColorStop(0, '#16224a'); bg.addColorStop(1, '#0a1022');
+  c.fillStyle = bg; c.beginPath(); c.arc(cx, cy, r, 0, TAU); c.fill();
+  c.lineWidth = 1; c.strokeStyle = 'rgba(190,205,255,.18)';
+  for (const f of [1 / 3, 2 / 3]) { c.beginPath(); c.arc(cx, cy, r * f, 0, TAU); c.stroke(); }
+  c.beginPath(); c.moveTo(cx - r, cy); c.lineTo(cx + r, cy); c.moveTo(cx, cy - r); c.lineTo(cx, cy + r); c.stroke();
+  if (mask > 0) { // a skyline of tall buildings around the rim
+    c.beginPath();
+    for (let k = 0; k <= 72; k++) { const a = (k % 72) / 72 * TAU, rr_ = r * (1 - (mask * (0.55 + 0.5 * JAG[k % 72])) / 90); c.lineTo(cx + Math.sin(a) * rr_, cy - Math.cos(a) * rr_); }
+    c.closePath(); c.moveTo(cx + r, cy); c.arc(cx, cy, r, 0, TAU, true);
+    const sg = c.createRadialGradient(cx, cy, r * 0.6, cx, cy, r); sg.addColorStop(0, '#6a7092'); sg.addColorStop(1, '#3b415e');
+    c.fillStyle = sg; c.fill('evenodd');
+    c.lineWidth = 1.2; c.strokeStyle = 'rgba(255,255,255,.2)'; c.stroke();
+  }
+  c.lineWidth = 1.6; c.strokeStyle = 'rgba(190,205,255,.55)'; c.beginPath(); c.arc(cx, cy, r, 0, TAU); c.stroke();
+  c.fillStyle = '#98A0B8'; c.font = '800 12px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText(dir, cx, cy - r + (big ? 14 : 11));
+  for (const it of items) {
+    const rho = r * (1 - it.el / 90), x = cx + Math.sin(it.az) * rho, y = cy - Math.cos(it.az) * rho;
+    mark(c, it.shape ?? 0, x, y, big ? 5.5 : 3.8, it.col);
+  }
+  c.restore();
+}
+
+// --- the three map and sky scenes ---------------------------------------------------------------------------
+function sceneMap(c, w, h, time) {
+  const s = Math.min((w - 2 * PAD) / W, (h - 2 * PAD) / H);
+  if (s <= 0) return;
+  const g = { s, ox: (w - W * s) / 2, oy: (h - H * s) / 2 }, d = Math.min(window.devicePixelRatio || 1, 2), key = `${Math.round(W * s * d)}x${Math.round(H * s * d)}`;
+  if (key !== mapKey) { buildMap(Math.round(W * s * d), Math.round(H * s * d), s * d); mapKey = key; }
+  c.save(); c.shadowColor = 'rgba(0,0,0,.55)'; c.shadowBlur = 22; c.shadowOffsetY = 6; c.fillStyle = '#1b2232'; rr(c, g.ox, g.oy, W * s, H * s, 110 * s); c.fill(); c.restore();
+  c.drawImage(mapCv, g.ox, g.oy, W * s, H * s);
+  c.save(); c.lineWidth = 1.5; c.strokeStyle = 'rgba(200,214,255,.34)'; rr(c, g.ox, g.oy, W * s, H * s, 110 * s); c.stroke(); c.restore();
+  if (lab.view === 'circles') sceneCircles(c, g, time); else sceneTime(c, g, time);
+}
+function sceneCircles(c, g, time) {
+  const X = (x) => g.ox + x * g.s, Y = (y) => g.oy + y * g.s, n = S.n, { D, p, q } = S.PD;
+  const ready = (i) => n > i && time - S.heard[i] > 1.1;
+  c.save(); mapClip(c, g);
+  for (let i = 0; i < n; i++) {
+    const k = ease((time - S.heard[i]) / 1.1), r = D[i] * k;
+    glowCircle(c, X(TW[i].x), Y(TW[i].y), r * g.s, TW[i].col, 1, 3);
+    if (k < 1) { c.beginPath(); c.arc(X(TW[i].x), Y(TW[i].y), Math.max(0, r * g.s), 0, TAU); c.strokeStyle = `rgba(255,255,255,${0.7 * (1 - k)})`; c.lineWidth = 6 * (1 - k) + 1; c.stroke(); }
+  }
+  c.restore();
+  for (let i = 0; i < n; i++) if (ready(i)) circleLabel(c, g, i, D[i], `${TW[i].L} · ${fmtKm(D[i])}`, [0.3, -0.3, 0][i]);
+  if (ready(1)) {
+    const found = ready(2), pulse = 7 + 2.5 * Math.sin(time * 5);
+    for (const [pt, isP] of [[p, true], [q, false]]) {
+      const x = X(pt.x), y = Y(pt.y);
+      if (found && !isP) { c.save(); c.strokeStyle = 'rgba(190,198,222,.9)'; c.lineWidth = 2.5; c.lineCap = 'round'; c.beginPath(); c.moveTo(x - 5, y - 5); c.lineTo(x + 5, y + 5); c.moveTo(x + 5, y - 5); c.lineTo(x - 5, y + 5); c.stroke(); c.restore(); continue; }
+      c.save(); c.shadowColor = found ? GREEN : '#fff'; c.shadowBlur = 12; c.fillStyle = found ? rgba(GREEN, 0.3) : 'rgba(255,255,255,.22)'; c.strokeStyle = found ? GREEN : '#fff'; c.lineWidth = 2;
+      c.beginPath(); c.arc(x, y, pulse, 0, TAU); c.fill(); c.stroke(); c.restore();
+    }
+  }
+  TW.forEach((tw, i) => drawTower(c, X(tw.x), Y(tw.y), tw, i < n, time, i * 0.33, i === n && n < 3 && !(n === 2 && S.pred1 === null)));
+  if (ready(2)) {
+    const tt = time - S.heard[2] - 1.1, drop = -Math.abs(Math.cos(tt * 8)) * 42 * Math.exp(-tt * 4.5), x = X(p.x), y = Y(p.y);
+    if (tt < 1.2) { c.save(); c.strokeStyle = rgba(GREEN, 0.6 * (1 - tt / 1.2)); c.lineWidth = 2; c.beginPath(); c.arc(x, y, 6 + tt * 50, 0, TAU); c.stroke(); c.restore(); }
+    drawPin(c, x, y + drop, 1, T[lang].you);
+  }
+}
+const sideInter = (i, j, ri, rj) => {
+  const a = TW[i], b = TW[j], pts = inter(a, ri, b, rj), side = (pt) => (b.x - a.x) * (pt.y - a.y) - (b.y - a.y) * (pt.x - a.x), sp = Math.sign(side(S.P));
+  return side(pts[0]) * sp > 0 ? pts[0] : pts[1];
+};
+const hit2 = () => Math.abs(S.t2 - S.PD.D[0] / CUS) <= 0.06;
+function sceneTime(c, g, time) {
+  const X = (x) => g.ox + x * g.s, Y = (y) => g.oy + y * g.s, asked = S.pred2 !== null, P = S.P, D = S.PD.D;
+  if (asked && S.mode2 === 'time') {
+    const A = TW[0], r = CUS * S.t2s, hit = hit2(), col = hit ? GREEN : A.col, u = { x: (P.x - A.x) / D[0], y: (P.y - A.y) / D[0] };
+    c.save(); mapClip(c, g);
+    glowCircle(c, X(A.x), Y(A.y), r * g.s, col, 1, 3);
+    const ex = X(A.x + u.x * r), ey = Y(A.y + u.y * r);
+    c.shadowColor = col; c.shadowBlur = 10; c.strokeStyle = rgba(col, 0.95); c.lineWidth = 2.5; c.setLineDash([7, 5]); c.beginPath(); c.moveTo(X(A.x), Y(A.y)); c.lineTo(ex, ey); c.stroke(); c.setLineDash([]);
+    c.fillStyle = '#fff'; c.beginPath(); c.arc(ex, ey, 5.5, 0, TAU); c.fill(); c.restore();
+    if (r > 60) pill(c, fmtM(CUS * S.t2), (X(A.x) + ex) / 2, (Y(A.y) + ey) / 2 - 16, col);
+    if (hit) { c.save(); c.strokeStyle = rgba(GREEN, 0.5 + 0.4 * Math.sin(time * 6)); c.lineWidth = 3; c.beginPath(); c.arc(X(P.x), Y(P.y), 15 + 3 * Math.sin(time * 6), 0, TAU); c.stroke(); c.restore(); }
+  } else if (asked) {
+    const e = S.e2s, R = D.map((d) => d + CUS * e);
+    c.save(); mapClip(c, g);
+    TW.forEach((tw, i) => glowCircle(c, X(tw.x), Y(tw.y), R[i] * g.s, tw.col, 0.95, 2.4));
+    c.restore();
+    if (e > 0.02) {
+      const v = [sideInter(0, 1, R[0], R[1]), sideInter(0, 2, R[0], R[2]), sideInter(1, 2, R[1], R[2])];
+      c.save(); c.beginPath(); v.forEach((pt, i) => (i ? c.lineTo(X(pt.x), Y(pt.y)) : c.moveTo(X(pt.x), Y(pt.y)))); c.closePath();
+      c.fillStyle = 'rgba(255,214,90,.34)'; c.fill(); c.shadowColor = '#ffd65a'; c.shadowBlur = 10; c.lineWidth = 2; c.strokeStyle = '#fff3c4'; c.stroke(); c.restore();
+    }
+  }
+  TW.forEach((tw, i) => drawTower(c, X(tw.x), Y(tw.y), tw, true, time, i * 0.33, false));
+  drawPin(c, X(P.x), Y(P.y), 1, T[lang].you);
+}
+function sceneSats(c, w, h, time) {
+  panel(c, w, h, time);
+  const asked = S.pred3 !== null, cn = CONS[0], sc = Math.min(w, h) / (2 * cn.a * 1.12), cx = w / 2, cy = h / 2 + 4, mask = asked && S.canyon ? MASK : 0;
+  const R = rec(S.hour), list = satsOf(0, S.hour, R), pr = (p) => proj(p, sc, cx, cy), rp = pr(R.n), front = rp[2] > 0;
+  const ringPass = (isFront) => {
+    c.lineWidth = 1.1; c.strokeStyle = 'rgba(150,190,255,.3)';
+    for (const ring of RINGS) {
+      c.beginPath(); let pen = false;
+      for (let k = 0; k < ring.length - 1; k++) {
+        const a = pr(ring[k]), b = pr(ring[k + 1]);
+        if (((a[2] + b[2]) / 2 > 0) === isFront) { if (!pen) { c.moveTo(a[0], a[1]); pen = true; } c.lineTo(b[0], b[1]); } else pen = false;
+      }
+      c.stroke();
+    }
+  };
+  const colOf = (s) => (!asked ? '#b8cdf5' : s.el > mask ? GREEN : s.el > 0 ? '#f5b84c' : '#9db4e8');
+  const satPass = (isFront) => {
+    for (const s of list) {
+      const q = pr(s.p); if ((q[2] > 0) !== isFront) continue;
+      const vis = asked && s.el > mask, r = vis ? 4.2 : 3;
+      c.save(); c.globalAlpha = isFront ? 1 : 0.55; mark(c, 0, q[0], q[1], r, colOf(s)); c.restore();
+    }
+  };
+  const lines = () => {
+    if (!asked) return;
+    c.lineWidth = 1.2; c.strokeStyle = rgba(GREEN, 0.5);
+    for (const s of list) if (s.el > mask) { const q = pr(s.p); c.beginPath(); c.moveTo(rp[0], rp[1]); c.lineTo(q[0], q[1]); c.stroke(); }
+  };
+  // atmosphere glow, back half of the orbits and satellites, then the Earth, then the front half
+  ringPass(false); if (!front) lines(); satPass(false);
+  let g = c.createRadialGradient(cx, cy, sc * 0.95, cx, cy, sc * 1.35); g.addColorStop(0, 'rgba(120,190,255,.38)'); g.addColorStop(1, 'rgba(120,190,255,0)');
+  c.fillStyle = g; c.beginPath(); c.arc(cx, cy, sc * 1.35, 0, TAU); c.fill();
+  g = c.createRadialGradient(cx - sc * 0.4, cy - sc * 0.45, sc * 0.1, cx, cy, sc); g.addColorStop(0, '#86d0ff'); g.addColorStop(0.45, '#2f7fd0'); g.addColorStop(1, '#0c2f66');
+  c.fillStyle = g; c.beginPath(); c.arc(cx, cy, sc, 0, TAU); c.fill();
+  c.lineWidth = 1; c.strokeStyle = 'rgba(255,255,255,.16)';
+  const th0 = LON0 + SID * S.hour;
+  for (let m = 0; m < 8; m++) { c.beginPath(); let pen = false; for (let la = -90; la <= 90; la += 10) { const l = (th0 + m * 45) * D2R, f = Math.cos(la * D2R), q = pr([f * Math.cos(l), f * Math.sin(l), Math.sin(la * D2R)]); if (q[2] > 0) { if (!pen) { c.moveTo(q[0], q[1]); pen = true; } else c.lineTo(q[0], q[1]); } else pen = false; } c.stroke(); }
+  for (const la of [-60, -30, 0, 30, 60]) { c.beginPath(); let pen = false; for (let lo = 0; lo <= 360; lo += 10) { const l = lo * D2R, f = Math.cos(la * D2R), q = pr([f * Math.cos(l), f * Math.sin(l), Math.sin(la * D2R)]); if (q[2] > 0) { if (!pen) { c.moveTo(q[0], q[1]); pen = true; } else c.lineTo(q[0], q[1]); } else pen = false; } c.stroke(); }
+  ringPass(true);
+  if (front) {
+    c.beginPath();
+    for (let k = 0; k <= 36; k++) { const a = k / 36 * TAU, v = [R.n[0] * 1.01 + 0.5 * (Math.cos(a) * R.e[0] + Math.sin(a) * R.no[0]), R.n[1] * 1.01 + 0.5 * (Math.cos(a) * R.e[1] + Math.sin(a) * R.no[1]), R.n[2] * 1.01 + 0.5 * (Math.cos(a) * R.e[2] + Math.sin(a) * R.no[2])], q = pr(v); k ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]); }
+    c.closePath(); c.fillStyle = rgba(GREEN, 0.2); c.fill(); c.lineWidth = 1.2; c.strokeStyle = rgba(GREEN, 0.75); c.stroke();
+    lines();
+  }
+  satPass(true);
+  if (front) { c.save(); c.shadowColor = GREEN; c.shadowBlur = 8; c.fillStyle = '#fff'; c.strokeStyle = GREEN; c.lineWidth = 2; c.beginPath(); c.arc(rp[0], rp[1], 3.6, 0, TAU); c.fill(); c.stroke(); c.restore(); }
+  pill(c, T[lang].s.cap, 8, h - 16, '#cfe3ff', 'left');
+  if (asked) {
+    const r = clamp(Math.min(w, h) * 0.16, 34, 54), sx = w - r - 10, sy = r + 10;
+    drawSky(c, sx, sy, r, list.filter((s) => s.el > 0).map((s) => ({ az: s.az, el: s.el, col: s.el > mask ? GREEN : '#f5b84c' })), mask, false, T[lang].dir[0]);
+    pill(c, T[lang].s.sky, sx + r, sy + r + 16, '#cfe3ff', 'right');
+  }
+}
+function sceneSky(c, w, h, time) { // secret: four systems on one big sky plot
+  panel(c, w, h, time);
+  const R = rec(S.hour), r = Math.min(w, h) * 0.43, cx = w / 2, cy = h / 2, items = [];
+  CONS.forEach((cn, ci) => { if (S.sysOn[ci]) for (const s of satsOf(ci, S.hour, R)) if (s.el > 0) items.push({ az: s.az, el: s.el, col: cn.col, shape: ci }); });
+  drawSky(c, cx, cy, r, items, 0, true, T[lang].dir[0]);
+  pill(c, T[lang].s.sky, cx, h - 16, '#cfe3ff');
+}
+function sceneDrift(c, w, h, time) { // secret: clocks and the drifting pin
+  panel(c, w, h, time);
+  const t = T[lang], d = S.days, us = S.corr ? 0 : d * 38, m = 26, trackY = h * 0.74, len = w - 2 * m, kmMax = 120;
+  const clock = (x, y, r, sat) => {
+    c.save();
+    if (sat) { for (const sd of [-1, 1]) { const g = c.createLinearGradient(x + sd * r * 1.1, y - r * 0.5, x + sd * r * 2.1, y + r * 0.5); g.addColorStop(0, '#5a8fe0'); g.addColorStop(1, '#2d5aa8'); c.fillStyle = g; c.fillRect(Math.min(x + sd * r * 1.15, x + sd * r * 2.15), y - r * 0.5, r, r); c.strokeStyle = 'rgba(255,255,255,.3)'; c.lineWidth = 1; c.strokeRect(Math.min(x + sd * r * 1.15, x + sd * r * 2.15), y - r * 0.5, r, r); } }
+    else { c.fillStyle = '#2f6a4c'; rr(c, x - r * 1.3, y + r * 1.02, r * 2.6, 7, 3); c.fill(); }
+    c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.ellipse(x + 2, y + r + 3, r * 0.9, 4, 0, 0, TAU); c.fill();
+    const g = c.createRadialGradient(x - r * 0.3, y - r * 0.35, r * 0.1, x, y, r); g.addColorStop(0, '#fbfcff'); g.addColorStop(1, '#b4bdd6');
+    c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, TAU); c.fill(); c.lineWidth = 3; c.strokeStyle = sat ? '#8fb6ff' : '#cbd2e6'; c.stroke();
+    c.strokeStyle = '#2a3150'; c.lineWidth = 1.5;
+    for (let k = 0; k < 12; k++) { const a = k / 12 * TAU, i0 = r * (k % 3 ? 0.82 : 0.74); c.beginPath(); c.moveTo(x + Math.sin(a) * i0, y - Math.cos(a) * i0); c.lineTo(x + Math.sin(a) * r * 0.9, y - Math.cos(a) * r * 0.9); c.stroke(); }
+    c.lineCap = 'round'; c.lineWidth = 2.6; c.beginPath(); c.moveTo(x, y); c.lineTo(x + Math.sin(-1.05) * r * 0.5, y - Math.cos(-1.05) * r * 0.5); c.stroke();
+    c.lineWidth = 2; c.beginPath(); c.moveTo(x, y); c.lineTo(x + Math.sin(0.35) * r * 0.72, y - Math.cos(0.35) * r * 0.72); c.stroke();
+    c.fillStyle = '#d6453d'; c.beginPath(); c.arc(x, y, 2.6, 0, TAU); c.fill();
+    c.restore();
+  };
+  const r = clamp(Math.min(w * 0.11, h * 0.12), 22, 36), y1 = h * 0.3, x1 = w * 0.22, x2 = w * 0.72;
+  clock(x1, y1, r, false); clock(x2, y1, r, true);
+  pill(c, t.sa.ground, x1, y1 + r + 26, '#cfe3ff'); pill(c, t.sa.orbit, x2, y1 + r + 26, '#cfe3ff');
+  c.save(); c.strokeStyle = us ? '#ff7a7a' : GREEN; c.fillStyle = c.strokeStyle; c.lineWidth = 2; c.setLineDash([5, 5]); c.beginPath(); c.moveTo(x1 + r * 1.5, y1); c.lineTo(x2 - r * 2.4, y1); c.stroke(); c.setLineDash([]); c.restore();
+  pill(c, `+${grp(us)} ${t.mu}`, w / 2, y1 - r - 12, us ? '#ff9a9a' : GREEN);
+  // the road with the two pins
+  const gx = (km) => m + clamp(km / kmMax, 0, 1) * len, kmNow = S.driftS;
+  c.save(); const rg = c.createLinearGradient(0, trackY - 7, 0, trackY + 7); rg.addColorStop(0, '#59608a'); rg.addColorStop(1, '#383e5e');
+  c.fillStyle = rg; rr(c, m - 8, trackY - 7, len + 16, 14, 7); c.fill(); c.strokeStyle = 'rgba(255,235,170,.4)'; c.lineWidth = 1.5; c.setLineDash([8, 7]); c.beginPath(); c.moveTo(m, trackY); c.lineTo(m + len, trackY); c.stroke(); c.setLineDash([]);
+  c.font = '800 12px Nunito, sans-serif'; c.textAlign = 'center'; c.fillStyle = '#98A0B8'; c.textBaseline = 'middle';
+  for (let k = 0; k <= kmMax; k += 20) { c.fillRect(gx(k) - 0.5, trackY + 9, 1, 5); c.fillText(k === kmMax ? `${k} ${t.km}` : k, clamp(gx(k), 18, w - 24), trackY + 25); }
+  if (kmNow > 0.2) { c.shadowColor = '#ff7a7a'; c.shadowBlur = 10; c.strokeStyle = '#ff7a7a'; c.lineWidth = 5; c.lineCap = 'round'; c.beginPath(); c.moveTo(gx(0), trackY); c.lineTo(gx(kmNow), trackY); c.stroke(); }
+  c.restore();
+  drawPin(c, gx(0), trackY - 3, 0.85, '');
+  c.save(); c.translate(gx(kmNow), trackY - 3); c.scale(0.85, 0.85); // the red pin: GPS's idea of where you are
+  const rx = 10, ry = -23;
+  c.fillStyle = 'rgba(0,0,0,.4)'; c.beginPath(); c.ellipse(0, 1, 8, 3, 0, 0, TAU); c.fill();
+  c.beginPath(); c.moveTo(0, 0); c.bezierCurveTo(-2, -9, -rx, ry + 8, -rx, ry); c.arc(0, ry, rx, Math.PI, 0); c.bezierCurveTo(rx, ry + 8, 2, -9, 0, 0); c.closePath();
+  const pg = c.createLinearGradient(-rx, ry - rx, rx, ry + rx); pg.addColorStop(0, '#ff9a9a'); pg.addColorStop(1, '#d6453d');
+  c.shadowColor = '#ff7a7a'; c.shadowBlur = 10; c.fillStyle = pg; c.fill(); c.shadowBlur = 0; c.lineWidth = 1.6; c.strokeStyle = '#4a1411'; c.stroke();
+  c.fillStyle = '#fff'; c.beginPath(); c.arc(0, ry, 4.2, 0, TAU); c.fill(); c.restore();
+  const km = S.corr ? 0 : d * DRIFT;
+  pill(c, `${t.sa.gps}: ${dec(km, 1)} ${t.km}`, clamp(gx(kmNow), 70, w - 70), trackY - 58, '#ffb0b0');
+  pill(c, t.you, gx(0) < 40 ? 24 : gx(0), trackY - 80, GREEN, 'left');
+}
+
+// --- animation clock: eased values, playing time, the fixing of the clock ------------------------------------
+function sigKey() {
+  if (S.sec === 'b') { const R = rec(S.hour); return CONS.map((_, i) => (S.sysOn[i] ? countAbove(satsOf(i, S.hour, R), 0) : 0)).join(','); }
+  if (!S.sec && lab.view === 'sats') { const R = rec(S.hour), l = satsOf(0, S.hour, R); return `${countAbove(l, 0)}|${countAbove(l, MASK)}`; }
+  return '';
+}
+function tick(dt) {
+  S.t2s += (S.t2 - S.t2s) * (1 - Math.exp(-dt * 12));
+  S.e2s += (S.e2 - S.e2s) * (1 - Math.exp(-dt * 14));
+  S.driftS += ((S.corr ? 0 : S.days * DRIFT) - S.driftS) * (1 - Math.exp(-dt * 5));
+  let redo = false;
+  if (S.fixing) { S.e2 *= Math.exp(-dt * 4); if (S.e2 < 0.01) { S.e2 = 0; S.fixing = false; } $('gpE').value = S.e2; redo = true; }
+  if (S.play) { S.hour = (S.hour + dt * 1.2) % 24; $('gpH').value = S.hour; $('gpHVal').textContent = hhmm(S.hour); const k = sigKey(); if (k !== S.lastKey) redo = true; }
+  if (redo) render();
+}
+
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  CW = w; CH = h; tick(dt);
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  if (S.sec === 'a') sceneDrift(c, w, h, time);
+  else if (S.sec === 'b') sceneSky(c, w, h, time);
+  else if (lab.view === 'sats') sceneSats(c, w, h, time);
+  else sceneMap(c, w, h, time);
+});
+
+// --- controls ------------------------------------------------------------------------------------------------
+const showStage = () => { // the controls sit below the picture on a phone: bring the reveal into view
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+function viewChanged() { S.sec = null; render(); }
+function newPlace() {
+  S.P = newSpot(); S.PD = placeData(S.P); S.n = 0; S.heard = [0, 0, 0]; S.showV1 = false;
+}
+function pick(q, i) {
+  const ok = i === T[lang][q === 1 ? 'c' : q === 2 ? 't' : 's'].ok;
+  if (q === 1 && S.pred1 === null) { S.pred1 = i; S.showV1 = true; S.n = 3; S.heard[2] = now(); }
+  else if (q === 2 && S.pred2 === null) { S.pred2 = i; S.mode2 = 'time'; S.t2 = 1; S.t2s = 0; $('gpT').value = 1; }
+  else if (q === 3 && S.pred3 === null) S.pred3 = i;
+  else return;
+  (ok ? sfx.good : sfx.bad)();
+  setTimeout(showStage, 60);
+}
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const a = b.dataset.act;
+  if (a === 'listen') { if (S.n < 3 && !(S.n === 2 && S.pred1 === null)) { S.heard[S.n] = now(); S.n++; sfx.click(); } }
+  else if (a === 'new') { newPlace(); sfx.click(); }
+  else if (a === 'pick') pick(+b.dataset.q, +b.dataset.i);
+  else if (a === 'mode') { S.mode2 = b.dataset.m; S.fixing = false; sfx.click(); }
+  else if (a === 'fix') { if (S.e2 > 0) S.fixing = true; sfx.snap(); }
+  else if (a === 'play') { S.play = !S.play; sfx.click(); }
+  else if (a === 'city') { S.canyon = !S.canyon; sfx.click(); }
+  else if (a === 'corr') { S.corr = !S.corr; sfx.click(); }
+  else if (a === 'sys') { S.sysOn[+b.dataset.i] = !S.sysOn[+b.dataset.i]; sfx.tick(); }
+  else if (a === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    S.sec = S.sec === b.dataset.k ? null : b.dataset.k;
+    if (S.sec === 'b' && S.pred3 === null) S.pred3 = -1; // the sky plot shows the counts, so the guess is skipped
+    sfx.click();
+  }
+  render();
+});
+$('ctrlBody').addEventListener('input', (ev) => {
+  const id = ev.target.id, v = +ev.target.value;
+  if (id === 'gpT') S.t2 = v;
+  else if (id === 'gpE') { S.e2 = v; S.fixing = false; }
+  else if (id === 'gpH') { S.hour = v; S.play = false; }
+  else if (id === 'gpD') S.days = v;
+  else return;
+  render();
+});
+
+// --- one render per change: controls, readout and the state card ---------------------------------------------
+const setHTML = (el, html) => { if (el._h !== html) { el._h = html; el.innerHTML = html; } };
+const setText = (el, s) => { if (el.textContent !== s) el.textContent = s; };
+const setVal = (el, v) => { if (+el.value !== v) el.value = v; };
+function askBlock(qn, q, opts, ok, sel, verdict, texts) {
+  const done = sel !== null;
+  return `<div class="gp-q">${esc(q)}</div><div class="gp-opts">${opts.map((o, i) => `<button type="button" class="gp-opt${done ? (i === ok ? ' good' : i === sel ? ' bad' : ' dim') : ''}" data-act="pick" data-q="${qn}" data-i="${i}"${done ? ' disabled' : ''}>${esc(o)}</button>`).join('')}</div>`
+    + (done ? `<div class="gp-verdict ${sel === ok ? 'good' : 'bad'}">${esc(verdict[sel])} ${esc(texts[sel])}</div>` : '');
+}
+function render() {
+  const t = T[lang], v = lab.view, sec = S.sec;
+  document.body.dataset.v = sec ? 'sec' : v;
+  const inView = (k) => !sec && v === k;
+  $('gp1').hidden = !inView('circles'); $('gp2').hidden = !inView('time'); $('gp3q').hidden = !inView('sats');
+  $('gpTime').hidden = !(inView('sats') || sec === 'b');
+  $('gpSecA').hidden = sec !== 'a'; $('gpSecB').hidden = sec !== 'b';
+  $('gpNewRow').hidden = !(inView('circles') || (inView('time') && S.pred2 !== null));
+  setText($('gpNew'), t.c.newp);
+  const open = secret.unlocked(), sc = (k, emo) => `<button type="button" class="chip secret ${open ? 'open' : ''} ${sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  setHTML($('gpSecs'), sc('a', '⏱️') + sc('b', '🛰️'));
+  if (sec === 'a') renderSecA(t); else if (sec === 'b') renderSecB(t);
+  else if (v === 'circles') renderCircles(t); else if (v === 'time') renderTime(t); else renderSats(t);
+  S.lastKey = sigKey();
+}
+
+function renderCircles(t) {
+  const c = t.c, n = S.n, D = S.PD.D, ask = n === 2 && S.pred1 === null;
+  lab.setGlow('rgba(78, 168, 255, .26)');
+  setHTML($('gp1q'), ask ? askBlock(1, c.ask, c.opts, c.ok, null, c.v, c.t) : S.showV1 && S.pred1 !== null ? askBlock(1, c.ask, c.opts, c.ok, S.pred1, c.v, c.t) : '');
+  $('gpListen').hidden = n >= 3 || ask;
+  setText($('gpListen'), c.listen(TW[Math.min(n, 2)].L));
+  lab.setReadout(`${n} / 3`, c.sub, n === 3 ? c.pillDone : n ? c.pillOn : '', '#4ea8ff');
+  const [emo, title, lead, body] = n === 0 ? c.s0 : n === 1 ? c.s1(fmtKm(D[0])) : n === 2 ? (S.pred1 === null ? c.s2 : c.s2b) : c.s3;
+  lab.setState({ emo, title, lead, body, extra: '' });
+  lab.setFacts([{ emo: '🛰️', text: c.fact, src: FACT_SRC.c }]);
+}
+
+function renderTime(t) {
+  const q = t.t, asked = S.pred2 !== null, tA = S.PD.D[0] / CUS;
+  lab.setGlow('rgba(245, 200, 76, .24)');
+  setHTML($('gp2q'), askBlock(2, q.ask, q.opts, q.ok, S.pred2, q.v, q.t));
+  $('gp2c').hidden = !asked;
+  if (!asked) {
+    lab.setReadout('?', '', '', AMBER);
+    lab.setState({ emo: '⏱️', title: q.ask, lead: q.askLead, body: '', extra: '' });
+    lab.setFacts([]);
+    return;
+  }
+  const timeMode = S.mode2 === 'time';
+  setHTML($('gpMode'), [['time', q.mode[0]], ['clock', q.mode[1]]].map(([k, l]) => `<button type="button" data-act="mode" data-m="${k}" class="${S.mode2 === k ? 'on' : ''}">${esc(l)}</button>`).join(''));
+  $('gpTBox').hidden = !timeMode; $('gpEBox').hidden = timeMode;
+  setText($('gpTLbl'), q.tLbl); setText($('gpTVal'), `${dec(S.t2)} ${t.mu}`); setVal($('gpT'), S.t2);
+  setText($('gpELbl'), q.eLbl); setText($('gpEVal'), `${dec(S.e2)} ${t.mu}`); setVal($('gpE'), S.e2); setText($('gpFix'), q.fix);
+  $('gpFix').disabled = S.e2 <= 0;
+  let st;
+  if (timeMode) {
+    const d = CUS * S.t2, hit = hit2();
+    lab.setReadout(fmtM(d), q.sub(dec(S.t2)), hit ? q.hit : '', AMBER);
+    st = hit ? q.sHit(dec(tA), fmtKm(S.PD.D[0])) : q.s1(dec(S.t2), fmtM(d));
+  } else {
+    const e = S.e2, bad = e > 0.04;
+    lab.setReadout(fmtM(CUS * e), q.eSub(dec(e)), bad ? q.pillBad : q.pillOk, AMBER);
+    st = bad ? q.e1(dec(e), fmtM(CUS * e)) : q.e0;
+  }
+  lab.setState({ emo: st[0], title: st[1], lead: st[2], body: st[3], extra: '' });
+  lab.setFacts([{ emo: '📡', text: q.fact, src: FACT_SRC.t }]);
+}
+
+function hourBox(t) {
+  setText($('gpHLbl'), t.s.tLbl); setText($('gpHVal'), hhmm(S.hour)); setVal($('gpH'), S.hour);
+  setText($('gpPlay'), S.play ? t.s.pause : t.s.play);
+}
+function renderSats(t) {
+  const q = t.s, asked = S.pred3 !== null, l = satsOf(0, S.hour, rec(S.hour)), n0 = countAbove(l, 0), n = countAbove(l, S.canyon ? MASK : 0);
+  lab.setGlow('rgba(127, 208, 255, .24)');
+  setHTML($('gp3q'), S.pred3 === null ? askBlock(3, q.ask, q.opts, q.ok, null, q.v, q.t(...RANGE)) : S.pred3 >= 0 ? askBlock(3, q.ask, q.opts, q.ok, S.pred3, q.v, q.t(...RANGE)) : '');
+  hourBox(t);
+  $('gpCity').hidden = !asked; setText($('gpCity'), q.city); $('gpCity').classList.toggle('on', S.canyon);
+  if (!asked) {
+    lab.setReadout('?', '', '', '#7fd0ff');
+    lab.setState({ emo: '🛰️', title: q.ask, lead: q.askLead, body: '', extra: '' });
+  } else {
+    lab.setReadout(n, q.sub, n >= 4 ? q.pillOk : q.pillLow, '#7fd0ff');
+    const st = S.canyon ? q.stCity(n, n0) : q.st(n);
+    lab.setState({ emo: st[0], title: st[1], lead: st[2], body: st[3], extra: '' });
+  }
+  lab.setFacts([{ emo: '🛰️', text: q.fact, src: FACT_SRC.s }]);
+}
+
+function renderSecA(t) {
+  const a = t.sa, d = S.days, us = d * 38, km = d * DRIFT;
+  lab.setGlow('rgba(255, 138, 122, .24)');
+  setText($('gpDLbl'), a.days); setText($('gpDVal'), String(d)); setVal($('gpD'), d);
+  setText($('gpCorr'), a.corr); $('gpCorr').classList.toggle('on', S.corr);
+  lab.setReadout(`${dec(S.corr ? 0 : km, 1)} ${t.km}`, a.after(d), S.corr ? a.pillOk : a.pillBad, '#ff8a7a');
+  const st = S.corr ? a.s2(dec(DRIFT, 1)) : d === 0 ? a.s0 : a.s1(d, us, dec(km, 1));
+  lab.setState({ emo: st[0], title: st[1], lead: st[2], body: st[3], extra: '' });
+  lab.setFacts([]);
+}
+function renderSecB(t) {
+  const b = t.sb, R = rec(S.hour), per = CONS.map((_, i) => (S.sysOn[i] ? countAbove(satsOf(i, S.hour, R), 0) : 0)), n = per.reduce((x, y) => x + y, 0), k = S.sysOn.filter(Boolean).length;
+  lab.setGlow('rgba(185, 163, 255, .24)');
+  hourBox(t);
+  $('gpCity').hidden = true;
+  const shapes = ['●', '■', '◆', '▲'];
+  setHTML($('gpSys'), CONS.map((cn, i) => `<button type="button" class="chip gp-sys ${S.sysOn[i] ? 'on' : ''}" data-act="sys" data-i="${i}"><span class="gp-sh" style="color:${S.sysOn[i] ? '#0A0C14' : cn.col}">${shapes[i]}</span> ${esc(b.sys[i])}${S.sysOn[i] ? ` · ${per[i]}` : ''}</button>`).join(''));
+  lab.setReadout(n, t.s.sub, k ? b.pill(k) : '', '#b9a3ff');
+  const st = b.st(n, k);
+  lab.setState({ emo: st[0], title: st[1], lead: st[2], body: st[3], extra: '' });
+  lab.setFacts([]);
+}
+render();
+</script>
+</body>
+</html>
