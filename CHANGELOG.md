@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-09
 
 ### Labs
+- New lab `film-music` “Music for a Scene”: play one short scene with three soundtracks, build music for a chase or a sunrise, recognise characters by their tunes (500). (#431)
 - New lab `medieval-clothes` “Dress for 1300”: dress a peasant and a noble, dye cloth with woad, madder and weld, put a knight’s armour on layer by layer and weigh it (499). (#430)
 - New lab `roman-roads` “Straight Roads, Strong Shields”: build a Roman road layer by layer and send rain over it, walk a straight and a winding road, lock shields into a tortoise (498). (#429)
 - New lab `minotaur-maze` “The Minotaur’s Maze”: lead Theseus into the labyrinth and back, try to get out with no thread, put the myth of Theseus in order (497). (#428)
