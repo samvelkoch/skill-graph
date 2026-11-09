@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-09
 
 ### Labs
+- New lab `trebuchet` “Siege!”: load a trebuchet and fling stones at a castle wall, defend with walls, a moat and arrow slits, count how long the food lasts (479). (#414)
 - New lab `insect-records` “If You Were a Flea”: jump like a flea, pull like a dung beetle and hunt like a dragonfly, then scale each record up to your own size (478). (#413)
 - New lab `coral` “When Coral Turns White”: zoom into a coral and its algae partners, run a heatwave week by week over a reef, make the sea more acidic (477). (#412)
 - New lab `interest` “Money That Grows”: leave coins in a bank for years, borrow and choose how much to pay back, find the rule of 72 for doubling money (476). (#411)
