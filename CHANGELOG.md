@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-09
 
 ### Labs
+- New lab `plant-bends` “Which Way Will It Grow?”: move a lamp around a seedling and play the days, lay a jar on its side and watch root and shoot turn, see which flowers open with light and which with warmth (485). (#420)
 - New lab `separating` “Sort Out the Mess”: separate gravel, sand, iron, salt and water with a sieve, a magnet, a filter and a flame, match each tool to its trick, sort pure substances from mixtures (484). (#419)
 - New lab `tessellation` “No Gaps, No Overlaps”: put tiles round one point and add the angles, tile a floor with each regular shape, continue border patterns (483). (#418)
 - New lab `solar-panel` “Catch the Sunlight”: tilt a solar panel towards the sun and read the power, shade one cell and lose a string, wire four cells in series or parallel (482). (#417)
