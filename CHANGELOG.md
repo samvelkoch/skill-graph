@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-09
 
 ### Labs
+- New lab `coral` “When Coral Turns White”: zoom into a coral and its algae partners, run a heatwave week by week over a reef, make the sea more acidic (477). (#412)
 - New lab `interest` “Money That Grows”: leave coins in a bank for years, borrow and choose how much to pay back, find the rule of 72 for doubling money (476). (#411)
 - New lab `scatter` “Do They Go Together?”: predict the pattern before the dots fall, drag points to make r strong or weak, ask whether ice cream really causes drowning (475). (#410)
 - New lab `longship` “The Viking Longship”: race a deep ship and a longship up a shallow river, sail with the wind or row without it, follow the Vikings as far as America (474). (#409)
