@@ -15,6 +15,11 @@ Counts in brackets are totals after that day.
 ## 2026-11-09
 
 ### Labs
+- New lab `mummy` “How to Keep Forever”: dry one apple in salt and leave one out, put the steps of mummification in order, wrap a figure in linen (493). (#424)
+- New lab `congruent` “Fixed or Not?”: build triangles from fixed sticks and angles, test SSS, SAS, ASA, SSA and AAA, push a triangle and a square frame (492). (#424)
+- New lab `medieval-food` “What’s for Dinner in 1300?”: fill a bread trencher with medieval food, compare a lord’s feast and a peasant’s supper, eat without a fork (491). (#424)
+- New lab `first-olympics` “The First Olympics”: run the stadium at Olympia, find out what the winner got, sort ancient and modern sports (490). (#424)
+- New lab `histogram` “Bars Without Gaps”: change bin width for 60 pupils’ heights, drop pupils into touching bars, decide which data needs a histogram (489). (#424)
 - New lab `whale-mammal` “Fish or Not?”: help a dolphin come up for air, compare a dolphin’s and a fish’s tails, sort six sea animals into fish and mammals (488). (#423)
 - New lab `art-genres` “What Is the Picture About?”: move a golden frame around one garden scene to make a portrait, a landscape or a still life, sort six small paintings, pick a tall or wide page (487). (#422)
 - New lab `dino-sizes` “How Big Were They?”: line up five dinosaurs beside a bus and a child, stand next to a Velociraptor, step into a T. rex footprint (486). (#421)
