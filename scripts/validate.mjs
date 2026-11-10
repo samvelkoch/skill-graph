@@ -131,6 +131,14 @@ if (existsSync(resolve(DATA, 'layout.json'))) {
   const missing = [...topics.topics, ...extra].map((t) => t.id).filter((id) => !(id in placed));
   if (missing.length) warnings.push(`layout.json: ${missing.length} topic(s) not placed (${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ', …' : ''}); run node scripts/layout.mjs`);
 }
+// --- hard prerequisites that start at a later age than their topic: a warning, they spoil the order of route steps (backlog F15) ---
+{
+  const extraT = existsSync(resolve(DATA, 'extra/topics.json')) ? load('extra/topics.json').topics : [];
+  const extraD = existsSync(resolve(DATA, 'extra/dependencies.json')) ? load('extra/dependencies.json').dependencies : [];
+  const age = new Map([...topics.topics, ...extraT].map((t) => [t.id, t.ageRangeStart]));
+  const inv = [...deps.dependencies, ...extraD].filter((e) => e.strength === 'hard' && age.get(e.prerequisiteId) > age.get(e.topicId));
+  if (inv.length) warnings.push(`${inv.length} hard prerequisite(s) start at a later age than their topic (${inv.slice(0, 3).map((e) => `${e.prerequisiteId} → ${e.topicId}`).join(', ')}${inv.length > 3 ? ', …' : ''}): reverse, soften or fix the age`);
+}
 for (const w of warnings) console.warn(`! ${w}`);
 
 // --- report -----------------------------------------------------------------
