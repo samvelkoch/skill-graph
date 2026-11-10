@@ -32,11 +32,11 @@ move, so the items name identifiers in the code to search for.
 | F08 | P1 | The site says ages 4–16, the data ends at 14 | done · #437 |
 | F09 | — | Lab coverage by subject and age | won't do |
 | F10 | P1 | Very long lists on a phone | done · #440 |
-| F11 | P2 | The phone header takes a quarter of the screen | in progress (2026-11-10) |
-| F12 | P2 | Different navigation on the viewer and the labs pages | in progress (2026-11-10) |
+| F11 | P2 | The phone header takes a quarter of the screen | done · #443 |
+| F12 | P2 | Different navigation on the viewer and the labs pages | done · #443 |
 | F13 | P2 | 152 older labs have no "Did you know?" facts | open |
 | F14 | P2 | Radar axis labels are untranslated and cut off | done · #442 |
-| F15 | P2 | Prerequisites that start at a later age than the topic | open |
+| F15 | P2 | Prerequisites that start at a later age than the topic | in progress (2026-11-10) |
 | F16 | P2 | Curricula differ a lot in detail | done · #442 (the note; deepening curricula waits for the owner) |
 | F17 | P2 | Small interface fixes | done · #441 |
 
@@ -181,7 +181,7 @@ move, so the items name identifiers in the code to search for.
 ## F11. The phone header takes a quarter of the screen
 
 - **Priority:** P2
-- **Status:** in progress (2026-11-10)
+- **Status:** done · #443
 - **Problem:** at 390 px the header is 4 rows (brand and buttons, views, languages, search), about 175 px
   of 664.
 - **Reproduce:** any view of the viewer on a phone.
@@ -192,7 +192,7 @@ move, so the items name identifiers in the code to search for.
 ## F12. Different navigation on the viewer and the labs pages
 
 - **Priority:** P2
-- **Status:** in progress (2026-11-10)
+- **Status:** done · #443
 - **Problem:** the viewer has "Graph, Topic list, Routes, My child"; the labs overview has "Graph, Topic
   list, Labs, Curricula". Routes and My child cannot be reached from the labs, and Curricula is not
   visible from the viewer.
@@ -230,7 +230,7 @@ move, so the items name identifiers in the code to search for.
 ## F15. Prerequisites that start at a later age than the topic
 
 - **Priority:** P2
-- **Status:** open
+- **Status:** in progress (2026-11-10)
 - **Problem:** 184 edges where the prerequisite's `ageRangeStart` is greater than the topic's; 21 of them
   are `hard`, and 44 differ by 2 years or more. Example: "Animal Classification Vocabulary" (7) before
   "Grouping Living Things" (4). This spoils the order of route steps.
