@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-10
 
 ### Labs
+- New lab `wild-farm-pet` “Who Looks After Them?”: take animals to the forest, the farm or a house and see who feeds them, leave a cow out in the winter woods, and slide back in time to their wild ancestors (520). (#463)
 - New lab `tundra` “Under the Tundra”: dig into frozen ground and plant a pine, a willow, moss and lichen, run a tundra year from polar night to midnight sun, and see how its animals get through winter (519). (#462)
 - New lab `two-unknowns` “Two Puzzles on the Scales”: balance an apple and a pear in every way and watch the pairs line up on a grid, add a second scale to leave one answer, and solve ticket and chicken-and-rabbit puzzles (518). (#461)
 - New lab `space-station` “A Home in Orbit”: tip a cup of water on a space station and on Earth, guess how astronauts eat, sleep, exercise and wash, and count the sunrises outside the window (517). (#460)
