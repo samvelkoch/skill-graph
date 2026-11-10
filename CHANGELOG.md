@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-10
 
 ### Labs
+- New lab `one-output` “The Vending Machine”: press the buttons of three vending machines and draw what comes out, sort tables of inputs and outputs, and slide a vertical line across graphs (526). (#469)
 - New lab `parabola` “The Flight of a Ball”: predict the top of a throw and watch its path become a graph, turn the a, b and c dials of a quadratic, and race square tile patterns against a straight row (525). (#468)
 - New lab `neurons` “A Path in the Brain”: send a signal along a chain of neurons and watch it cross the synapses, light up the lobes of the brain at work, and practise a skill for 30 days (524). (#467)
 - New lab `share-decimals` “Share to the Last Coin”: deal coins to four friends and change the leftovers into tenths and hundredths, watch each step appear in a written division, and cut a ribbon into equal pieces (523). (#466)
