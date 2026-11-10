@@ -31,14 +31,14 @@ move, so the items name identifiers in the code to search for.
 | F07 | P1 | Ontario standards are not visible in the viewer | done · #438 (the chip only, no school choice: owner's decision) |
 | F08 | P1 | The site says ages 4–16, the data ends at 14 | done · #437 |
 | F09 | — | Lab coverage by subject and age | won't do |
-| F10 | P1 | Very long lists on a phone | in progress (2026-11-10) |
+| F10 | P1 | Very long lists on a phone | done · #440 |
 | F11 | P2 | The phone header takes a quarter of the screen | open |
 | F12 | P2 | Different navigation on the viewer and the labs pages | open |
 | F13 | P2 | 152 older labs have no "Did you know?" facts | open |
 | F14 | P2 | Radar axis labels are untranslated and cut off | open |
 | F15 | P2 | Prerequisites that start at a later age than the topic | open |
 | F16 | P2 | Curricula differ a lot in detail | open |
-| F17 | P2 | Small interface fixes | open |
+| F17 | P2 | Small interface fixes | in progress (2026-11-10) |
 
 ---
 
@@ -166,7 +166,7 @@ move, so the items name identifiers in the code to search for.
 ## F10. Very long lists on a phone
 
 - **Priority:** P1
-- **Status:** in progress (2026-11-10)
+- **Status:** done · #440
 - **Problem:** the labs overview renders every card at once: the page is about 107,000 px tall at 390 px
   (roughly 160 screens), almost one card per screen. The Routes view is about 11,000 px in one list with
   no age filter.
@@ -257,7 +257,7 @@ move, so the items name identifiers in the code to search for.
 ## F17. Small interface fixes
 
 - **Priority:** P2
-- **Status:** open
+- **Status:** in progress (2026-11-10)
 - **To do (one pull request is fine):**
   1. The labs button shows 503, while 499 are available in Russian (4 labs are Hungarian only). Count with
      the `lang` field of `labs/registry.json`.

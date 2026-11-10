@@ -1,7 +1,8 @@
 // graph2d.js — the map, drawn on a plain 2D canvas from precomputed 3D positions (data/layout.json, made by scripts/layout.mjs).
 // No WebGL and no libraries, so it starts in any browser and offline. One global: createGraph2D(el, opts), used by index.html.
 //   opts: nodes [{ id, x, y, z, color, size 0..1 }], links [[source, target] indices], tooltip(id) → html, onClick(id),
-//         onBackground(), avoid() → DOMRect | null the tooltip keeps clear of, reduced (prefers-reduced-motion)
+//         onBackground(), avoid() → DOMRect | null the tooltip keeps clear of, reduced (prefers-reduced-motion),
+//         top() → px at the top of the canvas that text covers (the map fits and centres below it)
 //   methods: setState({ visible, focus, chain }), setData(nodes, links), flyTo(id, { right, top, bottom }), resize(), pause(), resume(), spin(on)
 function createGraph2D(el, opts) {
   const cv = document.createElement('canvas'), cx = cv.getContext('2d');
@@ -56,7 +57,12 @@ function createGraph2D(el, opts) {
   }
 
   // scale that fits the whole cone in the canvas (perspective makes the near rim ~1.4× wider)
-  function fit() { if (W && H) S = Math.max(0.05, Math.min((0.72 * H) / Math.max(1, maxY - minY), (0.9 * W) / (2.6 * rMax))); }
+  let T = 0; // px at the top kept for text
+  function fit() {
+    if (!W || !H) return;
+    T = Math.max(0, Math.min(H * 0.45, opts.top ? opts.top() : 0));
+    S = Math.max(0.05, Math.min((0.72 * (H - T)) / Math.max(1, maxY - minY), (0.9 * W) / (2.6 * rMax)));
+  }
 
   function resize() {
     const w = el.clientWidth, h = el.clientHeight, r = Math.min(2, window.devicePixelRatio || 1);
@@ -67,7 +73,7 @@ function createGraph2D(el, opts) {
 
   function project() {
     const cr = Math.cos(cam.rotY), sr = Math.sin(cam.rotY), ct = Math.cos(cam.tilt), st = Math.sin(cam.tilt);
-    const sc = S * cam.zoom, ox = W / 2 + cam.offX, oy = H / 2 + cam.offY, ds = clamp(Math.sqrt(sc), 0.6, 2.4);
+    const sc = S * cam.zoom, ox = W / 2 + cam.offX, oy = T + (H - T) / 2 + cam.offY, ds = clamp(Math.sqrt(sc), 0.6, 2.4);
     for (let i = 0, j = 0; i < N; i++, j += 3) {
       const x = X[i], y = Y[i] - cam.panY, z = Z[i];
       const x1 = x * cr - z * sr, z1 = x * sr + z * cr; // rotY around the vertical axis

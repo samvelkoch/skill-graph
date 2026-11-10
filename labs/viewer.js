@@ -89,11 +89,11 @@
     @media (max-width: 720px) { #labsBtn .t { display: none; } #labsMenu { top: 60px; right: 14px; } }`;
 
   function renderBtn() {
-    const u = UI[cur()];
-    $('labsBtn').innerHTML = `🧪 <span class="t">${esc(u.labs)}</span> <span class="n">${labs.length}</span>`;
+    const u = UI[cur()], n = labs.filter((l) => !isLocal(l)).length; // labs made for speakers of another language are not counted, as on the labs page
+    $('labsBtn').innerHTML = `🧪 <span class="t">${esc(u.labs)}</span> <span class="n">${n}</span>`;
     $('labsBtn').title = u.title;
     $('labsHead').innerHTML = `<h3>${esc(u.title)}<span style="color:var(--red)">.</span></h3><p class="s">${esc(u.sub)}</p>
-      <a class="btn primary" id="labsAll" href="labs/?lang=${cur()}">🧪 ${esc(u.allN(labs.length))}</a>
+      <a class="btn primary" id="labsAll" href="labs/?lang=${cur()}">🧪 ${esc(u.allN(n))}</a>
       <button class="btn" id="labsShow">${esc(u.show(byTopic.size))}</button>`;
     $('labsQ').placeholder = u.find;
     renderLabs();
