@@ -75,6 +75,18 @@ How a curriculum gets in, step by step:
 
 Items no topic covers can become new topics in `data/extra/` ([`build_extra.py`](scripts/curricula/build_extra.py)). That is a larger change; discuss it in the issue first.
 
+### Mapping and topic rules
+
+Adapted from Marble's [curation principles](docs/curation/principles.md); where they differ, these win.
+
+- **One topic, one thing a child can show.** Description, the signs of mastery and the parent's question must describe the same skill. A country, grade, age or a bigger number alone is not a new topic: map the item to the existing one.
+- **Reuse before adding.** Before a new topic in `data/extra/`, search the whole graph by meaning (not by title), read the candidates' descriptions and evidence, and write down in the PR why none fits.
+- **`core` only when the topic covers the item.** If it covers only a part or a prerequisite, use `related`. Do not stretch an existing topic's meaning so that an item fits.
+- **No source text, no gap.** If an item's wording cannot be read, leave it unmapped rather than guessing from its code.
+- **A prerequisite needs a learning reason.** Same grade, same unit or a similar name is not a reason; choose `hard` or `soft` on purpose.
+- **Keep ids.** Never reuse or renumber a topic id; links, progress in browsers and translations hang on it.
+- **Ages.** Our scope is about 4 to 16, wider than Marble's (to 12). Keep each country's own grade ages; another country's grade does not set them.
+
 ## Fix an error in the data
 
 Wrong age, a missing or wrong prerequisite, a mistake in a description, a bad translation? The quickest path is an issue (template “Data error”) with the topic’s link from the map (it contains `?topic=<id>`), what is wrong and a source.
