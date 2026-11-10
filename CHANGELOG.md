@@ -14,6 +14,12 @@ Counts in brackets are totals after that day.
 
 ## 2026-11-10
 
+### Viewer
+- A first visit opens in the browser's language when it is English, Russian or Hungarian, on the map, the labs, the curricula page and "What's new". The order is `?lang=`, then the language chosen before on the site (now remembered on every page, not only the map), then `navigator.languages`, then English. Backlog F03. (#437)
+- "My child" works without a school curriculum: leave "Any curriculum" and pick the child's age (4–14). The radar, the quick check, the by-subject check, "This week" and "Gaps" then use the graph's subjects (in the interface language) and the topics that start at that age or a year before. Snapshots and by-subject results are kept per age. With a curriculum chosen nothing changes. Backlog F01. (#437)
+- The first tap on "Show the picture" after typing the name works: the heading follows the name while it is typed, and the card is no longer re-rendered when the field loses focus. Backlog F02. (#437)
+- The site, `README.md` and `CONTRIBUTING.md` say ages 4–14, as the topics do (was 4–16). Backlog F08. (#437)
+
 ### Project
 - `docs/BACKLOG.md`: a shared work backlog (items F01–F17 from a whole-project review of the viewer, routes, labs and data), with a status per item so that any session or contributor can pick one up; linked from `CLAUDE.md` and `AGENTS.md`. (#436)
 

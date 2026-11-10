@@ -22,14 +22,14 @@ move, so the items name identifiers in the code to search for.
 
 | ID | Priority | Item | Status |
 |---|---|---|---|
-| F01 | P0 | "My child" does not work without a school programme | open |
-| F02 | P0 | The first tap on "Show the picture" is lost | open |
-| F03 | P0 | The viewer ignores the browser language | open |
+| F01 | P0 | "My child" does not work without a school programme | in progress (2026-11-10) |
+| F02 | P0 | The first tap on "Show the picture" is lost | in progress (2026-11-10) |
+| F03 | P0 | The viewer ignores the browser language | in progress (2026-11-10) |
 | F04 | — | Analytics | won't do |
 | F05 | P1 | The quick check does not ask about the grade's core | open |
 | F06 | P1 | Meta topics as route steps | open |
 | F07 | P1 | Ontario standards are not visible in the viewer | open |
-| F08 | P1 | The site says ages 4–16, the data ends at 14 | needs a decision |
+| F08 | P1 | The site says ages 4–16, the data ends at 14 | in progress (2026-11-10): say 4–14 (owner's decision) |
 | F09 | — | Lab coverage by subject and age | won't do |
 | F10 | P1 | Very long lists on a phone | open |
 | F11 | P2 | The phone header takes a quarter of the screen | open |
@@ -45,7 +45,7 @@ move, so the items name identifiers in the code to search for.
 ## F01. "My child" does not work without a school programme
 
 - **Priority:** P0
-- **Status:** open
+- **Status:** in progress (2026-11-10)
 - **Problem:** the "My child" view needs a country and a grade. A parent whose country is not among the
   mapped curricula stays on the setup card forever.
 - **Reproduce:** open `?view=child` in a clean profile, leave "Any curriculum (all topics)", type a name.
@@ -62,7 +62,7 @@ move, so the items name identifiers in the code to search for.
 ## F02. The first tap on "Show the picture" is lost
 
 - **Priority:** P0
-- **Status:** open
+- **Status:** in progress (2026-11-10)
 - **Problem:** after typing the name, the first tap on the button does nothing; only the second works.
 - **Reproduce:** `?view=child`, choose "Hungary · grade 4", type a name and, with the field still focused,
   tap "Show the picture". It reproduces in Playwright with `tap`.
@@ -75,7 +75,7 @@ move, so the items name identifiers in the code to search for.
 ## F03. The viewer ignores the browser language
 
 - **Priority:** P0
-- **Status:** open
+- **Status:** in progress (2026-11-10)
 - **Problem:** a first visit to the viewer is always in English, even in a Russian or Hungarian browser.
   The labs do detect the language.
 - **Reproduce:** a clean profile with the locale `ru-RU` or `hu-HU`, open the site root without `?lang=`.
@@ -148,7 +148,7 @@ move, so the items name identifiers in the code to search for.
 ## F08. The site says ages 4–16, the data ends at 14
 
 - **Priority:** P1
-- **Status:** needs a decision
+- **Status:** in progress (2026-11-10): say 4–14 (owner's decision)
 - **Problem:** the interface and the descriptions say ages 4–16, but one topic has `ageRangeStart` 15 and
   none 16. There are 180 topics for ages 13–14.
 - **Reproduce:** count `ageRangeStart` over `data/topics.json` and `data/extra/topics.json`.

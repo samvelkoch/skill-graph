@@ -4,7 +4,7 @@
 
 Skill Graph is an open model of knowledge: concepts, the prerequisites that link them, the signs that a concept has been understood, routes towards a goal, and interactive labs that explain one idea each. It shows how concepts connect, what builds on what, and how a learner can find the next step from what they already understand.
 
-School learning from about age 4 to 16 is where it is used first. A parent uses the map to see where a child is and what comes next; a child uses the labs to play with an idea until it makes sense. Topics are checked against eleven national school curricula and the International Baccalaureate, and everything is in English, Russian and Hungarian.
+School learning from about age 4 to 14 is where it is used first. A parent uses the map to see where a child is and what comes next; a child uses the labs to play with an idea until it makes sense. Topics are checked against eleven national school curricula and the International Baccalaureate, and everything is in English, Russian and Hungarian.
 
 **Open it:** [samvelkoch.github.io/skill-graph](https://samvelkoch.github.io/skill-graph/) · **Labs:** [samvelkoch.github.io/skill-graph/labs/](https://samvelkoch.github.io/skill-graph/labs/) · **Help build it:** [CONTRIBUTING.md](CONTRIBUTING.md)
 
