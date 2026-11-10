@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-10
 
 ### Labs
+- New lab `prism` “Slices of a Prism”: cut prisms of every shape into equal slices, lean a triangle without changing its area, and fill a swimming pool with a sloping floor (513). (#456)
 - New lab `plastic-sea` “The Bottle's Journey”: follow a plastic bottle as the sea breaks it into ever smaller pieces, see what sea animals mistake for food, and try the levers a seaside town can pull (512). (#455)
 - New lab `turn-symmetry` “Turn It Round”: spin pinwheels, stars and snowflakes on a pin and count how often they match, find the smallest turn, and hunt for letters that look the same upside down (511). (#454)
 - New lab `home-power` “Who Uses Most?”: switch on appliances and watch an old meter's disc spin, sort what runs on electricity, and add up a family's day in watt-hours (510). (#453)
