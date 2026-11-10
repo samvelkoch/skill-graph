@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-10
 
 ### Labs
+- New lab `gold-foil` “Shooting at Gold Foil”: fire a thousand alpha particles at gold foil and compare the plum-pudding and nuclear atoms, zoom from a gold atom to its nucleus, and make a hydrogen electron give off coloured light (532). (#475)
 - New lab `house-of-wisdom` “The House of Wisdom”: carry Euclid, Ptolemy and the Indian digits from city to city and guess each new language, race Roman numerals against digits in a sum, and find words that came through Arabic (531). (#474)
 - New lab `climograph` “Guess the City”: read the rain bars and temperature line of a real climate chart, find six mystery cities from their charts, and flip the seasons of Sydney against Budapest (530). (#473)
 - New lab `bridges` “Seven Bridges”: try to cross every bridge of an old river town once, turn the town into dots and lines and find the rule of odd dots, and add or remove bridges until the walk works (529). (#472)
