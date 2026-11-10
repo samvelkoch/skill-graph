@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-10
 
 ### Labs
+- New lab `neurons` “A Path in the Brain”: send a signal along a chain of neurons and watch it cross the synapses, light up the lobes of the brain at work, and practise a skill for 30 days (524). (#467)
 - New lab `share-decimals` “Share to the Last Coin”: deal coins to four friends and change the leftovers into tenths and hundredths, watch each step appear in a written division, and cut a ribbon into equal pieces (523). (#466)
 - New lab `not-event` “The Chance It Won't”: paint a spinner and find the chance of "not red" before spinning it a thousand times, find a hidden chance on a four-colour wheel, and turn forecasts and raffles into chances of the opposite (522). (#465)
 - New lab `coord-rules` “The Moving Rule”: feed points into a hidden machine and predict where the next one lands, then name the coordinate rules that slide, flip and turn a sailboat on a grid (521). (#464)
