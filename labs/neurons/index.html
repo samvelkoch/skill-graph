@@ -1,0 +1,903 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>A Path in the Brain · Skill Graph</title>
+<meta name="description" content="Push a nerve cell and watch a signal run along its axon and across a synapse, find which lobe does which job, and practise a skill to see a path in the brain grow stronger. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  #stage canvas { touch-action: pan-y; }
+  .nb-q { font: 500 19px/1.25 var(--serif); color: #fff; margin: 0 0 10px; text-wrap: balance; }
+  .nb-opts { display: flex; gap: 8px; flex-wrap: wrap; }
+  .nb-opts button { min-height: 40px; padding: 8px 16px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 800; font-size: 13.5px; cursor: pointer; }
+  .nb-opts button:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .nb-opts button:disabled { opacity: .45; cursor: default; }
+  .nb-opts button.good { border-color: var(--ok); background: rgba(61, 220, 151, .18); opacity: 1; }
+  .nb-opts button.bad { border-color: #e5484d; background: rgba(229, 72, 77, .18); opacity: 1; }
+  .nb-row { display: flex; align-items: center; gap: 10px; }
+  .nb-row input { flex: 1; min-width: 0; }
+  .nb-lbl { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-weight: 700; }
+  .nb-num { min-width: 64px; text-align: right; font-size: 18px; font-weight: 900; }
+  .nb-v { margin: 0 0 10px; font-size: 13.5px; color: var(--soft); }
+  .nb-v b { color: var(--ok); }
+  .nb-v b.no { color: var(--wip); }
+  .nb-task { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; font: 500 19px/1.25 var(--serif); color: #fff; }
+  .nb-task .e { font-size: 30px; }
+  .nb-task small { display: block; font: 700 11px/1.3 var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+  #ctrlBody .chip, #ctrlBody .btn { min-height: 38px; }
+  #ctrlBody .btn:disabled, #ctrlBody .chip:disabled { opacity: .4; cursor: default; }
+  .nb-fine { font-size: 11px; color: var(--faint); margin-top: 10px; }
+  @media (max-width: 760px) {
+    #stage { height: min(118vw, 520px); }
+    body[data-v=map] #stage { height: min(96vw, 420px); }
+    body[data-v=practice] #stage { height: min(112vw, 500px); }
+    .nb-q { font-size: 17px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, store, $, esc, clamp, lerp, ruPlural, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const nf = (x, d = 0) => new Intl.NumberFormat(lang, { maximumFractionDigits: d, minimumFractionDigits: d }).format(x);
+
+const T = {
+  en: {
+    name: 'A Path in the Brain', title: 'A Path in the Brain',
+    lines: [['Push a nerve cell', 'and watch the signal run.'], ['Find which part of the brain', 'does each job.'], ['Practise a skill', 'and watch the path grow stronger.']],
+    views: { signal: '⚡ Signal', map: '🗺️ Map', practice: '🎯 Practice' },
+    u: { mv: 'mV', ms: 'ms', s: 's', day: 'days' },
+    lab: { dend: 'dendrites', soma: 'cell body', axon: 'axon', myelin: 'myelin', syn: 'synapse', thr: 'threshold', rest: 'rest', time: 'time (slow motion)', push: 'push', solid: 'solid', dashed: 'dashed' },
+    sg: {
+      q: (a, b) => `A push of ${a} mV makes the nerve cell fire a spike. A push twice as strong, ${b} mV: what happens to the spike’s height?`,
+      opts: ['About twice as tall', 'The same height', 'No spike at all'], ok: 'Right!', no: 'Not quite.',
+      rev: (pk) => `Look at the graph: both pushes gave a spike up to ${pk} mV. A neuron fires fully or not at all. A stronger push only makes it fire sooner.`,
+      askT: 'Make a guess first', askL: 'Then the nerve cell will show you what really happens.',
+      terms: 'A nerve cell, or neuron, listens with its dendrites and sends along its axon. Fatty myelin wraps the axon in sleeves. The tiny gap between two neurons is a synapse.',
+      pushL: 'Push', fire: '⚡ Fire', my: (on) => `Myelin: ${on ? 'on' : 'off'}`, pOn: 'myelin on', pOff: 'myelin off',
+      spd: (t) => `1 m of axon takes ${t}`,
+      st: {
+        push: ['👉', 'The push builds up', 'The voltage inside the cell rises. If it reaches the threshold, the cell fires.'],
+        axon1: ['⚡', 'The spike runs down the axon', 'Wrapped in myelin, it jumps from gap to gap between the sleeves.'],
+        axon0: ['⚡', 'The spike creeps along the axon', 'With no myelin it has to travel the whole length, bit by bit.'],
+        syn: ['🧪', 'Messengers cross the gap', 'At the synapse the electric spike turns into chemical messengers. They float across and push the next cell.'],
+        next: ['✅', 'The next cell fires', 'It makes its own full spike and passes it on.'],
+        done: ['🏁', 'The signal reached the end', 'Electric along each cell, chemical between cells.'],
+        weak: ['🫥', 'Too weak: nothing travels', 'The voltage bumps up and fades away. A push has to reach the threshold first. Find the weakest push that still works.'],
+      },
+    },
+    mp: {
+      modes: { tasks: '🧩 Jobs', day: '📅 A day' },
+      lobe: { frontal: 'Frontal', parietal: 'Parietal', temporal: 'Temporal', occipital: 'Occipital' },
+      area: { frontal: 'frontal lobe', parietal: 'parietal lobe', temporal: 'temporal lobe', occipital: 'occipital lobe', cerebellum: 'cerebellum', stem: 'brainstem' },
+      short: { cerebellum: 'Cerebellum', stem: 'Brainstem' },
+      kick: (i) => `Job ${i} of 5`, q: 'Which lobe does this job?', next: '→ Next', last: '→ Result', again: '↻ Again',
+      tasks: { see: ['Seeing a picture', 'The occipital lobe, at the back of the head, receives what the eyes see.'], move: ['Moving your hand', 'A strip at the back of the frontal lobe sends the orders to the muscles.'],
+        hear: ['Hearing music', 'The temporal lobe, above the ears, handles sounds and the memories tied to them.'], touch: ['Feeling touch', 'A strip at the front of the parietal lobe feels touch from all over the body.'],
+        plan: ['Planning your day', 'The frontal lobe, behind the forehead, takes care of planning, self-control and reasoning.'] },
+      right: 'Right!', wrong: (a) => `Not quite: it is the ${a}.`, askT: 'Which lobe?', askL: 'Tap a lobe on the brain or pick a button.',
+      end: (k) => `${k} of 5 right`, endL: 'Each lobe has its jobs, but most things use several parts of the brain working together.',
+      times: ['🌅 Wake-up', '🍳 Breakfast', '🚲 Ride', '📖 Lesson', '⚽ Football', '😴 Sleep'],
+      dayT: 'No area is switched off', dayL: (a, b) => `Busiest now: ${a} and ${b}. Every other area is working too, just less.`, dayB: 'Schematic scan: darker means less active, never off.',
+      myth: '💭 The 10 % myth', scan: '🧠 The scan',
+      mythT: '“We use only 10 % of the brain”', mythL: 'This is what the myth claims: most of the brain stays dark.', mythB: 'Scans do not show that. Switch back to the scan: even in sleep every area is working.',
+      active: 'areas working', mythSub: 'the myth says', pillDay: 'schematic',
+      cntT: (n) => `One dot stands for about ${n} million neurons`, cntL: (n) => `The human brain is estimated to have about ${n} billion neurons.`, cntB: (y) => `Counting one neuron every second would take about ${y} years.`,
+      cntV: '86 billion', cntSub: 'neurons in a brain', cntPill: 'estimate',
+    },
+    pr: {
+      skills: ['🎹 Piano', '🤹 Juggling'], inl: ['see the note', 'see the ball'], outl: ['press the key', 'catch it'],
+      q: 'You practise a skill every day for 30 days. How does the time you need to react change?',
+      opts: ['It stays the same', 'It falls in a straight line', 'It drops fast, then levels off'], ok: 'Right!', no: 'Not quite.',
+      rev: 'The curve drops fast, then levels off. At first each day thickens the used path a lot. Later it is already strong, so each extra day adds less.',
+      askT: 'Make a guess first', askL: 'Then watch 30 days of practice.', askB: 'Every time a path is used, its connections get stronger. The brain changes with practice: this is called neuroplasticity.',
+      d1: '➕ 1 day', d7: '⏩ 7 days', rs: '↺ Start over', ms: 'ms', days: 'days of practice', yours: 'your guess', sub: (d) => `day ${d} of 30`, pill: 'model',
+      s0: ['🌱', 'Day 0: thin paths', 'Many thin connections. The signal takes the quickest one.'],
+      sm: (d) => ['💪', `Day ${d}`, 'The path you keep using gets thicker, so the signal runs along it faster.'],
+      s30: ['🧠', 'Day 30: a strong path', 'Practice strengthened the connections the signal used. The brain changing like this is called neuroplasticity.'],
+      note: 'A model: the times are invented to show the shape of the curve, not measured.',
+      yrsL: 'Years of driving a taxi', front: 'front part', back: 'back part', hip: 'hippocampus (schematic)', yrsSub: 'years of driving', yrsPill: 'schematic',
+      yrsT: (y) => `${y} ${y === 1 ? 'year' : 'years'} behind the wheel`,
+      yrsL1: 'London black-cab drivers, who spend years learning the city’s streets, had a larger back part of the hippocampus, a memory centre, than other people. The more years of driving, the larger it was.',
+      yrsB: 'The whole hippocampus did not grow: the front part was relatively smaller. Schematic picture: the shares are illustrative.',
+    },
+    facts: {
+      signal: [{ emo: '🏎️', text: 'The fastest nerve fibres, wrapped in myelin, carry signals at 80–120 metres per second. Thin fibres without myelin manage only 0.5–2.', src: 'https://en.wikipedia.org/wiki/Nerve_conduction_velocity' },
+        { emo: '🔢', text: 'The human brain has an estimated 86 billion neurons, and roughly as many other cells.', src: 'https://en.wikipedia.org/wiki/Human_brain' }],
+      map: [{ emo: '🔋', text: 'The brain is only about 2 % of your body weight, but it can use up to 20 % of the body’s energy.', src: 'https://en.wikipedia.org/wiki/Ten_percent_of_the_brain_myth' },
+        { emo: '⚖️', text: 'An adult human brain weighs about 1.2–1.4 kilograms.', src: 'https://en.wikipedia.org/wiki/Human_brain' }],
+      practice: [{ emo: '🚕', text: 'London black-cab drivers had a larger back part of the hippocampus than other people, and the more years they had driven, the bigger it was.', src: 'https://en.wikipedia.org/wiki/Hippocampus' }],
+    },
+    secrets: { taxi: ['Taxi drivers’ brains', 'What years of learning streets did to a memory centre'], count: ['How many?', 'Count the nerve cells in a brain'] },
+    quiz: [
+      { q: 'How does a signal cross the gap between two neurons?', opts: ['A spark jumps across', 'Chemical messengers carry it', 'It can’t: the cells must touch'], ok: 1, hint: 'Watch the gap between the two cells in Signal.' },
+      { q: 'A stronger push makes the spike…', opts: ['taller', 'slower', 'the same height: all or nothing'], ok: 2, hint: 'Compare two pushes above the threshold in Signal.' },
+      { q: 'Is it true that we use only 10 % of our brain?', opts: ['No, it is a myth: every area is used', 'Yes, it is true', 'Yes, but only for adults'], ok: 0, hint: 'Look at the scan through the day in Map.' },
+    ],
+  },
+  ru: {
+    name: 'Тропинка в мозге', title: 'Тропинка в мозге',
+    lines: [['Подтолкни нервную клетку', 'и смотри, как бежит сигнал.'], ['Найди, какая часть мозга', 'за какое дело отвечает.'], ['Потренируй навык', 'и смотри, как крепнет тропинка.']],
+    views: { signal: '⚡ Сигнал', map: '🗺️ Карта', practice: '🎯 Навык' },
+    u: { mv: 'мВ', ms: 'мс', s: 'с', day: 'дней' },
+    lab: { dend: 'дендриты', soma: 'тело клетки', axon: 'аксон', myelin: 'миелин', syn: 'синапс', thr: 'порог', rest: 'покой', time: 'время (замедленно)', push: 'толчок', solid: 'сплошная', dashed: 'пунктир' },
+    sg: {
+      q: (a, b) => `Толчок в ${a} мВ заставляет нервную клетку выдать импульс. А если толчок вдвое сильнее, ${b} мВ: что станет с высотой импульса?`,
+      opts: ['Примерно вдвое выше', 'Такой же высоты', 'Импульса не будет'], ok: 'Верно!', no: 'Не совсем.',
+      rev: (pk) => `Смотри на график: оба толчка дали импульс до ${pk} мВ. Нейрон срабатывает целиком или не срабатывает вовсе. Сильный толчок лишь заставляет его сработать раньше.`,
+      askT: 'Сначала догадайся', askL: 'Потом нервная клетка покажет, как всё на самом деле.',
+      terms: 'Нервная клетка, или нейрон, принимает сигнал дендритами, а отправляет по аксону. Жировой миелин одевает аксон в «рукавчики». Крошечный зазор между двумя нейронами — синапс.',
+      pushL: 'Толчок', fire: '⚡ Запуск', my: (on) => `Миелин: ${on ? 'есть' : 'нет'}`, pOn: 'с миелином', pOff: 'без миелина',
+      spd: (t) => `1 м аксона: ${t}`,
+      st: {
+        push: ['👉', 'Толчок нарастает', 'Напряжение внутри клетки растёт. Дойдёт до порога — клетка сработает.'],
+        axon1: ['⚡', 'Импульс бежит по аксону', 'С миелином он перескакивает от просвета к просвету между «рукавчиками».'],
+        axon0: ['⚡', 'Импульс ползёт по аксону', 'Без миелина ему приходится проходить всю длину по кусочку.'],
+        syn: ['🧪', 'Посредники переходят зазор', 'В синапсе электрический импульс превращается в химических посредников. Они переплывают зазор и подталкивают следующую клетку.'],
+        next: ['✅', 'Срабатывает следующая клетка', 'Она даёт свой полный импульс и передаёт его дальше.'],
+        done: ['🏁', 'Сигнал дошёл до конца', 'Внутри клетки он электрический, между клетками — химический.'],
+        weak: ['🫥', 'Слишком слабо: ничего не идёт', 'Напряжение чуть поднимается и затухает. Толчок должен сначала дойти до порога. Найди самый слабый толчок, который ещё работает.'],
+      },
+    },
+    mp: {
+      modes: { tasks: '🧩 Задания', day: '📅 День' },
+      lobe: { frontal: 'Лобная', parietal: 'Теменная', temporal: 'Височная', occipital: 'Затылочная' },
+      area: { frontal: 'лобная доля', parietal: 'теменная доля', temporal: 'височная доля', occipital: 'затылочная доля', cerebellum: 'мозжечок', stem: 'ствол мозга' },
+      short: { cerebellum: 'Мозжечок', stem: 'Ствол' },
+      kick: (i) => `Задание ${i} из 5`, q: 'Какая доля мозга за это отвечает?', next: '→ Дальше', last: '→ Итог', again: '↻ Ещё раз',
+      tasks: { see: ['Смотреть на картинку', 'Затылочная доля, на затылке, принимает то, что видят глаза.'], move: ['Двигать рукой', 'Полоска в задней части лобной доли посылает мышцам команды.'],
+        hear: ['Слушать музыку', 'Височная доля, над ушами, обрабатывает звуки и связанные с ними воспоминания.'], touch: ['Чувствовать прикосновение', 'Полоска в передней части теменной доли чувствует касания всего тела.'],
+        plan: ['Планировать день', 'Лобная доля, за лбом, отвечает за планирование, самоконтроль и рассуждения.'] },
+      right: 'Верно!', wrong: (a) => `Не совсем: это ${a}.`, askT: 'Какая доля?', askL: 'Нажми на долю мозга на картинке или выбери кнопку.',
+      end: (k) => `${k} из 5 верно`, endL: 'У каждой доли свои дела, но в большинстве случаев вместе работают несколько частей мозга.',
+      times: ['🌅 Подъём', '🍳 Завтрак', '🚲 Дорога', '📖 Урок', '⚽ Футбол', '😴 Сон'],
+      dayT: 'Ни одна область не выключена', dayL: (a, b) => `Сейчас больше всего работают: ${a} и ${b}. Остальные области тоже работают, просто меньше.`, dayB: 'Схема снимка: темнее — менее активно, но не выключено.',
+      myth: '💭 Миф про 10 %', scan: '🧠 Снимок',
+      mythT: '«Мы используем лишь 10 % мозга»', mythL: 'Так утверждает миф: большая часть мозга остаётся тёмной.', mythB: 'Снимки этого не показывают. Вернись к снимку: даже во сне работают все области.',
+      active: 'областей работает', mythSub: 'так говорит миф', pillDay: 'схема',
+      cntT: (n) => `Одна точка — примерно ${n} млн нейронов`, cntL: (n) => `В человеческом мозге, по оценкам, около ${n} миллиардов нейронов.`, cntB: (y) => `Если считать по одному нейрону в секунду, понадобится около ${y} лет.`,
+      cntV: '86 млрд', cntSub: 'нейронов в мозге', cntPill: 'оценка',
+    },
+    pr: {
+      skills: ['🎹 Пианино', '🤹 Жонглирование'], inl: ['увидеть ноту', 'увидеть мяч'], outl: ['нажать клавишу', 'поймать'],
+      q: 'Ты тренируешь навык каждый день 30 дней. Как меняется время, которое нужно на реакцию?',
+      opts: ['Остаётся прежним', 'Падает по прямой', 'Быстро падает, потом выравнивается'], ok: 'Верно!', no: 'Не совсем.',
+      rev: 'Кривая быстро падает, а потом выравнивается. Сначала каждый день сильно утолщает путь, которым пользуются. Потом он уже крепкий, и каждый новый день добавляет меньше.',
+      askT: 'Сначала догадайся', askL: 'Потом посмотри на 30 дней тренировки.', askB: 'Каждый раз, когда путь работает, его связи крепнут. Мозг меняется от тренировки: это называют нейропластичностью.',
+      d1: '➕ 1 день', d7: '⏩ 7 дней', rs: '↺ Сначала', ms: 'мс', days: 'дней тренировки', yours: 'твоя догадка', sub: (d) => `день ${d} из 30`, pill: 'модель',
+      s0: ['🌱', 'День 0: тонкие тропинки', 'Много тонких связей. Сигнал выбирает самую быструю.'],
+      sm: (d) => ['💪', `День ${d}`, 'Путь, которым пользуются, толстеет, и сигнал бежит по нему быстрее.'],
+      s30: ['🧠', 'День 30: крепкая тропинка', 'Тренировка укрепила связи, по которым шёл сигнал. Такое изменение мозга называют нейропластичностью.'],
+      note: 'Модель: время придумано, чтобы показать форму кривой, а не измерено.',
+      yrsL: 'Лет за рулём такси', front: 'передняя часть', back: 'задняя часть', hip: 'гиппокамп (схема)', yrsSub: 'лет за рулём', yrsPill: 'схема',
+      yrsT: (y) => `Стаж за рулём: ${y} ${ruPlural(y, 'год', 'года', 'лет')}`,
+      yrsL1: 'У лондонских таксистов, которые годами учат улицы города, задняя часть гиппокампа (центра памяти) была больше, чем у других людей. Чем больше лет за рулём, тем она больше.',
+      yrsB: 'Весь гиппокамп не вырос: передняя часть оказалась относительно меньше. Схема: доли показаны условно.',
+    },
+    facts: {
+      signal: [{ emo: '🏎️', text: 'Самые быстрые нервные волокна, одетые в миелин, проводят сигналы со скоростью 80–120 метров в секунду. Тонкие волокна без миелина — всего 0,5–2.', src: 'https://en.wikipedia.org/wiki/Nerve_conduction_velocity' },
+        { emo: '🔢', text: 'В человеческом мозге, по оценкам, около 86 миллиардов нейронов и примерно столько же других клеток.', src: 'https://en.wikipedia.org/wiki/Human_brain' }],
+      map: [{ emo: '🔋', text: 'Мозг — всего около 2 % массы тела, но он может использовать до 20 % энергии организма.', src: 'https://en.wikipedia.org/wiki/Ten_percent_of_the_brain_myth' },
+        { emo: '⚖️', text: 'Мозг взрослого человека весит около 1,2–1,4 килограмма.', src: 'https://en.wikipedia.org/wiki/Human_brain' }],
+      practice: [{ emo: '🚕', text: 'У водителей лондонских чёрных такси задняя часть гиппокампа была больше, чем у других людей, и чем больше лет они водили, тем она была больше.', src: 'https://en.wikipedia.org/wiki/Hippocampus' }],
+    },
+    secrets: { taxi: ['Мозг таксистов', 'Что сделали годы изучения улиц с центром памяти'], count: ['Сколько их?', 'Посчитай нервные клетки в мозге'] },
+    quiz: [
+      { q: 'Как сигнал переходит от одного нейрона к другому через зазор?', opts: ['Через зазор перескакивает искра', 'Его переносят химические посредники', 'Никак: клетки должны касаться друг друга'], ok: 1, hint: 'Посмотри на зазор между двумя клетками во вкладке «Сигнал».' },
+      { q: 'Толчок посильнее делает импульс…', opts: ['выше', 'медленнее', 'такой же высоты: целиком или никак'], ok: 2, hint: 'Сравни два толчка выше порога во вкладке «Сигнал».' },
+      { q: 'Правда ли, что мы используем только 10 % мозга?', opts: ['Нет, это миф: работают все области', 'Да, это правда', 'Да, но только у взрослых'], ok: 0, hint: 'Посмотри на снимок мозга в течение дня во вкладке «Карта».' },
+    ],
+  },
+  hu: {
+    name: 'Ösvény az agyban', title: 'Ösvény az agyban',
+    lines: [['Lökd meg az idegsejtet,', 'és nézd, ahogy fut a jel.'], ['Találd meg, melyik agyrész', 'melyik feladatot végzi.'], ['Gyakorolj egy készséget,', 'és nézd, ahogy erősödik az ösvény.']],
+    views: { signal: '⚡ Jel', map: '🗺️ Térkép', practice: '🎯 Gyakorlat' },
+    u: { mv: 'mV', ms: 'ms', s: 's', day: 'nap' },
+    lab: { dend: 'dendritek', soma: 'sejttest', axon: 'axon', myelin: 'mielin', syn: 'szinapszis', thr: 'küszöb', rest: 'nyugalom', time: 'idő (lassítva)', push: 'lökés', solid: 'folytonos', dashed: 'szaggatott' },
+    sg: {
+      q: (a, b) => `${a} mV-os lökés hatására az idegsejt impulzust ad. Kétszer erősebb lökés, ${b} mV: mi lesz az impulzus magasságával?`,
+      opts: ['Körülbelül kétszer akkora', 'Ugyanakkora', 'Nem lesz impulzus'], ok: 'Így van!', no: 'Nem egészen.',
+      rev: (pk) => `Nézd a grafikont: mindkét lökés ${pk} mV-ig tartó impulzust adott. Az idegsejt vagy teljesen elsül, vagy sehogy. Az erősebb lökés csak korábban váltja ki.`,
+      askT: 'Előbb tippelj', askL: 'Utána az idegsejt megmutatja, mi történik valójában.',
+      terms: 'Az idegsejt, vagyis a neuron a dendritjeivel hallgat, az axonján küld. A zsíros mielin hüvelyekbe csomagolja az axont. Két neuron között a parányi rés a szinapszis.',
+      pushL: 'Lökés', fire: '⚡ Indítás', my: (on) => `Mielin: ${on ? 'van' : 'nincs'}`, pOn: 'mielinnel', pOff: 'mielin nélkül',
+      spd: (t) => `1 m axon: ${t}`,
+      st: {
+        push: ['👉', 'A lökés erősödik', 'A sejtben nő a feszültség. Ha eléri a küszöböt, a sejt elsül.'],
+        axon1: ['⚡', 'Az impulzus fut az axonon', 'Mielinnel rés és rés között ugrik a hüvelyek mentén.'],
+        axon0: ['⚡', 'Az impulzus kúszik az axonon', 'Mielin nélkül az egész hosszon végig kell mennie, darabonként.'],
+        syn: ['🧪', 'A hírvivők átjutnak a résen', 'A szinapszisnál az elektromos impulzus kémiai hírvivőkké alakul. Átúsznak a résen, és meglökik a következő sejtet.'],
+        next: ['✅', 'Elsül a következő sejt', 'Saját, teljes impulzust ad, és továbbadja.'],
+        done: ['🏁', 'A jel a végére ért', 'Egy sejten belül elektromos, a sejtek között kémiai.'],
+        weak: ['🫥', 'Túl gyenge: semmi sem halad', 'A feszültség kicsit megugrik, aztán elhal. A lökésnek előbb el kell érnie a küszöböt. Találd meg a leggyengébb lökést, amely még működik.'],
+      },
+    },
+    mp: {
+      modes: { tasks: '🧩 Feladatok', day: '📅 Egy nap' },
+      lobe: { frontal: 'Homlok', parietal: 'Fali', temporal: 'Halántéki', occipital: 'Nyakszirti' },
+      area: { frontal: 'homloklebeny', parietal: 'fali lebeny', temporal: 'halántéki lebeny', occipital: 'nyakszirti lebeny', cerebellum: 'kisagy', stem: 'agytörzs' },
+      short: { cerebellum: 'Kisagy', stem: 'Agytörzs' },
+      kick: (i) => `${i}. feladat / 5`, q: 'Melyik lebeny végzi ezt?', next: '→ Tovább', last: '→ Eredmény', again: '↻ Újra',
+      tasks: { see: ['Kép nézése', 'A nyakszirti lebeny, a fej hátsó részén, fogadja azt, amit a szem lát.'], move: ['A kezed mozgatása', 'A homloklebeny hátsó sávja küldi a parancsokat az izmoknak.'],
+        hear: ['Zenehallgatás', 'A halántéki lebeny, a fül felett, a hangokat és a hozzájuk kötődő emlékeket dolgozza fel.'], touch: ['Érintés érzékelése', 'A fali lebeny elülső sávja érzékeli az érintést az egész testről.'],
+        plan: ['A napod megtervezése', 'A homloklebeny, a homlok mögött, a tervezésért, az önuralomért és a gondolkodásért felel.'] },
+      right: 'Így van!', wrong: (a) => `Nem egészen: ez a ${a}.`, askT: 'Melyik lebeny?', askL: 'Koppints egy lebenyre az agyon, vagy válassz gombot.',
+      end: (k) => `5-ből ${k} jó`, endL: 'Minden lebenynek megvan a maga dolga, de a legtöbb feladatban több agyrész dolgozik együtt.',
+      times: ['🌅 Ébredés', '🍳 Reggeli', '🚲 Biciklizés', '📖 Óra', '⚽ Foci', '😴 Alvás'],
+      dayT: 'Egyetlen terület sincs kikapcsolva', dayL: (a, b) => `Most a legaktívabb: ${a} és ${b}. A többi terület is dolgozik, csak kevésbé.`, dayB: 'Sematikus felvétel: a sötétebb kevésbé aktív, de nem kikapcsolt.',
+      myth: '💭 A 10 %-os tévhit', scan: '🧠 A felvétel',
+      mythT: '„Az agyunk csak 10 %-át használjuk”', mythL: 'Ezt állítja a tévhit: az agy nagy része sötét marad.', mythB: 'A felvételek ezt nem mutatják. Válts vissza a felvételre: alvás közben is minden terület dolgozik.',
+      active: 'terület dolgozik', mythSub: 'ezt mondja a tévhit', pillDay: 'séma',
+      cntT: (n) => `Egy pont körülbelül ${n} millió idegsejtet jelent`, cntL: (n) => `Az emberi agyban becslések szerint körülbelül ${n} milliárd idegsejt van.`, cntB: (y) => `Ha másodpercenként egy idegsejtet számolnál, körülbelül ${y} évig tartana.`,
+      cntV: '86 milliárd', cntSub: 'idegsejt egy agyban', cntPill: 'becslés',
+    },
+    pr: {
+      skills: ['🎹 Zongora', '🤹 Zsonglőrködés'], inl: ['meglátod a hangjegyet', 'meglátod a labdát'], outl: ['leütöd a billentyűt', 'elkapod'],
+      q: 'Harminc napon át minden nap gyakorolsz egy készséget. Hogyan változik a reakcióidő?',
+      opts: ['Ugyanannyi marad', 'Egyenes vonalban csökken', 'Gyorsan csökken, aztán kiegyenlítődik'], ok: 'Így van!', no: 'Nem egészen.',
+      rev: 'A görbe gyorsan lejt, aztán kiegyenlítődik. Eleinte minden nap sokat vastagít a használt úton. Később már erős, ezért minden további nap kevesebbet tesz hozzá.',
+      askT: 'Előbb tippelj', askL: 'Utána nézd meg a 30 nap gyakorlást.', askB: 'Valahányszor egy ösvényt használsz, a kapcsolatai erősödnek. Az agy a gyakorlástól változik: ezt neuroplaszticitásnak hívják.',
+      d1: '➕ 1 nap', d7: '⏩ 7 nap', rs: '↺ Újra', ms: 'ms', days: 'nap gyakorlás', yours: 'a tipped', sub: (d) => `${d}. nap / 30`, pill: 'modell',
+      s0: ['🌱', 'A 0. nap: vékony ösvények', 'Sok vékony kapcsolat. A jel a leggyorsabbat választja.'],
+      sm: (d) => ['💪', `${d}. nap`, 'Az ösvény, amelyet használnak, vastagodik, és a jel gyorsabban fut rajta.'],
+      s30: ['🧠', '30. nap: erős ösvény', 'A gyakorlás megerősítette azokat a kapcsolatokat, amelyeken a jel haladt. Az agynak ezt a változását neuroplaszticitásnak hívják.'],
+      note: 'Modell: az időket a görbe alakjának bemutatására találtuk ki, nem mértük.',
+      yrsL: 'Taxizással töltött évek', front: 'elülső rész', back: 'hátsó rész', hip: 'hippokampusz (séma)', yrsSub: 'év a volán mögött', yrsPill: 'séma',
+      yrsT: (y) => `${y} év a volán mögött`,
+      yrsL1: 'A londoni fekete taxisok, akik éveken át tanulják a város utcáit, a hippokampusz (emlékezeti központ) hátsó részét nagyobbnak mutatták, mint más emberekéi. Minél több éve vezettek, annál nagyobb volt.',
+      yrsB: 'A teljes hippokampusz nem nőtt: az elülső rész viszonylag kisebb volt. Sematikus kép: az arányok szemléltetők.',
+    },
+    facts: {
+      signal: [{ emo: '🏎️', text: 'A leggyorsabb, mielinnel borított idegrostok másodpercenként 80–120 méteres sebességgel vezetik a jeleket. A mielin nélküli vékony rostok csak 0,5–2 métert tesznek meg.', src: 'https://en.wikipedia.org/wiki/Nerve_conduction_velocity' },
+        { emo: '🔢', text: 'Az emberi agyban becslések szerint körülbelül 86 milliárd idegsejt van, és nagyjából ugyanennyi más sejt.', src: 'https://en.wikipedia.org/wiki/Human_brain' }],
+      map: [{ emo: '🔋', text: 'Az agy a testsúlyodnak csak kb. 2 %-a, mégis akár a test energiájának 20 %-át is felhasználhatja.', src: 'https://en.wikipedia.org/wiki/Ten_percent_of_the_brain_myth' },
+        { emo: '⚖️', text: 'Egy felnőtt ember agya körülbelül 1,2–1,4 kilogrammot nyom.', src: 'https://en.wikipedia.org/wiki/Human_brain' }],
+      practice: [{ emo: '🚕', text: 'A londoni fekete taxisok hippokampuszának hátsó része nagyobb volt, mint más embereké, és minél több éve vezettek, annál nagyobb.', src: 'https://en.wikipedia.org/wiki/Hippocampus' }],
+    },
+    secrets: { taxi: ['Taxisok agya', 'Mit tettek az utcák évekig tartó tanulása a memóriaközponttal'], count: ['Hányan vannak?', 'Számold meg az agy idegsejtjeit'] },
+    quiz: [
+      { q: 'Hogyan jut át a jel két idegsejt közötti résen?', opts: ['Átugrik egy szikra', 'Kémiai hírvivők viszik át', 'Sehogy: a sejteknek érintkezniük kell'], ok: 1, hint: 'Figyeld a két sejt közötti rést a Jel nézetben.' },
+      { q: 'Az erősebb lökéstől az impulzus…', opts: ['magasabb lesz', 'lassabb lesz', 'ugyanakkora: teljesen elsül, vagy sehogy'], ok: 2, hint: 'Hasonlíts össze két küszöb feletti lökést a Jel nézetben.' },
+      { q: 'Igaz, hogy az agyunknak csak a 10 %-át használjuk?', opts: ['Nem, ez tévhit: minden terület működik', 'Igen, igaz', 'Igen, de csak felnőtteknél'], ok: 0, hint: 'Nézd meg az agyi felvételt a nap folyamán a Térkép nézetben.' },
+    ],
+  },
+};
+const TOPICS = [{ id: 'mt_okUMpHsV-P', en: 'Neurons & Brain Structure', ru: 'Нейроны и строение мозга', hu: 'Idegsejtek és az agy felépítése' }];
+
+// --- numbers ---------------------------------------------------------------------------------------------------
+// Signal model: membrane voltage in mV. Rest −70, threshold −55 (a push of 15 mV reaches it), the spike always peaks at +40.
+const THR_RISE = 15, REST = -70, THR = REST + THR_RISE, PEAK = 40, UNDER = -80, PA = 20, PB = 40, SYN = 0.75;
+// speeds (m/s) in the model: myelinated ≈ 100 (nerve fibres 80–120), bare ≈ 1 (0.5–2). On screen the travel is slowed down and the gap is shrunk.
+const SPEED = { on: 100, off: 1 }, TAX = { on: 0.9, off: 3.6 };
+const NEURONS = 86e9; // estimated neurons in a human brain (Wikipedia, Human brain)
+const DAYS = 30, NE = 15; // practice: days, edges of the little network
+const NC = [['#b4cdff', '#4f78e6', '#243a8f'], ['#9df0da', '#35b39a', '#176056'], ['#ecc4ff', '#a766de', '#5b3394']]; // three neurons
+const COL = { frontal: ['#f6b3a4', '#e07b6a', '#8f4137'], parietal: ['#f7d98e', '#e0b050', '#8f6a20'], temporal: ['#9fe0d8', '#5fa8a0', '#2f5f5a'],
+  occipital: ['#c8bcf2', '#8f7fd0', '#4d4290'], cerebellum: ['#adbce0', '#7186b5', '#3f4d78'], stem: ['#97a5c8', '#65759c', '#394460'] };
+const AREAS = ['frontal', 'parietal', 'temporal', 'occipital', 'cerebellum', 'stem'];
+const PATH = {
+  frontal: new Path2D('M52 128 C28 108 32 68 62 44 C90 20 124 16 152 20 C148 50 140 78 142 100 L88 122 C76 126 62 128 52 128 Z'),
+  parietal: new Path2D('M152 20 C188 14 224 26 240 48 C232 70 218 88 212 108 L142 100 C140 78 148 50 152 20 Z'),
+  occipital: new Path2D('M240 48 C262 62 276 90 270 114 C268 126 254 134 236 134 C228 130 220 122 212 108 C218 88 232 70 240 48 Z'),
+  temporal: new Path2D('M88 122 L142 100 L212 108 C220 122 228 130 236 134 C214 150 168 154 130 150 C98 148 70 144 56 134 C62 128 76 126 88 122 Z'),
+  cerebellum: new Path2D('M196 146 C210 134 250 132 268 142 C278 152 262 172 238 178 C212 180 194 166 196 146 Z'),
+  stem: new Path2D('M150 138 C146 165 150 195 158 210 L180 208 C177 190 179 165 184 144 Z'),
+};
+const LBL = { frontal: [92, 70], parietal: [190, 60], temporal: [148, 130], occipital: [248, 90] };
+const TASKS = [{ id: 'see', lobe: 'occipital', emo: '🖼️' }, { id: 'move', lobe: 'frontal', emo: '✋' }, { id: 'hear', lobe: 'temporal', emo: '🎵' },
+  { id: 'touch', lobe: 'parietal', emo: '🤚' }, { id: 'plan', lobe: 'frontal', emo: '🗓️' }];
+// schematic activity (0..1) of [frontal, parietal, temporal, occipital, cerebellum, stem] at six moments of a day; never zero
+const DAY = [[.45, .45, .45, .5, .3, .7], [.6, .8, .75, .55, .5, .5], [.7, .7, .45, .95, .9, .5], [.9, .6, .9, .7, .3, .4], [.8, .85, .5, .85, .95, .6], [.3, .3, .35, .3, .3, .5]];
+
+// --- state -------------------------------------------------------------------------------------------------
+const sg = { phase: 'ask', guess: null, push: 25, myelin: true, runs: [], clock: 0, key: '', demo: false };
+const mp = { mode: 'tasks', ti: 0, guess: null, checked: false, right: [], time: 3, myth: false };
+const pr = { skill: 0, day: 0, phase: 'ask', guess: null, playing: false, key: '', years: 12 };
+const S = { sec: null };
+
+// --- small helpers -----------------------------------------------------------------------------------------
+const ease = (x) => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
+const hexA = (h, a) => { const n = parseInt(h.slice(1), 16); return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`; };
+const shade = (hex, k) => { const n = parseInt(hex.slice(1), 16), f = 1 - k; return `rgb(${((n >> 16) & 255) * f | 0},${((n >> 8) & 255) * f | 0},${(n & 255) * f | 0})`; };
+const hit = document.createElement('canvas').getContext('2d');
+const dur = (ms) => { const u = T[lang].u; return ms >= 1000 ? `${nf(ms / 1000)} ${u.s}` : `${nf(ms)} ${u.ms}`; };
+function pill(c, text, x, y, align, w) {
+  c.save(); c.font = '800 12px Nunito, sans-serif';
+  y = Math.max(y, 12);
+  const tw = c.measureText(text).width + 14; let X = align === 'c' ? x - tw / 2 : align === 'r' ? x - tw : x;
+  X = clamp(X, 3, Math.max(3, w - tw - 3));
+  c.fillStyle = 'rgba(10,12,22,.82)'; c.beginPath(); c.roundRect(X, y - 10, tw, 20, 10); c.fill();
+  c.fillStyle = '#dfe5f5'; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(text, X + 7, y + 0.5);
+  c.restore();
+}
+const glowDot = (c, x, y, r, col, a = 1) => {
+  const g = c.createRadialGradient(x, y, 0, x, y, Math.max(0.1, r));
+  g.addColorStop(0, hexA(col, a)); g.addColorStop(0.4, hexA(col, a * 0.45)); g.addColorStop(1, hexA(col, 0));
+  c.fillStyle = g; c.beginPath(); c.arc(x, y, Math.max(0.1, r), 0, 7); c.fill();
+};
+const twig = (c, x1, y1, cx, cy, x2, y2, wd, col) => { c.strokeStyle = col; c.lineWidth = wd; c.lineCap = 'round'; c.beginPath(); c.moveTo(x1, y1); c.quadraticCurveTo(cx, cy, x2, y2); c.stroke(); };
+function somaDraw(c, x, y, r, col, glow) {
+  c.save(); c.shadowColor = 'rgba(0,0,0,.5)'; c.shadowBlur = 10; c.shadowOffsetY = 4;
+  const g = c.createRadialGradient(x - r * 0.35, y - r * 0.4, r * 0.1, x, y, r * 1.1);
+  g.addColorStop(0, col[0]); g.addColorStop(0.55, col[1]); g.addColorStop(1, col[2]);
+  c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, 7); c.fill(); c.restore();
+  c.lineWidth = 1.6; c.strokeStyle = shade(col[2], 0.3); c.beginPath(); c.arc(x, y, r, 0, 7); c.stroke();
+  c.fillStyle = hexA(col[2], 0.55); c.beginPath(); c.arc(x + r * 0.12, y + r * 0.1, r * 0.38, 0, 7); c.fill();
+  c.fillStyle = 'rgba(255,255,255,.55)'; c.beginPath(); c.ellipse(x - r * 0.38, y - r * 0.42, r * 0.26, r * 0.15, -0.6, 0, 7); c.fill();
+  if (glow > 0.01) glowDot(c, x, y, r * 2.6, '#ffe27a', glow * 0.9);
+}
+
+// --- signal model --------------------------------------------------------------------------------------------
+function makeRun(p, m) {
+  const fires = p >= THR_RISE, ramp = clamp(0.5 * THR_RISE / Math.max(p, 1), 0.15, 0.5), tax = m ? TAX.on : TAX.off, step = 0.05 + tax + SYN;
+  const ts = [ramp, ramp + step, ramp + 2 * step];
+  return { p, m, fires, t0: sg.clock, ts, tax, end: fires ? ts[2] + 1.0 : 2.2 };
+}
+function volt(r, k, t) {
+  if (!r.fires) { if (k || t < 0) return REST; return t < 0.3 ? REST + r.p * ease(t / 0.3) : REST + r.p * Math.exp(-(t - 0.3) / 0.35); }
+  const ts = r.ts[k], tau = t - ts;
+  if (tau < 0) { const f = k ? clamp((t - (ts - 0.45)) / 0.45, 0, 1) : clamp(t / ts, 0, 1); return REST + THR_RISE * ease(f); }
+  if (tau < 0.12) return lerp(THR, PEAK, 1 - (1 - tau / 0.12) ** 2);
+  if (tau < 0.32) return lerp(PEAK, UNDER, ease((tau - 0.12) / 0.2));
+  if (tau < 0.7) return lerp(UNDER, REST, 1 - (1 - (tau - 0.32) / 0.38) ** 2);
+  return REST;
+}
+function sigKey() {
+  if (sg.phase === 'ask') return 'ask';
+  const r = sg.runs[sg.runs.length - 1]; if (!r) return 'ask';
+  const t = sg.clock - r.t0, m = r.m ? '1' : '0';
+  if (!r.fires) return 'weak';
+  const [a, b, c] = r.ts, ta = (k) => r.ts[k] + 0.05 + r.tax;
+  let k = 'done';
+  if (t < a) k = 'push'; else if (t < ta(0)) k = 'axon' + m; else if (t < b) k = 'syn'; else if (t < b + 0.45) k = 'next';
+  else if (t < ta(1)) k = 'axon' + m; else if (t < c) k = 'syn'; else if (t < c + 0.45) k = 'next'; else if (t < ta(2)) k = 'axon' + m;
+  return k + (sg.demo ? '*' : '');
+}
+
+// --- practice model: a little network; the used path gets stronger, so the signal along it gets faster ---------
+const edgeDelay = (w) => 40 + 110 * (1 - w); // ms
+const pathEdges = (a, b) => [a, 3 + a * 3 + b, 12 + b];
+function bestPath(W) {
+  let bd = Infinity, be = null;
+  for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) { const e = pathEdges(a, b), d = e.reduce((s, i) => s + edgeDelay(W[i]), 0); if (d < bd - 1e-9) { bd = d; be = e; } }
+  return { edges: be, d: bd };
+}
+function simulate(seed, rate) {
+  let W = Array.from({ length: NE }, (_, e) => { const x = Math.sin((e + 1) * 12.9898 + seed * 78.233) * 43758.5453; return 0.08 + 0.06 * (x - Math.floor(x)); });
+  const out = { W: [], R: [], P: [] };
+  for (let d = 0; d <= DAYS; d++) {
+    if (d > 0) { W = W.slice(); out.P[d - 1].forEach((e) => { W[e] += rate * (1 - W[e]); }); }
+    const b = bestPath(W); out.W.push(W); out.R.push(b.d); out.P.push(b.edges);
+  }
+  return out;
+}
+const SIM = [simulate(1, 0.16), simulate(2, 0.11)];
+const edgeEnds = (e) => (e < 3 ? [[0, 0], [1, e]] : e < 12 ? [[1, Math.floor((e - 3) / 3)], [2, (e - 3) % 3]] : [[2, e - 12], [3, 0]]);
+const dayAt = () => { const d = clamp(pr.day, 0, DAYS), i = Math.floor(d), j = Math.min(DAYS, i + 1), f = d - i, s = SIM[pr.skill];
+  return { i, W: s.W[i].map((w, e) => lerp(w, s.W[j][e], f)), R: lerp(s.R[i], s.R[j], f), P: s.P[i] }; };
+
+// --- map: dots for the "How many?" secret --------------------------------------------------------------------
+const DOTS = (() => {
+  const out = []; let s = 12345;
+  const rnd = () => { s = (s * 1664525 + 1013904223) % 4294967296; return s / 4294967296; };
+  for (let i = 0; i < 2600; i++) {
+    const x = 30 + rnd() * 250, y = 15 + rnd() * 150;
+    for (const a of ['frontal', 'parietal', 'temporal', 'occipital']) if (hit.isPointInPath(PATH[a], x, y)) { out.push([x, y, a]); break; }
+  }
+  return out;
+})();
+
+// --- shell -------------------------------------------------------------------------------------------------
+const lab = shell({ key: 'neurons', T, topics: TOPICS, views: ['signal', 'map', 'practice'], onLang: render, onView: render });
+const secret = secretLab('neurons', () => ({
+  secrets: [{ emo: '🚕', title: T[lang].secrets.taxi[0], desc: T[lang].secrets.taxi[1] }, { emo: '🔢', title: T[lang].secrets.count[0], desc: T[lang].secrets.count[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="vSignal">
+    <div id="sgAsk"><p class="nb-q" id="sgQ"></p><div class="nb-opts" id="sgOpts"></div></div>
+    <div id="sgFree" hidden>
+      <p class="nb-v" id="sgVerdict" hidden></p>
+      <div class="nb-row"><span class="nb-lbl" id="pushL"></span><input id="push" class="big" type="range" min="0" max="40" step="1" style="--track: linear-gradient(90deg,#3a4a8a,#ffd166)" aria-labelledby="pushL"><b class="nb-num" id="pushV"></b></div>
+      <div class="row2"><button class="btn" id="fireB" data-act="fire"></button><button class="chip" id="myB" data-act="myelin"></button></div>
+    </div>
+  </div>
+  <div id="vMap" hidden>
+    <div class="row2" style="margin-top:0"><div class="card seg small" id="mpModes"></div></div>
+    <div id="mpTasks">
+      <div class="nb-task" id="mpTask" style="margin-top:12px"></div>
+      <div class="nb-opts" id="mpOpts"></div>
+      <div class="row2"><button class="btn" id="mpNext" data-act="mpnext" hidden></button></div>
+    </div>
+    <div id="mpDay" hidden>
+      <div class="nb-opts" id="mpTimes" style="margin-top:12px"></div>
+      <div class="row2"><button class="chip" id="mpMyth" data-act="myth"></button></div>
+    </div>
+  </div>
+  <div id="vPractice" hidden>
+    <div id="prAsk"><p class="nb-q" id="prQ"></p><div class="nb-opts" id="prOpts"></div></div>
+    <div id="prFree" hidden>
+      <p class="nb-v" id="prVerdict" hidden></p>
+      <div id="prNorm">
+        <div class="nb-opts" id="prSkills"></div>
+        <div class="row2"><button class="btn" data-act="prday" data-n="1" id="prD1"></button><button class="chip" data-act="prday" data-n="7" id="prD7"></button><button class="chip" data-act="prreset" id="prRs"></button></div>
+      </div>
+      <div id="prTaxi" hidden><div class="nb-row"><span class="nb-lbl" id="yrsL"></span><input id="yrs" class="big" type="range" min="0" max="30" step="1" style="--track: linear-gradient(90deg,#e07b6a,#e0b050)" aria-labelledby="yrsL"><b class="nb-num" id="yrsV"></b></div></div>
+      <div class="nb-fine" id="prNote"></div>
+    </div>
+  </div>
+  <div class="row2" id="secRow"></div>`;
+
+// --- drawing: signal ---------------------------------------------------------------------------------------
+function sigGeom(w, h) {
+  const px = 10, pw = w - 20, ph = h * 0.63, row = ph / 3, r = clamp(row * 0.17, 9, 16), cleft = clamp(row * 0.27, 14, 24);
+  const ns = [0, 1, 2].map((k) => {
+    const dir = k === 1 ? -1 : 1, y = 6 + row * (k + 0.5);
+    const sx = dir > 0 ? px + pw * 0.14 : px + pw * 0.86, ex = dir > 0 ? px + pw * 0.78 : px + pw * 0.22;
+    const gapY = row / 2, yb = y + gapY - cleft / 2, yt = y + gapY + cleft / 2;
+    const x1 = sx + dir * (r + 2), L = Math.abs(ex - x1), nSeg = Math.max(3, Math.floor((L - 24) / 26));
+    return { k, dir, y, sx, ex, yb, yt, x1, L, nSeg, segL: (L - 24) / nSeg - 4 };
+  });
+  return { px, pw, ph, row, r, cleft, ns, gy0: ph + 32, gy1: h - 24 };
+}
+const OFFS = [-11, 0, 11];
+function drawNeuron(c, G, n, run, t) {
+  const col = NC[n.k], { r } = G, q = r / 16, k = n.k, d = n.dir;
+  // dendrites
+  c.save(); c.shadowColor = 'rgba(0,0,0,.4)'; c.shadowBlur = 5; c.shadowOffsetY = 2;
+  const dc = hexA(col[1], 0.95);
+  if (k > 0) {
+    const prev = G.ns[k - 1], tx = prev.ex, ty = prev.yt;
+    const sx0 = n.sx + (tx - n.sx) * 0.4, sy0 = n.y - r * 0.85;
+    twig(c, sx0, sy0, tx + (n.sx - tx) * 0.12, (sy0 + ty) / 2 + 4, tx, ty + 9, 4.2 * q, dc);
+    OFFS.forEach((o) => twig(c, tx, ty + 9, tx + o * 0.5, ty + 5, tx + o, ty + 1.5, 2.4 * q, dc));
+    const o = -d;
+    twig(c, n.sx + o * r * 0.7, n.y + r * 0.6, n.sx + o * r * 1.9, n.y + r * 1.5, n.sx + o * r * 2.2, n.y + r * 0.9, 3 * q, dc);
+    twig(c, n.sx + o * r * 0.8, n.y - r * 0.3, n.sx + o * r * 1.8, n.y - r * 0.9, n.sx + o * r * 2.4, n.y - r * 0.3, 3 * q, dc);
+  } else {
+    const ux = -1;
+    twig(c, n.sx + ux * r * 0.7, n.y - r * 0.6, n.sx + ux * r * 1.8, n.y - r * 1.8, n.sx + ux * r * 2.1, n.y - r * 1.5, 3.4 * q, dc);
+    twig(c, n.sx + ux * r * 1.8, n.y - r * 1.8, n.sx + ux * r * 2, n.y - r * 2.1, n.sx + ux * r * 1.2, n.y - r * 2.3, 2.2 * q, dc);
+    twig(c, n.sx + ux * r * 0.7, n.y + r * 0.6, n.sx + ux * r * 1.8, n.y + r * 1.8, n.sx + ux * r * 2.1, n.y + r * 1.5, 3.4 * q, dc);
+    twig(c, n.sx + ux * r * 1.8, n.y + r * 1.8, n.sx + ux * r * 2, n.y + r * 2.1, n.sx + ux * r * 1.2, n.y + r * 2.3, 2.2 * q, dc);
+  }
+  c.restore();
+  // axon
+  c.lineCap = 'round'; c.strokeStyle = shade(col[1], 0.15); c.lineWidth = 3.4; c.beginPath(); c.moveTo(n.sx + d * (r - 2), n.y); c.lineTo(n.ex, n.y); c.stroke();
+  c.fillStyle = shade(col[1], 0.15); c.beginPath(); c.moveTo(n.sx + d * (r - 3), n.y - 5); c.lineTo(n.x1 + d * 14, n.y - 1.7); c.lineTo(n.x1 + d * 14, n.y + 1.7); c.lineTo(n.sx + d * (r - 3), n.y + 5); c.closePath(); c.fill();
+  if (sg.myelin) {
+    for (let i = 0; i < n.nSeg; i++) {
+      const a = n.x1 + d * (14 + i * (n.segL + 4)), X = Math.min(a, a + d * n.segL), hh = 11;
+      const g = c.createLinearGradient(0, n.y - hh / 2, 0, n.y + hh / 2); g.addColorStop(0, '#fff3cf'); g.addColorStop(0.5, '#dcb872'); g.addColorStop(1, '#9a7433');
+      c.save(); c.shadowColor = 'rgba(0,0,0,.35)'; c.shadowBlur = 3; c.shadowOffsetY = 1.5;
+      c.fillStyle = g; c.beginPath(); c.roundRect(X, n.y - hh / 2, n.segL, hh, 5); c.fill(); c.restore();
+      c.lineWidth = 1; c.strokeStyle = '#4a3718'; c.beginPath(); c.roundRect(X, n.y - hh / 2, n.segL, hh, 5); c.stroke();
+    }
+  }
+  // terminals with boutons (vesicles inside)
+  OFFS.forEach((o) => {
+    c.strokeStyle = shade(col[1], 0.15); c.lineWidth = 2.2; c.beginPath(); c.moveTo(n.ex, n.y); c.quadraticCurveTo(n.ex + o * 0.3, n.y + (n.yb - n.y) * 0.5, n.ex + o, n.yb); c.stroke();
+    const bx = n.ex + o, bg = c.createRadialGradient(bx - 1.5, n.yb - 1.5, 0.5, bx, n.yb, 5.4); bg.addColorStop(0, col[0]); bg.addColorStop(1, col[2]);
+    c.fillStyle = bg; c.beginPath(); c.arc(bx, n.yb, 5, 0, 7); c.fill(); c.lineWidth = 1; c.strokeStyle = shade(col[2], 0.3); c.stroke();
+    c.fillStyle = 'rgba(255,214,170,.8)'; c.beginPath(); c.arc(bx - 1.4, n.yb - 0.5, 1.2, 0, 7); c.arc(bx + 1.6, n.yb + 1.2, 1.1, 0, 7); c.fill();
+  });
+  // receptors on the dendrite of the next cell's side (drawn on neuron k as the receiver of k-1) happen in the overlay below
+  let glow = 0;
+  if (run && run.fires) { const tau = t - run.ts[k]; if (tau >= 0 && tau < 0.35) glow = 1 - tau / 0.35; }
+  somaDraw(c, n.sx, n.y, r, col, glow);
+}
+function drawSignal(c, w, h) {
+  const G = sigGeom(w, h), run = sg.runs[sg.runs.length - 1], t = run ? sg.clock - run.t0 : -1, L = T[lang].lab;
+  // soft background panel
+  const bg = c.createLinearGradient(0, 0, 0, G.ph); bg.addColorStop(0, 'rgba(40,52,100,.18)'); bg.addColorStop(1, 'rgba(20,26,60,.1)');
+  c.fillStyle = bg; c.beginPath(); c.roundRect(G.px - 4, 2, G.pw + 8, G.ph + 4, 18); c.fill();
+  G.ns.forEach((n) => drawNeuron(c, G, n, run, t));
+  // the push arrow into the first cell
+  const n0 = G.ns[0], len = clamp(6 + sg.push * 0.62, 6, 32), ax1 = n0.sx - G.r - 3, ax0 = Math.max(G.px + 2, ax1 - len);
+  const pushing = run && run.fires === false ? t < 0.35 : run ? t < run.ts[0] : false;
+  c.save(); c.lineCap = 'round'; c.lineJoin = 'round'; c.strokeStyle = pushing ? '#ffb199' : '#f08a73'; c.fillStyle = c.strokeStyle; c.lineWidth = 3 + sg.push * 0.05;
+  if (pushing) { c.shadowColor = '#ff8a6b'; c.shadowBlur = 12; }
+  c.beginPath(); c.moveTo(ax0, n0.y); c.lineTo(ax1 - 3, n0.y); c.stroke();
+  c.beginPath(); c.moveTo(ax1, n0.y); c.lineTo(ax1 - 8, n0.y - 6); c.lineTo(ax1 - 8, n0.y + 6); c.closePath(); c.fill(); c.restore();
+  // spikes and messengers
+  if (run && run.fires) {
+    G.ns.forEach((n) => {
+      const k = n.k, ts = run.ts[k], ta = ts + 0.05 + run.tax, f = (t - ts - 0.05) / run.tax;
+      if (f >= 0 && f <= 1) {
+        let u = f;
+        if (run.m) { const wp = [0, 12, ...Array.from({ length: n.nSeg }, (_, i) => 12 + (i + 1) * (n.segL + 4)), n.L], pcs = wp.length - 1, ix = Math.min(pcs - 1, Math.floor(f * pcs)), fr = f * pcs - ix, s = ease((fr - 0.35) / 0.65);
+          u = (wp[ix] + (wp[ix + 1] - wp[ix]) * s) / n.L; }
+        const X = n.x1 + n.dir * n.L * u;
+        if (!run.m) { c.strokeStyle = 'rgba(255,226,122,.45)'; c.lineWidth = 3; c.beginPath(); c.moveTo(n.x1, n.y); c.lineTo(X, n.y); c.stroke(); }
+        glowDot(c, X, n.y, 20, '#ffe27a', 0.95); c.fillStyle = '#fffbe0'; c.beginPath(); c.arc(X, n.y, 3.6, 0, 7); c.fill();
+      }
+      if (k < 2) {
+        const nx = G.ns[k + 1];
+        if (t > ta - 0.05 && t < ta + 0.3) OFFS.forEach((o) => glowDot(c, n.ex + o, n.yb, 12, '#ffe27a', 0.8 * (1 - (t - ta) / 0.35)));
+        for (let i = 0; i < 7; i++) {
+          const s = t - ta - i * 0.045; if (s < 0 || s > 0.5) continue;
+          const o = OFFS[i % 3], fz = ease(s / 0.4), x0 = n.ex + o, y0 = n.yb + 4, x1 = x0 + (((i * 37) % 7) - 3) * 1.2, y1 = nx.yt - 2;
+          glowDot(c, x0 + (x1 - x0) * fz, y0 + (y1 - y0) * fz, 7, '#ff9f6b', s < 0.4 ? 1 : 1 - (s - 0.4) / 0.1);
+        }
+        const rr = t - (ta + 0.4); if (rr > 0 && rr < 0.5) OFFS.forEach((o) => glowDot(c, n.ex + o, nx.yt, 13, '#ffd0a0', 0.9 * (1 - rr / 0.5)));
+      }
+    });
+  }
+  // labels
+  pill(c, L.dend, G.px + 2, n0.y + G.r * 3.4, 'l', w); pill(c, L.soma, n0.sx - 6, n0.y + G.r + 14, 'l', w);
+  pill(c, L.axon, (n0.x1 + n0.ex) / 2, n0.y - 17, 'c', w);
+  if (sg.myelin) pill(c, L.myelin, (n0.x1 + n0.ex) / 2, n0.y + 17, 'c', w);
+  pill(c, L.syn, n0.ex - 24, (n0.yb + n0.yt) / 2, 'r', w);
+  drawGraph(c, w, h, G);
+}
+function drawGraph(c, w, h, G) {
+  const gx0 = 46, gx1 = w - 12, gy0 = G.gy0, gy1 = G.gy1, L = T[lang].lab, runs = sg.runs;
+  const tWin = runs.length ? Math.max(...runs.map((r) => r.end)) + 0.2 : 4.8;
+  const X = (t) => gx0 + (t / tWin) * (gx1 - gx0), Y = (v) => gy1 - ((v + 90) / 140) * (gy1 - gy0);
+  c.fillStyle = 'rgba(14,17,34,.7)'; c.beginPath(); c.roundRect(2, gy0 - 14, w - 4, gy1 - gy0 + 38, 14); c.fill();
+  c.font = '700 12px Nunito, sans-serif'; c.textBaseline = 'middle'; c.textAlign = 'right'; c.lineWidth = 1;
+  [[REST, L.rest], [THR, L.thr], [0, ''], [PEAK, '']].forEach(([v, name]) => {
+    c.strokeStyle = v === THR ? 'rgba(255,177,153,.65)' : 'rgba(150,165,215,.2)'; c.setLineDash(v === THR ? [5, 4] : [2, 4]);
+    c.beginPath(); c.moveTo(gx0, Y(v)); c.lineTo(gx1, Y(v)); c.stroke(); c.setLineDash([]);
+    c.fillStyle = v === THR ? '#ffb199' : '#98A0B8'; c.fillText(nf(v), gx0 - 5, Y(v));
+    if (name && gx1 - gx0 > 200) { c.textAlign = 'right'; c.fillText(name, gx1 - 2, Y(v) - (v === THR ? 8 : -9)); c.textAlign = 'right'; }
+  });
+  c.textAlign = 'left'; c.fillStyle = '#98A0B8'; c.fillText(T[lang].u.mv, 8, gy0 - 4);
+  c.textAlign = 'center'; c.fillText(L.time, (gx0 + gx1) / 2, G.gy1 + 14);
+  runs.forEach((r, ri) => {
+    const ghost = runs.length === 2 && ri === 0, tNow = ghost && !(sg.demo) ? 1e9 : sg.clock - r.t0;
+    for (let k = 0; k < 3; k++) {
+      if (!r.fires && k) continue;
+      const a = k ? r.ts[k] - 0.5 : 0, b = r.fires ? r.ts[k] + 0.95 : r.end, e = Math.min(b, tNow, tWin);
+      if (e <= a) continue;
+      c.beginPath(); for (let t = a; t < e + 0.015; t += 0.03) { const tt = Math.min(t, e); c[t === a ? 'moveTo' : 'lineTo'](X(tt), Y(volt(r, k, tt))); }
+      c.lineCap = 'round'; c.lineJoin = 'round'; c.strokeStyle = hexA(NC[k][0], ghost ? 0.6 : 1); c.lineWidth = ghost ? 2 : 3; c.setLineDash(ghost ? [6, 4] : []);
+      if (!ghost) { c.save(); c.shadowColor = NC[k][1]; c.shadowBlur = 8; c.stroke(); c.restore(); } else c.stroke();
+      c.setLineDash([]);
+    }
+  });
+  const run = runs[runs.length - 1];
+  if (run) { const tp = sg.clock - run.t0; if (tp >= 0 && tp <= tWin) { c.strokeStyle = 'rgba(255,255,255,.22)'; c.lineWidth = 1; c.beginPath(); c.moveTo(X(tp), gy0); c.lineTo(X(tp), gy1); c.stroke(); } }
+  if (runs.length === 2) pill(c, `${L.dashed} ${nf(runs[0].p)} ${T[lang].u.mv} · ${L.solid} ${nf(runs[1].p)} ${T[lang].u.mv}`, gx1, gy0 - 2, 'r', w);
+}
+
+// --- drawing: map --------------------------------------------------------------------------------------------
+function gyri(c, path, seed) {
+  c.save(); c.clip(path); c.lineWidth = 1.5; c.strokeStyle = 'rgba(10,12,30,.2)'; c.lineCap = 'round';
+  for (let y = 10 + (seed % 5); y < 200; y += 11) {
+    c.beginPath(); for (let x = 30; x <= 280; x += 6) { const yy = y + Math.sin(x * 0.11 + y * 0.45 + seed) * 3.6 + Math.sin(x * 0.047 + seed * 2) * 3; x === 30 ? c.moveTo(x, yy) : c.lineTo(x, yy); } c.stroke();
+  }
+  c.strokeStyle = 'rgba(255,255,255,.09)';
+  for (let y = 15 + (seed % 5); y < 200; y += 11) {
+    c.beginPath(); for (let x = 30; x <= 280; x += 6) { const yy = y + Math.sin(x * 0.11 + y * 0.45 + seed) * 3.6 + Math.sin(x * 0.047 + seed * 2) * 3; x === 30 ? c.moveTo(x, yy) : c.lineTo(x, yy); } c.stroke();
+  }
+  c.restore();
+}
+let mapGeo = { ox: 0, oy: 0, s: 1 };
+function drawMap(c, w, h, time) {
+  const t = T[lang], s = Math.min((w - 20) / 300, (h - 50) / 225), ox = (w - 300 * s) / 2, oy = (h - 225 * s) / 2 + 4;
+  mapGeo = { ox, oy, s };
+  const task = TASKS[Math.min(mp.ti, 4)], counting = S.sec === 'count', dayMode = mp.mode === 'day' && !counting, tasksMode = mp.mode === 'tasks' && !counting;
+  const lit = tasksMode && mp.checked ? task.lobe : null, heat = dayMode && !mp.myth ? DAY[mp.time] : null;
+  c.save(); c.translate(ox, oy); c.scale(s, s);
+  // silhouette with soft shadow
+  c.save(); c.shadowColor = 'rgba(0,0,0,.55)'; c.shadowBlur = 16; c.shadowOffsetY = 6; c.fillStyle = '#1a2040';
+  AREAS.forEach((a) => c.fill(PATH[a])); c.restore();
+  const order = ['stem', 'cerebellum', 'temporal', 'frontal', 'parietal', 'occipital'];
+  order.forEach((a, i) => {
+    const col = COL[a], g = c.createLinearGradient(40, 20, 270, 170); g.addColorStop(0, col[0]); g.addColorStop(0.5, col[1]); g.addColorStop(1, col[2]);
+    c.save();
+    c.globalAlpha = lit && lit !== a ? 0.42 : 1;
+    c.fillStyle = counting || dayMode ? '#1e2547' : g; c.fill(PATH[a]);
+    if (counting) { c.fillStyle = hexA(col[2], 0.55); c.fill(PATH[a]); }
+    if (dayMode) {
+      const I = mp.myth ? 0 : heat[AREAS.indexOf(a)];
+      c.fillStyle = `rgba(255,${Math.round(120 + 90 * I)},${Math.round(50 + 30 * I)},${(0.12 + 0.78 * I).toFixed(3)})`; c.fill(PATH[a]);
+    }
+    gyri(c, PATH[a], i * 3 + 1);
+    c.lineWidth = 2; c.strokeStyle = '#10142a'; c.lineJoin = 'round'; c.stroke(PATH[a]);
+    c.restore();
+  });
+  if (dayMode && mp.myth) { // the myth: only one small patch works
+    c.save(); c.clip(PATH.frontal);
+    glowDot(c, 92, 70, 40, '#ffb347', 0.95); c.restore();
+  }
+  if (counting) {
+    DOTS.forEach(([x, y, a], i) => { c.fillStyle = hexA(COL[a][0], 0.95); c.beginPath(); c.arc(x, y, 1.5 + (i % 3) * 0.25, 0, 7); c.fill(); });
+  }
+  if (lit) { // the lobe that does the job glows
+    const pulse = 0.5 + 0.5 * Math.sin(time * 5);
+    c.save(); c.shadowColor = '#ffffff'; c.shadowBlur = 14 + 10 * pulse; c.fillStyle = `rgba(255,255,255,${0.12 + 0.14 * pulse})`; c.fill(PATH[lit]);
+    c.lineWidth = 3; c.strokeStyle = mp.guess === lit ? '#3ddc97' : '#fff'; c.stroke(PATH[lit]); c.restore();
+    if (mp.guess && mp.guess !== lit) { c.lineWidth = 3; c.strokeStyle = '#e5484d'; c.stroke(PATH[mp.guess]); }
+  }
+  c.restore();
+  // labels (screen space)
+  const P = (x, y) => [ox + x * s, oy + y * s];
+  if (tasksMode) ['frontal', 'parietal', 'temporal', 'occipital'].forEach((a) => { const [x, y] = P(...LBL[a]); pill(c, t.mp.lobe[a], x, y, 'c', w); });
+  if (dayMode || counting) {
+    ['frontal', 'parietal', 'temporal', 'occipital'].forEach((a) => { const [x, y] = P(...LBL[a]); if (dayMode) pill(c, t.mp.lobe[a], x, y, 'c', w); });
+    const [cx, cy] = P(250, 172); pill(c, t.mp.short.cerebellum, cx, cy + 14 * s, 'c', w); const [sx2, sy2] = P(168, 200); pill(c, t.mp.short.stem, sx2 + 40, sy2, 'l', w);
+  }
+  if (tasksMode && mp.ti < 5) { // the job as a badge
+    c.save(); c.fillStyle = 'rgba(10,12,22,.82)'; c.beginPath(); c.arc(34, 34, 26, 0, 7); c.fill(); c.strokeStyle = 'rgba(130,145,190,.4)'; c.lineWidth = 1.5; c.stroke();
+    c.font = '28px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#fff'; c.globalAlpha = 1; c.fillText(task.emo, 34, 36); c.restore();
+  }
+}
+
+// --- drawing: practice ----------------------------------------------------------------------------------------
+function prGeom(w, h) {
+  const px = 10, pw = w - 20, ph = h * 0.55, X = [0.13, 0.38, 0.63, 0.88].map((f) => px + pw * f);
+  const ys = [[0.5], [0.2, 0.5, 0.8], [0.2, 0.5, 0.8], [0.5]].map((a) => a.map((f) => 26 + (ph - 52) * f));
+  return { px, pw, ph, X, ys, gy0: ph + 30, gy1: h - 28, nodeR: clamp(ph * 0.05, 9, 14) };
+}
+const nodeXY = (G, [l, i]) => [G.X[l], G.ys[l][i]];
+function drawPractice(c, w, h) {
+  const t = T[lang], G = prGeom(w, h), d = dayAt(), sim = SIM[pr.skill], ask = pr.phase === 'ask';
+  c.fillStyle = 'rgba(30,40,85,.18)'; c.beginPath(); c.roundRect(G.px - 4, 2, G.pw + 8, G.ph + 6, 18); c.fill();
+  // edges
+  const onPath = new Set(d.P);
+  for (let e = 0; e < NE; e++) {
+    if (onPath.has(e)) continue;
+    const [A, B] = edgeEnds(e).map((n) => nodeXY(G, n)), wv = d.W[e];
+    c.strokeStyle = `rgba(110,130,200,${0.28 + 0.4 * wv})`; c.lineWidth = 1 + 7 * wv; c.lineCap = 'round'; c.beginPath(); c.moveTo(...A); c.lineTo(...B); c.stroke();
+  }
+  d.P.forEach((e) => {
+    const [A, B] = edgeEnds(e).map((n) => nodeXY(G, n)), wv = d.W[e];
+    c.save(); c.shadowColor = '#ffcf5a'; c.shadowBlur = 4 + 12 * wv; c.strokeStyle = wv < 0.3 ? `rgba(255,207,90,${0.55 + wv})` : '#ffd166'; c.lineWidth = 1.4 + 8 * wv; c.lineCap = 'round';
+    c.beginPath(); c.moveTo(...A); c.lineTo(...B); c.stroke(); c.restore();
+  });
+  // pulse along the used path
+  const dels = d.P.map((e) => edgeDelay(d.W[e])), tot = dels.reduce((a, b) => a + b, 0), cycle = clamp(d.R / 1000 * 3, 0.4, 1.4), ph = (sg.clock % (cycle + 0.35)) / cycle;
+  if (!ask && ph <= 1) {
+    let acc = 0;
+    for (let i = 0; i < 3; i++) { const f = dels[i] / tot; if (ph <= acc + f || i === 2) { const [A, B] = edgeEnds(d.P[i]).map((n) => nodeXY(G, n)), u = clamp((ph - acc) / f, 0, 1); glowDot(c, lerp(A[0], B[0], u), lerp(A[1], B[1], u), 15, '#fff2b0', 1); break; } acc += f; }
+  }
+  // nodes
+  const nodeCol = [NC[0], NC[1], NC[1], NC[2]];
+  G.ys.forEach((col, l) => col.forEach((y) => {
+    const r = l === 0 || l === 3 ? G.nodeR * 1.25 : G.nodeR, x = G.X[l];
+    somaDraw(c, x, y, r, nodeCol[l], 0);
+  }));
+  // labels of the skill
+  const [ix, iy] = nodeXY(G, [0, 0]), [ox2, oy2] = nodeXY(G, [3, 0]);
+  pill(c, t.pr.inl[pr.skill], ix, iy + G.nodeR * 1.25 + 16, 'c', w); pill(c, t.pr.outl[pr.skill], ox2, oy2 + G.nodeR * 1.25 + 16, 'c', w);
+  // graph
+  const gx0 = 46, gx1 = w - 14, gy0 = G.gy0, gy1 = G.gy1, X = (dd) => gx0 + (dd / DAYS) * (gx1 - gx0), Y = (v) => gy1 - (v / 450) * (gy1 - gy0);
+  c.fillStyle = 'rgba(14,17,34,.7)'; c.beginPath(); c.roundRect(2, gy0 - 14, w - 4, gy1 - gy0 + 42, 14); c.fill();
+  c.font = '700 12px Nunito, sans-serif'; c.textBaseline = 'middle'; c.lineWidth = 1;
+  [0, 200, 400].forEach((v) => { c.strokeStyle = 'rgba(150,165,215,.2)'; c.setLineDash([2, 4]); c.beginPath(); c.moveTo(gx0, Y(v)); c.lineTo(gx1, Y(v)); c.stroke(); c.setLineDash([]); c.fillStyle = '#98A0B8'; c.textAlign = 'right'; c.fillText(nf(v), gx0 - 5, Y(v)); });
+  c.textAlign = 'center'; [0, 10, 20, 30].forEach((v) => c.fillText(nf(v), X(v), gy1 + 11)); c.fillText(t.pr.days, (gx0 + gx1) / 2, gy1 + 26);
+  c.textAlign = 'left'; c.fillText(t.pr.ms, 8, gy0 - 4);
+  if (!ask) {
+    if (pr.guess !== 2) { // the child's own guess as a dashed curve
+      c.strokeStyle = 'rgba(185,166,255,.85)'; c.lineWidth = 2; c.setLineDash([6, 4]); c.beginPath();
+      for (let i = 0; i <= DAYS; i++) { const v = pr.guess === 0 ? sim.R[0] : lerp(sim.R[0], sim.R[DAYS], i / DAYS); i ? c.lineTo(X(i), Y(v)) : c.moveTo(X(i), Y(v)); }
+      c.stroke(); c.setLineDash([]);
+      pill(c, t.pr.yours, gx1, Y(pr.guess === 0 ? sim.R[0] : lerp(sim.R[0], sim.R[DAYS], 0.7)) - 16, 'r', w);
+    }
+    const cur = Math.min(DAYS, pr.day), top = Math.floor(cur);
+    c.save(); c.shadowColor = '#ffcf5a'; c.shadowBlur = 8; c.strokeStyle = '#ffd166'; c.lineWidth = 3; c.lineJoin = 'round'; c.beginPath();
+    for (let i = 0; i <= top; i++) i ? c.lineTo(X(i), Y(sim.R[i])) : c.moveTo(X(i), Y(sim.R[i]));
+    c.lineTo(X(cur), Y(d.R)); c.stroke(); c.restore();
+    glowDot(c, X(cur), Y(d.R), 14, '#ffe9a0', 1); c.fillStyle = '#fff'; c.beginPath(); c.arc(X(cur), Y(d.R), 4, 0, 7); c.fill();
+    pill(c, `${nf(d.R)} ${t.pr.ms}`, X(cur) + 10, Y(d.R) - 16, cur > DAYS * 0.6 ? 'r' : 'l', w);
+  }
+}
+function drawTaxi(c, w, h, time) {
+  const t = T[lang], k = pr.years / 30, gx = 14, gy = 12, gw = w - 28, gh = h * 0.5, cols = 7, rows = 5;
+  c.fillStyle = '#121833'; c.beginPath(); c.roundRect(gx, gy, gw, gh, 16); c.fill();
+  const cx = (i) => gx + 22 + (gw - 44) * i / (cols - 1), cy = (j) => gy + 20 + (gh - 40) * j / (rows - 1), hh = (a, b, z) => { const x = Math.sin(a * 12.9898 + b * 78.233 + z * 3.7) * 43758.5453; return x - Math.floor(x); };
+  c.lineCap = 'round'; c.lineWidth = 5; c.strokeStyle = '#242c55';
+  for (let i = 0; i < cols; i++) { c.beginPath(); c.moveTo(cx(i), cy(0)); c.lineTo(cx(i), cy(rows - 1)); c.stroke(); }
+  for (let j = 0; j < rows; j++) { c.beginPath(); c.moveTo(cx(0), cy(j)); c.lineTo(cx(cols - 1), cy(j)); c.stroke(); }
+  c.save(); c.shadowColor = '#ffcf5a'; c.shadowBlur = 8; c.strokeStyle = '#ffd166'; c.lineWidth = 3.2;
+  for (let i = 0; i < cols; i++) for (let j = 0; j < rows - 1; j++) if (hh(i, j, 1) < k) { c.beginPath(); c.moveTo(cx(i), cy(j)); c.lineTo(cx(i), cy(j + 1)); c.stroke(); }
+  for (let j = 0; j < rows; j++) for (let i = 0; i < cols - 1; i++) if (hh(i, j, 2) < k) { c.beginPath(); c.moveTo(cx(i), cy(j)); c.lineTo(cx(i + 1), cy(j)); c.stroke(); }
+  c.restore();
+  c.font = '24px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#fff'; c.fillText('🚕', cx(2 + Math.round(1 + Math.sin(time * 1.2))), cy(2));
+  // hippocampus: the back part gets a larger share, the whole stays the same length (schematic)
+  const by = gy + gh + 62, bx0 = gx + 28, bx1 = w - gx - 28, share = 0.5 + 0.2 * k, split = 1 - share;
+  const pt = (u) => [lerp(bx0, bx1, u), by - Math.sin(u * Math.PI) * 22 + u * 14];
+  const seg = (a, b, colr) => { c.save(); c.shadowColor = 'rgba(0,0,0,.5)'; c.shadowBlur = 8; c.shadowOffsetY = 3; c.strokeStyle = colr; c.lineWidth = 24; c.lineCap = 'butt'; c.beginPath();
+    for (let i = 0; i <= 24; i++) { const [x, y] = pt(lerp(a, b, i / 24)); i ? c.lineTo(x, y) : c.moveTo(x, y); } c.stroke(); c.restore(); };
+  seg(0, split, '#e07b6a'); seg(split, 1, '#e0b050');
+  c.fillStyle = '#e07b6a'; c.beginPath(); c.arc(...pt(0), 12, 0, 7); c.fill(); c.fillStyle = '#e0b050'; c.beginPath(); c.arc(...pt(1), 12, 0, 7); c.fill();
+  pill(c, t.pr.hip, w / 2, by - 44, 'c', w);
+  pill(c, t.pr.front, pt(split / 2)[0], pt(split / 2)[1] + 30, 'c', w); pill(c, t.pr.back, pt((1 + split) / 2)[0], pt((1 + split) / 2)[1] + 30, 'c', w);
+}
+
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  sg.clock += dt;
+  const v = lab.view;
+  if (v === 'signal') { drawSignal(c, w, h); if (sigKey() !== sg.key) updateSignal(false); }
+  else if (v === 'map') drawMap(c, w, h, time);
+  else {
+    if (pr.playing) {
+      const before = Math.floor(pr.day); pr.day = Math.min(DAYS, pr.day + dt * 7);
+      if (pr.day >= DAYS) { pr.playing = false; render(); } else if (Math.floor(pr.day) !== before) updatePractice();
+    }
+    if (S.sec === 'taxi') drawTaxi(c, w, h, time); else drawPractice(c, w, h);
+  }
+});
+
+// --- controls ----------------------------------------------------------------------------------------------
+const showStage = () => { const r = $('stage').getBoundingClientRect(); if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+function fire() {
+  const r = makeRun(sg.push, sg.myelin); sg.runs.push(r); if (sg.runs.length > 2) sg.runs.shift(); sg.demo = false; sfx.snap(); render();
+}
+function mpPick(a) {
+  if (mp.checked || mp.ti >= 5) return;
+  mp.guess = a; mp.checked = true; mp.right[mp.ti] = a === TASKS[mp.ti].lobe; (mp.right[mp.ti] ? sfx.good : sfx.bad)(); render(); showStage();
+}
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const a = b.dataset.act, i = +b.dataset.i;
+  if (a === 'sgpick') {
+    sg.guess = i; sg.phase = 'free'; sg.demo = true; sg.myelin = true; sg.push = PB; sg.runs = [makeRun(PA, true), makeRun(PB, true)];
+    (i === 1 ? sfx.good : sfx.bad)(); render(); showStage();
+  } else if (a === 'fire') fire();
+  else if (a === 'myelin') { sg.myelin = !sg.myelin; sfx.click(); render(); }
+  else if (a === 'mpmode') { mp.mode = b.dataset.m; mp.myth = false; sfx.click(); render(); }
+  else if (a === 'mplobe') mpPick(b.dataset.l);
+  else if (a === 'mpnext') { if (mp.ti >= 5) { mp.ti = 0; mp.right = []; } else mp.ti++; mp.guess = null; mp.checked = false; sfx.click(); render(); }
+  else if (a === 'mptime') { mp.time = i; mp.myth = false; sfx.tick(); render(); }
+  else if (a === 'myth') { mp.myth = !mp.myth; sfx.click(); render(); }
+  else if (a === 'prpick') { pr.guess = i; pr.phase = 'free'; pr.day = 0; pr.playing = true; (i === 2 ? sfx.good : sfx.bad)(); render(); showStage(); }
+  else if (a === 'prday') { pr.day = Math.min(DAYS, Math.floor(pr.day + 1e-6) + +b.dataset.n); sfx.tick(); render(); }
+  else if (a === 'prreset') { pr.day = 0; sfx.click(); render(); }
+  else if (a === 'prskill') { pr.skill = i; pr.day = 0; pr.playing = false; sfx.click(); render(); }
+  else if (a === 'sec') {
+    const k = b.dataset.k; if (!secret.unlocked()) return secret.open();
+    S.sec = S.sec === k ? null : k; sfx.click();
+    const to = k === 'taxi' ? 'practice' : 'map';
+    if (S.sec && lab.view !== to) { $('views').querySelector(`[data-view="${to}"]`)?.click(); return; }
+    render();
+  }
+});
+$('cv').addEventListener('pointerdown', (ev) => {
+  if (lab.view !== 'map' || mp.mode !== 'tasks' || S.sec === 'count' || mp.checked || mp.ti >= 5) return;
+  const r = $('cv').getBoundingClientRect(), x = (ev.clientX - r.left - mapGeo.ox) / mapGeo.s, y = (ev.clientY - r.top - mapGeo.oy) / mapGeo.s;
+  const a = ['frontal', 'parietal', 'temporal', 'occipital'].find((l) => hit.isPointInPath(PATH[l], x, y));
+  if (a) mpPick(a);
+});
+$('push').addEventListener('input', (ev) => { sg.push = +ev.target.value; $('pushV').textContent = `${nf(sg.push)} ${T[lang].u.mv}`; });
+$('yrs').addEventListener('input', (ev) => { pr.years = +ev.target.value; updatePractice(); });
+
+// --- render: one pass per change -------------------------------------------------------------------------------
+function render() {
+  const v = lab.view, t = T[lang];
+  document.body.dataset.v = v;
+  $('vSignal').hidden = v !== 'signal'; $('vMap').hidden = v !== 'map'; $('vPractice').hidden = v !== 'practice';
+  const open = secret.unlocked();
+  $('secRow').innerHTML = [['taxi', '🚕'], ['count', '🔢']].map(([k, e]) => `<button class="chip secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${e} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`).join('');
+  if (v === 'signal') renderSignal(t); else if (v === 'map') renderMap(t); else renderPractice(t);
+}
+
+function renderSignal(t) {
+  const ask = sg.phase === 'ask';
+  $('sgAsk').hidden = !ask; $('sgFree').hidden = ask;
+  if (ask) {
+    $('sgQ').textContent = t.sg.q(PA, PB);
+    $('sgOpts').innerHTML = t.sg.opts.map((o, i) => `<button data-act="sgpick" data-i="${i}">${esc(o)}</button>`).join('');
+  } else {
+    $('pushL').textContent = t.sg.pushL; $('push').value = sg.push; $('pushV').textContent = `${nf(sg.push)} ${t.u.mv}`;
+    $('fireB').textContent = t.sg.fire; $('myB').textContent = t.sg.my(sg.myelin);
+    const vd = $('sgVerdict'); vd.hidden = !sg.demo;
+    if (sg.demo) vd.innerHTML = `<b class="${sg.guess === 1 ? '' : 'no'}">${esc(sg.guess === 1 ? t.sg.ok : t.sg.no)}</b> ${esc(t.sg.rev(PEAK))}`;
+  }
+  updateSignal(true);
+}
+function updateSignal(force) {
+  const t = T[lang], key = sigKey(), v = sg.myelin ? SPEED.on : SPEED.off;
+  lab.setGlow('rgba(79, 120, 230, .3)');
+  lab.setReadout(`${nf(v)} ${lang === 'ru' ? 'м/с' : 'm/s'}`, t.sg.spd(dur(1000 / v)), sg.myelin ? t.sg.pOn : t.sg.pOff, '#4f78e6');
+  lab.setFacts(t.facts.signal);
+  if (!force && key === sg.key) return;
+  sg.key = key;
+  const base = key.replace('*', '');
+  let st;
+  if (base === 'ask') st = ['🤔', t.sg.askT, t.sg.askL, t.sg.terms];
+  else { const s = t.sg.st[base]; st = [s[0], s[1], s[2], '']; }
+  lab.setState({ emo: st[0], title: st[1], lead: st[2], body: st[3], extra: '' });
+}
+
+function renderMap(t) {
+  const counting = S.sec === 'count', tasks = mp.mode === 'tasks';
+  $('mpModes').innerHTML = [['tasks', t.mp.modes.tasks], ['day', t.mp.modes.day]].map(([m, l]) => `<button data-act="mpmode" data-m="${m}" class="${mp.mode === m ? 'on' : ''}">${esc(l)}</button>`).join('');
+  $('mpTasks').hidden = !tasks; $('mpDay').hidden = tasks;
+  if (tasks) {
+    const end = mp.ti >= 5, task = TASKS[Math.min(mp.ti, 4)];
+    $('mpTask').hidden = end; $('mpOpts').hidden = end;
+    $('mpTask').innerHTML = `<span class="e">${task.emo}</span><span><small>${esc(t.mp.kick(mp.ti + 1))}</small>${esc(t.mp.tasks[task.id][0])}</span>`;
+    $('mpOpts').innerHTML = ['frontal', 'parietal', 'temporal', 'occipital'].map((l) => {
+      const cls = mp.checked ? (l === task.lobe ? 'good' : l === mp.guess ? 'bad' : '') : '';
+      return `<button data-act="mplobe" data-l="${l}" class="${cls}" style="border-color:${cls ? '' : COL[l][1]}"${mp.checked ? ' disabled' : ''}>${esc(t.mp.lobe[l])}</button>`;
+    }).join('');
+    $('mpNext').hidden = !(mp.checked || end);
+    $('mpNext').textContent = end ? t.mp.again : mp.ti === 4 ? t.mp.last : t.mp.next;
+  } else {
+    $('mpTimes').innerHTML = t.mp.times.map((l, i) => `<button data-act="mptime" data-i="${i}" class="${i === mp.time ? 'good' : ''}">${esc(l)}</button>`).join('');
+    $('mpMyth').textContent = mp.myth ? t.mp.scan : t.mp.myth; $('mpMyth').classList.toggle('on', mp.myth);
+  }
+  updateMap(t, counting);
+}
+function updateMap(t, counting) {
+  lab.setGlow('rgba(224, 176, 80, .26)'); lab.setFacts(t.facts.map);
+  if (counting) {
+    const per = NEURONS / DOTS.length, yrs = Math.round(NEURONS / 31557600 / 100) * 100;
+    lab.setReadout(t.mp.cntV, t.mp.cntSub, t.mp.cntPill, '#e0b050');
+    lab.setState({ emo: '🔢', title: t.mp.cntT(nf(Math.round(per / 1e6))), lead: t.mp.cntL(nf(NEURONS / 1e9)), body: t.mp.cntB(nf(yrs)), extra: '' }); return;
+  }
+  if (mp.mode === 'tasks') {
+    const end = mp.ti >= 5, task = TASKS[Math.min(mp.ti, 4)], k = mp.right.filter(Boolean).length, nm = t.mp.tasks[task.id];
+    if (end) { lab.setReadout(`${k}/5`, '', '', '#e0b050'); lab.setState({ emo: '🏆', title: t.mp.end(k), lead: t.mp.endL, body: '', extra: '' }); }
+    else if (!mp.checked) { lab.setReadout('?', t.mp.kick(mp.ti + 1), '', '#e0b050'); lab.setState({ emo: '🤔', title: t.mp.askT, lead: t.mp.askL, body: '', extra: '' }); }
+    else { const ok = mp.guess === task.lobe; lab.setReadout(t.mp.lobe[task.lobe], t.mp.kick(mp.ti + 1), '', '#e0b050');
+      lab.setState({ emo: ok ? '✅' : '🤔', title: ok ? t.mp.right : t.mp.wrong(t.mp.area[task.lobe]), lead: nm[1], body: '', extra: '' }); }
+  } else if (mp.myth) {
+    lab.setReadout('10 %', t.mp.mythSub, t.mp.pillDay, '#e0b050'); lab.setState({ emo: '💭', title: t.mp.mythT, lead: t.mp.mythL, body: t.mp.mythB, extra: '' });
+  } else {
+    const I = DAY[mp.time], act = I.filter((x) => x > 0.15).length, top = I.map((x, i) => [x, i]).sort((a, b) => b[0] - a[0]).slice(0, 2).map(([, i]) => t.mp.area[AREAS[i]]);
+    lab.setReadout(`${act}/6`, t.mp.active, t.mp.pillDay, '#e0b050');
+    lab.setState({ emo: '🧠', title: t.mp.dayT, lead: t.mp.dayL(top[0], top[1]), body: t.mp.dayB, extra: '' });
+  }
+}
+
+function renderPractice(t) {
+  const taxi = S.sec === 'taxi', ask = pr.phase === 'ask' && !taxi;
+  $('prAsk').hidden = !ask; $('prFree').hidden = ask;
+  if (ask) {
+    $('prQ').textContent = t.pr.q;
+    $('prOpts').innerHTML = t.pr.opts.map((o, i) => `<button data-act="prpick" data-i="${i}">${esc(o)}</button>`).join('');
+  } else {
+    $('prNorm').hidden = taxi; $('prTaxi').hidden = !taxi;
+    $('prSkills').innerHTML = t.pr.skills.map((l, i) => `<button data-act="prskill" data-i="${i}" class="${i === pr.skill ? 'good' : ''}"${pr.playing ? ' disabled' : ''}>${esc(l)}</button>`).join('');
+    $('prD1').textContent = t.pr.d1; $('prD7').textContent = t.pr.d7; $('prRs').textContent = t.pr.rs;
+    [$('prD1'), $('prD7'), $('prRs')].forEach((b) => { b.disabled = pr.playing; });
+    $('prD1').disabled = pr.playing || pr.day >= DAYS; $('prD7').disabled = pr.playing || pr.day >= DAYS;
+    $('yrsL').textContent = t.pr.yrsL; $('yrs').value = pr.years; $('yrsV').textContent = nf(pr.years);
+    const vd = $('prVerdict'); vd.hidden = !(pr.guess !== null && !taxi && pr.day >= DAYS);
+    vd.innerHTML = `<b class="${pr.guess === 2 ? '' : 'no'}">${esc(pr.guess === 2 ? t.pr.ok : t.pr.no)}</b> ${esc(t.pr.rev)}`;
+    $('prNote').textContent = taxi ? '' : t.pr.note;
+  }
+  updatePractice();
+}
+function updatePractice() {
+  const t = T[lang], taxi = S.sec === 'taxi', ask = pr.phase === 'ask' && !taxi, d = Math.floor(pr.day + 1e-6);
+  lab.setGlow('rgba(255, 190, 90, .24)'); lab.setFacts(t.facts.practice);
+  if (taxi) {
+    $('yrsV').textContent = nf(pr.years);
+    lab.setReadout(nf(pr.years), t.pr.yrsSub, t.pr.yrsPill, '#e0b050');
+    lab.setState({ emo: '🚕', title: t.pr.yrsT(pr.years), lead: t.pr.yrsL1, body: t.pr.yrsB, extra: '' }); return;
+  }
+  if (ask) {
+    lab.setReadout('?', '', '', '#ffd166');
+    lab.setState({ emo: '🤔', title: t.pr.askT, lead: t.pr.askL, body: t.pr.askB, extra: '' }); return;
+  }
+  const R = dayAt().R, s = d === 0 ? t.pr.s0 : d >= DAYS ? t.pr.s30 : t.pr.sm(d);
+  lab.setReadout(`${nf(R)} ${t.pr.ms}`, t.pr.sub(d), t.pr.pill, '#ffd166');
+  lab.setState({ emo: s[0], title: s[1], lead: s[2], body: '', extra: '' });
+  const vd = $('prVerdict'); if (vd && !taxi) vd.hidden = !(pr.guess !== null && d >= DAYS);
+}
+render();
+</script>
+</body>
+</html>
