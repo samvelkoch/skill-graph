@@ -85,7 +85,7 @@ Adapted from Marble's [curation principles](docs/curation/principles.md); where 
 - **No source text, no gap.** If an item's wording cannot be read, leave it unmapped rather than guessing from its code.
 - **A prerequisite needs a learning reason.** Same grade, same unit or a similar name is not a reason; choose `hard` or `soft` on purpose.
 - **Keep ids.** Never reuse or renumber a topic id; links, progress in browsers and translations hang on it.
-- **Ages.** Our scope is about 4 to 16, wider than Marble's (to 12). Keep each country's own grade ages; another country's grade does not set them.
+- **Ages.** Our scope is about 4 to 14 (topics now end there), wider than Marble's (to 12). Keep each country's own grade ages; another country's grade does not set them.
 
 ## Fix an error in the data
 
