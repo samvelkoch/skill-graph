@@ -14,6 +14,9 @@ Counts in brackets are totals after that day.
 
 ## 2026-11-10
 
+### Labs
+- New lab `match-pitch` “Sing the Same Note”: move a bird up a ladder until two notes sound as one, turn separate loudness and pitch knobs, and echo three-note tunes (504). (#447)
+
 ### Viewer
 - A first visit opens in the browser's language when it is English, Russian or Hungarian, on the map, the labs, the curricula page and "What's new". The order is `?lang=`, then the language chosen before on the site (now remembered on every page, not only the map), then `navigator.languages`, then English. Backlog F03. (#437)
 - "My child" works without a school curriculum: leave "Any curriculum" and pick the child's age (4–14). The radar, the quick check, the by-subject check, "This week" and "Gaps" then use the graph's subjects (in the interface language) and the topics that start at that age or a year before. Snapshots and by-subject results are kept per age. With a curriculum chosen nothing changes. Backlog F01. (#437)
