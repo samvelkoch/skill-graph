@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-10
 
 ### Labs
+- New lab `false-belief` “Where Will She Look?”: watch a cat move Mia's ball while she is out and guess where she will look, open a crayon box with a surprise inside, and work out who knows about a birthday gift (509). (#452)
 - New lab `multi-bar` “Bars in Pairs”: put two classes' votes side by side and find the biggest gap, catch a key that swaps its colours, and compare rain in Budapest and Moscow by season (508). (#451)
 - New lab `eggs-or-babies` “Egg or Baby?”: guess what is behind a little door for eight animals, meet animals that break the rules, and watch a frog egg, a caterpillar and a kitten grow up (507). (#450)
 - New lab `sun-warms` “Sunny Yard”: move an umbrella over stones in the sun, compare a black and a white shirt, and follow a stone's warmth from morning to evening (506). (#449)
