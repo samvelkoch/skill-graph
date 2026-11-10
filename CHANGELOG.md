@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-10
 
 ### Labs
+- New lab `sun-warms` “Sunny Yard”: move an umbrella over stones in the sun, compare a black and a white shirt, and follow a stone's warmth from morning to evening (506). (#449)
 - New lab `tally` “Count the Cars”: mark passing cars in bundles of five, race sticks against bundles, and turn the marks into a bar chart (505). (#448)
 - New lab `match-pitch` “Sing the Same Note”: move a bird up a ladder until two notes sound as one, turn separate loudness and pitch knobs, and echo three-note tunes (504). (#447)
 
