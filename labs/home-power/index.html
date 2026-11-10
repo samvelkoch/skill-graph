@@ -1,0 +1,852 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Who Uses Most? · Skill Graph</title>
+<meta name="description" content="Switch appliances on and watch an electricity meter disc, sort what uses electricity and what does not, and follow a family's day in watt-hours. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  body[data-v=sort] #stage canvas { touch-action: none; }
+  .hp-q { font: 500 20px/1.25 var(--serif); color: #fff; margin: 0 0 10px; text-wrap: balance; }
+  .hp-two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .hp-ans { min-height: 48px; padding: 8px 10px; border-radius: 14px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 800; font-size: 14px; cursor: pointer; text-wrap: balance; }
+  .hp-ans:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .hp-ans:disabled { opacity: .4; cursor: default; }
+  .hp-ans.pick { border-color: #fff; opacity: 1; }
+  .hp-ans.win { border-color: var(--ok); background: rgba(61, 220, 151, .16); opacity: 1; }
+  .hp-chip { min-height: 38px; }
+  .hp-chip .e { font-size: 16px; }
+  .hp-go { margin-top: 10px; min-height: 44px; }
+  .hp-row { margin-top: 8px; }
+  .hp-rh { display: flex; align-items: baseline; gap: 8px; font-size: 13px; }
+  .hp-rh .e { font-size: 17px; }
+  .hp-rc { margin-left: auto; color: var(--mut); font-weight: 700; font-size: 12.5px; text-align: right; }
+  .hp-fine { font-size: 11.5px; color: var(--faint); }
+  @media (max-width: 760px) { .hp-q { font-size: 18px; } }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, store, $, esc, clamp, lerp, ruPlural, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Who Uses Most?', title: 'Who Uses Most?',
+    lines: [['Switch things on', 'and watch the meter disc.'], ['Sort what is electric', 'from what is not.'], ['Follow a family’s day', 'and count the watt-hours.']],
+    views: { meter: '⚡ Meter', sort: '🧺 Sort', day: '🏠 Day' },
+    u: { w: 'W', wh: 'Wh', kwh: 'kWh', h: 'h', min: 'min' },
+    apps: { lamp: 'LED lamp', charger: 'phone charger', tv: 'TV', fridge: 'fridge', kettle: 'kettle', iron: 'iron', washer: 'washing machine' },
+    why: {
+      lamp: 'An LED turns almost all its electricity into light, and very little into heat.',
+      charger: 'A charger gives a phone a gentle trickle of electricity.',
+      tv: 'A TV makes light and sound for the picture.',
+      fridge: 'The fridge motor works on and off all day and night to keep things cold. About 150 W is its average.',
+      kettle: 'A kettle makes heat to boil water. Heat takes a lot of electricity.',
+      iron: 'An iron makes heat for its flat plate. Heat takes a lot of electricity.',
+      washer: 'A washing machine spins a drum and heats water. About 500 W is its average, and most of it goes into heating.',
+    },
+    m: {
+      q: (a, b) => `Which spins the disc faster: the ${a} or the ${b}?`,
+      qLead: 'Tap your guess. The meters will show the answer.', qn: (i) => `question ${i} of 3`,
+      right: 'Right!', wrong: 'Not quite.',
+      race: (wn, wa, ln, la) => `${wn} spins the disc faster: about ${wa} W. ${ln}: about ${la} W.`,
+      fast: (n) => `${n} is faster`, vs: 'about',
+      next: 'Next question →', play: 'Now play with the meter →', skip: 'Just play', again: '↺ The questions again',
+      offT: 'Everything is off.', offL: 'The disc stands still. Tap an appliance to switch it on.',
+      one: (n) => `On: ${n}.`, many: (n) => `Using the most: ${n}.`,
+      all: (w, n) => `All together: about ${w} W${n >= 2 ? `, as much as ${n} LED lamps.` : '.'}`,
+      sub: 'about, all together', subOff: 'nothing is on', on: (n) => `${n} on`,
+      fine: 'The disc here turns faster than a real one, so that it is easy to watch. Watts are “about”: real appliances differ.',
+      sec: { disc: ['The spinning disc', 'Count the turns'], stby: ['Stand-by', 'Off? Not quite.'] },
+      discT: 'Count the turns.', discL: (n, wh) => `Each turn of the disc counts 7.2 Wh. So far: ${n} turns, about ${wh} Wh.`,
+      discB: 'Here time runs 10 times faster than in a real house.',
+      stbyT: 'Stand-by.', stbyL: (kwh, h) => `A TV and a washing machine on stand-by use about 1 W each. In a year that is about ${kwh} kWh, as much as a kettle running for about ${h} hours.`,
+      stbyB: 'The little red lights say: I am asleep, not off.',
+    },
+    s: {
+      bk: ['Uses electricity', 'No electricity'], q: 'Does it use electricity?', qLead: 'Drag the card into a basket, or tap a basket.', of: (i) => `card ${i} of 10`,
+      right: 'Right!', wrong: 'Not quite.', next: 'Next card →', again: '↺ Again', sub: 'sorted', ok: (k) => `${k} right`,
+      end: (k) => `${k} of 10 right.`, endL: 'A plug or batteries bring electricity. A spring, a flame and your own muscles do not.',
+      cards: {
+        laptop: ['Laptop', 'A laptop uses electricity from the socket, and from its battery when it is unplugged.'],
+        bike: ['Bicycle', 'You push the pedals: your legs are the engine.'],
+        candle: ['Candle', 'A candle burns wax. The flame gives light and heat, with no electricity.'],
+        torch: ['Torch with batteries', 'Batteries are a little store of electricity. The torch uses electricity, just not from the wall.'],
+        dryer: ['Hair dryer', 'A hair dryer has an electric heater and an electric fan. Heat takes a lot of electricity.'],
+        car: ['Wind-up toy car', 'You wind up a spring, and it turns the wheels as it unwinds. No electricity.'],
+        hob: ['Gas hob', 'A gas hob burns gas for its flame. (Some have a little electric spark to light it, but the heat comes from the gas.)'],
+        fan: ['Fan', 'An electric motor spins the blades.'],
+        lamp: ['Table lamp', 'A lamp turns electricity into light.'],
+        whisk: ['Hand whisk', 'Your hand turns it. No electricity.'],
+      },
+    },
+    d: {
+      q: (h, m) => `Which used more: a phone charger on all night (${h} hours), or a kettle on for ${m} minutes?`, qt: 'Which used more?',
+      qLead: 'Pick one. Then the day shows up in watt-hours (Wh).', ansC: '📱 The charger', ansK: '🫖 The kettle',
+      right: 'Right!', wrong: 'Not quite.',
+      lead: (k, m, c) => `The kettle: about ${k} Wh in ${m} minutes. The charger: about ${c} Wh all night.`,
+      body: (r) => `That is about ${r} times more for the kettle. Energy = power × time, so a lot of power adds up fast.`,
+      top: (n) => `Biggest user today: ${n}.`, f: (w, dur, wh) => `${w} W × ${dur} = ${wh} Wh`,
+      b2: 'Energy = power × time. A little power for a long time can still be small. A lot of power for a short time can be big.',
+      sub: 'watts × hours', kwh: (k) => `= ${k} kWh`, most: 'uses most', axis: 'energy in watt-hours (Wh)', hrs: ['0', '6', '12', '18', '24'],
+    },
+    secrets: null,
+    quiz: [
+      { q: 'Which uses the most electricity while it is on?', opts: ['An LED lamp', 'A kettle', 'A phone charger'], ok: 1, hint: 'Watch the disc in Meter.' },
+      { q: 'Does a torch with batteries use electricity?', opts: ['No, only things with a plug do', 'Only at night', 'Yes, from its batteries'], ok: 2, hint: 'Look at the torch card in Sort.' },
+      { q: 'A wind-up toy car runs on…', opts: ['the spring you wound up', 'electricity', 'sunlight'], ok: 0, hint: 'Find it in Sort.' },
+    ],
+    facts: {
+      meter: [
+        { emo: '🏭', text: 'Pearl Street Station in New York City began supplying electricity on 4 September 1882. At first it lit about 400 lamps for 82 customers.', src: 'https://en.wikipedia.org/wiki/Pearl_Street_Station' },
+        { emo: '🌀', text: 'In 1894 Oliver Shallenberger of Westinghouse built a watt-hour meter with an induction disc.', src: 'https://en.wikipedia.org/wiki/Electricity_meter' },
+      ],
+      meterFree: { emo: '🔢', text: 'Many meters have a number on the dial for how much energy one turn of the disc counts. 7.2 Wh per turn is a value often seen.', src: 'https://en.wikipedia.org/wiki/Electricity_meter' },
+      sort: [
+        { emo: '🍳', text: 'James Sharp patented a gas stove in Northampton, England, in 1826.', src: 'https://en.wikipedia.org/wiki/Gas_stove' },
+        { emo: '📻', text: 'A clockwork radio has a spring that turns a tiny electric generator. These radios are popular where batteries and mains power are scarce.', src: 'https://en.wikipedia.org/wiki/Clockwork' },
+      ],
+      day: [
+        { emo: '💤', text: 'In 2004, electronics on stand-by used about 8% of all the electricity in British homes.', src: 'https://en.wikipedia.org/wiki/Standby_power' },
+        { emo: '🔌', text: 'A device that draws just 1 W all the time uses about 9 kWh in a year.', src: 'https://en.wikipedia.org/wiki/Standby_power' },
+      ],
+    },
+  },
+  ru: {
+    name: 'Кто тратит больше?', title: 'Кто тратит больше?',
+    lines: [['Включай приборы', 'и смотри на диск счётчика.'], ['Раздели приборы:', 'с электричеством и без.'], ['Проследи день семьи', 'и сосчитай ватт-часы.']],
+    views: { meter: '⚡ Ватты', sort: '🧺 Разбор', day: '🏠 День' },
+    u: { w: 'Вт', wh: 'Вт·ч', kwh: 'кВт·ч', h: 'ч', min: 'мин' },
+    apps: { lamp: 'LED-лампа', charger: 'зарядка для телефона', tv: 'телевизор', fridge: 'холодильник', kettle: 'чайник', iron: 'утюг', washer: 'стиральная машина' },
+    why: {
+      lamp: 'LED почти всё электричество превращает в свет, а в тепло — совсем чуть-чуть.',
+      charger: 'Зарядка тонкой струйкой отдаёт телефону электричество.',
+      tv: 'Телевизор делает свет и звук для картинки.',
+      fridge: 'Мотор холодильника включается и выключается днём и ночью, чтобы внутри было холодно. В среднем около 150 Вт.',
+      kettle: 'Чайник делает тепло, чтобы вскипятить воду. На тепло уходит много электричества.',
+      iron: 'Утюг делает тепло для гладкой подошвы. На тепло уходит много электричества.',
+      washer: 'Стиральная машина крутит барабан и греет воду. В среднем около 500 Вт, и больше всего уходит на нагрев.',
+    },
+    m: {
+      q: (a, b) => `Что крутит диск быстрее: ${a} или ${b}?`,
+      qLead: 'Нажми на свой ответ. Счётчики покажут, как на самом деле.', qn: (i) => `вопрос ${i} из 3`,
+      right: 'Верно!', wrong: 'Не совсем.',
+      race: (wn, wa, ln, la) => `Быстрее крутит диск: ${wn}, около ${wa} Вт. ${ln}: около ${la} Вт.`,
+      fast: (n) => `быстрее: ${n}`, vs: 'около',
+      next: 'Следующий вопрос →', play: 'Теперь поиграй со счётчиком →', skip: 'Просто играть', again: '↺ Вопросы ещё раз',
+      offT: 'Всё выключено.', offL: 'Диск стоит. Нажми на прибор, чтобы включить его.',
+      one: (n) => `Включено: ${n}.`, many: (n) => `Больше всех берёт: ${n}.`,
+      all: (w, n) => `Всё вместе: около ${w} Вт${n >= 2 ? `, как у ${n} ${ruPlural(n, 'LED-лампы', 'LED-ламп', 'LED-ламп')}.` : '.'}`,
+      sub: 'около, всё вместе', subOff: 'ничего не включено', on: (n) => `включено: ${n}`,
+      fine: 'Диск здесь крутится быстрее настоящего, чтобы за ним было легко следить. Ватты «около»: у настоящих приборов они разные.',
+      sec: { disc: ['Крутящийся диск', 'Считай обороты'], stby: ['Режим ожидания', 'Выключен? Не совсем.'] },
+      discT: 'Считай обороты.', discL: (n, wh) => `Каждый оборот диска считает 7,2 Вт·ч. Пока набралось: ${n} об., около ${wh} Вт·ч.`,
+      discB: 'Здесь время идёт в 10 раз быстрее, чем в настоящем доме.',
+      stbyT: 'Режим ожидания.', stbyL: (kwh, h) => `Телевизор и стиральная машина в режиме ожидания берут около 1 Вт каждый. За год это около ${kwh} кВт·ч: столько же, сколько чайник за ${h} ${ruPlural(h, 'час', 'часа', 'часов')} работы.`,
+      stbyB: 'Красные огоньки говорят: я не выключен, я просто сплю.',
+    },
+    s: {
+      bk: ['С электричеством', 'Без электричества'], q: 'Ему нужно электричество?', qLead: 'Перетащи карточку в корзину или нажми на корзину.', of: (i) => `карточка ${i} из 10`,
+      right: 'Верно!', wrong: 'Не совсем.', next: 'Следующая →', again: '↺ Ещё раз', sub: 'разобрано', ok: (k) => `верно: ${k}`,
+      end: (k) => `Верно: ${k} из 10.`, endL: 'Электричество даёт вилка в розетке или батарейки. Пружина, огонь и твои мышцы — нет.',
+      cards: {
+        laptop: ['Ноутбук', 'Ноутбук берёт электричество из розетки, а без вилки — из своей батареи.'],
+        bike: ['Велосипед', 'Ты крутишь педали: твои ноги — это мотор.'],
+        candle: ['Свеча', 'Свеча горит воском. Пламя даёт свет и тепло, электричество не нужно.'],
+        torch: ['Фонарик на батарейках', 'Батарейки — маленький запас электричества. Фонарик работает от электричества, только не из розетки.'],
+        dryer: ['Фен', 'В фене электрический нагреватель и электрический вентилятор. На тепло уходит много электричества.'],
+        car: ['Заводная машинка', 'Ты заводишь пружину, а она, раскручиваясь, крутит колёса. Электричества нет.'],
+        hob: ['Газовая плита', 'Газовая плита сжигает газ, и получается пламя. (У некоторых есть маленькая электрическая искра для поджига, но тепло даёт газ.)'],
+        fan: ['Вентилятор', 'Электромотор крутит лопасти.'],
+        lamp: ['Настольная лампа', 'Лампа превращает электричество в свет.'],
+        whisk: ['Венчик', 'Его крутит твоя рука. Электричества нет.'],
+      },
+    },
+    d: {
+      q: (h, m) => `Что израсходовало больше: зарядка за всю ночь (${h} ${ruPlural(h, 'час', 'часа', 'часов')}) или чайник за ${m} минут?`, qt: 'Что больше?',
+      qLead: 'Выбери. Потом день покажется в ватт-часах (Вт·ч).', ansC: '📱 Зарядка', ansK: '🫖 Чайник',
+      right: 'Верно!', wrong: 'Не совсем.',
+      lead: (k, m, c) => `Чайник: около ${k} Вт·ч за ${m} минут. Зарядка: около ${c} Вт·ч за всю ночь.`,
+      body: (r) => `Чайник израсходовал примерно в ${r} раз больше. Энергия = мощность × время, поэтому большая мощность набирает много очень быстро.`,
+      top: (n) => `Больше всех за день: ${n}.`, f: (w, dur, wh) => `${w} Вт × ${dur} = ${wh} Вт·ч`,
+      b2: 'Энергия = мощность × время. Малая мощность за долгое время может дать немного. Большая мощность за короткое время может дать много.',
+      sub: 'ватты × часы', kwh: (k) => `= ${k} кВт·ч`, most: 'больше всех', axis: 'энергия в ватт-часах (Вт·ч)', hrs: ['0', '6', '12', '18', '24'],
+    },
+    secrets: null,
+    quiz: [
+      { q: 'Что тратит больше всего электричества, пока включено?', opts: ['LED-лампа', 'Чайник', 'Зарядка для телефона'], ok: 1, hint: 'Посмотри на диск на вкладке «Ватты».' },
+      { q: 'Работает ли фонарик на батарейках от электричества?', opts: ['Нет, только то, что с вилкой', 'Только ночью', 'Да, от своих батареек'], ok: 2, hint: 'Найди фонарик на вкладке «Разбор».' },
+      { q: 'Заводная машинка едет благодаря…', opts: ['заведённой пружине', 'электричеству', 'солнечному свету'], ok: 0, hint: 'Найди её на вкладке «Разбор».' },
+    ],
+    facts: {
+      meter: [
+        { emo: '🏭', text: 'Электростанция Перл-стрит в Нью-Йорке начала подавать электричество 4 сентября 1882 года. Сначала она освещала около 400 ламп у 82 потребителей.', src: 'https://en.wikipedia.org/wiki/Pearl_Street_Station' },
+        { emo: '🌀', text: 'В 1894 году Оливер Шелленбергер из компании «Вестингауз» построил счётчик ватт-часов с индукционным диском.', src: 'https://en.wikipedia.org/wiki/Electricity_meter' },
+      ],
+      meterFree: { emo: '🔢', text: 'На многих счётчиках написано, сколько энергии считает один оборот диска. Часто встречается значение 7,2 Вт·ч на оборот.', src: 'https://en.wikipedia.org/wiki/Electricity_meter' },
+      sort: [
+        { emo: '🍳', text: 'Джеймс Шарп запатентовал газовую плиту в английском Нортгемптоне в 1826 году.', src: 'https://en.wikipedia.org/wiki/Gas_stove' },
+        { emo: '📻', text: 'В заводном радио пружина вращает крошечный электрогенератор. Такие радио любят там, где мало батареек и нет электросети.', src: 'https://en.wikipedia.org/wiki/Clockwork' },
+      ],
+      day: [
+        { emo: '💤', text: 'В 2004 году техника в режиме ожидания расходовала около 8% всего электричества в британских домах.', src: 'https://en.wikipedia.org/wiki/Standby_power' },
+        { emo: '🔌', text: 'Устройство, которое постоянно берёт всего 1 Вт, за год расходует около 9 кВт·ч.', src: 'https://en.wikipedia.org/wiki/Standby_power' },
+      ],
+    },
+  },
+  hu: {
+    name: 'Ki fogyaszt többet?', title: 'Ki fogyaszt többet?',
+    lines: [['Kapcsolj be készülékeket,', 'és nézd a mérő korongját.'], ['Válogasd szét, mi működik', 'árammal, és mi nem.'], ['Kísérd végig egy család napját,', 'és számold a wattórákat.']],
+    views: { meter: '⚡ Mérő', sort: '🧺 Válogat', day: '🏠 Nap' },
+    u: { w: 'W', wh: 'Wh', kwh: 'kWh', h: 'ó', min: 'perc' },
+    apps: { lamp: 'LED-lámpa', charger: 'telefontöltő', tv: 'tévé', fridge: 'hűtőszekrény', kettle: 'vízforraló', iron: 'vasaló', washer: 'mosógép' },
+    why: {
+      lamp: 'A LED szinte az összes áramot fénnyé alakítja, hővé alig valamit.',
+      charger: 'A töltő vékony kis erecskében adja az áramot a telefonnak.',
+      tv: 'A tévé fényt és hangot csinál a képhez.',
+      fridge: 'A hűtő motorja éjjel-nappal be- és kikapcsol, hogy hideg maradjon bent. Átlagosan kb. 150 W.',
+      kettle: 'A vízforraló hőt termel a víz felforralásához. A hőhöz sok áram kell.',
+      iron: 'A vasaló hőt termel a sima talpához. A hőhöz sok áram kell.',
+      washer: 'A mosógép forgatja a dobot és melegíti a vizet. Átlagosan kb. 500 W, és ennek nagy része a fűtésre megy.',
+    },
+    m: {
+      q: (a, b) => `Melyik pörgeti gyorsabban a korongot: a ${a} vagy a ${b}?`,
+      qLead: 'Koppints a tippedre. A mérők megmutatják a választ.', qn: (i) => `${i}. kérdés / 3`,
+      right: 'Így van!', wrong: 'Nem egészen.',
+      race: (wn, wa, ln, la) => `Gyorsabban pörgeti a korongot: ${wn}, kb. ${wa} W. ${ln}: kb. ${la} W.`,
+      fast: (n) => `gyorsabb: ${n}`, vs: 'kb.',
+      next: 'Következő kérdés →', play: 'Most játssz a mérővel →', skip: 'Csak játszom', again: '↺ A kérdések újra',
+      offT: 'Minden ki van kapcsolva.', offL: 'A korong áll. Koppints egy készülékre, hogy bekapcsold.',
+      one: (n) => `Bekapcsolva: ${n}.`, many: (n) => `A legtöbbet fogyasztja: ${n}.`,
+      all: (w, n) => `Együtt: kb. ${w} W${n >= 2 ? `, annyi, mint ${n} LED-lámpa.` : '.'}`,
+      sub: 'kb., együtt', subOff: 'semmi sincs bekapcsolva', on: (n) => `${n} be`,
+      fine: 'Itt a korong gyorsabban forog a valódinál, hogy könnyű legyen nézni. A wattok „körülbelüliek”: a valódi készülékek eltérnek.',
+      sec: { disc: ['A forgó korong', 'Számold a fordulatokat'], stby: ['Készenlét', 'Kikapcsolva? Nem egészen.'] },
+      discT: 'Számold a fordulatokat.', discL: (n, wh) => `A korong minden fordulata 7,2 Wh-t számol. Eddig: ${n} fordulat, kb. ${wh} Wh.`,
+      discB: 'Itt az idő tízszer gyorsabban telik, mint egy igazi házban.',
+      stbyT: 'Készenlét.', stbyL: (kwh, h) => `Egy tévé és egy mosógép készenléti módban külön-külön kb. 1 W-ot használ. Egy év alatt ez kb. ${kwh} kWh, annyi, mint amennyit egy vízforraló kb. ${h} óra alatt fogyaszt.`,
+      stbyB: 'A kis piros fények azt mondják: nem vagyok kikapcsolva, csak alszom.',
+    },
+    s: {
+      bk: ['Árammal működik', 'Áram nélkül'], q: 'Árammal működik?', qLead: 'Húzd a kártyát egy kosárba, vagy koppints egy kosárra.', of: (i) => `${i}. kártya / 10`,
+      right: 'Így van!', wrong: 'Nem egészen.', next: 'Következő kártya →', again: '↺ Újra', sub: 'szétválogatva', ok: (k) => `${k} jó`,
+      end: (k) => `10-ből ${k} jó.`, endL: 'A konnektor vagy az elem hoz áramot. A rugó, a láng és a saját izmaid nem.',
+      cards: {
+        laptop: ['Laptop', 'A laptop a konnektorból kap áramot, kihúzva pedig az akkumulátorából.'],
+        bike: ['Bicikli', 'Te tekered a pedált: a lábad a motor.'],
+        candle: ['Gyertya', 'A gyertya viaszt éget. A láng fényt és hőt ad, áram nélkül.'],
+        torch: ['Elemlámpa', 'Az elem kis áramtároló. Az elemlámpa árammal működik, csak nem a falból kapja.'],
+        dryer: ['Hajszárító', 'A hajszárítóban elektromos fűtőszál és elektromos ventilátor van. A hőhöz sok áram kell.'],
+        car: ['Felhúzós kisautó', 'Felhúzol egy rugót, és ahogy kitekeredik, forgatja a kerekeket. Áram nincs benne.'],
+        hob: ['Gázrezsó', 'A gázrezsó gázt éget a lánghoz. (Némelyikben van egy kis elektromos szikra a begyújtáshoz, de a hőt a gáz adja.)'],
+        fan: ['Ventilátor', 'Egy elektromos motor forgatja a lapátokat.'],
+        lamp: ['Asztali lámpa', 'A lámpa az áramot fénnyé alakítja.'],
+        whisk: ['Kézi habverő', 'A kezed forgatja. Áram nincs benne.'],
+      },
+    },
+    d: {
+      q: (h, m) => `Melyik fogyasztott többet: a töltő egész éjjel (${h} óra) vagy a vízforraló ${m} percig?`, qt: 'Melyik több?',
+      qLead: 'Válassz. Aztán megjelenik a nap wattórákban (Wh).', ansC: '📱 A töltő', ansK: '🫖 A vízforraló',
+      right: 'Így van!', wrong: 'Nem egészen.',
+      lead: (k, m, c) => `A vízforraló: kb. ${k} Wh ${m} perc alatt. A töltő: kb. ${c} Wh egész éjjel.`,
+      body: (r) => `A vízforraló kb. ${r}-szer többet fogyasztott. Energia = teljesítmény × idő, ezért a nagy teljesítmény gyorsan összeadódik.`,
+      top: (n) => `A nap legnagyobb fogyasztója: ${n}.`, f: (w, dur, wh) => `${w} W × ${dur} = ${wh} Wh`,
+      b2: 'Energia = teljesítmény × idő. Kis teljesítmény hosszú ideig is lehet kevés. Nagy teljesítmény rövid ideig is lehet sok.',
+      sub: 'watt × óra', kwh: (k) => `= ${k} kWh`, most: 'a legtöbb', axis: 'energia wattórában (Wh)', hrs: ['0', '6', '12', '18', '24'],
+    },
+    secrets: null,
+    quiz: [
+      { q: 'Melyik fogyaszt a legtöbb áramot, amíg be van kapcsolva?', opts: ['Egy LED-lámpa', 'Egy vízforraló', 'Egy telefontöltő'], ok: 1, hint: 'Figyeld a korongot a „Mérő” fülön.' },
+      { q: 'Az elemlámpa árammal működik?', opts: ['Nem, csak a dugós dolgok', 'Csak éjjel', 'Igen, az elemeiből kapja'], ok: 2, hint: 'Nézd meg az elemlámpa-kártyát a „Válogat” fülön.' },
+      { q: 'A felhúzós kisautó azért megy, mert…', opts: ['felhúztad a rugóját', 'árammal működik', 'süt rá a nap'], ok: 0, hint: 'Keresd meg a „Válogat” fülön.' },
+    ],
+    facts: {
+      meter: [
+        { emo: '🏭', text: 'A New York-i Pearl Street erőmű 1882. szeptember 4-én kezdett áramot szolgáltatni. Eleinte kb. 400 lámpát világított meg 82 fogyasztónál.', src: 'https://en.wikipedia.org/wiki/Pearl_Street_Station' },
+        { emo: '🌀', text: '1894-ben Oliver Shallenberger, a Westinghouse mérnöke indukciós korongos wattóra-mérőt épített.', src: 'https://en.wikipedia.org/wiki/Electricity_meter' },
+      ],
+      meterFree: { emo: '🔢', text: 'Sok mérőn rajta van egy szám arról, mennyi energiát számol a korong egy fordulata. Gyakran látni a 7,2 Wh fordulatonként értéket.', src: 'https://en.wikipedia.org/wiki/Electricity_meter' },
+      sort: [
+        { emo: '🍳', text: 'James Sharp 1826-ban szabadalmaztatott gázrezsót az angliai Northamptonban.', src: 'https://en.wikipedia.org/wiki/Gas_stove' },
+        { emo: '📻', text: 'A felhúzós rádióban egy rugó forgat egy apró elektromos generátort. Ezeket ott kedvelik, ahol kevés az elem, és nincs hálózati áram.', src: 'https://en.wikipedia.org/wiki/Clockwork' },
+      ],
+      day: [
+        { emo: '💤', text: '2004-ben a készenléti módban lévő elektronika a brit háztartások áramfogyasztásának kb. 8%-át tette ki.', src: 'https://en.wikipedia.org/wiki/Standby_power' },
+        { emo: '🔌', text: 'Egy olyan készülék, amely folyamatosan csak 1 W-ot vesz fel, egy év alatt kb. 9 kWh-t fogyaszt.', src: 'https://en.wikipedia.org/wiki/Standby_power' },
+      ],
+    },
+  },
+};
+for (const k of ['en', 'ru', 'hu']) T[k].secrets = { disc: T[k].m.sec.disc, stby: T[k].m.sec.stby };
+const TOPICS = [
+  { id: 'mt_9nxyFoYD_b', en: 'What uses electricity at home', ru: 'Что в доме работает от электричества', hu: 'Mi használ otthon áramot' },
+];
+
+// --- numbers -----------------------------------------------------------------------------------------------
+// typical powers in watts, "about": values vary between real appliances (sources in the report)
+const APPS = ['lamp', 'charger', 'tv', 'fridge', 'kettle', 'iron', 'washer'];
+const WATT = { lamp: 8, charger: 5, tv: 100, fridge: 150, kettle: 2200, iron: 2000, washer: 500 };
+const EMO = { lamp: '💡', charger: '📱', tv: '📺', fridge: '🧊', kettle: '🫖', iron: '👕', washer: '🫧' };
+// where each appliance stands in the house (design box 360 × 300): x, floor y, scale
+const SLOT = { lamp: [48, 170, 1], charger: [96, 170, 1], washer: [150, 170, 1.05], iron: [206, 170, 1.1], tv: [72, 280, 1.35], fridge: [150, 280, 1.05], kettle: [208, 280, 1.2] };
+const APW = { lamp: 34, charger: 34, tv: 52, fridge: 34, kettle: 40, iron: 46, washer: 46 };
+const ROUNDS = [['tv', 'kettle'], ['fridge', 'lamp'], ['iron', 'washer']];
+// real meters: one turn of the disc counts Kh Wh (7.2 is common); here time runs 10x faster, so rev/s = W x 10 / (3600 x 7.2)
+const KH = 7.2, LAPSE = 10, DISC = LAPSE / (3600 * KH); // turns per second per watt
+const STBY_W = 2; // TV + washing machine on stand-by, about 1 W each
+const DEF = { charger: 480, kettle: 10 }; // minutes: the question's numbers
+const DAY = [
+  { k: 'charger', max: 720, step: 30, start: 22 }, { k: 'kettle', max: 30, step: 1, start: 7 }, { k: 'lamp', max: 480, step: 15, start: 18 },
+  { k: 'tv', max: 480, step: 15, start: 19 }, { k: 'washer', max: 180, step: 15, start: 10 },
+];
+const DC = { charger: '#6fb36f', kettle: '#e0644f', lamp: '#f0c75e', tv: '#5f8fd0', washer: '#8f7fd0' };
+const CARDS = [
+  { k: 'laptop', emo: '💻', e: true, b: '🔌' }, { k: 'bike', emo: '🚲', e: false, b: '💪' }, { k: 'candle', emo: '🕯️', e: false, b: '🔥' },
+  { k: 'torch', emo: '🔦', e: true, b: '🔋' }, { k: 'dryer', emo: null, e: true, b: '🔌' }, { k: 'car', emo: '🚗', e: false, b: '🌀' },
+  { k: 'hob', emo: '🍳', e: false, b: '🔥' }, { k: 'fan', emo: null, e: true, b: '🔌' }, { k: 'lamp', emo: '💡', e: true, b: '🔌' },
+  { k: 'whisk', emo: null, e: false, b: '💪' },
+];
+const Wh = (k, m) => WATT[k] * m / 60;
+
+// --- state -------------------------------------------------------------------------------------------------
+const S = {
+  mode: 'round', ri: 0, rg: null, on: {}, ea: {}, sec: null, race: 0, disc: [{ w: 0, a: 0 }, { w: 0, a: 0 }, { w: 0, a: 0 }], energy: 0, revs: 0, wire: 0,
+  si: 0, sg: null, right: [], placed: [[], []], cx: 180, cy: -120, drag: null, fly: null, bump: [-9, -9], geo: { s: 1, ox: 0, oy: 0 },
+  dg: null, touched: false, d: { charger: DEF.charger, kettle: DEF.kettle, lamp: 240, tv: 180, washer: 60 }, bw: {}, dshow: 0,
+};
+APPS.forEach((k) => { S.on[k] = false; S.ea[k] = 0; });
+DAY.forEach((r) => { S.bw[r.k] = 0; });
+const now = () => performance.now() / 1000;
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+const LOC = () => (lang === 'ru' ? 'ru-RU' : lang === 'hu' ? 'hu-HU' : 'en-US');
+const fmt = (n) => Math.round(n).toLocaleString(LOC());
+const dec1 = (n) => n.toLocaleString(LOC(), { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const fmtDur = (m) => { const u = T[lang].u, h = Math.floor(m / 60), r = m % 60; return m < 60 ? `${m} ${u.min}` : r ? `${h} ${u.h} ${r} ${u.min}` : `${h} ${u.h}`; };
+
+const lab = shell({ key: 'home-power', T, topics: TOPICS, views: ['meter', 'sort', 'day'], onLang: render, onView: render });
+const secret = secretLab('home-power', () => ({
+  secrets: [{ emo: '🌀', title: T[lang].secrets.disc[0], desc: T[lang].secrets.disc[1] }, { emo: '💤', title: T[lang].secrets.stby[0], desc: T[lang].secrets.stby[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="secMeter">
+    <div id="mRound">
+      <div class="hp-q" id="mQ"></div>
+      <div class="hp-two" id="mAns"></div>
+      <div class="row2"><button class="btn hp-go" id="mNext" hidden></button><button class="chip hp-chip" id="mSkip"></button></div>
+    </div>
+    <div id="mFree">
+      <div class="chips" id="mChips"></div>
+      <div class="row2"><div class="chips" id="mSec"></div><button class="chip hp-chip" id="mAgain"></button></div>
+      <div class="row2"><span class="hp-fine" id="mFine"></span></div>
+    </div>
+  </div>
+  <div id="secSort">
+    <div class="hp-two" id="sBk"></div>
+    <div class="row2"><button class="btn hp-go" id="sNext" hidden></button></div>
+  </div>
+  <div id="secDay">
+    <div id="dAsk"><div class="hp-q" id="dQ"></div><div class="hp-two" id="dAns"></div></div>
+    <div id="dRows"></div>
+  </div>`;
+$('dRows').innerHTML = DAY.map((r) => `<div class="hp-row"><div class="hp-rh"><span class="e">${EMO[r.k]}</span><b class="hp-rn" data-n="${r.k}"></b><span class="hp-rc" data-c="${r.k}"></span></div>
+  <input class="big" type="range" min="0" max="${r.max}" step="${r.step}" value="${S.d[r.k]}" data-k="${r.k}" style="--track: linear-gradient(90deg, ${DC[r.k]}55, ${DC[r.k]})"></div>`).join('');
+
+// --- drawing helpers ---------------------------------------------------------------------------------------
+const rr = (c, x, y, w, h, r) => { c.beginPath(); c.roundRect(x, y, w, h, Math.max(0, Math.min(r, w / 2, h / 2))); };
+const lg = (c, x0, y0, x1, y1, st) => { const g = c.createLinearGradient(x0, y0, x1, y1); st.forEach(([o, col]) => g.addColorStop(o, col)); return g; };
+const rg = (c, x, y, r0, r1, st) => { const g = c.createRadialGradient(x, y, Math.max(0, r0), x, y, Math.max(0.01, r1)); st.forEach(([o, col]) => g.addColorStop(o, col)); return g; };
+const mx = (a, b, t) => { const p = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)], A = p(a), B = p(b); return `rgb(${A.map((v, i) => Math.round(v + (B[i] - v) * t)).join(',')})`; };
+const fit = (w, h, W, H) => { const s = Math.min(w / W, h / H); return { s, ox: (w - W * s) / 2, oy: (h - H * s) / 2 }; };
+const EF = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+const emoji = (c, ch, x, y, size) => { c.save(); c.globalAlpha = 1; c.fillStyle = '#fff'; c.font = `${size}px ${EF}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(ch, x, y); c.restore(); };
+const tag = (c, txt, x, y, size = 13, fg = '#fff') => {
+  c.save(); c.font = `800 ${size}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+  const w = c.measureText(txt).width + 16; rr(c, x - w / 2, y - size * 0.95, w, size * 1.9, size); c.fillStyle = 'rgba(10,12,22,.82)'; c.fill();
+  c.fillStyle = fg; c.fillText(txt, x, y + 1); c.restore();
+};
+const ease = (t) => t * t * (3 - 2 * t);
+
+// --- appliances: each is drawn standing on y = 0, x = 0 in the middle -----------------------------------------
+const APP = {
+  lamp(c, e, t) {
+    if (e > 0.01) { c.fillStyle = lg(c, 0, -34, 0, 0, [[0, `rgba(255,228,140,${0.5 * e})`], [1, 'rgba(255,228,140,0)']]); c.beginPath(); c.moveTo(-8, -32); c.lineTo(8, -32); c.lineTo(28, 0); c.lineTo(-28, 0); c.closePath(); c.fill(); }
+    rr(c, -11, -5, 22, 5, 2.5); c.fillStyle = lg(c, 0, -5, 0, 0, [[0, '#59607e'], [1, '#2f3550']]); c.fill();
+    c.strokeStyle = '#59607e'; c.lineWidth = 3; c.beginPath(); c.moveTo(0, -5); c.lineTo(0, -30); c.stroke();
+    c.beginPath(); c.moveTo(-15, -30); c.quadraticCurveTo(-14, -46, 0, -46); c.quadraticCurveTo(14, -46, 15, -30); c.closePath();
+    c.fillStyle = lg(c, -15, -46, 15, -30, [[0, mx('#9aa3c0', '#ffe9a0', e)], [1, mx('#5b627e', '#f2b34a', e)]]); c.fill(); c.lineWidth = 1.2; c.strokeStyle = '#2a2f48'; c.stroke();
+    if (e > 0.01) { c.fillStyle = rg(c, 0, -30, 1, 24, [[0, `rgba(255,232,140,${0.6 * e})`], [1, 'rgba(255,232,140,0)']]); c.beginPath(); c.arc(0, -30, 24, 0, 7); c.fill(); }
+    c.fillStyle = mx('#c9cde0', '#fff8c8', e); c.beginPath(); c.arc(0, -30, 4, 0, 7); c.fill();
+  },
+  charger(c, e, t) {
+    rr(c, -15, -50, 30, 32, 5); c.fillStyle = lg(c, 0, -50, 0, -18, [[0, '#eef0f6'], [1, '#c4cad8']]); c.fill(); c.lineWidth = 1; c.strokeStyle = '#8d96ab'; c.stroke();
+    rr(c, -8, -45, 16, 20, 3); c.fillStyle = lg(c, -8, -45, 8, -25, [[0, '#ffffff'], [1, '#cfd5e2']]); c.fill(); c.strokeStyle = '#8d96ab'; c.stroke();
+    c.fillStyle = mx('#8a93a8', '#46e08a', e); c.beginPath(); c.arc(0, -35, 2.2, 0, 7); c.fill();
+    c.strokeStyle = '#eef0f6'; c.lineWidth = 2.6; c.beginPath(); c.moveTo(0, -25); c.bezierCurveTo(0, -12, -2, -9, 5, -7); c.stroke();
+    rr(c, 2, -11, 21, 10, 3); c.fillStyle = '#1b1e2c'; c.fill(); c.lineWidth = 1.2; c.strokeStyle = '#7b849b'; c.stroke();
+    rr(c, 5, -9, 15, 6, 1.5); c.fillStyle = mx('#2a2f48', '#6be3a2', e); c.fill();
+  },
+  tv(c, e, t, o) {
+    if (e > 0.01) { c.fillStyle = rg(c, 0, -26, 2, 54, [[0, `rgba(120,175,255,${0.35 * e})`], [1, 'rgba(120,175,255,0)']]); c.beginPath(); c.arc(0, -26, 54, 0, 7); c.fill(); }
+    rr(c, -26, -42, 52, 34, 4); c.fillStyle = '#161a26'; c.fill(); c.lineWidth = 1.5; c.strokeStyle = '#07080e'; c.stroke();
+    c.save(); rr(c, -23, -39, 46, 28, 2); c.clip();
+    c.fillStyle = lg(c, 0, -39, 0, -11, [[0, '#2a3148'], [1, '#10131d']]); c.fillRect(-23, -39, 46, 28);
+    if (e > 0.01) {
+      c.globalAlpha = e; c.fillStyle = lg(c, 0, -39, 0, -11, [[0, '#8ad0ff'], [1, '#3d5fd0']]); c.fillRect(-23, -39, 46, 28);
+      c.fillStyle = '#ffe9a0'; c.beginPath(); c.arc(-16 + ((t * 5) % 36), -29, 4.5, 0, 7); c.fill();
+      c.fillStyle = '#2e9d6a'; c.beginPath(); c.ellipse(6, -9, 28, 10, 0, 0, 7); c.fill(); c.globalAlpha = 1;
+    }
+    c.fillStyle = 'rgba(255,255,255,.09)'; c.beginPath(); c.moveTo(-23, -39); c.lineTo(-2, -39); c.lineTo(-23, -18); c.fill(); c.restore();
+    rr(c, -5, -8, 10, 4, 1); c.fillStyle = '#2f3550'; c.fill(); rr(c, -14, -5, 28, 4, 2); c.fill();
+    if (o.stby) { c.fillStyle = rg(c, 20, -10, 0.5, 5, [[0, 'rgba(255,70,70,.9)'], [1, 'rgba(255,70,70,0)']]); c.beginPath(); c.arc(20, -10, 5, 0, 7); c.fill(); c.fillStyle = '#ff5b5b'; c.beginPath(); c.arc(20, -10, 1.7, 0, 7); c.fill(); }
+  },
+  fridge(c, e) {
+    rr(c, -17, -66, 34, 66, 6); c.fillStyle = lg(c, -17, 0, 17, 0, [[0, '#f7f9fc'], [1, '#cdd6e4']]); c.fill(); c.lineWidth = 1.5; c.strokeStyle = '#7f8aa0'; c.stroke();
+    if (e > 0.01) { rr(c, -17, -66, 34, 66, 6); c.fillStyle = `rgba(130,200,255,${0.2 * e})`; c.fill(); }
+    c.strokeStyle = '#9aa4b8'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(-17, -44); c.lineTo(17, -44); c.stroke();
+    rr(c, 9, -60, 3, 11, 1.5); c.fillStyle = '#7b869c'; c.fill(); rr(c, 9, -40, 3, 17, 1.5); c.fill();
+    c.fillStyle = mx('#8a93a8', '#46e08a', e); c.beginPath(); c.arc(-10, -61, 1.9, 0, 7); c.fill();
+  },
+  kettle(c, e, t) {
+    if (e > 0.01) { c.fillStyle = rg(c, 0, -4, 2, 26, [[0, `rgba(255,120,60,${0.45 * e})`], [1, 'rgba(255,120,60,0)']]); c.beginPath(); c.arc(0, -4, 26, 0, 7); c.fill(); }
+    c.fillStyle = '#2c3148'; c.beginPath(); c.ellipse(0, -3, 16, 4.5, 0, 0, 7); c.fill();
+    c.strokeStyle = mx('#4a5068', '#ff7a45', e); c.lineWidth = 2; c.beginPath(); c.ellipse(0, -4, 14, 3.6, 0, 0, 7); c.stroke();
+    c.strokeStyle = '#2c3148'; c.lineWidth = 4; c.beginPath(); c.moveTo(12, -28); c.quadraticCurveTo(26, -24, 14, -9); c.stroke();
+    c.beginPath(); c.moveTo(-12, -26); c.lineTo(-23, -35); c.lineTo(-20, -37.5); c.lineTo(-10, -31); c.closePath(); c.fillStyle = '#a7b0c0'; c.fill(); c.lineWidth = 1; c.strokeStyle = '#4b5268'; c.stroke();
+    c.beginPath(); c.moveTo(-14, -5); c.lineTo(-11, -30); c.quadraticCurveTo(0, -37, 11, -30); c.lineTo(14, -5); c.quadraticCurveTo(0, 0, -14, -5); c.closePath();
+    c.fillStyle = lg(c, -14, 0, 14, 0, [[0, '#8f99ab'], [0.35, '#f1f4f9'], [1, '#98a2b5']]); c.fill(); c.lineWidth = 1.2; c.strokeStyle = '#4b5268'; c.stroke();
+    c.fillStyle = '#2c3148'; c.beginPath(); c.arc(0, -35, 2.6, 0, 7); c.fill();
+    if (e > 0.01) for (let i = 0; i < 3; i++) { const p = (t * 0.55 + i / 3) % 1; c.fillStyle = `rgba(255,255,255,${(1 - p) * 0.6 * e})`; c.beginPath(); c.arc(-22 - p * 6, -38 - p * 22, 3 + p * 6, 0, 7); c.fill(); }
+  },
+  iron(c, e, t) {
+    if (e > 0.01) { c.fillStyle = rg(c, 0, -2, 2, 30, [[0, `rgba(255,100,70,${0.4 * e})`], [1, 'rgba(255,100,70,0)']]); c.beginPath(); c.arc(0, -2, 30, 0, 7); c.fill(); }
+    c.beginPath(); c.moveTo(-22, 0); c.lineTo(14, 0); c.quadraticCurveTo(27, 0, 22, -9); c.lineTo(14, -19); c.lineTo(-22, -19); c.quadraticCurveTo(-25, -9, -22, 0); c.closePath();
+    c.fillStyle = lg(c, 0, -19, 0, 0, [[0, '#eaeef5'], [1, '#8d98ac']]); c.fill(); c.lineWidth = 1.3; c.strokeStyle = '#4b5268'; c.stroke();
+    rr(c, -22, -3.5, 37, 3.5, 1.7); c.fillStyle = '#6f7a8f'; c.fill();
+    c.beginPath(); c.moveTo(-17, -19); c.bezierCurveTo(-17, -38, 8, -38, 10, -19); c.lineTo(3, -19); c.bezierCurveTo(3, -28, -10, -28, -10, -19); c.closePath();
+    c.fillStyle = lg(c, 0, -34, 0, -19, [[0, '#f47a6d'], [1, '#b53a38']]); c.fill(); c.strokeStyle = '#6e1f20'; c.stroke();
+    c.fillStyle = mx('#6b2a2a', '#ff5148', e); c.beginPath(); c.arc(13, -12, 2.4, 0, 7); c.fill();
+    if (e > 0.01) for (let i = 0; i < 3; i++) { const p = (t * 0.6 + i / 3) % 1; c.fillStyle = `rgba(255,255,255,${(1 - p) * 0.55 * e})`; c.beginPath(); c.arc(22 + p * 8, -8 - p * 20, 3 + p * 5, 0, 7); c.fill(); }
+  },
+  washer(c, e, t, o) {
+    rr(c, -23, -48, 46, 48, 4); c.fillStyle = lg(c, -23, 0, 23, 0, [[0, '#f7f9fc'], [1, '#c4cddc']]); c.fill(); c.lineWidth = 1.5; c.strokeStyle = '#7f8aa0'; c.stroke();
+    rr(c, -21, -46, 42, 9, 3); c.fillStyle = '#d6dde9'; c.fill();
+    c.fillStyle = '#8d97ab'; c.beginPath(); c.arc(-14, -41.5, 3, 0, 7); c.fill();
+    rr(c, 2, -44, 16, 5, 1.5); c.fillStyle = o.stby ? '#a73c3c' : mx('#2a3148', '#46e08a', e); c.fill();
+    if (o.stby) { c.fillStyle = rg(c, 10, -41.5, 0.5, 8, [[0, 'rgba(255,70,70,.7)'], [1, 'rgba(255,70,70,0)']]); c.beginPath(); c.arc(10, -41.5, 8, 0, 7); c.fill(); }
+    c.beginPath(); c.arc(0, -21, 15.5, 0, 7); c.fillStyle = lg(c, -12, -34, 12, -8, [[0, '#c0c9d9'], [1, '#808ca2']]); c.fill(); c.lineWidth = 1.2; c.strokeStyle = '#4b5268'; c.stroke();
+    c.save(); c.beginPath(); c.arc(0, -21, 12, 0, 7); c.clip(); c.fillStyle = '#233961'; c.fillRect(-13, -34, 26, 26);
+    const cl = ['#ff8f6b', '#ffd166', '#7ec8ff'];
+    for (let i = 0; i < 3; i++) { const a = (e > 0.01 ? t * 5 * e : 0) + i * 2.1 + 0.6; c.fillStyle = cl[i]; c.beginPath(); c.arc(Math.cos(a) * 6, -21 + Math.sin(a) * 6, 4.3, 0, 7); c.fill(); }
+    c.fillStyle = `rgba(150,210,255,${0.25 * e})`; c.fillRect(-13, -21, 26, 13); c.restore();
+    c.strokeStyle = 'rgba(255,255,255,.5)'; c.lineWidth = 1.6; c.beginPath(); c.arc(0, -21, 9, 3.6, 4.7); c.stroke();
+  },
+};
+function drawApp(c, k, x, y, sc, e, t, o = {}) {
+  c.save(); c.translate(x, y); c.scale(sc, sc); c.lineJoin = 'round'; c.lineCap = 'round';
+  c.fillStyle = 'rgba(40,25,10,.3)'; c.beginPath(); c.ellipse(0, 1, APW[k] * 0.55, 3.4, 0, 0, 7); c.fill();
+  APP[k](c, e, t, o);
+  c.restore();
+}
+
+// --- meter -------------------------------------------------------------------------------------------------
+function drawMeter(c, x, y, w, h, d, reg) {
+  c.save(); c.translate(x, y); c.lineJoin = 'round'; c.lineCap = 'round';
+  c.fillStyle = 'rgba(0,0,0,.3)'; c.beginPath(); c.ellipse(w / 2, h + 3, w * 0.45, 4, 0, 0, 7); c.fill();
+  rr(c, 0, 0, w, h, 14); c.fillStyle = lg(c, 0, 0, w, h, [[0, '#f1f3f8'], [0.5, '#c4cbd8'], [1, '#97a0b3']]); c.fill(); c.lineWidth = 2; c.strokeStyle = '#4b5268'; c.stroke();
+  c.fillStyle = '#3a4058'; c.font = '900 13px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(T[lang].u.kwh, w / 2, 14);
+  const wy = 26, wh = reg ? h - 26 - 44 : h - 26 - 12, r = Math.max(8, Math.min((w - 28) / 2, (wh - 8) / 2)), cx = w / 2, cy = wy + wh / 2;
+  rr(c, 8, wy, w - 16, wh, 10); c.fillStyle = lg(c, 0, wy, 0, wy + wh, [[0, '#232738'], [1, '#12141d']]); c.fill(); c.lineWidth = 1.5; c.strokeStyle = '#4b5268'; c.stroke();
+  const om = d.w * DISC * Math.PI * 2; // rad/s
+  c.beginPath(); c.arc(cx, cy, r, 0, 7); c.fillStyle = rg(c, cx - r * 0.3, cy - r * 0.35, r * 0.1, r * 1.05, [[0, '#f6f8fb'], [0.6, '#bcc4d2'], [1, '#7a8498']]); c.fill(); c.lineWidth = 1.5; c.strokeStyle = '#4b5268'; c.stroke();
+  c.strokeStyle = '#69718a'; c.lineWidth = 2;
+  for (let i = 0; i < 12; i++) { const a = d.a + i * Math.PI / 6; c.beginPath(); c.moveTo(cx + Math.cos(a) * r * 0.78, cy + Math.sin(a) * r * 0.78); c.lineTo(cx + Math.cos(a) * r * 0.94, cy + Math.sin(a) * r * 0.94); c.stroke(); }
+  const sw = Math.min(1.1, om * 0.05);
+  if (sw > 0.03) { c.strokeStyle = 'rgba(229,72,77,.35)'; c.lineWidth = 5; c.beginPath(); c.arc(cx, cy, r * 0.66, d.a - sw, d.a); c.stroke(); }
+  c.strokeStyle = '#e5484d'; c.lineWidth = 4; c.beginPath(); c.moveTo(cx + Math.cos(d.a) * r * 0.3, cy + Math.sin(d.a) * r * 0.3); c.lineTo(cx + Math.cos(d.a) * r * 0.96, cy + Math.sin(d.a) * r * 0.96); c.stroke();
+  c.fillStyle = '#5a6278'; c.beginPath(); c.arc(cx, cy, r * 0.12, 0, 7); c.fill();
+  c.fillStyle = 'rgba(255,255,255,.13)'; c.beginPath(); c.moveTo(8, wy + 4); c.lineTo(w * 0.55, wy + 4); c.lineTo(8, wy + wh * 0.6); c.closePath(); c.fill();
+  if (reg) {
+    rr(c, 10, h - 38, w - 20, 24, 5); c.fillStyle = '#0e1016'; c.fill();
+    const dg = String(12345 + Math.floor(S.energy / 100)).padStart(5, '0').slice(-5), dw = (w - 28) / 5;
+    c.font = '900 16px Nunito, sans-serif';
+    for (let i = 0; i < 5; i++) { if (i === 4) { c.fillStyle = '#7a2428'; c.fillRect(14 + i * dw, h - 35, dw - 1, 18); } c.fillStyle = i === 4 ? '#fff' : '#e8ecf5'; c.fillText(dg[i], 14 + i * dw + dw / 2, h - 25); }
+  }
+  c.restore();
+}
+
+// --- the house: four rooms, warm light -------------------------------------------------------------------------
+const ROOM = [[14, 78, '#f3d3b0', '#e6b98c'], [126, 78, '#cfe3c9', '#a9cfa3'], [14, 182, '#c9d8ea', '#a4bdd9'], [126, 182, '#f1e0a8', '#e0c47a']];
+function drawHouse(c, t) {
+  c.lineJoin = 'round';
+  c.fillStyle = rg(c, 124, 292, 10, 150, [[0, 'rgba(80,110,70,.5)'], [1, 'rgba(80,110,70,0)']]); c.beginPath(); c.ellipse(124, 293, 150, 9, 0, 0, 7); c.fill();
+  // roof
+  c.beginPath(); c.moveTo(-2, 78); c.lineTo(124, 18); c.lineTo(250, 78); c.closePath(); c.fillStyle = lg(c, 0, 18, 0, 78, [[0, '#a24b46'], [1, '#6a2a2e']]); c.fill(); c.lineWidth = 2; c.strokeStyle = '#3d1719'; c.stroke();
+  c.strokeStyle = 'rgba(255,255,255,.14)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(20, 70); c.lineTo(124, 24); c.stroke();
+  rr(c, 186, 30, 16, 32, 2); c.fillStyle = '#7b3a36'; c.fill(); c.lineWidth = 1.5; c.strokeStyle = '#3d1719'; c.stroke();
+  // walls and rooms
+  rr(c, 8, 72, 232, 220, 6); c.fillStyle = lg(c, 0, 72, 0, 292, [[0, '#e8dcc0'], [1, '#c9b78f']]); c.fill(); c.lineWidth = 2; c.strokeStyle = '#6b5a3c'; c.stroke();
+  for (const [x, y, a, b] of ROOM) {
+    rr(c, x, y, 108, 98, 3); c.fillStyle = lg(c, 0, y, 0, y + 98, [[0, a], [1, b]]); c.fill();
+    c.fillStyle = rg(c, x + 54, y, 4, 80, [[0, 'rgba(255,240,180,.45)'], [1, 'rgba(255,240,180,0)']]); c.fillRect(x, y, 108, 98);
+    rr(c, x, y + 92, 108, 6, 2); c.fillStyle = lg(c, 0, y + 92, 0, y + 98, [[0, '#a07d52'], [1, '#7d5f3c']]); c.fill();
+    const wx = x + (x > 100 && y < 100 ? 8 : 70), wy = y + 12; // a window
+    rr(c, wx, wy, 30, 24, 3); c.fillStyle = lg(c, 0, wy, 0, wy + 24, [[0, '#9fd2f5'], [1, '#d8eefc']]); c.fill(); c.lineWidth = 1.5; c.strokeStyle = '#7d6a48'; c.stroke();
+    c.beginPath(); c.moveTo(wx + 15, wy); c.lineTo(wx + 15, wy + 24); c.moveTo(wx, wy + 12); c.lineTo(wx + 30, wy + 12); c.stroke();
+  }
+  rr(c, 12, 176, 224, 6, 1); c.fillStyle = '#9d7e50'; c.fill();
+  c.fillStyle = 'rgba(120,70,60,.35)'; c.beginPath(); c.ellipse(72, 281, 44, 5, 0, 0, 7); c.fill(); // a rug under the TV
+}
+// the wire from the street to the meter and the house: dashes run along it, faster when more is used
+function drawWire(c, w, dt) {
+  S.wire += (w > 0.3 ? Math.min(80, 10 + Math.sqrt(w) * 1.5) : 0) * dt;
+  const path = () => { c.beginPath(); c.moveTo(360, 30); c.quadraticCurveTo(320, 52, 302, 66); };
+  c.lineCap = 'round'; c.strokeStyle = '#1a1c28'; c.lineWidth = 3; path(); c.stroke();
+  if (w > 0.3) { c.setLineDash([5, 9]); c.lineDashOffset = -S.wire; c.strokeStyle = '#ffd34d'; c.lineWidth = 2; path(); c.stroke(); c.setLineDash([]); }
+  c.strokeStyle = '#1a1c28'; c.lineWidth = 3; c.beginPath(); c.moveTo(254, 180); c.lineTo(240, 180); c.stroke();
+  if (w > 0.3) { c.setLineDash([4, 7]); c.lineDashOffset = S.wire; c.strokeStyle = '#ffd34d'; c.lineWidth = 2; c.beginPath(); c.moveTo(254, 180); c.lineTo(240, 180); c.stroke(); c.setLineDash([]); }
+}
+
+// --- the picture of each view ---------------------------------------------------------------------------------
+const isOn = (k) => (S.mode === 'round' ? S.rg !== null && ROUNDS[S.ri].includes(k) : S.on[k]);
+function targets() {
+  if (S.mode === 'round') return S.rg === null ? [0, 0, 0] : [0, WATT[ROUNDS[S.ri][0]], WATT[ROUNDS[S.ri][1]]];
+  if (S.sec === 'stby') return [STBY_W, 0, 0];
+  return [APPS.reduce((n, k) => n + (S.on[k] ? WATT[k] : 0), 0), 0, 0];
+}
+function sceneMeter(c, w, h, dt, t) {
+  const g = fit(w, h, 360, 300); S.geo = g;
+  c.save(); c.translate(g.ox, g.oy); c.scale(g.s, g.s);
+  const tg = targets(), round = S.mode === 'round', reveal = round && S.rg !== null;
+  S.race += ((reveal ? 1 : 0) - S.race) * Math.min(1, dt * 5);
+  S.disc.forEach((d, i) => { d.w += (tg[i] - d.w) * Math.min(1, dt * 2.6); d.a += d.w * DISC * Math.PI * 2 * dt; });
+  S.energy += S.disc[0].w * LAPSE * dt / 3600; if (S.sec === 'disc') { S.revs += S.disc[0].w * DISC * dt; if (S.mode === 'free' && lab.view === 'meter' && Math.floor(S.revs * 10) / 10 !== S.lastTurn) discState(); }
+  drawHouse(c, t);
+  const cand = round ? ROUNDS[S.ri] : [];
+  for (const k of APPS) {
+    S.ea[k] += ((isOn(k) ? 1 : 0) - S.ea[k]) * Math.min(1, dt * 7);
+    const [x, y, sc] = SLOT[k], dim = round && !cand.includes(k);
+    c.globalAlpha = dim ? 0.35 : 1;
+    if (round && !reveal && cand.includes(k)) { c.strokeStyle = `rgba(255,214,102,${0.55 + 0.4 * Math.sin(t * 4)})`; c.lineWidth = 2.5; rr(c, x - APW[k] * sc * 0.62, y - 70 * sc, APW[k] * sc * 1.24, 74 * sc, 10); c.stroke(); }
+    drawApp(c, k, x, y, sc, S.ea[k], t, { stby: S.sec === 'stby' && !round && (k === 'tv' || k === 'washer') });
+    c.globalAlpha = 1;
+  }
+  drawWire(c, S.race > 0.5 ? tg[1] + tg[2] : S.disc[0].w, dt);
+  if (S.race < 0.98) { c.globalAlpha = 1 - S.race; rr(c, 291, 210, 16, 82, 3); c.fillStyle = lg(c, 291, 0, 307, 0, [[0, '#8a6a46'], [1, '#5e4529']]); c.fill(); drawMeter(c, 254, 66, 96, 148, S.disc[0], true); c.globalAlpha = 1; }
+  if (S.race > 0.02) {
+    c.globalAlpha = S.race;
+    ROUNDS[S.ri].forEach((k, i) => { drawMeter(c, 254, 26 + i * 136, 96, 100, S.disc[i + 1], false); tag(c, `${EMO[k]} ${fmt(WATT[k])} ${T[lang].u.w}`, 302, 26 + i * 136 + 112, 13); });
+    c.globalAlpha = 1;
+  }
+  if (!round && S.sec === 'disc') tag(c, `${dec1(Math.floor(S.revs * 10) / 10)} ⟲`, 302, 236, 14, '#ffd34d');
+  c.restore();
+}
+
+// icons of the sort cards: emoji, or drawn when there is no good emoji
+function icon(c, k, x, y, size, t) {
+  const em = CARDS.find((q) => q.k === k).emo;
+  if (em) return emoji(c, em, x, y, size);
+  c.save(); c.translate(x, y); c.scale(size / 56, size / 56); c.lineJoin = 'round'; c.lineCap = 'round'; c.lineWidth = 2; c.strokeStyle = '#2a2f48';
+  if (k === 'dryer') {
+    rr(c, -8, 4, 14, 26, 6); c.fillStyle = '#d9534f'; c.fill(); c.stroke();
+    rr(c, -26, -20, 42, 28, 12); c.fillStyle = lg(c, 0, -20, 0, 8, [[0, '#f59ab0'], [1, '#d6587a']]); c.fill(); c.stroke();
+    rr(c, 14, -17, 14, 22, 3); c.fillStyle = '#59627c'; c.fill(); c.stroke();
+    c.strokeStyle = 'rgba(255,255,255,.7)'; c.beginPath(); c.moveTo(-18, -10); c.lineTo(2, -10); c.moveTo(-18, -4); c.lineTo(2, -4); c.stroke();
+  } else if (k === 'fan') {
+    rr(c, -4, 14, 8, 16, 3); c.fillStyle = '#59627c'; c.fill(); c.stroke(); rr(c, -16, 28, 32, 6, 3); c.fill(); c.stroke();
+    c.beginPath(); c.arc(0, -4, 22, 0, 7); c.fillStyle = 'rgba(200,215,240,.25)'; c.fill(); c.stroke();
+    for (let i = 0; i < 3; i++) { c.save(); c.translate(0, -4); c.rotate(t * 2 + i * 2.094); c.beginPath(); c.ellipse(0, -10, 6, 11, 0, 0, 7); c.fillStyle = '#7ec8ff'; c.fill(); c.lineWidth = 1.4; c.stroke(); c.restore(); }
+    c.fillStyle = '#2a2f48'; c.beginPath(); c.arc(0, -4, 4, 0, 7); c.fill();
+  } else {
+    rr(c, -5, 8, 10, 24, 5); c.fillStyle = lg(c, -5, 0, 5, 0, [[0, '#b08a5e'], [1, '#7d5f3c']]); c.fill(); c.stroke();
+    c.strokeStyle = '#6c7690'; c.lineWidth = 2.4; for (const rx of [5, 11, 16]) { c.beginPath(); c.ellipse(0, -10, rx, 20, 0, 0, 7); c.stroke(); }
+    rr(c, -7, 5, 14, 5, 2); c.fillStyle = '#59627c'; c.fill(); c.lineWidth = 1.6; c.strokeStyle = '#2a2f48'; c.stroke();
+  }
+  c.restore();
+}
+function basket(c, x, y, w, label, items, glow, bump, t, plug) {
+  const top = y + 16, bh = 62, pop = t < bump ? 0 : Math.max(0, 1 - (t - bump) / 0.4), sc = 1 + 0.06 * Math.sin(pop * Math.PI);
+  c.save(); c.translate(x + w / 2, y + 48); c.scale(sc, sc); c.translate(-(x + w / 2), -(y + 48));
+  if (glow) { c.strokeStyle = 'rgba(61,220,151,.9)'; c.lineWidth = 4; rr(c, x - 4, y + 8, w + 8, bh + 20, 16); c.stroke(); }
+  tag(c, label, x + w / 2, y + 2, 14, plug ? '#ffd34d' : '#d3d9e8');
+  c.fillStyle = 'rgba(0,0,0,.28)'; c.beginPath(); c.ellipse(x + w / 2, top + bh + 6, w * 0.45, 5, 0, 0, 7); c.fill();
+  c.beginPath(); c.moveTo(x, top); c.lineTo(x + w, top); c.lineTo(x + w - 12, top + bh); c.quadraticCurveTo(x + w / 2, top + bh + 8, x + 12, top + bh); c.closePath();
+  c.fillStyle = lg(c, x, 0, x + w, 0, [[0, '#a87c47'], [0.5, '#d1a468'], [1, '#8a6236']]); c.fill(); c.lineWidth = 1.5; c.strokeStyle = '#4f3418'; c.stroke();
+  c.save(); c.clip(); c.strokeStyle = 'rgba(70,45,15,.3)'; c.lineWidth = 1.4;
+  for (let i = -6; i < 14; i++) { c.beginPath(); c.moveTo(x + i * 14, top); c.lineTo(x + i * 14 + 30, top + bh + 8); c.stroke(); c.beginPath(); c.moveTo(x + i * 14 + 30, top); c.lineTo(x + i * 14, top + bh + 8); c.stroke(); }
+  c.restore();
+  items.forEach((k, i) => { icon(c, k, x + 20 + (i % 5) * ((w - 40) / 4), top + 6 + (i > 4 ? 22 : 0), 22, t); });
+  c.beginPath(); c.ellipse(x + w / 2, top, w / 2, 8, 0, 0, 7); c.lineWidth = 3; c.strokeStyle = '#6e4a22'; c.stroke();
+  c.restore();
+}
+function sceneSort(c, w, h, dt, t) {
+  const g = fit(w, h, 360, 300); S.geo = g;
+  c.save(); c.translate(g.ox, g.oy); c.scale(g.s, g.s);
+  const end = S.si >= CARDS.length, card = CARDS[Math.min(S.si, CARDS.length - 1)];
+  // card position: follows the finger, otherwise glides to the middle
+  const tx = 180, ty = 98;
+  if (S.drag) { S.cx = S.drag.x; S.cy = S.drag.y; } else { S.cx += (tx - S.cx) * Math.min(1, dt * 9); S.cy += (ty - S.cy) * Math.min(1, dt * 9); }
+  const correct = card.e ? 0 : 1, rev = S.sg !== null;
+  basket(c, 22, 188, 146, T[lang].s.bk[0], S.placed[0].map((i) => CARDS[i].k), rev && correct === 0, S.bump[0], t, true);
+  basket(c, 192, 188, 146, T[lang].s.bk[1], S.placed[1].map((i) => CARDS[i].k), rev && correct === 1, S.bump[1], t, false);
+  if (S.fly) { // the card that was just sorted flies into its basket
+    const f = S.fly, p = Math.min(1, (t - f.t0) / 0.4), q = ease(p), bx = f.to === 0 ? 95 : 265;
+    if (p >= 1) S.fly = null; else {
+      c.save(); c.translate(lerp(f.x, bx, q), lerp(f.y, 235, q)); c.scale(1 - 0.6 * q, 1 - 0.6 * q); c.globalAlpha = 1 - 0.3 * q;
+      cardBody(c, CARDS[f.i], 0, 0, 0, t, null); c.restore();
+    }
+  }
+  if (!end) {
+    const lift = S.drag ? 1.06 : 1;
+    c.save(); c.translate(S.cx, S.cy); c.scale(lift, lift); cardBody(c, card, 0, 0, 0, t, rev ? (S.sg === card.e ? 'ok' : 'bad') : null); c.restore();
+  } else {
+    tag(c, T[lang].s.end(S.right.filter(Boolean).length), 180, 100, 20, '#fff');
+  }
+  c.restore();
+}
+function cardBody(c, card, x, y, _r, t, res) {
+  c.save(); c.translate(x, y);
+  c.fillStyle = 'rgba(0,0,0,.3)'; rr(c, -70, -58, 150, 134, 18); c.fill();
+  rr(c, -75, -66, 150, 134, 18); c.fillStyle = lg(c, 0, -66, 0, 68, [[0, '#fffdf6'], [1, '#e9e3d0']]); c.fill();
+  c.lineWidth = res ? 4 : 2; c.strokeStyle = res === 'ok' ? '#3ddc97' : res === 'bad' ? '#ff8a3d' : '#8a8268'; c.stroke();
+  icon(c, card.k, 0, -16, 62, t);
+  c.fillStyle = '#2a2f48'; c.font = '900 16px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  const name = T[lang].s.cards[card.k][0]; c.fillText(name.length > 20 ? name.slice(0, 19) + '…' : name, 0, 46, 138);
+  if (res) { c.beginPath(); c.arc(75, -66, 21, 0, 7); c.fillStyle = '#fffdf6'; c.fill(); c.lineWidth = 3; c.strokeStyle = res === 'ok' ? '#3ddc97' : '#ff8a3d'; c.stroke(); emoji(c, card.b, 75, -65, 24); }
+  c.restore();
+}
+
+function sceneDay(c, w, h, dt, t) {
+  const g = fit(w, h, 360, 300); S.geo = g;
+  c.save(); c.translate(g.ox, g.oy); c.scale(g.s, g.s);
+  S.dshow += ((S.dg !== null ? 1 : 0) - S.dshow) * Math.min(1, dt * 4);
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  // the day: a sky strip, then one lane per thing that is on
+  const X0 = 14, XW = 332;
+  rr(c, X0, 6, XW, 34, 10); c.fillStyle = lg(c, X0, 0, X0 + XW, 0, [[0, '#10143a'], [0.2, '#1c2250'], [0.3, '#e39a62'], [0.4, '#6fb4e6'], [0.6, '#6fb4e6'], [0.74, '#e07a5a'], [0.84, '#2a2a60'], [1, '#10143a']]); c.fill();
+  emoji(c, '🌙', X0 + XW * 0.07, 23, 17); emoji(c, '☀️', X0 + XW * 0.52, 23, 19); emoji(c, '🌙', X0 + XW * 0.94, 23, 17);
+  c.fillStyle = '#98A0B8'; c.font = '800 13px Nunito, sans-serif'; c.textBaseline = 'middle'; c.textAlign = 'center';
+  T[lang].d.hrs.forEach((s, i) => c.fillText(s, X0 + XW * i / 4 + (i === 0 ? 4 : i === 4 ? -6 : 0), 50));
+  rr(c, X0, 58, XW, 48, 8); c.fillStyle = 'rgba(130,145,190,.1)'; c.fill();
+  DAY.forEach((r, i) => {
+    const len = S.d[r.k] / 60, y = 62 + i * 9;
+    const seg = (a, b) => { if (b - a <= 0) return; rr(c, X0 + XW * a / 24, y, Math.max(3.5, XW * (b - a) / 24), 6, 3); c.fillStyle = DC[r.k]; c.fill(); };
+    if (len <= 0) return; seg(r.start, Math.min(24, r.start + len)); if (r.start + len > 24) seg(0, r.start + len - 24);
+  });
+  // energy bars
+  const BX = 46, BW = 300, MAXWH = 1500, top = 112, rowH = 30;
+  c.strokeStyle = 'rgba(190,205,255,.14)'; c.lineWidth = 1;
+  for (const v of [0, 500, 1000, 1500]) { const x = BX + BW * v / MAXWH; c.beginPath(); c.moveTo(x, top - 4); c.lineTo(x, top + rowH * 5); c.stroke(); }
+  c.fillStyle = '#98A0B8'; c.font = '800 13px Nunito, sans-serif'; c.textAlign = 'center';
+  [0, 500, 1000, 1500].forEach((v) => c.fillText(String(v), Math.min(BX + BW * v / MAXWH, 340), top + rowH * 5 + 10));
+  c.textAlign = 'left'; c.fillText(T[lang].d.axis, BX + 4, top + rowH * 5 + 26);
+  DAY.forEach((r, i) => {
+    const y = top + i * rowH;
+    emoji(c, EMO[r.k], 22, y + 13, 20);
+    rr(c, BX, y + 4, BW, 18, 9); c.fillStyle = 'rgba(130,145,190,.1)'; c.fill();
+    const tgt = S.dg !== null ? Wh(r.k, S.d[r.k]) : 0; S.bw[r.k] += (tgt - S.bw[r.k]) * Math.min(1, dt * 8);
+    if (S.dg === null) { c.setLineDash([4, 5]); c.strokeStyle = 'rgba(190,205,255,.35)'; c.lineWidth = 1.2; rr(c, BX, y + 4, BW, 18, 9); c.stroke(); c.setLineDash([]); c.fillStyle = '#98A0B8'; c.font = '900 15px Nunito, sans-serif'; c.textAlign = 'center'; c.fillText('?', BX + BW / 2, y + 14); return; }
+    const bw = Math.max(0, BW * S.bw[r.k] / MAXWH);
+    if (bw > 0.5) { rr(c, BX, y + 4, Math.max(bw, 6), 18, 9); c.fillStyle = lg(c, 0, y + 4, 0, y + 22, [[0, mx(DC[r.k], '#ffffff', 0.25)], [1, DC[r.k]]]); c.fill(); c.lineWidth = 1.2; c.strokeStyle = 'rgba(10,12,20,.5)'; c.stroke(); }
+    const txt = `${fmt(S.bw[r.k])} ${T[lang].u.wh}`; c.font = '900 13px Nunito, sans-serif'; c.textAlign = 'left';
+    const tw = c.measureText(txt).width;
+    if (BX + bw + 8 + tw < BX + BW) { c.fillStyle = '#EDEFF7'; c.fillText(txt, BX + bw + 7, y + 14); } else { c.fillStyle = '#15182a'; c.textAlign = 'right'; c.fillText(txt, BX + bw - 8, y + 14); }
+  });
+  c.restore();
+}
+
+canvasLoop($('cv'), (c, w, h, dt, t) => {
+  const v = lab.view;
+  if (v === 'meter') sceneMeter(c, w, h, dt, t); else if (v === 'sort') sceneSort(c, w, h, dt, t); else sceneDay(c, w, h, dt, t);
+});
+
+// --- input ------------------------------------------------------------------------------------------------
+const toDesign = (ev) => { const r = $('cv').getBoundingClientRect(), g = S.geo; return { x: (ev.clientX - r.left - g.ox) / g.s, y: (ev.clientY - r.top - g.oy) / g.s }; };
+const showStage = () => { const r = $('stage').getBoundingClientRect(); if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+$('cv').addEventListener('pointerdown', (ev) => {
+  const p = toDesign(ev), v = lab.view;
+  if (v === 'meter' && S.mode === 'free') {
+    for (const k of APPS) { const [x, y, sc] = SLOT[k]; if (Math.abs(p.x - x) < Math.max(22, APW[k] * sc * 0.6) && p.y < y + 6 && p.y > y - 70 * sc) { toggleApp(k); return; } }
+  } else if (v === 'sort' && S.sg === null && S.si < CARDS.length) {
+    if (Math.abs(p.x - S.cx) < 76 && Math.abs(p.y - S.cy) < 68) { S.drag = { x: p.x, y: p.y, id: ev.pointerId }; $('cv').setPointerCapture(ev.pointerId); }
+    else if (p.y > 180) sortTo(p.x < 180 ? 0 : 1);
+  }
+});
+$('cv').addEventListener('pointermove', (ev) => { if (S.drag) { const p = toDesign(ev); S.drag.x = p.x; S.drag.y = p.y; } });
+const endDrag = (ev) => {
+  if (!S.drag) return;
+  const p = toDesign(ev); S.drag = null;
+  if (p.y > 170) sortTo(p.x < 180 ? 0 : 1);
+};
+$('cv').addEventListener('pointerup', endDrag);
+$('cv').addEventListener('pointercancel', () => { S.drag = null; });
+
+function sortTo(side) { // side 0 = uses electricity, 1 = no electricity
+  if (S.sg !== null || S.si >= CARDS.length) return;
+  const card = CARDS[S.si], ok = (side === 0) === card.e;
+  S.sg = side === 0; S.right[S.si] = ok; (ok ? sfx.good : sfx.bad)(); showStage(); render();
+}
+function sortNext() {
+  if (S.si >= CARDS.length) { S.si = 0; S.sg = null; S.right = []; S.placed = [[], []]; S.cy = -120; sfx.click(); render(); return; }
+  if (S.sg === null) return;
+  const i = S.si, to = CARDS[i].e ? 0 : 1;
+  S.fly = { i, to, x: S.cx, y: S.cy, t0: now() }; S.placed[to].push(i); S.bump[to] = now() + 0.3;
+  S.si++; S.sg = null; S.cy = -120; S.cx = 180; sfx.snap(); render();
+}
+function toggleApp(k) {
+  if (S.sec === 'stby') S.sec = null;
+  S.on[k] = !S.on[k]; (S.on[k] ? sfx.click : sfx.tick)(); render();
+}
+function answerRound(i) { if (S.rg !== null) return; S.rg = i; const [a, b] = ROUNDS[S.ri]; ((i === 0 ? a : b) === (WATT[a] > WATT[b] ? a : b) ? sfx.good : sfx.bad)(); showStage(); render(); }
+function nextRound() {
+  S.race = 0; S.disc[1].w = 0; S.disc[2].w = 0;
+  if (S.ri >= ROUNDS.length - 1) { S.mode = 'free'; S.rg = null; S.ri = 0; APPS.forEach((k) => { S.on[k] = false; }); S.sec = null; sfx.click(); }
+  else { S.ri++; S.rg = null; sfx.click(); }
+  render();
+}
+$('mAns').addEventListener('click', (ev) => { const b = ev.target.closest('[data-i]'); if (b) answerRound(+b.dataset.i); });
+$('mNext').onclick = nextRound;
+$('mSkip').onclick = () => { S.mode = 'free'; S.rg = null; sfx.click(); render(); };
+$('mAgain').onclick = () => { S.mode = 'round'; S.ri = 0; S.rg = null; S.sec = null; APPS.forEach((k) => { S.on[k] = false; }); sfx.click(); render(); };
+$('mChips').addEventListener('click', (ev) => { const b = ev.target.closest('[data-k]'); if (b) toggleApp(b.dataset.k); });
+$('mSec').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-s]'); if (!b) return;
+  if (!secret.unlocked()) return secret.open();
+  const k = b.dataset.s;
+  if (S.sec === k) S.sec = null;
+  else { S.sec = k; APPS.forEach((a) => { S.on[a] = false; }); if (k === 'disc') { S.revs = 0; S.on.kettle = true; } }
+  sfx.click(); render();
+});
+$('sBk').addEventListener('click', (ev) => { const b = ev.target.closest('[data-b]'); if (b) sortTo(+b.dataset.b); });
+$('sNext').onclick = sortNext;
+$('dAns').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-a]'); if (!b || S.dg !== null) return;
+  S.dg = b.dataset.a; (S.dg === 'kettle' ? sfx.good : sfx.bad)(); showStage(); render();
+});
+$('dRows').addEventListener('input', (ev) => {
+  const k = ev.target.dataset.k; if (!k) return;
+  S.d[k] = +ev.target.value; S.touched = true; render();
+});
+
+// --- one render per change: controls, readout and the state card -----------------------------------------------
+function render() {
+  const v = lab.view;
+  document.body.dataset.v = v;
+  $('secMeter').hidden = v !== 'meter'; $('secSort').hidden = v !== 'sort'; $('secDay').hidden = v !== 'day';
+  if (v === 'meter') renderMeter(); else if (v === 'sort') renderSort(); else renderDay();
+}
+
+function renderMeter() {
+  const t = T[lang], m = t.m, round = S.mode === 'round';
+  lab.setGlow('rgba(240, 190, 90, .24)');
+  $('mRound').hidden = !round; $('mFree').hidden = round;
+  if (round) {
+    const [a, b] = ROUNDS[S.ri], rev = S.rg !== null, win = WATT[a] > WATT[b] ? 0 : 1, q = m.q(t.apps[a], t.apps[b]);
+    $('mQ').textContent = q;
+    $('mAns').innerHTML = [a, b].map((k, i) => `<button class="hp-ans${rev ? (i === win ? ' win' : S.rg === i ? ' pick' : '') : ''}" data-i="${i}"${rev ? ' disabled' : ''}>${EMO[k]} ${esc(cap(t.apps[k]))}</button>`).join('');
+    $('mNext').hidden = !rev; $('mNext').textContent = S.ri >= ROUNDS.length - 1 ? m.play : m.next;
+    $('mSkip').hidden = rev; $('mSkip').textContent = m.skip;
+    if (!rev) {
+      lab.setReadout('?', m.qn(S.ri + 1), '', '#f0be5a');
+      lab.setState({ emo: '🤔', title: q, lead: m.qLead, body: '' });
+      lab.setFacts(t.facts.meter);
+    } else {
+      const w = win === 0 ? a : b, l = win === 0 ? b : a, ok = S.rg === win;
+      lab.setReadout(`${fmt(WATT[a])} · ${fmt(WATT[b])} ${t.u.w}`, m.vs, `${EMO[w]} ${m.fast(t.apps[w])}`, '#f0be5a');
+      lab.setState({ emo: ok ? '✅' : '🤔', title: ok ? m.right : m.wrong, lead: m.race(cap(t.apps[w]), fmt(WATT[w]), cap(t.apps[l]), fmt(WATT[l])), body: t.why[w] });
+      lab.setFacts(t.facts.meter);
+    }
+    return;
+  }
+  const open = secret.unlocked(), on = APPS.filter((k) => S.on[k]), tot = on.reduce((n, k) => n + WATT[k], 0);
+  $('mChips').innerHTML = APPS.map((k) => `<button class="chip hp-chip${S.on[k] ? ' on' : ''}" data-k="${k}" aria-pressed="${S.on[k]}"><span class="e">${EMO[k]}</span>${esc(cap(t.apps[k]))}</button>`).join('');
+  const sc = (k, emo) => `<button class="chip hp-chip secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-s="${k}">${open ? `${emo} ${esc(m.sec[k][0])}` : '🔒 ???'}</button>`;
+  $('mSec').innerHTML = sc('disc', '🌀') + sc('stby', '💤');
+  $('mAgain').textContent = m.again; $('mFine').textContent = m.fine;
+  const facts = [...t.facts.meter, t.facts.meterFree];
+  if (S.sec === 'disc') {
+    discState();
+  } else if (S.sec === 'stby') {
+    const kwh = STBY_W * 8760 / 1000, h = kwh * 1000 / WATT.kettle;
+    lab.setReadout(`${STBY_W} ${t.u.w}`, m.vs, '💤', '#f0be5a');
+    lab.setState({ emo: '💤', title: m.stbyT, lead: m.stbyL(fmt(kwh), fmt(h)), body: m.stbyB });
+  } else if (!on.length) {
+    lab.setReadout(`0 ${t.u.w}`, m.subOff, '', '#f0be5a');
+    lab.setState({ emo: '🔌', title: m.offT, lead: m.offL, body: '' });
+  } else {
+    const top = on.reduce((p, k) => (WATT[k] > WATT[p] ? k : p)), n = Math.round(tot / WATT.lamp);
+    lab.setReadout(`${fmt(tot)} ${t.u.w}`, m.sub, m.on(on.length), '#f0be5a');
+    lab.setState({ emo: EMO[top], title: on.length === 1 ? m.one(cap(t.apps[top])) : m.many(cap(t.apps[top])), lead: t.why[top], body: m.all(fmt(tot), n) });
+  }
+  lab.setFacts(facts);
+}
+
+// the turn counter of the secret: refreshed from the loop when the count changes (only the readout and the card, never the controls)
+function discState() {
+  const t = T[lang], m = t.m, on = APPS.filter((k) => S.on[k]), tot = on.reduce((n, k) => n + WATT[k], 0), turns = Math.floor(S.revs * 10) / 10;
+  S.lastTurn = turns;
+  lab.setReadout(`${fmt(tot)} ${t.u.w}`, m.sub, m.on(on.length), '#f0be5a');
+  lab.setState({ emo: '🌀', title: m.discT, lead: m.discL(dec1(turns), dec1(Math.floor(S.revs * 10) / 10 * KH)), body: m.discB });
+}
+function renderSort() {
+  const t = T[lang], s = t.s, end = S.si >= CARDS.length, rev = S.sg !== null, k = S.right.filter(Boolean).length;
+  lab.setGlow('rgba(200, 150, 80, .24)');
+  $('sBk').innerHTML = [0, 1].map((b) => `<button class="hp-ans" data-b="${b}"${rev || end ? ' disabled' : ''}>${b === 0 ? '⚡' : '🚫'} ${esc(s.bk[b])}</button>`).join('');
+  $('sNext').hidden = !(rev || end); $('sNext').textContent = end ? s.again : s.next;
+  const done = S.si + (rev ? 1 : 0);
+  lab.setReadout(`${done}/10`, s.sub, done ? s.ok(k) : '', '#d1a468');
+  lab.setFacts(t.facts.sort);
+  if (end) { lab.setState({ emo: '🏆', title: s.end(k), lead: s.endL, body: '' }); return; }
+  const card = CARDS[S.si];
+  if (!rev) lab.setState({ emo: '🧺', title: s.q, lead: s.qLead, body: s.of(S.si + 1) });
+  else { const ok = S.right[S.si]; lab.setState({ emo: ok ? '✅' : '🤔', title: ok ? s.right : s.wrong, lead: s.cards[card.k][1], body: '' }); }
+}
+
+function renderDay() {
+  const t = T[lang], d = t.d, ans = S.dg !== null;
+  lab.setGlow('rgba(95, 143, 208, .26)');
+  $('dAsk').hidden = ans;
+  $('dQ').textContent = d.q(DEF.charger / 60, DEF.kettle);
+  $('dAns').innerHTML = [['charger', d.ansC], ['kettle', d.ansK]].map(([k, l]) => `<button class="hp-ans" data-a="${k}">${esc(l)}</button>`).join('');
+  let total = 0, top = null;
+  DAY.forEach((r) => {
+    const wh = Wh(r.k, S.d[r.k]); total += wh; if (top === null || wh > Wh(top, S.d[top])) top = r.k;
+    document.querySelector(`[data-n=${r.k}]`).textContent = cap(t.apps[r.k]);
+    document.querySelector(`[data-c=${r.k}]`).textContent = ans ? `${fmt(WATT[r.k])} ${t.u.w} × ${fmtDur(S.d[r.k])}` : fmtDur(S.d[r.k]);
+    const inp = document.querySelector(`input[data-k=${r.k}]`); inp.disabled = !ans; inp.setAttribute('aria-label', cap(t.apps[r.k]));
+  });
+  lab.setFacts(t.facts.day);
+  if (!ans) {
+    lab.setReadout('?', '', '', '#5f8fd0');
+    lab.setState({ emo: '🤔', title: d.qt, lead: d.qLead, body: '' });
+    return;
+  }
+  lab.setReadout(`${fmt(total)} ${t.u.wh}`, total >= 1000 ? d.kwh(dec1(total / 1000)) : d.sub, `${EMO[top]} ${d.most}`, '#5f8fd0');
+  if (!S.touched) {
+    const k = Wh('kettle', DEF.kettle), c = Wh('charger', DEF.charger), ok = S.dg === 'kettle';
+    lab.setState({ emo: ok ? '✅' : '🤔', title: ok ? d.right : d.wrong, lead: d.lead(fmt(k), DEF.kettle, fmt(c)), body: d.body(Math.round(k / c)) });
+  } else {
+    lab.setState({ emo: EMO[top], title: d.top(cap(t.apps[top])), lead: d.f(fmt(WATT[top]), fmtDur(S.d[top]), fmt(Wh(top, S.d[top]))), body: d.b2 });
+  }
+}
+render();
+</script>
+</body>
+</html>
