@@ -25,6 +25,8 @@ Counts in brackets are totals after that day.
 - Small fixes (backlog F17): the labs button on the map counts the labs in the interface language, as the labs page does (499 in RU, 502 in HU, 498 in EN, of 503); notices such as "Quick check done" appear at the bottom of the screen and go away when the screen changes; on a phone the map fits below the heading instead of under it (`graph2d.js` takes a `top()` inset). (#441)
 - "My child" names the school's subjects in the interface language (`data/school-subjects.i18n.json`: 135 subject names of 14 curricula in EN, RU and HU, translated with Sonnet); the bars keep the original name as a hint, and long radar labels wrap onto two lines instead of being cut. Backlog F14. (#442)
 - "My child" says when a curriculum is mapped only in outline (under 20 items a grade: Sweden, Finland, Singapore, Estonia), so the picture is coarse. Backlog F16. (#442)
+- A two-row header on a phone (about 86 px instead of 175): the language is one compact select, search opens from a 🔍 icon, "Filters" is an icon; the views scroll sideways in one row. The tour points at the icon and the select on a phone. Backlog F11. (#443)
+- One menu on every page, in one order: Graph, Topic list, Routes, My child, Labs, Curricula. The labs, curricula and "What's new" pages gain Routes and My child; the map gains a Curricula link (its Labs entry stays the 🧪 button). Backlog F12. (#443)
 - The site, `README.md` and `CONTRIBUTING.md` say ages 4–14, as the topics do (was 4–16). Backlog F08. (#437)
 
 ### Project
