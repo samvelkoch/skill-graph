@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-10
 
 ### Labs
+- New lab `paleoart` “Dress the Skeleton”: add bones, muscles, feathers and colour to a dinosaur and sort what is known from what is guessed, watch Iguanodon change since the 1850s, and read colour from a fossil feather (527). (#470)
 - New lab `one-output` “The Vending Machine”: press the buttons of three vending machines and draw what comes out, sort tables of inputs and outputs, and slide a vertical line across graphs (526). (#469)
 - New lab `parabola` “The Flight of a Ball”: predict the top of a throw and watch its path become a graph, turn the a, b and c dials of a quadratic, and race square tile patterns against a straight row (525). (#468)
 - New lab `neurons` “A Path in the Brain”: send a signal along a chain of neurons and watch it cross the synapses, light up the lobes of the brain at work, and practise a skill for 30 days (524). (#467)
