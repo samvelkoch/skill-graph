@@ -12,6 +12,12 @@ Hungarian is on the site: [What's new](https://samvelkoch.github.io/skill-graph/
 
 Counts in brackets are totals after that day.
 
+## 2026-11-10
+
+### Data
+- Sync with upstream Marble: Ontario Language and Science grades 1–6, Ontario mathematics grades 6–7, India's NCERT catalogue (codes only); 1,861 Marble topics (16 new: English grammar, geometry of solids and views, divisibility rules, ways to pay, bank interest and fees, touch typing, First Nations, Métis and Inuit peoples), 4,003 dependencies. 176 new or changed strings per language translated to RU and HU. Marble's new `data/curriculum-alignments.json`, its `alignments:*` scripts and its `taxonomy-curation` agent skill come along unchanged; the viewer does not use them. (#435)
+- Rules for mapping curricula and adding topics in `CONTRIBUTING.md`, adapted from Marble's curation principles: one topic per skill a child can show, reuse before adding, `core` only for full coverage, a learning reason for each prerequisite, ages 4–16. (#435)
+
 ## 2026-11-09
 
 ### Labs
@@ -383,11 +389,20 @@ Counts in brackets are totals after that day.
 # Upstream: Marble Skill Taxonomy dataset
 
 Dataset releases are versioned independently of the taxonomy `version` field (the underlying taxonomy is `v1`).
-The entries below come from upstream and were synced into this fork on 2026-10-27 (#192).
+The entries below come from upstream and were synced into this fork on 2026-10-27 (#192) and 2026-11-10 (#435).
 
 ## [Unreleased]
 
-### Upstream (Marble)
+- Publish 3,733 scoped alignment contexts: 571 global, 50 framework and 3,112 jurisdiction contexts, retaining exact age bands and all 7,048 existing known topic–standard pairs. Add 14 reviewed primary associations on six existing English topics (7,062 total), with no new topics, claim changes or prerequisite changes. Record explicit dispositions for 41 unresolved legacy occurrences and preserve 95 jurisdiction age-only contexts. Add public local artifact generation and CI; research content and original export timestamps remain unchanged. See the [baseline decisions and limits](reports/scoped-alignment-baseline-2026-11-04.md). No live DB or authority cutover is implied.
+
+- Map Ontario Grade 6 Language with 313 links across 168 topics: reuse 165 existing topics, add three focused whole claims, correct suffix evidence and add one hard plus seven soft prerequisites. Preserve old topic IDs, links and dependencies; retain 55 Full / 4 Partial specific expectations and explicit resource/performance conditions. Refresh the verified staging export (1,861 topics / 4,003 dependencies / 7,048 published links), preserve research records and publish the [code-by-code review](reports/ontario-grade6-language-2026-11-02.md).
+
+- Map Ontario Grade 5 Language with 306 links on 161 existing topics and no additions. Preserve complete mastery claims; soften four unnecessary prerequisites and add the genuine sentence-combining core. Record 55 Full / 4 Partial specific expectations, preserve resource/performance conditions, and publish the [code-by-code review](reports/ontario-grade5-language-2026-11-02.md).
+
+- Map Ontario Grade 7 Mathematics after auditing 52 specific and 12 overall expectations: 252 pairs on 171 existing topics and two spatial additions (solid symmetry and perspective drawing). Reuse existing square roots, repair two prerequisite gates and preserve old content, pairs, learner state and research. Refresh the verified staging export (1,852 topics / 3,979 edges); publish the [code-by-code report](reports/ontario-grade7-mathematics-2026-10-27.md).
+
+- Map Ontario Grade 6 Mathematics after auditing 51 specific and 12 overall expectations: 244 pairs on 173 existing topics and five additions (two procedures, one focused extraction, two financial-content claims). Preserve all old topic bodies, pairs, learner records and research; repair three prerequisite gates. Refresh the verified staging export (1,850 topics / 3,967 edges); publish the [code-by-code report](reports/ontario-grade6-mathematics-2026-10-27.md).
+
 - Map Ontario Grade 5 Mathematics after auditing 51 specific and 12 overall expectations: 190 pairs on 145 existing topics and three additions (stacked bars, tax categories/collectors, focused orthographic views). Preserve every old mastery body, curriculum pair, learner record and research record; repair unnecessary prerequisites. Refresh the verified staging export (1,845 topics / 3,941 edges); publish the [code-by-code report](reports/ontario-grade5-mathematics-2026-10-24.md).
 
 - Map Ontario Grade 4 Mathematics after auditing 48 specific and 12 overall expectations: 186 pairs on 126 existing topics and four new claims (two gaps, two focused extractions). Repair unnecessary prerequisites and add eight source-backed foundation components. Preserve old topic bodies, all old pairs, learner records and research. Refresh the verified staging export (1,842 topics / 3,919 edges); publish the [code-by-code report](reports/ontario-grade4-mathematics-2026-10-24.md).

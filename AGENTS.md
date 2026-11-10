@@ -8,6 +8,10 @@ Start with [README.md](README.md) (what is where) and [CONTRIBUTING.md](CONTRIBU
 
 Follow the skill in [`.claude/skills/new-lab/SKILL.md`](.claude/skills/new-lab/SKILL.md), with its companions [`shell-api.md`](.claude/skills/new-lab/shell-api.md) and [`pitfalls.md`](.claude/skills/new-lab/pitfalls.md). Claude Code loads it automatically; other agents should read it before writing any lab code. In short: main idea and picture first, predict before reveal, all text in EN/RU/HU, phone first, register in `labs/registry.json`, regenerate `labs/catalog.json`.
 
+## Curricula and topics
+
+Mapping a school curriculum or adding topics: follow [CONTRIBUTING.md](CONTRIBUTING.md#add-a-countrys-school-curriculum) and its "Mapping and topic rules". `.agents/skills/taxonomy-curation/` and `docs/curation/` come from upstream Marble and describe their process (`curriculum-alignments.json`, npm `alignments:*` scripts); use them only when preparing a change to send back to Marble.
+
 ## Rules
 
 - Do not load big data files whole: `data/teaching-research.json` is 23 MB, `data/topics.json` and others are megabytes. Query them with small `node -e` scripts.
