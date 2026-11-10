@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-10
 
 ### Labs
+- New lab `bridges` “Seven Bridges”: try to cross every bridge of an old river town once, turn the town into dots and lines and find the rule of odd dots, and add or remove bridges until the walk works (529). (#472)
 - New lab `frog-or-lizard` “From Water to Land”: walk a frog and a lizard away from a pond and watch their water graphs, leave spawn and a shelled egg on dry sand, and guess who lives in rainforests, ponds and deserts (528). (#471)
 - New lab `paleoart` “Dress the Skeleton”: add bones, muscles, feathers and colour to a dinosaur and sort what is known from what is guessed, watch Iguanodon change since the 1850s, and read colour from a fossil feather (527). (#470)
 - New lab `one-output` “The Vending Machine”: press the buttons of three vending machines and draw what comes out, sort tables of inputs and outputs, and slide a vertical line across graphs (526). (#469)
