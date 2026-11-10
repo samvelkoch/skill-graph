@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-10
 
 ### Labs
+- New lab `coord-rules` “The Moving Rule”: feed points into a hidden machine and predict where the next one lands, then name the coordinate rules that slide, flip and turn a sailboat on a grid (521). (#464)
 - New lab `wild-farm-pet` “Who Looks After Them?”: take animals to the forest, the farm or a house and see who feeds them, leave a cow out in the winter woods, and slide back in time to their wild ancestors (520). (#463)
 - New lab `tundra` “Under the Tundra”: dig into frozen ground and plant a pine, a willow, moss and lichen, run a tundra year from polar night to midnight sun, and see how its animals get through winter (519). (#462)
 - New lab `two-unknowns` “Two Puzzles on the Scales”: balance an apple and a pear in every way and watch the pairs line up on a grid, add a second scale to leave one answer, and solve ticket and chicken-and-rabbit puzzles (518). (#461)
