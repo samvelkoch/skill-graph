@@ -1,0 +1,676 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Slices of a Prism · Skill Graph</title>
+<meta name="description" content="Cut prisms into slices, slide a corner and watch the area, then fill a pool: the volume of a prism is the area of one slice times the length. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  .pr-q { font: 500 19px/1.25 var(--serif); color: #fff; margin: 0 0 10px; text-wrap: balance; }
+  .pr-opts, .pr-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  #ctrlBody .chip { min-height: 38px; justify-content: center; }
+  #ctrlBody .btn { min-height: 40px; }
+  #ctrlBody .btn:disabled { opacity: .35; cursor: default; }
+  .pr-sl { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+  .pr-sl label { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-weight: 700; min-width: 62px; }
+  .pr-sl output { min-width: 62px; text-align: right; font-weight: 900; font-size: 14px; }
+  .pr-sl input { flex: 1; min-width: 0; --track: linear-gradient(90deg, #7a5a1c, #f0b840); }
+  .pr-hint { margin: 10px 0 0; font-size: 12.5px; color: var(--mut); }
+  .fine { font-size: 11px; color: var(--faint); }
+  #stage canvas { touch-action: pan-y; }
+  @media (max-width: 760px) { #stage { height: min(118vw, 520px); } .pr-q { font-size: 17px; } }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, ruPlural, lang } from '../lab.js';
+
+// --- number formatting: decimal comma in RU and HU, point in EN; everything is computed, never typed -------------
+const nfs = {};
+const num = (x, d = 2) => {
+  const k = lang + d;
+  nfs[k] ??= new Intl.NumberFormat(lang === 'en' ? 'en-US' : lang, { maximumFractionDigits: d });
+  return nfs[k].format(Math.round(x * 10 ** d) / 10 ** d);
+};
+const exact = (x) => Math.abs(x * 4 - Math.round(x * 4)) < 1e-9; // whole, half or quarter: written exactly
+const nx = (x) => (exact(x) ? num(x, 2) : num(x, 1));              // 10,39 would be false precision: 10,4
+const eq = (x) => (exact(x) ? '=' : '≈');
+
+// --- shapes (cm), y points up; every area comes from the shoelace formula ----------------------------------------
+const D = { rect: { w: 4, h: 3 }, tri: { b: 6, h: 4 }, trap: { a: 6, b: 4, h: 3 }, L: { W: 5, H: 4, bh: 2, aw: 2 }, hex: { s: 2 } };
+const shapePts = (k) => {
+  const d = D[k];
+  if (k === 'rect') return [[0, 0], [d.w, 0], [d.w, d.h], [0, d.h]];
+  if (k === 'tri') return [[0, 0], [d.b, 0], [d.b / 2, d.h]];
+  if (k === 'trap') return [[0, 0], [d.a, 0], [(d.a + d.b) / 2, d.h], [(d.a - d.b) / 2, d.h]];
+  if (k === 'L') return [[0, 0], [d.W, 0], [d.W, d.bh], [d.aw, d.bh], [d.aw, d.H], [0, d.H]];
+  return [0, 1, 2, 3, 4, 5].map((i) => [d.s * Math.cos(i * Math.PI / 3), d.s * Math.sin(i * Math.PI / 3)]);
+};
+const area2 = (P) => P.reduce((s, [x, y], i) => { const [x2, y2] = P[(i + 1) % P.length]; return s + x * y2 - x2 * y; }, 0);
+const polyArea = (P) => Math.abs(area2(P)) / 2;
+const centroid = (P) => {
+  const a = area2(P); let cx = 0, cy = 0;
+  P.forEach(([x, y], i) => { const [x2, y2] = P[(i + 1) % P.length], f = x * y2 - x2 * y; cx += (x + x2) * f; cy += (y + y2) * f; });
+  return [cx / (3 * a), cy / (3 * a)];
+};
+const bbox = (polys) => {
+  const xs = polys.flat().map((p) => p[0]), ys = polys.flat().map((p) => p[1]);
+  return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+};
+const KEYS = ['rect', 'tri', 'trap', 'L', 'hex'];
+const AREA = Object.fromEntries(KEYS.map((k) => [k, polyArea(shapePts(k))]));
+// honeycomb: a hexagon and its six neighbours (centres sqrt(3) * s apart, at 30, 90, ... degrees)
+const HONEY = [[0, 0], ...[0, 1, 2, 3, 4, 5].map((j) => [Math.sqrt(3) * D.hex.s * Math.cos((30 + 60 * j) * Math.PI / 180), Math.sqrt(3) * D.hex.s * Math.sin((30 + 60 * j) * Math.PI / 180)])]
+  .map(([cx, cy]) => shapePts('hex').map(([x, y]) => [x + cx, y + cy]));
+// formula text with the real numbers
+const formula = (k) => {
+  const d = D[k], n = (x) => num(x);
+  if (k === 'rect') return `${n(d.w)} × ${n(d.h)}`;
+  if (k === 'tri') return `½ × ${n(d.b)} × ${n(d.h)}`;
+  if (k === 'trap') return `½ × (${n(d.a)} + ${n(d.b)}) × ${n(d.h)}`;
+  if (k === 'L') return `${n(d.W)} × ${n(d.bh)} + ${n(d.aw)} × ${n(d.H - d.bh)}`;
+  return '';
+};
+// the three flat shapes of the Base view: bottom side b, top side t, the top-left corner at (x, h)
+const BASEK = { tri: { b: 6, t: 0, x: 1.5, h: 4 }, trap: { b: 6, t: 3, x: 1, h: 3 }, para: { b: 6, t: 6, x: 2, h: 3 } };
+const basePts = (kind, x, h) => { const k = BASEK[kind]; return [[0, 0], [k.b, 0], [x + k.t, h], [x, h]]; };
+const baseFormula = (kind, h) => {
+  const k = BASEK[kind], n = (v) => num(v);
+  return kind === 'tri' ? `½ × ${n(k.b)} × ${n(h)}` : kind === 'trap' ? `½ × (${n(k.b)} + ${n(k.t)}) × ${n(h)}` : `${n(k.b)} × ${n(h)}`;
+};
+// the Real view
+const POOL = { len: 25, wid: 10, d1: 1, flow: 25 }, TENT = { w: 2, len: 3 }, BAR = { b: 4, h: 3 };
+const poolOf = (deep) => { const A = (POOL.d1 + deep) / 2 * POOL.len, V = A * POOL.wid, lit = V * 1000, min = lit / POOL.flow; return { A, V, lit, min, hrs: min / 60, days: min / 60 / 24 }; };
+const PRED_H = [poolOf(2).V / POOL.flow, poolOf(2).hrs, poolOf(2).min]; // forgot m³ → L; right; forgot minutes → hours
+const P1_A = polyArea(shapePts('tri')), P1_B = polyArea(shapePts('rect')), PL = 5;
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    sym: 'A', name: 'Slices of a Prism', title: 'Slices of a Prism',
+    lines: [['Cut the prism', 'into slices and compare.'], ['Slide a corner,', 'watch the area.'], ['Fill a pool, pitch a tent,', 'measure a chocolate bar.']],
+    views: { slices: '🔪 Slices', base: '📐 Base', real: '🏊 Real' },
+    shapes: { rect: 'Rectangle', tri: 'Triangle', trap: 'Trapezium', L: 'L-shape', hex: 'Hexagon', para: 'Parallelogram' },
+    u: { cm: 'cm', cm2: 'cm²', cm3: 'cm³', m: 'm', m2: 'm²', m3: 'm³', l: 'L', h: 'h', min: 'min', days: (n) => (n === 1 ? 'day' : 'days'), hours: 'hours' },
+    right: 'Right!', wrong: 'Not quite.', check: '✓ Check', explore: 'Explore →',
+    sl: {
+      q: (a, b, L) => `Two prisms, both ${L} cm long. One ends in a triangle (base ${a.b} cm, height ${a.h} cm), the other in a ${b.w} cm × ${b.h} cm rectangle. Which holds more?`,
+      opts: ['The rectangle one', 'Both the same', 'The triangle one'], predSub: 'two prisms', predTitle: 'Which holds more?', predLead: 'Same length, different ends. Make a guess, then check.',
+      rev: (a, b, V) => `½ × ${num(a.b)} × ${num(a.h)} = ${num(P1_A)} cm² and ${num(b.w)} × ${num(b.h)} = ${num(P1_B)} cm². Same slice, ${PL} slices: ${num(V)} cm³ each.`,
+      len: 'Length', lean: 'Lean', cut: '🔪 Cut into slices', join: '↩ Stack again', shape: 'End',
+      slices: (n) => `${n} ${n === 1 ? 'slice' : 'slices'}`,
+      title: (name) => `${name}: V = A × L`, lead: (n, A, V) => `${n} ${n === 1 ? 'slice' : 'slices'}, each ${nx(A)} cm². Together: ${nx(V)} cm³.`, body: 'The shape of a slice is the cross-section. Area is flat (cm²), volume fills space (cm³).',
+      leanT: 'Leaning, same volume', leanLead: (n, A, V) => `Every slice is still ${nx(A)} cm², and there are still ${n}: ${nx(V)} cm³.`, leanBody: 'The stack is slanted, but nothing was added or taken away.',
+      honeyT: 'Honeycomb cells', honeyLead: (A, L, V) => `7 cells, each ${nx(A)} cm² × ${num(L)} cm. Together: ${nx(V)} cm³.`, honeyBody: 'Hexagons sit side by side with no gaps.', cells: '7 cells',
+    },
+    ba: {
+      q: 'I slide the top corner sideways along the dotted line. The area of the triangle…', opts: ['shrinks', 'grows', 'stays the same'], predSub: 'one corner moves', predTitle: 'Slide the corner', predLead: 'Guess first, then watch.',
+      verdict: (b, h, A) => `The height stays ${num(h)} cm, so the area stays ½ × ${num(b)} × ${num(h)} = ${num(A)} cm². Only the slanted sides change.`,
+      hint: 'Drag the white dot: sideways, up or down.', reset: '↺ Reset', base: 'base', height: 'height', slant: 'slanted',
+      names: { tri: 'Triangle: A = ½ × base × height', trap: 'Trapezium: A = ½ × (a + b) × height', para: 'Parallelogram: A = base × height' },
+      lead: (f, h, A) => `Height (dashed, straight up): ${num(h)} cm. A = ${f} = ${num(A)} cm².`,
+      slantBody: (s, w) => `The slanted side (${num(s, 2)} cm) is not the height: the height is perpendicular to the base. Using the slanted side would give ${num(w, 2)} cm²: too big.`, upright: 'Here the slanted side stands straight up, so it is the height.',
+    },
+    re: {
+      pool: '🏊 Pool', tent: '⛺ Tent', bar: '🍫 Bar', deep: 'Deep end', tH: 'Height', bL: 'Length', stretch: 'depth drawn 3× taller',
+      q: (f) => `A garden hose delivers ${f} litres a minute. About how long does it take to fill this pool?`, hours: 'hours',
+      pTitle: 'Fill the pool', pLead: (p, deep) => `${p.len} m long, ${p.wid} m wide, ${num(p.d1)} m deep at one end and ${num(deep)} m at the other. 1 m³ = 1000 litres.`,
+      rev: (r, f) => `${num(r.V)} m³ = ${num(r.lit)} L. ${num(r.lit)} ÷ ${f} = ${num(r.min)} min = ${num(r.hrs, 1)} h: about ${num(r.days, 0)} ${T.en.u.days(Math.round(r.days))}.`,
+      poolT: 'A pool with a sloping floor', poolLead: (p, deep, r) => `The side view is a trapezium: A = ½ × (${num(p.d1)} + ${num(deep)}) × ${p.len} = ${num(r.A)} m². Times the width ${p.wid} m: ${num(r.V)} m³ = ${num(r.lit)} litres.`,
+      poolBody: (r, f) => `With a ${f} L/min hose: ${num(r.hrs, 1)} h, about ${num(r.days, 0)} ${T.en.u.days(Math.round(r.days))}.`,
+      tentT: 'A tent is a prism too', tentLead: (w, h, A, len, V) => `The end is a triangle: base ${num(w)} m, height ${num(h)} m, so ${num(A)} m². Length ${num(len)} m: ${num(V)} m³ of air.`,
+      tentBody: (sl, len, roof) => `The fabric is area: two roof panels of ${num(sl)} m × ${num(len)} m = ${num(roof)} m². The air inside is volume. They are not the same thing.`,
+      barT: 'A chocolate bar is a prism too', barLead: (b, h, A, L, V) => `The end is a triangle: base ${num(b)} cm, height ${num(h)} cm, so ${num(A)} cm². Length ${num(L)} cm: ${num(V)} cm³.`,
+      barBody: 'Twice as long, twice the chocolate: the volume grows in a straight line with the length.',
+      air: 'of air',
+    },
+    facts: {
+      honey: { text: 'A honeycomb is a mass of hexagonal prisms made of beeswax. Each cell is closed at one end by three flat rhombus faces, and it tilts up by about 13° so the honey does not drip out.', src: 'https://en.wikipedia.org/wiki/Honeycomb' },
+      cav: { text: 'Comparing slices is called Cavalieri’s principle, after the Italian mathematician Bonaventura Cavalieri (1598–1647). The idea is older: in 5th-century China Zu Chongzhi and his son Zu Gengzhi used a similar method to find the volume of a sphere.', src: 'https://en.wikipedia.org/wiki/Cavalieri%27s_principle' },
+      oly: (V) => ({ text: `An Olympic-size pool is 50 m long, 25 m wide and at least 2 m deep. At that minimum depth it is a prism of ${num(V)} m³: ${num(V * 1000)} litres.`, src: 'https://en.wikipedia.org/wiki/Olympic-size_swimming_pool' }),
+    },
+    secrets: { lean: ['Leaning stack', 'Push the slices sideways'], honey: ['Honeycomb', 'Seven cells side by side'] },
+    quiz: [
+      { q: 'The volume of a prism is…', opts: ['the area of its cross-section × its length', 'the sum of all its edges', 'length × width × height, for every shape'], ok: 0, hint: 'Cut a prism into slices in Slices.' },
+      { q: 'A prism ends in a triangle: base 6 cm, perpendicular height 4 cm, slanted side 5 cm. The prism is 10 cm long. Volume?', opts: ['240 cm³', '120 cm³', '300 cm³'], ok: 1, hint: 'Use the dashed height, and don’t forget the half.' },
+      { q: 'A neat stack of coins is pushed so that it leans sideways. Its volume…', opts: ['gets smaller', 'gets bigger', 'stays the same'], ok: 2, hint: 'Slide the corner in Base.' },
+    ],
+  },
+  ru: {
+    sym: 'S', name: 'Ломтики призмы', title: 'Ломтики призмы',
+    lines: [['Нарежь призму', 'на ломтики и сравни.'], ['Двигай вершину', 'и следи за площадью.'], ['Налей бассейн, поставь палатку,', 'измерь плитку шоколада.']],
+    views: { slices: '🔪 Слои', base: '📐 Основа', real: '🏊 Жизнь' },
+    shapes: { rect: 'Прямоугольник', tri: 'Треугольник', trap: 'Трапеция', L: 'Г-образная', hex: 'Шестиугольник', para: 'Параллелограмм' },
+    u: { cm: 'см', cm2: 'см²', cm3: 'см³', m: 'м', m2: 'м²', m3: 'м³', l: 'л', h: 'ч', min: 'мин', days: (n) => ruPlural(n, 'день', 'дня', 'дней'), hours: 'часов' },
+    right: 'Верно!', wrong: 'Не совсем.', check: '✓ Проверить', explore: 'Исследовать →',
+    sl: {
+      q: (a, b, L) => `Две призмы, обе длиной ${L} см. Одна с треугольником в основании (сторона ${a.b} см, высота ${a.h} см), другая с прямоугольником ${b.w} см × ${b.h} см. Какая вмещает больше?`,
+      opts: ['С прямоугольником', 'Одинаково', 'С треугольником'], predSub: 'две призмы', predTitle: 'Какая вмещает больше?', predLead: 'Длина одна, основания разные. Угадай, потом проверь.',
+      rev: (a, b, V) => `½ × ${num(a.b)} × ${num(a.h)} = ${num(P1_A)} см² и ${num(b.w)} × ${num(b.h)} = ${num(P1_B)} см². Ломтик один и тот же, ломтиков ${PL}: в каждой по ${num(V)} см³.`,
+      len: 'Длина', lean: 'Наклон', cut: '🔪 Нарезать', join: '↩ Сложить', shape: 'Основа',
+      slices: (n) => `${n} ${ruPlural(n, 'ломтик', 'ломтика', 'ломтиков')}`,
+      title: (name) => `${name}: V = S × L`, lead: (n, A, V) => `${n} ${ruPlural(n, 'ломтик', 'ломтика', 'ломтиков')}, в каждом ${nx(A)} см². Вместе: ${nx(V)} см³.`, body: 'Форма ломтика — это сечение. Площадь плоская (см²), а объём заполняет пространство (см³).',
+      leanT: 'Наклонно, а объём тот же', leanLead: (n, A, V) => `Каждый ломтик по-прежнему ${nx(A)} см², и их по-прежнему ${n}: ${nx(V)} см³.`, leanBody: 'Стопка наклонилась, но ничего не прибавилось и не убавилось.',
+      honeyT: 'Ячейки сот', honeyLead: (A, L, V) => `7 ячеек, в каждой ${nx(A)} см² × ${num(L)} см. Вместе: ${nx(V)} см³.`, honeyBody: 'Шестиугольники стоят рядом без щелей.', cells: '7 ячеек',
+    },
+    ba: {
+      q: 'Я сдвигаю верхнюю вершину вбок вдоль пунктира. Площадь треугольника…', opts: ['уменьшится', 'увеличится', 'не изменится'], predSub: 'одна вершина движется', predTitle: 'Сдвинь вершину', predLead: 'Сначала угадай, потом смотри.',
+      verdict: (b, h, A) => `Высота остаётся ${num(h)} см, поэтому площадь прежняя: ½ × ${num(b)} × ${num(h)} = ${num(A)} см². Меняются только наклонные стороны.`,
+      hint: 'Тяни белую точку: вбок, вверх или вниз.', reset: '↺ Сначала', base: 'основание', height: 'высота', slant: 'наклонная',
+      names: { tri: 'Треугольник: S = ½ × основание × высота', trap: 'Трапеция: S = ½ × (a + b) × высота', para: 'Параллелограмм: S = основание × высота' },
+      lead: (f, h, A) => `Высота (пунктир, строго вверх): ${num(h)} см. S = ${f} = ${num(A)} см².`,
+      slantBody: (s, w) => `Наклонная сторона (${num(s, 2)} см) — не высота: высота перпендикулярна основанию. С наклонной стороной вышло бы ${num(w, 2)} см²: слишком много.`, upright: 'Здесь наклонная сторона стоит прямо, поэтому она и есть высота.',
+    },
+    re: {
+      pool: '🏊 Бассейн', tent: '⛺ Палатка', bar: '🍫 Плитка', deep: 'Глубина', tH: 'Высота', bL: 'Длина', stretch: 'глубина нарисована втрое выше',
+      q: (f) => `Садовый шланг даёт ${f} литров в минуту. Примерно за какое время он наполнит этот бассейн?`, hours: 'часов',
+      pTitle: 'Наполни бассейн', pLead: (p, deep) => `Длина ${p.len} м, ширина ${p.wid} м, глубина ${num(p.d1)} м с одного края и ${num(deep)} м с другого. 1 м³ = 1000 литров.`,
+      rev: (r, f) => `${num(r.V)} м³ = ${num(r.lit)} л. ${num(r.lit)} ÷ ${f} = ${num(r.min)} мин = ${num(r.hrs, 1)} ч: около ${num(r.days, 0)} ${T.ru.u.days(Math.round(r.days))}.`,
+      poolT: 'Бассейн с наклонным дном', poolLead: (p, deep, r) => `Вид сбоку — трапеция: S = ½ × (${num(p.d1)} + ${num(deep)}) × ${p.len} = ${num(r.A)} м². Умножаем на ширину ${p.wid} м: ${num(r.V)} м³ = ${num(r.lit)} литров.`,
+      poolBody: (r, f) => `Шлангом ${f} л/мин: ${num(r.hrs, 1)} ч, около ${num(r.days, 0)} ${T.ru.u.days(Math.round(r.days))}.`,
+      tentT: 'Палатка — тоже призма', tentLead: (w, h, A, len, V) => `В основании треугольник: сторона ${num(w)} м, высота ${num(h)} м, площадь ${num(A)} м². Длина ${num(len)} м: ${num(V)} м³ воздуха.`,
+      tentBody: (sl, len, roof) => `Ткань — это площадь: два ската ${num(sl)} м × ${num(len)} м = ${num(roof)} м². Воздух внутри — объём. Это разные вещи.`,
+      barT: 'Плитка шоколада — тоже призма', barLead: (b, h, A, L, V) => `В основании треугольник: сторона ${num(b)} см, высота ${num(h)} см, площадь ${num(A)} см². Длина ${num(L)} см: ${num(V)} см³.`,
+      barBody: 'Вдвое длиннее — вдвое больше шоколада: объём растёт по прямой вместе с длиной.',
+      air: 'воздуха',
+    },
+    facts: {
+      honey: { text: 'Соты — это масса шестиугольных призм из воска. Каждая ячейка закрыта с одного конца тремя плоскими ромбами и наклонена вверх примерно на 13°, чтобы мёд не вытекал.', src: 'https://en.wikipedia.org/wiki/Honeycomb' },
+      cav: { text: 'Сравнение ломтиков называют принципом Кавальери — по имени итальянского математика Бонавентуры Кавальери (1598–1647). Но идея старше: в Китае V века Цзу Чунчжи и его сын Цзу Гэнчжи похожим способом нашли объём шара.', src: 'https://en.wikipedia.org/wiki/Cavalieri%27s_principle' },
+      oly: (V) => ({ text: `Олимпийский бассейн — 50 м в длину, 25 м в ширину и не менее 2 м глубиной. При минимальной глубине это призма в ${num(V)} м³: ${num(V * 1000)} литров.`, src: 'https://en.wikipedia.org/wiki/Olympic-size_swimming_pool' }),
+    },
+    secrets: { lean: ['Наклонная стопка', 'Сдвинь ломтики набок'], honey: ['Соты', 'Семь ячеек рядом'] },
+    quiz: [
+      { q: 'Объём призмы равен…', opts: ['площади сечения, умноженной на длину', 'сумме всех рёбер', 'длине × ширине × высоте для любой фигуры'], ok: 0, hint: 'Нарежь призму на ломтики во вкладке «Слои».' },
+      { q: 'В основании призмы треугольник: сторона 6 см, перпендикулярная высота 4 см, наклонная сторона 5 см. Длина призмы 10 см. Объём?', opts: ['240 см³', '120 см³', '300 см³'], ok: 1, hint: 'Бери пунктирную высоту и не забудь половину.' },
+      { q: 'Стопку монет аккуратно сдвинули так, что она наклонилась. Её объём…', opts: ['уменьшился', 'увеличился', 'не изменился'], ok: 2, hint: 'Подвигай вершину во вкладке «Основа».' },
+    ],
+  },
+  hu: {
+    sym: 'T', name: 'Hasáb szeletekben', title: 'Hasáb szeletekben',
+    lines: [['Szeleteld fel a hasábot,', 'és hasonlítsd össze.'], ['Told el a csúcsot,', 'és figyeld a területet.'], ['Töltsd meg a medencét, állítsd fel a sátrat,', 'mérd meg a csokit.']],
+    views: { slices: '🔪 Szeletek', base: '📐 Alap', real: '🏊 Valós' },
+    shapes: { rect: 'Téglalap', tri: 'Háromszög', trap: 'Trapéz', L: 'L-alak', hex: 'Hatszög', para: 'Paralelogramma' },
+    u: { cm: 'cm', cm2: 'cm²', cm3: 'cm³', m: 'm', m2: 'm²', m3: 'm³', l: 'l', h: 'ó', min: 'perc', days: () => 'nap', hours: 'óra' },
+    right: 'Így van!', wrong: 'Nem egészen.', check: '✓ Ellenőrzés', explore: 'Fedezd fel →',
+    sl: {
+      q: (a, b, L) => `Két hasáb, mindkettő ${L} cm hosszú. Az egyik háromszögben végződik (alap ${a.b} cm, magasság ${a.h} cm), a másik ${b.w} cm × ${b.h} cm-es téglalapban. Melyikbe fér több?`,
+      opts: ['A téglalapos', 'Egyforma', 'A háromszögű'], predSub: 'két hasáb', predTitle: 'Melyikbe fér több?', predLead: 'Ugyanolyan hosszú, más a vége. Tippelj, aztán ellenőrizd.',
+      rev: (a, b, V) => `½ × ${num(a.b)} × ${num(a.h)} = ${num(P1_A)} cm² és ${num(b.w)} × ${num(b.h)} = ${num(P1_B)} cm². Ugyanaz a szelet, ${PL} szelet: mindkettő ${num(V)} cm³.`,
+      len: 'Hossz', lean: 'Dőlés', cut: '🔪 Szeletelés', join: '↩ Összerakás', shape: 'Vég',
+      slices: (n) => `${n} szelet`,
+      title: (name) => `${name}: V = T × L`, lead: (n, A, V) => `${n} szelet, mindegyik ${nx(A)} cm². Együtt: ${nx(V)} cm³.`, body: 'Egy szelet alakja a keresztmetszet. A terület sík (cm²), a térfogat teret tölt ki (cm³).',
+      leanT: 'Ferdén is ugyanannyi', leanLead: (n, A, V) => `Minden szelet még mindig ${nx(A)} cm², és még mindig ${n} van: ${nx(V)} cm³.`, leanBody: 'A rakás ferde, de semmi sem került hozzá, és semmi sem veszett el.',
+      honeyT: 'Méhsejt-sejtek', honeyLead: (A, L, V) => `7 sejt, mindegyik ${nx(A)} cm² × ${num(L)} cm. Együtt: ${nx(V)} cm³.`, honeyBody: 'A hatszögek hézag nélkül illeszkednek egymás mellé.', cells: '7 sejt',
+    },
+    ba: {
+      q: 'A felső csúcsot oldalra csúsztatom a pontozott vonal mentén. A háromszög területe…', opts: ['csökken', 'nő', 'ugyanannyi marad'], predSub: 'egy csúcs mozog', predTitle: 'Told el a csúcsot', predLead: 'Előbb tippelj, aztán nézd meg.',
+      verdict: (b, h, A) => `A magasság ${num(h)} cm marad, ezért a terület is: ½ × ${num(b)} × ${num(h)} = ${num(A)} cm². Csak a ferde oldalak változnak.`,
+      hint: 'Húzd a fehér pontot: oldalra, fel vagy le.', reset: '↺ Újra', base: 'alap', height: 'magasság', slant: 'ferde',
+      names: { tri: 'Háromszög: T = ½ × alap × magasság', trap: 'Trapéz: T = ½ × (a + c) × magasság', para: 'Paralelogramma: T = alap × magasság' },
+      lead: (f, h, A) => `Magasság (szaggatott, függőleges): ${num(h)} cm. T = ${f} = ${num(A)} cm².`,
+      slantBody: (s, w) => `A ferde oldal (${num(s, 2)} cm) nem a magasság: a magasság merőleges az alapra. A ferde oldallal ${num(w, 2)} cm² jönne ki: túl sok.`, upright: 'Itt a ferde oldal függőlegesen áll, ezért ő a magasság.',
+    },
+    re: {
+      pool: '🏊 Medence', tent: '⛺ Sátor', bar: '🍫 Csoki', deep: 'Mélység', tH: 'Magasság', bL: 'Hossz', stretch: 'a mélység háromszor magasabbra rajzolva',
+      q: (f) => `Egy kerti tömlő percenként ${f} litert ad. Nagyjából mennyi idő alatt töltené meg ezt a medencét?`, hours: 'óra',
+      pTitle: 'Töltsd meg a medencét', pLead: (p, deep) => `${p.len} m hosszú, ${p.wid} m széles, az egyik végén ${num(p.d1)} m, a másikon ${num(deep)} m mély. 1 m³ = 1000 liter.`,
+      rev: (r, f) => `${num(r.V)} m³ = ${num(r.lit)} l. ${num(r.lit)} ÷ ${f} = ${num(r.min)} perc = ${num(r.hrs, 1)} óra: nagyjából ${num(r.days, 0)} nap.`,
+      poolT: 'Lejtős aljú medence', poolLead: (p, deep, r) => `Oldalnézetben trapéz: T = ½ × (${num(p.d1)} + ${num(deep)}) × ${p.len} = ${num(r.A)} m². Szorozva a ${p.wid} m szélességgel: ${num(r.V)} m³ = ${num(r.lit)} liter.`,
+      poolBody: (r, f) => `${f} l/perc-es tömlővel: ${num(r.hrs, 1)} óra, nagyjából ${num(r.days, 0)} nap.`,
+      tentT: 'A sátor is hasáb', tentLead: (w, h, A, len, V) => `A vége háromszög: alap ${num(w)} m, magasság ${num(h)} m, területe ${num(A)} m². Hossza ${num(len)} m: ${num(V)} m³ levegő.`,
+      tentBody: (sl, len, roof) => `A vászon terület: két tetőfelület, ${num(sl)} m × ${num(len)} m = ${num(roof)} m². A benne lévő levegő térfogat. Ez nem ugyanaz.`,
+      barT: 'A csokitábla is hasáb', barLead: (b, h, A, L, V) => `A vége háromszög: alap ${num(b)} cm, magasság ${num(h)} cm, területe ${num(A)} cm². Hossza ${num(L)} cm: ${num(V)} cm³.`,
+      barBody: 'Kétszer olyan hosszú, kétszer annyi csoki: a térfogat egyenesen arányos a hosszal.',
+      air: 'levegő',
+    },
+    facts: {
+      honey: { text: 'A méhsejt viaszból épült hatszögletű hasáb alakú sejtek tömege. Minden sejtet az egyik végén három lapos rombusz zár le, és kb. 13°-kal felfelé dől, hogy ne csöpögjön ki a méz.', src: 'https://en.wikipedia.org/wiki/Honeycomb' },
+      cav: { text: 'A szeletek összehasonlítását Cavalieri-elvnek hívják Bonaventura Cavalieri (1598–1647) olasz matematikus után. Az ötlet régebbi: az 5. századi Kínában Zu Chongzhi és fia, Zu Gengzhi hasonló módszerrel találta meg a gömb térfogatát.', src: 'https://en.wikipedia.org/wiki/Cavalieri%27s_principle' },
+      oly: (V) => ({ text: `Az olimpiai méretű medence 50 m hosszú, 25 m széles és legalább 2 m mély. Ezzel a minimális mélységgel ${num(V)} m³-es hasáb: ${num(V * 1000)} liter.`, src: 'https://en.wikipedia.org/wiki/Olympic-size_swimming_pool' }),
+    },
+    secrets: { lean: ['Ferde rakás', 'Told el oldalra a szeleteket'], honey: ['Méhsejt', 'Hét sejt egymás mellett'] },
+    quiz: [
+      { q: 'A hasáb térfogata…', opts: ['a keresztmetszet területe szorozva a hosszával', 'az összes élének összege', 'hosszúság × szélesség × magasság, minden alakzatra'], ok: 0, hint: 'Szeleteld fel a hasábot a Szeletek fülön.' },
+      { q: 'Egy hasáb alapja háromszög: alapél 6 cm, merőleges magasság 4 cm, ferde oldal 5 cm. A hasáb 10 cm hosszú. Térfogata?', opts: ['240 cm³', '120 cm³', '300 cm³'], ok: 1, hint: 'A szaggatott magasságot használd, és ne feledd a felet.' },
+      { q: 'Egy szép egyenes érmeoszlopot úgy tolnak el, hogy ferdén álljon. A térfogata…', opts: ['kisebb lesz', 'nagyobb lesz', 'ugyanannyi marad'], ok: 2, hint: 'Told el a csúcsot az Alap fülön.' },
+    ],
+  },
+};
+const TOPICS = [{ id: 'mt_tAJH5BrpOx', en: 'Area and volume formulae', ru: 'Формулы площади и объёма', hu: 'Terület- és térfogatképletek' }];
+
+// --- state -------------------------------------------------------------------------------------------------
+const EX = 0.30, EY = 0.18; // one cm of length moves the back of the prism by this much (in cm of the picture) up and to the right
+const GOLD = '#f0c24a', TEAL = '#4fd1c1', SLANT = '#ff6b5e', POOLC = '#3d9ee0', TENTC = '#4f9d6b', CHOC = '#8a5a3a';
+const S = {
+  sh: 'tri', L: 5, fan: true, fanT: 0, lean: 0, sec: null, p1: null, p1d: false, free: false,           // Slices
+  bs: { kind: 'tri', x: BASEK.tri.x, h: BASEK.tri.h }, p2: null, p2d: false, anim: null, bverdict: false, drag: false,  // Base
+  obj: 'pool', deep: 2, tentH: 1.5, barL: 18, p3: null, p3d: false, rverdict: false,                    // Real
+};
+const smooth = [{}, {}, {}];   // smoothed picture scale per prism
+let CW = 0, CH = 0, geoB = null;
+const ease = (t) => t * t * (3 - 2 * t);
+const shade = (hex, k) => { const n = parseInt(hex.slice(1), 16), f = (v) => Math.max(0, Math.min(255, Math.round(v * k))); return `rgb(${f((n >> 16) & 255)},${f((n >> 8) & 255)},${f(n & 255)})`; };
+
+const lab = shell({ key: 'prism', T, topics: TOPICS, views: ['slices', 'base', 'real'], onLang: render, onView: render });
+const secret = secretLab('prism', () => ({
+  secrets: [{ emo: '🪙', title: T[lang].secrets.lean[0], desc: T[lang].secrets.lean[1] }, { emo: '🐝', title: T[lang].secrets.honey[0], desc: T[lang].secrets.honey[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+const slider = (id, lbl, min, max, step, val) => `<div class="pr-sl" id="${id}Row"><label id="${id}L" for="${id}">${lbl}</label><input type="range" class="big" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}"><output id="${id}O"></output></div>`;
+$('ctrlBody').innerHTML = `
+  <div id="vS">
+    <div id="sPred"><p class="pr-q" id="sQ"></p><div class="pr-opts" id="sOpts"></div><div class="row2"><button class="btn" id="sCheck" data-act="s-check"></button></div></div>
+    <div id="sRes"><div class="row2" style="margin-top:0"><button class="btn" id="sGo" data-act="s-go"></button></div></div>
+    <div id="sFree"><div class="row2" style="margin-top:0"><span class="lbl" id="sShapeL"></span><span class="pr-chips" id="sShapes"></span></div>
+      ${slider('sLen', '', 1, 10, 1, 5)}${slider('sLean', '', 0, 12, 1, 6)}
+      <div class="row2"><button class="chip" id="sCut" data-act="cut"></button><span class="pr-chips" id="sSec"></span></div></div>
+  </div>
+  <div id="vB">
+    <div id="bPred"><p class="pr-q" id="bQ"></p><div class="pr-opts" id="bOpts"></div><div class="row2"><button class="btn" id="bCheck" data-act="b-check"></button></div></div>
+    <div id="bFree"><div class="pr-chips" id="bKinds"></div><p class="pr-hint" id="bHint"></p></div>
+  </div>
+  <div id="vR">
+    <div class="pr-chips" id="rObjs"></div>
+    <div id="rPred"><p class="pr-q" id="rQ" style="margin-top:12px"></p><div class="pr-opts" id="rOpts"></div><div class="row2"><button class="btn" id="rCheck" data-act="r-check"></button></div></div>
+    ${slider('rDeep', '', 1, 3, 0.5, 2)}${slider('rTent', '', 1, 2.5, 0.1, 1.5)}${slider('rBar', '', 8, 24, 1, 18)}
+  </div>`;
+
+// on a phone the controls sit below the picture: bring the reveal into view
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+
+// --- drawing helpers ------------------------------------------------------------------------------------------
+const rr = (c, x, y, w, h, r) => { c.beginPath(); c.roundRect(x, y, w, h, Math.max(0, r)); };
+function pill(c, text, x, y, color = '#fff', size = 12) {
+  c.save(); c.font = `800 ${size}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+  const w = c.measureText(text).width + 14, h = size + 9;
+  const X = clamp(x - w / 2, 4, Math.max(4, CW - w - 4)), Y = clamp(y - h / 2, 3, Math.max(3, CH - h - 3));
+  rr(c, X, Y, w, h, h / 2); c.fillStyle = 'rgba(12,14,24,.84)'; c.fill(); c.lineWidth = 1; c.strokeStyle = color; c.globalAlpha = .9; c.stroke(); c.globalAlpha = 1;
+  c.fillStyle = color; c.fillText(text, X + w / 2, Y + h / 2 + 1); c.restore();
+}
+function dashLine(c, a, b, color, w = 2, dash = [5, 4]) {
+  c.save(); c.strokeStyle = color; c.lineWidth = w; c.setLineDash(dash); c.lineCap = 'round'; c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke(); c.restore();
+}
+function bracket(c, a, v, text, color) { // a measuring line from a along v, with end ticks and a label in the middle
+  const len = Math.hypot(v[0], v[1]) || 1, nx_ = -v[1] / len * 5, ny_ = v[0] / len * 5;
+  c.save(); c.strokeStyle = color; c.lineWidth = 1.5; c.lineCap = 'round'; c.beginPath();
+  c.moveTo(a[0], a[1]); c.lineTo(a[0] + v[0], a[1] + v[1]);
+  c.moveTo(a[0] - nx_, a[1] - ny_); c.lineTo(a[0] + nx_, a[1] + ny_);
+  c.moveTo(a[0] + v[0] - nx_, a[1] + v[1] - ny_); c.lineTo(a[0] + v[0] + nx_, a[1] + v[1] + ny_); c.stroke(); c.restore();
+  pill(c, text, a[0] + v[0] / 2 + 10, a[1] + v[1] / 2 + 14, color);
+}
+
+// n slabs of thickness `th` (in cm) behind each other, the front face in the plane of the picture. polys are in cm (y up).
+// g = gap between slabs (fanned out), lean = sideways slide of every slab in cm. Returns the pixel geometry for labels.
+function drawStack(c, reg, polys, n, g, lean, st, dt, o = {}) {
+  const [kx, ky] = o.k ?? [EX, EY], th = o.thick ?? 1, col = o.color ?? GOLD;
+  const bb = bbox(polys), pw = bb.x1 - bb.x0, ph = bb.y1 - bb.y0, ext = (n - 1) * (1 + g) + 1;
+  const wcm = pw + kx * th * ext + lean * (n - 1), hcm = ph + ky * th * ext;
+  const tgt = Math.min(reg.w * 0.78 / wcm, reg.h * 0.74 / hcm, o.max ?? 44);
+  st.s = st.s ? st.s + (tgt - st.s) * Math.min(1, dt * 9) : tgt;
+  const s = st.s, ox = reg.x + (reg.w - wcm * s) / 2 - bb.x0 * s, oy = reg.y + (reg.h + hcm * s) / 2 + bb.y0 * s;
+  const px = polys.map((p) => p.map(([x, y]) => [ox + x * s, oy - y * s]));
+  const ex = kx * th * s, ey = -ky * th * s;
+  // a soft pool of light behind the object
+  const gcx = reg.x + reg.w / 2, gcy = reg.y + reg.h / 2, gr0 = c.createRadialGradient(gcx, gcy, 4, gcx, gcy, Math.max(30, Math.max(wcm, hcm) * s * 0.75));
+  gr0.addColorStop(0, 'rgba(255,214,120,.14)'); gr0.addColorStop(1, 'rgba(255,214,120,0)');
+  c.fillStyle = gr0; c.fillRect(reg.x, reg.y, reg.w, reg.h);
+  c.lineJoin = 'round';
+  for (let k = n - 1; k >= 0; k--) {
+    const dx = k * ((1 + g) * ex + lean * s), dy = k * (1 + g) * ey, tone = n > 1 ? (k % 2 ? 0.95 : 1.02) : 1;
+    for (const P of px) { // the faces on the sides that look at us: top and right
+      const sa = area2(P);
+      for (let i = 0; i < P.length; i++) {
+        const [x1, y1] = P[i], [x2, y2] = P[(i + 1) % P.length], ddx = x2 - x1, ddy = y2 - y1;
+        const nX = sa > 0 ? ddy : -ddy, nY = sa > 0 ? -ddx : ddx, nl = Math.hypot(nX, nY);
+        if (nl < 1e-6 || nX * ex + nY * ey <= 0) continue;
+        const lt = (-0.5 * nX - 0.87 * nY) / nl; // light from the top left
+        const a = [x1 + dx, y1 + dy], b = [x2 + dx, y2 + dy];
+        c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.lineTo(b[0] + ex, b[1] + ey); c.lineTo(a[0] + ex, a[1] + ey); c.closePath();
+        c.fillStyle = shade(col, (0.7 + 0.26 * lt) * tone); c.fill();
+        c.lineWidth = 1; c.strokeStyle = 'rgba(30,18,4,.5)'; c.stroke();
+      }
+    }
+    for (const P of px) { // the front face of the slab
+      const xs = P.map((p) => p[0] + dx), ys = P.map((p) => p[1] + dy);
+      const gr = c.createLinearGradient(Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys));
+      gr.addColorStop(0, shade(col, 1.2 * tone)); gr.addColorStop(1, shade(col, 0.9 * tone));
+      c.beginPath(); P.forEach(([X, Y], i) => (i ? c.lineTo(X + dx, Y + dy) : c.moveTo(X + dx, Y + dy))); c.closePath();
+      c.fillStyle = gr; c.fill(); c.lineWidth = 1.5; c.strokeStyle = 'rgba(30,18,4,.65)'; c.stroke();
+      c.beginPath(); P.forEach(([X, Y], i) => (i ? c.lineTo(X + dx, Y + dy) : c.moveTo(X + dx, Y + dy))); c.closePath();
+      c.lineWidth = 1; c.strokeStyle = 'rgba(255,255,255,.16)'; c.stroke();
+    }
+  }
+  const back = [(n - 1) * ((1 + g) * ex + lean * s) + ex, (n - 1) * (1 + g) * ey + ey];
+  return { px, s, ox, oy, bb, back, ex, ey, bx: ox + bb.x1 * s, by: oy - bb.y0 * s };
+}
+
+// --- Slices ---------------------------------------------------------------------------------------------------
+const currentPolys = () => (S.sec === 'honey' ? HONEY : [shapePts(S.sh)]);
+const volOf = () => AREA[S.sh] * (S.sec === 'honey' ? 7 : 1) * S.L;
+function drawGraph(c, reg) {
+  const honey = S.sec === 'honey', aSel = AREA[S.sh] * (honey ? 7 : 1), maxA = honey ? aSel : Math.max(...KEYS.map((k) => AREA[k]));
+  const step = honey ? 100 : 25, ymax = Math.ceil(maxA * 10 / step) * step, t = T[lang];
+  const x0 = reg.x + 44, x1 = reg.x + reg.w - 14, y0 = reg.y + reg.h - 36, y1 = reg.y + 34;
+  const X = (l) => x0 + (x1 - x0) * l / 10, Y = (v) => y0 - (y0 - y1) * v / ymax;
+  c.save();
+  rr(c, reg.x + 6, reg.y + 4, reg.w - 12, reg.h - 8, 14); c.fillStyle = 'rgba(14,17,28,.55)'; c.fill(); c.strokeStyle = 'rgba(130,145,190,.18)'; c.lineWidth = 1; c.stroke();
+  c.font = '700 12px Nunito, sans-serif'; c.fillStyle = '#98A0B8'; c.textBaseline = 'middle';
+  c.strokeStyle = 'rgba(130,145,190,.2)'; c.lineWidth = 1;
+  for (const l of [0, 5, 10]) { c.beginPath(); c.moveTo(X(l), y0); c.lineTo(X(l), y1); c.stroke(); c.textAlign = 'center'; c.fillText(num(l), X(l), y0 + 12); }
+  for (const v of [0, ymax / 2, ymax]) { c.beginPath(); c.moveTo(x0, Y(v)); c.lineTo(x1, Y(v)); c.stroke(); c.textAlign = 'right'; c.fillText(num(v), x0 - 5, Y(v)); }
+  c.textAlign = 'left'; c.fillText(`V, ${t.u.cm3}`, reg.x + 12, reg.y + 14); c.textAlign = 'right'; c.fillText(`L, ${t.u.cm}`, x1, y0 + 27);
+  if (!honey) for (const k of KEYS) if (k !== S.sh) { c.strokeStyle = 'rgba(160,175,225,.3)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(X(0), Y(0)); c.lineTo(X(10), Y(AREA[k] * 10)); c.stroke(); }
+  c.strokeStyle = GOLD; c.lineWidth = 3; c.lineCap = 'round'; c.beginPath(); c.moveTo(X(0), Y(0)); c.lineTo(X(10), Y(aSel * 10)); c.stroke();
+  for (let l = 0; l <= S.L; l++) { c.beginPath(); c.arc(X(l), Y(aSel * l), 3, 0, 7); c.fillStyle = '#fff3c4'; c.fill(); }
+  const cx = X(S.L), cy = Y(aSel * S.L);
+  dashLine(c, [cx, cy], [cx, y0], 'rgba(240,194,74,.6)', 1.5, [3, 3]); dashLine(c, [cx, cy], [x0, cy], 'rgba(240,194,74,.6)', 1.5, [3, 3]);
+  c.beginPath(); c.arc(cx, cy, 6.5, 0, 7); c.fillStyle = '#fff'; c.fill(); c.lineWidth = 2.5; c.strokeStyle = GOLD; c.stroke();
+  c.restore();
+  pill(c, `${nx(aSel * S.L)}`, cx - 4, cy - 17, GOLD);
+}
+function drawSlices(c, w, h, dt) {
+  const t = T[lang], e = ease(S.fanT), g = 0.85 * e;
+  if (!S.free) { // the prediction and its reveal: two prisms side by side
+    const pr = [['tri', { x: 0, y: 40, w: w / 2, h: h - 104 }], ['rect', { x: w / 2, y: 40, w: w / 2, h: h - 104 }]];
+    pr.forEach(([k, reg], i) => {
+      const gm = drawStack(c, reg, [shapePts(k)], PL, g, 0, smooth[i], dt), P = gm.px[0], cxm = reg.x + reg.w / 2;
+      pill(c, t.shapes[k], cxm, 20, '#fff');
+      const bot = Math.max(...P.map((p) => p[1])), cm = (v) => `${num(v)} ${t.u.cm}`;
+      if (!S.p1d) { // only the measurements, no areas
+        if (k === 'tri') {
+          const top = P[2]; dashLine(c, top, [top[0], P[0][1]], TEAL, 2);
+          pill(c, `${t.ba.height} ${cm(D.tri.h)}`, top[0] + 8, (top[1] + P[0][1]) / 2 + 2, TEAL);
+          pill(c, `${t.ba.base} ${cm(D.tri.b)}`, (P[0][0] + P[1][0]) / 2, bot + 18, '#fff');
+        } else {
+          pill(c, cm(D.rect.w), (P[0][0] + P[1][0]) / 2, bot + 18, '#fff');
+          pill(c, cm(D.rect.h), P[0][0] - 24, (P[0][1] + P[3][1]) / 2, '#fff');
+        }
+      } else {
+        const [ccx, ccy] = centroid(P);
+        pill(c, `${nx(AREA[k])} ${t.u.cm2}`, ccx, ccy, GOLD);
+        pill(c, `V = ${nx(AREA[k] * PL)} ${t.u.cm3}`, (P[0][0] + P[1][0]) / 2 + 6, bot + 20, '#fff');
+      }
+    });
+    return;
+  }
+  const wide = w >= 640, prReg = wide ? { x: 0, y: 6, w: w * 0.6, h: h - 12 } : { x: 0, y: 6, w, h: h * 0.6 - 6 };
+  const grReg = wide ? { x: w * 0.6, y: 0, w: w * 0.4, h } : { x: 0, y: h * 0.6, w, h: h * 0.4 };
+  const polys = currentPolys(), honey = S.sec === 'honey', lean = S.sec === 'lean' ? S.lean / 10 : 0;
+  const gm = drawStack(c, prReg, polys, S.L, g, lean, smooth[2], dt);
+  const [ccx, ccy] = centroid(gm.px[0]);
+  pill(c, `${nx(AREA[S.sh])} ${t.u.cm2}`, ccx, ccy, GOLD);
+  if (honey) pill(c, t.sl.cells, prReg.x + prReg.w / 2, prReg.y + 16, '#fff');
+  bracket(c, [gm.bx + 4, gm.by + 8], [gm.back[0] - (S.L - 1) * lean * gm.s, gm.back[1]], `${num(S.L)} ${t.u.cm}`, TEAL);
+  drawGraph(c, grReg);
+}
+
+// --- Base -----------------------------------------------------------------------------------------------------
+const baseSlant = () => { // the leg we label: the left one, or the right one when the left stands straight up
+  const k = BASEK[S.bs.kind], l = Math.hypot(S.bs.x, S.bs.h), r = Math.hypot(S.bs.x + k.t - k.b, S.bs.h);
+  return Math.abs(S.bs.x) > 1e-6 ? { len: l, left: true } : { len: r, left: false };
+};
+function drawBase(c, w, h, dt) {
+  const t = T[lang], k = BASEK[S.bs.kind], hh = S.bs.h, b = k.b;
+  if (S.anim) { // the prediction's reveal: the corner slides there and back
+    const KF = [[1.5, 5.5, 1.2], [5.5, -1, 1.8], [-1, 3, 1.2]];
+    S.anim.t += dt; let tt = S.anim.t, done = true;
+    for (const [from, to, d] of KF) { if (tt <= d) { S.bs.x = from + (to - from) * ease(clamp(tt / d, 0, 1)); done = false; break; } tt -= d; }
+    if (done) { S.bs.x = 3; S.anim = null; render(); } else baseInfo(t);
+  }
+  const X0 = S.bs.x, s = Math.min(w / 12.6, h / 8.6), ox = w / 2 - 3 * s, oy = h / 2 + 2.45 * s;
+  const PX = (px_, py_) => [ox + px_ * s, oy - py_ * s];
+  geoB = { ox, oy, s };
+  // glass panel with a 1 cm grid
+  const gl = PX(-3, 6.6), gr_ = PX(9, -0.9);
+  rr(c, gl[0], gl[1], gr_[0] - gl[0], gr_[1] - gl[1], 16); c.fillStyle = 'rgba(14,17,28,.55)'; c.fill(); c.lineWidth = 1; c.strokeStyle = 'rgba(130,145,190,.2)'; c.stroke();
+  c.save(); c.beginPath(); c.rect(gl[0], PX(0, 6.6)[1], gr_[0] - gl[0], 6.6 * s); c.clip();
+  c.strokeStyle = 'rgba(150,165,215,.14)'; c.lineWidth = 1; c.beginPath();
+  for (let i = -3; i <= 9; i++) { c.moveTo(PX(i, 0)[0], PX(0, 0)[1]); c.lineTo(PX(i, 0)[0], PX(0, 6.6)[1]); }
+  for (let j = 0; j <= 6; j++) { c.moveTo(PX(-3, 0)[0], PX(0, j)[1]); c.lineTo(PX(9, 0)[0], PX(0, j)[1]); }
+  c.stroke(); c.restore();
+  c.strokeStyle = 'rgba(200,210,245,.45)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(PX(-3, 0)[0], PX(0, 0)[1]); c.lineTo(PX(9, 0)[0], PX(0, 0)[1]); c.stroke();
+  const pts = basePts(S.bs.kind, X0, hh).map(([a, b_]) => PX(a, b_));
+  // the rectangle with the same base and height, dotted
+  if (S.bs.kind !== 'trap') { const r0 = PX(0, 0), r1 = PX(b, hh); c.save(); c.setLineDash([3, 5]); c.strokeStyle = 'rgba(255,255,255,.3)'; c.lineWidth = 1.5; c.strokeRect(r0[0], r1[1], r1[0] - r0[0], r0[1] - r1[1]); c.restore(); }
+  if (!S.p2d) dashLine(c, PX(-3, hh), PX(9, hh), 'rgba(255,255,255,.4)', 1.5, [2, 6]); // the line the corner will slide along
+  // the shape
+  const top = PX(X0, hh), gr = c.createLinearGradient(pts[3][0], top[1], pts[1][0], PX(0, 0)[1]);
+  gr.addColorStop(0, shade(GOLD, 1.15)); gr.addColorStop(1, shade(GOLD, 0.78));
+  c.beginPath(); pts.forEach(([a, b_], i) => (i ? c.lineTo(a, b_) : c.moveTo(a, b_))); c.closePath();
+  c.save(); c.shadowColor = 'rgba(0,0,0,.45)'; c.shadowBlur = 14; c.shadowOffsetY = 5; c.fillStyle = gr; c.fill(); c.restore();
+  c.lineJoin = 'round'; c.lineWidth = 2; c.strokeStyle = 'rgba(30,18,4,.7)'; c.stroke();
+  // slanted sides in one colour, the perpendicular height (dashed) in another
+  c.lineCap = 'round'; c.lineWidth = 3.5; c.strokeStyle = SLANT; c.beginPath();
+  c.moveTo(...pts[0]); c.lineTo(...pts[3]); c.moveTo(...pts[1]); c.lineTo(...pts[2]); c.stroke();
+  const foot = PX(X0, 0);
+  if (X0 < 0 || X0 > b) dashLine(c, X0 < 0 ? PX(0, 0) : PX(b, 0), foot, 'rgba(255,255,255,.5)', 1.5, [2, 4]); // the base line, extended
+  dashLine(c, top, foot, TEAL, 2.5);
+  const q = Math.min(8, s * 0.35), sgn = X0 >= 0 ? -1 : 1; // the right-angle mark
+  c.strokeStyle = TEAL; c.lineWidth = 1.5; c.beginPath(); c.moveTo(foot[0] + sgn * q, foot[1]); c.lineTo(foot[0] + sgn * q, foot[1] - q); c.lineTo(foot[0], foot[1] - q); c.stroke();
+  // labels
+  pill(c, `${t.ba.base} ${num(b)} ${t.u.cm}`, (pts[0][0] + pts[1][0]) / 2, pts[0][1] + 20, '#fff');
+  pill(c, `${t.ba.height} ${num(hh)} ${t.u.cm}`, top[0] + (X0 < b / 2 ? 44 : -44), (top[1] + foot[1]) / 2, TEAL);
+  const sl = baseSlant();
+  if (sl.len - hh > 1e-6) { const a = sl.left ? pts[0] : pts[1], z = sl.left ? pts[3] : pts[2]; pill(c, `${t.ba.slant} ${num(sl.len, 2)} ${t.u.cm}`, (a[0] + z[0]) / 2 + (sl.left ? -34 : 34), (a[1] + z[1]) / 2, SLANT); }
+  if (S.p2d) pill(c, `${nx(polyArea(basePts(S.bs.kind, X0, hh)))} ${t.u.cm2}`, ...PX(...centroid(basePts(S.bs.kind, X0, hh))), '#fff', 13);
+  // one square centimetre
+  c.fillStyle = 'rgba(240,194,74,.35)'; c.fillRect(gr_[0] - s - 12, gr_[1] - s - 28, s, s); c.strokeStyle = GOLD; c.lineWidth = 1; c.strokeRect(gr_[0] - s - 12, gr_[1] - s - 28, s, s);
+  c.font = '700 12px Nunito, sans-serif'; c.fillStyle = '#c6cde0'; c.textAlign = 'right'; c.textBaseline = 'alphabetic'; c.fillText(`1 ${t.u.cm2}`, gr_[0] - 12, gr_[1] - 10);
+  // the handle
+  const free = S.p2d && !S.anim, pulse = free && !S.drag ? 1 + 0.12 * Math.sin(performance.now() / 260) : 1;
+  c.beginPath(); c.arc(top[0], top[1], 13 * pulse, 0, 7); c.fillStyle = free ? 'rgba(255,255,255,.22)' : 'rgba(255,255,255,.1)'; c.fill();
+  c.beginPath(); c.arc(top[0], top[1], 8, 0, 7); c.fillStyle = '#fff'; c.fill(); c.lineWidth = 2; c.strokeStyle = free ? '#FF3B30' : 'rgba(30,18,4,.6)'; c.stroke();
+}
+function baseInfo(t) {
+  const k = S.bs.kind, { x, h: hh } = S.bs, A = polyArea(basePts(k, x, hh)), sl = baseSlant(), b = BASEK[k].b, f = baseFormula(k, hh);
+  const wrong = A / hh * sl.len; // the same formula with the slanted side in place of the height
+  if (!S.p2d) {
+    lab.setReadout('?', t.ba.predSub, '', '#f0c24a');
+    lab.setState({ emo: '🤔', title: t.ba.predTitle, lead: t.ba.predLead, body: '', extra: '' }); return;
+  }
+  lab.setReadout(`${nx(A)} ${t.u.cm2}`, f, `${t.ba.height} ${num(hh)} ${t.u.cm}`, '#f0c24a');
+  const body = sl.len - hh > 1e-6 ? t.ba.slantBody(sl.len, wrong) : t.ba.upright;
+  if (S.bverdict) lab.setState({ emo: S.p2 === 2 ? '✅' : '🤔', title: S.p2 === 2 ? t.right : t.wrong, lead: t.ba.verdict(b, hh, A), body, extra: '' });
+  else lab.setState({ emo: '📐', title: t.ba.names[k], lead: t.ba.lead(f, hh, A), body, extra: '' });
+}
+// dragging the white dot: sideways and up or down, snapped to the grid
+$('cv').addEventListener('pointerdown', (ev) => {
+  if (lab.view !== 'base' || !S.p2d || S.anim || !geoB) return;
+  const r = $('cv').getBoundingClientRect(), px_ = ev.clientX - r.left, py_ = ev.clientY - r.top;
+  const hx = geoB.ox + S.bs.x * geoB.s, hy = geoB.oy - S.bs.h * geoB.s;
+  if (Math.hypot(px_ - hx, py_ - hy) > 40) return;
+  S.drag = true; S.bverdict = false; $('cv').setPointerCapture(ev.pointerId); ev.preventDefault();
+});
+$('cv').addEventListener('pointermove', (ev) => {
+  if (!S.drag || !geoB) return;
+  const r = $('cv').getBoundingClientRect(), k = BASEK[S.bs.kind];
+  const nxv = Math.round(((ev.clientX - r.left - geoB.ox) / geoB.s) * 2) / 2, nh = Math.round((geoB.oy - (ev.clientY - r.top)) / geoB.s);
+  const x = clamp(nxv, -2.5, 8.5 - k.t), hh = clamp(nh, 1, 6);
+  if (x !== S.bs.x || hh !== S.bs.h) { S.bs.x = x; S.bs.h = hh; sfx.tick(); baseInfo(T[lang]); }
+});
+const endDrag = () => { S.drag = false; };
+$('cv').addEventListener('pointerup', endDrag); $('cv').addEventListener('pointercancel', endDrag);
+
+// --- Real -----------------------------------------------------------------------------------------------------
+function drawReal(c, w, h, dt) {
+  const t = T[lang], reg = { x: 0, y: 26, w, h: h - (S.obj === 'pool' ? 90 : 62) }, cm = (v, u) => `${num(v)} ${u}`;
+  if (S.obj === 'pool') {
+    const deep = S.deep, K = 3; // the depth is drawn three times taller so that the slope can be seen
+    const front = [[0, 0], [POOL.len, 0], [POOL.len, -deep * K], [0, -POOL.d1 * K]];
+    const gm = drawStack(c, reg, [front], 1, 0, 0, smooth[0], dt, { thick: POOL.wid, color: POOLC, max: 30 }), P = gm.px[0];
+    // a few light streaks in the water
+    c.save(); c.beginPath(); P.forEach(([X, Y], i) => (i ? c.lineTo(X, Y) : c.moveTo(X, Y))); c.closePath(); c.clip();
+    c.strokeStyle = 'rgba(255,255,255,.16)'; c.lineWidth = 1.5;
+    for (let i = 1; i <= 3; i++) { c.beginPath(); for (let X = P[0][0]; X <= P[1][0]; X += 6) { const Y = P[0][1] + (P[3][1] - P[0][1]) * i / 4 * 0.6 + Math.sin(X / 14 + performance.now() / 900 + i) * 2; X === P[0][0] ? c.moveTo(X, Y) : c.lineTo(X, Y); } c.stroke(); }
+    c.restore();
+    pill(c, cm(POOL.len, t.u.m), (P[0][0] + P[1][0]) / 2, P[0][1] - 15, '#fff');
+    pill(c, cm(POOL.d1, t.u.m), P[0][0] + 24, (P[0][1] + P[3][1]) / 2, TEAL);
+    pill(c, cm(deep, t.u.m), P[1][0] - 24, (P[1][1] + P[2][1]) / 2, TEAL);
+    const [ccx, ccy] = centroid(P); pill(c, `${nx(poolOf(deep).A)} ${t.u.m2}`, ccx, ccy + 4, GOLD);
+    bracket(c, [gm.bx + 4, P[1][1] + 6], gm.back, cm(POOL.wid, t.u.m), '#fff');
+    if (S.p3d) { const r = poolOf(deep); pill(c, `🚿 ${nx(r.hrs)} ${t.u.h} ≈ ${num(r.days, 0)} ${t.u.days(Math.round(r.days))}`, w / 2, h - 46, GOLD, 13); }
+    pill(c, t.re.stretch, w / 2, h - 16, '#98A0B8', 12);
+  } else if (S.obj === 'tent') {
+    const hh = S.tentH, front = [[-TENT.w / 2, 0], [TENT.w / 2, 0], [0, hh]];
+    const gm = drawStack(c, reg, [front], 1, 0, 0, smooth[0], dt, { thick: TENT.len, color: TENTC, k: [0.6, 0.36], max: 70 }), P = gm.px[0];
+    dashLine(c, P[2], [P[2][0], P[0][1]], TEAL, 2.5);
+    c.save(); c.strokeStyle = SLANT; c.lineWidth = 3.5; c.lineCap = 'round'; c.beginPath(); c.moveTo(...P[0]); c.lineTo(...P[2]); c.stroke(); c.restore();
+    pill(c, cm(TENT.w, t.u.m), (P[0][0] + P[1][0]) / 2, P[0][1] + 18, '#fff');
+    pill(c, cm(hh, t.u.m), P[2][0] + 28, (P[2][1] + P[0][1]) / 2, TEAL);
+    pill(c, `${t.ba.slant} ${num(Math.hypot(TENT.w / 2, hh), 2)} ${t.u.m}`, (P[0][0] + P[2][0]) / 2 - 34, (P[0][1] + P[2][1]) / 2 - 8, SLANT);
+    bracket(c, [gm.bx + 4, P[1][1] + 6], gm.back, cm(TENT.len, t.u.m), '#fff');
+  } else {
+    const L = S.barL, n = Math.max(1, Math.floor(L / 3)), front = [[0, 0], [BAR.b, 0], [BAR.b / 2, BAR.h]];
+    const gm = drawStack(c, reg, [front], n, 0.07, 0, smooth[0], dt, { thick: L / ((n - 1) * 1.07 + 1), color: CHOC, max: 60 }), P = gm.px[0];
+    dashLine(c, P[2], [P[2][0], P[0][1]], TEAL, 2.5);
+    pill(c, cm(BAR.b, t.u.cm), (P[0][0] + P[1][0]) / 2, P[0][1] + 18, '#fff');
+    pill(c, cm(BAR.h, t.u.cm), P[2][0] + 26, (P[2][1] + P[0][1]) / 2, TEAL);
+    bracket(c, [gm.bx + 4, P[1][1] + 6], gm.back, cm(L, t.u.cm), '#fff');
+  }
+}
+
+// --- the loop -------------------------------------------------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt) => {
+  CW = w; CH = h;
+  const tgt = lab.view === 'slices' ? (S.free ? (S.fan ? 1 : 0) : (S.p1d ? 1 : 0)) : 0;
+  S.fanT += clamp(tgt - S.fanT, -dt / 0.55, dt / 0.55);
+  if (lab.view === 'slices') drawSlices(c, w, h, dt); else if (lab.view === 'base') drawBase(c, w, h, dt); else drawReal(c, w, h, dt);
+});
+
+// --- controls -------------------------------------------------------------------------------------------------
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b) return;
+  const a = b.dataset.act, i = +b.dataset.i;
+  if (a === 'p1') { S.p1 = i; sfx.tick(); }
+  else if (a === 's-check') { if (S.p1 === null) return; S.p1d = true; (S.p1 === 1 ? sfx.good : sfx.bad)(); showStage(); }
+  else if (a === 's-go') { S.free = true; S.sh = 'tri'; S.L = 5; S.fan = true; S.sec = null; sfx.click(); }
+  else if (a === 'shape') { S.sh = b.dataset.k; S.sec = null; sfx.click(); }
+  else if (a === 'cut') { S.fan = !S.fan; sfx.snap(); }
+  else if (a === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    const k = b.dataset.k; S.sec = S.sec === k ? null : k; sfx.click();
+    if (S.sec === 'lean') { S.fan = false; S.lean = 6; if (S.L < 4) S.L = 5; }
+    if (S.sec === 'honey') { S.fan = false; S.sh = 'hex'; }
+  } else if (a === 'p2') { S.p2 = i; sfx.tick(); }
+  else if (a === 'b-check') { if (S.p2 === null) return; S.p2d = true; S.bverdict = true; S.bs = { kind: 'tri', x: BASEK.tri.x, h: BASEK.tri.h }; S.anim = { t: 0 }; (S.p2 === 2 ? sfx.good : sfx.bad)(); showStage(); }
+  else if (a === 'kind') { const k = b.dataset.k, d = BASEK[k]; S.bs = { kind: k, x: d.x, h: d.h }; S.anim = null; S.bverdict = false; sfx.click(); }
+  else if (a === 'reset') { const d = BASEK[S.bs.kind]; S.bs = { kind: S.bs.kind, x: d.x, h: d.h }; S.anim = null; S.bverdict = false; sfx.click(); }
+  else if (a === 'obj') { S.obj = b.dataset.k; S.rverdict = false; sfx.click(); }
+  else if (a === 'p3') { S.p3 = i; sfx.tick(); }
+  else if (a === 'r-check') { if (S.p3 === null) return; S.p3d = true; S.rverdict = true; S.deep = 2; (S.p3 === 1 ? sfx.good : sfx.bad)(); showStage(); }
+  render();
+});
+const onSlide = (id, fn) => $(id).addEventListener('input', () => { fn(+$(id).value); render(); });
+onSlide('sLen', (v) => { S.L = v; }); onSlide('sLean', (v) => { S.lean = v; });
+onSlide('rDeep', (v) => { S.deep = v; S.rverdict = false; }); onSlide('rTent', (v) => { S.tentH = v; }); onSlide('rBar', (v) => { S.barL = v; });
+
+// --- one render per change ------------------------------------------------------------------------------------
+const opts = (list, act, sel) => list.map((o, i) => `<button class="chip${sel === i ? ' on' : ''}" data-act="${act}" data-i="${i}">${esc(o)}</button>`).join('');
+function render() {
+  const t = T[lang], v = lab.view;
+  $('sCheck').textContent = $('bCheck').textContent = $('rCheck').textContent = '';
+  $('vS').hidden = v !== 'slices'; $('vB').hidden = v !== 'base'; $('vR').hidden = v !== 'real';
+  $('cv').style.touchAction = v === 'base' && S.p2d ? 'none' : 'pan-y';
+  if (v === 'slices') rSlices(t); else if (v === 'base') rBase(t); else rReal(t);
+  lab.checkStage();
+}
+function rSlices(t) {
+  const s = t.sl;
+  lab.setGlow('rgba(240, 194, 74, .24)');
+  $('sPred').hidden = S.p1d; $('sRes').hidden = !S.p1d || S.free; $('sFree').hidden = !S.free;
+  if (!S.p1d) {
+    $('sQ').textContent = s.q(D.tri, D.rect, PL); $('sOpts').innerHTML = opts(s.opts, 'p1', S.p1);
+    $('sCheck').textContent = t.check; $('sCheck').disabled = S.p1 === null;
+    lab.setReadout('?', s.predSub, '', '#f0c24a');
+    lab.setState({ emo: '🤔', title: s.predTitle, lead: s.predLead, body: '', extra: '' });
+    lab.setFacts([t.facts.honey]); return;
+  }
+  const V1 = P1_A * PL;
+  lab.setFacts([t.facts.honey]);
+  if (!S.free) {
+    $('sGo').textContent = t.explore;
+    lab.setReadout(`V = ${nx(V1)} ${t.u.cm3}`, `${nx(P1_A)} ${t.u.cm2} × ${num(PL)} ${t.u.cm}`, '', '#f0c24a');
+    lab.setState({ emo: S.p1 === 1 ? '✅' : '🤔', title: S.p1 === 1 ? t.right : t.wrong, lead: s.rev(D.tri, D.rect, V1), body: s.body, extra: '' }); return;
+  }
+  const A = AREA[S.sh] * (S.sec === 'honey' ? 7 : 1), V = A * S.L, honey = S.sec === 'honey';
+  $('sShapeL').textContent = s.shape;
+  $('sShapes').innerHTML = ['rect', 'tri', 'trap', 'L', 'hex'].map((k) => `<button class="chip${S.sh === k && !honey ? ' on' : ''}" data-act="shape" data-k="${k}">${esc(t.shapes[k])}</button>`).join('');
+  $('sLenL').textContent = s.len; $('sLenO').textContent = `${num(S.L)} ${t.u.cm}`; $('sLen').value = S.L;
+  $('sLeanRow').hidden = S.sec !== 'lean'; $('sLeanL').textContent = s.lean; $('sLeanO').textContent = `${num(S.lean / 10, 1)} ${t.u.cm}`; $('sLean').value = S.lean;
+  $('sCut').textContent = S.fan ? s.join : s.cut; $('sCut').classList.toggle('on', S.fan);
+  const open = secret.unlocked(), sc = (k, emo) => `<button class="chip secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  $('sSec').innerHTML = sc('lean', '🪙') + sc('honey', '🐝');
+  const form = honey ? `7 × ${nx(AREA.hex)}` : `${nx(A)}`;
+  lab.setReadout(`V ${eq(V)} ${nx(V)} ${t.u.cm3}`, `${honey ? form : nx(A)} ${t.u.cm2} × ${num(S.L)} ${t.u.cm}`, s.slices(S.L), '#f0c24a');
+  let st;
+  if (S.sec === 'lean') st = { emo: '🪙', title: s.leanT, lead: s.leanLead(S.L, AREA[S.sh], V), body: s.leanBody };
+  else if (honey) st = { emo: '🐝', title: s.honeyT, lead: s.honeyLead(AREA.hex, S.L, V), body: s.honeyBody };
+  else st = { emo: '🔪', title: s.title(t.shapes[S.sh]), lead: s.lead(S.L, A, V), body: s.body };
+  lab.setState({ ...st, extra: formula(S.sh) && !S.sec ? `<div class="fine">${esc(t.sym)} = ${esc(formula(S.sh))} ${eq(A)} ${nx(A)} ${esc(t.u.cm2)}</div>` : '' });
+}
+function rBase(t) {
+  const ba = t.ba;
+  lab.setGlow('rgba(79, 209, 193, .2)');
+  $('bPred').hidden = S.p2d; $('bFree').hidden = !S.p2d;
+  if (!S.p2d) {
+    $('bQ').textContent = ba.q; $('bOpts').innerHTML = opts(ba.opts, 'p2', S.p2);
+    $('bCheck').textContent = t.check; $('bCheck').disabled = S.p2 === null; lab.setFacts([]);
+  } else {
+    $('bKinds').innerHTML = ['tri', 'trap', 'para'].map((k) => `<button class="chip${S.bs.kind === k ? ' on' : ''}" data-act="kind" data-k="${k}">${esc(t.shapes[k])}</button>`).join('') + `<button class="chip" data-act="reset">${esc(ba.reset)}</button>`;
+    $('bHint').textContent = ba.hint; lab.setFacts([t.facts.cav]);
+  }
+  baseInfo(t);
+}
+function rReal(t) {
+  const re = t.re, pool = S.obj === 'pool';
+  lab.setGlow('rgba(61, 158, 224, .22)');
+  $('rObjs').innerHTML = ['pool', 'tent', 'bar'].map((k) => `<button class="chip${S.obj === k ? ' on' : ''}" data-act="obj" data-k="${k}">${esc(re[k])}</button>`).join('');
+  const askPool = pool && !S.p3d;
+  $('rPred').hidden = !askPool;
+  if (askPool) { $('rQ').textContent = re.q(POOL.flow); $('rOpts').innerHTML = opts(PRED_H.map((n) => `${num(n)} ${re.hours}`), 'p3', S.p3); $('rCheck').textContent = t.check; $('rCheck').disabled = S.p3 === null; }
+  $('rDeepRow').hidden = !(pool && S.p3d); $('rTentRow').hidden = S.obj !== 'tent'; $('rBarRow').hidden = S.obj !== 'bar';
+  $('rDeepL').textContent = re.deep; $('rDeepO').textContent = `${num(S.deep, 1)} ${t.u.m}`; $('rDeep').value = S.deep;
+  $('rTentL').textContent = re.tH; $('rTentO').textContent = `${num(S.tentH, 1)} ${t.u.m}`; $('rTent').value = S.tentH;
+  $('rBarL').textContent = re.bL; $('rBarO').textContent = `${num(S.barL)} ${t.u.cm}`; $('rBar').value = S.barL;
+  if (pool) {
+    const r = poolOf(S.deep);
+    lab.setFacts([t.facts.oly(50 * 25 * 2)]);
+    lab.setReadout(`${nx(r.V)} ${t.u.m3}`, `${nx(r.A)} ${t.u.m2} × ${POOL.wid} ${t.u.m}`, S.p3d ? `🚿 ${nx(r.hrs)} ${t.u.h}` : `${num(r.lit)} ${t.u.l}`, '#3d9ee0');
+    if (askPool) lab.setState({ emo: '🚿', title: re.pTitle, lead: re.pLead(POOL, S.deep), body: '', extra: '' });
+    else if (S.rverdict) lab.setState({ emo: S.p3 === 1 ? '✅' : '🤔', title: S.p3 === 1 ? t.right : t.wrong, lead: re.rev(r, POOL.flow), body: re.poolLead(POOL, S.deep, r), extra: '' });
+    else lab.setState({ emo: '🏊', title: re.poolT, lead: re.poolLead(POOL, S.deep, r), body: re.poolBody(r, POOL.flow), extra: '' });
+  } else if (S.obj === 'tent') {
+    const hh = S.tentH, A = TENT.w * hh / 2, V = A * TENT.len, sl = Math.hypot(TENT.w / 2, hh);
+    lab.setFacts([t.facts.oly(50 * 25 * 2)]);
+    lab.setReadout(`${nx(V)} ${t.u.m3}`, `${nx(A)} ${t.u.m2} × ${TENT.len} ${t.u.m}`, `${num(V * 1000)} ${t.u.l} ${re.air}`, '#4f9d6b');
+    lab.setState({ emo: '⛺', title: re.tentT, lead: re.tentLead(TENT.w, hh, A, TENT.len, V), body: re.tentBody(sl, TENT.len, 2 * sl * TENT.len), extra: '' });
+  } else {
+    const A = BAR.b * BAR.h / 2, V = A * S.barL;
+    lab.setFacts([t.facts.oly(50 * 25 * 2)]);
+    lab.setReadout(`${nx(V)} ${t.u.cm3}`, `${nx(A)} ${t.u.cm2} × ${num(S.barL)} ${t.u.cm}`, '', '#8a5a3a');
+    lab.setState({ emo: '🍫', title: re.barT, lead: re.barLead(BAR.b, BAR.h, A, S.barL, V), body: re.barBody, extra: '' });
+  }
+}
+render();
+</script>
+</body>
+</html>
