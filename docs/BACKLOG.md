@@ -26,9 +26,9 @@ move, so the items name identifiers in the code to search for.
 | F02 | P0 | The first tap on "Show the picture" is lost | done · #437 |
 | F03 | P0 | The viewer ignores the browser language | done · #437 |
 | F04 | — | Analytics | won't do |
-| F05 | P1 | The quick check does not ask about the grade's core | in progress (2026-11-10) |
-| F06 | P1 | Meta topics as route steps | open |
-| F07 | P1 | Ontario standards are not visible in the viewer | in progress (2026-11-10): the chip only, no school choice (owner's decision) |
+| F05 | P1 | The quick check does not ask about the grade's core | done · #438 |
+| F06 | P1 | Meta topics as route steps | in progress (2026-11-10) |
+| F07 | P1 | Ontario standards are not visible in the viewer | done · #438 (the chip only, no school choice: owner's decision) |
 | F08 | P1 | The site says ages 4–16, the data ends at 14 | done · #437 |
 | F09 | — | Lab coverage by subject and age | won't do |
 | F10 | P1 | Very long lists on a phone | open |
@@ -95,7 +95,7 @@ move, so the items name identifiers in the code to search for.
 ## F05. The quick check does not ask about the grade's core
 
 - **Priority:** P1
-- **Status:** in progress (2026-11-10)
+- **Status:** done · #438
 - **Problem:** for "Hungary · grade 4" all 8 questions were about taking turns in a conversation, caring
   for a plant, drawing a scene from a story, listening to music, computers at home. None was about
   arithmetic or reading. After the check the radar shows 0–14% and "1 of 68" for mathematics, which reads
@@ -114,7 +114,7 @@ move, so the items name identifiers in the code to search for.
 ## F06. Meta topics as route steps
 
 - **Priority:** P1
-- **Status:** open
+- **Status:** in progress (2026-11-10)
 - **Problem:** the path to "Working with Money" has two steps, "Model real problems" and "Connect maths
   with life" (names approximate). These are abstract `META` topics; the steps a parent expects (addition,
   coins) are missing.
@@ -131,7 +131,7 @@ move, so the items name identifiers in the code to search for.
 ## F07. Ontario standards are not visible in the viewer
 
 - **Priority:** P1
-- **Status:** in progress (2026-11-10): the chip only, no school choice (owner's decision)
+- **Status:** done · #438 (the chip only, no school choice: owner's decision)
 - **Problem:** after the upstream sync `data/topics.json` holds about 3,400 references to Ontario standards
   (`the-ontario-curriculum-*`), but the viewer has no such source. Topics that have only these show as
   "Marble only".
