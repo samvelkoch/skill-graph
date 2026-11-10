@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-10
 
 ### Labs
+- New lab `not-event` “The Chance It Won't”: paint a spinner and find the chance of "not red" before spinning it a thousand times, find a hidden chance on a four-colour wheel, and turn forecasts and raffles into chances of the opposite (522). (#465)
 - New lab `coord-rules` “The Moving Rule”: feed points into a hidden machine and predict where the next one lands, then name the coordinate rules that slide, flip and turn a sailboat on a grid (521). (#464)
 - New lab `wild-farm-pet` “Who Looks After Them?”: take animals to the forest, the farm or a house and see who feeds them, leave a cow out in the winter woods, and slide back in time to their wild ancestors (520). (#463)
 - New lab `tundra` “Under the Tundra”: dig into frozen ground and plant a pine, a willow, moss and lichen, run a tundra year from polar night to midnight sun, and see how its animals get through winter (519). (#462)
