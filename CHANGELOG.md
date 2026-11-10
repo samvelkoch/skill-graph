@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-10
 
 ### Labs
+- New lab `plastic-sea` “The Bottle's Journey”: follow a plastic bottle as the sea breaks it into ever smaller pieces, see what sea animals mistake for food, and try the levers a seaside town can pull (512). (#455)
 - New lab `turn-symmetry` “Turn It Round”: spin pinwheels, stars and snowflakes on a pin and count how often they match, find the smallest turn, and hunt for letters that look the same upside down (511). (#454)
 - New lab `home-power` “Who Uses Most?”: switch on appliances and watch an old meter's disc spin, sort what runs on electricity, and add up a family's day in watt-hours (510). (#453)
 - New lab `false-belief` “Where Will She Look?”: watch a cat move Mia's ball while she is out and guess where she will look, open a crayon box with a surprise inside, and work out who knows about a birthday gift (509). (#452)
