@@ -27,11 +27,11 @@ move, so the items name identifiers in the code to search for.
 | F03 | P0 | The viewer ignores the browser language | done · #437 |
 | F04 | — | Analytics | won't do |
 | F05 | P1 | The quick check does not ask about the grade's core | done · #438 |
-| F06 | P1 | Meta topics as route steps | in progress (2026-11-10) |
+| F06 | P1 | Meta topics as route steps | done · #439 |
 | F07 | P1 | Ontario standards are not visible in the viewer | done · #438 (the chip only, no school choice: owner's decision) |
 | F08 | P1 | The site says ages 4–16, the data ends at 14 | done · #437 |
 | F09 | — | Lab coverage by subject and age | won't do |
-| F10 | P1 | Very long lists on a phone | open |
+| F10 | P1 | Very long lists on a phone | in progress (2026-11-10) |
 | F11 | P2 | The phone header takes a quarter of the screen | open |
 | F12 | P2 | Different navigation on the viewer and the labs pages | open |
 | F13 | P2 | 152 older labs have no "Did you know?" facts | open |
@@ -114,7 +114,7 @@ move, so the items name identifiers in the code to search for.
 ## F06. Meta topics as route steps
 
 - **Priority:** P1
-- **Status:** in progress (2026-11-10)
+- **Status:** done · #439
 - **Problem:** the path to "Working with Money" has two steps, "Model real problems" and "Connect maths
   with life" (names approximate). These are abstract `META` topics; the steps a parent expects (addition,
   coins) are missing.
@@ -166,7 +166,7 @@ move, so the items name identifiers in the code to search for.
 ## F10. Very long lists on a phone
 
 - **Priority:** P1
-- **Status:** open
+- **Status:** in progress (2026-11-10)
 - **Problem:** the labs overview renders every card at once: the page is about 107,000 px tall at 390 px
   (roughly 160 screens), almost one card per screen. The Routes view is about 11,000 px in one list with
   no age filter.
