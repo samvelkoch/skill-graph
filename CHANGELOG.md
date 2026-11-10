@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-10
 
 ### Labs
+- New lab `folk-tale` “What Is a Tale Made Of?”: find the bricks of a folk tale about three brothers, guess what happens the third time, and build a tale of your own (514). (#457)
 - New lab `prism` “Slices of a Prism”: cut prisms of every shape into equal slices, lean a triangle without changing its area, and fill a swimming pool with a sloping floor (513). (#456)
 - New lab `plastic-sea` “The Bottle's Journey”: follow a plastic bottle as the sea breaks it into ever smaller pieces, see what sea animals mistake for food, and try the levers a seaside town can pull (512). (#455)
 - New lab `turn-symmetry` “Turn It Round”: spin pinwheels, stars and snowflakes on a pin and count how often they match, find the smallest turn, and hunt for letters that look the same upside down (511). (#454)
