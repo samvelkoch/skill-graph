@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-10
 
 ### Labs
+- New lab `house-of-wisdom` “The House of Wisdom”: carry Euclid, Ptolemy and the Indian digits from city to city and guess each new language, race Roman numerals against digits in a sum, and find words that came through Arabic (531). (#474)
 - New lab `climograph` “Guess the City”: read the rain bars and temperature line of a real climate chart, find six mystery cities from their charts, and flip the seasons of Sydney against Budapest (530). (#473)
 - New lab `bridges` “Seven Bridges”: try to cross every bridge of an old river town once, turn the town into dots and lines and find the rule of odd dots, and add or remove bridges until the walk works (529). (#472)
 - New lab `frog-or-lizard` “From Water to Land”: walk a frog and a lizard away from a pond and watch their water graphs, leave spawn and a shelled egg on dry sand, and guess who lives in rainforests, ponds and deserts (528). (#471)
