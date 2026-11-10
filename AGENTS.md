@@ -28,3 +28,7 @@ node scripts/labs-catalog.mjs    # after changing labs/registry.json (commit the
 node scripts/layout.mjs          # after changing topics or dependencies (regenerates data/layout.json)
 python3 -m http.server 8000      # then check pages at phone width with ?lang=en|ru|hu
 ```
+
+## Backlog
+
+Open work beyond new labs is in [docs/BACKLOG.md](docs/BACKLOG.md) (items `F01`…). When you take an item, set its status there; after the merge, set `done · #PR`.

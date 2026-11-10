@@ -28,3 +28,6 @@ Every lab is built with the project skill `.claude/skills/new-lab/` (`SKILL.md`,
 - The lab's topic links in its footer open the right cards on the map.
 - The quiz's unlock writes `learning` for the lab's topics.
 - `CHANGELOG.md` gets an entry under the merge date (English, with the PR number); a change parents notice also gets a bullet in `changelog/index.html` in EN, RU and HU (new labs appear there by themselves from `added` in `labs/registry.json`). CI fails a PR that does not touch `CHANGELOG.md`, unless it has the label `skip-changelog`.
+
+## Backlog
+Open work beyond new labs is in `docs/BACKLOG.md` (items `F01`…). When you take an item, set its status there; after the merge, set `done · #PR`.
