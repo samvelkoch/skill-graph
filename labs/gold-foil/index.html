@@ -1,0 +1,865 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Gold Foil Lab · Skill Graph</title>
+<meta name="description" content="Fire particles at a thin gold foil, guess the pattern on the screen, zoom from the atom to its nucleus and watch hydrogen make coloured light. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #ctrlBody .chip, #ctrlBody .btn { min-height: 38px; }
+  #ctrlBody .btn { padding: 8px 16px; font-size: 13px; }
+  .gf-ask .q { font: 500 19px/1.25 var(--serif); color: #fff; margin: 0 0 10px; text-wrap: balance; }
+  .gf-opts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .gf-opt { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 8px 6px; min-height: 56px; border-radius: 14px;
+    border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1); color: var(--soft); font-size: 12.5px; font-weight: 800; line-height: 1.2; text-align: center; cursor: pointer; }
+  .gf-opt:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .gf-opt svg { width: 100%; max-width: 92px; height: auto; display: block; }
+  .gf-v { font-weight: 900; font-size: 15px; margin: 2px 0 10px; }
+  .gf-v.ok { color: var(--ok); } .gf-v.bad { color: var(--wip); }
+  .gf-note { font-size: 12px; color: var(--mut); margin: 8px 0 0; }
+  .gf-sl { margin-top: 12px; }
+  .gf-sl .lbl { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-weight: 700; }
+  .gf-lv { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .gf-lv .chip { min-width: 44px; justify-content: center; font-size: 15px; }
+  @media (max-width: 760px) {
+    body[data-v=shoot] #stage { height: min(105vw, 470px); }
+    body[data-v=scale] #stage { height: min(97vw, 430px); }
+    body[data-v=bohr] #stage { height: min(98vw, 440px); }
+    .gf-ask .q { font-size: 17px; }
+  }
+  body[data-v=bohr] #stage canvas { touch-action: none; }
+  #gauge { display: none; }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, store, $, esc, clamp, lerp, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Gold Foil Lab', title: 'Shooting at Gold Foil',
+    lines: [['Fire fast particles', 'at a thin sheet of gold.'], ['Guess the pattern on the screen,', 'then check it.'], ['Zoom into the atom', 'and look at the light of hydrogen.']],
+    views: { shoot: '🎯 Shoot', scale: '🔭 Scale', bohr: '💡 Bohr' },
+    modelW: 'model', about: 'About',
+    cn: ['violet', 'blue', 'green', 'yellow', 'orange', 'red'], uv: 'ultraviolet (invisible)', ir: 'infrared (invisible)',
+    sh: {
+      pud: 'Plum pudding', nuc: 'Nucleus', f1: '✦ Fire ×1', f1k: '✦ Fire ×1000', log: 'Log scale', clr: '↺ Clear',
+      src: 'α source', foil: 'gold foil', scr: 'screen', atom: 'one atom',
+      hist: 'Particles by angle', histLog: 'Particles by angle (log scale)', tap: 'Tap a bar to light up its flashes', wait: 'Make your guess first',
+      sub: 'bounced back (over 90°)', ofN: (b, n) => `${b} of ${n}`,
+      pill: { pud: 'plum pudding · model', nuc: 'nucleus · model', plate: 'platinum plate · model', aim: 'nucleus · model' },
+      shape: { spike: 'One tall spike', hump: 'A wide hump', flat: 'Flat: all angles alike', tail: 'A spike and a thin tail' },
+      axis: 'Angle: 0° straight on, 180° straight back',
+      q: { pud: 'The charge is spread out like pudding. After 1000 particles hit the foil, what shape will the histogram have?',
+           nuc: 'Geiger and Marsden counted the flashes at every angle. What shape did their histogram have?' },
+      right: 'Right!', wrong: 'Not quite.', was: 'The screen shows:', plateL: 'platinum plate',
+      pudAsk: ['The plum pudding atom', 'The positive charge is spread through the whole atom, with electrons dotted in it like plums.', 'Alpha particles are fast, positive particles from radioactive atoms. Pick the histogram you expect after 1000 of them hit the foil; then the experiment runs.'],
+      nucAsk: ['The nucleus atom', 'All the positive charge sits in one tiny dot in the middle; the rest of the atom holds only light electrons.', 'Geiger and Marsden counted the flashes on a zinc sulfide screen. Pick the histogram you expect.'],
+      ready: ['Ready to fire', 'Each flash on the screen is one particle. Each bar counts the flashes in a 10° slice.', 'Press Fire ×1000.'],
+      pudRes: (n, mx) => ['Only tiny nudges', `All ${n} flashes are within ${mx}° of straight on.`, 'Spread-out charge pushes weakly everywhere, so nothing turns far. Now try the Nucleus model.'],
+      nucTitle: (b) => (b > 1 ? 'Some bounced back!' : b === 1 ? 'One bounced back!' : 'Straight through, so far'),
+      nucLead: (n, pc, b) => `${pc}% of the ${n} flew within 10° of straight on. ${b} bounced back (over 90°).`,
+      nucBody: (b) => (b > 0 ? 'Nearly all fly on almost straight: the atom is mostly empty space. Those that bounce hit something tiny, heavy and positive: the nucleus.' : 'Fire again: bounces are rare. Try the log scale to see the thin tail.'),
+      nucX: (f) => `Model: bounces here are ${f} times more common than in the 1909 experiment, so a few show up in 1000 shots.`,
+      plate: ['A giant volley', (b, n) => `${b} of ${n} bounced back.`, 'The model is set to the 1909 rate: about 1 particle in 8000. Fire again: the count changes a little each time, because chance decides.'],
+      aimT: ['Aim it yourself', (b, th) => `Passing at distance ${b}, the particle turns by ${th}°.`, 'Close to the nucleus the push is strong; far away it is weak. Aim almost head-on and the particle turns straight back.'],
+      aimSl: 'Distance from the nucleus', aimEnds: ['close', 'far'], aimPlot: 'Turn angle by distance', aimNuc: 'nucleus', aimDist: 'distance',
+    },
+    sc: {
+      q: 'How big is the nucleus of a gold atom, compared with the whole atom?', of: (x) => `About 1/${x}`,
+      pre: ['One gold atom', 'A cloud of 79 electrons around a nucleus. Sizes here are widths across.', 'Guess the size of the nucleus, then zoom in to find it.'],
+      right: 'Right!', wrong: 'Not quite. Zoom in and see.',
+      whole: 'The whole atom', zooming: 'Zooming in…', nuc: 'The nucleus',
+      lead: (w) => `This picture is ${w} wide.`, body: (r) => `The nucleus is about 1/${r} of the atom across (model: nucleus radius 1.25 fm × A^⅓, atom radius 144 pm).`,
+      stadT: 'Atom = stadium, nucleus = pea', stadLead: (m, mm) => `If the atom were ${m} m across, the nucleus would be about ${mm} mm: a pea.`,
+      stadBody: 'And almost all the mass of the atom sits in that pea.',
+      zoom: 'Zoom', zEnds: ['whole atom', 'much closer'], zoomC: '🔭 Zoom', stadC: '🏟️ Stadium',
+      cloud: 'electron cloud', nucL: 'nucleus', atomL: 'atom', view: 'view', pea: 'pea', peaOf: (mm) => `pea ≈ ${mm} mm`, stadOf: (m) => `atom ≈ ${m} m`, notScale: 'not to scale: magnified',
+      readSub: 'width of the picture', readStad: 'width of a nucleus-pea', readPill: (r) => `1 : ${r} · model`,
+    },
+    bo: {
+      q: 'An electron drops down to level 2. Which jump gives the bluer light?', opt: (a, b) => `${a} → ${b}`, same: 'The same colour',
+      pre: ['Energy levels', 'An electron in an atom can sit only on certain levels, like the rungs of a ladder. It is never in between.', 'When it drops to a lower level, the atom gives off the lost energy as a flash of light: a photon.'],
+      right: 'Right!', wrong: 'Not quite. The colours are on the picture now.',
+      go: ['Now you drive', 'Tap a level or drag the electron to it. Down: a photon leaves. Up: the atom has to swallow one.', 'The more energy a photon carries, the shorter its wavelength and the bluer it looks.'],
+      down: (m, n, cn) => `${m} → ${n}: ${cn}`, up: (m, n) => `${m} → ${n}: a photon goes in`,
+      dLead: (e, l) => `The electron loses ${e} eV. The photon’s wavelength is ${l} nm.`, uLead: (e, l) => `The atom takes in a photon of ${l} nm (${e} eV) and the electron climbs.`,
+      vis2: 'Jumps down to level 2 make the visible lines of hydrogen.', visB: 'Visible light.', invB: 'Our eyes cannot see this light.',
+      found: (k) => `Visible lines found: ${k} of 4`, all: 'All four: a fingerprint of hydrogen.',
+      move: 'Move the electron to level', free: 'free electron', ns: 'levels not to scale', lvl: (n) => `n = ${n}`,
+      specT: 'Visible lines of hydrogen, nm', unk: '?', ptl: (m, n, cn) => `${m} → ${n} · ${cn}`, nm: 'wavelength', pa: 'A', pb: 'B',
+    },
+    secrets: { aim: ['Aim it', 'Choose how close the particle passes the nucleus.'], vol: ['Big volley', 'Fire 16 000 particles in one go.'] },
+    facts: {
+      s1: ['🧪', 'The Geiger–Marsden experiments were run between 1906 and 1913 under Ernest Rutherford. His source of alpha particles was radium.'],
+      s2: ['✨', 'The particles showed up as tiny flashes on a fluorescent zinc sulfide screen.'],
+      s3: ['🥧', 'Thomson’s plum pudding model predicts only very small deflections: about 0.02° from the positive sphere of one gold atom.'],
+      s4: ['🧥', 'Rutherford said it was almost as incredible as firing a 15-inch shell at a piece of tissue paper and having it come back and hit you.'],
+      s5: ['🔢', 'In 1909, with a platinum plate, about 1 alpha particle in 8000 bounced back onto the screen. Heavier metals such as gold reflected more than lighter ones such as aluminium.'],
+      c1: ['🧱', 'A gold foil 1.5 micrometres thick is only about 10 000 atoms thick.'],
+      c2: ['📏', 'A gold atom has an atomic radius of about 144 picometres.'],
+      c3: ['🔬', 'Nuclei are smaller than their atoms by a factor of about 27 000 (uranium) to about 60 000 (hydrogen).'],
+      c4: ['⚖️', 'Almost all of an atom’s mass is in its nucleus; the electron cloud adds very little.'],
+      b1: ['📜', 'Niels Bohr introduced this atom model in 1913. Its key success was explaining the pattern of hydrogen’s spectral lines.'],
+      b2: ['🪜', 'The lowest level of hydrogen (n = 1) holds an electron with about 13.6 eV less energy than a free one.'],
+      b3: ['🌈', 'Measured in air, the four visible hydrogen lines lie at 656.279, 486.135, 434.047 and 410.173 nm; this lab rounds to whole nanometres.'],
+    },
+    quiz: [
+      { q: 'Most alpha particles went straight through the foil. So the atom is…', opts: ['solid, like a ball', 'mostly empty space', 'made of gold dust'], ok: 1, hint: 'Look at the histogram in Shoot.' },
+      { q: 'A few bounced straight back. So…', opts: ['the foil was bent', 'electrons are heavy', 'there is a tiny, heavy, positive nucleus'], ok: 2, hint: 'Compare the two models.' },
+      { q: 'In Bohr’s model an atom gives off light when…', opts: ['the nucleus spins', 'an electron jumps to a lower level', 'the atom heats the foil'], ok: 1, hint: 'Drag the electron in Bohr.' },
+    ],
+  },
+  ru: {
+    name: 'Золотая фольга', title: 'Обстрел золотой фольги',
+    lines: [['Выстрели быстрыми частицами', 'по тонкому листку золота.'], ['Угадай, что покажет экран,', 'а потом проверь.'], ['Загляни внутрь атома', 'и посмотри на свет водорода.']],
+    views: { shoot: '🎯 Залп', scale: '🔭 Размер', bohr: '💡 Бор' },
+    modelW: 'модель', about: 'Около',
+    cn: ['фиолетовый', 'синий', 'зелёный', 'жёлтый', 'оранжевый', 'красный'], uv: 'ультрафиолет (не виден)', ir: 'инфракрасный (не виден)',
+    sh: {
+      pud: 'Пудинг', nuc: 'Ядро', f1: '✦ Выстрел ×1', f1k: '✦ Залп ×1000', log: 'Лог. шкала', clr: '↺ Сбросить',
+      src: 'α-источник', foil: 'золотая фольга', scr: 'экран', atom: 'атом',
+      hist: 'Частицы по углам', histLog: 'Частицы по углам (лог. шкала)', tap: 'Нажми на столбик: вспышки загорятся', wait: 'Сначала сделай предположение',
+      sub: 'отскочили назад (больше 90°)', ofN: (b, n) => `${b} из ${n}`,
+      pill: { pud: 'пудинг · модель', nuc: 'ядро · модель', plate: 'платиновая пластина · модель', aim: 'ядро · модель' },
+      shape: { spike: 'Один высокий пик', hump: 'Широкий холм', flat: 'Ровно: все углы одинаково', tail: 'Пик и тонкий хвост' },
+      axis: 'Угол: 0° — прямо вперёд, 180° — прямо назад',
+      q: { pud: 'Заряд размазан, как в пудинге. Когда 1000 частиц попадут в фольгу, какой формы будет гистограмма?',
+           nuc: 'Гейгер и Марсден считали вспышки под каждым углом. Какой формы была их гистограмма?' },
+      right: 'Верно!', wrong: 'Не совсем.', was: 'Экран показывает:', plateL: 'платиновая пластина',
+      pudAsk: ['Атом-пудинг', 'Положительный заряд размазан по всему атому, а электроны рассыпаны в нём, как изюминки.', 'Альфа-частицы — быстрые положительные частицы из радиоактивных атомов. Выбери гистограмму, которую ждёшь после 1000 частиц, попавших в фольгу; потом опыт запустится.'],
+      nucAsk: ['Атом с ядром', 'Весь положительный заряд собран в крошечной точке в середине, а в остальной части атома только лёгкие электроны.', 'Гейгер и Марсден считали вспышки на экране из сульфида цинка. Выбери гистограмму, которую ждёшь.'],
+      ready: ['Готово к выстрелу', 'Каждая вспышка на экране — одна частица. Каждый столбик считает вспышки в секторе в 10°.', 'Нажми «Залп ×1000».'],
+      pudRes: (n, mx) => ['Только крошечные толчки', `Все ${n} вспышек — в пределах ${mx}° от прямой.`, 'Размазанный заряд толкает слабо везде, поэтому никто не отклоняется далеко. Теперь попробуй модель с ядром.'],
+      nucTitle: (b) => (b > 1 ? 'Кто-то отскочил назад!' : b === 1 ? 'Одна отскочила назад!' : 'Пока все прошли насквозь'),
+      nucLead: (n, pc, b) => `${pc}% из ${n} пролетели в пределах 10° от прямой. Назад (больше 90°) отскочили: ${b}.`,
+      nucBody: (b) => (b > 0 ? 'Почти все летят дальше почти прямо: атом — в основном пустота. Те немногие, что отскочили, наткнулись на что-то крошечное, тяжёлое и положительное: ядро.' : 'Стреляй ещё: отскоки редки. Включи лог. шкалу — увидишь тонкий хвост.'),
+      nucX: (f) => `Модель: отскоки здесь встречаются в ${f} раз чаще, чем в опыте 1909 года, чтобы несколько из них нашлось среди 1000.`,
+      plate: ['Гигантский залп', (b, n) => `Назад отскочили ${b} из ${n}.`, 'Модель настроена на частоту 1909 года: примерно одна частица из 8000. Стреляй ещё: счёт каждый раз немного другой, ведь всё решает случай.'],
+      aimT: ['Выбери прицел', (b, th) => `Пролетая на расстоянии ${b}, частица отклоняется на ${th}°.`, 'Рядом с ядром толчок сильный, вдали — слабый. Целься почти в лоб, и частица отлетит прямо назад.'],
+      aimSl: 'Расстояние до ядра', aimEnds: ['близко', 'далеко'], aimPlot: 'Угол поворота и расстояние', aimNuc: 'ядро', aimDist: 'расстояние',
+    },
+    sc: {
+      q: 'Какого размера ядро атома золота по сравнению со всем атомом?', of: (x) => `Около 1/${x}`,
+      pre: ['Один атом золота', 'Облако из 79 электронов вокруг ядра. Размеры здесь — поперёк.', 'Угадай размер ядра, а потом приблизь картинку и найди его.'],
+      right: 'Верно!', wrong: 'Не совсем. Приблизь и посмотри.',
+      whole: 'Весь атом', zooming: 'Приближаем…', nuc: 'Ядро',
+      lead: (w) => `Ширина картинки — ${w}.`, body: (r) => `Ядро примерно в ${r} раз уже атома (модель: радиус ядра 1,25 фм × A^⅓, радиус атома 144 пм).`,
+      stadT: 'Атом — стадион, ядро — горошина', stadLead: (m, mm) => `Если бы атом был ${m} м в поперечнике, ядро было бы около ${mm} мм: горошина.`,
+      stadBody: 'И почти вся масса атома сосредоточена в этой горошине.',
+      zoom: 'Приближение', zEnds: ['весь атом', 'гораздо ближе'], zoomC: '🔭 Приблизить', stadC: '🏟️ Стадион',
+      cloud: 'электронное облако', nucL: 'ядро', atomL: 'атом', view: 'вид', pea: 'горошина', peaOf: (mm) => `горошина ≈ ${mm} мм`, stadOf: (m) => `атом ≈ ${m} м`, notScale: 'не в масштабе: увеличено',
+      readSub: 'ширина картинки', readStad: 'ширина горошины-ядра', readPill: (r) => `1 : ${r} · модель`,
+    },
+    bo: {
+      q: 'Электрон спускается на уровень 2. Какой прыжок даёт более синий свет?', opt: (a, b) => `${a} → ${b}`, same: 'Один и тот же цвет',
+      pre: ['Уровни энергии', 'Электрон в атоме может находиться только на определённых уровнях, как на ступеньках лестницы. Между ними его не бывает.', 'Когда он спускается на уровень ниже, атом отдаёт потерянную энергию вспышкой света: фотоном.'],
+      right: 'Верно!', wrong: 'Не совсем. Цвета теперь на картинке.',
+      go: ['Теперь ты за главного', 'Нажми на уровень или перетащи на него электрон. Вниз — фотон вылетает. Вверх — атому нужно поглотить фотон.', 'Чем больше энергии у фотона, тем короче его длина волны и тем он синее.'],
+      down: (m, n, cn) => `${m} → ${n}: ${cn}`, up: (m, n) => `${m} → ${n}: фотон поглощён`,
+      dLead: (e, l) => `Электрон теряет ${e} эВ. Длина волны фотона — ${l} нм.`, uLead: (e, l) => `Атом поглощает фотон с длиной волны ${l} нм (${e} эВ), и электрон поднимается.`,
+      vis2: 'Прыжки на уровень 2 дают видимые линии водорода.', visB: 'Видимый свет.', invB: 'Наши глаза не видят такой свет.',
+      found: (k) => `Найдено видимых линий: ${k} из 4`, all: 'Все четыре: отпечаток пальца водорода.',
+      move: 'Переведи электрон на уровень', free: 'свободный электрон', ns: 'уровни не в масштабе', lvl: (n) => `n = ${n}`,
+      specT: 'Видимые линии водорода, нм', unk: '?', ptl: (m, n, cn) => `${m} → ${n} · ${cn}`, nm: 'длина волны', pa: 'А', pb: 'Б',
+    },
+    secrets: { aim: ['Прицелься', 'Выбери, как близко частица пролетит от ядра.'], vol: ['Большой залп', 'Выстрели 16 000 частиц сразу.'] },
+    facts: {
+      s1: ['🧪', 'Опыты Гейгера и Марсдена шли с 1906 по 1913 год под руководством Эрнеста Резерфорда. Источником альфа-частиц у него был радий.'],
+      s2: ['✨', 'Частицы были видны как крошечные вспышки на флуоресцирующем экране из сульфида цинка.'],
+      s3: ['🥧', 'Модель «пудинг с изюмом» Томсона предсказывает совсем малые отклонения: около 0,02° от положительного шара одного атома золота.'],
+      s4: ['🧥', 'Резерфорд сказал, что это почти так же невероятно, как если бы 15-дюймовый снаряд выстрелили в папиросную бумагу, а он вернулся и ударил в тебя.'],
+      s5: ['🔢', 'В 1909 году на платиновой пластине примерно одна альфа-частица из 8000 отскакивала назад на экран. Тяжёлые металлы, такие как золото, отражали больше, чем лёгкие, как алюминий.'],
+      c1: ['🧱', 'Золотая фольга толщиной 1,5 микрометра — это всего около 10 000 атомов в толщину.'],
+      c2: ['📏', 'Атомный радиус золота — около 144 пикометров.'],
+      c3: ['🔬', 'Ядра меньше своих атомов примерно в 27 000 раз (уран) — 60 000 раз (водород).'],
+      c4: ['⚖️', 'Почти вся масса атома находится в ядре; электронное облако добавляет совсем немного.'],
+      b1: ['📜', 'Нильс Бор предложил эту модель атома в 1913 году. Главный её успех — объяснение рисунка спектральных линий водорода.'],
+      b2: ['🪜', 'На самом нижнем уровне водорода (n = 1) у электрона примерно на 13,6 эВ меньше энергии, чем у свободного.'],
+      b3: ['🌈', 'В воздухе четыре видимые линии водорода измерены на 656,279, 486,135, 434,047 и 410,173 нм; здесь всё округлено до целых нанометров.'],
+    },
+    quiz: [
+      { q: 'Большинство альфа-частиц прошло сквозь фольгу прямо. Значит, атом…', opts: ['сплошной, как шарик', 'в основном пустое место', 'сделан из золотой пыли'], ok: 1, hint: 'Посмотри на гистограмму в «Залпе».' },
+      { q: 'Немногие частицы отскочили прямо назад. Значит…', opts: ['фольга была изогнута', 'электроны тяжёлые', 'есть крошечное тяжёлое положительное ядро'], ok: 2, hint: 'Сравни две модели.' },
+      { q: 'В модели Бора атом излучает свет, когда…', opts: ['ядро вращается', 'электрон перепрыгивает на уровень ниже', 'атом нагревает фольгу'], ok: 1, hint: 'Перетащи электрон в «Боре».' },
+    ],
+  },
+  hu: {
+    name: 'Aranyfólia', title: 'Lövöldözés aranyfóliára',
+    lines: [['Lőj gyors részecskékkel', 'egy vékony aranylemezre.'], ['Tippeld meg a képernyő mintázatát,', 'aztán ellenőrizd.'], ['Nézz be az atomba,', 'és nézd meg a hidrogén fényét.']],
+    views: { shoot: '🎯 Lövés', scale: '🔭 Méret', bohr: '💡 Bohr' },
+    modelW: 'modell', about: 'Kb.',
+    cn: ['ibolya', 'kék', 'zöld', 'sárga', 'narancs', 'piros'], uv: 'ultraibolya (láthatatlan)', ir: 'infravörös (láthatatlan)',
+    sh: {
+      pud: 'Puding', nuc: 'Atommag', f1: '✦ Lövés ×1', f1k: '✦ Sorozat ×1000', log: 'Log skála', clr: '↺ Törlés',
+      src: 'α-forrás', foil: 'aranyfólia', scr: 'képernyő', atom: 'egy atom',
+      hist: 'Részecskék szög szerint', histLog: 'Részecskék szög szerint (log skála)', tap: 'Koppints egy oszlopra: felvillannak a villanásai', wait: 'Előbb tippelj',
+      sub: 'visszapattant (90° fölött)', ofN: (b, n) => `${b} / ${n}`,
+      pill: { pud: 'puding · modell', nuc: 'atommag · modell', plate: 'platinalemez · modell', aim: 'atommag · modell' },
+      shape: { spike: 'Egyetlen magas csúcs', hump: 'Széles domb', flat: 'Lapos: minden szög egyforma', tail: 'Csúcs és vékony farok' },
+      axis: 'Szög: 0° egyenesen előre, 180° egyenesen vissza',
+      q: { pud: 'A töltés szétkenődik, mint a pudingban. Ha 1000 részecske éri a fóliát, milyen alakú lesz a hisztogram?',
+           nuc: 'Geiger és Marsden minden szögnél megszámolta a villanásokat. Milyen alakú lett a hisztogramjuk?' },
+      right: 'Így van!', wrong: 'Nem egészen.', was: 'A képernyő ezt mutatja:', plateL: 'platinalemez',
+      pudAsk: ['A pudingatom', 'A pozitív töltés az egész atomban szétoszlik, az elektronok mazsolaként vannak benne.', 'Az alfa-részecskék gyors, pozitív részecskék radioaktív atomokból. Válaszd ki a hisztogramot, amit 1000 részecske becsapódása után vársz; utána lefut a kísérlet.'],
+      nucAsk: ['Az atommagos atom', 'Az egész pozitív töltés egyetlen apró pontban van középen; az atom többi részében csak könnyű elektronok vannak.', 'Geiger és Marsden egy cink-szulfid ernyőn számolta a villanásokat. Válaszd ki a hisztogramot, amit vársz.'],
+      ready: ['Lőhetsz', 'A képernyőn minden villanás egy részecske. Minden oszlop egy 10°-os sáv villanásait számolja.', 'Nyomd meg: Sorozat ×1000.'],
+      pudRes: (n, mx) => ['Csak apró lökések', `Mind a(z) ${n} villanás az egyenestől ${mx}°-on belül van.`, 'A szétkent töltés mindenhol gyengén lök, ezért semmi sem fordul messzire. Most próbáld ki az atommagos modellt.'],
+      nucTitle: (b) => (b > 1 ? 'Néhány visszapattant!' : b === 1 ? 'Egy visszapattant!' : 'Egyelőre mind átment'),
+      nucLead: (n, pc, b) => `A(z) ${n} részecske ${pc}%-a az egyenestől 10°-on belül repült. Visszapattant (90° fölött): ${b}.`,
+      nucBody: (b) => (b > 0 ? 'Szinte mind majdnem egyenesen megy tovább: az atom nagyrészt üres tér. A kevés visszapattanó valami aprót, nehezet és pozitívat talált: az atommagot.' : 'Lőj újra: a visszapattanás ritka. Kapcsold be a log skálát, és látod a vékony farkat.'),
+      nucX: (f) => `Modell: a visszapattanás itt ${f}-szor gyakoribb, mint az 1909-es kísérletben, hogy 1000 közt is akadjon néhány.`,
+      plate: ['Óriás sorozat', (b, n) => `${n}-ből ${b} pattant vissza.`, 'A modell az 1909-es arányra van állítva: nagyjából 8000-ből 1 részecske. Lőj újra: a szám kicsit változik, mert a véletlen dönt.'],
+      aimT: ['Célozz te magad', (b, th) => `${b} távolságban elhaladva a részecske ${th}°-ot fordul.`, 'Az atommag közelében a lökés erős, távol gyenge. Célozz majdnem szemből, és a részecske egyenesen visszafordul.'],
+      aimSl: 'Távolság az atommagtól', aimEnds: ['közel', 'messze'], aimPlot: 'Fordulási szög a távolság szerint', aimNuc: 'atommag', aimDist: 'távolság',
+    },
+    sc: {
+      q: 'Mekkora egy aranyatom atommagja a teljes atomhoz képest?', of: (x) => `Kb. 1/${x}`,
+      pre: ['Egy aranyatom', '79 elektron felhője az atommag körül. A méretek itt átmérők.', 'Tippeld meg az atommag méretét, aztán nagyíts, és keresd meg.'],
+      right: 'Így van!', wrong: 'Nem egészen. Nagyíts, és nézd meg.',
+      whole: 'A teljes atom', zooming: 'Nagyítunk…', nuc: 'Az atommag',
+      lead: (w) => `A kép szélessége ${w}.`, body: (r) => `Az atommag átmérője nagyjából ${r}-szer kisebb az atoménál (modell: az atommag sugara 1,25 fm × A^⅓, az atom sugara 144 pm).`,
+      stadT: 'Az atom a stadion, az atommag a borsószem', stadLead: (m, mm) => `Ha az atom ${m} m széles volna, az atommag nagyjából ${mm} mm lenne: egy borsószem.`,
+      stadBody: 'És az atom tömegének szinte egésze ebben a borsószemben van.',
+      zoom: 'Nagyítás', zEnds: ['teljes atom', 'sokkal közelebb'], zoomC: '🔭 Nagyítás', stadC: '🏟️ Stadion',
+      cloud: 'elektronfelhő', nucL: 'atommag', atomL: 'atom', view: 'kép', pea: 'borsó', peaOf: (mm) => `borsó ≈ ${mm} mm`, stadOf: (m) => `atom ≈ ${m} m`, notScale: 'nem méretarányos: nagyítva',
+      readSub: 'a kép szélessége', readStad: 'az atommag-borsó szélessége', readPill: (r) => `1 : ${r} · modell`,
+    },
+    bo: {
+      q: 'Egy elektron a 2. szintre ugrik le. Melyik ugrás ad kékebb fényt?', opt: (a, b) => `${a} → ${b}`, same: 'Ugyanolyan színt',
+      pre: ['Energiaszintek', 'Az atomban az elektron csak bizonyos szinteken lehet, mint a létra fokain. A fokok között soha.', 'Amikor egy alacsonyabb szintre ugrik, az atom az elvesztett energiát fényvillanásként adja le: ez a foton.'],
+      right: 'Így van!', wrong: 'Nem egészen. A színek most már az ábrán vannak.',
+      go: ['Most te vezetsz', 'Koppints egy szintre, vagy húzd oda az elektront. Lefelé: foton távozik. Felfelé: az atomnak el kell nyelnie egyet.', 'Minél több energiát visz a foton, annál rövidebb a hullámhossza, és annál kékebbnek látszik.'],
+      down: (m, n, cn) => `${m} → ${n}: ${cn}`, up: (m, n) => `${m} → ${n}: a foton elnyelődik`,
+      dLead: (e, l) => `Az elektron ${e} eV-ot veszít. A foton hullámhossza ${l} nm.`, uLead: (e, l) => `Az atom elnyel egy ${l} nm-es (${e} eV) fotont, és az elektron följebb lép.`,
+      vis2: 'A 2. szintre ugrások adják a hidrogén látható vonalait.', visB: 'Látható fény.', invB: 'A szemünk ezt a fényt nem látja.',
+      found: (k) => `Megtalált látható vonalak: ${k} / 4`, all: 'Mind a négy: a hidrogén ujjlenyomata.',
+      move: 'Vidd az elektront a szintre', free: 'szabad elektron', ns: 'a szintek nem méretarányosak', lvl: (n) => `n = ${n}`,
+      specT: 'A hidrogén látható vonalai, nm', unk: '?', ptl: (m, n, cn) => `${m} → ${n} · ${cn}`, nm: 'hullámhossz', pa: 'A', pb: 'B',
+    },
+    secrets: { aim: ['Célozz', 'Válaszd meg, milyen közel megy el a részecske az atommag mellett.'], vol: ['Nagy sorozat', 'Lőj ki egyszerre 16 000 részecskét.'] },
+    facts: {
+      s1: ['🧪', 'A Geiger–Marsden-kísérleteket 1906 és 1913 között végezték Ernest Rutherford vezetésével. Az alfa-részecskéket rádium szolgáltatta.'],
+      s2: ['✨', 'A részecskék apró villanásként látszottak egy fluoreszkáló cink-szulfid ernyőn.'],
+      s3: ['🥧', 'Thomson pudingmodellje csak nagyon kis eltérítést jósol: kb. 0,02°-ot egyetlen aranyatom pozitív gömbjétől.'],
+      s4: ['🧥', 'Rutherford szerint ez majdnem olyan hihetetlen volt, mintha egy 15 hüvelykes lövedéket kilőnél egy darab selyempapírra, és az visszajönne, és eltalálna.'],
+      s5: ['🔢', '1909-ben platinalemezzel kb. 8000 alfa-részecskéből 1 pattant vissza az ernyőre. A nehezebb fémek, például az arany, többet visszavertek, mint a könnyebbek, például az alumínium.'],
+      c1: ['🧱', 'Egy 1,5 mikrométer vastag aranyfólia csupán kb. 10 000 atom vastag.'],
+      c2: ['📏', 'Az arany atomsugara kb. 144 pikométer.'],
+      c3: ['🔬', 'Az atommag átmérője az atoméhoz képest nagyjából 27 000-szer (urán) és 60 000-szer (hidrogén) kisebb.'],
+      c4: ['⚖️', 'Az atom tömegének szinte egésze az atommagban van; az elektronfelhő nagyon keveset ad hozzá.'],
+      b1: ['📜', 'Niels Bohr 1913-ban vezette be ezt az atommodellt. Fő sikere a hidrogén színképvonalainak mintázatának magyarázata volt.'],
+      b2: ['🪜', 'A hidrogén legalsó szintjén (n = 1) az elektron energiája kb. 13,6 eV-tal kisebb, mint a szabad elektroné.'],
+      b3: ['🌈', 'Levegőben mérve a hidrogén négy látható vonala 656,279, 486,135, 434,047 és 410,173 nm-nél van; a labor egész nanométerre kerekít.'],
+    },
+    quiz: [
+      { q: 'Az alfa-részecskék többsége egyenesen átment a fólián. Tehát az atom…', opts: ['tömör, mint egy golyó', 'nagyrészt üres tér', 'aranyporból áll'], ok: 1, hint: 'Nézd a hisztogramot a Lövésnél.' },
+      { q: 'Néhány egyenesen visszapattant. Tehát…', opts: ['a fólia meg volt hajlítva', 'az elektronok nehezek', 'van egy apró, nehéz, pozitív atommag'], ok: 2, hint: 'Hasonlítsd össze a két modellt.' },
+      { q: 'Bohr modelljében az atom fényt ad le, amikor…', opts: ['az atommag forog', 'egy elektron alacsonyabb szintre ugrik', 'az atom felmelegíti a fóliát'], ok: 1, hint: 'Húzd az elektront a Bohrnál.' },
+    ],
+  },
+};
+const TOPICS = [{ id: 'sg_sci_30', en: 'Atomic Models: Rutherford and Bohr', ru: 'Модели атома: Резерфорд и Бор', hu: 'Atommodellek: Rutherford és Bohr' }];
+const SRC = {
+  s1: 'https://en.wikipedia.org/wiki/Geiger–Marsden_experiments', s2: 'https://en.wikipedia.org/wiki/Geiger–Marsden_experiments',
+  s3: 'https://en.wikipedia.org/wiki/Geiger–Marsden_experiments', s4: 'https://en.wikipedia.org/wiki/Ernest_Rutherford',
+  s5: 'https://en.wikipedia.org/wiki/Geiger–Marsden_experiments', c1: 'https://en.wikipedia.org/wiki/Geiger–Marsden_experiments',
+  c2: 'https://en.wikipedia.org/wiki/Gold', c3: 'https://en.wikipedia.org/wiki/Atomic_nucleus', c4: 'https://en.wikipedia.org/wiki/Atomic_nucleus',
+  b1: 'https://en.wikipedia.org/wiki/Bohr_model', b2: 'https://en.wikipedia.org/wiki/Bohr_model', b3: 'https://en.wikipedia.org/wiki/Balmer_series',
+};
+
+// --- physics, all computed here ---------------------------------------------------------------------------
+const PI = Math.PI, rad = (d) => d * PI / 180, deg = (r) => r * 180 / PI;
+const R_INF = 10973731.57;                         // Rydberg constant, 1/m (Wikipedia: Balmer series)
+const E1 = 13.6;                                   // eV, hydrogen level n = 1 (Wikipedia: Bohr model)
+const lamNm = (a, b) => 1e9 / (R_INF * Math.abs(1 / (a * a) - 1 / (b * b)));      // 1/λ = R (1/n² − 1/m²)
+const dEeV = (a, b) => E1 * Math.abs(1 / (a * a) - 1 / (b * b));
+const BALMER = [3, 4, 5, 6];                       // jumps m → 2 that give visible lines
+const A_AU = 197, R0 = 1.25e-15, DN = 2 * R0 * Math.cbrt(A_AU), DA = 2 * 144e-12;   // nucleus and atom diameters, m
+const RATIO = DA / DN, RATIO_R = Math.round(RATIO / 1000) * 1000;                   // about 19 800 → 20 000
+const STADIUM_M = 150, PEA_MM = STADIUM_M * 1000 / RATIO;                             // the atom as a 150 m stadium
+const KB = { nuc: Math.sqrt(1 / 1000), plate: Math.sqrt(1 / 8000) };   // k / B: back-bounce share = (k/B)²; 1/1000 in the model, 1/8000 in the plate secret
+const BOOST = Math.round(8000 * KB.nuc * KB.nuc);        // how much rarer the 1909 rate is than the model's
+const NB = 18;                                           // histogram bins of 10°
+const BAND_COL = Array.from({ length: NB }, (_, b) => `hsl(${(200 - b * 13 + 360) % 360} 85% 62%)`);
+const gauss = () => Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * PI * Math.random());
+const sampleDeg = (mode, u) => mode === 'pud' ? Math.min(6, Math.abs(gauss()) * 0.7)
+  : deg(2 * Math.atan(KB[mode] / Math.sqrt(Math.max(1e-9, u))));                    // tan(θ/2) = k/b, b = B·√u
+const wl2rgb = (l) => {
+  let r = 0, g = 0, b = 0;
+  if (l < 440) { r = (440 - l) / 60; b = 1; } else if (l < 490) { g = (l - 440) / 50; b = 1; } else if (l < 510) { g = 1; b = (510 - l) / 20; }
+  else if (l < 580) { r = (l - 510) / 70; g = 1; } else if (l < 645) { r = 1; g = (645 - l) / 65; } else r = 1;
+  const f = l < 420 ? 0.5 + 0.5 * (l - 380) / 40 : l > 700 ? 0.5 + 0.5 * (750 - l) / 50 : 1;
+  const c = (x) => Math.round(255 * Math.pow(Math.max(0, x) * f, 0.8));
+  return [c(r), c(g), c(b)];
+};
+const isVis = (l) => l >= 380 && l <= 750;
+const wlTxt = (l) => `rgb(${wl2rgb(l).map((v) => Math.round(v + (255 - v) * 0.5)).join(',')})`;   // lighter, for text on the dark panel
+const cname = (t, l) => l < 380 ? t.uv : l > 750 ? t.ir : t.cn[l < 455 ? 0 : l < 492 ? 1 : l < 577 ? 2 : l < 597 ? 3 : l < 622 ? 4 : 5];
+
+const LOC = { en: 'en-US', ru: 'ru-RU', hu: 'hu-HU' };
+const nf = (x, d = 0) => new Intl.NumberFormat(LOC[lang], { minimumFractionDigits: d, maximumFractionDigits: d }).format(x);
+const sig2 = (x) => { const r = +x.toPrecision(2); return nf(r, r < 10 ? 1 : 0); };
+const lenTxt = (m) => { const a = Math.abs(m); const [u, f] = a >= 1e-9 ? ['nm', 1e-9] : a >= 1e-12 ? ['pm', 1e-12] : ['fm', 1e-15]; return `${sig2(m / f)} ${u}`; };
+const mkD = () => ({ hist: new Array(NB).fill(0), N: 0, back: 0, max: 0, dots: [], big: [] });
+
+// --- state: everything is declared before shell() ---------------------------------------------------------
+const W1 = 400, H1 = 456, W2 = 400, H2 = 420, W3 = 400, H3 = 424;       // design boxes of the three pictures
+const XC = 235, YC = 156, RS = 112, X_SRC = 98, LEN0 = XC - X_SRC;       // the rig: foil centre, screen radius, source end
+const K_AIM = 14;
+const S = {
+  mode: 'pud', pred: { pud: null, nuc: null, sc: null, bo: null }, log: false, hl: null, clk: 0,
+  q: [], qi: 0, live: [], D: { pud: mkD(), nuc: mkD(), plate: mkD() }, dirty: false, lastInfo: 0,
+  aimB: 40, aimKey: '', aim: null,
+  z: 0, zAuto: false, stad: false,
+  n: 5, last: null, lit: [false, false, false, false], tgt: null, drag: null, ph: [], er: null,
+};
+let TF = { s: 1, ox: 0, oy: 0 };
+const lab = shell({ key: 'gold-foil', T, topics: TOPICS, views: ['shoot', 'scale', 'bohr'], onLang: () => render(), onView: () => render() });
+const secret = secretLab('gold-foil', () => ({
+  secrets: [{ emo: '🎯', title: T[lang].secrets.aim[0], desc: T[lang].secrets.aim[1] }, { emo: '🚀', title: T[lang].secrets.vol[0], desc: T[lang].secrets.vol[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = '<div id="gS"></div><div id="gC"></div><div id="gB"></div>';
+
+// --- small drawing helpers -------------------------------------------------------------------------------
+const FONT = (w, s) => `${w} ${s}px Nunito, ui-sans-serif, system-ui, sans-serif`;
+function rr(c, x, y, w, h, r) { r = Math.max(0, Math.min(r, w / 2, h / 2)); c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
+function pill(c, text, x, y, align = 'center', col = '#EDEFF7', W = 400) {
+  c.font = FONT(800, 15); const w = c.measureText(text).width + 16;
+  let x0 = align === 'center' ? x - w / 2 : align === 'left' ? x : x - w; x0 = clamp(x0, 3, W - 3 - w);
+  c.fillStyle = 'rgba(8,10,18,.8)'; rr(c, x0, y - 12, w, 24, 12); c.fill();
+  c.strokeStyle = 'rgba(130,145,190,.35)'; c.lineWidth = 1; c.stroke();
+  c.fillStyle = col; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(text, x0 + 8, y + 0.5);
+}
+function txt(c, s, x, y, align = 'left', col = '#98A0B8', size = 14, w = 700) { c.font = FONT(w, size); c.fillStyle = col; c.textAlign = align; c.textBaseline = 'middle'; c.fillText(s, x, y); }
+function panel(c, x, y, w, h) {
+  const g = c.createLinearGradient(0, y, 0, y + h); g.addColorStop(0, '#111a30'); g.addColorStop(1, '#070a14');
+  c.fillStyle = g; rr(c, x, y, w, h, 18); c.fill(); c.strokeStyle = 'rgba(130,145,190,.28)'; c.lineWidth = 1; c.stroke();
+}
+function ball(c, x, y, r, col, hi = '#fff') { // lit sphere, light from the top left
+  r = Math.max(0, r); const g = c.createRadialGradient(x - r * 0.35, y - r * 0.4, r * 0.1, x, y, r);
+  g.addColorStop(0, hi); g.addColorStop(0.25, col); g.addColorStop(1, 'rgba(10,12,24,.9)');
+  c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, 2 * PI); c.fill();
+}
+function glow(c, x, y, r, rgb, a) { r = Math.max(0.1, r); const g = c.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(${rgb},${a})`); g.addColorStop(1, `rgba(${rgb},0)`); c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, 2 * PI); c.fill(); }
+const frame = (w, h, W, H) => { const s = Math.min(w / W, h / H); TF = { s, ox: (w - W * s) / 2, oy: (h - H * s) / 2 }; return TF; };
+const toDesign = (ev) => { const r = $('cv').getBoundingClientRect(); return [(ev.clientX - r.left - TF.ox) / TF.s, (ev.clientY - r.top - TF.oy) / TF.s]; };
+const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+const needAsk = () => (lab.view === 'shoot' && ((S.mode === 'pud' && S.pred.pud === null) || (S.mode === 'nuc' && S.pred.nuc === null)))
+  || (lab.view === 'scale' && S.pred.sc === null) || (lab.view === 'bohr' && S.pred.bo === null);
+
+// --- the shots: sampled, queued, flown, landed -----------------------------------------------------------
+const LIFE = 0.5, LIFE1 = 0.95;
+function fire(n) {
+  const m = S.mode, D = S.D[m]; if (!D) return;
+  const strat = n > 1 && m !== 'plate'; // a model volley is stratified so it has its fair share of rare ones; the 1909 plate is left to chance
+  const us = Array.from({ length: n }, (_, i) => (strat ? (i + Math.random()) / n : Math.random()));
+  for (let i = n - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [us[i], us[j]] = [us[j], us[i]]; }
+  const dur = n === 1 ? 0 : n <= 1000 ? 1.6 : 3.2, stride = Math.max(1, Math.ceil(n / 700)), add = [];
+  us.forEach((u, i) => {
+    const th = rad(sampleDeg(m, u)), ph = Math.random() * 2 * PI;     // scattering angle and a random azimuth; the screen is seen from above
+    const al = Math.atan2(Math.sin(th) * Math.cos(ph), Math.cos(th)), d = Math.abs(deg(al));   // |α| > 90° exactly when θ > 90°
+    add.push({ m, d, sg: al < 0 ? -1 : 1, t0: S.clk + 0.03 + (i / n) * dur, life: n === 1 ? LIFE1 : LIFE, show: i % stride === 0 || d > 20, j: Math.random() * 2 - 1 });
+  });
+  S.q = S.q.slice(S.qi).concat(add).sort((a, b) => a.t0 - b.t0); S.qi = 0;
+  n === 1 ? sfx.tick() : sfx.snap();
+}
+function land(s) {
+  const D = S.D[s.m], b = Math.min(NB - 1, Math.floor(s.d / 10));
+  D.hist[b]++; D.N++; D.max = Math.max(D.max, s.d); if (s.d > 90) D.back++;
+  const dot = { d: s.d, sg: s.sg, j: s.j, born: S.clk, b };
+  D.dots.push(dot); if (D.dots.length > 2200) D.dots.shift();
+  if (s.d > 45) D.big.push(dot);
+  S.dirty = true; if (s.d > 90) sfx.push();
+}
+function stepShots(dt) {
+  S.clk += dt;
+  while (S.qi < S.q.length && S.q[S.qi].t0 <= S.clk) S.live.push(S.q[S.qi++]);
+  if (S.qi >= S.q.length && S.q.length) { S.q = []; S.qi = 0; }
+  let any = false;
+  for (const s of S.live) if (S.clk - s.t0 >= s.life) { land(s); s.done = true; any = true; }
+  if (any) S.live = S.live.filter((s) => !s.done);
+}
+const clearMode = (m) => { S.D[m] = mkD(); S.q = S.q.slice(S.qi).filter((s) => s.m !== m); S.qi = 0; S.live = S.live.filter((s) => s.m !== m); S.hl = null; };
+const hasShots = (m) => S.D[m].N > 0 || S.q.some((s) => s.m === m) || S.live.some((s) => s.m === m);
+
+// --- aim secret: Coulomb push integrated on the spot ------------------------------------------------------
+function aimPath(b) {
+  const k = K_AIM, r0 = Math.hypot(200, b), v0 = Math.sqrt(Math.max(0.2, 1 - 2 * k / r0));
+  let x = -200, y = -b / v0, vx = v0, vy = 0; const pts = [[x, y]];
+  for (let i = 0; i < 4000; i++) {
+    const r = Math.hypot(x, y), dt = Math.min(6, 0.03 * r);
+    const ax = k * x / (r * r * r), ay = k * y / (r * r * r);
+    x += vx * dt + 0.5 * ax * dt * dt; y += vy * dt + 0.5 * ay * dt * dt;
+    const r2 = Math.hypot(x, y), ax2 = k * x / (r2 * r2 * r2), ay2 = k * y / (r2 * r2 * r2);
+    vx += 0.5 * (ax + ax2) * dt; vy += 0.5 * (ay + ay2) * dt; pts.push([x, y]);
+    if (r2 > 215 && x * vx + y * vy > 0) break;
+  }
+  const cum = [0]; for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  return { pts, cum, len: cum[cum.length - 1] };
+}
+const aimTheta = (b) => deg(2 * Math.atan(K_AIM / b));
+
+// --- Bohr: levels, jumps, photons -------------------------------------------------------------------------
+const AX = 118, AY = 188, RO = [16, 38, 58, 76, 94, 110];                // atom picture: centre and the six orbit radii
+const LY = (n) => 316 - 50 * (n - 1);                                    // ladder: evenly spaced for tapping; the energies are printed
+const NM2X = (l) => 20 + (clamp(l, 380, 750) - 380) / 370 * 360;
+function jump(n) {
+  if (n === S.n || S.pred.bo === null) return;
+  const m = S.n; S.n = n; S.last = { m, n, l: lamNm(m, n), e: dEeV(m, n), up: n > m };
+  S.er = { from: RO[m - 1], to: RO[n - 1], t: S.clk };
+  S.ph.push({ t0: S.clk, l: S.last.l, up: n > m, m, n });
+  if (n < m && n === 2 && m >= 3 && m <= 6) { const i = m - 3; if (!S.lit[i]) { S.lit[i] = true; sfx.good(); } else sfx.snap(); } else sfx.click();
+  render();
+}
+function wave(c, x0, y0, x1, y1, lamPx, col, amp, dashed) {
+  const L = Math.hypot(x1 - x0, y1 - y0), ux = (x1 - x0) / L, uy = (y1 - y0) / L, nx = -uy, ny = ux;
+  c.beginPath();
+  for (let i = 0; i <= 60; i++) { const s = i / 60 * L, env = Math.sin(PI * i / 60), o = Math.sin(s / lamPx * 2 * PI) * amp * env; const x = x0 + ux * s + nx * o, y = y0 + uy * s + ny * o; i ? c.lineTo(x, y) : c.moveTo(x, y); }
+  c.strokeStyle = col; c.lineWidth = 2.6; c.lineCap = 'round'; if (dashed) c.setLineDash([4, 4]); c.stroke(); c.setLineDash([]);
+}
+
+// --- views: draw ------------------------------------------------------------------------------------------
+function drawShoot(c, w, h, dt) {
+  const { s, ox, oy } = frame(w, h, W1, H1); c.save(); c.translate(ox, oy); c.scale(s, s);
+  stepShots(dt);
+  const m = S.mode, t = T[lang].sh, asking = needAsk();
+  panel(c, 6, 4, 388, 296); panel(c, 6, 306, 388, 146);
+  if (m === 'aim') { drawAim(c); drawAimPlot(c); c.restore(); return; }
+  const D = S.D[m];
+  // screen ring: 18 coloured bands each side, the same colours as the histogram bars
+  c.lineCap = 'butt';
+  for (const sg of [1, -1]) for (let b = 0; b < NB; b++) {
+    const a0 = -sg * rad(b * 10), a1 = -sg * rad(Math.min(b * 10 + 10, b === NB - 1 ? 174 : 180));
+    c.beginPath(); c.arc(XC, YC, RS, Math.min(a0, a1), Math.max(a0, a1));
+    c.strokeStyle = BAND_COL[b]; c.globalAlpha = S.hl === null ? 0.3 : S.hl === b ? 0.95 : 0.1; c.lineWidth = S.hl === b ? 10 : 7; c.stroke();
+  }
+  c.globalAlpha = 1;
+  c.beginPath(); c.arc(XC, YC, RS - 6, 0, 2 * PI); c.strokeStyle = 'rgba(130,145,190,.12)'; c.lineWidth = 1; c.stroke();
+  // source: lead block with a slit
+  let g = c.createLinearGradient(0, YC - 19, 0, YC + 19); g.addColorStop(0, '#5b6585'); g.addColorStop(1, '#232a42');
+  c.fillStyle = g; rr(c, 16, YC - 19, 84, 38, 8); c.fill(); c.strokeStyle = '#8a95b8'; c.lineWidth = 1; c.stroke();
+  c.fillStyle = '#070a14'; rr(c, 88, YC - 4, 14, 8, 3); c.fill();
+  glow(c, 44, YC, 18, '120,255,170', 0.5); ball(c, 44, YC, 6, '#7dffb0', '#eafff3');
+  // beam and foil
+  g = c.createLinearGradient(X_SRC, 0, XC, 0); g.addColorStop(0, 'rgba(160,215,255,.5)'); g.addColorStop(1, 'rgba(160,215,255,.08)');
+  c.strokeStyle = g; c.lineWidth = 2; c.beginPath(); c.moveTo(X_SRC, YC); c.lineTo(XC, YC); c.stroke();
+  c.save(); c.shadowColor = 'rgba(0,0,0,.6)'; c.shadowBlur = 10; c.shadowOffsetX = 4;
+  g = c.createLinearGradient(XC - 4, 0, XC + 4, 0); g.addColorStop(0, '#fff0b3'); g.addColorStop(0.5, '#d9a634'); g.addColorStop(1, '#7a5510');
+  c.fillStyle = g; rr(c, XC - 4, YC - 50, 8, 100, 3); c.fill(); c.restore();
+  // flashes on the screen
+  const dots = D.dots, now = S.clk;
+  for (const d of dots) {
+    const a = rad(d.d) * d.sg, hit = S.hl !== null && d.b === S.hl, age = now - d.born;
+    c.globalAlpha = S.hl === null ? Math.min(1, 0.3 + 0.7 * Math.exp(-age / 2)) : hit ? 1 : 0.1;
+    c.fillStyle = BAND_COL[d.b]; c.beginPath(); c.arc(XC + (RS + d.j * 3) * Math.cos(a), YC - (RS + d.j * 3) * Math.sin(a), d.d > 45 ? 3.4 : 2.1, 0, 2 * PI); c.fill();
+    if (age < 0.3) { c.globalAlpha = (1 - age / 0.3) * 0.6; c.beginPath(); c.arc(XC + RS * Math.cos(a), YC - RS * Math.sin(a), 9 + age * 12, 0, 2 * PI); c.fill(); }
+  }
+  c.globalAlpha = 1;
+  for (const d of D.big) { // rare big-angle flashes stay lit even when the dot buffer has moved on
+    if (dots.includes(d)) continue; const a = rad(d.d) * d.sg;
+    c.fillStyle = BAND_COL[d.b]; c.beginPath(); c.arc(XC + RS * Math.cos(a), YC - RS * Math.sin(a), 3.4, 0, 2 * PI); c.fill();
+  }
+  // particles in flight
+  c.lineCap = 'round';
+  for (const p of S.live) {
+    if (!p.show) continue;
+    const a = rad(p.d) * p.sg, at = (q) => (q < LEN0 ? [X_SRC + q, YC] : [XC + (q - LEN0) * Math.cos(a), YC - (q - LEN0) * Math.sin(a)]);
+    const q = (S.clk - p.t0) / p.life * (LEN0 + RS), q0 = Math.max(0, q - 16), Hd = at(q), Tl = at(q0);
+    c.strokeStyle = 'rgba(205,230,255,.95)'; c.lineWidth = 2; c.beginPath(); c.moveTo(Tl[0], Tl[1]);
+    if (q0 < LEN0 && q > LEN0) c.lineTo(XC, YC); c.lineTo(Hd[0], Hd[1]); c.stroke();
+  }
+  // atom model bubble (what each model assumes)
+  c.save(); c.beginPath(); c.arc(58, 56, 36, 0, 2 * PI); c.clip();
+  if (m === 'pud') {
+    g = c.createRadialGradient(46, 42, 4, 58, 56, 40); g.addColorStop(0, '#ffb79e'); g.addColorStop(1, '#a8484a'); c.fillStyle = g; c.fillRect(18, 16, 80, 80);
+    [[44, 46], [70, 44], [52, 66], [76, 68], [38, 68], [62, 56], [58, 38]].forEach(([x, y]) => ball(c, x, y, 3.6, '#4f8cff', '#cfe0ff'));
+  } else {
+    c.fillStyle = 'rgba(14,20,40,.85)'; c.fillRect(18, 16, 80, 80); glow(c, 58, 56, 36, '110,160,255', 0.3);
+    glow(c, 58, 56, 10, '255,107,94', 0.5); ball(c, 58, 56, 4.2, '#ff6b5e', '#ffd9d2');
+    [[30, 38], [88, 48], [44, 84], [80, 80]].forEach(([x, y]) => ball(c, x, y, 3.2, '#4f8cff', '#cfe0ff'));
+  }
+  c.restore(); c.beginPath(); c.arc(58, 56, 36, 0, 2 * PI); c.strokeStyle = 'rgba(237,239,247,.55)'; c.lineWidth = 1.5; c.stroke();
+  pill(c, t.atom, 58, 104, 'center');
+  txt(c, t.src, 58, YC + 36, 'center', '#98A0B8', 14); txt(c, m === 'plate' ? t.plateL : t.foil, XC, YC + 66, 'center', '#f0cf6a', 14);
+  pill(c, t.scr, XC + RS * 0.72, YC + RS * 0.72 + 16, 'center', '#cfd6ec');
+  // histogram: the second picture of the same shots
+  const X0 = 36, X1 = 392, BW = (X1 - X0) / NB, BASE = 412, HMAX = 70;
+  txt(c, S.log ? t.histLog : t.hist, X1, 324, 'right', '#cfd6ec', 14, 800);
+  c.strokeStyle = 'rgba(130,145,190,.5)'; c.lineWidth = 1; c.beginPath(); c.moveTo(X0 - 4, BASE + 0.5); c.lineTo(X1 + 2, BASE + 0.5); c.stroke();
+  txt(c, '0°', X0, BASE + 15, 'left'); txt(c, '90°', X0 + 9 * BW, BASE + 15, 'center'); txt(c, '180°', X1, BASE + 15, 'right');
+  if (asking) txt(c, t.wait, (X0 + X1) / 2, BASE - 34, 'center', '#98A0B8', 15, 700);
+  else {
+    const mx = Math.max(1, ...D.hist), sc = (v) => (S.log ? Math.log10(1 + v) / Math.log10(1 + mx) : v / mx) * HMAX;
+    if (S.log) [10, 100, 1000, 10000].filter((v) => v < mx).forEach((v) => { const y = BASE - sc(v); c.strokeStyle = 'rgba(130,145,190,.25)'; c.setLineDash([3, 4]); c.beginPath(); c.moveTo(X0, y); c.lineTo(X1, y); c.stroke(); c.setLineDash([]); txt(c, nf(v), X1, y - 8, 'right', '#98A0B8', 14, 700); });
+    D.hist.forEach((v, b) => {
+      const bh = v > 0 ? Math.max(2.5, sc(v)) : 0, x = X0 + b * BW + 1.5;
+      c.globalAlpha = S.hl === null || S.hl === b ? 1 : 0.35;
+      if (bh) { const gg = c.createLinearGradient(0, BASE - bh, 0, BASE); gg.addColorStop(0, BAND_COL[b]); gg.addColorStop(1, 'rgba(10,12,24,.55)'); c.fillStyle = gg; rr(c, x, BASE - bh, BW - 3, bh, 3); c.fill(); }
+      if (S.hl === b) { c.strokeStyle = '#fff'; c.lineWidth = 1.5; rr(c, x - 1, BASE - Math.max(bh, 4) - 1, BW - 1, Math.max(bh, 4) + 1, 3); c.stroke(); }
+    });
+    c.globalAlpha = 1;
+    if (D.N > 0) { const tb = D.hist.indexOf(mx); txt(c, nf(mx), X0 + tb * BW + BW / 2 - 1, BASE - sc(mx) - 10, tb === 0 ? 'left' : 'center', '#fff', 14, 800); txt(c, t.tap, (X0 + X1) / 2, H1 - 14, 'center', '#98A0B8', 14, 700); }
+  }
+  c.restore();
+}
+function drawAim(c) {
+  const t = T[lang].sh, key = String(S.aimB);
+  if (S.aimKey !== key) { S.aimKey = key; S.aim = aimPath(S.aimB); S.aim.t0 = S.clk; }
+  const A = S.aim, b = S.aimB;
+  c.save(); rr(c, 6, 4, 388, 296, 18); c.clip();
+  glow(c, XC, YC, 70, '255,107,94', 0.2);
+  c.setLineDash([4, 6]); c.strokeStyle = 'rgba(200,210,235,.35)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(14, YC - b); c.lineTo(386, YC - b); c.stroke(); c.setLineDash([]);
+  const head = ((S.clk - A.t0) * 230) % (A.len + 120), upto = Math.min(head, A.len);
+  c.strokeStyle = 'rgba(190,225,255,.95)'; c.lineWidth = 2.4; c.lineCap = 'round'; c.beginPath();
+  let hx = XC + A.pts[0][0], hy = YC + A.pts[0][1];
+  for (let i = 0; i < A.pts.length && A.cum[i] <= upto; i++) { hx = XC + A.pts[i][0]; hy = YC + A.pts[i][1]; i ? c.lineTo(hx, hy) : c.moveTo(hx, hy); }
+  c.stroke(); if (head <= A.len) { glow(c, hx, hy, 12, '190,225,255', 0.7); ball(c, hx, hy, 4.5, '#cfe6ff', '#fff'); }
+  ball(c, XC, YC, 9, '#ff6b5e', '#ffd9d2'); txt(c, '+', XC, YC + 0.5, 'center', '#fff', 14, 900);
+  c.strokeStyle = 'rgba(237,239,247,.5)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(150, YC); c.lineTo(150, YC - b); c.stroke();
+  c.restore();
+  pill(c, t.aimDist, 150, YC - b / 2 + (b < 30 ? 24 : 0), 'center', '#cfd6ec'); pill(c, t.aimNuc, XC, YC + 30, 'center', '#ffb3aa');
+}
+function drawAimPlot(c) {
+  const t = T[lang].sh, X0 = 52, X1 = 384, Y0 = 412, Y1 = 346, bx = (b) => X0 + (b - 3) / 87 * (X1 - X0), ty = (th) => Y0 - th / 180 * (Y0 - Y1);
+  txt(c, t.aimPlot, X1, 324, 'right', '#cfd6ec', 14, 800);
+  c.strokeStyle = 'rgba(130,145,190,.5)'; c.lineWidth = 1; c.beginPath(); c.moveTo(X0, Y1 - 4); c.lineTo(X0, Y0); c.lineTo(X1 + 4, Y0); c.stroke();
+  txt(c, '180°', X0 - 6, Y1, 'right', '#98A0B8', 14); txt(c, '0°', X0 - 6, Y0, 'right', '#98A0B8', 14);
+  c.beginPath(); for (let b = 3; b <= 90; b += 1.5) { const x = bx(b), y = ty(aimTheta(b)); b === 3 ? c.moveTo(x, y) : c.lineTo(x, y); }
+  c.strokeStyle = '#7ab3ff'; c.lineWidth = 2.4; c.stroke();
+  const x = bx(S.aimB), y = ty(aimTheta(S.aimB)); c.strokeStyle = 'rgba(237,239,247,.35)'; c.setLineDash([3, 4]); c.beginPath(); c.moveTo(x, Y0); c.lineTo(x, y); c.lineTo(X0, y); c.stroke(); c.setLineDash([]);
+  glow(c, x, y, 12, '255,220,120', 0.6); ball(c, x, y, 5.5, '#ffd66b', '#fff');
+  txt(c, t.aimDist + ' →', X1, Y0 + 15, 'right', '#98A0B8', 14);
+}
+
+function drawScale(c, w, h, dt) {
+  const { s, ox, oy } = frame(w, h, W2, H2); c.save(); c.translate(ox, oy); c.scale(s, s);
+  const t = T[lang], k = t.sc, asked = S.pred.sc !== null;
+  if (S.zAuto) { S.z = Math.min(1, S.z + dt / 7); if (S.z >= 1) S.zAuto = false; S.dirty = true; }
+  panel(c, 6, 4, 388, 328);
+  c.save(); rr(c, 6, 4, 388, 328, 18); c.clip();
+  if (asked && S.stad) drawStadium(c, t); else drawZoom(c, t, asked);
+  c.restore();
+  if (asked) drawRuler(c, t);
+  c.restore();
+}
+const WMAX = 4.6e-10, WMIN = 4.0e-14;
+const viewW = () => WMAX * Math.pow(WMIN / WMAX, S.z);
+function drawZoom(c, t, asked) {
+  const cx = 200, cy = 168, Wv = asked ? viewW() : WMAX, P = 380 / Wv, Ra = DA / 2 * P, rn = DN / 2 * P;
+  let g = c.createRadialGradient(cx, cy, 0, cx, cy, Math.max(1, Ra));
+  g.addColorStop(0, 'rgba(120,170,255,.12)'); g.addColorStop(0.6, 'rgba(110,160,255,.30)'); g.addColorStop(0.9, 'rgba(100,150,250,.22)'); g.addColorStop(1, 'rgba(100,150,250,0)');
+  c.fillStyle = g; c.fillRect(6, 4, 388, 328);
+  if (Ra < 420) { c.beginPath(); c.arc(cx, cy, Ra, 0, 2 * PI); c.setLineDash([3, 6]); c.strokeStyle = 'rgba(160,200,255,.4)'; c.lineWidth = 1.2; c.stroke(); c.setLineDash([]); }
+  for (let i = 0; i < 7; i++) { // electrons whirling in the cloud
+    const a = S.clk * (0.9 + i * 0.13) + i * 2.1, r = Ra * (0.45 + 0.5 * ((i * 37) % 10) / 10), x = cx + r * Math.cos(a), y = cy + r * Math.sin(a) * 0.8;
+    if (Math.abs(x - cx) < 200 && Math.abs(y - cy) < 170) { glow(c, x, y, 9, '110,170,255', 0.5); ball(c, x, y, 3.4, '#6fa8ff', '#e0ecff'); }
+  }
+  if (!asked) { glow(c, cx, cy, 26, '255,214,107', 0.35); txt(c, '?', cx, cy + 1, 'center', '#ffe39a', 40, 900); pill(c, t.sc.cloud, cx, cy - Ra * 0.8 - 4, 'center', '#cfe0ff'); return; }
+  if (rn < 3) {
+    const p = 1 + 0.25 * Math.sin(S.clk * 3); glow(c, cx, cy, 8 + 3 * p, '255,214,107', 0.6); c.fillStyle = '#ff6b5e'; c.beginPath(); c.arc(cx, cy, 1.7, 0, 2 * PI); c.fill();
+    c.beginPath(); c.arc(cx, cy, 12 * p + 4, 0, 2 * PI); c.strokeStyle = 'rgba(255,214,107,.6)'; c.lineWidth = 1.4; c.stroke();
+    pill(c, t.sc.nucL, cx, cy - 34, 'center', '#ffd66b');
+  } else {
+    glow(c, cx, cy, rn * 1.8, '255,107,94', 0.35);
+    const n = 70, rb = Math.max(1.5, rn * 0.17);
+    for (let i = 0; i < n; i++) { const rr_ = rn * 0.82 * Math.sqrt((i + 0.5) / n), a = i * 2.39996, pr = i % 2 === 0; ball(c, cx + rr_ * Math.cos(a), cy + rr_ * Math.sin(a), rb, pr ? '#ff7a6d' : '#9fb0d0', pr ? '#ffe1dc' : '#f2f6ff'); }
+    pill(c, t.sc.nucL, cx, cy - rn - 18, 'center', '#ffb3aa');
+  }
+  // scale bar
+  const target = 110 / P, e = Math.floor(Math.log10(target)), base = Math.pow(10, e), pick = [5, 2, 1].map((f) => f * base).find((v) => v <= target * 1.25) ?? base, L = pick * P;
+  c.strokeStyle = '#fff'; c.lineWidth = 2.5; c.beginPath(); c.moveTo(22, 310); c.lineTo(22 + L, 310); c.moveTo(22, 304); c.lineTo(22, 316); c.moveTo(22 + L, 304); c.lineTo(22 + L, 316); c.stroke();
+  const u = pick >= 1e-9 ? ['nm', 1e-9] : pick >= 1e-12 ? ['pm', 1e-12] : ['fm', 1e-15];
+  txt(c, `${nf(pick / u[1])} ${u[0]}`, 22 + L + 10, 310, 'left', '#fff', 14, 800);
+}
+function drawStadium(c, t) {
+  const cx = 200, cy = 160;
+  let g = c.createRadialGradient(cx - 40, cy - 50, 20, cx, cy, 190); g.addColorStop(0, '#5a6a96'); g.addColorStop(1, '#1d2440');
+  c.fillStyle = g; c.beginPath(); c.ellipse(cx, cy, 182, 124, 0, 0, 2 * PI); c.fill(); c.strokeStyle = '#8a95b8'; c.lineWidth = 1.5; c.stroke();
+  for (let i = 1; i <= 4; i++) { c.beginPath(); c.ellipse(cx, cy, 182 - i * 8, 124 - i * 5.5, 0, 0, 2 * PI); c.strokeStyle = `rgba(20,26,50,${0.35 + i * 0.05})`; c.lineWidth = 2; c.stroke(); }
+  g = c.createLinearGradient(0, cy - 90, 0, cy + 90); g.addColorStop(0, '#3fae63'); g.addColorStop(1, '#217c45');
+  c.fillStyle = g; c.beginPath(); c.ellipse(cx, cy, 138, 84, 0, 0, 2 * PI); c.fill();
+  c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(cx, cy - 84); c.lineTo(cx, cy + 84); c.stroke(); c.beginPath(); c.arc(cx, cy, 24, 0, 2 * PI); c.stroke();
+  c.fillStyle = '#fff'; c.beginPath(); c.arc(cx, cy, 1.6, 0, 2 * PI); c.fill();
+  // magnifier: the pea is far too small to draw at this scale
+  c.strokeStyle = 'rgba(255,255,255,.6)'; c.setLineDash([3, 4]); c.beginPath(); c.moveTo(cx + 2, cy - 2); c.lineTo(cx + 70, cy - 52); c.stroke(); c.setLineDash([]);
+  glow(c, cx + 96, cy - 66, 44, '160,255,190', 0.25);
+  c.fillStyle = 'rgba(8,10,18,.75)'; c.beginPath(); c.arc(cx + 96, cy - 66, 32, 0, 2 * PI); c.fill(); c.strokeStyle = '#fff'; c.lineWidth = 2; c.stroke();
+  ball(c, cx + 96, cy - 66, 14, '#8fd16a', '#eaffd9');
+  pill(c, t.sc.peaOf(sig2(PEA_MM)), cx + 70, cy - 112 + 2, 'center', '#c8f5a8'); pill(c, t.sc.stadOf(nf(STADIUM_M)), cx - 70, cy + 110, 'center', '#cfd6ec');
+  txt(c, t.sc.notScale, 14, 318, 'left', '#98A0B8', 14, 700);
+}
+function drawRuler(c, t) {
+  const X0 = 30, DEC = 70, lx = (m) => X0 + (Math.log10(m) + 14) * DEC, Y = 380;
+  c.strokeStyle = 'rgba(130,145,190,.6)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(X0, Y); c.lineTo(X0 + 5 * DEC, Y); c.stroke();
+  ['10 fm', '100 fm', '1 pm', '10 pm', '100 pm', '1 nm'].forEach((s, i) => { const x = X0 + i * DEC; c.beginPath(); c.moveTo(x, Y - 4); c.lineTo(x, Y + 4); c.stroke(); txt(c, s, x, Y + 20, 'center', '#98A0B8', 14, 700); });
+  const mk = (m, col, label) => { const x = lx(m); ball(c, x, Y, 5.5, col, '#fff'); txt(c, label, x, Y - 18, x < 80 ? 'left' : 'center', col, 14, 800); };
+  c.save(); const xv = lx(viewW()); c.strokeStyle = '#fff'; c.lineWidth = 2; c.beginPath(); c.moveTo(xv, Y - 9); c.lineTo(xv, Y + 9); c.stroke();
+  c.fillStyle = '#fff'; c.beginPath(); c.moveTo(xv - 5, Y - 14); c.lineTo(xv + 5, Y - 14); c.lineTo(xv, Y - 8); c.fill(); c.restore();
+  txt(c, t.sc.view, xv, Y - 40, 'center', '#fff', 14, 800);
+  mk(DN, '#ff7a6d', t.sc.nucL); mk(DA, '#6fa8ff', t.sc.atomL);
+}
+
+function drawBohr(c, w, h, dt) {
+  const { s, ox, oy } = frame(w, h, W3, H3); c.save(); c.translate(ox, oy); c.scale(s, s);
+  const t = T[lang], b = t.bo, asked = S.pred.bo !== null;
+  panel(c, 6, 4, 388, 346);
+  if (S.er && S.clk - S.er.t > 0.3) S.er = null;
+  // orbits
+  for (let n = 1; n <= 6; n++) {
+    const on = n === S.n, tg = S.tgt === n;
+    c.beginPath(); c.arc(AX, AY, RO[n - 1], 0, 2 * PI); c.strokeStyle = tg ? 'rgba(255,214,107,.95)' : on ? 'rgba(160,200,255,.75)' : 'rgba(130,145,190,.28)'; c.lineWidth = tg || on ? 2 : 1.2; c.setLineDash(on || tg ? [] : [3, 5]); c.stroke(); c.setLineDash([]);
+  }
+  glow(c, AX, AY, 26, '255,107,94', 0.35); ball(c, AX, AY, 7.5, '#ff6b5e', '#ffd9d2'); txt(c, '+', AX, AY + 0.5, 'center', '#fff', 14, 900);
+  // electron
+  let er = RO[S.n - 1]; if (S.er) { const p = ease(clamp((S.clk - S.er.t) / 0.3, 0, 1)); er = lerp(S.er.from, S.er.to, p); }
+  const ang = S.clk * 2.4 / Math.pow(S.n, 1.5) - 0.8, ex = AX + er * Math.cos(ang), ey = AY + er * Math.sin(ang);
+  glow(c, ex, ey, 16, '110,170,255', 0.7); ball(c, ex, ey, 6.5, '#6fa8ff', '#e8f1ff');
+  if (S.drag && asked) { // ghost electron under the finger
+    c.globalAlpha = 0.55; ball(c, S.drag[0], S.drag[1], 6, '#ffd66b', '#fff'); c.globalAlpha = 1;
+  }
+  // ladder
+  const LX0 = 292, LX1 = 388;
+  txt(c, b.ns, 386, 340, 'right', '#98A0B8', 14, 700);
+  c.setLineDash([3, 5]); c.strokeStyle = 'rgba(130,145,190,.4)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(LX0, 30); c.lineTo(LX1, 30); c.stroke(); c.setLineDash([]);
+  txt(c, `E = 0 · ${b.free}`, 386, 16, 'right', '#98A0B8', 14, 700);
+  for (let n = 1; n <= 6; n++) {
+    const y = LY(n), on = n === S.n, tg = S.tgt === n;
+    c.strokeStyle = tg ? '#ffd66b' : on ? '#9fc4ff' : 'rgba(210,218,240,.55)'; c.lineWidth = tg || on ? 3.2 : 2; c.beginPath(); c.moveTo(LX0, y); c.lineTo(LX1, y); c.stroke();
+    txt(c, b.lvl(n), 252, y, 'left', on ? '#fff' : '#98A0B8', 14, 800);
+    txt(c, `${nf(-E1 / (n * n), 2)} eV`, LX0 + 2, y - 12, 'left', '#98A0B8', 14, 700);
+    if (on) { glow(c, 336, y, 14, '110,170,255', 0.6); ball(c, 336, y - 1, 5.5, '#6fa8ff', '#e8f1ff'); }
+  }
+  // the pre-answer jumps A and B, white; coloured once answered
+  {
+    [[3, 2, 'pa', 364], [5, 2, 'pb', 380]].forEach(([m, n, key, x]) => {
+      const l = lamNm(m, n), col = asked ? `rgb(${wl2rgb(l)})` : '#ffffff';
+      c.strokeStyle = col; c.lineWidth = 3; c.beginPath(); c.moveTo(x, LY(m) + 3); c.lineTo(x, LY(n) - 8); c.stroke();
+      c.fillStyle = col; c.beginPath(); c.moveTo(x - 6, LY(n) - 10); c.lineTo(x + 6, LY(n) - 10); c.lineTo(x, LY(n) + 1); c.fill();
+      txt(c, b[key], x, (LY(m) + LY(n)) / 2, 'center', asked ? wlTxt(l) : col, 15, 900);
+    });
+  }
+  // photons
+  S.ph = S.ph.filter((p) => S.clk - p.t0 < 1.7);
+  for (const p of S.ph) {
+    const u = (S.clk - p.t0) / 1.7, vis = isVis(p.l), col = vis ? `rgb(${wl2rgb(p.l)})` : 'rgba(210,218,240,.8)', lam = clamp(p.l / 50, 4, 24);
+    const x0 = AX - 20, y0 = AY - 22, x1 = 30, y1 = 36, q = p.up ? 1 - ease(u) : ease(u), hx = lerp(x0, x1, q), hy = lerp(y0, y1, q);
+    const tx = hx + (p.up ? -1 : 1) * 56 * (x0 - x1) / Math.hypot(x0 - x1, y0 - y1), ty = hy + (p.up ? -1 : 1) * 56 * (y0 - y1) / Math.hypot(x0 - x1, y0 - y1);
+    c.globalAlpha = Math.min(1, (1 - u) * 3.5, u * 6 + 0.2); if (vis) glow(c, hx, hy, 22, wl2rgb(p.l).join(','), 0.5);
+    wave(c, tx, ty, hx, hy, lam, col, 6, !vis); c.globalAlpha = 1;
+    if (u < 0.9) pill(c, `${nf(p.l)} nm`, clamp(hx, 46, 354), clamp(hy - 22, 20, 340), 'center', vis ? wlTxt(p.l) : col);
+  }
+  // spectrum bar
+  txt(c, b.specT, 20, 363, 'left', '#cfd6ec', 14, 800);
+  const g = c.createLinearGradient(20, 0, 380, 0); for (let l = 380; l <= 750; l += 10) { const [r, gg, bb] = wl2rgb(l); g.addColorStop((l - 380) / 370, `rgba(${r},${gg},${bb},.5)`); }
+  c.fillStyle = '#05070e'; rr(c, 20, 372, 360, 24, 6); c.fill(); c.save(); rr(c, 20, 372, 360, 24, 6); c.clip(); c.fillStyle = g; c.globalAlpha = asked ? 0.3 : 0.08; c.fillRect(20, 372, 360, 24); c.restore();
+  c.strokeStyle = 'rgba(130,145,190,.35)'; c.lineWidth = 1; rr(c, 20, 372, 360, 24, 6); c.stroke();
+  if (!asked) txt(c, b.unk, 200, 385, 'center', '#98A0B8', 18, 900);
+  else BALMER.forEach((m, i) => {
+    const l = lamNm(m, 2), x = NM2X(l), col = `rgb(${wl2rgb(l)})`;
+    if (S.lit[i]) { c.save(); c.shadowColor = col; c.shadowBlur = 10; c.strokeStyle = col; c.lineWidth = 3; c.beginPath(); c.moveTo(x, 373); c.lineTo(x, 395); c.stroke(); c.restore(); }
+    else { c.strokeStyle = 'rgba(237,239,247,.5)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x, 390); c.lineTo(x, 396); c.stroke(); }
+    txt(c, nf(l), i === 0 ? x - 4 : i === 1 ? x + 4 : x, 412, i === 0 ? 'right' : i === 1 ? 'left' : 'center', S.lit[i] ? wlTxt(l) : '#98A0B8', 14, 800);
+  });
+  c.restore();
+}
+
+// --- controls ---------------------------------------------------------------------------------------------
+const shapeSvg = (k) => {
+  const H = { spike: [38, 2, 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0], hump: [38, 34, 26, 18, 11, 6, 3, 1, 0.5, 0, 0, 0], flat: Array(12).fill(20), tail: [38, 5, 3.4, 2.6, 2.1, 1.8, 1.5, 1.3, 1.2, 1.1, 1, 1] }[k];
+  return `<svg viewBox="0 0 80 44" aria-hidden="true">${H.map((v, i) => `<rect x="${3 + i * 6.3}" y="${42 - Math.max(v, 0.8)}" width="5" height="${Math.max(v, 0.8)}" rx="1.2" fill="hsl(${200 - i * 18} 80% 64%)"/>`).join('')}<path d="M2 42.5H78" stroke="#8a95b8" stroke-width="1"/></svg>`;
+};
+const askBlock = (q, opts) => `<div class="gf-ask"><p class="q">${esc(q)}</p>
+  <div class="gf-opts" style="${opts.length === 3 && opts[0].svg ? '' : 'grid-template-columns:1fr'}">${opts.map((o, i) => `<button class="gf-opt" data-a="${i}">${o.svg ?? ''}<span>${esc(o.label)}</span></button>`).join('')}</div></div>`;
+
+function render(rebuild = true) {
+  const v = lab.view, t = T[lang];
+  document.body.dataset.v = v;
+  $('gS').style.display = v === 'shoot' ? '' : 'none'; $('gC').style.display = v === 'scale' ? '' : 'none'; $('gB').style.display = v === 'bohr' ? '' : 'none';
+  if (rebuild || !$('gS').innerHTML) { if (v === 'shoot') ctrlShoot(t); else if (v === 'scale') ctrlScale(t); else ctrlBohr(t); }
+  renderInfo();
+}
+function ctrlShoot(t) {
+  const m = S.mode, open = secret.unlocked(), P = S.pred, k = t.sh;
+  const chip = (id, label, on) => `<button class="chip${on ? ' on' : ''}" data-act="mode" data-k="${id}">${label}</button>`;
+  const sec = (id, emo) => `<button class="chip secret ${open ? 'open' : ''}${m === id ? ' on' : ''}" data-act="mode" data-k="${id}">${open ? `${emo} ${esc(t.secrets[id === 'aim' ? 'aim' : 'vol'][0])}` : '🔒 ???'}</button>`;
+  let ask = '', fireRow = '';
+  const key = m === 'pud' ? 'pud' : m === 'nuc' ? 'nuc' : null;
+  if (key && P[key] === null) {
+    const order = key === 'pud' ? ['hump', 'spike', 'flat'] : ['spike', 'hump', 'tail'];
+    ask = askBlock(k.q[key], order.map((s) => ({ svg: shapeSvg(s), label: k.shape[s] })));
+    ask += `<p class="gf-note">${esc(k.axis)}</p>`;
+  } else {
+    if (key) ask = `<div class="gf-v ${P[key + 'Ok'] ? 'ok' : 'bad'}">${esc(P[key + 'Ok'] ? k.right : `${k.wrong} ${k.was} ${k.shape[key === 'pud' ? 'spike' : 'tail']}`)}</div>`;
+    if (m === 'aim') fireRow = `<div class="gf-sl"><div class="lbl">${esc(k.aimSl)}</div><input class="big" type="range" id="aimR" min="3" max="90" step="1" value="${S.aimB}" aria-label="${esc(k.aimSl)}"><div class="ends"><span>${esc(k.aimEnds[0])}</span><span>${esc(k.aimEnds[1])}</span></div></div>`;
+    else fireRow = `<div class="row2"><button class="btn" data-act="f1">${esc(k.f1)}</button><button class="btn" data-act="f1k">${esc(m === 'plate' ? `✦ ×${nf(16000)}` : k.f1k)}</button>
+      <button class="chip${S.log ? ' on' : ''}" data-act="log">${esc(k.log)}</button><button class="chip" data-act="clr">${esc(k.clr)}</button></div>`;
+  }
+  $('gS').innerHTML = `<div class="chips">${chip('pud', esc(k.pud), m === 'pud')}${chip('nuc', esc(k.nuc), m === 'nuc')}${sec('aim', '🎯')}${sec('plate', '🚀')}</div><div style="margin-top:12px">${ask}${fireRow}</div>`;
+}
+function ctrlScale(t) {
+  const k = t.sc;
+  if (S.pred.sc === null) {
+    $('gC').innerHTML = `<div class="gf-ask"><p class="q">${esc(k.q)}</p><div class="gf-opts" style="grid-template-columns:1fr">${[`1/100`, `1/2`, `1/${nf(RATIO_R)}`].map((x, i) => `<button class="gf-opt" data-a="${i}"><span style="font-size:15px">${esc(`${k.of(x.slice(2))}`)}</span></button>`).join('')}</div></div>`;
+    return;
+  }
+  $('gC').innerHTML = `<div class="gf-v ${S.pred.scOk ? 'ok' : 'bad'}">${esc(S.pred.scOk ? k.right : k.wrong)}</div>
+    <div class="row2" style="margin-top:0"><button class="chip${S.stad ? '' : ' on'}" data-act="zm">${esc(k.zoomC)}</button><button class="chip${S.stad ? ' on' : ''}" data-act="stad">${esc(k.stadC)}</button></div>
+    <div class="gf-sl" id="zSl"${S.stad ? ' hidden' : ''}><div class="lbl">${esc(k.zoom)}</div><input class="big" type="range" id="zR" min="0" max="1000" step="1" value="${Math.round(S.z * 1000)}" aria-label="${esc(k.zoom)}"><div class="ends"><span>${esc(k.zEnds[0])}</span><span>${esc(k.zEnds[1])}</span></div></div>`;
+}
+function ctrlBohr(t) {
+  const b = t.bo;
+  if (S.pred.bo === null) {
+    $('gB').innerHTML = `<div class="gf-ask"><p class="q">${esc(b.q)}</p><div class="gf-opts" style="grid-template-columns:1fr">${[`${b.pa}: ${b.opt(3, 2)}`, `${b.pb}: ${b.opt(5, 2)}`, b.same].map((x, i) => `<button class="gf-opt" data-a="${i}"><span style="font-size:15px">${esc(x)}</span></button>`).join('')}</div></div>`;
+    return;
+  }
+  $('gB').innerHTML = `<div class="gf-v ${S.pred.boOk ? 'ok' : 'bad'}">${esc(S.pred.boOk ? b.right : b.wrong)}</div>
+    <div class="lbl" style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);font-weight:700">${esc(b.move)}</div>
+    <div class="gf-lv">${[1, 2, 3, 4, 5, 6].map((n) => `<button class="chip${S.n === n ? ' on' : ''}" data-act="lv" data-n="${n}">${n}</button>`).join('')}</div>`;
+}
+const showStage = () => { const r = $('stage').getBoundingClientRect(); if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+
+$('ctrlBody').addEventListener('click', (ev) => {
+  const a = ev.target.closest('[data-a]');
+  if (a && !a.disabled) { answer(+a.dataset.a); return; }
+  const b = ev.target.closest('[data-act]'); if (!b) return;
+  const act = b.dataset.act;
+  if (act === 'mode') {
+    const k = b.dataset.k;
+    if ((k === 'aim' || k === 'plate') && !secret.unlocked()) return secret.open();
+    S.mode = k; S.hl = null; sfx.click();
+    if (k === 'aim') S.aimKey = '';
+  } else if (act === 'f1') fire(1);
+  else if (act === 'f1k') fire(S.mode === 'plate' ? 16000 : 1000);
+  else if (act === 'log') { S.log = !S.log; sfx.tick(); }
+  else if (act === 'clr') { clearMode(S.mode); sfx.click(); }
+  else if (act === 'zm') { S.stad = false; sfx.click(); }
+  else if (act === 'stad') { S.stad = true; S.zAuto = false; sfx.click(); }
+  else if (act === 'lv') { jump(+b.dataset.n); return; }
+  render();
+});
+$('ctrlBody').addEventListener('input', (ev) => {
+  if (ev.target.id === 'aimR') { S.aimB = +ev.target.value; renderInfo(); }
+  else if (ev.target.id === 'zR') { S.z = +ev.target.value / 1000; S.zAuto = false; skipFacts = true; renderInfo(); skipFacts = false; }
+});
+function answer(i) {
+  const v = lab.view;
+  if (v === 'shoot') {
+    const key = S.mode === 'pud' ? 'pud' : 'nuc', ok = (key === 'pud' ? 1 : 2) === i;
+    S.pred[key] = i; S.pred[key + 'Ok'] = ok; ok ? sfx.good() : sfx.bad(); fire(1000); showStage();
+  } else if (v === 'scale') {
+    const ok = i === 2; S.pred.sc = i; S.pred.scOk = ok; ok ? sfx.good() : sfx.bad(); S.z = 0; S.zAuto = true; S.stad = false; showStage();
+  } else {
+    const ok = i === 1; S.pred.bo = i; S.pred.boOk = ok; ok ? sfx.good() : sfx.bad(); showStage();
+  }
+  render();
+}
+// the histogram is tapped to light up its flashes; in Bohr the electron is dragged or a level is tapped
+const cv = $('cv');
+cv.addEventListener('pointerdown', (ev) => {
+  const [x, y] = toDesign(ev);
+  if (lab.view === 'shoot' && S.mode !== 'aim' && y > 312 && y < 452 && x > 30 && x < 396) {
+    const b = clamp(Math.floor((x - 36) / ((392 - 36) / NB)), 0, NB - 1); S.hl = S.hl === b ? null : b; sfx.tick(); S.dirty = true;
+  } else if (lab.view === 'shoot') S.hl = null;
+  else if (lab.view === 'bohr' && S.pred.bo !== null) { cv.setPointerCapture?.(ev.pointerId); S.drag = [x, y]; S.tgt = levelAt(x, y); }
+});
+cv.addEventListener('pointermove', (ev) => { if (S.drag) { const [x, y] = toDesign(ev); S.drag = [x, y]; S.tgt = levelAt(x, y); } });
+const endDrag = (ev) => { if (!S.drag) return; const n = S.tgt; S.drag = null; S.tgt = null; if (n && ev.type === 'pointerup') jump(n); };
+cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
+function levelAt(x, y) {
+  if (y > 350 || y < 6) return null;
+  if (x < 240) { const d = Math.hypot(x - AX, y - AY); let best = 1; RO.forEach((r, i) => { if (Math.abs(d - r) < Math.abs(d - RO[best - 1])) best = i + 1; }); return best; }
+  let best = 1; for (let n = 1; n <= 6; n++) if (Math.abs(y - LY(n)) < Math.abs(y - LY(best))) best = n; return best;
+}
+
+// --- readout, state card, facts ---------------------------------------------------------------------------
+let skipFacts = false;
+function facts(keys) { if (skipFacts) return; const t = T[lang]; lab.setFacts(keys.slice(-3).map((k) => ({ emo: t.facts[k][0], text: t.facts[k][1], src: SRC[k] }))); }
+function renderInfo() {
+  const v = lab.view, t = T[lang];
+  if (v === 'shoot') infoShoot(t); else if (v === 'scale') infoScale(t); else infoBohr(t);
+  lab.checkStage();
+}
+function infoShoot(t) {
+  const k = t.sh, m = S.mode, P = S.pred, D = S.D[m];
+  lab.setGlow('rgba(240, 190, 80, .22)');
+  const fl = ['s1', 's2']; if (P.pud !== null) fl.push('s3'); if (P.nuc !== null) fl.push('s4', 's5'); facts(fl);
+  if (m === 'aim') {
+    const th = aimTheta(S.aimB), st = k.aimT;
+    lab.setReadout(`${nf(th, 0)}°`, `${k.aimSl}: ${nf(S.aimB)}`, k.pill.aim, '#f0be50');
+    lab.setState({ emo: '🎯', title: st[0], lead: st[1](nf(S.aimB), nf(th, 0)), body: st[2] }); return;
+  }
+  const asking = needAsk(), pill = k.pill[m];
+  if (asking) {
+    lab.setReadout('?', '', pill, '#f0be50'); const a = m === 'pud' ? k.pudAsk : k.nucAsk;
+    lab.setState({ emo: '🤔', title: a[0], lead: a[1], body: a[2] }); return;
+  }
+  lab.setReadout(k.ofN(nf(D.back), nf(D.N)), k.sub, pill, '#f0be50');
+  if (m === 'plate') { lab.setState({ emo: '🧪', title: k.plate[0], lead: k.plate[1](nf(D.back), nf(D.N)), body: k.plate[2] }); return; }
+  if (!hasShots(m)) { lab.setState({ emo: '🎯', title: k.ready[0], lead: k.ready[1], body: k.ready[2] }); return; }
+  if (m === 'pud') { lab.setState({ emo: '🥧', title: k.pudRes(nf(D.N), nf(D.max, 1))[0], lead: k.pudRes(nf(D.N), nf(D.max, 1))[1], body: k.pudRes(nf(D.N), nf(D.max, 1))[2] }); return; }
+  const near = D.N ? Math.round(100 * D.hist[0] / D.N) : 0;
+  lab.setState({ emo: D.back > 0 ? '🎯' : '➡️', title: k.nucTitle(D.back), lead: k.nucLead(nf(D.N), nf(near), nf(D.back)), body: k.nucBody(D.back), extra: `<div>${esc(k.nucX(nf(BOOST)))}</div>` });
+}
+function infoScale(t) {
+  const k = t.sc, asked = S.pred.sc !== null;
+  lab.setGlow('rgba(110, 160, 255, .24)');
+  if (!asked) {
+    lab.setReadout('?', '', '', '#6fa8ff'); facts(['c1', 'c2']);
+    lab.setState({ emo: '🔭', title: k.pre[0], lead: k.pre[1], body: k.pre[2] }); return;
+  }
+  facts(['c1', 'c2', 'c3', 'c4']);
+  if (S.stad) {
+    lab.setReadout(`≈ ${sig2(PEA_MM)} mm`, k.readStad, k.readPill(nf(RATIO_R)), '#6fa8ff');
+    lab.setState({ emo: '🏟️', title: k.stadT, lead: k.stadLead(nf(STADIUM_M), sig2(PEA_MM)), body: k.stadBody }); return;
+  }
+  lab.setReadout(lenTxt(viewW()), k.readSub, k.readPill(nf(RATIO_R)), '#6fa8ff');
+  lab.setState({ emo: S.z < 0.15 ? '⚛️' : S.z < 0.85 ? '🔭' : '🔴', title: S.z < 0.15 ? k.whole : S.z < 0.85 ? k.zooming : k.nuc, lead: k.lead(lenTxt(viewW())), body: k.body(nf(RATIO_R)) });
+  const zr = $('zR'); if (zr && document.activeElement !== zr) zr.value = Math.round(S.z * 1000);
+}
+function infoBohr(t) {
+  const b = t.bo, asked = S.pred.bo !== null; lab.setGlow('rgba(150, 120, 255, .26)');
+  if (!asked) {
+    lab.setReadout('?', '', '', '#9a8cff'); facts(['b1', 'b2']);
+    lab.setState({ emo: '🤔', title: b.pre[0], lead: b.pre[1], body: b.pre[2] }); return;
+  }
+  facts(['b1', 'b2', 'b3']);
+  const found = S.lit.filter(Boolean).length, extra = `<div>${esc(b.found(found))}${found === 4 ? ` ${esc(b.all)}` : ''}</div>`, L = S.last;
+  if (!L) {
+    const lb = lamNm(5, 2), la = lamNm(3, 2);
+    lab.setReadout(`${nf(lb)} nm`, b.nm, `${b.pb}: ${b.opt(5, 2)}`, wlTxt(lb));
+    lab.setState({ emo: '🪜', title: b.go[0], lead: b.go[1], body: b.go[2], extra: `<div>${esc(`${b.pa}: ${b.opt(3, 2)} = ${nf(la)} nm · ${b.pb}: ${b.opt(5, 2)} = ${nf(lb)} nm`)}</div>` + extra }); return;
+  }
+  const cn = cname(t, L.l), col = isVis(L.l) ? wlTxt(L.l) : '#98A0B8';
+  lab.setReadout(`${nf(L.l)} nm`, b.nm, L.up ? b.up(L.m, L.n) : b.ptl(L.m, L.n, cn), col);
+  lab.setState({ emo: L.up ? '⬆️' : isVis(L.l) ? '💡' : '🕶️', title: L.up ? b.up(L.m, L.n) : b.down(L.m, L.n, cn), lead: (L.up ? b.uLead : b.dLead)(nf(L.e, 2), nf(L.l)),
+    body: isVis(L.l) ? (!L.up && L.n === 2 ? b.vis2 : b.visB) : b.invB, extra });
+}
+
+render();
+
+// --- the loop ---------------------------------------------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt) => {
+  S.clk += lab.view === 'shoot' ? 0 : dt; // shoot advances its own clock in stepShots
+  if (lab.view === 'shoot') drawShoot(c, w, h, dt); else if (lab.view === 'scale') drawScale(c, w, h, dt); else drawBohr(c, w, h, dt);
+  if (S.dirty && performance.now() - S.lastInfo > 90) { S.dirty = false; S.lastInfo = performance.now(); skipFacts = true; renderInfo(); skipFacts = false; }
+});
+</script>
+</body>
+</html>
