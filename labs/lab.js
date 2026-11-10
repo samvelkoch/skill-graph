@@ -6,8 +6,12 @@ import './next.js'; // "Where next": labs before and after this one in the graph
 
 export const LANGS = { en: 'EN', ru: 'RU', hu: 'HU' };
 const params = new URLSearchParams(location.search);
-export let lang = LANGS[params.get('lang')] ? params.get('lang') : (navigator.language || '').slice(0, 2);
-if (!LANGS[lang]) lang = 'en';
+const savedLang = () => { try { return JSON.parse(localStorage.getItem('skillgraph.lang')); } catch { return null; } };
+const saveLang = (k) => { try { localStorage.setItem('skillgraph.lang', JSON.stringify(k)); } catch { /* private mode */ } };
+// language order: ?lang=, then the language chosen before on this site, then the browser's languages, then English
+export let lang = [params.get('lang'), savedLang(), ...(navigator.languages?.length ? navigator.languages : [navigator.language])]
+  .map((x) => String(x ?? '').slice(0, 2).toLowerCase()).find((x) => LANGS[x]) || 'en';
+if (LANGS[params.get('lang')]) saveLang(lang);
 
 export const $ = (id) => document.getElementById(id);
 export const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -236,7 +240,7 @@ export function shell(cfg) {
   $('langs').addEventListener('click', (ev) => {
     const k = ev.target.closest('button')?.dataset.lang;
     if (!k || k === lang) return;
-    lang = k;
+    lang = k; saveLang(k);
     const p = new URLSearchParams(location.search); p.set('lang', k); history.replaceState(null, '', `?${p}`);
     renderChrome(); cfg.onLang?.(); checkStageSoon();
   });

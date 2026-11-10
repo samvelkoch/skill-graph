@@ -24,7 +24,7 @@ move, so the items name identifiers in the code to search for.
 |---|---|---|---|
 | F01 | P0 | "My child" does not work without a school programme | open |
 | F02 | P0 | The first tap on "Show the picture" is lost | open |
-| F03 | P0 | The viewer ignores the browser language | open |
+| F03 | P0 | The viewer ignores the browser language | in progress (2026-11-10) |
 | F04 | — | Analytics | won't do |
 | F05 | P1 | The quick check does not ask about the grade's core | open |
 | F06 | P1 | Meta topics as route steps | open |
@@ -75,7 +75,7 @@ move, so the items name identifiers in the code to search for.
 ## F03. The viewer ignores the browser language
 
 - **Priority:** P0
-- **Status:** open
+- **Status:** in progress (2026-11-10)
 - **Problem:** a first visit to the viewer is always in English, even in a Russian or Hungarian browser.
   The labs do detect the language.
 - **Reproduce:** a clean profile with the locale `ru-RU` or `hu-HU`, open the site root without `?lang=`.

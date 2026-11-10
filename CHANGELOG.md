@@ -14,6 +14,9 @@ Counts in brackets are totals after that day.
 
 ## 2026-11-10
 
+### Viewer
+- A first visit opens in the browser's language when it is English, Russian or Hungarian, on the map, the labs, the curricula page and "What's new". The order is `?lang=`, then the language chosen before on the site (now remembered on every page, not only the map), then `navigator.languages`, then English. Backlog F03. (#PRNUM)
+
 ### Project
 - `docs/BACKLOG.md`: a shared work backlog (items F01–F17 from a whole-project review of the viewer, routes, labs and data), with a status per item so that any session or contributor can pick one up; linked from `CLAUDE.md` and `AGENTS.md`. (#436)
 
