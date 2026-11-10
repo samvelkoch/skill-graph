@@ -31,6 +31,7 @@ Counts in brackets are totals after that day.
 
 ### Project
 - `docs/BACKLOG.md`: F01–F03, F05–F08, F10–F12 and F14–F17 done in #437–#444; F13 (facts for older labs) stays open. (#445)
+- `docs/BACKLOG.md`: F13 deferred by the owner; older labs stay without facts for now. (#PRNUM)
 - `docs/BACKLOG.md`: a shared work backlog (items F01–F17 from a whole-project review of the viewer, routes, labs and data), with a status per item so that any session or contributor can pick one up; linked from `CLAUDE.md` and `AGENTS.md`. (#436)
 
 ### Data

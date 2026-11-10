@@ -34,7 +34,7 @@ move, so the items name identifiers in the code to search for.
 | F10 | P1 | Very long lists on a phone | done · #440 |
 | F11 | P2 | The phone header takes a quarter of the screen | done · #443 |
 | F12 | P2 | Different navigation on the viewer and the labs pages | done · #443 |
-| F13 | P2 | 152 older labs have no "Did you know?" facts | open |
+| F13 | P2 | 152 older labs have no "Did you know?" facts | deferred (owner, 2026-11-10: older labs stay without facts for now) |
 | F14 | P2 | Radar axis labels are untranslated and cut off | done · #442 |
 | F15 | P2 | Prerequisites that start at a later age than the topic | done · #444 |
 | F16 | P2 | Curricula differ a lot in detail | done · #442 (the note; deepening curricula waits for the owner) |
@@ -204,7 +204,7 @@ move, so the items name identifiers in the code to search for.
 ## F13. 152 older labs have no "Did you know?" facts
 
 - **Priority:** P2
-- **Status:** open
+- **Status:** deferred (owner, 2026-11-10: older labs stay without facts for now)
 - **Problem:** the project rule is that every lab has checked facts (`lab.setFacts`). 152 labs, mostly
   built before 2026-10-25, do not call it.
 - **Reproduce:** search `labs/*/index.html` for `setFacts`; the list without it starts with `magnets`,
