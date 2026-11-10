@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-10
 
 ### Labs
+- New lab `tally` “Count the Cars”: mark passing cars in bundles of five, race sticks against bundles, and turn the marks into a bar chart (505). (#448)
 - New lab `match-pitch` “Sing the Same Note”: move a bird up a ladder until two notes sound as one, turn separate loudness and pitch knobs, and echo three-note tunes (504). (#447)
 
 ### Viewer
