@@ -32,12 +32,12 @@ move, so the items name identifiers in the code to search for.
 | F08 | P1 | The site says ages 4–16, the data ends at 14 | done · #437 |
 | F09 | — | Lab coverage by subject and age | won't do |
 | F10 | P1 | Very long lists on a phone | done · #440 |
-| F11 | P2 | The phone header takes a quarter of the screen | open |
-| F12 | P2 | Different navigation on the viewer and the labs pages | open |
+| F11 | P2 | The phone header takes a quarter of the screen | in progress (2026-11-10) |
+| F12 | P2 | Different navigation on the viewer and the labs pages | in progress (2026-11-10) |
 | F13 | P2 | 152 older labs have no "Did you know?" facts | open |
-| F14 | P2 | Radar axis labels are untranslated and cut off | in progress (2026-11-10) |
+| F14 | P2 | Radar axis labels are untranslated and cut off | done · #442 |
 | F15 | P2 | Prerequisites that start at a later age than the topic | open |
-| F16 | P2 | Curricula differ a lot in detail | in progress (2026-11-10): the note only |
+| F16 | P2 | Curricula differ a lot in detail | done · #442 (the note; deepening curricula waits for the owner) |
 | F17 | P2 | Small interface fixes | done · #441 |
 
 ---
@@ -181,7 +181,7 @@ move, so the items name identifiers in the code to search for.
 ## F11. The phone header takes a quarter of the screen
 
 - **Priority:** P2
-- **Status:** open
+- **Status:** in progress (2026-11-10)
 - **Problem:** at 390 px the header is 4 rows (brand and buttons, views, languages, search), about 175 px
   of 664.
 - **Reproduce:** any view of the viewer on a phone.
@@ -192,7 +192,7 @@ move, so the items name identifiers in the code to search for.
 ## F12. Different navigation on the viewer and the labs pages
 
 - **Priority:** P2
-- **Status:** open
+- **Status:** in progress (2026-11-10)
 - **Problem:** the viewer has "Graph, Topic list, Routes, My child"; the labs overview has "Graph, Topic
   list, Labs, Curricula". Routes and My child cannot be reached from the labs, and Curricula is not
   visible from the viewer.
@@ -217,7 +217,7 @@ move, so the items name identifiers in the code to search for.
 ## F14. Radar axis labels are untranslated and cut off
 
 - **Priority:** P2
-- **Status:** in progress (2026-11-10)
+- **Status:** done · #442
 - **Problem:** with the Russian interface and a Hungarian programme, the radar axes and the bars are
   labelled in Hungarian and cut off ("Magyar nyelv é…", "Környezetismer…").
 - **Reproduce:** `?lang=ru&view=child`, "Hungary · grade 4", open the picture.
@@ -245,7 +245,7 @@ move, so the items name identifiers in the code to search for.
 ## F16. Curricula differ a lot in detail
 
 - **Priority:** P2
-- **Status:** in progress (2026-11-10): the note only
+- **Status:** done · #442 (the note; deepening curricula waits for the owner)
 - **Problem:** the number of items in `data/school-curricula.json` varies widely: Sweden 93, Finland 97,
   Singapore 114, Estonia 145 against Russia 1,428 and the US 1,452. For the thin ones the radar and "this
   grade's curriculum" are coarse.

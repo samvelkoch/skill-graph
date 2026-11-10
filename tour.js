@@ -81,9 +81,9 @@
     { id: 'labs', target: () => $('labsBtn') },
     { id: 'school', side: true, target: () => { const s = $('sideSchool'); return s && [s.previousElementSibling, s, s.nextElementSibling]; } },
     { id: 'next', side: true, target: () => [$('status'), $('status')?.previousElementSibling] },
-    { id: 'search', target: () => $('search') },
+    { id: 'search', target: () => ($('search').offsetParent || !$('searchBtn') ? $('search') : $('searchBtn')) }, // on a phone the search hides behind its icon
     { id: 'views', target: () => $('views') },
-    { id: 'langs', target: () => $('langs') },
+    { id: 'langs', target: () => ($('langs').offsetParent || !$('langSel') ? $('langs') : $('langSel')) },
     { id: 'end', target: () => $('tourBtn') },
   ];
 
