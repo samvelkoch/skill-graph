@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-10
 
 ### Labs
+- New lab `two-unknowns` “Two Puzzles on the Scales”: balance an apple and a pear in every way and watch the pairs line up on a grid, add a second scale to leave one answer, and solve ticket and chicken-and-rabbit puzzles (518). (#461)
 - New lab `space-station` “A Home in Orbit”: tip a cup of water on a space station and on Earth, guess how astronauts eat, sleep, exercise and wash, and count the sunrises outside the window (517). (#460)
 - New lab `volcano-sleep` “Asleep or Gone?”: open the eruption diaries of three volcanoes and label them, watch a volcano quiet for 500 years show its first signs, and label six real volcanoes (516). (#459)
 - New lab `castle-ages` “One Hill, Many Castles”: rebuild one castle on one hill through the centuries after watching each attack, find the weak spot of each design, and test tall and low walls against cannons (515). (#458)
