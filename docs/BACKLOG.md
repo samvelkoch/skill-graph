@@ -35,10 +35,10 @@ move, so the items name identifiers in the code to search for.
 | F11 | P2 | The phone header takes a quarter of the screen | open |
 | F12 | P2 | Different navigation on the viewer and the labs pages | open |
 | F13 | P2 | 152 older labs have no "Did you know?" facts | open |
-| F14 | P2 | Radar axis labels are untranslated and cut off | open |
+| F14 | P2 | Radar axis labels are untranslated and cut off | in progress (2026-11-10) |
 | F15 | P2 | Prerequisites that start at a later age than the topic | open |
-| F16 | P2 | Curricula differ a lot in detail | open |
-| F17 | P2 | Small interface fixes | in progress (2026-11-10) |
+| F16 | P2 | Curricula differ a lot in detail | in progress (2026-11-10): the note only |
+| F17 | P2 | Small interface fixes | done · #441 |
 
 ---
 
@@ -217,7 +217,7 @@ move, so the items name identifiers in the code to search for.
 ## F14. Radar axis labels are untranslated and cut off
 
 - **Priority:** P2
-- **Status:** open
+- **Status:** in progress (2026-11-10)
 - **Problem:** with the Russian interface and a Hungarian programme, the radar axes and the bars are
   labelled in Hungarian and cut off ("Magyar nyelv é…", "Környezetismer…").
 - **Reproduce:** `?lang=ru&view=child`, "Hungary · grade 4", open the picture.
@@ -245,7 +245,7 @@ move, so the items name identifiers in the code to search for.
 ## F16. Curricula differ a lot in detail
 
 - **Priority:** P2
-- **Status:** open
+- **Status:** in progress (2026-11-10): the note only
 - **Problem:** the number of items in `data/school-curricula.json` varies widely: Sweden 93, Finland 97,
   Singapore 114, Estonia 145 against Russia 1,428 and the US 1,452. For the thin ones the radar and "this
   grade's curriculum" are coarse.
@@ -257,7 +257,7 @@ move, so the items name identifiers in the code to search for.
 ## F17. Small interface fixes
 
 - **Priority:** P2
-- **Status:** in progress (2026-11-10)
+- **Status:** done · #441
 - **To do (one pull request is fine):**
   1. The labs button shows 503, while 499 are available in Russian (4 labs are Hungarian only). Count with
      the `lang` field of `labs/registry.json`.
