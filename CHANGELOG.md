@@ -14,6 +14,9 @@ Counts in brackets are totals after that day.
 
 ## 2026-11-10
 
+### Project
+- `docs/BACKLOG.md`: a shared work backlog (items F01–F17 from a whole-project review of the viewer, routes, labs and data), with a status per item so that any session or contributor can pick one up; linked from `CLAUDE.md` and `AGENTS.md`. (#436)
+
 ### Data
 - Sync with upstream Marble: Ontario Language and Science grades 1–6, Ontario mathematics grades 6–7, India's NCERT catalogue (codes only); 1,861 Marble topics (16 new: English grammar, geometry of solids and views, divisibility rules, ways to pay, bank interest and fees, touch typing, First Nations, Métis and Inuit peoples), 4,003 dependencies. 176 new or changed strings per language translated to RU and HU. Marble's new `data/curriculum-alignments.json`, its `alignments:*` scripts and its `taxonomy-curation` agent skill come along unchanged; the viewer does not use them. (#435)
 - Rules for mapping curricula and adding topics in `CONTRIBUTING.md`, adapted from Marble's curation principles: one topic per skill a child can show, reuse before adding, `core` only for full coverage, a learning reason for each prerequisite, ages 4–16. (#435)
