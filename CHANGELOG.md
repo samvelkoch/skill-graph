@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-10
 
 ### Labs
+- New lab `space-station` “A Home in Orbit”: tip a cup of water on a space station and on Earth, guess how astronauts eat, sleep, exercise and wash, and count the sunrises outside the window (517). (#460)
 - New lab `volcano-sleep` “Asleep or Gone?”: open the eruption diaries of three volcanoes and label them, watch a volcano quiet for 500 years show its first signs, and label six real volcanoes (516). (#459)
 - New lab `castle-ages` “One Hill, Many Castles”: rebuild one castle on one hill through the centuries after watching each attack, find the weak spot of each design, and test tall and low walls against cannons (515). (#458)
 - New lab `folk-tale` “What Is a Tale Made Of?”: find the bricks of a folk tale about three brothers, guess what happens the third time, and build a tale of your own (514). (#457)
