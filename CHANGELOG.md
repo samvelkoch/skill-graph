@@ -15,8 +15,8 @@ Counts in brackets are totals after that day.
 ## 2026-11-10
 
 ### Data
-- Sync with upstream Marble: Ontario Language and Science grades 1–6, Ontario mathematics grades 6–7, India's NCERT catalogue (codes only); 1,861 Marble topics (16 new: English grammar, geometry of solids and views, divisibility rules, ways to pay, bank interest and fees, touch typing, First Nations, Métis and Inuit peoples), 4,003 dependencies. 176 new or changed strings per language translated to RU and HU. Marble's new `data/curriculum-alignments.json`, its `alignments:*` scripts and its `taxonomy-curation` agent skill come along unchanged; the viewer does not use them. (#PR)
-- Rules for mapping curricula and adding topics in `CONTRIBUTING.md`, adapted from Marble's curation principles: one topic per skill a child can show, reuse before adding, `core` only for full coverage, a learning reason for each prerequisite, ages 4–16. (#PR)
+- Sync with upstream Marble: Ontario Language and Science grades 1–6, Ontario mathematics grades 6–7, India's NCERT catalogue (codes only); 1,861 Marble topics (16 new: English grammar, geometry of solids and views, divisibility rules, ways to pay, bank interest and fees, touch typing, First Nations, Métis and Inuit peoples), 4,003 dependencies. 176 new or changed strings per language translated to RU and HU. Marble's new `data/curriculum-alignments.json`, its `alignments:*` scripts and its `taxonomy-curation` agent skill come along unchanged; the viewer does not use them. (#435)
+- Rules for mapping curricula and adding topics in `CONTRIBUTING.md`, adapted from Marble's curation principles: one topic per skill a child can show, reuse before adding, `core` only for full coverage, a learning reason for each prerequisite, ages 4–16. (#435)
 
 ## 2026-11-09
 
@@ -389,7 +389,7 @@ Counts in brackets are totals after that day.
 # Upstream: Marble Skill Taxonomy dataset
 
 Dataset releases are versioned independently of the taxonomy `version` field (the underlying taxonomy is `v1`).
-The entries below come from upstream and were synced into this fork on 2026-10-27 (#192) and 2026-11-10 (#PR).
+The entries below come from upstream and were synced into this fork on 2026-10-27 (#192) and 2026-11-10 (#435).
 
 ## [Unreleased]
 
