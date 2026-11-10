@@ -28,7 +28,7 @@ move, so the items name identifiers in the code to search for.
 | F04 | — | Analytics | won't do |
 | F05 | P1 | The quick check does not ask about the grade's core | in progress (2026-11-10) |
 | F06 | P1 | Meta topics as route steps | open |
-| F07 | P1 | Ontario standards are not visible in the viewer | open |
+| F07 | P1 | Ontario standards are not visible in the viewer | in progress (2026-11-10): the chip only, no school choice (owner's decision) |
 | F08 | P1 | The site says ages 4–16, the data ends at 14 | in progress (2026-11-10): say 4–14 (owner's decision) |
 | F09 | — | Lab coverage by subject and age | won't do |
 | F10 | P1 | Very long lists on a phone | open |
@@ -131,7 +131,7 @@ move, so the items name identifiers in the code to search for.
 ## F07. Ontario standards are not visible in the viewer
 
 - **Priority:** P1
-- **Status:** open
+- **Status:** in progress (2026-11-10): the chip only, no school choice (owner's decision)
 - **Problem:** after the upstream sync `data/topics.json` holds about 3,400 references to Ontario standards
   (`the-ontario-curriculum-*`), but the viewer has no such source. Topics that have only these show as
   "Marble only".
