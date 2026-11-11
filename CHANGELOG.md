@@ -12,6 +12,11 @@ Hungarian is on the site: [What's new](https://samvelkoch.github.io/skill-graph/
 
 Counts in brackets are totals after that day.
 
+## 2026-11-11
+
+### Labs
+- New lab `sound-square` “Singing Square”: play a glowing square with several fingers (up = higher, pressing harder or sliding faster = louder, right = brighter), with a smooth glide or pentatonic notes, a soft reverb and a full-screen mode; let a pen write what you play as a graphic score and play it back; and match hidden tunes to their sound pictures (534). (#PR)
+
 ## 2026-11-10
 
 ### Labs
