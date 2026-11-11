@@ -16,6 +16,7 @@ Counts in brackets are totals after that day.
 
 ### Labs
 - New lab `sound-square` “Singing Square”: play a glowing square with several fingers (up = higher, pressing harder or sliding faster = louder, right = brighter), with a smooth glide or pentatonic notes, a soft reverb and a full-screen mode; let a pen write what you play as a graphic score and play it back; and match hidden tunes to their sound pictures (534). (#477)
+- `sound-square`: finger trails no longer show seams or blots on sharp turns; the second part becomes “Compose”, a loop of up to four layers, each with its own instrument (voice, bells or drums), with an echo on the beat, an “On the beat” snap with a metronome, undo and a full-screen toolbar. (#PR)
 
 ## 2026-11-10
 
