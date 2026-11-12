@@ -14,6 +14,13 @@ Counts in brackets are totals after that day.
 
 ## 2026-11-12
 
+### Viewer
+A calmer screen for a first visit; nothing was removed. (#PRNUM)
+- The filter panel folds into sections with a one-line summary each (“Curricula · all 17”, “Progress · 0 known”). Only “Age and grade” starts open; a summary turns red when that section narrows the list. What you unfold is remembered on the device (`skillgraph.sideSec`).
+- The topic card shows the path once: the “How to get here” button, the progress bar, “Stuck on this?” and “Mark the whole path as known” sit in one block, so the tabs start about a screen higher. The explanations of the path count and of “Stuck on this?” are tooltips now.
+- The labs menu dims the page behind it and has one main button; “Show the topics that have a lab” is a link under it.
+- The view tabs in the top bar no longer wrap onto two lines on narrower desktop windows.
+
 ### Labs
 - New lab `bus-stops` “The Bus Ride”: ride a bus from stop to stop and guess which dashboard numbers will change, watch a birthday table, and see that a number which stays the same on one trip can still change overnight (559). (#484)
 - New lab `polyudie` “Tribute from the Drevlians”: ride with a prince of Kiev on the winter tribute round and see what happens in 945 when Igor asks for more, compare twelve winters of rounds with Olga’s fixed tribute, and settle a quarrel by the Russkaya Pravda (558). (#483)
