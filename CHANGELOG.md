@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-12
 
 ### Labs
+- New lab `bus-stops` “The Bus Ride”: ride a bus from stop to stop and guess which dashboard numbers will change, watch a birthday table, and see that a number which stays the same on one trip can still change overnight (559). (#484)
 - New lab `polyudie` “Tribute from the Drevlians”: ride with a prince of Kiev on the winter tribute round and see what happens in 945 when Igor asks for more, compare twelve winters of rounds with Olga’s fixed tribute, and settle a quarrel by the Russkaya Pravda (558). (#483)
 - New lab `dualism` “Vienna and Budapest”: send the affairs of Austria-Hungary after 1867 to Vienna, Budapest or a common ministry, watch Budapest grow from 1870 to 1910, and follow the Tisza being made shorter while railways spread (557). (#482)
 - New lab `then-now` “When Grandma Was Little”: move a child’s room back to around 1965 and guess which things Grandma had, sort a day into what changed and what stayed, and put old gadgets on a line of years (556). (#481)
