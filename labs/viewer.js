@@ -50,7 +50,7 @@
     #labsBtn .n { font: 800 11px/1 var(--sans); background: var(--red); color: #fff; border-radius: 999px; padding: 3px 6px; }
     #labsMenu { position: fixed; top: 70px; right: 26px; width: min(400px, calc(100vw - 28px)); max-height: calc(100vh - 90px); overflow: auto;
       padding: 16px; z-index: 20; display: none; background: rgba(12, 15, 25, .97); box-shadow: 0 18px 50px rgba(0, 0, 0, .55); }
-    #labsMenu.open { display: block; }
+    #labsMenu.open { display: block; box-shadow: 0 0 0 100vmax rgba(4, 6, 12, .6), 0 24px 60px rgba(0, 0, 0, .5); } /* the page behind steps back while the menu is open */
     #labsMenu h3 { font: 500 24px/1.1 var(--serif); margin: 0 0 4px; color: #fff; }
     #labsMenu .s { color: var(--mut); font-size: 12.5px; margin: 0 0 12px; }
     .labcard { display: flex; gap: 12px; align-items: flex-start; padding: 9px 12px; border-radius: 14px; border: 1px solid var(--stroke);
