@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-12
 
 ### Labs
+- New lab `rock-pool` “When the Sea Goes Out”: let the tide go out over a rocky shore and guess what the anemone, limpet, barnacles and crab will do, send a big wave to see who holds on, and watch who starts eating when the sea comes back (566). (#492)
 - New lab `chain-bridge` “A Bridge over the Danube”: try to cross the Danube between Buda and Pest in winter and build the Chain Bridge, stand at its toll gate and see whether the count pays, and tick the old rules the April Laws of 1848 ended (565). (#491)
 - New lab `cloud-docs` “One File for Everyone”: plan a class trip with three friends by emailing copies and then in one shared document, hand out view, comment and edit rights and test them, and bring back a deleted paragraph from the version history (564). (#490)
 
