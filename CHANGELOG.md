@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-12
 
 ### Labs
+- New lab `from-flat` “From a Flat Sheet”: cut two slits in a card and guess what pops up, fold a floppy sheet into a zigzag, triangle or tube and load it with blocks, and slot two cards together into a standing tree (569). (#495)
 - New lab `alveoli` “A Tree in Your Chest”: branch the airways of a lung level by level and guess how big all the air sacs would be spread flat, thicken the wall of one alveolus and watch oxygen and carbon dioxide cross, and compare lungs with fish gills and emphysema (568). (#494)
 - New lab `tag-fish` “How Many Fish in the Lake?”: tag, release and recatch fish to estimate a lake you cannot count, break the method on purpose and see whether the estimate comes out too big or too small, and count a forest from five random squares (567). (#493)
 - New lab `rock-pool` “When the Sea Goes Out”: let the tide go out over a rocky shore and guess what the anemone, limpet, barnacles and crab will do, send a big wave to see who holds on, and watch who starts eating when the sea comes back (566). (#492)
