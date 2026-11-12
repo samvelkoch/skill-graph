@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-12
 
 ### Labs
+- New lab `creep-crawl` “How Do They Get Around?”: guess how a snail, a worm, a grasshopper and other minibeasts will move before they set off, read their tracks in the mud and race two of them to a leaf (561). (#487)
 - New lab `fossil-clues` “What the Rock Remembers”: find shells on a mountain, whale bones in a desert and plants in Antarctica and guess what the place was like when they lived, match clue fossils to old worlds, and watch a sea floor rise into a mountain (560). (#485)
 - New lab `bus-stops` “The Bus Ride”: ride a bus from stop to stop and guess which dashboard numbers will change, watch a birthday table, and see that a number which stays the same on one trip can still change overnight (559). (#484)
 - New lab `polyudie` “Tribute from the Drevlians”: ride with a prince of Kiev on the winter tribute round and see what happens in 945 when Igor asks for more, compare twelve winters of rounds with Olga’s fixed tribute, and settle a quarrel by the Russkaya Pravda (558). (#483)
