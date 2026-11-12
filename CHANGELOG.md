@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-12
 
 ### Labs
+- New lab `then-now` “When Grandma Was Little”: move a child’s room back to around 1965 and guess which things Grandma had, sort a day into what changed and what stayed, and put old gadgets on a line of years (556). (#481)
 - New lab `scissors-angles` “Open the Scissors”: open a pair of scissors to find the hidden angles at the pivot, fill a fan of angles around a point and work out a crossroads (angles on a line, around a point, vertically opposite; reflex angles) (555). (#480)
 Twenty labs for the areas with the fewest labs (English and literature, personal development, civics and history for ages 12–15).
 - New lab `persuade` “Win Them Over”: build a speech for a later school start and watch five very different listeners react, sort strong reasons from tricks, and find the reason that works for each listener (535). (#479)
