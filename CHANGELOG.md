@@ -22,6 +22,7 @@ A calmer screen for a first visit; nothing was removed. (#486)
 - The view tabs in the top bar no longer wrap onto two lines on narrower desktop windows.
 
 ### Labs
+- New lab `single-cell` “A Life in One Cell”: feed an amoeba in a drop of pond water and watch it engulf food and divide, change the water around its contractile vacuole, and compare its seven jobs of life with a skin cell (563). (#489)
 - New lab `sea-ice` “Ice in the Sea”: drill into sea ice, a glacier and an iceberg and compare their thickness and saltiness, freeze tap water and sea water side by side, and lower an iceberg into the sea (562). (#488)
 - New lab `creep-crawl` “How Do They Get Around?”: guess how a snail, a worm, a grasshopper and other minibeasts will move before they set off, read their tracks in the mud and race two of them to a leaf (561). (#487)
 - New lab `fossil-clues` “What the Rock Remembers”: find shells on a mountain, whale bones in a desert and plants in Antarctica and guess what the place was like when they lived, match clue fossils to old worlds, and watch a sea floor rise into a mountain (560). (#485)
