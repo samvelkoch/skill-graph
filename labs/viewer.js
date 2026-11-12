@@ -65,7 +65,8 @@
     #labsMenu .moreln { display: block; margin: -2px 2px 6px; font-size: 12px; font-weight: 800; color: var(--soft); text-decoration: none; text-align: right; }
     #labsMenu .moreln:hover { color: #fff; }
     #labsAll { width: 100%; justify-content: center; margin-bottom: 8px; text-decoration: none; }
-    #labsShow { width: 100%; justify-content: center; margin-bottom: 4px; white-space: normal; }
+    #labsShow { display: block; margin: 0 auto 4px; padding: 2px 6px; background: none; border: 0; color: var(--mut); font-size: 12.5px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; white-space: normal; }
+    #labsShow:hover { color: var(--ink); background: none; }
     #labsMenu .grp { font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); font-weight: 700; margin: 12px 2px 6px; }
     .labcard .m { display: flex; gap: 8px; align-items: center; margin-top: 6px; font-size: 11px; color: var(--faint); font-weight: 700; }
     #labsMenu .foot { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; font-size: 12px; color: var(--faint); }
