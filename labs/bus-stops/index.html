@@ -1,0 +1,834 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The Bus Ride · Skill Graph</title>
+<meta name="description" content="Ride a bus from stop to stop, guess which counters will change and which will stay the same, then try a birthday table and one more day. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  .bs-ask { margin: 0 0 10px; font-size: 13.5px; line-height: 1.4; color: var(--soft); }
+  .bs-ask b { color: #fff; }
+  .bs-tiles { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  .bs-tile { flex: 0 0 calc(33.333% - 6px); min-width: 92px; min-height: 84px; padding: 8px 4px 7px; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 2px;
+    border-radius: 16px; border: 1.5px solid var(--stroke2); background: rgba(130, 145, 190, .08); color: var(--soft); font-family: var(--sans); cursor: pointer; text-align: center; }
+  .bs-tile:hover:not(:disabled) { background: rgba(130, 145, 190, .18); }
+  .bs-tile:disabled { cursor: default; }
+  .bs-tile .e { font-size: 20px; line-height: 1.1; }
+  .bs-tile .n { font-size: 12px; font-weight: 800; color: var(--mut); }
+  .bs-tile .v { font-size: 17px; font-weight: 900; color: #fff; line-height: 1.2; min-height: 21px; display: flex; align-items: center; }
+  .bs-tile .s { font-size: 11px; font-weight: 800; color: var(--faint); line-height: 1.2; }
+  .bs-tile .w { font-size: 11px; font-weight: 700; color: var(--mut); display: flex; align-items: center; gap: 4px; }
+  .bs-tile.on { background: rgba(245, 200, 76, .16); border-color: var(--wip); }
+  .bs-tile.on .s { color: var(--wip); }
+  .bs-tile.ok { border-color: var(--ok); background: rgba(61, 220, 151, .13); }
+  .bs-tile.ok .s { color: var(--ok); }
+  .bs-tile.miss { border-color: var(--wip); background: rgba(245, 200, 76, .1); }
+  .bs-tile.miss .s { color: var(--wip); }
+  .bs-tile.pulse { animation: bsPulse 1.2s ease-out 1; }
+  @keyframes bsPulse { 0% { box-shadow: 0 0 0 0 rgba(245, 200, 76, .7); } 100% { box-shadow: 0 0 0 12px rgba(245, 200, 76, 0); } }
+  .fb { display: inline-flex; gap: 2px; align-items: flex-end; }
+  .fb i { display: block; width: 6px; height: 14px; border-radius: 2px; background: rgba(130, 145, 190, .3); }
+  .fb i.on { background: linear-gradient(#ffe07a, #e59a12); }
+  .bs-tile .w .fb i { width: 4px; height: 9px; }
+  .bs-chart svg { display: block; width: 100%; height: auto; }
+  .bs-chart { margin: 4px 0 2px; }
+  .fine { font-size: 11.5px; color: var(--faint); }
+  .push { margin-left: auto; }
+  #bsMain:disabled { opacity: .45; cursor: default; }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, ruPlural, lang } from '../lab.js';
+
+// --- numbers shared by data, picture and text ---------------------------------------------------------------
+const SEATS = 20, WHEELS = 6;
+// fuel is kept as 0..8 eighths of a tank
+
+// --- texts -------------------------------------------------------------------------------------------------
+const bv = (mo, id) => mo.tiles.find((x) => x[0] === id).slice(1); // [before, after] of one counter
+const T = {
+  en: {
+    name: 'The Bus Ride', title: 'The Bus Ride',
+    lines: [['Watch the bus', 'roll from stop to stop.'], ['Guess what changes', 'and what stays the same.'], ['Then visit a party', 'and a few more places.']],
+    views: { bus: '🚌 Bus', party: '🎂 Party', next: '🌙 Next day' },
+    c: { seats: 'Seats', wheels: 'Wheels', pass: 'Passengers', fuel: 'Fuel', time: 'Time', plates: 'Plates', chairs: 'Chairs', cake: 'Cake pieces', guests: 'Guests', balloons: 'Balloons', pitch: 'Pitch size', ball: 'Balls in play', score: 'Score', mclock: 'Match clock' },
+    unit: { bus: 'stop', party: 'moment', next: 'moment' },
+    will: '↻ will change', stay: '= stays the same', chg: 'changed', same: 'same', was: 'was',
+    ask: 'Tap every counter that will change. The others stay the same.',
+    go: { bus: '🚌 Drive to the stop', party: '▶ Let it happen', next: '▶ Let it happen' }, run: 'Wait…',
+    nxt: { bus: '→ Next stop', party: '→ Next moment', next: '→ Next' }, again: '↺ Again',
+    right: 'Right!', hits: (k, n) => `${k} of ${n} right.`, chgL: 'Changed', sameL: 'Stayed the same',
+    all: (k, n) => `In all: ${k} of ${n} right.`, pillOf: (k, n) => `✓ ${k}/${n}`,
+    m: {
+      bus: [
+        { t: 'On the way to stop 1', l: 'The bus drives to the stop. Which counters will be different when it gets there?',
+          w: (mo) => { const p = bv(mo, 'pass'); return `People got on and off, so the passengers changed: ${p[0]}, then ${p[1]}. The bus used fuel and time passed. The seats and the wheels are part of the bus, so they stayed the same.`; } },
+        { t: 'On the way to stop 2', l: 'Another stop is coming. Which counters will be different when the bus gets there?',
+          w: (mo) => { const p = bv(mo, 'pass'); return `Some people got off and some got on: ${p[0]}, then ${p[1]}. Fuel and time changed again. The seats and the wheels stayed the same.`; } },
+        { t: 'On the way to stop 3', l: 'The last stop of this trip. Which counters will be different when the bus gets there?',
+          w: (mo) => `The passengers went up and down during the trip, but the bus always had ${bv(mo, 'seats')[1]} seats and ${bv(mo, 'wheels')[1]} wheels. On one trip they stay the same.` },
+      ],
+      party: [
+        { t: 'The guests arrive', l: 'Some more guests walk in. Which counters will be different afterwards?',
+          w: (mo) => { const g = bv(mo, 'guests'); return `More guests came: ${g[0]}, then ${g[1]}. The plates, the chairs, the cake and the balloons stayed the same.`; } },
+        { t: 'Everyone eats cake', l: 'Time for cake. Which counters will be different afterwards?',
+          w: (mo) => { const c = bv(mo, 'cake'); return `The cake pieces got fewer: ${c[0]}, then ${c[1]}. The plates, the chairs, the guests and the balloons stayed the same.`; } },
+        { t: 'A balloon pops', l: 'Somebody pokes a balloon. Which counters will be different afterwards?',
+          w: (mo) => { const b = bv(mo, 'balloons'); return `One balloon popped: ${b[0]}, then ${b[1]}. Everything else stayed the same.`; } },
+      ],
+      next: [
+        { t: 'Night at the depot', l: 'The bus rests in the depot overnight. Which counters will be different in the morning?',
+          w: (mo) => { const s = bv(mo, 'seats'); return `In the night the workers added a row of seats, so the seats changed: ${s[0]}, then ${s[1]}. Fuel and time changed too, and the wheels did not. “Stays the same” is about one trip or one day, not about forever.`; } },
+        { t: 'A football match', l: 'One football match, first half. Which counters will change while it is played?',
+          w: () => 'During one match the pitch and the ball stay the same, and the score and the clock change. “Stays the same” always means: while this match goes on.' },
+      ],
+    },
+    secrets: { route: ['Long route', 'Eight stops and a small graph'], clock: ['The clock', 'Does time ever stand still?'] },
+    route: { t0: 'A long route', ask: 'The bus rides a long route. Press the button and watch the bars grow and shrink at every stop. The dashed line is the number of seats.', l0: 'Eight stops are waiting. Nothing has happened yet.',
+      btn: '→ Next stop', again: '↺ Start again', stopTitle: (k, n) => `Stop ${k}: ${n} on board`, lead: 'The bars go up and down. The line stays flat.',
+      end: (s) => `End of the route. The bars changed at every stop, but the line never moved: the bus always had ${s} seats.`, seatsLbl: 'seats', unit: 'stop' },
+    clock: { ask: 'The bus is parked and the engine is off. Wait a little and look at the counters.', btn: '⏱ Wait 10 minutes', t0: 'The bus is parked.', l0: 'Nothing moves. Will anything change?',
+      title: (tm) => `Now it is ${tm}.`, lead: 'Seats, wheels, passengers and fuel stayed the same. Only the clock changed. Time always moves on.', unit: 'wait' },
+    quiz: [
+      { q: 'On one bus trip, which number stays the same?', opts: ['Passengers', 'Fuel in the tank', 'Seats'], ok: 2, hint: 'Watch the counters at each stop.' },
+      { q: 'At a party, which changes as people eat?', opts: ['Pieces of cake left', 'Number of plates', 'Number of chairs'], ok: 0, hint: 'Look at the table after each moment.' },
+      { q: 'The bus always has 20 seats. Can that ever change?', opts: ['Never', 'Yes, if the bus is changed, for example at the depot', 'Only on Mondays'], ok: 1, hint: 'Look at the Next day view.' },
+    ],
+  },
+  ru: {
+    name: 'Едем на автобусе', title: 'Едем на автобусе',
+    lines: [['Смотри, как автобус', 'едет от остановки к остановке.'], ['Угадывай, что меняется', 'и что остаётся прежним.'], ['Потом — праздник', 'и ещё несколько мест.']],
+    views: { bus: '🚌 Рейс', party: '🎂 Гости', next: '🌙 Завтра' },
+    c: { seats: 'Места', wheels: 'Колёса', pass: 'Пассажиры', fuel: 'Топливо', time: 'Время', plates: 'Тарелки', chairs: 'Стулья', cake: 'Куски торта', guests: 'Гости', balloons: 'Шарики', pitch: 'Размер поля', ball: 'Мячи', score: 'Счёт', mclock: 'Время матча' },
+    unit: { bus: 'остановка', party: 'момент', next: 'момент' },
+    will: '↻ изменится', stay: '= не изменится', chg: 'изменилось', same: 'не изменилось', was: 'было',
+    ask: 'Нажми на каждый счётчик, который изменится. Остальные останутся прежними.',
+    go: { bus: '🚌 Ехать к остановке', party: '▶ Пусть случится', next: '▶ Пусть случится' }, run: 'Подожди…',
+    nxt: { bus: '→ Следующая остановка', party: '→ Следующий момент', next: '→ Дальше' }, again: '↺ Заново',
+    right: 'Верно!', hits: (k, n) => `${k} из ${n} верно.`, chgL: 'Меняются', sameL: 'Остаются прежними',
+    all: (k, n) => `Всего: ${k} из ${n} верно.`, pillOf: (k, n) => `✓ ${k}/${n}`,
+    m: {
+      bus: [
+        { t: 'По дороге к остановке 1', l: 'Автобус едет к остановке. Какие счётчики будут другими, когда он приедет?',
+          w: (mo) => { const p = bv(mo, 'pass'); return `Люди вышли и зашли, поэтому пассажиры изменились: было ${p[0]}, стало ${p[1]}. Автобус потратил топливо, и прошло время. Места и колёса — часть автобуса, поэтому они остались прежними.`; } },
+        { t: 'По дороге к остановке 2', l: 'Впереди ещё одна остановка. Какие счётчики будут другими, когда автобус приедет?',
+          w: (mo) => { const p = bv(mo, 'pass'); return `Одни вышли, другие зашли: было ${p[0]}, стало ${p[1]}. Топливо и время опять изменились. Места и колёса остались прежними.`; } },
+        { t: 'По дороге к остановке 3', l: 'Последняя остановка этого рейса. Какие счётчики будут другими, когда автобус приедет?',
+          w: (mo) => `За рейс пассажиров то прибавлялось, то убавлялось, а мест в автобусе всегда было ${bv(mo, 'seats')[1]}, колёс — ${bv(mo, 'wheels')[1]}. За один рейс они не меняются.` },
+      ],
+      party: [
+        { t: 'Приходят гости', l: 'Входят ещё гости. Какие счётчики будут другими потом?',
+          w: (mo) => { const g = bv(mo, 'guests'); return `Пришли ещё гости: было ${g[0]}, стало ${g[1]}. Тарелки, стулья, торт и шарики остались прежними.`; } },
+        { t: 'Все едят торт', l: 'Пора есть торт. Какие счётчики будут другими потом?',
+          w: (mo) => { const c = bv(mo, 'cake'); return `Кусков торта стало меньше: было ${c[0]}, стало ${c[1]}. Тарелки, стулья, гости и шарики остались прежними.`; } },
+        { t: 'Лопается шарик', l: 'Кто-то колет шарик. Какие счётчики будут другими потом?',
+          w: (mo) => { const b = bv(mo, 'balloons'); return `Один шарик лопнул: было ${b[0]}, стало ${b[1]}. Всё остальное осталось прежним.`; } },
+      ],
+      next: [
+        { t: 'Ночь в гараже', l: 'Автобус на ночь стоит в гараже. Какие счётчики утром будут другими?',
+          w: (mo) => { const s = bv(mo, 'seats'); return `За ночь рабочие добавили ряд сидений, поэтому места изменились: было ${s[0]}, стало ${s[1]}. Топливо и время тоже изменились, а колёса — нет. «Остаётся прежним» — это про один рейс или один день, а не навсегда.`; } },
+        { t: 'Футбольный матч', l: 'Один футбольный матч, первый тайм. Какие счётчики изменятся, пока идёт игра?',
+          w: () => 'За один матч размер поля и число мячей не меняются, а счёт и время меняются. «Остаётся прежним» всегда значит: пока идёт этот матч.' },
+      ],
+    },
+    secrets: { route: ['Длинный маршрут', 'Восемь остановок и маленький график'], clock: ['Часы', 'Бывает ли, что время стоит?'] },
+    route: { t0: 'Длинный маршрут', ask: 'Автобус едет по длинному маршруту. Нажимай кнопку и смотри, как на каждой остановке столбики растут и уменьшаются. Пунктир — число мест.', l0: 'Впереди восемь остановок. Пока ничего не случилось.',
+      btn: '→ Следующая остановка', again: '↺ Сначала', stopTitle: (k, n) => `Остановка ${k}: в автобусе ${n}`, lead: 'Столбики то растут, то убывают. Линия лежит ровно.',
+      end: (s) => `Маршрут закончен. Столбики менялись на каждой остановке, а линия не сдвинулась: мест в автобусе всегда было ${s}.`, seatsLbl: 'мест', unit: 'остановка' },
+    clock: { ask: 'Автобус припаркован, мотор выключен. Подожди немного и смотри на счётчики.', btn: '⏱ Ждать 10 минут', t0: 'Автобус стоит.', l0: 'Ничего не движется. Что-нибудь изменится?',
+      title: (tm) => `Теперь ${tm}.`, lead: 'Места, колёса, пассажиры и топливо остались прежними. Изменились только часы: время всегда идёт.', unit: 'ожидание' },
+    quiz: [
+      { q: 'В одном рейсе автобуса: какое число остаётся прежним?', opts: ['Пассажиры', 'Топливо в баке', 'Места'], ok: 2, hint: 'Смотри на счётчики на каждой остановке.' },
+      { q: 'На празднике люди едят торт. Что при этом меняется?', opts: ['Сколько кусков торта осталось', 'Число тарелок', 'Число стульев'], ok: 0, hint: 'Посмотри на стол после каждого момента.' },
+      { q: 'В автобусе всегда 20 мест. Может ли это число когда-нибудь измениться?', opts: ['Никогда', 'Да, если автобус переделают, например в гараже', 'Только по понедельникам'], ok: 1, hint: 'Посмотри на вкладку «Завтра».' },
+    ],
+  },
+  hu: {
+    name: 'Buszozás', title: 'Buszozás',
+    lines: [['Nézd, ahogy a busz', 'megáll a megállókban.'], ['Találd ki, mi változik,', 'és mi marad ugyanaz.'], ['Aztán jöhet egy buli', 'és még néhány hely.']],
+    views: { bus: '🚌 Busz', party: '🎂 Buli', next: '🌙 Másnap' },
+    c: { seats: 'Ülések', wheels: 'Kerekek', pass: 'Utasok', fuel: 'Üzemanyag', time: 'Idő', plates: 'Tányérok', chairs: 'Székek', cake: 'Tortaszeletek', guests: 'Vendégek', balloons: 'Lufik', pitch: 'Pálya mérete', ball: 'Labdák', score: 'Állás', mclock: 'Meccsóra' },
+    unit: { bus: 'megálló', party: 'pillanat', next: 'pillanat' },
+    will: '↻ változik', stay: '= marad', chg: 'változott', same: 'ugyanaz', was: 'volt',
+    ask: 'Koppints minden számlálóra, amelyik változni fog. A többi ugyanaz marad.',
+    go: { bus: '🚌 Irány a megálló', party: '▶ Történjen meg', next: '▶ Történjen meg' }, run: 'Várj…',
+    nxt: { bus: '→ Következő megálló', party: '→ Következő pillanat', next: '→ Tovább' }, again: '↺ Újra',
+    right: 'Így van!', hits: (k, n) => `${n} közül ${k} jó.`, chgL: 'Változtak', sameL: 'Ugyanazok maradtak',
+    all: (k, n) => `Összesen ${n} közül ${k} jó.`, pillOf: (k, n) => `✓ ${k}/${n}`,
+    m: {
+      bus: [
+        { t: 'Úton az 1. megállóhoz', l: 'A busz a megálló felé tart. Mely számlálók lesznek mások, mire odaér?',
+          w: (mo) => { const p = bv(mo, 'pass'); return `Az emberek le- és felszálltak, ezért az utasok száma változott: ${p[0]} volt, ${p[1]} lett. A busz üzemanyagot fogyasztott, és telt az idő. Az ülések és a kerekek a busz részei, ezért ugyanazok maradtak.`; } },
+        { t: 'Úton a 2. megállóhoz', l: 'Közeleg egy újabb megálló. Mely számlálók lesznek mások, mire a busz odaér?',
+          w: (mo) => { const p = bv(mo, 'pass'); return `Néhányan leszálltak, mások felszálltak: ${p[0]} volt, ${p[1]} lett. Az üzemanyag és az idő megint változott. Az ülések és a kerekek ugyanazok maradtak.`; } },
+        { t: 'Úton a 3. megállóhoz', l: 'Ez az út utolsó megállója. Mely számlálók lesznek mások, mire a busz odaér?',
+          w: (mo) => `Az utasok száma az úton hol nőtt, hol csökkent, de a buszon mindig ${bv(mo, 'seats')[1]} ülés és ${bv(mo, 'wheels')[1]} kerék volt. Egy úton ezek nem változnak.` },
+      ],
+      party: [
+        { t: 'Megérkeznek a vendégek', l: 'Újabb vendégek lépnek be. Mely számlálók lesznek mások utána?',
+          w: (mo) => { const g = bv(mo, 'guests'); return `Még vendégek érkeztek: ${g[0]} volt, ${g[1]} lett. A tányérok, a székek, a torta és a lufik ugyanazok maradtak.`; } },
+        { t: 'Mindenki tortát eszik', l: 'Jöhet a torta. Mely számlálók lesznek mások utána?',
+          w: (mo) => { const c = bv(mo, 'cake'); return `Kevesebb lett a tortaszelet: ${c[0]} volt, ${c[1]} lett. A tányérok, a székek, a vendégek és a lufik ugyanazok maradtak.`; } },
+        { t: 'Kidurran egy lufi', l: 'Valaki megszúr egy lufit. Mely számlálók lesznek mások utána?',
+          w: (mo) => { const b = bv(mo, 'balloons'); return `Kidurrant egy lufi: ${b[0]} volt, ${b[1]} lett. Minden más ugyanaz maradt.`; } },
+      ],
+      next: [
+        { t: 'Éjszaka a garázsban', l: 'A busz éjszakára a garázsban pihen. Mely számlálók lesznek mások reggel?',
+          w: (mo) => { const s = bv(mo, 'seats'); return `Éjszaka a szerelők beszereltek egy sor ülést, ezért az ülések száma megváltozott: ${s[0]} volt, ${s[1]} lett. Az üzemanyag és az idő is változott, a kerekek nem. Az „ugyanaz marad” egy útra vagy egy napra érvényes, nem örökre.`; } },
+        { t: 'Egy focimeccs', l: 'Egy focimeccs, az első félidő. Mely számlálók változnak, amíg tart a játék?',
+          w: () => 'Egy meccs alatt a pálya mérete és a labdák száma ugyanaz marad, az állás és az óra változik. Az „ugyanaz marad” mindig azt jelenti: amíg ez a meccs tart.' },
+      ],
+    },
+    secrets: { route: ['Hosszú útvonal', 'Nyolc megálló és egy kis grafikon'], clock: ['Az óra', 'Megáll valaha az idő?'] },
+    route: { t0: 'Hosszú útvonal', ask: 'A busz hosszú úton megy. Nyomd a gombot, és nézd, hogyan nőnek és csökkennek az oszlopok minden megállónál. A szaggatott vonal az ülések száma.', l0: 'Nyolc megálló vár. Még semmi sem történt.',
+      btn: '→ Következő megálló', again: '↺ Elölről', stopTitle: (k, n) => `${k}. megálló: ${n} utas van a buszon`, lead: 'Az oszlopok hol nőnek, hol csökkennek. A vonal vízszintes marad.',
+      end: (s) => `Vége az útvonalnak. Az oszlopok minden megállónál változtak, a vonal meg sem mozdult: a buszon mindig ${s} ülés volt.`, seatsLbl: 'ülés', unit: 'megálló' },
+    clock: { ask: 'A busz áll, a motor ki van kapcsolva. Várj egy kicsit, és nézd a számlálókat.', btn: '⏱ Várj 10 percet', t0: 'A busz áll.', l0: 'Semmi sem mozog. Változik valami?',
+      title: (tm) => `Most ${tm} van.`, lead: 'Az ülések, a kerekek, az utasok és az üzemanyag ugyanaz maradt. Csak az óra változott: az idő mindig telik.', unit: 'várakozás' },
+    quiz: [
+      { q: 'Egy buszúton melyik szám marad ugyanaz?', opts: ['Az utasok', 'Az üzemanyag a tankban', 'Az ülések'], ok: 2, hint: 'Nézd a számlálókat minden megállónál.' },
+      { q: 'Egy bulin evés közben mi változik?', opts: ['A megmaradt tortaszeletek', 'A tányérok száma', 'A székek száma'], ok: 0, hint: 'Nézd az asztalt minden pillanat után.' },
+      { q: 'A buszon mindig 20 ülés van. Változhat ez valaha?', opts: ['Soha', 'Igen, ha átalakítják a buszt, például a garázsban', 'Csak hétfőn'], ok: 1, hint: 'Nézd meg a „Másnap” nézetet.' },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_d4reBzaIRl', en: 'Changing and fixed amounts', ru: 'Меняющиеся и постоянные величины', hu: 'Változó és állandó mennyiségek' },
+];
+
+// --- the moments: for each counter [id, before, after]; "changed" is computed from these two values --------
+const MOM = {
+  bus: [
+    { scene: 'bus', off: 1, tiles: [['seats', SEATS, SEATS], ['pass', 4, 8], ['wheels', WHEELS, WHEELS], ['fuel', 7, 6], ['time', '08:00', '08:10']] },
+    { scene: 'bus', off: 3, tiles: [['seats', SEATS, SEATS], ['pass', 8, 7], ['wheels', WHEELS, WHEELS], ['fuel', 6, 5], ['time', '08:10', '08:20']] },
+    { scene: 'bus', off: 4, tiles: [['seats', SEATS, SEATS], ['pass', 7, 6], ['wheels', WHEELS, WHEELS], ['fuel', 5, 4], ['time', '08:20', '08:30']] },
+  ],
+  party: [
+    { scene: 'party', id: 'arrive', dur: 3.4, tiles: [['plates', 6, 6], ['cake', 8, 8], ['chairs', 6, 6], ['guests', 3, 5], ['balloons', 5, 5]] },
+    { scene: 'party', id: 'eat', dur: 4.0, tiles: [['plates', 6, 6], ['cake', 8, 3], ['chairs', 6, 6], ['guests', 5, 5], ['balloons', 5, 5]] },
+    { scene: 'party', id: 'pop', dur: 2.8, tiles: [['plates', 6, 6], ['cake', 3, 3], ['chairs', 6, 6], ['guests', 5, 5], ['balloons', 5, 4]] },
+  ],
+  next: [
+    { scene: 'depot', dur: 4.6, tiles: [['seats', SEATS, SEATS + 2], ['pass', 0, 0], ['wheels', WHEELS, WHEELS], ['fuel', 2, 8], ['time', '22:00', '06:00']] },
+    { scene: 'pitch', dur: 4.2, tiles: [['pitch', '▭', '▭'], ['score', '0 : 0', '1 : 0'], ['ball', 1, 1], ['mclock', '0′', '45′']] },
+  ],
+};
+for (const mo of MOM.bus) { const p = bv(mo, 'pass'); mo.on = p[1] - p[0] + mo.off; } // people who get on = change + people who get off
+const ROUTE = [[7, 0], [5, 2], [4, 6], [6, 3], [3, 8], [8, 1], [2, 9], [0, 6]]; // [get on, get off] at each of 8 stops
+const COLOR = { bus: '#f2b632', party: '#ff7aa8', next: '#7aa7ff', route: '#f2b632', clock: '#f2b632' };
+const EMO = { bus: ['🚌', '🚌', '🚌'], party: ['🎉', '🍰', '🎈'], next: ['🌙', '⚽'] };
+const EMOJI = { seats: '💺', wheels: '🛞', pass: '🧍', fuel: '⛽', time: '🕐', plates: '🍽️', chairs: '🪑', cake: '🍰', guests: '🧒', balloons: '🎈', pitch: '🟩', ball: '⚽', score: '🔢', mclock: '⏱️' };
+
+// --- small helpers -----------------------------------------------------------------------------------------
+const now = () => performance.now() / 1000;
+const c01 = (u) => Math.min(1, Math.max(0, u));
+const ease = (u) => u * u * (3 - 2 * u);
+const lp = (a, b, k) => a + (b - a) * k;
+const hs = (i) => { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+const rr = (c, x, y, w, h, r) => { c.beginPath(); c.roundRect(x, y, Math.max(0, w), Math.max(0, h), Math.max(0, Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2))); };
+const lg = (c, x0, y0, x1, y1, stops) => { const g = c.createLinearGradient(x0, y0, x1, y1); stops.forEach(([o, col]) => g.addColorStop(o, col)); return g; };
+const timeStr = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
+// people: simple rounded figures. (x, y) is the hip line; legs show only when walking outside
+const SKIN = ['#f2c8a0', '#e0a878', '#b9774e', '#8a5535', '#f6d5b8'];
+const HAIR = ['#3a2a1e', '#1e1a1a', '#8b5a2b', '#d8a84a', '#b0442e'];
+const SHIRT = ['#e5484d', '#4da3ff', '#6bd08a', '#b57bee', '#ff9f45', '#38bdb0'];
+let pid = 0;
+const mkPerson = (seat) => { const i = pid++; return { id: i, skin: SKIN[i % 5], hair: HAIR[(i * 3 + 1) % 5], shirt: SHIRT[(i * 2 + 1) % 6], seat }; };
+function drawPerson(c, x, y, p, o = {}) {
+  const legs = !!o.legs, sw = Math.sin(o.walk || 0) * 4;
+  c.save(); c.translate(x, y);
+  if (legs) {
+    c.fillStyle = 'rgba(0,0,0,.2)'; c.beginPath(); c.ellipse(0, 13.5, 8, 2.6, 0, 0, Math.PI * 2); c.fill();
+    c.strokeStyle = '#3a4560'; c.lineWidth = 3.6; c.lineCap = 'round';
+    c.beginPath(); c.moveTo(-2, 0); c.lineTo(-2 + sw, 12.5); c.moveTo(2, 0); c.lineTo(2 - sw, 12.5); c.stroke();
+  }
+  c.fillStyle = lg(c, -5, -13, 5, 1, [[0, p.shirt], [1, 'rgba(0,0,0,.28)']]); rr(c, -5.5, -13, 11, 14.5, 4.6); c.fill();
+  c.fillStyle = p.shirt; rr(c, -5.5, -13, 11, 14.5, 4.6); c.globalAlpha = .75; c.fill(); c.globalAlpha = 1;
+  c.lineWidth = 1; c.strokeStyle = 'rgba(0,0,0,.28)'; c.stroke();
+  c.fillStyle = p.skin; c.beginPath(); c.arc(0.5, -19.5, 6, 0, Math.PI * 2); c.fill(); c.stroke();
+  if (p.hat) { c.fillStyle = '#ffb020'; c.beginPath(); c.arc(0.5, -20.3, 6.4, Math.PI, 0); c.closePath(); c.fill(); c.fillRect(-7, -20.6, 15, 2); }
+  else { c.fillStyle = p.hair; c.beginPath(); c.arc(0.5, -20.2, 6.3, Math.PI * 1.02, Math.PI * 1.9); c.closePath(); c.fill(); }
+  c.fillStyle = '#1d2230'; c.beginPath(); c.arc(3, -19, 0.95, 0, Math.PI * 2); c.fill();
+  c.restore();
+}
+const mkPath = (pts) => { const cum = [0]; for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])); return { pts, cum, len: cum[cum.length - 1] }; };
+const posAt = (p, u) => {
+  const s = u * p.len; let i = 1;
+  while (i < p.pts.length - 1 && p.cum[i] < s) i++;
+  const a = p.pts[i - 1], b = p.pts[i], seg = (p.cum[i] - p.cum[i - 1]) || 1, k = c01((s - p.cum[i - 1]) / seg);
+  return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k];
+};
+function drawTransit(c, q, rt) {
+  const u = c01((rt - q.delay) / q.dur), e = u * 0.7 + ease(u) * 0.3, [x, y] = posAt(q.path, e);
+  drawPerson(c, x, y, q, { legs: y > 186, walk: e * q.path.len / 6 });
+}
+
+// --- the bus: geometry in a 360 x 260 design box -----------------------------------------------------------
+const DRIVE = 2.2, DTOT = 560, WX = [62, 102, 250];
+const SPOT = [3, 12, 6, 17, 1, 9, 14, 4, 19, 7, 11, 16, 2, 8, 13, 5, 18, 0, 10, 15]; // the order in which seats get taken
+const slotX = (k, far, rows) => 30 + (k + 0.5) * (222 / rows) + (far ? 5 : 0);
+const seatPos = (i) => [slotX(i % 10, i < 10, 10) + 1, i < 10 ? 146 : 162];
+const mkBus = (n) => ({ people: SPOT.slice(0, n).map((s) => mkPerson(s)), W: 0, plan: null });
+const BUS = { main: mkBus(MOM.bus[0].tiles[1][1]), route: mkBus(0), clock: mkBus(6) };
+const busOf = (m) => (m === 'route' ? BUS.route : m === 'clock' ? BUS.clock : BUS.main);
+
+function planBus(bs, off, on) {
+  const P = bs.people, leave = [];
+  for (let i = 0; i < off; i++) leave.push(P[Math.floor((i + 0.5) * P.length / off)]);
+  const taken = new Set(P.map((q) => q.seat)), board = SPOT.filter((s) => !taken.has(s)).slice(0, on).map((s) => mkPerson(s));
+  leave.forEach((q, i) => { q.delay = DRIVE + 0.35 + i * 0.22; q.dur = 1.4; q.path = mkPath([seatPos(q.seat), [272, 196], [272, 222], [392, 222]]); });
+  board.forEach((q, j) => { q.delay = DRIVE + 0.55 + j * 0.22; q.dur = 1.5; q.path = mkPath([[392, 222], [272, 222], [272, 196], seatPos(q.seat)]); });
+  let end = DRIVE + 0.6;
+  for (const q of [...leave, ...board]) end = Math.max(end, q.delay + q.dur);
+  bs.plan = { leave, board, dur: end + 0.4 };
+  return bs.plan.dur;
+}
+function applyBus(bs) {
+  if (!bs.plan) return;
+  bs.people = [...bs.people.filter((q) => !bs.plan.leave.includes(q)), ...bs.plan.board];
+  bs.W += DTOT; bs.plan = null;
+}
+
+function drawSeat(c, x, y, s, far) {
+  c.save(); c.translate(x, y); c.scale(s, s);
+  c.fillStyle = '#4b5563'; c.fillRect(-1, 2, 3, Math.max(0, 168 - y) / Math.max(s, 0.01));
+  c.fillStyle = far ? '#3f78b8' : '#2f63a0'; rr(c, -11, -22, 6, 22, 3); c.fill();
+  c.fillStyle = far ? '#5b93d1' : '#447fc0'; rr(c, -11, -5, 24, 6, 3); c.fill();
+  c.restore();
+}
+function drawBus(c, o) {
+  const { bob = 0, rows = 10, door = 0, ang = 0, sit = [] } = o;
+  c.save(); c.translate(0, bob);
+  c.lineJoin = 'round';
+  rr(c, 18, 88, 286, 110, 20); c.fillStyle = lg(c, 0, 88, 0, 198, [[0, '#ffe07a'], [0.45, '#f7c235'], [1, '#e59a12']]); c.fill();
+  c.lineWidth = 2; c.strokeStyle = '#8a5a06'; c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.35)'; rr(c, 30, 91, 250, 4, 2); c.fill();
+  // the cut-away windows: seats and people inside
+  c.save(); rr(c, 26, 104, 228, 66, 10); c.clip();
+  c.fillStyle = lg(c, 0, 104, 0, 170, [[0, '#e8f4fb'], [1, '#bcd6e8']]); c.fillRect(26, 104, 228, 66);
+  c.fillStyle = '#c9d3de'; c.fillRect(26, 112, 228, 2.5); // hand rail
+  c.fillStyle = '#6b7787'; c.fillRect(26, 166, 228, 4);
+  for (let row = 0; row < 2; row++) {
+    const far = row === 0, base = far ? 146 : 162;
+    for (let k = 0; k < Math.ceil(rows); k++) {
+      const s = c01(rows - k); if (s <= 0) continue;
+      drawSeat(c, slotX(k, far, rows), base - (1 - s) * 16, s, far);
+    }
+    for (const q of sit) if ((q.seat < 10 ? 0 : 1) === row) drawPerson(c, slotX(q.seat % 10, far, rows) + 1, base, q);
+  }
+  c.restore();
+  c.fillStyle = '#f0b429'; for (const px of [68, 112, 156, 200, 240]) c.fillRect(px, 104, 3, 66); // window pillars
+  c.fillStyle = 'rgba(255,255,255,.14)'; c.beginPath(); c.moveTo(34, 104); c.lineTo(66, 104); c.lineTo(44, 168); c.lineTo(34, 168); c.closePath(); c.fill();
+  rr(c, 26, 104, 228, 66, 10); c.lineWidth = 2; c.strokeStyle = '#8a5a06'; c.stroke();
+  // door
+  c.fillStyle = '#2a3140'; rr(c, 258, 104, 26, 94, 3); c.fill();
+  const lw = 13 * (1 - door);
+  for (const lx of [258, 284 - lw]) {
+    if (lw < 0.5) break;
+    c.fillStyle = 'rgba(190,225,245,.92)'; c.fillRect(lx, 104, lw, 66);
+    c.fillStyle = '#f2b632'; c.fillRect(lx, 170, lw, 28);
+    c.strokeStyle = '#8a5a06'; c.lineWidth = 1.2; c.strokeRect(lx, 104, lw, 94);
+  }
+  // windscreen and driver
+  c.fillStyle = '#cfe8f5'; c.beginPath(); c.moveTo(288, 104); c.lineTo(299, 104); c.lineTo(303, 170); c.lineTo(288, 170); c.closePath(); c.fill(); c.lineWidth = 1.5; c.strokeStyle = '#8a5a06'; c.stroke();
+  c.fillStyle = '#e0a878'; c.beginPath(); c.arc(294, 142, 5, 0, Math.PI * 2); c.fill();
+  c.fillStyle = '#3b4a6b'; c.beginPath(); c.arc(294, 140.5, 5.4, Math.PI * 1.05, Math.PI * 1.95); c.closePath(); c.fill();
+  // lower body, lights, bumper
+  c.fillStyle = '#3a2a10'; c.fillRect(20, 172, 282, 3);
+  c.fillStyle = '#e5484d'; rr(c, 18, 178, 5, 11, 2); c.fill();
+  c.fillStyle = '#3b3f4a'; rr(c, 296, 184, 12, 12, 4); c.fill();
+  const hg = c.createRadialGradient(300, 179, 0, 300, 179, 9); hg.addColorStop(0, 'rgba(255,247,200,1)'); hg.addColorStop(1, 'rgba(255,247,200,0)');
+  c.fillStyle = hg; c.beginPath(); c.arc(300, 179, 9, 0, Math.PI * 2); c.fill();
+  c.fillStyle = '#fff7c8'; c.beginPath(); c.arc(299, 179, 3.6, 0, Math.PI * 2); c.fill();
+  // wheels: three axles, six wheels in all
+  for (const wx of WX) {
+    c.fillStyle = '#232733'; c.beginPath(); c.arc(wx, 198, 19, Math.PI, 0); c.fill();
+    c.fillStyle = '#16181f'; c.beginPath(); c.arc(wx, 198, 14, 0, Math.PI * 2); c.fill();
+    c.fillStyle = lg(c, wx - 8, 190, wx + 8, 206, [[0, '#eef1f6'], [1, '#9aa3b2']]); c.beginPath(); c.arc(wx, 198, 8, 0, Math.PI * 2); c.fill();
+    c.strokeStyle = '#6b7280'; c.lineWidth = 1.6; c.beginPath();
+    for (let i = 0; i < 4; i++) { const a = ang + i * Math.PI / 2; c.moveTo(wx, 198); c.lineTo(wx + Math.cos(a) * 7.2, 198 + Math.sin(a) * 7.2); }
+    c.stroke();
+    c.fillStyle = '#4b5563'; c.beginPath(); c.arc(wx, 198, 2.4, 0, Math.PI * 2); c.fill();
+  }
+  c.restore();
+}
+
+// sky, hills, trees, road and pavement of the bus scene; Wd is the distance driven
+function hills(c, g, off, base, amp, f1, f2, col) {
+  c.beginPath(); c.moveTo(g.vx0, 200);
+  for (let x = g.vx0; x <= g.vx1 + 12; x += 4) c.lineTo(x, base - Math.sin((x + off) * f1) * amp - Math.sin((x + off) * f2) * amp * 0.4);
+  c.lineTo(g.vx1 + 12, 200); c.closePath(); c.fillStyle = col; c.fill();
+}
+function tree(c, x, base, h, col) {
+  c.fillStyle = '#7a5230'; rr(c, x - 3, base - h * 0.45, 6, h * 0.45, 2); c.fill();
+  for (const [dx, dy, r] of [[0, -h * 0.62, h * 0.34], [-h * 0.2, -h * 0.46, h * 0.26], [h * 0.2, -h * 0.46, h * 0.26]]) {
+    c.fillStyle = col; c.beginPath(); c.arc(x + dx, base + dy, r, 0, Math.PI * 2); c.fill();
+    c.fillStyle = 'rgba(255,255,255,.14)'; c.beginPath(); c.arc(x + dx - r * 0.25, base + dy - r * 0.3, r * 0.6, 0, Math.PI * 2); c.fill();
+  }
+}
+function cloud(c, x, y, s) {
+  c.fillStyle = 'rgba(255,255,255,.9)';
+  for (const [dx, dy, r] of [[0, 0, 12], [14, -5, 15], [30, 0, 12], [15, 4, 12]]) { c.beginPath(); c.arc(x + dx * s, y + dy * s, r * s, 0, Math.PI * 2); c.fill(); }
+}
+function drawSign(c, x, mins) {
+  c.fillStyle = 'rgba(0,0,0,.2)'; c.beginPath(); c.ellipse(x, 238, 11, 3, 0, 0, Math.PI * 2); c.fill();
+  c.fillStyle = lg(c, x - 2, 0, x + 2, 0, [[0, '#9aa3b2'], [1, '#5b6472']]); c.fillRect(x - 2, mins === null ? 158 : 80, 4, mins === null ? 80 : 158);
+  c.fillStyle = lg(c, x - 14, 144, x + 14, 172, [[0, '#6bb4ff'], [1, '#2f6fd0']]); c.beginPath(); c.arc(x, 158, 14, 0, Math.PI * 2); c.fill();
+  c.lineWidth = 2; c.strokeStyle = '#fff'; c.stroke();
+  c.font = '15px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#fff'; c.fillText('🚌', x, 159);
+  if (mins !== null) drawClock(c, x, 56, 24, mins);
+}
+function drawClock(c, x, y, r, m) {
+  c.save(); c.translate(x, y);
+  c.fillStyle = 'rgba(0,0,0,.18)'; c.beginPath(); c.ellipse(2, r + 3, r * 0.8, 3, 0, 0, Math.PI * 2); c.fill();
+  const g = c.createRadialGradient(-r * 0.3, -r * 0.3, 2, 0, 0, r); g.addColorStop(0, '#ffffff'); g.addColorStop(1, '#e7ebf2');
+  c.fillStyle = g; c.beginPath(); c.arc(0, 0, r, 0, Math.PI * 2); c.fill(); c.lineWidth = 3.5; c.strokeStyle = '#8a5a06'; c.stroke();
+  c.strokeStyle = '#3b4252'; c.lineWidth = 1.6; c.lineCap = 'round';
+  for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6; c.beginPath(); c.moveTo(Math.cos(a) * r * 0.82, Math.sin(a) * r * 0.82); c.lineTo(Math.cos(a) * r * 0.93, Math.sin(a) * r * 0.93); c.stroke(); }
+  const ha = ((m / 60) % 12) / 12 * Math.PI * 2 - Math.PI / 2, ma = (m % 60) / 60 * Math.PI * 2 - Math.PI / 2;
+  c.lineWidth = 4; c.beginPath(); c.moveTo(0, 0); c.lineTo(Math.cos(ha) * r * 0.5, Math.sin(ha) * r * 0.5); c.stroke();
+  c.lineWidth = 2.6; c.strokeStyle = '#d6452f'; c.beginPath(); c.moveTo(0, 0); c.lineTo(Math.cos(ma) * r * 0.78, Math.sin(ma) * r * 0.78); c.stroke();
+  c.fillStyle = '#3b4252'; c.beginPath(); c.arc(0, 0, 2.6, 0, Math.PI * 2); c.fill();
+  c.restore();
+}
+
+function busScene(c, g, time, m, V, rt) {
+  const bs = busOf(m), pl = bs.plan, running = !!pl && V && V.phase === 'run';
+  const u = running ? c01(rt / DRIVE) : 1, D = running ? DTOT * ease(u) : 0, speed = running && rt < DRIVE ? 6 * u * (1 - u) : 0;
+  const Wd = bs.W + D, vw = g.vx1 - g.vx0;
+  // sky, sun, clouds
+  c.fillStyle = lg(c, 0, g.vy0, 0, 190, [[0, '#6fbdf0'], [1, '#e6f6ff']]); c.fillRect(g.vx0, g.vy0, vw, 190 - g.vy0);
+  const sun = c.createRadialGradient(292, 46, 4, 292, 46, 70); sun.addColorStop(0, 'rgba(255,246,200,.95)'); sun.addColorStop(1, 'rgba(255,246,200,0)');
+  c.fillStyle = sun; c.beginPath(); c.arc(292, 46, 70, 0, Math.PI * 2); c.fill();
+  c.fillStyle = '#fff6c8'; c.beginPath(); c.arc(292, 46, 14, 0, Math.PI * 2); c.fill();
+  for (const [bx, by, s] of [[40, 34, 1], [180, 56, 0.8], [330, 24, 0.9]]) { const span = vw + 160, x = ((bx - Wd * 0.05 - g.vx0 + 80) % span + span) % span + g.vx0 - 80; cloud(c, x, by, s); }
+  hills(c, g, Wd * 0.1, 84, 14, 0.012, 0.031, '#a9d9b5');
+  hills(c, g, Wd * 0.2, 106, 10, 0.02, 0.047, '#86c79c');
+  // grass strip with trees
+  c.fillStyle = lg(c, 0, 170, 0, 190, [[0, '#7bc67f'], [1, '#5fae6a']]); c.fillRect(g.vx0, 176, vw, 14);
+  const off = Wd * 0.4;
+  for (let i = Math.floor((g.vx0 + off) / 110) - 1; ; i++) {
+    const x = i * 110 - off + hs(i) * 34; if (x > g.vx1 + 40) break;
+    tree(c, x, 186, 120 + hs(i + 9) * 40, hs(i + 3) > 0.5 ? '#3f9d5a' : '#348a4d');
+  }
+  // road
+  c.fillStyle = lg(c, 0, 188, 0, 218, [[0, '#666d7c'], [1, '#4a505e']]); c.fillRect(g.vx0, 188, vw, 30);
+  c.fillStyle = 'rgba(255,255,255,.55)';
+  for (let k = Math.floor((g.vx0 + Wd) / 50) - 1; k * 50 - Wd < g.vx1 + 10; k++) c.fillRect(k * 50 - Wd, 204, 26, 3);
+  // pavement
+  c.fillStyle = lg(c, 0, 216, 0, 262, [[0, '#d7ccb0'], [1, '#b3a584']]); c.fillRect(g.vx0, 216, vw, g.vy1 - 216 + 2);
+  c.fillStyle = '#ece6d6'; c.fillRect(g.vx0, 216, vw, 5); c.fillStyle = 'rgba(0,0,0,.14)'; c.fillRect(g.vx0, 221, vw, 2);
+  c.strokeStyle = 'rgba(0,0,0,.09)'; c.lineWidth = 1; c.beginPath();
+  for (let k = Math.floor((g.vx0 + Wd) / 48) - 1; k * 48 - Wd < g.vx1 + 4; k++) { c.moveTo(k * 48 - Wd, 223); c.lineTo(k * 48 - Wd, g.vy1); }
+  c.moveTo(g.vx0, 244); c.lineTo(g.vx1, 244); c.stroke();
+  // bus
+  c.fillStyle = 'rgba(0,0,0,.28)'; c.beginPath(); c.ellipse(160, 214, 152, 7, 0, 0, Math.PI * 2); c.fill();
+  const sit = [], moving = [];
+  for (const q of bs.people) { if (running && pl.leave.includes(q) && rt >= q.delay) { if (rt < q.delay + q.dur) moving.push(q); } else sit.push(q); }
+  if (running) for (const q of pl.board) { if (rt >= q.delay + q.dur) sit.push(q); else if (rt >= q.delay) moving.push(q); }
+  const dur = running ? pl.dur : 1, door = running ? ease(c01((rt - DRIVE) / 0.3)) * (1 - ease(c01((rt - (dur - 0.4)) / 0.3))) : 0;
+  drawBus(c, { bob: Math.sin(time * 22) * 0.9 * speed, ang: Wd / 14, door, rows: 10, sit });
+  for (const q of moving) drawTransit(c, q, rt);
+  // stop signs: the one we left, the one we reach
+  const ck = m === 'clock' ? S.ck.shown : null;
+  if (running) { if (326 - D > g.vx0 - 20) drawSign(c, 326 - D, null); if (326 + DTOT - D < g.vx1 + 20) drawSign(c, 326 + DTOT - D, null); } else drawSign(c, 326, ck);
+}
+
+// --- the party ---------------------------------------------------------------------------------------------
+const GUEST_SEATS = [1, 3, 4, 0, 5], CAKE_ORDER = [4, 6, 5, 7, 0, 1, 2, 3], chairX = (i) => 30 + i * 60;
+const GUESTS = Array.from({ length: 5 }, (_, i) => ({ ...mkPerson(0), hat: ['#ff5a6e', '#ffd23f', '#4dd0e1', '#9b6bff', '#6bd08a'][i] }));
+const BAL = [[118, 40], [138, 26], [162, 32], [182, 46], [150, 54]], BCOL = ['#ff5a6e', '#ffd23f', '#4dd0e1', '#9b6bff', '#6bd08a'];
+function balloon(c, x, y, col, s = 1) {
+  c.save(); c.translate(x, y); c.scale(s, s);
+  const g = c.createRadialGradient(-5, -7, 2, 0, 0, 18); g.addColorStop(0, 'rgba(255,255,255,.9)'); g.addColorStop(0.25, col); g.addColorStop(1, col);
+  c.fillStyle = col; c.beginPath(); c.ellipse(0, 0, 12.5, 15.5, 0, 0, Math.PI * 2); c.fill();
+  c.fillStyle = 'rgba(0,0,0,.14)'; c.beginPath(); c.ellipse(3, 4, 9, 11, 0, 0, Math.PI * 2); c.fill();
+  c.fillStyle = col; c.beginPath(); c.ellipse(-0.5, -1, 11.5, 14.5, 0, 0, Math.PI * 2); c.fill();
+  c.fillStyle = 'rgba(255,255,255,.55)'; c.beginPath(); c.ellipse(-5, -7, 3, 5, -0.5, 0, Math.PI * 2); c.fill();
+  c.fillStyle = col; c.beginPath(); c.moveTo(0, 15); c.lineTo(-3, 19); c.lineTo(3, 19); c.closePath(); c.fill();
+  c.restore();
+}
+function guestAt(c, x, y, p, hat, k = 1) { // seated guest behind the table: head and shoulders
+  c.save(); c.translate(x, y);
+  c.fillStyle = p.shirt; rr(c, -15, 12, 30, 30, 11); c.fill(); c.lineWidth = 1.2; c.strokeStyle = 'rgba(0,0,0,.28)'; c.stroke();
+  c.fillStyle = p.skin; c.beginPath(); c.arc(0, 0, 12, 0, Math.PI * 2); c.fill(); c.stroke();
+  c.fillStyle = p.hair; c.beginPath(); c.arc(0, -1.5, 12.4, Math.PI * 1.03, Math.PI * 1.97); c.closePath(); c.fill();
+  c.fillStyle = hat; c.beginPath(); c.moveTo(-8, -9); c.lineTo(8, -9); c.lineTo(0, -28); c.closePath(); c.fill();
+  c.fillStyle = '#fff'; c.beginPath(); c.arc(0, -28, 3, 0, Math.PI * 2); c.fill();
+  c.fillStyle = '#1d2230'; c.beginPath(); c.arc(-4, 1, 1.5, 0, Math.PI * 2); c.arc(4, 1, 1.5, 0, Math.PI * 2); c.fill();
+  c.strokeStyle = '#7a3b2e'; c.lineWidth = 1.4; c.beginPath(); c.arc(0, 4, 4.5, 0.2 * Math.PI, 0.8 * Math.PI); c.stroke();
+  c.restore();
+}
+function cake(c, cx, cy, present, extra) {
+  const rx = 36, ry = 11, hh = 16;
+  c.fillStyle = 'rgba(0,0,0,.16)'; c.beginPath(); c.ellipse(cx, cy + hh + 6, 46, 11, 0, 0, Math.PI * 2); c.fill();
+  c.fillStyle = lg(c, cx - 46, 0, cx + 46, 0, [[0, '#f4f4fb'], [1, '#d5dae8']]); c.beginPath(); c.ellipse(cx, cy + hh + 3, 46, 12, 0, 0, Math.PI * 2); c.fill();
+  c.lineWidth = 1; c.strokeStyle = '#b9c0d3'; c.stroke();
+  for (let i = 0; i < 8; i++) {
+    if (!present.has(i)) continue;
+    const a0 = i * Math.PI / 4, a1 = (i + 1) * Math.PI / 4;
+    if (i < 4) { // front slices show their side
+      c.beginPath(); c.ellipse(cx, cy, rx, ry, 0, a0, a1); c.ellipse(cx, cy + hh, rx, ry, 0, a1, a0, true); c.closePath();
+      c.fillStyle = lg(c, 0, cy, 0, cy + hh, [[0, '#f4c68a'], [1, '#d99a54']]); c.fill(); c.lineWidth = 1; c.strokeStyle = 'rgba(120,70,20,.35)'; c.stroke();
+    }
+    c.beginPath(); c.moveTo(cx, cy); c.ellipse(cx, cy, rx, ry, 0, a0, a1); c.closePath();
+    c.fillStyle = i % 2 ? '#ff9fbd' : '#ffb3c9'; c.fill(); c.lineWidth = 1; c.strokeStyle = 'rgba(255,255,255,.65)'; c.stroke();
+    const am = (a0 + a1) / 2; c.fillStyle = '#d6263b'; c.beginPath(); c.arc(cx + Math.cos(am) * rx * 0.62, cy + Math.sin(am) * ry * 0.62 - 2, 3, 0, Math.PI * 2); c.fill();
+    c.fillStyle = 'rgba(255,255,255,.6)'; c.beginPath(); c.arc(cx + Math.cos(am) * rx * 0.62 - 1, cy + Math.sin(am) * ry * 0.62 - 3, 0.9, 0, Math.PI * 2); c.fill();
+  }
+  extra?.();
+}
+function partyScene(c, g, time, mo, V, rt) {
+  const done = V.phase === 'done', run = V.phase === 'run', vw = g.vx1 - g.vx0;
+  const val = (id) => bv(mo, id)[done ? 1 : 0];
+  // wall and floor
+  c.fillStyle = lg(c, 0, g.vy0, 0, 210, [[0, '#ffe2b8'], [1, '#fff0d6']]); c.fillRect(g.vx0, g.vy0, vw, 212 - g.vy0);
+  c.fillStyle = lg(c, 0, 205, 0, 262, [[0, '#b98757'], [1, '#966a40']]); c.fillRect(g.vx0, 205, vw, g.vy1 - 205 + 2);
+  c.strokeStyle = 'rgba(60,30,10,.18)'; c.lineWidth = 1; c.beginPath();
+  for (let y = 222; y < g.vy1; y += 16) { c.moveTo(g.vx0, y); c.lineTo(g.vx1, y); }
+  c.stroke();
+  // bunting: a hanging string with flags
+  c.strokeStyle = '#8a6d4b'; c.lineWidth = 1.4; c.beginPath(); c.moveTo(g.vx0, 6); c.quadraticCurveTo((g.vx0 + g.vx1) / 2, 40, g.vx1, 6); c.stroke();
+  const fl = ['#ff5a6e', '#ffd23f', '#4dd0e1', '#9b6bff', '#6bd08a'];
+  for (let i = 1, n = Math.floor(vw / 24); i < n; i++) {
+    const t = i / n, x = lp(g.vx0, g.vx1, t);
+    const yy = (1 - t) * (1 - t) * 6 + 2 * (1 - t) * t * 40 + t * t * 6;
+    c.fillStyle = fl[i % 5]; c.beginPath(); c.moveTo(x - 7, yy); c.lineTo(x + 7, yy); c.lineTo(x, yy + 14); c.closePath(); c.fill();
+  }
+  // chairs (backs behind the table)
+  const nCh = val('chairs');
+  for (let i = 0; i < nCh; i++) {
+    const x = chairX(i);
+    c.fillStyle = lg(c, x - 18, 0, x + 18, 0, [[0, '#b87a46'], [1, '#8f5a2c']]); rr(c, x - 18, 78, 36, 52, 9); c.fill(); c.lineWidth = 1.4; c.strokeStyle = '#5c3a1a'; c.stroke();
+    c.fillStyle = 'rgba(255,255,255,.18)'; rr(c, x - 14, 82, 6, 40, 3); c.fill();
+  }
+  // guests
+  const gN = val('guests');
+  const seated = run && mo.id === 'arrive' ? bv(mo, 'guests')[0] : gN;
+  for (let j = 0; j < seated; j++) guestAt(c, chairX(GUEST_SEATS[j]), 94 + Math.sin(time * 2 + j) * 0.8, GUESTS[j], GUESTS[j].hat);
+  if (run && mo.id === 'arrive') {
+    for (let j = bv(mo, 'guests')[0]; j < bv(mo, 'guests')[1]; j++) {
+      const d = 0.4 + 0.7 * (j - bv(mo, 'guests')[0]), uu = c01((rt - d) / 1.7); if (rt < d) continue;
+      const e = ease(uu), x = lp(400, chairX(GUEST_SEATS[j]), e), hop = uu < 1 ? Math.abs(Math.sin(uu * 14)) * 5 : 0;
+      guestAt(c, x, 94 - hop, GUESTS[j], GUESTS[j].hat);
+    }
+  }
+  // table: top, cloth, scalloped edge
+  c.fillStyle = 'rgba(0,0,0,.18)'; c.beginPath(); c.ellipse(180, 232, 190, 9, 0, 0, Math.PI * 2); c.fill();
+  c.beginPath(); c.moveTo(g.vx0 - 10, 190); c.lineTo(6, 130); c.lineTo(354, 130); c.lineTo(g.vx1 + 10, 190); c.closePath();
+  c.fillStyle = lg(c, 0, 130, 0, 190, [[0, '#f2f7ff'], [1, '#dfe9f8']]); c.fill();
+  c.strokeStyle = 'rgba(120,150,200,.35)'; c.lineWidth = 1; c.stroke();
+  c.fillStyle = lg(c, 0, 190, 0, 230, [[0, '#cfdcf2'], [1, '#b5c6e6']]); c.fillRect(g.vx0 - 10, 190, vw + 20, 34);
+  c.fillStyle = 'rgba(255,255,255,.35)'; for (let x = g.vx0 - 10; x < g.vx1 + 10; x += 24) c.fillRect(x, 190, 8, 34);
+  c.fillStyle = '#b5c6e6'; for (let x = g.vx0 - 10; x < g.vx1 + 10; x += 24) { c.beginPath(); c.arc(x + 12, 224, 12, 0, Math.PI); c.fill(); }
+  c.fillStyle = 'rgba(0,0,0,.1)'; c.fillRect(g.vx0 - 10, 190, vw + 20, 3);
+  // plates
+  const nPl = val('plates');
+  for (let i = 0; i < nPl; i++) {
+    const x = chairX(i);
+    c.fillStyle = 'rgba(0,0,0,.12)'; c.beginPath(); c.ellipse(x, 150, 21, 7, 0, 0, Math.PI * 2); c.fill();
+    c.fillStyle = lg(c, x - 20, 0, x + 20, 0, [[0, '#ffffff'], [1, '#dfe6f1']]); c.beginPath(); c.ellipse(x, 147, 20, 6.8, 0, 0, Math.PI * 2); c.fill();
+    c.strokeStyle = '#c7d0e0'; c.lineWidth = 1; c.stroke();
+    c.fillStyle = '#f1f4fa'; c.beginPath(); c.ellipse(x, 147, 12.5, 4, 0, 0, Math.PI * 2); c.fill();
+  }
+  // cake with the pieces still on it; pieces fly to the plates in the "eat" moment
+  let n = val('cake'), eaten = 0;
+  const flying = [];
+  if (run && mo.id === 'eat') {
+    for (let j = 0; j < 5; j++) { const d = 0.3 + j * 0.5; if (rt >= d) eaten++; flying.push({ j, d }); }
+    n = bv(mo, 'cake')[0] - eaten;
+  }
+  const present = new Set(); for (let i = 0; i < 8; i++) if (CAKE_ORDER.indexOf(i) >= 8 - n) present.add(i); // the first (8 - n) of CAKE_ORDER are gone
+  cake(c, 180, 164, present);
+  for (const f of flying) {
+    const uu = c01((rt - f.d) / 0.8); if (rt < f.d || rt > f.d + 1.5) continue;
+    const sl = CAKE_ORDER[f.j + 8 - bv(mo, 'cake')[0]], a = (sl + 0.5) * Math.PI / 4;
+    const x0 = 180 + Math.cos(a) * 22, y0 = 164 + Math.sin(a) * 7, x1 = chairX(GUEST_SEATS[f.j]), y1 = 146, e = ease(uu);
+    const x = lp(x0, x1, e), y = lp(y0, y1, e) - Math.sin(uu * Math.PI) * 32, fade = uu < 1 ? 1 : 1 - c01((rt - f.d - 0.8) / 0.6);
+    c.save(); c.globalAlpha = fade; c.fillStyle = '#ffb3c9'; c.beginPath(); c.moveTo(x - 8, y + 3); c.lineTo(x + 8, y + 3); c.lineTo(x, y - 8); c.closePath(); c.fill();
+    c.fillStyle = '#d99a54'; c.fillRect(x - 8, y + 3, 16, 4); c.fillStyle = '#d6263b'; c.beginPath(); c.arc(x, y - 3, 2.4, 0, Math.PI * 2); c.fill(); c.restore();
+  }
+  // balloons tied to the back of chair 3
+  const nB = val('balloons'), pop = run && mo.id === 'pop', bN = pop ? bv(mo, 'balloons')[0] : nB;
+  const anchor = [150, 80];
+  for (let i = 0; i < bN; i++) {
+    const popping = pop && i === bN - 1, gone = popping && rt >= 1.1;
+    const bx = BAL[i][0] + Math.sin(time * 1.3 + i) * 2.2, by = BAL[i][1] + Math.sin(time * 1.1 + i * 1.7) * 3;
+    if (!gone) {
+      c.strokeStyle = 'rgba(70,60,50,.7)'; c.lineWidth = 1; c.beginPath(); c.moveTo(anchor[0], anchor[1]); c.quadraticCurveTo(lp(anchor[0], bx, 0.3) + Math.sin(time + i) * 4, lp(anchor[1], by, 0.5), bx, by + 19); c.stroke();
+      balloon(c, bx, by, BCOL[i], popping && rt > 0.75 ? 1 + (rt - 0.75) * 0.9 : 1);
+    } else { // burst: little scraps flying out
+      const k = c01((rt - 1.1) / 0.6); c.save(); c.globalAlpha = 1 - k;
+      for (let s = 0; s < 8; s++) { const a = s * Math.PI / 4 + 0.3; c.fillStyle = BCOL[i]; c.beginPath(); c.arc(bx + Math.cos(a) * (6 + k * 26), by + Math.sin(a) * (6 + k * 26) + k * k * 14, 3 - k * 1.5, 0, Math.PI * 2); c.fill(); }
+      c.strokeStyle = '#fff'; c.lineWidth = 2; c.beginPath(); c.arc(bx, by, 6 + k * 22, 0, Math.PI * 2); c.stroke(); c.restore();
+    }
+  }
+}
+
+// --- the depot at night -------------------------------------------------------------------------------------
+function depotScene(c, g, time, mo, V, rt) {
+  const done = V.phase === 'done', run = V.phase === 'run', vw = g.vx1 - g.vx0;
+  const p = done ? 1 : run ? c01(rt / mo.dur) : 0, ps = ease(p);
+  c.fillStyle = lg(c, 0, g.vy0, 0, 205, [[0, '#1c2342'], [1, '#2e3760']]); c.fillRect(g.vx0, g.vy0, vw, 206 - g.vy0);
+  // windows: night sky turns to dawn
+  for (const wx of [30, 145, 260]) {
+    const sk = c.createLinearGradient(0, 20, 0, 76);
+    sk.addColorStop(0, `rgb(${lp(11, 110, ps) | 0},${lp(18, 150, ps) | 0},${lp(48, 215, ps) | 0})`); sk.addColorStop(1, `rgb(${lp(29, 255, ps) | 0},${lp(43, 200, ps) | 0},${lp(92, 140, ps) | 0})`);
+    c.fillStyle = sk; rr(c, wx, 20, 70, 56, 4); c.fill();
+    c.fillStyle = `rgba(255,255,255,${0.9 * (1 - ps)})`; for (const [dx, dy] of [[12, 14], [48, 26], [28, 40], [58, 12]]) c.fillRect(wx + dx, 20 + dy, 2, 2);
+    if (wx === 145) { c.fillStyle = `rgba(255,246,210,${1 - ps})`; c.beginPath(); c.arc(wx + 46, 44 + ps * 14, 9, 0, Math.PI * 2); c.fill(); c.fillStyle = `rgba(255,214,120,${ps})`; c.beginPath(); c.arc(wx + 35, 70 - ps * 22, 10, 0, Math.PI * 2); c.fill(); }
+    c.lineWidth = 3; c.strokeStyle = '#11162b'; rr(c, wx, 20, 70, 56, 4); c.stroke(); c.beginPath(); c.moveTo(wx + 35, 20); c.lineTo(wx + 35, 76); c.moveTo(wx, 48); c.lineTo(wx + 70, 48); c.stroke();
+  }
+  // floor
+  c.fillStyle = lg(c, 0, 205, 0, 262, [[0, '#2a2f45'], [1, '#1b1f31']]); c.fillRect(g.vx0, 205, vw, g.vy1 - 205 + 2);
+  c.strokeStyle = 'rgba(255,255,255,.1)'; c.lineWidth = 2; c.setLineDash([14, 12]); c.beginPath(); c.moveTo(g.vx0, 240); c.lineTo(g.vx1, 240); c.stroke(); c.setLineDash([]);
+  // lamp and its light
+  c.strokeStyle = '#11162b'; c.lineWidth = 2; c.beginPath(); c.moveTo(180, g.vy0); c.lineTo(180, 8); c.stroke();
+  c.fillStyle = '#2b3358'; c.beginPath(); c.moveTo(166, 18); c.lineTo(194, 18); c.lineTo(188, 8); c.lineTo(172, 8); c.closePath(); c.fill();
+  const cone = lg(c, 0, 18, 0, 230, [[0, 'rgba(255,232,170,.26)'], [1, 'rgba(255,232,170,0)']]);
+  c.fillStyle = cone; c.beginPath(); c.moveTo(170, 18); c.lineTo(190, 18); c.lineTo(300, 230); c.lineTo(60, 230); c.closePath(); c.fill();
+  // fuel pump
+  c.fillStyle = lg(c, 330, 0, 356, 0, [[0, '#e5484d'], [1, '#a82a30']]); rr(c, 330, 148, 26, 64, 5); c.fill(); c.lineWidth = 1.5; c.strokeStyle = '#5a1418'; c.stroke();
+  c.fillStyle = '#e8f4fb'; rr(c, 334, 154, 18, 12, 2); c.fill();
+  c.strokeStyle = '#1b1f2a'; c.lineWidth = 3; c.beginPath(); c.moveTo(330, 176); c.bezierCurveTo(316, 176, 322, 208, 306, 192); c.stroke();
+  // the bus, with a new row of seats dropping in
+  c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.ellipse(160, 214, 152, 7, 0, 0, Math.PI * 2); c.fill();
+  const r0 = bv(mo, 'seats')[0] / 2, r1 = bv(mo, 'seats')[1] / 2, rows = done ? r1 : run ? lp(r0, r1, ease(c01((rt - 1.2) / 1.4))) : r0;
+  const door = run ? ease(c01((rt - 0.3) / 0.4)) * (1 - ease(c01((rt - 3.5) / 0.4))) : 0;
+  drawBus(c, { rows, door, ang: 0, sit: [] });
+  if (run && rt > 0.3 && rt < 4.0) { // a worker carries the seats in and comes out again
+    const wk = { skin: '#e0a878', shirt: '#ff9f45', hair: '#333', hat: true, path: mkPath([[372, 222], [272, 222], [272, 196], [242, 170], [272, 196], [272, 222], [372, 222]]), delay: 0.3, dur: 3.6 };
+    drawTransit(c, wk, rt);
+  }
+  c.fillStyle = `rgba(8,12,34,${0.36 * (1 - ps) + 0.03})`; c.fillRect(g.vx0, g.vy0, vw, g.vy1 - g.vy0);
+}
+
+// --- the football pitch -------------------------------------------------------------------------------------
+const FORM = [[0.04, 0.5], [0.2, 0.15], [0.2, 0.38], [0.2, 0.62], [0.2, 0.85], [0.36, 0.28], [0.36, 0.5], [0.36, 0.72], [0.47, 0.22], [0.47, 0.5], [0.47, 0.78]];
+function pitchScene(c, g, time, mo, V, rt) {
+  const done = V.phase === 'done', run = V.phase === 'run', vw = g.vx1 - g.vx0, px = 36, py = 56, pw = 288, ph = 170;
+  const p = done ? 1 : run ? c01(rt / mo.dur) : 0, ps = ease(p), goalT = 2.3;
+  c.fillStyle = lg(c, 0, g.vy0, 0, g.vy1, [[0, '#1f5a2e'], [1, '#2a7138']]); c.fillRect(g.vx0, g.vy0, vw, g.vy1 - g.vy0);
+  for (let i = 0; i < 8; i++) { c.fillStyle = i % 2 ? '#3c9a4c' : '#46a857'; c.fillRect(px + i * pw / 8, py, pw / 8 + 0.5, ph); }
+  c.fillStyle = 'rgba(0,0,0,.18)'; c.fillRect(px, py + ph, pw, 5);
+  c.strokeStyle = 'rgba(255,255,255,.92)'; c.lineWidth = 1.8; c.lineJoin = 'round';
+  c.strokeRect(px, py, pw, ph); c.beginPath(); c.moveTo(px + pw / 2, py); c.lineTo(px + pw / 2, py + ph); c.stroke();
+  c.beginPath(); c.arc(px + pw / 2, py + ph / 2, 24, 0, Math.PI * 2); c.stroke();
+  c.strokeRect(px, py + 40, 46, 90); c.strokeRect(px + pw - 46, py + 40, 46, 90); c.strokeRect(px, py + 63, 18, 44); c.strokeRect(px + pw - 18, py + 63, 18, 44);
+  c.fillStyle = '#fff'; c.beginPath(); c.arc(px + pw / 2, py + ph / 2, 2.4, 0, Math.PI * 2); c.fill();
+  // goals with nets
+  for (const gx of [px - 13, px + pw]) {
+    c.fillStyle = 'rgba(255,255,255,.14)'; c.fillRect(gx, py + 61, 13, 48);
+    c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1; c.beginPath();
+    for (let y = py + 61; y <= py + 109; y += 6) { c.moveTo(gx, y); c.lineTo(gx + 13, y); }
+    for (let x = gx; x <= gx + 13; x += 4.3) { c.moveTo(x, py + 61); c.lineTo(x, py + 109); }
+    c.stroke(); c.strokeStyle = '#fff'; c.lineWidth = 2.4; c.strokeRect(gx, py + 61, 13, 48);
+  }
+  // players: red team attacks to the right
+  const adv = 14 * ps;
+  FORM.forEach(([fx, fy], i) => {
+    for (const team of [0, 1]) {
+      const x = (team ? px + (1 - fx) * pw : px + fx * pw) + adv * (i === 0 ? 0.2 : 1) + Math.sin(time * 2.2 + i * 1.7 + team) * 1.6;
+      const y = py + fy * ph + Math.sin(time * 1.9 + i * 2.3 + team * 3) * 1.8;
+      c.fillStyle = 'rgba(0,0,0,.2)'; c.beginPath(); c.ellipse(x, y + 5, 6, 2.2, 0, 0, Math.PI * 2); c.fill();
+      c.fillStyle = team ? (i === 0 ? '#f5c84c' : '#3b82f6') : (i === 0 ? '#6bd08a' : '#e5484d');
+      c.beginPath(); c.arc(x, y, 5.8, 0, Math.PI * 2); c.fill(); c.lineWidth = 1.2; c.strokeStyle = '#fff'; c.stroke();
+    }
+  });
+  // the ball: dribbled forward, then shot into the right goal
+  const cx = px + pw / 2, cy = py + ph / 2;
+  let bx = cx, by = cy;
+  if (done) { bx = px + pw + 6; by = cy; }
+  else if (run) {
+    if (rt < 1.6) { const e = ease(c01(rt / 1.6)); bx = lp(cx, px + pw * 0.74, e); by = lp(cy, cy - 12, e); }
+    else if (rt < goalT) { const e = ease(c01((rt - 1.6) / (goalT - 1.6))); bx = lp(px + pw * 0.74, px + pw + 6, e); by = lp(cy - 12, cy, e) - Math.sin(e * Math.PI) * 10; }
+    else { bx = px + pw + 6; by = cy; }
+  }
+  c.fillStyle = 'rgba(0,0,0,.25)'; c.beginPath(); c.ellipse(bx, by + 5, 5, 2, 0, 0, Math.PI * 2); c.fill();
+  c.fillStyle = '#fff'; c.beginPath(); c.arc(bx, by, 5.2, 0, Math.PI * 2); c.fill(); c.lineWidth = 1; c.strokeStyle = '#222'; c.stroke();
+  c.fillStyle = '#222'; c.beginPath(); c.arc(bx, by, 1.8, 0, Math.PI * 2); c.fill();
+  // scoreboard: score and minute
+  const scored = done || (run && rt >= goalT), sc = bv(mo, 'score')[scored ? 1 : 0];
+  const mEnd = parseInt(bv(mo, 'mclock')[1], 10), minute = done ? mEnd : run ? Math.round(mEnd * c01(rt / mo.dur)) : parseInt(bv(mo, 'mclock')[0], 10);
+  const flash = run && rt >= goalT && rt < goalT + 0.8 ? 1 - (rt - goalT) / 0.8 : 0;
+  c.fillStyle = 'rgba(0,0,0,.3)'; rr(c, 96, 10, 168, 36, 12); c.fill();
+  c.fillStyle = flash > 0 ? `rgb(${lp(16, 90, flash) | 0},${lp(22, 70, flash) | 0},${lp(42, 10, flash) | 0})` : '#10162a'; rr(c, 94, 6, 172, 36, 12); c.fill();
+  c.lineWidth = 1.5; c.strokeStyle = flash > 0 ? '#f5c84c' : 'rgba(130,145,190,.5)'; c.stroke();
+  c.fillStyle = '#e5484d'; c.beginPath(); c.arc(110, 24, 6, 0, Math.PI * 2); c.fill(); c.fillStyle = '#3b82f6'; c.beginPath(); c.arc(166, 24, 6, 0, Math.PI * 2); c.fill();
+  c.fillStyle = '#fff'; c.font = '900 20px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(sc, 138, 25);
+  c.fillStyle = '#ffd96b'; c.font = '800 15px Nunito, sans-serif'; c.fillText(`${minute}′`, 226, 25);
+}
+
+// --- state -------------------------------------------------------------------------------------------------
+const mkV = () => ({ mi: 0, phase: 'predict', pick: new Set(), t0: 0, dur: 1, hits: [], counts: [], ended: false });
+const S = { v: { bus: mkV(), party: mkV(), next: mkV(), route: mkV() }, sec: null, ck: { t: 480, shown: 480, n: 0 } };
+const mode = () => (lab.view === 'bus' && S.sec ? S.sec : lab.view);
+const momOf = (m) => MOM[m][S.v[m].mi];
+
+function finish(m) {
+  const V = S.v[m]; if (!V || V.phase !== 'run') return;
+  if (m === 'bus' || m === 'route') applyBus(busOf(m));
+  if (m === 'route') {
+    V.counts.push(BUS.route.people.length); V.mi++; V.phase = 'predict'; V.ended = V.mi >= ROUTE.length; sfx.snap(); render(); return;
+  }
+  const mo = momOf(m); V.phase = 'done';
+  V.hits[V.mi] = mo.tiles.filter(([id, b, a]) => V.pick.has(id) === (b !== a)).length;
+  (V.hits[V.mi] === mo.tiles.length ? sfx.good : sfx.snap)();
+  render();
+}
+const settle = () => { for (const k of ['bus', 'party', 'next', 'route']) if (S.v[k].phase === 'run') finish(k); };
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+function go() {
+  const m = mode();
+  if (m === 'clock') { S.ck.t += 10; S.ck.n++; sfx.tick(); render(); return; }
+  const V = S.v[m];
+  if (V.phase === 'run') return;
+  if (m === 'route') {
+    if (V.ended) { S.v.route = mkV(); BUS.route = mkBus(0); sfx.click(); render(); return; }
+    const [on, off] = ROUTE[V.mi]; V.dur = planBus(BUS.route, off, on); V.phase = 'run'; V.t0 = now(); sfx.click(); render(); showStage(); return;
+  }
+  const n = MOM[m].length;
+  if (V.phase === 'predict') {
+    const mo = momOf(m);
+    V.dur = mo.scene === 'bus' ? planBus(BUS.main, mo.off, mo.on) : mo.dur;
+    V.phase = 'run'; V.t0 = now(); sfx.click(); render(); showStage();
+  } else if (V.mi < n - 1) { V.mi++; V.phase = 'predict'; V.pick = new Set(); sfx.click(); render(); }
+  else { S.v[m] = mkV(); if (m === 'bus') BUS.main = mkBus(MOM.bus[0].tiles[1][1]); sfx.click(); render(); }
+}
+
+// --- drawing -----------------------------------------------------------------------------------------------
+const lab = shell({ key: 'bus-stops', T, topics: TOPICS, views: ['bus', 'party', 'next'], onLang: () => render(), onView: () => { settle(); render(); } });
+const secret = secretLab('bus-stops', () => ({
+  secrets: [{ emo: '📊', title: T[lang].secrets.route[0], desc: T[lang].secrets.route[1] }, { emo: '🕐', title: T[lang].secrets.clock[0], desc: T[lang].secrets.clock[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  const m = mode(), V = S.v[m];
+  if (V && V.phase === 'run' && now() - V.t0 >= V.dur) finish(m);
+  if (m === 'clock') S.ck.shown += (S.ck.t - S.ck.shown) * Math.min(1, dt * 5);
+  const sc = Math.min(w / 360, h / 260), ox = (w - 360 * sc) / 2, oy = (h - 260 * sc) / 2;
+  const g = { vx0: -ox / sc, vx1: 360 + ox / sc, vy0: -oy / sc, vy1: 260 + oy / sc };
+  const rt = V && V.phase === 'run' ? now() - V.t0 : 0;
+  c.save(); c.translate(ox, oy); c.scale(sc, sc);
+  if (m === 'bus' || m === 'route' || m === 'clock') busScene(c, g, time, m, V, rt);
+  else {
+    const mo = momOf(m);
+    if (mo.scene === 'party') partyScene(c, g, time, mo, V, rt);
+    else if (mo.scene === 'depot') depotScene(c, g, time, mo, V, rt);
+    else pitchScene(c, g, time, mo, V, rt);
+  }
+  c.restore();
+});
+
+// --- controls ----------------------------------------------------------------------------------------------
+$('ctrlBody').innerHTML = `
+  <div id="bsAsk" class="bs-ask"></div>
+  <div id="bsTiles" class="bs-tiles"></div>
+  <div id="bsChart" class="bs-chart" hidden></div>
+  <div class="row2"><button class="btn" id="bsMain" type="button"></button></div>
+  <div class="row2" id="bsSec"><div class="chips" id="bsChips"></div></div>`;
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  if (b.dataset.tile) {
+    const m = mode(), V = S.v[m];
+    if (!V || V.phase !== 'predict') return;
+    V.pick.has(b.dataset.tile) ? V.pick.delete(b.dataset.tile) : V.pick.add(b.dataset.tile);
+    sfx.tick(); render();
+  } else if (b.id === 'bsMain') go();
+  else if (b.dataset.sec) {
+    if (!secret.unlocked()) return secret.open();
+    settle(); S.sec = S.sec === b.dataset.sec ? null : b.dataset.sec; sfx.click(); render();
+  }
+});
+
+// --- one render per change ---------------------------------------------------------------------------------
+const fmtVal = (id, v) => (id === 'fuel' ? `<span class="fb">${Array.from({ length: 8 }, (_, i) => `<i class="${i < v ? 'on' : ''}"></i>`).join('')}</span>` : id === 'pitch' ? '🟩' : esc(v));
+function tileHTML(t, id, b, a, state) { // state: {picked, done, flash, ro}
+  const changed = b !== a, { picked, done, ro } = state;
+  let cls = 'bs-tile', st;
+  if (ro) { cls += state.flash ? ' on pulse' : ''; st = state.st || ''; }
+  else if (done) { cls += picked === changed ? ' ok' : ' miss'; st = `${picked === changed ? '✓' : '✗'} ${changed ? t.chg : t.same}`; }
+  else { cls += picked ? ' on' : ''; st = picked ? t.will : t.stay; }
+  const was = !ro && done && changed ? `<span class="w">${esc(t.was)} ${fmtVal(id, b)}</span>` : '';
+  const v = !ro && !done ? b : a;
+  return `<button type="button" class="${cls}" data-tile="${id}"${ro || done ? ' disabled' : ''} aria-pressed="${!!picked}"><span class="e">${EMOJI[id]}</span><span class="n">${esc(t.c[id])}</span><span class="v">${fmtVal(id, v)}</span><span class="s">${esc(st)}</span>${was}</button>`;
+}
+function render() {
+  const t = T[lang], m = mode(), v = lab.view;
+  $('bsSec').hidden = v !== 'bus';
+  const open = secret.unlocked();
+  $('bsChips').innerHTML = ['route', 'clock'].map((k) => `<button type="button" class="chip secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-sec="${k}">${open ? `${k === 'route' ? '📊' : '🕐'} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`).join('');
+  $('bsChart').hidden = m !== 'route';
+  $('bsTiles').hidden = m === 'route';
+  lab.setFacts([]);
+  if (m === 'route') renderRoute(t); else if (m === 'clock') renderClock(t); else renderMoment(t, m);
+}
+function renderMoment(t, m) {
+  const V = S.v[m], mo = momOf(m), n = MOM[m].length, done = V.phase === 'done', last = V.mi === n - 1, tx = t.m[m][V.mi];
+  $('bsAsk').innerHTML = `<b>${esc(tx.t)}.</b> ${esc(t.ask)}`;
+  $('bsTiles').innerHTML = mo.tiles.map(([id, b, a]) => tileHTML(t, id, b, a, { picked: V.pick.has(id), done })).join('');
+  const mb = $('bsMain');
+  mb.textContent = V.phase === 'run' ? t.run : done ? (last ? t.again : t.nxt[m]) : t.go[m];
+  mb.disabled = V.phase === 'run';
+  lab.setGlow(`${COLOR[m]}33`);
+  if (!done) {
+    lab.setReadout(`${V.mi + 1}/${n}`, t.unit[m], '', COLOR[m]);
+    lab.setState({ emo: EMO[m][V.mi], title: tx.t, lead: tx.l, body: '', extra: '' });
+    return;
+  }
+  const hit = V.hits[V.mi], tot = mo.tiles.length, all = hit === tot;
+  const names = (ch) => mo.tiles.filter(([, b, a]) => (b !== a) === ch).map(([id]) => t.c[id].toLocaleLowerCase(lang)).join(', ') || '—';
+  const sum = V.hits.reduce((x, y) => x + y, 0);
+  lab.setReadout(`${V.mi + 1}/${n}`, t.unit[m], t.pillOf(hit, tot), COLOR[m]);
+  lab.setState({ emo: all ? '✅' : '🤔', title: all ? t.right : t.hits(hit, tot), lead: `${t.chgL}: ${names(true)}. ${t.sameL}: ${names(false)}.`, body: tx.w(mo),
+    extra: last ? `<div class="fine">${esc(t.all(sum, MOM[m].reduce((x, y) => x + y.tiles.length, 0)))}</div>` : '' });
+}
+function renderRoute(t) {
+  const V = S.v.route, r = t.route, k = V.counts.length, ended = V.ended, n = k ? V.counts[k - 1] : 0;
+  $('bsAsk').textContent = r.ask;
+  const bw = 26, gap = 13.5, base = 92, sc = 76 / SEATS, bx = (i) => 6 + i * (bw + gap);
+  $('bsChart').innerHTML = `<svg viewBox="0 0 320 112" role="img" aria-label="${esc(r.t0)}"><line x1="2" y1="${base}" x2="318" y2="${base}" stroke="#646C84" stroke-width="1"/>
+    <line x1="2" y1="${base - SEATS * sc}" x2="318" y2="${base - SEATS * sc}" stroke="#7aa7ff" stroke-width="2" stroke-dasharray="6 5"/>
+    <text x="318" y="${base - SEATS * sc - 4}" text-anchor="end" font-size="12" font-weight="800" fill="#7aa7ff">${SEATS} ${esc(r.seatsLbl)}</text>
+    ${ROUTE.map((_, i) => { const has = i < k, cnt = V.counts[i], hh = has ? Math.max(2, cnt * sc) : 0;
+      return `<rect x="${bx(i)}" y="${base - hh}" width="${bw}" height="${hh}" rx="5" fill="${i === k - 1 ? '#ffe07a' : '#f2b632'}"/>${has ? `<text x="${bx(i) + bw / 2}" y="${base - hh - 3}" text-anchor="middle" font-size="12" font-weight="900" fill="#EDEFF7">${cnt}</text>` : ''}<text x="${bx(i) + bw / 2}" y="108" text-anchor="middle" font-size="12" font-weight="700" fill="#98A0B8">${i + 1}</text>`; }).join('')}</svg>`;
+  const mb = $('bsMain'); mb.textContent = V.phase === 'run' ? t.run : ended ? r.again : r.btn; mb.disabled = V.phase === 'run';
+  lab.setGlow('#f2b63333');
+  lab.setReadout(`${k}/${ROUTE.length}`, r.unit, k ? `🧍 ${n}` : '', COLOR.route);
+  if (!k) lab.setState({ emo: '📊', title: r.t0, lead: r.l0, body: '', extra: '' });
+  else lab.setState({ emo: '📊', title: r.stopTitle(k, n), lead: ended ? r.end(SEATS) : r.lead, body: '', extra: '' });
+}
+function renderClock(t) {
+  const c = t.clock, n = S.ck.n, tm = timeStr(Math.round(S.ck.t)), people = BUS.clock.people.length;
+  $('bsAsk').textContent = c.ask;
+  const ro = (id, val, ch) => tileHTML(t, id, val, val, { ro: true, st: n ? (ch ? `↻ ${t.chg}` : `= ${t.same}`) : '', flash: ch && n > 0 });
+  $('bsTiles').innerHTML = ro('seats', SEATS) + ro('pass', people) + ro('wheels', WHEELS) + ro('fuel', 6) + ro('time', tm, true);
+  const mb = $('bsMain'); mb.textContent = c.btn; mb.disabled = false;
+  lab.setGlow('#f2b63333');
+  lab.setReadout(tm, c.unit, '', COLOR.clock);
+  lab.setState(n ? { emo: '🕐', title: c.title(tm), lead: c.lead, body: '', extra: '' } : { emo: '🅿️', title: c.t0, lead: c.l0, body: '', extra: '' });
+}
+render();
+</script>
+</body>
+</html>
