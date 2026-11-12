@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-12
 
 ### Labs
+- New lab `signals` “Across the Valley”: send a drum beat, a flag, a lantern or a fire across a valley by day, at night, in fog and through trees, pick the best signal for each case, and agree a code so the friend understands (571). (#497)
 - New lab `right-tool` “Which Saw?”: cut wood, plastic and metal with a panel saw, a tenon saw and a hacksaw and compare speed and edges, slice bread and tomatoes with three knives, and find the parts that keep hands safe (570). (#496)
 - New lab `from-flat` “From a Flat Sheet”: cut two slits in a card and guess what pops up, fold a floppy sheet into a zigzag, triangle or tube and load it with blocks, and slot two cards together into a standing tree (569). (#495)
 - New lab `alveoli` “A Tree in Your Chest”: branch the airways of a lung level by level and guess how big all the air sacs would be spread flat, thicken the wall of one alveolus and watch oxygen and carbon dioxide cross, and compare lungs with fish gills and emphysema (568). (#494)
