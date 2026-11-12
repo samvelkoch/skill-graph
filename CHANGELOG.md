@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-12
 
 ### Labs
+- New lab `wrap-box` “Wrap the Present”: guess how much paper a gift box needs and unfold it into a net, compare boxes made of the same 24 cubes, and wrap an open box and a tent (573). (#499)
 - New lab `diggers` “How Many Diggers?”: weigh apples and hire diggers for a trench while two graphs grow beside them, place your guesses on the graphs before the line appears, and sort everyday pairs into direct, inverse or neither (572). (#498)
 - New lab `signals` “Across the Valley”: send a drum beat, a flag, a lantern or a fire across a valley by day, at night, in fog and through trees, pick the best signal for each case, and agree a code so the friend understands (571). (#497)
 - New lab `right-tool` “Which Saw?”: cut wood, plastic and metal with a panel saw, a tenon saw and a hacksaw and compare speed and edges, slice bread and tomatoes with three knives, and find the parts that keep hands safe (570). (#496)
