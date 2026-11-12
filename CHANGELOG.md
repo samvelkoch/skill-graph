@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-12
 
 ### Labs
+- New lab `scissors-angles` “Open the Scissors”: open a pair of scissors to find the hidden angles at the pivot, fill a fan of angles around a point and work out a crossroads (angles on a line, around a point, vertically opposite; reflex angles) (555). (#480)
 Twenty labs for the areas with the fewest labs (English and literature, personal development, civics and history for ages 12–15).
 - New lab `persuade` “Win Them Over”: build a speech for a later school start and watch five very different listeners react, sort strong reasons from tricks, and find the reason that works for each listener (535). (#479)
 - New lab `prove-it` “Prove It!”: pick the sentence that really holds up a claim and watch the bridge take the weight, tell what a story says from what it lets you guess, and finish an answer that explains its quote (536). (#479)
