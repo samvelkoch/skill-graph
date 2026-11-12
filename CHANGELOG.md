@@ -14,6 +14,9 @@ Counts in brackets are totals after that day.
 
 ## 2026-11-12
 
+### Labs
+- New lab `cloud-docs` “One File for Everyone”: plan a class trip with three friends by emailing copies and then in one shared document, hand out view, comment and edit rights and test them, and bring back a deleted paragraph from the version history (564). (#490)
+
 ### Viewer
 A calmer screen for a first visit; nothing was removed. (#486)
 - The filter panel folds into sections with a one-line summary each (“Curricula · all 17”, “Progress · 0 known”). Only “Age and grade” starts open; a summary turns red when that section narrows the list. What you unfold is remembered on the device (`skillgraph.sideSec`).
