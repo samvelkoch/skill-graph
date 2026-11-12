@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-12
 
 ### Labs
+- New lab `fossil-clues` “What the Rock Remembers”: find shells on a mountain, whale bones in a desert and plants in Antarctica and guess what the place was like when they lived, match clue fossils to old worlds, and watch a sea floor rise into a mountain (560). (#485)
 - New lab `bus-stops` “The Bus Ride”: ride a bus from stop to stop and guess which dashboard numbers will change, watch a birthday table, and see that a number which stays the same on one trip can still change overnight (559). (#484)
 - New lab `polyudie` “Tribute from the Drevlians”: ride with a prince of Kiev on the winter tribute round and see what happens in 945 when Igor asks for more, compare twelve winters of rounds with Olga’s fixed tribute, and settle a quarrel by the Russkaya Pravda (558). (#483)
 - New lab `dualism` “Vienna and Budapest”: send the affairs of Austria-Hungary after 1867 to Vienna, Budapest or a common ministry, watch Budapest grow from 1870 to 1910, and follow the Tisza being made shorter while railways spread (557). (#482)
