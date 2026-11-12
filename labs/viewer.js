@@ -50,7 +50,7 @@
     #labsBtn .n { font: 800 11px/1 var(--sans); background: var(--red); color: #fff; border-radius: 999px; padding: 3px 6px; }
     #labsMenu { position: fixed; top: 70px; right: 26px; width: min(400px, calc(100vw - 28px)); max-height: calc(100vh - 90px); overflow: auto;
       padding: 16px; z-index: 20; display: none; background: rgba(12, 15, 25, .97); box-shadow: 0 18px 50px rgba(0, 0, 0, .55); }
-    #labsMenu.open { display: block; }
+    #labsMenu.open { display: block; box-shadow: 0 0 0 100vmax rgba(4, 6, 12, .6), 0 24px 60px rgba(0, 0, 0, .5); } /* the page behind steps back while the menu is open */
     #labsMenu h3 { font: 500 24px/1.1 var(--serif); margin: 0 0 4px; color: #fff; }
     #labsMenu .s { color: var(--mut); font-size: 12.5px; margin: 0 0 12px; }
     .labcard { display: flex; gap: 12px; align-items: flex-start; padding: 9px 12px; border-radius: 14px; border: 1px solid var(--stroke);
@@ -65,7 +65,8 @@
     #labsMenu .moreln { display: block; margin: -2px 2px 6px; font-size: 12px; font-weight: 800; color: var(--soft); text-decoration: none; text-align: right; }
     #labsMenu .moreln:hover { color: #fff; }
     #labsAll { width: 100%; justify-content: center; margin-bottom: 8px; text-decoration: none; }
-    #labsShow { width: 100%; justify-content: center; margin-bottom: 4px; white-space: normal; }
+    #labsShow { display: block; margin: 0 auto 4px; padding: 2px 6px; background: none; border: 0; color: var(--mut); font-size: 12.5px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; white-space: normal; }
+    #labsShow:hover { color: var(--ink); background: none; }
     #labsMenu .grp { font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); font-weight: 700; margin: 12px 2px 6px; }
     .labcard .m { display: flex; gap: 8px; align-items: center; margin-top: 6px; font-size: 11px; color: var(--faint); font-weight: 700; }
     #labsMenu .foot { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; font-size: 12px; color: var(--faint); }
