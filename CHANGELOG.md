@@ -12,6 +12,31 @@ Hungarian is on the site: [What's new](https://samvelkoch.github.io/skill-graph/
 
 Counts in brackets are totals after that day.
 
+## 2026-11-12
+
+### Labs
+Twenty labs for the areas with the fewest labs (English and literature, personal development, civics and history for ages 12–15).
+- New lab `persuade` “Win Them Over”: build a speech for a later school start and watch five very different listeners react, sort strong reasons from tricks, and find the reason that works for each listener (535). (#PRNUM)
+- New lab `prove-it` “Prove It!”: pick the sentence that really holds up a claim and watch the bridge take the weight, tell what a story says from what it lets you guess, and finish an answer that explains its quote (536). (#PRNUM)
+- New lab `glue-words` “Glue for Ideas”: join two ideas with a linking word and watch a reader robot picture the meaning, change one small word and change the whole story, then map how a paragraph holds together (537). (#PRNUM)
+- New lab `iceberg` “Under the Surface”: see what a character does above the water, dive for the reason underneath, find out why the same deed can hide different reasons, and collect clues to name a character’s nature (538). (#PRNUM)
+- New lab `word-colour` “One Word, a Different Feeling”: slide through words that mean nearly the same and watch a picture change its mood, spot the loaded words in two news reports of one event, and paint an evening sad or happy with three words (539). (#PRNUM)
+- New lab `epic-singer` “Sing It from Memory”: help a singer by the fire keep a long song going without a book, find the pieces a song repeats, and travel to the great sung stories of the world (540). (#PRNUM)
+- New lab `irony` “Didn’t See That Coming”: watch a stage where you see more than the characters do, sort three kinds of gap between words and things, and guess the ending of a famous short story before the curtain opens (541). (#PRNUM)
+- New lab `play-script` “From Page to Stage”: mark which words of a script are spoken and watch two actors perform it, change the stage directions to change the scene, and split a story into scenes where the place or time changes (542). (#PRNUM)
+- New lab `discussion-web` “The Talk Web”: watch two group talks draw their shapes from above, choose each next move in a class discussion and see the web grow, and sort the phrases that build a talk from the ones that end it (543). (#PRNUM)
+- New lab `describe-draw` “Draw What I Say”: describe a hidden picture to a robot that draws exactly what it hears, try the same words in a different order, and be the listener who picks the right picture (544). (#PRNUM)
+- New lab `caricature` “Funny Mirrors”: stretch a face away from the average and see when it becomes more recognisable, match three cartoons to three people, and find what a parody is really laughing at (545). (#PRNUM)
+- New lab `coping` “The Right Tool”: sort troubles you can change from ones you can’t, pick a tool from the box and watch the storm cloud shrink, and follow a week after a setback on a mood line (546). (#PRNUM)
+- New lab `rowing` “Row Together”: set four rowers’ pulls and guess which buoy the boat reaches, share out the jobs of a group poster and race the clock, and see what happens to a group that only hears its loudest voice (547). (#PRNUM)
+- New lab `stress-curve` “Under Pressure”: turn up the pressure on a juggler and draw the curve of how well they do, find out how the curve shifts for a hard task, and keep a stress bucket from overflowing over a week (548). (#PRNUM)
+- New lab `goal-setting` “Sharpen the Goal”: turn a foggy wish into a goal you can see and watch the target come into focus, climb a ladder of small steps week by week, and change the plan when a week goes wrong (549). (#PRNUM)
+- New lab `feedback` “Make It Better”: give a classmate feedback on a poster and watch both the poster and their face change, be the artist who receives comments, and listen to a short talk to give two stars and a wish (550). (#PRNUM)
+- New lab `upstander` “One Voice”: add more and more watchers to a schoolyard and see what happens to each one’s sense that it’s up to them, try safe ways to step in, and follow a mean picture through a group chat (551). (#PRNUM)
+- New lab `rights` “Rights Next Door”: run a street of neighbours whose freedoms grow until they bump into each other, pair rights with the duties that keep them working, and discover the two ways countries decide who is born a citizen (552). (#PRNUM)
+- New lab `norms` “Who Will Stop You?”: drop rules into a sorting machine and see who reacts when each is broken, take apart a bike sale into who, what and which promises, and find the ages at which the law starts to treat you differently (553). (#PRNUM)
+- New lab `enlightenment` “Dare to Know”: release a banned book on a map of 1750s Europe and see if any king can stop it, match four thinkers to the problems they wanted to solve, and test which reforms the “enlightened” monarchs would accept (554). (#PRNUM)
+
 ## 2026-11-11
 
 ### Labs
