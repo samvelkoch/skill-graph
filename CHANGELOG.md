@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-12
 
 ### Labs
+- New lab `right-tool` “Which Saw?”: cut wood, plastic and metal with a panel saw, a tenon saw and a hacksaw and compare speed and edges, slice bread and tomatoes with three knives, and find the parts that keep hands safe (570). (#496)
 - New lab `from-flat` “From a Flat Sheet”: cut two slits in a card and guess what pops up, fold a floppy sheet into a zigzag, triangle or tube and load it with blocks, and slot two cards together into a standing tree (569). (#495)
 - New lab `alveoli` “A Tree in Your Chest”: branch the airways of a lung level by level and guess how big all the air sacs would be spread flat, thicken the wall of one alveolus and watch oxygen and carbon dioxide cross, and compare lungs with fish gills and emphysema (568). (#494)
 - New lab `tag-fish` “How Many Fish in the Lake?”: tag, release and recatch fish to estimate a lake you cannot count, break the method on purpose and see whether the estimate comes out too big or too small, and count a forest from five random squares (567). (#493)
