@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-13
 
 ### Labs
+- New lab `yuri-day` “St George’s Day”: stand at the manor gate in 1497, 1581, 1597 and 1649 and decide whether a Russian peasant may leave, chase a runaway as the search term grows from five years to forever, and split a serf’s week between the lord’s field and his own (581). (#507)
 - New lab `emancipation` “The Freedom of 1861”: sort what a Russian peasant could do before and after 1861, redraw a village’s fields and run the redemption payments year by year, and match the zemstvo, court, city and army reforms that followed (580). (#506)
 - New lab `wwii-turn` “The Turning Point”: compare how many aircraft the Allies and the Axis built each year, place Midway, El Alamein, Stalingrad and Kursk on a timeline, and move a schematic map of Europe date by date (579). (#505)
 - New lab `steel-race` “The Steel Race”: run three furnaces from 1870 to 1913 on a steel output index and see how 7 % a year beats 1 %, place the inventions of the Second Industrial Revolution by year and country, and follow the dreadnought race (578). (#504)
