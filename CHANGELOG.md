@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-13
 
 ### Labs
+- New lab `olympus` “The Gods of Olympus”: find the god of each sign falling from the clouds, choose whom a Greek would ask in a storm, with a letter or at a wedding, and pair six Greek gods with their Roman names (591). (#517)
 - New lab `clay` “Shape It, Stand It”: make a pinch pot, a coil pot and a slab with one lump of clay, give a clay horse thin or thick legs and let it dry, and join a handle by pressing, after drying, or with scoring and slip (590). (#516)
 - New lab `leaf-inside` “Inside a Leaf”: slice a leaf and guess the layer with the most chloroplasts, drive its stomata with light and soil-water sliders, and sort a potato, an onion, an iris and a carrot into stems and roots (589). (#515)
 - New lab `coprolite` “What Did the Dinosaur Eat?”: guess meat or plants, then saw three coprolites open and search them with a magnifier, work out which dinosaur most likely left them, and match teeth, stomach contents, bite marks and coprolites to the questions they answer (588). (#514)
