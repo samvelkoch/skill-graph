@@ -12,6 +12,11 @@ Hungarian is on the site: [What's new](https://samvelkoch.github.io/skill-graph/
 
 Counts in brackets are totals after that day.
 
+## 2026-11-13
+
+### Labs
+- New lab `price-tag` “The Price Tag”: put a price rise and an equal discount on a pair of trainers and guess where the price lands, undo a sale to find the old price, and race three small rises against one big one (574). (#500)
+
 ## 2026-11-12
 
 ### Labs
