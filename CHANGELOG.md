@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-13
 
 ### Labs
+- New lab `clay` “Shape It, Stand It”: make a pinch pot, a coil pot and a slab with one lump of clay, give a clay horse thin or thick legs and let it dry, and join a handle by pressing, after drying, or with scoring and slip (590). (#516)
 - New lab `leaf-inside` “Inside a Leaf”: slice a leaf and guess the layer with the most chloroplasts, drive its stomata with light and soil-water sliders, and sort a potato, an onion, an iris and a carrot into stems and roots (589). (#515)
 - New lab `coprolite` “What Did the Dinosaur Eat?”: guess meat or plants, then saw three coprolites open and search them with a magnifier, work out which dinosaur most likely left them, and match teeth, stomach contents, bite marks and coprolites to the questions they answer (588). (#514)
 - New lab `she-wolf` “The Twins and the She-Wolf”: turn the pages of the legend of Romulus and Remus and guess each next page, sort what the story says from what archaeologists found, and find the Palatine and the Aventine among Rome's seven hills (587). (#513)
