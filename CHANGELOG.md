@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-13
 
 ### Labs
+- New lab `schism` “Rome and Constantinople”: guess whether Clovis, Bulgaria, Poland, Rus and Hungary turned to Rome or Constantinople, sort what divided the churches in 1054, and tell Catholic from Orthodox on a street of churches and a calendar (601). (#527)
 - New lab `speed-energy` “Roll It Faster”: release a ball from four marks on a ramp and flag where the box stops, knock down a block tower at three speeds, and race a heavy and a light ball (600). (#526)
 - New lab `choice-chamber` “Where Do They Like to Live?”: set up a choice chamber and guess where ten woodlice gather, give a woodlouse, an earthworm, a butterfly and a pond skater their spot in a garden, and move the wet paper for a fair test (599). (#525)
 - New lab `crow-puzzle` “A Puzzle for a Crow”: choose stones or corks and how many a crow drops to raise the water in three tubes, match a crow, a chimpanzee, a sea otter and an octopus with their tools, and run the mirror test (598). (#524)
