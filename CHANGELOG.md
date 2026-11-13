@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-13
 
 ### Labs
+- New lab `leaf-inside` “Inside a Leaf”: slice a leaf and guess the layer with the most chloroplasts, drive its stomata with light and soil-water sliders, and sort a potato, an onion, an iris and a carrot into stems and roots (589). (#515)
 - New lab `coprolite` “What Did the Dinosaur Eat?”: guess meat or plants, then saw three coprolites open and search them with a magnifier, work out which dinosaur most likely left them, and match teeth, stomach contents, bite marks and coprolites to the questions they answer (588). (#514)
 - New lab `she-wolf` “The Twins and the She-Wolf”: turn the pages of the legend of Romulus and Remus and guess each next page, sort what the story says from what archaeologists found, and find the Palatine and the Aventine among Rome's seven hills (587). (#513)
 - New lab `carbon-chains` “Carbon Chains”: grow a carbon chain and predict the next boiling point on the graph, compare butane and isobutane, and swap in an −OH or −COOH group to see what mixes with water (586). (#512)
