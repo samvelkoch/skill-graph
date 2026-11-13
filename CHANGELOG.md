@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-13
 
 ### Labs
+- New lab `comets` “Tailed Visitors”: guess where a comet moves fastest on its stretched orbit, point the way its tail streams, and sort Pluto, Titan, Halley, Mercury, Eros and Ceres by the rules for planets, dwarf planets, moons, asteroids and comets (596). (#522)
 - New lab `bird-flight` “Built to Fly”: cut open a pigeon's and a rat's bone and weigh feathers against a skeleton, match four wing shapes to four ways of flying, and zoom into a feather down to its barbs and hooks (595). (#521)
 - New lab `decomposers` “Where Do the Leaves Go?”: run a forest floor for ten years with and without decomposers, match worms, fungi, woodlice and bacteria to their jobs, and fill a compost heap to see what rots in months, in years or never (594). (#520)
 - New lab `antarctica` “Whose Ice?”: find where the seven claims on Antarctica overlap and freeze them with the 1959 treaty, sort six plans into allowed and banned, and see who staffs six research stations in summer and winter (593). (#519)
