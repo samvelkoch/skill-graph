@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-13
 
 ### Labs
+- New lab `antarctica` “Whose Ice?”: find where the seven claims on Antarctica overlap and freeze them with the 1959 treaty, sort six plans into allowed and banned, and see who staffs six research stations in summer and winter (593). (#519)
 - New lab `carbon-cycle` “A Carbon Atom’s Journey”: lead one carbon atom between air, plants, a deer, soil, ocean and coal, guess the biggest carbon store before the bars grow, and burn fossil fuels to see where the carbon goes (592). (#518)
 - New lab `olympus` “The Gods of Olympus”: find the god of each sign falling from the clouds, choose whom a Greek would ask in a storm, with a letter or at a wedding, and pair six Greek gods with their Roman names (591). (#517)
 - New lab `clay` “Shape It, Stand It”: make a pinch pot, a coil pot and a slab with one lump of clay, give a clay horse thin or thick legs and let it dry, and join a handle by pressing, after drying, or with scoring and slip (590). (#516)
