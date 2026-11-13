@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-13
 
 ### Labs
+- New lab `interwar` “Europe Between the Wars”: guess how many of 26 European states are still democracies at the end of 1938 and play the map from 1920, predict German unemployment and votes through the crisis, and sort six signs of democratic and totalitarian states (607). (#533)
 - New lab `vectors` “Arrows on the Map”: compare pairs of arrows placed anywhere on an island map, predict where a+b+c and a−b end, and multiply an arrow by −1, ½ and 2 while its x and y steps update (606). (#532)
 - New lab `conquest` “A New Homeland”: follow the Hungarians across the steppe into the Carpathian Basin and pick what the land offered, sort the magic stag and Emese's dream from recorded history, and order 895, 1000, 1222 and 1241–42 (605). (#531)
 - New lab `skew-lines` “Lines in a Room”: turn a room and sort pairs of edges into crossing, parallel and skew, find which planes meet and along which line, and check a pole with one and two right angles (604). (#530)
