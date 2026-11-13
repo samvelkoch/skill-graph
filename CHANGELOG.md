@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-13
 
 ### Labs
+- New lab `wwii-turn` “The Turning Point”: compare how many aircraft the Allies and the Axis built each year, place Midway, El Alamein, Stalingrad and Kursk on a timeline, and move a schematic map of Europe date by date (579). (#505)
 - New lab `steel-race` “The Steel Race”: run three furnaces from 1870 to 1913 on a steel output index and see how 7 % a year beats 1 %, place the inventions of the Second Industrial Revolution by year and country, and follow the dreadnought race (578). (#504)
 - New lab `extinctions` “When Life Nearly Ended”: plant flags where you think life crashed on a 540-million-year curve and lift the curtain, guess the deadliest extinction and match each one to its cause, and watch who moved into the emptied places (577). (#503)
 - New lab `three-mammals` “Three Ways to Be Born”: guess how small a newborn kangaroo is and follow a platypus, a kangaroo and a horse from the very start of life, tick what every mammal shares, and place egg-layers and pouched mammals on the world map (576). (#502)
