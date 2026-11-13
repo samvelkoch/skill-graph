@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-13
 
 ### Labs
+- New lab `reformation` “Theses on the Door”: buy an indulgence in 1517 and guess what Luther asked for first, choose the faith of thirteen German lands as their prince under the Peace of Augsburg, and order the wars of religion up to 1648 and their cost (611). (#537)
 - New lab `vienna-1815` “Europe After Napoleon”: guess how the other powers answer Russia's and Prussia's claims and level a balance of lands, switch the map between 1812 and 1815, and order the Balkan steps from 1815 to 1908 (610). (#536)
 - New lab `europe-east` “From West to East”: travel from Dublin to Yekaterinburg and watch the climate chart and the summer–winter range change, sort twelve countries into north, west, south and east, and trace raindrops from the Alps and the Valdai Hills to four seas (609). (#535)
 - New lab `troubles` “The Time of Troubles”: guess how many men held Moscow's throne before Mikhail Romanov and run 1598–1613, predict the price of rye in the famine after the 1600 eruption, and follow Minin and Pozharsky to the Zemsky Sobor of 1613 (608). (#534)
