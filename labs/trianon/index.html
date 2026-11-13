@@ -1,0 +1,927 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Trianon · Skill Graph</title>
+<meta name="description" content="Guess how much land stayed, find where the Hungarians lived and see what the new 1920 border cut through, on a map of the old Kingdom of Hungary. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  #stage canvas { touch-action: pan-y; cursor: pointer; }
+  .tr-q { font: 500 18px/1.2 var(--serif); color: #fff; margin: 0 0 10px; text-wrap: balance; }
+  .tr-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tr-chip { flex: 1 1 auto; min-height: 40px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    color: var(--soft); font: 800 13.5px/1.2 var(--sans); cursor: pointer; text-align: center; }
+  .tr-chip:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .tr-chip:disabled { cursor: default; }
+  .tr-chip.on { background: #fff; color: var(--bg); border-color: #fff; }
+  .tr-chip.good { background: rgba(61, 220, 151, .2); border-color: var(--ok); color: #fff; }
+  .tr-chip.bad { background: rgba(255, 59, 48, .22); border-color: var(--red); color: #fff; }
+  .tr-chip.dim { opacity: .55; }
+  .tr-sub { margin: 14px 0 8px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-weight: 700; }
+  .tr-go { margin-top: 12px; min-height: 42px; }
+  .tr-go:disabled { opacity: .35; cursor: default; }
+  .tr-verdict { margin-top: 10px; font-weight: 800; font-size: 13.5px; line-height: 1.35; }
+  .tr-verdict.good { color: var(--ok); } .tr-verdict.bad { color: var(--wip); }
+  .tr-fine { font-size: 11.5px; line-height: 1.4; color: var(--faint); margin-top: 8px; }
+  #ctrl input[type=range].big { --track: linear-gradient(90deg, #4f6a58, #b9d3a6); }
+  .tr-secrow { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--stroke); }
+  @media (max-width: 760px) {
+    #stage { height: min(118vw, 520px); }
+    body[data-v=people] #stage, body[data-v=cuts] #stage { height: min(124vw, 540px); }
+    body[data-v=sec] #stage { height: min(124vw, 540px); }
+    .tr-q { font-size: 17px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, store, $, esc, clamp, lerp, ruPlural, lang } from '../lab.js';
+import { GLOBE } from '../poles/geo.js';
+
+// --- facts and sources -------------------------------------------------------------------------------------------
+// Every number below was read from the pages named here (Wikipedia, English edition) while building the lab.
+const WP = 'https://en.wikipedia.org/wiki/';
+const U = { trianon: WP + 'Treaty_of_Trianon', kom: WP + 'Kom%C3%A1rom', sop: WP + 'Sopron', gt: WP + 'Grand_Trianon', koh: WP + 'Kingdom_of_Hungary' };
+const AREA0 = 282870, POP0 = 18264533;   // Kingdom of Hungary without Croatia-Slavonia, 1910 (U.koh)
+const AREA1 = 93073, POP1 = 7600000;     // Hungary after 1920: 93,073 km² and "7.6 million people" (U.trianon, rounded in the source)
+const MINOR1920 = 10.4;                  // 1920 census: share of the population in post-Trianon Hungary with a minority mother tongue (U.trianon)
+const RAIL = { rail: 62, road: 74, canal: 65, farm: 61 }; // share of the old kingdom's railroads, public roads, canals, arable land in the neighbours' territory (U.trianon, 1937 source)
+// 1910 census, mother tongue, the five regions of the table in U.trianon (the Croatia-Slavonia, Fiume and 1921 Prekmurje rows are left out)
+const REGS = [
+  { id: 'ro', hu: 1658045, p: 31.7, at: [23.4, 46.3], oth: [['rom', 54], ['ger', 10.5]] },
+  { id: 'sk', hu: 881320, p: 30.2, at: [19.4, 48.7], oth: [['slk', 57.9], ['ger', 6.8]] },
+  { id: 'vo', hu: 425672, p: 28.1, at: [19.8, 45.55], oth: [['sc', 39.8], ['ger', 21.4]] },
+  { id: 'ru', hu: 185433, p: 30.6, at: [23.0, 48.4], oth: [['rut', 54.5], ['ger', 10.6]] },
+  { id: 'at', hu: 26225, p: 9, at: [16.45, 47.4], oth: [['ger', 74.4], ['cro', 15]] },
+];
+const REG_TOT = REGS.reduce((a, r) => a + r.hu, 0);
+const REG_TOP = REGS.reduce((a, r) => (r.hu > a.hu ? r : a), REGS[0]).id;
+const SOP_YES = 65;                      // Sopron vote, 14 December 1921: 65 % for Hungary (U.sop)
+const D = (y, m, d) => Date.UTC(y, m - 1, d);
+const EVENTS = [ // the road to the signing, dates from U.trianon
+  { k: 'bel', t: D(1918, 11, 13) }, { k: 'inv', t: D(1919, 12, 1) }, { k: 'par', t: D(1920, 1, 7) },
+  { k: 'sig', t: D(1920, 6, 4) }, { k: 'inf', t: D(1921, 7, 26) }, { k: 'sop', t: D(1921, 12, 14) },
+];
+const DAYS_PEN = Math.round((EVENTS[3].t - EVENTS[0].t) / 864e5);
+
+// --- texts -------------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Trianon', title: 'Trianon',
+    lines: [['Guess how much land', ' stayed.'], ['Find where the Hungarians', ' lived.'], ['See what the new border', ' cut through.']],
+    views: { border: '🗺️ Border', people: '👥 People', cuts: '✂️ Cuts' },
+    months: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+    km2: 'km²', fm: (x) => `${x.toFixed(2)} M`,
+    leg: { hu: 'Hungary', cs: 'Czechoslovakia', ro: 'Romania', shs: 'Kingdom of SCS', at: 'Austria', cro: 'Croatia-Slavonia: not counted' },
+    croLab: ['Croatia-', 'Slavonia'], schem: 'schematic · today’s borders',
+    again: 'Try again', check: 'Check', right: 'Right!', first: 'Make your guess in Border first',
+    b: {
+      q: 'How much of the old kingdom’s land stayed inside Hungary’s new border?', ends: ['nothing', 'all of it'], go: 'Draw the 1920 border',
+      gArea: 'Area', gPop: 'People', yrs: ['1910', '1920'],
+      preTitle: 'The old kingdom', preLead: (a) => `Before 1920 the Kingdom of Hungary covered ${a} km² (Croatia-Slavonia not counted).`,
+      preBody: 'Slide to guess how much of this land lies inside Hungary’s border after the Treaty of Trianon, then draw the border.',
+      title: (s) => `${s} % stayed`, lead: (k, a, p) => `Hungary kept ${k} of ${a} km² and about ${p} % of the people.`,
+      ok: (g) => `Right! Your guess, ${g} %, was close.`, no: (g) => `Not quite: you guessed ${g} %.`,
+      dens: (d1, d0) => `The land that stayed was more crowded: about ${d1} people per km² against ${d0} before (computed).`,
+      fineA: 'Croatia-Slavonia was a separate kingdom in the union and is not counted; Fiume (Rijeka) is not drawn. The dashed bar is your guess.',
+      fine: 'Croatia-Slavonia was a separate kingdom in the union and is not counted; Fiume (Rijeka) is not drawn. The dashed bar is your guess. 1910 census; the area after 1920 and the 7.6 million people (rounded in the source) are from Wikipedia’s Treaty of Trianon page.',
+      valPre: 'your guess', valSub: (k, a) => `of the area stayed: ${k} of ${a} km²`,
+    },
+    p: {
+      q: 'Which region that ended up outside the new border had the most Hungarian speakers?',
+      reg: { ro: 'Transylvania (Romania)', sk: 'Upper Hungary (Slovakia)', vo: 'Vojvodina (Serbia)', ru: 'Ruthenia (Ukraine)', at: 'Burgenland (Austria)' },
+      short: { ro: 'Romania', sk: 'Slovakia', vo: 'Vojvodina', ru: 'Ruthenia', at: 'Burgenland' },
+      full: { ro: 'Transylvania and parts of Partium and Banat (now Romania)', sk: 'Upper Hungary (now Slovakia)', vo: 'Vojvodina (now Serbia)', ru: 'Carpathian Ruthenia (now Ukraine)', at: 'Burgenland (now Austria)' },
+      lg: { rom: 'Romanian', slk: 'Slovak', sc: 'Serbo-Croatian', rut: 'Ruthenian', ger: 'German', cro: 'Croatian' },
+      modes: ['How many', 'What share'], inside: 'Hungary 1920', hu: 'Hungarian speakers', other: 'other languages',
+      preTitle: 'Who lived where?', preLead: 'The 1910 census asked for a mother tongue, not for ethnicity.', preBody: 'Five regions are listed. Pick the one with the most Hungarian speakers, then check.',
+      pick: (n) => `Your pick: ${n}`,
+      ok: 'Right!', no: 'Not quite',
+      lead: (n, c) => `${n}: ${c} Hungarian speakers, the most of the five regions.`,
+      body: (t, m) => `About ${t} million together. In none of the regions were they more than ${m} % of the people. Tap a region to see who else lived there.`,
+      selLead: (c, p) => `${c} Hungarian speakers: ${p} % of the people there (1910).`, selBody: (o) => `Main other languages: ${o}.`,
+      valPre: 'Hungarian speakers outside the new border', valSub: 'in these five regions, 1910, by mother tongue',
+      fine: 'Prekmurje (a 1921 count of 14,065 Hungarian speakers) and some small border strips are not in the list. Croatia-Slavonia is not counted. Numbers: 1910 census as printed on Wikipedia’s Treaty of Trianon page; the sum is computed. Inside Hungary: 1920 census; 10.4 % spoke a minority language, the rest is shown as Hungarian speakers (computed).',
+    },
+    c: {
+      q: 'What share of the old kingdom’s railways ended up in the lost lands?', opts: ['About a third', 'About three fifths', 'About a fifth'], ok: 1,
+      pairs: ['Komárom', 'Debrecen / Oradea'], pairsHead: 'Tap a town on the map or here',
+      spokeFine: 'Schematic: seven straight-ish spokes from Budapest, not real routes. The network really was radial, with Budapest in the centre.',
+      preTitle: 'A star around Budapest', preLead: 'The road and railway network had a radial shape, with Budapest in the centre.',
+      preBody: 'Seven spokes (a sketch, not real routes) run from Budapest to towns near the edge of the kingdom. Guess the railway share, then see where the border cuts them.',
+      title: (r, ok) => `${ok ? 'Right! ' : ''}${r} % of the railways`,
+      lead: (r) => `About ${r} % of the old kingdom’s railways lay in the neighbours’ territory (a 1937 source quoted on Wikipedia).`,
+      body: (n, a) => `The border cuts all ${n} spokes on this map. Roads (${a.road} %), canals (${a.canal} %) and farmland (${a.farm} %) were hit too.`,
+      ends: { cs: 'Czechoslovakia', ro: 'Romania', shs: 'the Kingdom of Serbs, Croats and Slovenes (later Yugoslavia)', at: 'Austria' },
+      townLead: (d) => `${d} km from Budapest in a straight line (computed from the map).`, townBody: (s) => `It was part of the kingdom. The 1920 border placed it in ${s}.`, hn: 'Hungarian name',
+      komTitle: 'Komárom and Komárno', komLead: 'The two banks of the Danube were joined by an iron bridge in 1892 and became one city in 1896. In 1920 the river became the border.',
+      komBody: 'Today three bridges connect Komárom (Hungary) and Komárno (Slovakia).',
+      debTitle: 'Debrecen and Oradea', debLead: (d) => `About ${d} km apart in a straight line (computed from the map).`,
+      debBody: 'Oradea (Hungarian: Nagyvárad) became part of Romania with the Treaty of Trianon in 1920; Debrecen stayed in Hungary. The new border ran between them.',
+      valPre: 'of the railways in the lost lands', valSub: 'of the railways lay in the neighbours’ territory',
+      bars: { rail: 'Railways', road: 'Roads', canal: 'Canals', farm: 'Farmland' }, barsHead: 'In the neighbours’ territory',
+      names: { bud: 'Budapest', poz: 'Bratislava', kas: 'Košice', mun: 'Mukachevo', klu: 'Cluj', tem: 'Timișoara', sza: 'Subotica', csa: 'Čakovec', nag: 'Oradea', deb: 'Debrecen', kom: 'Komárom / Komárno' },
+      hung: { poz: 'Pozsony', kas: 'Kassa', mun: 'Munkács', klu: 'Kolozsvár', tem: 'Temesvár', sza: 'Szabadka', csa: 'Csáktornya' },
+    },
+    facts: {
+      b0: [{ emo: '📨', text: 'The Hungarian delegation was officially invited to the peace conference on 1 December 1919, when the new borders were nearly settled.', src: U.trianon }],
+      b1: [{ emo: '📨', text: 'The Hungarian delegation was officially invited to the peace conference on 1 December 1919, when the new borders were nearly settled.', src: U.trianon },
+        { emo: '⚓', text: 'Hungary lost its access to the sea: the port of Rijeka (Fiume) was left outside the new border.', src: U.trianon }],
+      p0: [{ emo: '📋', text: 'The 1910 census recorded each person’s language and religion, but not ethnicity.', src: U.trianon }],
+      p1: [{ emo: '📋', text: 'The 1910 census recorded each person’s language and religion, but not ethnicity.', src: U.trianon },
+        { emo: '📏', text: 'Some mostly Hungarian settlements, with more than two million people, lay in a strip typically 20–50 km wide along the new borders, on the far side.', src: U.trianon }],
+      c0: [{ emo: '🏭', text: 'After Trianon, Hungary kept 90 % of the old kingdom’s engineering and printing industry, but only 11 % of its timber and 16 % of its iron.', src: U.trianon }],
+      c1: [{ emo: '🚂', text: 'Many roads and railways that linked the radial lines ended up in different countries, and much of the rail cargo traffic of the new states was nearly paralysed.', src: U.trianon },
+        { emo: '🏭', text: 'After Trianon, Hungary kept 90 % of the old kingdom’s engineering and printing industry, but only 11 % of its timber and 16 % of its iron.', src: U.trianon }],
+      kom: [{ emo: '🛂', text: 'Between the wars people could cross between Komárom and Komárno with a passport; the bridge closed at 23:00.', src: U.kom }],
+      sop: [{ emo: '🏛️', text: 'Since the vote Sopron has been called Civitas Fidelissima, “The Most Loyal City”, and the anniversary of the vote is a city holiday.', src: U.sop },
+        { emo: '🗳️', text: 'The vote was held on 14 December 1921; French and Italian officers arrived to supervise the voting districts.', src: U.sop }],
+      pen: [{ emo: '🏰', text: 'The Grand Trianon was built for Louis XIV: construction began in June 1687 and finished in January 1688.', src: U.gt }],
+    },
+    sec: {
+      a: ['The Sopron vote', 'One town asked its people'], b: ['The signing', 'From armistice to treaty'],
+      aQ: 'In the vote in Sopron and eight villages, how many of 100 voters chose Hungary?', aOpts: ['About a third', 'About two thirds', 'Nearly all'], aOk: 1,
+      count: 'Count the votes', eras: ['1919: Saint-Germain', 'December 1921: the vote'], forHu: 'chose Hungary', forAt: 'chose Austria', sopron: 'Sopron', burg: 'Burgenland', vienna: 'Vienna', brat: 'Bratislava',
+      aPreTitle: 'A border by ballot', aPreLead: 'The German-inhabited west of the kingdom was first awarded to Austria in 1919. Sopron and eight villages then held a local vote.', aPreBody: 'Guess how many of 100 voters chose Hungary, then count the votes.',
+      aTitle: (n) => `${n} of 100 chose Hungary`, aLead: 'Sopron and eight surrounding villages stayed in Hungary. The western parts of the counties, now Burgenland, went to Austria.',
+      aBody: 'It was the only place where the result of a vote was a factor in a border decision (a controversial, local plebiscite).', aEra: 'Before the vote the area around Sopron was awarded to Austria.',
+      aVal: 'voters chose Hungary', aValPre: 'voters, to be counted',
+      bQ: 'How long was it from the armistice of Belgrade (13 November 1918) to the signing at Trianon?', bOpts: ['About half a year', 'About a year', 'About a year and a half'], bOk: 2,
+      prev: '← Earlier', next: 'Later →', days: (n) => `${n} days`,
+      bPreTitle: 'From armistice to treaty', bPreLead: 'The treaty is named after the Grand Trianon, a palace in the park of Versailles.', bPreBody: 'Guess how long it took from the first armistice to the signature, then follow the events.',
+      bTitle: (n) => `${n} days`, bVal: 'from the armistice to the signing',
+      ev: {
+        bel: ['Armistice of Belgrade', 'Hungary signs an armistice with the Allies; demarcation lines mark the territory left under Hungarian control.'],
+        inv: ['Hungary invited', 'The Hungarian delegation is officially invited to the peace conference; the new borders are nearly settled.'],
+        par: ['Delegation in Paris', 'Count Apponyi’s delegation arrives in Paris and is told the peace conditions will be handed over on 15 January.'],
+        sig: ['The signing', 'Ágost Benárd and Alfréd Drasche-Lázár sign the Treaty of Trianon in the Grand Trianon palace at Versailles.'],
+        inf: ['In force', 'The treaty enters into force.'],
+        sop: ['The Sopron vote', 'A local vote in Sopron and eight villages decides where the area stays.'],
+      },
+    },
+    quiz: [
+      { q: 'Roughly how much of the Kingdom of Hungary’s territory remained after Trianon?', opts: ['About half', 'About a third', 'About nine-tenths'], ok: 1, hint: 'Look at the bars in the Border view.' },
+      { q: 'Did everyone in the lost lands speak Hungarian?', opts: ['Yes', 'Nobody lived there', 'No, many other peoples lived there'], ok: 2, hint: 'Look at the People view.' },
+      { q: 'Which town was split in two by the new border on the Danube?', opts: ['Komárom', 'Szeged', 'Pécs'], ok: 0, hint: 'Look at the Cuts view.' },
+    ],
+  },
+  ru: {
+    name: 'Трианон', title: 'Трианон',
+    lines: [['Угадай, сколько земли', ' осталось.'], ['Найди, где жили', ' венгры.'], ['Посмотри, что разрезала', ' новая граница.']],
+    views: { border: '🗺️ Земля', people: '👥 Люди', cuts: '✂️ Пути' },
+    months: ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'],
+    km2: 'км²', fm: (x) => `${x.toFixed(2).replace('.', ',')} млн`,
+    leg: { hu: 'Венгрия', cs: 'Чехословакия', ro: 'Румыния', shs: 'Королевство СХС', at: 'Австрия', cro: 'Хорватия-Славония: не считается' },
+    croLab: ['Хорватия-', 'Славония'], schem: 'схема · нынешние границы',
+    again: 'Ещё раз', check: 'Проверить', right: 'Верно!', first: 'Сначала сделай догадку во вкладке «Земля»',
+    b: {
+      q: 'Какая часть земли старого королевства осталась внутри новой границы Венгрии?', ends: ['ничего', 'всё'], go: 'Провести границу 1920 года',
+      gArea: 'Площадь', gPop: 'Жители', yrs: ['1910', '1920'],
+      preTitle: 'Старое королевство', preLead: (a) => `До 1920 года Венгерское королевство занимало ${a} км² (Хорватия-Славония не считается).`,
+      preBody: 'Подвигай ползунок: какая часть этой земли осталась внутри границ Венгрии после Трианонского договора? Потом проведи границу.',
+      title: (s) => `Осталось ${s} %`, lead: (k, a, p) => `Венгрии осталось ${k} из ${a} км² и примерно ${p} % жителей.`,
+      ok: (g) => `Верно! Твоя догадка, ${g} %, была близка.`, no: (g) => `Не совсем: твоя догадка — ${g} %.`,
+      dens: (d1, d0) => `Оставшаяся земля была гуще заселена: около ${d1} чел. на км² вместо ${d0} (расчёт).`,
+      fineA: 'Хорватия-Славония была отдельным королевством в унии и не считается; Фиуме (Риека) не нарисован. Пунктирный столбик — твоя догадка.',
+      fine: 'Хорватия-Славония была отдельным королевством в унии и не считается; Фиуме (Риека) не нарисован. Пунктирный столбик — твоя догадка. Перепись 1910 года; площадь после 1920 года и 7,6 млн жителей (округлено в источнике) — со страницы «Трианонский договор» в Википедии.',
+      valPre: 'твоя догадка', valSub: (k, a) => `площади осталось: ${k} из ${a} км²`,
+    },
+    p: {
+      q: 'В каком из регионов, оказавшихся за новой границей, было больше всего венгроговорящих?',
+      reg: { ro: 'Трансильвания (Румыния)', sk: 'Верхняя Венгрия (Словакия)', vo: 'Воеводина (Сербия)', ru: 'Закарпатье (Украина)', at: 'Бургенланд (Австрия)' },
+      short: { ro: 'Румыния', sk: 'Словакия', vo: 'Воеводина', ru: 'Закарпатье', at: 'Бургенланд' },
+      full: { ro: 'Трансильвания и части Партиума и Баната (теперь Румыния)', sk: 'Верхняя Венгрия (теперь Словакия)', vo: 'Воеводина (теперь Сербия)', ru: 'Закарпатье (теперь Украина)', at: 'Бургенланд (теперь Австрия)' },
+      lg: { rom: 'румынский', slk: 'словацкий', sc: 'сербскохорватский', rut: 'русинский', ger: 'немецкий', cro: 'хорватский' },
+      modes: ['Сколько', 'Какая доля'], inside: 'Венгрия 1920', hu: 'говорят по-венгерски', other: 'другие языки',
+      preTitle: 'Кто где жил?', preLead: 'Перепись 1910 года спрашивала о родном языке, а не о национальности.', preBody: 'В списке пять регионов. Выбери тот, где было больше всего венгроговорящих, и проверь.',
+      pick: (n) => `Твой выбор: ${n}`,
+      ok: 'Верно!', no: 'Не совсем',
+      lead: (n, c) => `${n}: ${c} венгроговорящих, больше всего из пяти регионов.`,
+      body: (t, m) => `Вместе около ${t} млн. Ни в одном регионе они не составляли больше ${m} % жителей. Нажми на регион, чтобы увидеть, кто там ещё жил.`,
+      selLead: (c, p) => `${c} венгроговорящих: ${p} % жителей региона (1910).`, selBody: (o) => `Главные другие языки: ${o}.`,
+      valPre: 'венгроговорящих за новой границей', valSub: 'в этих пяти регионах, 1910, по родному языку',
+      fine: 'Прекмурье (подсчёт 1921 года: 14 065 венгроговорящих) и несколько узких приграничных полос в список не входят. Хорватия-Славония не считается. Числа: перепись 1910 года, как на странице «Трианонский договор» в Википедии; сумма посчитана. Внутри Венгрии: перепись 1920 года; 10,4 % говорили на языке меньшинства, остальные показаны как венгроговорящие (расчёт).',
+    },
+    c: {
+      q: 'Какая доля железных дорог старого королевства оказалась на потерянных землях?', opts: ['Около трети', 'Около трёх пятых', 'Около пятой части'], ok: 1,
+      pairs: ['Комаром', 'Дебрецен / Орадя'], pairsHead: 'Нажми на город на карте или здесь',
+      spokeFine: 'Схема: семь почти прямых лучей от Будапешта, а не настоящие маршруты. Сеть и правда была лучевой, с Будапештом в центре.',
+      preTitle: 'Звезда вокруг Будапешта', preLead: 'Сеть дорог и железных дорог была лучевой, с Будапештом в центре.',
+      preBody: 'Семь лучей (набросок, не настоящие маршруты) идут от Будапешта к городам у края королевства. Угадай долю железных дорог, потом посмотри, где их режет граница.',
+      title: (r, ok) => `${ok ? 'Верно! ' : ''}${r} % железных дорог`,
+      lead: (r) => `Около ${r} % железных дорог старого королевства лежало на землях соседей (источник 1937 года, цитируется в Википедии).`,
+      body: (n, a) => `Граница режет все ${n} ${ruPlural(n, 'луч', 'луча', 'лучей')} на этой карте. Пострадали и шоссе (${a.road} %), каналы (${a.canal} %), пашни (${a.farm} %).`,
+      ends: { cs: 'Чехословакии', ro: 'Румынии', shs: 'Королевству сербов, хорватов и словенцев (позже Югославии)', at: 'Австрии' },
+      townLead: (d) => `${d} км от Будапешта по прямой (расчёт по карте).`, townBody: (s) => `Город входил в королевство. Граница 1920 года отдала его ${s}.`, hn: 'Венгерское название',
+      komTitle: 'Комаром и Комарно', komLead: 'Два берега Дуная соединил железный мост в 1892 году, а в 1896 году они стали одним городом. В 1920 году река стала границей.',
+      komBody: 'Сегодня Комаром (Венгрия) и Комарно (Словакия) соединяют три моста.',
+      debTitle: 'Дебрецен и Орадя', debLead: (d) => `Около ${d} км по прямой (расчёт по карте).`,
+      debBody: 'Орадя (по-венгерски Надьварад) стала частью Румынии по Трианонскому договору 1920 года, а Дебрецен остался в Венгрии. Новая граница прошла между ними.',
+      valPre: 'железных дорог на потерянных землях', valSub: 'железных дорог лежало на землях соседей',
+      bars: { rail: 'Железные дороги', road: 'Шоссе', canal: 'Каналы', farm: 'Пашни' }, barsHead: 'На землях соседей',
+      names: { bud: 'Будапешт', poz: 'Братислава', kas: 'Кошице', mun: 'Мукачево', klu: 'Клуж', tem: 'Тимишоара', sza: 'Суботица', csa: 'Чаковец', nag: 'Орадя', deb: 'Дебрецен', kom: 'Комаром / Комарно' },
+      hung: { poz: 'Pozsony', kas: 'Kassa', mun: 'Munkács', klu: 'Kolozsvár', tem: 'Temesvár', sza: 'Szabadka', csa: 'Csáktornya' },
+    },
+    facts: {
+      b0: [{ emo: '📨', text: 'Венгерскую делегацию официально пригласили на мирную конференцию 1 декабря 1919 года, когда новые границы были почти согласованы.', src: U.trianon }],
+      b1: [{ emo: '📨', text: 'Венгерскую делегацию официально пригласили на мирную конференцию 1 декабря 1919 года, когда новые границы были почти согласованы.', src: U.trianon },
+        { emo: '⚓', text: 'Венгрия потеряла выход к морю: порт Риека (Фиуме) остался за новой границей.', src: U.trianon }],
+      p0: [{ emo: '📋', text: 'Перепись 1910 года записывала язык и религию каждого человека, но не национальность.', src: U.trianon }],
+      p1: [{ emo: '📋', text: 'Перепись 1910 года записывала язык и религию каждого человека, но не национальность.', src: U.trianon },
+        { emo: '📏', text: 'Часть преимущественно венгерских поселений, больше двух миллионов человек, лежала в полосе шириной обычно 20–50 км вдоль новых границ, по ту сторону.', src: U.trianon }],
+      c0: [{ emo: '🏭', text: 'После Трианона Венгрия сохранила 90 % машиностроения и полиграфии старого королевства, но только 11 % леса и 16 % железа.', src: U.trianon }],
+      c1: [{ emo: '🚂', text: 'Многие дороги и железные дороги, соединявшие лучи сети, оказались в разных странах, и грузовое железнодорожное движение новых государств почти парализовало.', src: U.trianon },
+        { emo: '🏭', text: 'После Трианона Венгрия сохранила 90 % машиностроения и полиграфии старого королевства, но только 11 % леса и 16 % железа.', src: U.trianon }],
+      kom: [{ emo: '🛂', text: 'В межвоенные годы между Комаромом и Комарно можно было ходить по паспорту; мост закрывали в 23:00.', src: U.kom }],
+      sop: [{ emo: '🏛️', text: 'После голосования Шопрон называют Civitas Fidelissima, «Самый верный город», а годовщина голосования — городской праздник.', src: U.sop },
+        { emo: '🗳️', text: 'Голосование прошло 14 декабря 1921 года; за участками следили французские и итальянские офицеры.', src: U.sop }],
+      pen: [{ emo: '🏰', text: 'Большой Трианон построили для Людовика XIV: строительство началось в июне 1687 года и закончилось в январе 1688 года.', src: U.gt }],
+    },
+    sec: {
+      a: ['Голосование в Шопроне', 'Один город спросили жителей'], b: ['Подписание', 'От перемирия до договора'],
+      aQ: 'На голосовании в Шопроне и восьми деревнях сколько из 100 избирателей выбрали Венгрию?', aOpts: ['Около трети', 'Около двух третей', 'Почти все'], aOk: 1,
+      count: 'Посчитать голоса', eras: ['1919: Сен-Жермен', 'Декабрь 1921: голосование'], forHu: 'за Венгрию', forAt: 'за Австрию', sopron: 'Шопрон', burg: 'Бургенланд', vienna: 'Вена', brat: 'Братислава',
+      aPreTitle: 'Граница по бюллетеню', aPreLead: 'Населённый немцами запад королевства сначала отдали Австрии в 1919 году. Потом в Шопроне и восьми деревнях провели местное голосование.', aPreBody: 'Угадай, сколько из 100 избирателей выбрали Венгрию, потом посчитай голоса.',
+      aTitle: (n) => `${n} из 100 выбрали Венгрию`, aLead: 'Шопрон и восемь окрестных деревень остались в Венгрии. Западные части комитатов, теперь Бургенланд, отошли к Австрии.',
+      aBody: 'Это единственное место, где итог голосования повлиял на решение о границе (спорный местный плебисцит).', aEra: 'До голосования землю вокруг Шопрона отдали Австрии.',
+      aVal: 'избирателей выбрали Венгрию', aValPre: 'избирателей, голоса ещё не посчитаны',
+      bQ: 'Сколько времени прошло от Белградского перемирия (13 ноября 1918 года) до подписания в Трианоне?', bOpts: ['Около полугода', 'Около года', 'Около полутора лет'], bOk: 2,
+      prev: '← Раньше', next: 'Позже →', days: (n) => `${n} дн.`,
+      bPreTitle: 'От перемирия до договора', bPreLead: 'Договор назван по Большому Трианону — дворцу в парке Версаля.', bPreBody: 'Угадай, сколько времени прошло от первого перемирия до подписи, потом пройди по событиям.',
+      bTitle: (n) => `${n} дн.`, bVal: 'от перемирия до подписания',
+      ev: {
+        bel: ['Белградское перемирие', 'Венгрия подписывает перемирие с союзниками; линии разграничения показывают территорию, остающуюся под венгерским управлением.'],
+        inv: ['Приглашение Венгрии', 'Венгерскую делегацию официально приглашают на мирную конференцию; новые границы почти согласованы.'],
+        par: ['Делегация в Париже', 'Делегация графа Аппони приезжает в Париж; ей сообщают, что условия мира вручат 15 января.'],
+        sig: ['Подписание', 'Агост Бенард и Альфред Драше-Лазар подписывают Трианонский договор во дворце Большой Трианон в Версале.'],
+        inf: ['Вступление в силу', 'Договор вступает в силу.'],
+        sop: ['Голосование в Шопроне', 'Местное голосование в Шопроне и восьми деревнях решает, где останется эта земля.'],
+      },
+    },
+    quiz: [
+      { q: 'Какая часть территории Венгерского королевства осталась после Трианона?', opts: ['Около половины', 'Около трети', 'Около девяти десятых'], ok: 1, hint: 'Посмотри на столбики на вкладке «Земля».' },
+      { q: 'Все ли жители потерянных земель говорили по-венгерски?', opts: ['Да', 'Там никто не жил', 'Нет, там жило много других народов'], ok: 2, hint: 'Посмотри вкладку «Люди».' },
+      { q: 'Какой город новая граница разделила надвое по Дунаю?', opts: ['Комаром', 'Сегед', 'Печ'], ok: 0, hint: 'Посмотри вкладку «Пути».' },
+    ],
+  },
+  hu: {
+    name: 'Trianon', title: 'Trianon',
+    lines: [['Tippeld meg, mennyi föld', ' maradt.'], ['Keresd meg, hol éltek', ' a magyarok.'], ['Nézd meg, mit vágott át', ' az új határ.']],
+    views: { border: '🗺️ Határ', people: '👥 Nép', cuts: '✂️ Vágás' },
+    months: ['jan.', 'febr.', 'márc.', 'ápr.', 'máj.', 'jún.', 'júl.', 'aug.', 'szept.', 'okt.', 'nov.', 'dec.'],
+    km2: 'km²', fm: (x) => `${x.toFixed(2).replace('.', ',')} M`,
+    leg: { hu: 'Magyarország', cs: 'Csehszlovákia', ro: 'Románia', shs: 'SHS Királyság', at: 'Ausztria', cro: 'Horvát–Szlavónia: nincs benne' },
+    croLab: ['Horvát–', 'Szlavónia'], schem: 'vázlat · mai határok',
+    again: 'Újra', check: 'Ellenőrzés', right: 'Így van!', first: 'Előbb tippelj a Határ fülön',
+    b: {
+      q: 'A régi királyság földjének mekkora része maradt Magyarország új határain belül?', ends: ['semmi', 'az egész'], go: 'Húzd meg az 1920-as határt',
+      gArea: 'Terület', gPop: 'Lakosság', yrs: ['1910', '1920'],
+      preTitle: 'A régi királyság', preLead: (a) => `1920 előtt a Magyar Királyság területe ${a} km² volt (Horvát–Szlavónia nélkül).`,
+      preBody: 'Húzd a csúszkát: a trianoni békeszerződés után ebből a földből mennyi került Magyarország határain belülre? Aztán húzd meg a határt.',
+      title: (s) => `${s} % maradt`, lead: (k, a, p) => `Megmaradt terület: ${k} km² (korábban ${a} km²), a lakosságból kb. ${p} % maradt.`,
+      ok: (g) => `Így van! A tipped, ${g} %, közel járt.`, no: (g) => `Nem egészen: a tipped ${g} % volt.`,
+      dens: (d1, d0) => `A megmaradt terület sűrűbben lakott volt: kb. ${d1} fő km²-enként, korábban ${d0} (számolva).`,
+      fineA: 'Horvát–Szlavónia az unión belül külön királyság volt, nincs beleszámítva; Fiume (Rijeka) nincs berajzolva. A szaggatott sáv a te tipped.',
+      fine: 'Horvát–Szlavónia az unión belül külön királyság volt, nincs beleszámítva; Fiume (Rijeka) nincs berajzolva. A szaggatott sáv a te tipped. 1910-es népszámlálás; az 1920 utáni terület és a 7,6 millió lakos (a forrásban kerekítve) a Wikipedia Trianoni békeszerződés oldaláról való.',
+      valPre: 'a tipped', valSub: (k, a) => `a területből maradt: ${k} km² (előtte ${a} km²)`,
+    },
+    p: {
+      q: 'Az új határon kívülre került vidékek közül melyiken élt a legtöbb magyar anyanyelvű?',
+      reg: { ro: 'Erdély (Románia)', sk: 'Felvidék (Szlovákia)', vo: 'Délvidék (Szerbia)', ru: 'Kárpátalja (Ukrajna)', at: 'Őrvidék (Ausztria)' },
+      short: { ro: 'Románia', sk: 'Szlovákia', vo: 'Vajdaság', ru: 'Kárpátalja', at: 'Burgenland' },
+      full: { ro: 'Erdély, valamint a Partium és a Bánság egy része (ma Románia)', sk: 'Felvidék (ma Szlovákia)', vo: 'Délvidék, a mai Vajdaság (Szerbia)', ru: 'Kárpátalja (ma Ukrajna)', at: 'Őrvidék, a mai Burgenland (Ausztria)' },
+      lg: { rom: 'román', slk: 'szlovák', sc: 'szerbhorvát', rut: 'ruszin', ger: 'német', cro: 'horvát' },
+      modes: ['Hány fő', 'Mekkora arány'], inside: 'Magyarország 1920', hu: 'magyar anyanyelvű', other: 'más nyelvek',
+      preTitle: 'Ki hol élt?', preLead: 'Az 1910-es népszámlálás anyanyelvet kérdezett, nem nemzetiséget.', preBody: 'Öt vidék szerepel a listán. Válaszd ki azt, ahol a legtöbb magyar anyanyelvű élt, aztán ellenőrizd.',
+      pick: (n) => `A választásod: ${n}`,
+      ok: 'Így van!', no: 'Nem egészen',
+      lead: (n, c) => `${n}: ${c} magyar anyanyelvű, az öt vidék közül a legtöbb.`,
+      body: (t, m) => `Együtt kb. ${t} millió. Egyik vidéken sem haladta meg az arányuk a ${m} százalékot. Koppints egy vidékre, és megtudod, ki élt ott még.`,
+      selLead: (c, p) => `${c} magyar anyanyelvű; arányuk a helyi lakosságban: ${p} % (1910).`, selBody: (o) => `További fő nyelvek: ${o}.`,
+      valPre: 'magyar anyanyelvű az új határon kívül', valSub: 'ebben az öt vidékben, 1910, anyanyelv szerint',
+      fine: 'A Muravidék (1921-es számlálás: 14 065 magyar anyanyelvű) és néhány keskeny határsáv nincs a listán. Horvát–Szlavónia nincs beleszámítva. A számok az 1910-es népszámlálásból valók, ahogy a Wikipedia Trianoni békeszerződés oldala közli; az összeget kiszámoltuk. Magyarországon belül: 1920-as népszámlálás; 10,4 % beszélt kisebbségi nyelvet, a többiek magyar anyanyelvűként szerepelnek (számolva).',
+    },
+    c: {
+      q: 'A régi királyság vasútjainak mekkora része került az elvesztett földekre?', opts: ['Kb. a harmada', 'Kb. a háromötöde', 'Kb. az ötöde'], ok: 1,
+      pairs: ['Komárom', 'Debrecen / Nagyvárad'], pairsHead: 'Koppints egy városra a térképen vagy itt',
+      spokeFine: 'Vázlat: hét majdnem egyenes sugár Budapestről, nem valódi útvonalak. A hálózat valóban sugaras volt, Budapesttel a középpontban.',
+      preTitle: 'Csillag Budapest körül', preLead: 'Az út- és vasúthálózat sugaras szerkezetű volt, középpontjában Budapesttel.',
+      preBody: 'Hét sugár (vázlat, nem valódi útvonal) fut Budapestről a királyság széle közelében lévő városokba. Tippeld meg a vasutak arányát, aztán nézd meg, hol vágja át őket a határ.',
+      title: (r, ok) => `${ok ? 'Így van! ' : ''}Vasutak: ${r} %`,
+      lead: (r) => `A régi királyság vasútjaiból kb. ${r} % a szomszédok területére esett (1937-es forrás, a Wikipedia idézi).`,
+      body: (n, a) => `A határ mind a ${n} sugarat elvágja ezen a térképen. Az utak (${a.road} %), a csatornák (${a.canal} %) és a szántók (${a.farm} %) is megsínylették.`,
+      ends: { cs: 'Csehszlovákia', ro: 'Románia', shs: 'a Szerb–Horvát–Szlovén Királyság (később Jugoszlávia)', at: 'Ausztria' },
+      townLead: (d) => `${d} km-re Budapesttől légvonalban (a térképből számolva).`, townBody: (s) => `A királyság része volt, 1920 után pedig ide tartozott: ${s}.`, hn: 'Magyar név',
+      komTitle: 'Komárom és Komárno', komLead: 'A Duna két partját 1892-ben vashíd kötötte össze, 1896-ban pedig egy várossá egyesültek. 1920-ban a folyó lett a határ.',
+      komBody: 'Ma három híd köti össze Komáromot (Magyarország) és Komárnót (Szlovákia).',
+      debTitle: 'Debrecen és Nagyvárad', debLead: (d) => `Légvonalban kb. ${d} km egymástól (a térképből számolva).`,
+      debBody: 'Nagyvárad (románul Oradea) a trianoni békeszerződéssel 1920-ban Románia része lett; Debrecen Magyarországon maradt. Az új határ köztük húzódott.',
+      valPre: 'a vasutakból az elvesztett földeken', valSub: 'a vasutakból a szomszédok területére esett',
+      bars: { rail: 'Vasutak', road: 'Utak', canal: 'Csatornák', farm: 'Szántók' }, barsHead: 'A szomszédok területén',
+      names: { bud: 'Budapest', poz: 'Pozsony', kas: 'Kassa', mun: 'Munkács', klu: 'Kolozsvár', tem: 'Temesvár', sza: 'Szabadka', csa: 'Csáktornya', nag: 'Nagyvárad', deb: 'Debrecen', kom: 'Komárom / Komárno' },
+      hung: {},
+    },
+    facts: {
+      b0: [{ emo: '📨', text: 'A magyar küldöttséget 1919. december 1-jén hívták meg hivatalosan a béketárgyalásra, amikor az új határok már majdnem készen voltak.', src: U.trianon }],
+      b1: [{ emo: '📨', text: 'A magyar küldöttséget 1919. december 1-jén hívták meg hivatalosan a béketárgyalásra, amikor az új határok már majdnem készen voltak.', src: U.trianon },
+        { emo: '⚓', text: 'Magyarország elvesztette a tengerhez vezető útját: Rijeka (Fiume) kikötője az új határon kívül maradt.', src: U.trianon }],
+      p0: [{ emo: '📋', text: 'Az 1910-es népszámlálás mindenki nyelvét és vallását rögzítette, de nemzetiségét nem.', src: U.trianon }],
+      p1: [{ emo: '📋', text: 'Az 1910-es népszámlálás mindenki nyelvét és vallását rögzítette, de nemzetiségét nem.', src: U.trianon },
+        { emo: '📏', text: 'Néhány többségében magyar település, több mint kétmillió ember, az új határok mentén húzódó, jellemzően 20–50 km széles sávban feküdt, a túloldalon.', src: U.trianon }],
+      c0: [{ emo: '🏭', text: 'Trianon után Magyarország megtartotta a régi királyság gépipari és nyomdaipari kapacitásának 90 százalékát, de faanyagának csak 11, vasának pedig 16 százalékát.', src: U.trianon }],
+      c1: [{ emo: '🚂', text: 'Sok út és vasút, amely a sugárirányú vonalakat kötötte össze, különböző országokba került, az új államok vasúti teherforgalma pedig szinte megbénult.', src: U.trianon },
+        { emo: '🏭', text: 'Trianon után Magyarország megtartotta a régi királyság gépipari és nyomdaipari kapacitásának 90 százalékát, de faanyagának csak 11, vasának pedig 16 százalékát.', src: U.trianon }],
+      kom: [{ emo: '🛂', text: 'A két világháború között útlevéllel át lehetett járni Komáromból Komárnóba; a híd este 11-kor zárt.', src: U.kom }],
+      sop: [{ emo: '🏛️', text: 'A szavazás óta Sopront Civitas Fidelissimának, „A Leghűségesebb Városnak” hívják, a népszavazás évfordulója pedig városi ünnep.', src: U.sop },
+        { emo: '🗳️', text: 'A szavazást 1921. december 14-én tartották; francia és olasz tisztek ügyeltek a szavazókörzetekre.', src: U.sop }],
+      pen: [{ emo: '🏰', text: 'A Nagy-Trianont XIV. Lajosnak építették: az építkezés 1687 júniusában kezdődött, és 1688 januárjában fejeződött be.', src: U.gt }],
+    },
+    sec: {
+      a: ['A soproni népszavazás', 'Egy város megkérdezte a lakóit'], b: ['Az aláírás', 'A fegyverszünettől a békéig'],
+      aQ: 'A Sopronban és nyolc faluban tartott szavazáson 100 szavazóból hányan választották Magyarországot?', aOpts: ['Kb. a harmada', 'Kb. a kétharmada', 'Szinte mindenki'], aOk: 1,
+      count: 'Számold meg a szavazatokat', eras: ['1919: Saint-Germain', '1921. december: a szavazás'], forHu: 'Magyarországot választotta', forAt: 'Ausztriát választotta', sopron: 'Sopron', burg: 'Burgenland', vienna: 'Bécs', brat: 'Pozsony',
+      aPreTitle: 'Határ a szavazólapon', aPreLead: 'A királyság németek lakta nyugati részét 1919-ben először Ausztriának ítélték. Sopronban és nyolc faluban ezután helyi népszavazást tartottak.', aPreBody: 'Tippeld meg, 100 szavazóból hányan választották Magyarországot, aztán számold meg a szavazatokat.',
+      aTitle: (n) => `${n} a 100 szavazóból Magyarországot választotta`, aLead: 'Sopron és nyolc környező falu Magyarországon maradt. A vármegyék nyugati részei, a mai Burgenland, Ausztriához kerültek.',
+      aBody: 'Ez az egyetlen hely, ahol egy szavazás eredménye is szerepet játszott a határ megvonásában (vitatott, helyi népszavazás).', aEra: 'A szavazás előtt Sopron környékét Ausztriának ítélték.',
+      aVal: 'szavazó választotta Magyarországot', aValPre: 'szavazó, a szavazatok még megszámolatlanok',
+      bQ: 'Mennyi idő telt el a belgrádi fegyverszünettől (1918. november 13.) a trianoni aláírásig?', bOpts: ['Kb. fél év', 'Kb. egy év', 'Kb. másfél év'], bOk: 2,
+      prev: '← Korábbi', next: 'Későbbi →', days: (n) => `${n} nap`,
+      bPreTitle: 'A fegyverszünettől a békéig', bPreLead: 'A szerződés a Nagy-Trianonról kapta a nevét, a versailles-i park egyik palotájáról.', bPreBody: 'Tippeld meg, mennyi idő telt el az első fegyverszünettől az aláírásig, aztán járd végig az eseményeket.',
+      bTitle: (n) => `${n} nap`, bVal: 'a fegyverszünettől az aláírásig',
+      ev: {
+        bel: ['A belgrádi fegyverszünet', 'Magyarország fegyverszünetet köt a szövetségesekkel; a demarkációs vonalak kijelölik a magyar irányítás alatt maradó területet.'],
+        inv: ['Meghívás', 'A magyar küldöttséget hivatalosan meghívják a békekonferenciára; az új határok már majdnem készen vannak.'],
+        par: ['A küldöttség Párizsban', 'Apponyi gróf küldöttsége megérkezik Párizsba, és közlik vele, hogy a békefeltételeket január 15-én adják át.'],
+        sig: ['Az aláírás', 'Benárd Ágost és Drasche-Lázár Alfréd aláírja a trianoni békeszerződést a versailles-i Nagy-Trianon palotában.'],
+        inf: ['Hatályba lépés', 'A szerződés hatályba lép.'],
+        sop: ['A soproni népszavazás', 'Helyi szavazás Sopronban és nyolc faluban dönt arról, hol marad a terület.'],
+      },
+    },
+    quiz: [
+      { q: 'Nagyjából mennyi maradt a Magyar Királyság területéből Trianon után?', opts: ['Nagyjából a fele', 'Nagyjából a harmada', 'Nagyjából a kilenc tizede'], ok: 1, hint: 'Nézd meg az oszlopokat a Határ fülön.' },
+      { q: 'Mindenki magyarul beszélt az elvesztett területeken?', opts: ['Igen', 'Senki sem élt ott', 'Nem, sok más nép is élt ott'], ok: 2, hint: 'Nézd meg a Nép fület.' },
+      { q: 'Melyik várost vágta ketté az új határ a Dunánál?', opts: ['Komárom', 'Szeged', 'Pécs'], ok: 0, hint: 'Nézd meg a Vágás fület.' },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'sg_his_70', en: 'Hungary in World War I and the Trianon Treaty', ru: 'Венгрия в Первой мировой войне и Трианонский договор', hu: 'Magyarország az első világháborúban és a trianoni béke' },
+];
+
+// --- geography: Natural Earth admin-0/admin-1 and river lines, simplified, as (lon, lat) × 100 deltas --------------------
+// Present-day administrative borders stand in for the 1920 ones (they follow them closely); the picture says "schematic".
+const GEO = {"hu":[[2288,4795,-4,-5,-8,-3,-1,-4,-5,-1,-6,-5,-8,-1,-11,3,-3,-1,-2,-4,-13,-2,-6,-5,-5,-8,-6,-2,-9,-5,-2,-3,1,-10,-2,-2,-6,-2,-6,-5,-4,-9,0,-4,-4,-3,-2,-3,-13,-9,4,-3,-2,-5,-6,-3,-1,-6,-4,-1,-4,-3,-3,-7,4,-2,-1,-2,-2,-2,-4,-1,-4,-4,-8,-1,-2,-2,-1,-5,-4,-5,0,-2,3,-6,-8,-2,-3,-4,-1,-4,-2,-4,-4,0,-5,-4,-14,2,-3,-1,-6,2,-8,-3,0,-5,-3,0,-1,-3,-4,-2,-6,-1,-5,3,-8,1,-3,-2,-16,-1,-4,-3,-5,3,-5,0,-4,1,-7,-1,-4,2,-6,0,-14,-3,-12,4,-12,-1,-6,-3,1,-2,-5,-3,-5,-2,-2,-3,-7,0,-5,-5,-11,0,-6,4,-4,-3,0,-3,-7,-1,0,-3,-9,1,-6,-2,-3,0,-2,-3,-12,3,-9,-9,-4,-3,-5,0,-8,-5,-3,2,-5,-1,-11,4,-8,0,-5,-2,-10,2,-9,0,-3,-2,-5,4,-15,4,-1,4,-6,5,-8,1,-8,1,-2,-2,-2,2,-4,0,-1,2,-1,-1,-4,1,3,2,-4,1,-3,7,-4,4,-11,1,-13,8,-8,8,-1,5,-4,4,-1,-1,-6,3,-1,-2,-10,8,-7,2,-1,-1,-6,3,-2,4,-13,10,4,3,0,2,-5,1,0,2,-2,-1,-3,3,-1,4,3,6,-6,2,-18,0,8,6,5,2,1,3,3,1,1,2,12,0,3,-1,7,1,-2,2,-5,0,7,3,0,1,-4,2,6,6,-1,1,-7,0,1,3,-3,1,1,5,5,4,-5,7,2,1,-1,4,3,1,2,-2,16,6,0,4,4,2,1,3,-4,3,1,2,-3,3,-15,2,-7,2,3,3,1,-1,6,3,2,3,4,1,12,-2,4,-4,7,-1,5,3,1,-2,4,-1,18,3,-3,2,-1,7,2,1,-6,5,7,2,2,4,-2,1,3,3,-1,1,9,5,16,-2,13,-11,6,-2,4,-4,3,0,8,-4,15,-4,28,1,13,-1,11,3,20,1,14,-1,8,4,5,1,-7,4,0,8,-1,2,5,2,5,5,16,3,22,-1,7,3,14,0,5,2,3,9,11,3,7,-3,7,0,1,-1,0,-3,1,-1,4,1,6,-3,5,0,7,4,11,3,2,5,4,-1,6,3,4,-2,5,3,5,5,5,10,6,5,0,5,32,4,15,-5,9,-1,7,-2,11,3,4,-2,6,5,10,1,8,-2,2,-4,7,-1,2,-5,7,-7,8,-4,17,4,15,1,5,2,7,2,7,-2,-1,-4,4,-1,1,-6,5,-5,12,0,8,-6,5,-8,14,2,5,-3,5,-4,1,-2,-3,-5]],"sk":[[2254,4907,-2,-8,-7,-2,-4,-8,-4,-3,0,-7,-4,-3,-2,-8,-7,-3,-2,-3,-8,-5,1,-6,-2,-3,0,-8,-3,-2,-17,-1,-14,-3,-6,0,-5,3,-6,6,-3,6,-7,1,-2,4,-8,2,-10,-1,-6,-5,-4,2,-11,-3,-7,2,-9,1,-15,5,-29,-4,-3,0,0,-5,-6,-5,-5,-10,-5,-5,-5,-3,-4,2,-6,-3,-4,1,-2,-5,-11,-3,-7,-4,-5,0,-6,3,-4,-1,-1,1,0,3,-1,1,-7,0,-7,3,-11,-3,-3,-9,-5,-2,-14,0,-7,-3,-22,1,-16,-3,-5,-5,-5,-2,1,-2,0,-8,7,-4,-5,-1,-8,-4,-14,1,-20,-1,-11,-3,-13,1,-28,-1,-9,2,-6,2,-6,4,-5,0,-4,4,-6,2,-13,11,-16,2,-3,-1,-8,3,1,1,-2,1,2,4,-3,3,-7,3,-3,11,-3,2,-2,3,0,2,-6,3,2,9,5,6,4,2,0,8,2,3,6,10,7,6,1,2,6,3,9,0,11,-4,8,2,5,-2,4,-1,19,5,7,6,6,0,2,1,3,8,10,1,7,3,2,4,1,8,1,3,4,6,23,8,0,5,3,0,9,5,3,4,10,2,9,-2,6,3,14,-1,3,-1,-1,-1,1,-9,5,0,6,2,4,-2,3,0,3,1,2,4,2,0,-1,2,3,5,11,2,10,7,7,-4,5,-11,7,-1,0,-4,8,-1,6,0,2,-8,-1,-2,3,-2,-6,-6,4,-2,6,0,6,3,3,1,11,-6,2,1,2,6,5,7,2,0,5,2,7,1,4,5,10,-1,0,2,2,0,10,-3,7,3,8,0,9,-7,7,-1,7,-3,4,2,6,4,5,1,1,1,-1,1,-4,2,2,1,7,1,5,-2,2,0,7,5,17,-4,19,1,4,-2,3,0,7,-5,6,3,14,-7,3,-3,2,-7,3,-1,16,-3,2,-3,12,-1,5,-4]],"ru":[[2213,4840,0,8,2,3,-1,6,8,5,2,3,7,3,2,8,4,3,0,7,4,3,4,8,7,2,1,7,3,3,8,-5,12,0,8,-4,2,-1,1,2,1,0,2,-2,-1,-3,1,-3,8,-7,13,1,9,-9,10,0,1,-3,5,2,3,-4,12,0,6,-1,4,-2,8,-6,8,0,2,-5,11,-5,2,-2,-1,-4,1,-1,3,0,5,3,13,3,1,-5,-1,-7,2,-4,3,-2,5,0,5,1,2,3,3,-2,2,-3,3,-1,12,-7,4,-5,-2,-4,1,-2,11,-10,-5,-5,-2,-6,-16,1,-6,-3,-14,-2,-20,6,-15,-3,-1,2,-7,4,-7,0,-15,2,-5,-1,-3,-3,-2,0,-10,2,-13,9,-9,2,-4,-3,-4,-6,-6,-3,-8,2,0,-4,-4,-1,-5,3,3,5,-1,2,-5,4,-5,3,-14,-2,-5,8,-8,6,-12,0,-5,5,-1,6,-4,1,1,4,-7,2]],"ro":[[2154,4491,-2,2,-11,3,-2,1,-1,2,-3,1,1,2,6,1,2,6,5,3,0,3,-8,5,-17,3,-10,7,-5,-1,-11,4,-16,13,-5,2,-1,1,4,3,0,1,-5,8,3,5,1,9,-2,2,-4,-3,-4,0,-4,5,-1,4,-7,6,-9,2,-13,7,-4,7,-7,6,4,3,16,1,3,2,8,-1,5,-3,6,1,4,2,1,3,3,0,0,5,6,3,20,-2,3,-2,7,5,4,0,4,10,10,4,-3,6,0,2,4,5,1,5,2,2,8,1,4,4,4,1,2,2,1,2,-4,2,3,7,4,3,4,1,1,6,6,3,2,5,-4,3,13,9,2,3,4,3,0,4,4,9,6,5,6,2,2,2,-1,10,2,3,9,5,6,2,5,8,6,5,13,2,2,4,3,1,8,-3,7,0,4,1,6,5,5,1,1,4,6,2,6,6,4,1,0,4,10,-2,4,3,4,6,4,3,9,-2,13,-9,10,-2,2,0,3,3,5,1,15,-2,7,0,7,-4,1,-2,15,3,20,-6,14,2,6,3,15,-1,7,-3,5,-7,13,-4,7,-8,6,0,4,-6,5,-4,-1,-2,-6,-2,9,-5,4,-5,-1,-2,-4,-2,1,-4,-5,-1,6,-7,-3,-7,5,-2,-2,-6,1,-7,20,-3,2,1,2,4,8,2,18,-9,10,1,7,-2,5,-7,7,-5,1,-2,0,-2,-4,1,-1,-2,1,-19,8,-5,0,4,1,1,9,-1,0,-8,6,-10,-5,-4,0,-4,13,-3,2,-2,-1,-5,1,0,9,2,3,-1,1,-2,-5,-15,9,3,7,-4,0,-2,-1,-2,4,-3,2,-3,2,-2,-8,-10,-2,-12,2,-5,-8,-14,-4,-1,-6,2,-2,-4,-10,-2,-5,-8,-10,3,-4,0,-2,-4,-3,-3,-3,0,-4,3,-4,0,-12,1,-18,-2,-4,-1,-4,-5,-6,-1,-3,3,-7,10,-11,5,-12,1,-10,0,-4,-2,-7,4,-24,-4,-21,0,-15,-2,-10,-4,-11,1,-17,0,-13,-6,-8,0,2,-7,-1,-3,-15,-5,-8,2,-19,-5,-8,1,-8,-2,-12,4,-22,-6,-7,-4,-4,-4,1,-3,6,0,2,-2,-1,-2,-7,-7,-4,-9,-4,-5,-5,-11,-2,-2,-2,0,-4,3,-5,0,-6,3,-2,0,-6,-11,-1,-4,1,-4,-2,-2,-12,0,-4,6,-12,4,-11,-2,-10,1,-4,2,-2,6,-2,1,-17,0,-7,5,3,3,15,2]],"vo":[[2097,4534,13,-5,4,1,10,-7,17,-3,8,-5,0,-3,-5,-3,-2,-6,-6,-1,-1,-2,3,-1,1,-2,2,-1,11,-3,2,-2,0,-2,-6,-2,-11,-1,-3,-3,2,0,-14,-3,-7,-6,-16,-2,-16,-6,-7,1,-13,10,1,8,-5,1,1,3,-8,4,-2,4,-3,0,-7,5,-1,5,-5,1,-5,5,-7,5,-3,0,-13,0,-7,1,-2,-2,1,-1,-5,-2,-13,1,-3,2,-7,-3,-10,0,-14,3,-3,-2,-4,2,2,3,-1,2,-11,2,-13,4,-6,2,-2,4,-5,1,-5,2,0,2,4,1,1,2,-3,4,1,4,7,-1,3,2,-9,6,-8,-3,-4,3,1,5,6,5,-1,1,-4,3,-2,5,-6,6,2,4,5,1,-4,3,4,2,-1,1,9,-1,-1,3,7,1,0,3,4,3,6,-4,11,0,5,5,7,0,2,3,5,2,5,3,-1,2,6,3,12,1,12,-4,14,3,6,0,4,-2,7,1,4,-1,3,1,7,-4,7,-6,4,-7,13,-7,9,-2,7,-6,1,-4,5,-5,3,0,2,2,3,0,0,-9,-3,-6,5,-8,0,-1,-4,-3,1,-1,5,-2]],"shx":[[1882,4591,8,2,1,-1,-4,-2,4,-3,-5,-1,-2,-4,6,-6,2,-5,4,-3,1,-1,-6,-5,-1,-4,-68,0,-1,2,-13,3,0,2,-6,2,-3,4,-5,2,-3,6,7,0,10,-2,5,2,8,0,11,-4,5,1,3,-2,8,5,5,0,4,3,9,9,12,-3,2,3],[1652,4650,6,-3,2,1,6,-2,10,-8,1,2,8,-3,1,-1,-5,-8,-9,3,-12,1,-12,-2,-12,2,-3,4,-5,2,-3,3,-2,8,8,4,-3,2,-1,-1,-7,5,-18,8,-1,2,-4,5,0,8,12,4,18,0,6,-2,-3,-6,1,-4,3,-3,2,1,0,-2,5,-1,0,-2,-4,-3,1,-1,5,-3,7,-6]],"at":[[1715,4801,-6,-4,1,-1,-3,-3,2,-1,-2,-4,-7,-2,6,-5,-2,-1,1,-7,3,-2,-18,-3,-4,1,-1,2,-5,-3,-7,1,-4,4,-12,2,-4,-1,-2,-3,-6,-3,-1,1,-3,-3,7,-2,15,-2,3,-3,-1,-2,4,-3,-1,-3,-4,-2,0,-4,-16,-6,-2,2,-3,-1,1,-4,-2,-1,5,-7,-5,-4,-1,-5,3,-1,-1,-3,7,0,1,-1,-6,-6,4,-2,0,-1,-7,-3,5,0,2,-2,-7,-1,-3,1,-12,0,-1,-2,-3,-1,-1,-3,-5,-2,-6,-5,-8,-3,-3,3,1,4,9,8,4,4,-5,5,0,9,-7,21,3,3,2,-2,8,5,11,1,6,5,0,7,6,7,-9,9,0,6,6,2,1,6,2,2,9,4,10,-1,4,1,7,4,2,4,3,1,15,5,8,-2,2,1,0,4,2,1,3,-1,3,1,2,-1,-2,-4,2,-1,-1,-1]],"cro":[[1473,4470,12,-10,3,-2,0,3,2,0,10,-7,4,-1,4,-5,-7,2,0,2,-4,2,-6,1,6,-3,8,-8,5,-2,-4,2,-2,4,4,-2,17,-12,-1,0,-7,3,5,-3,1,-1,-2,0,1,-2,-9,2,4,-3,-4,1,-3,3,1,1,-2,2,3,2,-4,1,-3,-1,-3,4,-12,6,2,1,-4,6,-12,10],[1451,4448,-7,6,3,0,-5,3,-6,0,2,3,-3,6,-1,6,6,-3,-1,-3,2,-6,12,-10,0,-2],[1508,4454,-7,3,-13,15,2,2,-2,12,4,10,-8,15,-18,9,-8,6,-1,2,1,1,-5,2,2,-2,-2,-1,-13,6,-7,1,-6,-6,-4,-14,-2,1,-2,12,2,5,-1,7,-7,4,-1,3,10,3,11,-3,8,2,6,4,3,7,8,7,1,-1,1,-6,7,-4,0,-3,11,-4,2,-2,4,-1,4,1,2,4,2,0,9,-3,5,0,8,-5,4,0,15,2,3,3,-6,4,-3,8,3,3,7,1,-4,4,-3,-1,-2,1,-3,3,1,1,17,6,2,4,4,-1,3,2,11,-1,5,2,-2,5,2,4,-1,6,3,5,-7,3,-4,4,0,3,3,5,4,3,9,-1,7,5,6,0,14,4,4,3,0,5,5,-1,3,2,7,-2,7,1,4,-1,4,-5,12,-2,12,2,12,-1,6,-1,3,-2,5,8,3,-7,16,-14,7,-3,9,0,4,-4,3,-7,4,-1,-3,-2,4,-1,1,1,1,-2,4,0,2,-2,2,2,8,-1,8,-1,6,-5,1,-4,15,-4,5,-4,5,2,3,-6,5,-2,3,-4,6,-2,0,-2,13,-3,1,-3,68,1,4,-4,8,3,9,-6,-3,-2,-7,1,-1,-4,3,-4,-1,-2,-4,-1,0,-2,5,-2,5,-1,2,-4,6,-2,13,-4,11,-2,1,-2,-2,-3,3,-2,4,2,14,-3,10,0,7,3,3,-2,11,-1,7,2,-1,1,2,2,7,-1,13,0,3,0,7,-5,6,-6,1,-4,-7,-5,3,-5,-16,-4,-4,-9,-4,-2,0,-1,3,-1,-2,-5,-15,-8,-2,2,1,1,8,3,-10,1,-11,5,-8,1,-2,5,5,8,0,3,-8,1,-3,-2,-9,-1,-5,2,-3,-2,-3,3,-3,1,-2,-2,-7,0,4,-2,0,0,-5,1,-11,0,-1,2,-12,-6,-18,-1,-7,3,-4,2,-1,3,3,3,-1,3,-5,2,-6,6,-1,1,-2,-3,-4,4,-8,-1,-3,6,4,4,-5,2,-16,4,-8,-3,-5,1,-12,4,-16,2,-3,-1,0,-2,-4,-3,-6,-1,-2,-3,-4,0,-2,0,1,2,-2,5,-12,2,-19,11,-10,-2,-4,1,-7,-3,1,-2,-1,-2,2,-2,-5,-1,-6,-5,-1,-2,4,-4,-6,3,-2,3,-3,-1,0,2,-1,-1,-4,2,1,-1,-2,0,-3,4,-9,-6,-2,-4,-28,4,-5,-2,-4,-7,-5,-1,-5,-11,-2,-1,-11,3,-9,7,-5,7,-5,1,0,3,-20,0,-4,-4,0,-7,-2,-6,1,-5,-4,-6,-2,0,-5,2,-4,-2,-7,2,-2,-2,4,-5,-4,-5,7,-3,0,-1,-7,-4,-6,0,1,-2,5,-4,1,-4,2,-2,0,-5,6,-4,3,-5,-6,-3,4,-4,-1,-3,-3,-3,-4,-1,0,-2,-5,4,-9,1,-7,3,-2,-1,-3,-4],[1475,4476,-5,1,-4,3,5,-1,-1,2,3,-1,-4,5,4,-1,-1,1,3,0,-1,-3,8,-5,4,-5,-1,-2,-11,8],[1453,4465,0,-2,-1,-1,-5,0,-4,4,-4,5,1,4,-3,1,-1,6,-3,1,-2,6,-2,2,1,1,-1,2,1,0,6,-3,3,0,1,2,-1,3,1,-1,1,1,-3,3,-4,7,-6,5,1,4,2,2,5,0,0,-8,3,-5,3,-4,5,-3,-2,-5,0,-7,2,-5,-2,0,2,-3,0,-6,4,-5,0,-1],[1462,4499,0,6,-2,-1,2,-2,-11,1,-5,2,-3,4,3,1,2,3,5,0,-1,2,2,2,0,3,1,2,-2,2,2,1,5,-1,-2,-1,4,-5,-2,-1,7,-1,0,-7,7,-2,0,-3,6,-3,1,-3,-3,-1,-2,1,-1,-1,1,-2,-4,-1]],"kingdom":[[1597,4674,0,8,4,3,-1,3,1,3,13,12,-5,5,0,9,-7,22,3,2,4,-1,6,4,10,1,7,5,0,7,5,8,-8,8,0,6,6,2,1,6,3,3,8,3,11,-1,10,5,5,5,15,5,8,-2,2,0,0,5,3,1,0,2,-3,5,-3,9,-3,2,-2,5,-5,2,0,2,1,8,9,9,0,7,2,3,6,10,7,5,1,3,10,4,16,-5,8,2,5,-2,4,-1,19,5,7,6,6,0,3,2,2,7,13,2,5,4,2,10,5,9,22,8,1,5,5,0,8,5,2,4,2,1,8,1,9,-2,6,3,14,-1,3,-1,-1,-2,2,-8,10,2,5,-2,6,2,5,10,11,2,10,7,7,-4,5,-11,7,-1,0,-3,1,-1,6,-1,7,0,2,-10,2,-2,-6,-5,1,-2,2,-1,5,0,8,3,3,1,12,-5,1,1,2,5,5,7,2,0,5,2,7,1,4,5,8,-1,4,2,10,-3,7,3,8,0,9,-7,7,-1,7,-3,13,7,0,2,-2,2,4,2,5,0,7,-2,7,5,17,-4,17,2,9,-3,6,-5,7,3,11,-5,6,-5,2,-6,3,-2,16,-3,2,-3,12,-1,5,-4,15,-2,2,2,8,-5,12,0,8,-4,3,1,1,0,2,-2,-1,-3,1,-3,8,-7,13,1,9,-9,10,0,2,-2,4,1,2,-4,13,0,6,-1,4,-2,8,-5,8,-1,2,-4,11,-6,2,-2,-1,-3,1,-2,21,6,1,-5,-1,-7,2,-4,3,-2,8,0,5,4,3,-2,1,-3,4,-1,11,-6,4,-6,-2,-4,1,-2,11,-10,-5,-6,-2,-4,1,-1,7,-4,1,-4,2,-2,13,-4,7,-8,6,0,4,-6,5,-4,-1,-2,-3,-1,0,-2,8,-6,2,-4,-4,-4,0,-3,-3,-1,0,-1,4,-6,-3,-7,5,-2,-2,-6,1,-6,20,-4,2,1,2,4,8,2,18,-9,10,1,7,-2,5,-7,7,-5,1,-2,0,-2,-4,0,-1,-1,1,-19,6,-4,1,1,1,2,1,1,9,-1,0,-8,6,-10,-4,-3,-1,-5,13,-3,2,-2,-1,-4,1,-1,9,2,3,-1,1,-2,-4,-13,2,-1,5,2,7,-4,1,-1,0,-3,7,-8,-7,-10,-3,-11,1,-6,-6,-13,-4,-2,-6,2,-3,-4,-10,-2,-5,-8,-13,3,-2,-1,-2,-5,-3,-1,-6,3,-4,0,-10,2,-19,-3,-5,-2,-4,-4,-6,-1,-3,3,-7,9,-11,6,-12,1,-10,0,-4,-2,-7,4,-24,-4,-21,0,-15,-2,-10,-4,-11,1,-17,0,-13,-6,-7,0,-1,-2,2,-5,-1,-3,-15,-5,-8,2,-19,-5,-8,1,-8,-2,-12,4,-22,-6,-7,-4,-3,-4,1,-3,6,-1,0,-3,-7,-7,-4,-9,-4,-5,-5,-11,-2,-2,-2,0,-4,3,-5,0,-5,3,-3,0,-7,-11,0,-3,1,-5,-2,-2,-12,0,-3,6,-13,4,-11,-2,-10,1,-4,2,-2,5,-2,2,-17,0,-5,5,-14,-3,-6,-5,-17,-3,-16,-6,-9,2,-11,8,1,8,-5,2,0,4,-8,3,-2,4,-9,5,-1,5,-5,1,-5,5,-7,5,-22,1,-2,-3,-5,-2,-13,1,-3,1,-7,-2,-10,0,-14,3,-3,-2,-4,2,2,3,-2,2,-10,2,-13,4,-6,2,-2,4,-5,1,-5,2,0,2,4,3,-2,4,1,4,6,-1,2,2,-1,2,-6,3,-8,-2,-5,4,-67,0,-2,2,-12,3,-1,2,-5,2,-3,4,-5,2,-4,6,-4,-2,-5,4,-15,4,-2,5,-5,4,-8,1,-8,1,-2,-2,-2,2,-4,0,-6,2,-4,10,-4,4,-9,0,-7,3,-8,7,-11,11,-2,0,-3,-5,-3,2,-6,1,-13,1,-11,-2,-12,2,-3,4,-5,2,-3,3,-2,7,4,4,-1,2,-5,5,-19,8,-1,3]],"towns":{"Budapest":[19.04,47.5],"Debrecen":[21.63,47.53],"Szeged":[20.15,46.25],"Pécs":[18.23,46.07],"Győr":[17.64,47.69],"Sopron":[16.59,47.68],"Pozsony":[17.11,48.15],"Kassa":[21.26,48.72],"Komárom":[18.12,47.75],"Nagyvárad":[21.92,47.05],"Kolozsvár":[23.59,46.77],"Temesvár":[21.23,45.75],"Arad":[21.31,46.18],"Szabadka":[19.67,46.1],"Újvidék":[19.83,45.25],"Zólyom":[19.15,48.57],"Csáktornya":[16.43,46.39],"Nagykanizsa":[16.99,46.46],"Székesfehérvár":[18.41,47.19],"Szolnok":[20.19,47.17],"Miskolc":[20.78,48.1],"Kecskemét":[19.69,46.91],"Békéscsaba":[21.1,46.68],"Hatvan":[19.68,47.67],"Brassó":[25.61,45.65],"Vienna":[16.37,48.21],"Zagreb":[15.98,45.81],"Munkács":[22.72,48.44],"Eszék":[18.69,45.55]},"rivers":{"danube":[[1400,4842,5,-9,5,-1,7,2,11,-3,3,2,9,-6,6,-2,12,-1,10,-6,14,3,6,3,6,0,5,-3,10,-3,7,4,16,2,6,4,5,11,6,3,3,-1,12,2,12,-3,7,1,12,-5,14,0,21,3,2,-2,5,-9,5,-5,13,-7,20,-3,11,1,9,2,1,2,3,0,7,-4,7,0,2,0,0,-3,1,-2,8,-5,2,-3,8,-1,13,-11,6,-2,4,-4,5,0,6,-4,6,-2,9,-2,28,1,13,-1,11,3,20,1,14,-1,10,5,11,-1,3,-2,8,3,8,-1,3,-4,1,-4,-2,-9,-6,-11,1,-7,-2,-6,-7,-3,-4,-5,-5,-16,2,-8,7,-6,-2,-2,2,-9,-4,-4,0,-4,5,-6,2,-7,-5,-5,-9,-5,6,-11,0,-3,-3,-9,2,-5,0,-13,-1,-3,-3,1,-17,-14,-1,-2,14,-12,0,-2,2,-2,0,-5,5,-4,2,-6,4,-3,0,-2,-5,-4,-1,-5,4,-3,8,3,9,-6,-3,-2,-7,1,-1,-3,0,-1,4,-4,-6,-2,1,-2,3,-2,7,-1,1,-3,6,-3,20,-4,17,2,7,-4,10,2,11,-2,7,5,3,-1,6,-7,2,-1,7,-1,12,1,4,-1,7,-5,6,-6,1,-4,-7,-5,3,-5,8,-7,6,-2,9,0,3,2,6,-1,-1,-8,13,-10,7,-1,5,1,11,5,17,3,3,3,8,3,9,2,5,-4,17,-1,1,-1,3,-6,4,-2,10,-1,9,2,14,-4,5,-8,4,-3,1,-3,6,-2,3,2,12,16,8,2,5,3,4,0,12,-8,11,-2,6,-5,-2,-3,-4,-1,-8,3,-4,0,-3,-6,-6,-1,-1,-2,0,-2,2,-2,0,-4,2,-2,6,-5,10,-2,1,-8,6,-3]],"drava":[[1400,4660,14,-6,22,2,11,1,12,8,4,0,4,-1,12,0,7,3,8,-2,4,-4,4,-1,17,2,6,-2,19,-2,3,-3,10,2,11,-1,2,0,3,-5,7,-3,14,-10,11,2,5,-1,4,2,18,-4,4,-5,12,-2,12,2,28,-1]],"tisza":[[2103,4782,0,-4,-5,-1,-4,-5,-5,-4,-12,-1,-2,-3,-4,-1,1,-1,-2,-2,-1,-2,-18,-8,-3,-4,-10,-4,0,-2,5,-2,1,-5,2,-1,0,-4,-5,-2,-6,1,-7,-6,-10,-5,-2,-3,3,-2,1,-7,6,1,2,-2,-5,-1,-12,-6,0,-1,4,-2,-4,-4,-5,-1,-2,-3,2,-6,2,-1,1,-2,4,-2,0,-2,6,-1,2,-3,-7,-11,4,-8,2,-1,-1,-7,4,-12,-3,-2,-6,-2,-8,-9,0,-4,-2,-3,5,-3,-2,-3,-3,0,2,-3,3,-1,1,-4,3,-5,-4,-4,5,-3,1,-6,1,-3,-7,-2,1,-7,-4,-5,6,0,-2,-6,13,-10,-3,-4,6,-6,-2,-3,6,-5,2,-5,0,-1,-3,-2,-1,-4],[2135,4803,-7,0,-4,2,-2,-2,-8,-2,-3,-7,-5,-5,0,-5,-3,-2],[2103,4782,-1,0,1,1,0,-1],[2415,4791,-14,5,-16,-3,0,2,-7,4,-7,0,-15,2,-30,16,-4,1,-9,-1,-6,-4,-15,-5,-8,1,-6,3,-2,-1,-1,1,-6,-2,-10,0,-4,-3,-6,-1,-7,1,-9,6,0,3,-5,3,0,4,-4,4,2,2,0,8,1,3,-7,2,-6,-3,-6,-8,-3,-1,-4,1,-8,-7,-8,-1,-6,-3,-10,-3,-8,1,-13,0,-5,-5,1,-5,-1,-3,-2,-2,-7,0],[2426,4832,8,-1,3,-3,-8,-9,-4,-9,-7,-7,0,-3,1,-4,-2,-4,-2,-1],[2487,4774,-20,6,-5,0,-17,-7,-10,1,-6,2,-11,13,-3,2]],"mures":[[2567,4664,-6,0,-9,3,-6,4,-1,4,2,6,-1,4,-5,6,-23,6,-11,-1,-11,2,-14,-7,-11,-12,-10,-16,-7,-7,-9,-5,-9,-4,-10,-1,-10,3,-5,-4,0,3,-2,0,-4,-3,-2,1,-4,-3,-25,-7,-1,-1,2,-2,-4,-8,2,-1,-3,-10,-5,-3,-6,-7,-15,-4,-6,-4,-6,0,-7,-3,-4,-2,-12,-4,-22,7,-35,1,-12,7,-28,0,-5,3,-5,5,-3,1,-20,0,-5,1,-6,-2,-17,5,-11,0,-8,5,-15,-3,-17,0,-7,-7,-6,-2,-5,2,-7,4,-15,0,-20,7,-9,3,-10,0,-3,2]]}};
+const decRing = (f) => { const o = []; let x = f[0], y = f[1]; o.push([x / 100, y / 100]); for (let i = 2; i < f.length; i += 2) { x += f[i]; y += f[i + 1]; o.push([x / 100, y / 100]); } return o; };
+const RINGS = {}; for (const k of ['hu', 'sk', 'ru', 'ro', 'vo', 'shx', 'at', 'cro', 'kingdom']) RINGS[k] = GEO[k].map(decRing);
+const RIV = {}; for (const k of Object.keys(GEO.rivers)) RIV[k] = GEO.rivers[k].map(decRing);
+const TW = {  // towns: [lon, lat]
+  bud: [19.04, 47.50], poz: [17.11, 48.15], kas: [21.26, 48.72], mun: [22.72, 48.44], klu: [23.59, 46.77], tem: [21.23, 45.75], sza: [19.67, 46.10], csa: [16.43, 46.39],
+  nag: [21.92, 47.05], deb: [21.63, 47.53], kom: [18.12, 47.75], sop: [16.59, 47.68], vie: [16.37, 48.21],
+};
+const SPOKES = ['poz', 'kas', 'mun', 'klu', 'tem', 'sza', 'csa'];
+const SIDES = { poz: 'lr', kas: 'lt', mun: 'rt', klu: 'rb', tem: 'bl', sza: 'lb', csa: 'tb', bud: 'rb', nag: 'rb', deb: 'rt', kom: 'tb' };
+const decodeGl = (s, k) => { const out = []; let i = 0, x = 0, y = 0; const one = () => { let r = 0, sh = 0, b; do { b = s.charCodeAt(i++) - 63; r |= (b & 31) << sh; sh += 5; } while (b >= 32); return r & 1 ? ~(r >> 1) : r >> 1; }; while (i < s.length) { x += one(); y += one(); out.push([x / k, y / k]); } return out; };
+const COAST = GLOBE.map((s) => decodeGl(s, 10)).filter((r) => r.some(([lo, la]) => lo > 8 && lo < 32 && la > 40 && la < 52));
+const inRing = (r, lo, la) => { let c = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) { const [xi, yi] = r[i], [xj, yj] = r[j]; if ((yi > la) !== (yj > la) && lo < ((xj - xi) * (la - yi)) / (yj - yi) + xi) c = !c; } return c; };
+const inReg = (id, lo, la) => RINGS[id].some((r) => inRing(r, lo, la));
+const regionAt = (lo, la) => ['ru', 'sk', 'ro', 'vo', 'shx', 'at', 'hu', 'cro'].find((id) => inReg(id, lo, la)) || null;
+const hav = (a, b) => { const R = 6371, rad = Math.PI / 180, dl = (b[1] - a[1]) * rad, dn = (b[0] - a[0]) * rad, s = Math.sin(dl / 2) ** 2 + Math.cos(a[1] * rad) * Math.cos(b[1] * rad) * Math.sin(dn / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(s)); };
+const STATE_OF = { hu: 'hu', sk: 'cs', ru: 'cs', ro: 'ro', vo: 'shs', shx: 'shs', at: 'at' };
+const END_OF = { sk: 'cs', ru: 'cs', ro: 'ro', vo: 'shs', shx: 'shs', at: 'at' };
+const COL = { hu: '#9fbf8f', cs: '#dc9a8e', ro: '#e3c377', shs: '#86a8dc', at: '#b79bd8', cro: '#667084', neutral: '#8f9ab0' };
+const LOST = ['ru', 'sk', 'ro', 'vo', 'shx', 'at'];
+
+// spokes: gentle arcs from Budapest, sampled; the cut is where the arc first leaves Hungary's 1920 border
+const arc = (a, b, bend, n) => { const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2, dx = b[0] - a[0], dy = b[1] - a[1], cx = mx - dy * bend, cy = my + dx * bend, o = []; for (let i = 0; i <= n; i++) { const t = i / n, u = 1 - t; o.push([u * u * a[0] + 2 * u * t * cx + t * t * b[0], u * u * a[1] + 2 * u * t * cy + t * t * b[1]]); } return o; };
+const SPOKE = SPOKES.map((id, i) => {
+  const exits = (q) => q.reduce((n, p, j) => n + (j > 0 && inReg('hu', q[j - 1][0], q[j - 1][1]) && !inReg('hu', p[0], p[1]) ? 1 : 0), 0);
+  const bends = [i % 2 ? 0.07 : -0.07, i % 2 ? -0.07 : 0.07, 0.03, -0.03, 0];  // the first arc that leaves Hungary exactly once
+  const pts = arc(TW.bud, TW[id], bends.find((bd) => exits(arc(TW.bud, TW[id], bd, 60)) === 1) ?? bends[0], 60);
+  let cut = pts.length - 1; while (cut > 0 && !inReg('hu', pts[cut][0], pts[cut][1])) cut--;     // last point still inside Hungary
+  let lo = pts[cut], hi = pts[Math.min(cut + 1, pts.length - 1)];
+  for (let k = 0; k < 14; k++) { const m = [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2]; if (inReg('hu', m[0], m[1])) lo = m; else hi = m; }
+  return { id, pts, cutI: cut, cutP: lo, reg: regionAt(TW[id][0], TW[id][1]) };
+});
+const DIST = Object.fromEntries(SPOKES.map((id) => [id, Math.round(hav(TW.bud, TW[id]))]));
+const DIST_DEB = Math.round(hav(TW.deb, TW.nag));
+
+// --- state ---------------------------------------------------------------------------------------------------------
+const S = {
+  sec: null, g1: 50, done1: false, seen1: false, rv: 0, // seen1: the Border guess was submitted once; People and Cuts stay locked until then
+  pick2: null, done2: false, sel2: null, mode2: 'n', b2: 0,
+  pick3: null, done3: false, sel3: null, cut: 0,
+  pickA: null, doneA: false, era: 0, vote: 0,
+  pickB: null, doneB: false, ev: 3, pen: 0,
+};
+let CW = 0, CH = 0, LAYS = {};
+const dprOf = () => Math.min(window.devicePixelRatio || 1, 2);
+const ease = (t) => t * t * (3 - 2 * t);
+const FONT = (px, wt = 800) => `${wt} ${px}px Nunito, ui-rounded, system-ui, sans-serif`;
+const hexA = (c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
+const mix = (a, b, t) => { const A = hexA(a), B = hexA(b); return '#' + A.map((v, i) => Math.round(v + (B[i] - v) * t).toString(16).padStart(2, '0')).join(''); };
+const nf = (n) => Math.round(n).toLocaleString(lang === 'en' ? 'en-US' : lang);
+const pf = (x) => (lang === 'en' ? String(x) : String(x).replace('.', ','));
+const MAIN = { id: 'main', lon0: 14.2, lon1: 26.9, lat0: 44.4, lat1: 49.8, frac: 0.56 };
+const SOP = { id: 'sop', lon0: 15.75, lon1: 17.85, lat0: 46.75, lat1: 48.3, frac: 0.5 };
+const COS = Math.cos((47 * Math.PI) / 180);
+function layout(w, h, win, need) { // need = height the panel under the map wants; the map gives way on a short stage
+  const m = 10, cw = (win.lon1 - win.lon0) * COS, ch = win.lat1 - win.lat0;
+  let s = (w - 2 * m) / cw; const cap = Math.max(h * 0.34, Math.min(h * win.frac, h - need - 22)); if (ch * s > cap) s = cap / ch;
+  const mw = cw * s, mh = ch * s, ox = (w - mw) / 2, oy = m;
+  return { win, w, h, s, ox, oy, mw, mh, bottom: oy + mh, key: `${win.id}|${Math.round(w)}|${Math.round(h)}|${dprOf()}`,
+    x: (lo) => ox + (lo - win.lon0) * COS * s, y: (la) => oy + (win.lat1 - la) * s,
+    lon: (px) => win.lon0 + (px - ox) / (COS * s), lat: (py) => win.lat1 - (py - oy) / s };
+}
+function smoothInto(p, pts, L, closed) {
+  const q = pts.map(([lo, la]) => [L.x(lo), L.y(la)]), n = q.length;
+  if (n < 3) return;
+  if (closed) {
+    p.moveTo((q[n - 1][0] + q[0][0]) / 2, (q[n - 1][1] + q[0][1]) / 2);
+    for (let i = 0; i < n; i++) { const a = q[i], b = q[(i + 1) % n]; p.quadraticCurveTo(a[0], a[1], (a[0] + b[0]) / 2, (a[1] + b[1]) / 2); }
+    p.closePath();
+  } else {
+    p.moveTo(q[0][0], q[0][1]);
+    for (let i = 1; i < n - 1; i++) { const a = q[i], b = q[i + 1]; p.quadraticCurveTo(a[0], a[1], (a[0] + b[0]) / 2, (a[1] + b[1]) / 2); }
+    p.lineTo(q[n - 1][0], q[n - 1][1]);
+  }
+}
+const PC = {}; // per window: base picture + paths, rebuilt when the size changes
+function paths(L) {
+  const c = PC[L.win.id];
+  if (c && c.key === L.key) return c;
+  const d = dprOf(), P = { key: L.key };
+  const cv = document.createElement('canvas'); cv.width = Math.round(L.w * d); cv.height = Math.round(L.h * d);
+  const g = cv.getContext('2d'); g.scale(d, d);
+  g.save(); g.beginPath(); g.roundRect(L.ox, L.oy, L.mw, L.mh, 14); g.clip();
+  const sea = g.createLinearGradient(L.ox, L.oy, L.ox + L.mw * 0.8, L.oy + L.mh); sea.addColorStop(0, '#1a3050'); sea.addColorStop(0.55, '#132339'); sea.addColorStop(1, '#0c1627');
+  g.fillStyle = sea; g.fillRect(L.ox, L.oy, L.mw, L.mh);
+  const land = new Path2D(); for (const r of COAST) smoothInto(land, r, L, true);
+  const lg = g.createLinearGradient(L.ox, L.oy, L.ox + L.mw, L.oy + L.mh); lg.addColorStop(0, '#46564f'); lg.addColorStop(0.5, '#374641'); lg.addColorStop(1, '#2b3837');
+  g.shadowColor = 'rgba(0,0,0,.45)'; g.shadowBlur = 8 * d; g.shadowOffsetY = 2 * d; g.fillStyle = lg; g.fill(land, 'evenodd');
+  g.shadowColor = 'transparent'; g.shadowBlur = 0; g.shadowOffsetY = 0;
+  g.strokeStyle = 'rgba(190,215,205,.4)'; g.lineWidth = 1.1; g.lineJoin = 'round'; g.stroke(land);
+  g.strokeStyle = 'rgba(255,255,255,.05)'; g.lineWidth = 1; g.beginPath();
+  for (let lo = Math.ceil(L.win.lon0); lo <= L.win.lon1; lo++) { g.moveTo(L.x(lo), L.oy); g.lineTo(L.x(lo), L.oy + L.mh); }
+  for (let la = Math.ceil(L.win.lat0); la <= L.win.lat1; la++) { g.moveTo(L.ox, L.y(la)); g.lineTo(L.ox + L.mw, L.y(la)); }
+  g.stroke(); g.restore();
+  P.base = cv;
+  for (const k of ['hu', 'sk', 'ru', 'ro', 'vo', 'shx', 'at', 'cro', 'kingdom']) { const p = new Path2D(); for (const r of RINGS[k]) smoothInto(p, r, L, true); P[k] = p; }
+  P.riv = {}; for (const k of Object.keys(RIV)) { const p = new Path2D(); for (const r of RIV[k]) smoothInto(p, r, L, false); P.riv[k] = p; }
+  let len = 0; const hq = RINGS.hu[0].map(([lo, la]) => [L.x(lo), L.y(la)]); for (let i = 0; i < hq.length; i++) { const a = hq[i], b = hq[(i + 1) % hq.length]; len += Math.hypot(b[0] - a[0], b[1] - a[1]); }
+  P.huLen = len * 1.02;
+  PC[L.win.id] = P; return P;
+}
+// label placer: pills with a 10 px margin, never overlapping each other; tries the given sides in order
+function placer(ctx) {
+  const placed = [];
+  return (text, x, y, sides, col = '#fff') => {
+    ctx.font = FONT(12); const tw = ctx.measureText(text).width + 12, th = 18;
+    for (const s of sides) {
+      let rx, ry;
+      if (s === 'r') { rx = x + 8; ry = y - th / 2; } else if (s === 'l') { rx = x - 8 - tw; ry = y - th / 2; } else if (s === 't') { rx = x - tw / 2; ry = y - 9 - th; } else { rx = x - tw / 2; ry = y + 9; }
+      rx = clamp(rx, 10, Math.max(10, CW - 10 - tw)); ry = clamp(ry, 4, Math.max(4, CH - 4 - th));
+      if (placed.some((p) => rx < p.x + p.w && rx + tw > p.x && ry < p.y + p.h && ry + th > p.y)) continue;
+      placed.push({ x: rx, y: ry, w: tw, h: th });
+      ctx.fillStyle = 'rgba(10,14,26,.8)'; ctx.beginPath(); ctx.roundRect(rx, ry, tw, th, 9); ctx.fill();
+      ctx.fillStyle = col; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(text, rx + 6, ry + th / 2 + 0.5);
+      return true;
+    }
+    return false;
+  };
+}
+function drawMap(ctx, L, o) {
+  const P = paths(L), d = dprOf();
+  ctx.drawImage(P.base, 0, 0, L.w, L.h);
+  ctx.save(); ctx.beginPath(); ctx.roundRect(L.ox, L.oy, L.mw, L.mh, 14); ctx.clip();
+  // Croatia-Slavonia: dim and hatched, so it reads as "not counted"
+  ctx.fillStyle = 'rgba(78,88,106,.92)'; ctx.fill(P.cro);
+  ctx.save(); ctx.clip(P.cro); ctx.strokeStyle = 'rgba(255,255,255,.13)'; ctx.lineWidth = 1; ctx.beginPath();
+  for (let k = -L.mh; k < L.mw; k += 7) { ctx.moveTo(L.ox + k, L.oy + L.mh); ctx.lineTo(L.ox + k + L.mh, L.oy); }
+  ctx.stroke(); ctx.restore();
+  ctx.strokeStyle = 'rgba(10,14,26,.6)'; ctx.lineWidth = 1; ctx.stroke(P.cro);
+  // the kingdom: soft shadow, then the regions
+  ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.6)'; ctx.shadowBlur = 12 * d; ctx.shadowOffsetY = 3 * d; ctx.fillStyle = '#222a3a'; ctx.fill(P.kingdom); ctx.restore();
+  const e = o.e;
+  const colOf = (id) => mix(COL.neutral, COL[STATE_OF[id]], e);
+  for (const id of ['ru', 'sk', 'ro', 'vo', 'shx', 'at', 'hu']) {
+    const c = colOf(id); ctx.fillStyle = c; ctx.fill(P[id]); ctx.strokeStyle = c; ctx.lineWidth = 0.9; ctx.stroke(P[id]);
+  }
+  ctx.strokeStyle = 'rgba(190,215,240,.78)'; ctx.lineWidth = 2.3; ctx.lineCap = 'round'; ctx.stroke(P.riv.danube);
+  ctx.strokeStyle = 'rgba(170,205,235,.6)'; ctx.lineWidth = 1.5; ctx.stroke(P.riv.tisza);
+  ctx.strokeStyle = 'rgba(170,205,235,.5)'; ctx.lineWidth = 1.1; ctx.stroke(P.riv.mures); ctx.stroke(P.riv.drava);
+  const gl = ctx.createLinearGradient(L.ox, L.oy, L.ox + L.mw * 0.8, L.oy + L.mh);
+  gl.addColorStop(0, 'rgba(255,255,255,.17)'); gl.addColorStop(0.45, 'rgba(255,255,255,0)'); gl.addColorStop(1, 'rgba(0,0,0,.24)');
+  ctx.save(); ctx.clip(P.kingdom); ctx.fillStyle = gl; ctx.fillRect(L.ox, L.oy, L.mw, L.mh); ctx.restore();
+  if (e > 0.02) { ctx.strokeStyle = `rgba(12,16,30,${0.5 * e})`; ctx.lineWidth = 1; for (const id of LOST) ctx.stroke(P[id]); }
+  ctx.strokeStyle = 'rgba(245,240,225,.7)'; ctx.lineWidth = 1.4; ctx.setLineDash([5, 4]); ctx.stroke(P.kingdom); ctx.setLineDash([]);
+  if (o.border > 0.001) { // Hungary's 1920 border draws itself
+    ctx.lineJoin = 'round'; ctx.setLineDash([P.huLen * ease(o.border), P.huLen * 2]);
+    ctx.strokeStyle = 'rgba(8,10,20,.75)'; ctx.lineWidth = 4.6; ctx.stroke(P.hu);
+    ctx.strokeStyle = '#fbf6e6'; ctx.lineWidth = 2.4; ctx.stroke(P.hu); ctx.setLineDash([]);
+  }
+  if (o.sel) { ctx.save(); ctx.shadowColor = 'rgba(255,255,255,.8)'; ctx.shadowBlur = 10 * d; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.6; ctx.lineJoin = 'round'; ctx.stroke(P[o.sel]); ctx.restore(); }
+  ctx.restore();
+  return P;
+}
+function legend(ctx, x, y, w, ids, alpha = 1) {
+  const t = T[lang]; ctx.save(); ctx.globalAlpha = alpha; ctx.font = FONT(12); ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  let cx = x, cy = y + 8;
+  for (const id of ids) {
+    const txt = t.leg[id], tw = ctx.measureText(txt).width + 22;
+    if (cx + tw > x + w && cx > x) { cx = x; cy += 18; }
+    ctx.fillStyle = COL[id]; ctx.beginPath(); ctx.arc(cx + 5, cy, 5, 0, 7); ctx.fill();
+    if (id === 'cro') { ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 1; ctx.stroke(); }
+    ctx.fillStyle = '#d3d9e8'; ctx.fillText(txt, cx + 14, cy + 0.5); cx += tw + 6;
+  }
+  ctx.restore(); return cy + 10 - y;
+}
+function barRow(ctx, o) { // label column, track, fill, value column
+  const { x, y, w, h, lab, labW, val, valW, frac, col, ghost, dim } = o;
+  ctx.textBaseline = 'middle'; ctx.font = FONT(12);
+  ctx.fillStyle = '#98a0b8'; ctx.textAlign = 'left'; ctx.fillText(lab, x, y + h / 2 + 0.5);
+  const bx = x + labW, bw = w - labW - valW;
+  ctx.fillStyle = 'rgba(255,255,255,.07)'; ctx.beginPath(); ctx.roundRect(bx, y, bw, h, h / 2); ctx.fill();
+  if (frac > 0.002) {
+    const fw = Math.max(h, bw * frac);
+    const gr = ctx.createLinearGradient(0, y, 0, y + h); gr.addColorStop(0, mix(col, '#ffffff', 0.25)); gr.addColorStop(1, mix(col, '#000000', 0.15));
+    ctx.fillStyle = gr; ctx.beginPath(); ctx.roundRect(bx, y, fw, h, h / 2); ctx.fill();
+  }
+  if (ghost > 0) { ctx.save(); ctx.setLineDash([4, 3]); ctx.strokeStyle = 'rgba(255,255,255,.75)'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.roundRect(bx, y, Math.max(h, bw * ghost), h, h / 2); ctx.stroke(); ctx.restore(); }
+  ctx.fillStyle = dim ? '#98a0b8' : '#fff'; ctx.textAlign = 'right'; ctx.fillText(val, x + w, y + h / 2 + 0.5);
+  ctx.textAlign = 'left';
+}
+
+// --- the three views -----------------------------------------------------------------------------------------------
+function drawBorder(ctx, w, h) {
+  const t = T[lang], L = layout(w, h, MAIN, 172), e = ease(clamp(S.rv, 0, 1)); LAYS.main = L;
+  drawMap(ctx, L, { e, border: S.rv });
+  const pl = placer(ctx);
+  pl(t.croLab[0] + t.croLab[1], L.x(16.2), L.y(45.55), ['t'], '#c4cbdb');
+  ctx.font = FONT(12); const sw = ctx.measureText(t.schem).width + 12; ctx.fillStyle = 'rgba(10,14,26,.7)'; ctx.beginPath(); ctx.roundRect(L.ox + L.mw - sw - 8, L.oy + L.mh - 26, sw, 18, 9); ctx.fill();
+  ctx.fillStyle = '#98a0b8'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(t.schem, L.ox + L.mw - sw - 2, L.oy + L.mh - 16.5);
+  // bars: area and people, before and after
+  const b = t.b, x0 = 10, wid = w - 20; let y = L.bottom + 12, rh = 17;
+  ctx.font = FONT(12); const vw = Math.max(ctx.measureText(`${nf(AREA0)} ${t.km2}`).width, ctx.measureText(t.fm(POP0 / 1e6)).width) + 10, lw = 38;
+  const share = AREA1 / AREA0, pshare = POP1 / POP0, done = S.done1;
+  ctx.fillStyle = '#646c84'; ctx.font = FONT(12, 800); ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(b.gArea.toUpperCase(), x0, y + 6); y += 15;
+  barRow(ctx, { x: x0, y, w: wid, h: rh, lab: b.yrs[0], labW: lw, val: `${nf(AREA0)} ${t.km2}`, valW: vw, frac: 1, col: COL.neutral }); y += rh + 5;
+  barRow(ctx, { x: x0, y, w: wid, h: rh, lab: b.yrs[1], labW: lw, val: done && e > 0.5 ? `${nf(AREA1)} ${t.km2}` : `${S.g1} %`, valW: vw, frac: share * e, col: COL.hu, ghost: S.g1 / 100, dim: !(done && e > 0.5) }); y += rh + 11;
+  ctx.fillStyle = '#646c84'; ctx.font = FONT(12, 800); ctx.fillText(b.gPop.toUpperCase(), x0, y + 6); y += 15;
+  barRow(ctx, { x: x0, y, w: wid, h: rh, lab: b.yrs[0], labW: lw, val: t.fm(POP0 / 1e6), valW: vw, frac: 1, col: COL.neutral }); y += rh + 5;
+  barRow(ctx, { x: x0, y, w: wid, h: rh, lab: b.yrs[1], labW: lw, val: done && e > 0.5 ? t.fm(POP1 / 1e6) : '?', valW: vw, frac: pshare * e, col: COL.hu, dim: !(done && e > 0.5) }); y += rh + 10;
+  if (e > 0.02 && y + 18 < h) legend(ctx, x0, y, wid, ['hu', 'cs', 'ro', 'shs', 'at'], e);
+}
+function pie(ctx, x, y, r, frac, col) {
+  ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.5)'; ctx.shadowBlur = 6; ctx.fillStyle = '#f4f1e8'; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.restore();
+  ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(x, y); ctx.arc(x, y, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = 'rgba(20,24,40,.75)'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.stroke();
+}
+function drawPeople(ctx, w, h) {
+  const t = T[lang], L = layout(w, h, MAIN, 160); LAYS.main = L;
+  const open = S.seen1;
+  drawMap(ctx, L, { e: open ? 1 : 0, border: open ? 1 : 0, sel: open && S.done2 ? S.sel2 : S.pick2 && LOST.includes(S.pick2) ? S.pick2 : S.pick2 === 'vo' ? 'vo' : null });
+  const pl = placer(ctx), b2 = ease(clamp(S.b2, 0, 1)), rMax = Math.min(L.mh * 0.17, 38);
+  if (b2 > 0.01) for (const r of REGS) {
+    const x = L.x(r.at[0]), y = L.y(r.at[1]);
+    if (S.mode2 === 'n') { const rr = Math.max(2.5, rMax * Math.sqrt(r.hu / REGS[0].hu)) * b2; pie(ctx, x, y, rr, 1, '#e8584a'); } else pie(ctx, x, y, 15 * b2, r.p / 100, '#e8584a');
+  }
+  pl(t.croLab[0] + t.croLab[1], L.x(16.2), L.y(45.55), ['t'], '#c4cbdb');
+  if (!open) return;
+  const x0 = 10, wid = w - 20; let y = L.bottom + 12;
+  y += legend(ctx, x0, y, wid, ['hu', 'cs', 'ro', 'shs', 'at', 'cro']) + 6;
+  if (!S.done2 || b2 < 0.02) return;
+  const rows = S.mode2 === 'n' ? REGS.slice().sort((a, c) => c.hu - a.hu).map((r) => ({ r })) : REGS.map((r) => ({ r })).concat([{ inside: true }]);
+  const rh = clamp((h - y - 10) / (rows.length + (S.mode2 === 'p' ? 1 : 0)), 15, 24), bh = rh - 5;
+  ctx.font = FONT(12); const lw = Math.max(...Object.values(t.p.short).map((s) => ctx.measureText(s).width), ctx.measureText(t.p.inside).width) + 8, vw = ctx.measureText('1,658,045').width + 6;
+  ctx.save(); ctx.globalAlpha = b2;
+  const bx = x0 + lw, bw = wid - lw - vw;
+  for (const row of rows) {
+    if (row.inside) { // inside Hungary, 1920 census: 10.4 % spoke a minority language; the rest is shown as Hungarian speakers (computed)
+      barRow(ctx, { x: x0, y, w: wid, h: bh, lab: t.p.inside, labW: lw, val: `${pf(Math.round((100 - MINOR1920) * 10) / 10)} %`, valW: vw, frac: 1, col: '#8f9ab0' });
+      ctx.fillStyle = '#e8584a'; ctx.beginPath(); ctx.roundRect(bx, y, Math.max(bh, (bw * (100 - MINOR1920)) / 100) * b2, bh, bh / 2); ctx.fill();
+    } else {
+      const r = row.r, sel = S.sel2 === r.id, dim = !sel && !!S.sel2;
+      if (S.mode2 === 'n') barRow(ctx, { x: x0, y, w: wid, h: bh, lab: t.p.short[r.id], labW: lw, val: nf(r.hu), valW: vw, frac: (r.hu / REGS[0].hu) * b2, col: COL[STATE_OF[r.id]], dim });
+      else { // share: grey = everybody, red = Hungarian speakers
+        barRow(ctx, { x: x0, y, w: wid, h: bh, lab: t.p.short[r.id], labW: lw, val: `${pf(r.p)} %`, valW: vw, frac: 1, col: '#8f9ab0', dim });
+        ctx.fillStyle = '#e8584a'; ctx.beginPath(); ctx.roundRect(bx, y, Math.max(bh, bw * (r.p / 100)) * b2, bh, bh / 2); ctx.fill();
+      }
+    }
+    y += rh;
+  }
+  if (S.mode2 === 'p') {
+    ctx.font = FONT(12); ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; const ty = Math.min(y + 8, h - 8);
+    ctx.fillStyle = '#e8584a'; ctx.beginPath(); ctx.arc(x0 + 5, ty, 4.5, 0, 7); ctx.fill(); ctx.fillStyle = '#c6cde0'; ctx.fillText(t.p.hu, x0 + 14, ty + 0.5);
+    const hw = ctx.measureText(t.p.hu).width; ctx.fillStyle = '#8f9ab0'; ctx.beginPath(); ctx.arc(x0 + hw + 34, ty, 4.5, 0, 7); ctx.fill(); ctx.fillStyle = '#c6cde0'; ctx.fillText(t.p.other, x0 + hw + 43, ty + 0.5);
+  }
+  ctx.restore();
+}
+function drawCuts(ctx, w, h) {
+  const t = T[lang], L = layout(w, h, MAIN, 150); LAYS.main = L;
+  drawMap(ctx, L, { e: S.seen1 ? 1 : 0, border: S.seen1 ? 1 : 0 });
+  if (!S.seen1) { placer(ctx)(t.croLab[0] + t.croLab[1], L.x(16.2), L.y(45.55), ['t'], '#c4cbdb'); return; }
+  const cut = ease(clamp(S.cut, 0, 1)), q = (p) => [L.x(p[0]), L.y(p[1])];
+  ctx.save(); ctx.beginPath(); ctx.roundRect(L.ox, L.oy, L.mw, L.mh, 14); ctx.clip();
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (const sp of SPOKE) {
+    const pts = sp.pts.map(q);
+    const trace = (a, b) => { ctx.beginPath(); ctx.moveTo(pts[a][0], pts[a][1]); for (let i = a + 1; i <= b; i++) ctx.lineTo(pts[i][0], pts[i][1]); };
+    trace(0, pts.length - 1); ctx.strokeStyle = 'rgba(8,10,20,.55)'; ctx.lineWidth = 4; ctx.stroke(); ctx.strokeStyle = '#f6efd8'; ctx.lineWidth = 1.8; ctx.stroke();
+    if (cut > 0.01) { // the lost part of the spoke turns red and dashed
+      const c = q(sp.cutP); ctx.beginPath(); ctx.moveTo(c[0], c[1]); for (let i = sp.cutI + 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+      ctx.strokeStyle = `rgba(255,96,72,${cut})`; ctx.lineWidth = 2.4; ctx.setLineDash([4, 4]); ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
+  if (cut > 0.01) for (const sp of SPOKE) { // scissors-style markers where the border cuts
+    const [cx, cy] = q(sp.cutP), r = 7 * Math.min(1, cut * 1.4) * (1 + 0.25 * Math.sin(Math.min(1, cut) * Math.PI));
+    ctx.fillStyle = '#ff5a44'; ctx.beginPath(); ctx.arc(cx, cy, Math.max(0, r), 0, 7); ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.6; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx - r * 0.38, cy - r * 0.38); ctx.lineTo(cx + r * 0.38, cy + r * 0.38); ctx.moveTo(cx + r * 0.38, cy - r * 0.38); ctx.lineTo(cx - r * 0.38, cy + r * 0.38); ctx.stroke();
+  }
+  ctx.restore();
+  const dot = (id, r, sel) => {
+    const [x, y] = q(TW[id]); ctx.save();
+    if (sel) { ctx.shadowColor = '#fff'; ctx.shadowBlur = 12; }
+    ctx.fillStyle = '#fff'; ctx.strokeStyle = 'rgba(12,16,30,.85)'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.stroke(); ctx.restore();
+    if (sel) { ctx.strokeStyle = '#ffd27a'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r + 4, 0, 7); ctx.stroke(); }
+    return [x, y];
+  };
+  const pairSel = S.sel3 === 'kom' ? ['kom'] : S.sel3 === 'deb' ? ['deb', 'nag'] : [], townSel = SPOKES.includes(S.sel3) ? S.sel3 : null;
+  dot('bud', 6, S.sel3 === 'bud');
+  for (const id of SPOKES) dot(id, 4.2, townSel === id);
+  dot('kom', 4.6, pairSel.includes('kom')); dot('nag', 4, pairSel.includes('nag')); dot('deb', 4, pairSel.includes('deb'));
+  const pl = placer(ctx), nm = t.c.names;
+  for (const id of pairSel) { const [x, y] = q(TW[id]); pl(nm[id], x, y, SIDES[id]); }
+  if (townSel) { const [x, y] = q(TW[townSel]); pl(nm[townSel], x, y, SIDES[townSel]); }
+  { const [x, y] = q(TW.bud); pl(nm.bud, x, y, SIDES.bud); }
+  for (const id of SPOKES) { if (id === townSel) continue; const [x, y] = q(TW[id]); pl(nm[id], x, y, SIDES[id]); }
+  pl(t.croLab[0] + t.croLab[1], L.x(16.2), L.y(45.55), ['t'], '#c4cbdb');
+  const x0 = 10, wid = w - 20; let y = L.bottom + 12;
+  y += legend(ctx, x0, y, wid, ['hu', 'cs', 'ro', 'shs', 'at', 'cro']) + 6;
+  if (cut < 0.02) return;
+  const rows = [['rail', RAIL.rail], ['road', RAIL.road], ['canal', RAIL.canal], ['farm', RAIL.farm]];
+  const rh = clamp((h - y - 26) / rows.length, 15, 22), bh = rh - 5;
+  ctx.save(); ctx.globalAlpha = cut; ctx.font = FONT(12, 800); ctx.fillStyle = '#646c84'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(t.c.barsHead.toUpperCase(), x0, y + 5); y += 15;
+  ctx.font = FONT(12); const lw = Math.max(...rows.map(([k]) => ctx.measureText(t.c.bars[k]).width)) + 8, vw = ctx.measureText('100 %').width + 6;
+  for (const [k, v] of rows) { barRow(ctx, { x: x0, y, w: wid, h: bh, lab: t.c.bars[k], labW: lw, val: `${v} %`, valW: vw, frac: (v / 100) * cut, col: k === 'rail' ? '#ff6a52' : '#8f9ab0', dim: k !== 'rail' }); y += rh; }
+  ctx.restore();
+}
+
+// --- secret experiments --------------------------------------------------------------------------------------------
+function drawSop(ctx, w, h) {
+  const t = T[lang], L = layout(w, h, SOP, 176), v = ease(clamp(S.vote, 0, 1)); LAYS.main = L;
+  drawMap(ctx, L, { e: 1, border: 1 });
+  const x = L.x(TW.sop[0]), y = L.y(TW.sop[1]), rx = 0.13 * COS * L.s * 1.6, ry = 0.09 * L.s * 1.6;
+  const k = S.era === 1 ? v : 0;
+  ctx.save(); ctx.beginPath(); ctx.roundRect(L.ox, L.oy, L.mw, L.mh, 14); ctx.clip();
+  const bc = mix(COL.at, COL.hu, k); ctx.fillStyle = bc; ctx.strokeStyle = '#fbf6e6'; ctx.lineWidth = 2; ctx.setLineDash([4, 3]);
+  ctx.beginPath(); ctx.ellipse(x, y, rx, ry, -0.3, 0, 7); ctx.fill(); ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+  ctx.fillStyle = '#fff'; ctx.strokeStyle = 'rgba(12,16,30,.85)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, 4, 0, 7); ctx.fill(); ctx.stroke();
+  const pl = placer(ctx); pl(t.sec.sopron, x, y, 'rb'); pl(t.sec.burg, L.x(16.5), L.y(47.15), ['r', 'l']);
+  for (const [id, nm] of [['vie', t.sec.vienna], ['poz', t.sec.brat]]) { const [px, py] = [L.x(TW[id][0]), L.y(TW[id][1])]; ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(px, py, 3.2, 0, 7); ctx.fill(); pl(nm, px, py, id === 'vie' ? ['l', 'b'] : ['r', 'b']); }
+  // 100 voters
+  const gx = 10, gy = L.bottom + 16, cell = Math.min(17, Math.max(10, (h - gy - 10) / 10)), n = 100;
+  const shown = Math.floor(S.vote * n + 0.001);
+  for (let i = 0; i < n; i++) {
+    const cx = gx + (i % 10) * cell + cell / 2, cy = gy + Math.floor(i / 10) * cell + cell / 2, r = cell * 0.36;
+    if (i < shown) { const c = i < SOP_YES ? COL.hu : COL.at; const gr = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.3, 1, cx, cy, r * 1.1); gr.addColorStop(0, mix(c, '#ffffff', 0.45)); gr.addColorStop(1, mix(c, '#000000', 0.2)); ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.fill(); }
+    else { ctx.strokeStyle = 'rgba(255,255,255,.22)'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.stroke(); }
+  }
+  const lx = gx + 10 * cell + 14; ctx.font = FONT(12); ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  const yes = shown > 0 ? Math.min(shown, SOP_YES) : 0, no = Math.max(0, shown - SOP_YES);
+  ctx.fillStyle = COL.hu; ctx.beginPath(); ctx.arc(lx + 5, gy + 10, 5, 0, 7); ctx.fill(); ctx.fillStyle = '#d3d9e8'; ctx.fillText(`${t.sec.forHu}: ${shown > 0 ? yes : '?'}`, lx + 14, gy + 10.5);
+  ctx.fillStyle = COL.at; ctx.beginPath(); ctx.arc(lx + 5, gy + 30, 5, 0, 7); ctx.fill(); ctx.fillStyle = '#d3d9e8'; ctx.fillText(`${t.sec.forAt}: ${shown > 0 ? no : '?'}`, lx + 14, gy + 30.5);
+}
+const dateTxt = (ts) => { const d = new Date(ts); return `${d.getUTCDate()} ${T[lang].months[d.getUTCMonth()]} ${d.getUTCFullYear()}`; };
+function drawPalace(ctx, x, y, w, h, glow) {
+  const sky = ctx.createLinearGradient(0, y, 0, y + h); sky.addColorStop(0, '#2a3f66'); sky.addColorStop(0.7, '#6f86a8'); sky.addColorStop(1, '#c9b79a');
+  ctx.save(); ctx.beginPath(); ctx.roundRect(x, y, w, h, 14); ctx.clip(); ctx.fillStyle = sky; ctx.fillRect(x, y, w, h);
+  const gy = y + h * 0.78, lawn = ctx.createLinearGradient(0, gy, 0, y + h); lawn.addColorStop(0, '#4f7a52'); lawn.addColorStop(1, '#2f5636'); ctx.fillStyle = lawn; ctx.fillRect(x, gy, w, y + h - gy);
+  // trees behind
+  for (const [tx, tr] of [[0.08, 0.16], [0.93, 0.18], [0.2, 0.12], [0.8, 0.13]]) { const g = ctx.createRadialGradient(x + w * tx - 3, gy - h * 0.2, 2, x + w * tx, gy - h * 0.14, h * tr * 1.5); g.addColorStop(0, '#4d7a4c'); g.addColorStop(1, '#2a4a31'); ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(x + w * tx, gy - h * 0.14, h * tr, h * tr * 1.25, 0, 0, 7); ctx.fill(); }
+  const bw = w * 0.84, bx = x + (w - bw) / 2, bh = h * 0.34, by = gy - bh;
+  ctx.fillStyle = 'rgba(0,0,0,.28)'; ctx.beginPath(); ctx.ellipse(x + w / 2, gy + 3, bw * 0.52, 5, 0, 0, 7); ctx.fill();
+  const wall = ctx.createLinearGradient(bx, by, bx + bw, gy); wall.addColorStop(0, mix('#ead2bd', '#fff2d0', glow * 0.6)); wall.addColorStop(1, mix('#cfa58c', '#f0c88a', glow * 0.6));
+  ctx.fillStyle = wall; ctx.fillRect(bx, by, bw, bh);
+  ctx.fillStyle = '#b89a86'; ctx.fillRect(bx - 3, by - 6, bw + 6, 7);                      // cornice
+  ctx.fillStyle = '#d9bfae'; for (let i = 0; i < 18; i++) ctx.fillRect(bx + 1 + i * ((bw - 6) / 17), by - 13, 4, 7); // balustrade
+  const cw = bw * 0.5, cx0 = bx + (bw - cw) / 2, ccount = 8; // colonnade
+  ctx.fillStyle = 'rgba(60,40,40,.35)'; ctx.fillRect(cx0, by + bh * 0.12, cw, bh * 0.88);
+  for (let i = 0; i < ccount; i++) { const px = cx0 + (i + 0.5) * (cw / ccount), g = ctx.createLinearGradient(px - 4, 0, px + 4, 0); g.addColorStop(0, '#f6e4d4'); g.addColorStop(0.5, '#e2b9a6'); g.addColorStop(1, '#b98d7c'); ctx.fillStyle = g; ctx.beginPath(); ctx.roundRect(px - 4, by + bh * 0.1, 8, bh * 0.9, 2); ctx.fill(); ctx.fillStyle = '#f0d9c8'; ctx.fillRect(px - 6, by + bh * 0.08, 12, 4); }
+  ctx.fillStyle = 'rgba(40,52,84,.8)'; const wn = 5; for (const side of [0, 1]) for (let i = 0; i < wn; i++) { const wx = side === 0 ? bx + 8 + i * ((bw - cw) / 2 - 16) / (wn - 1) : cx0 + cw + 8 + i * ((bw - cw) / 2 - 16) / (wn - 1); ctx.beginPath(); ctx.roundRect(wx - 4, by + bh * 0.32, 9, bh * 0.45, [4, 4, 1, 1]); ctx.fill(); }
+  ctx.restore();
+}
+function drawPen(ctx, w, h) {
+  const t = T[lang], s = t.sec, pn = ease(clamp(S.pen, 0, 1)), ph = Math.min(h * 0.4, 190); LAYS.main = { w, h };
+  drawPalace(ctx, 10, 10, w - 20, ph, S.doneB && S.ev === 3 ? 1 : 0);
+  const ax = 22, ax1 = w - 22, ay = ph + 70, span = EVENTS[EVENTS.length - 1].t - EVENTS[0].t, X = (ts) => ax + ((ts - EVENTS[0].t) / span) * (ax1 - ax);
+  LAYS.pen = { X, ay };
+  ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ax1, ay); ctx.stroke();
+  const n = S.doneB ? Math.min(EVENTS.length, 1 + Math.floor(pn * EVENTS.length + 0.001)) : 1;
+  if (S.doneB && pn > 0.2) { // the span from armistice to signing
+    const a = X(EVENTS[0].t), b = X(EVENTS[3].t) , k = clamp((pn - 0.2) / 0.5, 0, 1);
+    ctx.strokeStyle = '#ffd27a'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(a, ay); ctx.lineTo(a + (b - a) * k, ay); ctx.stroke();
+    if (k > 0.99) { ctx.font = FONT(12); const txt = s.days(DAYS_PEN), tw = ctx.measureText(txt).width + 14; ctx.fillStyle = 'rgba(10,14,26,.85)'; ctx.beginPath(); ctx.roundRect((a + b) / 2 - tw / 2, ay - 34, tw, 20, 10); ctx.fill(); ctx.fillStyle = '#ffd27a'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(txt, (a + b) / 2, ay - 23.5); }
+  }
+  EVENTS.forEach((ev, i) => {
+    if (i >= n) return;
+    const px = X(ev.t), sel = S.doneB && S.ev === i, r = sel ? 8 : 5.5;
+    ctx.save(); if (sel) { ctx.shadowColor = '#ffd27a'; ctx.shadowBlur = 12; }
+    ctx.fillStyle = i === 3 ? '#ffd27a' : '#f4f1e8'; ctx.strokeStyle = 'rgba(12,16,30,.85)'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(px, ay, r, 0, 7); ctx.fill(); ctx.stroke(); ctx.restore();
+  });
+  ctx.font = FONT(12); ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+  const shownI = S.doneB ? S.ev : 0, ev = EVENTS[shownI], txt = `${s.ev[ev.k][0]} · ${dateTxt(ev.t)}`; ctx.font = FONT(12); const tw = ctx.measureText(txt).width + 14;
+  const tx = clamp(X(ev.t), 10 + tw / 2, w - 10 - tw / 2); ctx.fillStyle = 'rgba(10,14,26,.85)'; ctx.beginPath(); ctx.roundRect(tx - tw / 2, ay + 18, tw, 22, 11); ctx.fill(); ctx.fillStyle = '#fff'; ctx.fillText(txt, tx, ay + 29.5);
+  ctx.textAlign = 'left';
+}
+
+// --- shell, controls, one render per change ------------------------------------------------------------------------
+const lab = shell({ key: 'trianon', T, topics: TOPICS, views: ['border', 'people', 'cuts'], onLang: () => render(), onView: () => { S.sec = null; render(); } });
+const secret = secretLab('trianon', () => ({
+  secrets: [{ emo: '🗳️', title: T[lang].sec.a[0], desc: T[lang].sec.a[1] }, { emo: '🖋️', title: T[lang].sec.b[0], desc: T[lang].sec.b[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="c1"><div class="tr-q" id="q1"></div><input type="range" class="big" id="sl1" min="0" max="100" step="1" value="50">
+    <div class="ends"><span id="e1a"></span><span id="e1b"></span></div><button class="btn tr-go" id="go1" data-act="go1"></button><div class="tr-verdict" id="vd1" hidden></div></div>
+  <div id="c2"><div class="tr-q" id="q2"></div><div class="tr-chips" id="ch2"></div><div class="row2" id="act2"></div></div>
+  <div id="c3"><div class="tr-q" id="q3"></div><div class="tr-chips" id="ch3"></div><div class="tr-sub" id="ph3"></div><div class="tr-chips" id="pr3"></div><div class="row2" id="act3"></div></div>
+  <div id="cA"><div class="tr-q" id="qA"></div><div class="tr-chips" id="chA"></div><div class="row2" id="actA"></div></div>
+  <div id="cB"><div class="tr-q" id="qB"></div><div class="tr-chips" id="chB"></div><div class="row2" id="actB"></div></div>
+  <div class="tr-secrow"><div class="tr-chips" id="secRow"></div></div>`;
+const step = (dt) => { // animations ease towards their targets: reveals run up, "again" runs back down twice as fast
+  const mv = (k, to, sp) => { S[k] = to > S[k] ? Math.min(to, S[k] + dt * sp) : Math.max(to, S[k] - dt * sp * 2); };
+  mv('rv', S.done1 ? 1 : 0, 0.7); mv('b2', S.done2 ? 1 : 0, 1.1); mv('cut', S.done3 ? 1 : 0, 0.8); mv('vote', S.doneA ? 1 : 0, 0.45); mv('pen', S.doneB ? 1 : 0, 0.5);
+};
+const cv = canvasLoop($('cv'), (ctx, w, h, dt) => {
+  CW = w; CH = h; step(dt);
+  if (S.sec === 'a') drawSop(ctx, w, h); else if (S.sec === 'b') drawPen(ctx, w, h);
+  else if (lab.view === 'border') drawBorder(ctx, w, h); else if (lab.view === 'people') drawPeople(ctx, w, h); else drawCuts(ctx, w, h);
+});
+void cv;
+const showStage = () => { const r = $('stage').getBoundingClientRect(); if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+const chipHtml = (label, o = {}) => `<button class="tr-chip ${o.cls || ''}" type="button" ${o.act ? `data-act="${o.act}"` : ''} ${o.k !== undefined ? `data-k="${o.k}"` : ''} ${o.dis ? 'disabled' : ''}>${esc(label)}</button>`;
+const goHtml = (label, act, dis) => `<button class="btn tr-go" type="button" data-act="${act}" ${dis ? 'disabled' : ''}>${esc(label)}</button>`;
+const answerCls = (done, i, ok, pick) => (done ? (i === ok ? 'good' : i === pick ? 'bad' : 'dim') : pick === i ? 'on' : '');
+
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const a = b.dataset.act, k = b.dataset.k;
+  const sh = Math.round((AREA1 / AREA0) * 100);
+  if (a === 'go1') { if (S.done1) { S.done1 = false; sfx.click(); } else { S.done1 = true; S.seen1 = true; (Math.abs(S.g1 - sh) <= 8 ? sfx.good : sfx.bad)(); showStage(); } }
+  else if (a === 'pick2') { S.pick2 = k; sfx.tick(); }
+  else if (a === 'go2') { S.done2 = true; S.sel2 = null; (S.pick2 === REG_TOP ? sfx.good : sfx.bad)(); showStage(); }
+  else if (a === 'again2') { S.done2 = false; S.pick2 = null; S.sel2 = null; S.mode2 = 'n'; sfx.click(); }
+  else if (a === 'mode2') { S.mode2 = k; sfx.tick(); }
+  else if (a === 'pick3') { S.pick3 = +k; S.done3 = true; (+k === T[lang].c.ok ? sfx.good : sfx.bad)(); showStage(); }
+  else if (a === 'sel3') { S.sel3 = S.sel3 === k ? null : k; sfx.tick(); }
+  else if (a === 'again3') { S.done3 = false; S.pick3 = null; S.sel3 = null; sfx.click(); }
+  else if (a === 'pickA') { S.pickA = +k; sfx.tick(); }
+  else if (a === 'goA') { S.doneA = true; S.era = 1; (S.pickA === T[lang].sec.aOk ? sfx.good : sfx.bad)(); showStage(); }
+  else if (a === 'eraA') { S.era = +k; sfx.tick(); }
+  else if (a === 'againA') { S.doneA = false; S.pickA = null; S.era = 0; sfx.click(); }
+  else if (a === 'pickB') { S.pickB = +k; S.doneB = true; S.ev = 3; (+k === T[lang].sec.bOk ? sfx.good : sfx.bad)(); showStage(); }
+  else if (a === 'evB') { S.ev = clamp(S.ev + +k, 0, EVENTS.length - 1); sfx.tick(); }
+  else if (a === 'againB') { S.doneB = false; S.pickB = null; S.ev = 3; sfx.click(); }
+  else if (a === 'sec') { if (!secret.unlocked()) { secret.open(); return; } S.sec = S.sec === k ? null : k; sfx.click(); }
+  render();
+});
+$('sl1').addEventListener('input', (ev) => { if (S.done1) return; S.g1 = +ev.target.value; render(); });
+$('cv').addEventListener('click', (ev) => {
+  const r = $('cv').getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+  if (S.sec === 'b') {
+    const g = LAYS.pen; if (!g || !S.doneB) return;
+    let best = null, bd = 26; EVENTS.forEach((e, i) => { const d = Math.hypot(g.X(e.t) - x, g.ay - y); if (d < bd) { bd = d; best = i; } });
+    if (best !== null) { S.ev = best; sfx.tick(); render(); }
+    return;
+  }
+  const L = LAYS.main; if (S.sec || !L || !L.lon || !S.seen1) return;
+  if (lab.view === 'people') {
+    const id = regionAt(L.lon(x), L.lat(y));
+    if (!REGS.some((q) => q.id === id)) return;
+    if (S.done2) S.sel2 = S.sel2 === id ? null : id; else S.pick2 = id;
+    sfx.tick(); render();
+  } else if (lab.view === 'cuts') {
+    let best = null, bd = 26; for (const id of [...SPOKES, 'kom', 'deb', 'nag']) { const d = Math.hypot(L.x(TW[id][0]) - x, L.y(TW[id][1]) - y); if (d < bd) { bd = d; best = id; } }
+    if (best) { best = best === 'nag' ? 'deb' : best; S.sel3 = S.sel3 === best ? null : best; sfx.tick(); render(); }
+  }
+});
+
+function townTitle(c, id) { return lang === 'hu' || !c.hung[id] ? c.names[id] : `${c.names[id]} (${c.hn}: ${c.hung[id]})`; }
+function render() {
+  const t = T[lang], v = lab.view, sec = S.sec;
+  document.body.dataset.v = sec ? 'sec' : v;
+  $('c1').hidden = !!sec || v !== 'border'; const lock = !S.seen1 && !sec && v !== 'border';
+  $('c2').hidden = lock || !!sec || v !== 'people'; $('c3').hidden = lock || !!sec || v !== 'cuts'; $('cA').hidden = sec !== 'a'; $('cB').hidden = sec !== 'b';
+  $('secRow').innerHTML = [['a', '🗳️'], ['b', '🖋️']].map(([k, emo]) => `<button class="chip secret ${secret.unlocked() ? 'open' : ''} ${sec === k ? 'on' : ''}" type="button" data-act="sec" data-k="${k}">${secret.unlocked() ? `${emo} ${esc(t.sec[k][0])}` : '🔒 ???'}</button>`).join('');
+  if (sec === 'a') renderA(t); else if (sec === 'b') renderB(t); else if (v === 'border') renderBorder(t); else if (lock) renderLocked(t); else if (v === 'people') renderPeople(t); else renderCuts(t);
+  lab.checkStage?.();
+}
+function renderLocked(t) {
+  lab.setGlow('rgba(159, 191, 143, .26)'); lab.setReadout('?', '', '', '#9fbf8f');
+  lab.setState({ emo: '🗺️', title: t.first, lead: '', body: '', extra: '' }); lab.setFacts([]);
+}
+function renderBorder(t) {
+  const b = t.b, sh = Math.round((AREA1 / AREA0) * 100), ps = Math.round((POP1 / POP0) * 100), done = S.done1;
+  lab.setGlow('rgba(159, 191, 143, .26)');
+  $('q1').textContent = b.q; $('e1a').textContent = b.ends[0]; $('e1b').textContent = b.ends[1];
+  const sl = $('sl1'); if (+sl.value !== S.g1) sl.value = S.g1; sl.disabled = done;
+  $('go1').textContent = done ? t.again : b.go; $('go1').classList.toggle('ghost', done);
+  const vd = $('vd1'); vd.hidden = !done;
+  if (done) { const ok = Math.abs(S.g1 - sh) <= 8; vd.textContent = ok ? b.ok(S.g1) : b.no(S.g1); vd.className = `tr-verdict ${ok ? 'good' : 'bad'}`; }
+  if (!done) {
+    lab.setReadout(`${S.g1} %`, b.valPre, '', '#9fbf8f');
+    lab.setState({ emo: '🗺️', title: b.preTitle, lead: b.preLead(nf(AREA0)), body: b.preBody, extra: `<div class="tr-fine">${esc(b.fineA)}</div>` });
+    lab.setFacts(t.facts.b0);
+  } else {
+    lab.setReadout(`${sh} %`, b.valSub(nf(AREA1), nf(AREA0)), '1920', '#9fbf8f');
+    lab.setState({ emo: '✂️', title: b.title(sh), lead: b.lead(nf(AREA1), nf(AREA0), ps), body: b.dens(Math.round(POP1 / AREA1), Math.round(POP0 / AREA0)), extra: `<div class="tr-fine">${esc(b.fine)}</div>` });
+    lab.setFacts(t.facts.b1);
+  }
+}
+function renderPeople(t) {
+  const p = t.p, done = S.done2, top = REGS.find((r) => r.id === REG_TOP), mx = Math.max(...REGS.map((r) => r.p));
+  lab.setGlow('rgba(227, 195, 119, .26)');
+  $('q2').textContent = p.q;
+  $('ch2').innerHTML = REGS.map((r) => chipHtml(p.reg[r.id], { act: 'pick2', k: r.id, cls: done ? (r.id === REG_TOP ? 'good' : r.id === S.pick2 ? 'bad' : 'dim') : S.pick2 === r.id ? 'on' : '', dis: done })).join('');
+  $('act2').innerHTML = done ? chipHtml(t.again, { act: 'again2' }) + chipHtml(p.modes[0], { act: 'mode2', k: 'n', cls: S.mode2 === 'n' ? 'on' : '' }) + chipHtml(p.modes[1], { act: 'mode2', k: 'p', cls: S.mode2 === 'p' ? 'on' : '' }) : goHtml(t.check, 'go2', !S.pick2);
+  if (!done) {
+    lab.setReadout('?', p.valPre, '', '#e3c377');
+    lab.setState({ emo: '👥', title: p.preTitle, lead: S.pick2 ? p.pick(p.reg[S.pick2]) : p.preLead, body: p.preBody, extra: '' });
+    lab.setFacts(t.facts.p0);
+  } else {
+    lab.setReadout(t.fm(REG_TOT / 1e6), p.valSub, '', '#e3c377');
+    const sel = REGS.find((r) => r.id === S.sel2), fine = `<div class="tr-fine">${esc(p.fine)}</div>`;
+    if (sel) lab.setState({ emo: '🔎', title: p.full[sel.id], lead: p.selLead(nf(sel.hu), pf(sel.p)), body: p.selBody(sel.oth.map(([k, x]) => `${p.lg[k]} ${pf(x)} %`).join(', ')), extra: fine });
+    else lab.setState({ emo: S.pick2 === REG_TOP ? '✅' : '🤔', title: S.pick2 === REG_TOP ? p.ok : p.no, lead: p.lead(p.full[REG_TOP], nf(top.hu)), body: p.body(pf((REG_TOT / 1e6).toFixed(1)), pf(mx)), extra: fine });
+    lab.setFacts(t.facts.p1);
+  }
+}
+function renderCuts(t) {
+  const c = t.c, done = S.done3, sel = S.sel3;
+  lab.setGlow('rgba(255, 106, 82, .24)');
+  $('q3').textContent = c.q;
+  $('ch3').innerHTML = c.opts.map((o, i) => chipHtml(o, { act: 'pick3', k: i, cls: answerCls(done, i, c.ok, S.pick3), dis: done })).join('');
+  $('ph3').textContent = c.pairsHead;
+  $('pr3').innerHTML = chipHtml(c.pairs[0], { act: 'sel3', k: 'kom', cls: sel === 'kom' ? 'on' : '' }) + chipHtml(c.pairs[1], { act: 'sel3', k: 'deb', cls: sel === 'deb' ? 'on' : '' });
+  $('act3').innerHTML = done ? chipHtml(t.again, { act: 'again3' }) : '';
+  const fine = `<div class="tr-fine">${esc(c.spokeFine)}</div>`;
+  if (done) lab.setReadout(`${RAIL.rail} %`, c.valSub, '', '#ff6a52'); else lab.setReadout('?', c.valPre, '', '#ff6a52');
+  let facts = done ? t.facts.c1 : t.facts.c0;
+  if (sel === 'kom') { lab.setState({ emo: '🌉', title: c.komTitle, lead: c.komLead, body: c.komBody, extra: fine }); facts = t.facts.kom.concat(facts); }
+  else if (sel === 'deb') lab.setState({ emo: '📍', title: c.debTitle, lead: c.debLead(DIST_DEB), body: c.debBody, extra: fine });
+  else if (sel) { const sp = SPOKE.find((q) => q.id === sel); lab.setState({ emo: '📍', title: townTitle(c, sel), lead: c.townLead(DIST[sel]), body: c.townBody(c.ends[END_OF[sp.reg]] || ''), extra: fine }); }
+  else if (done) lab.setState({ emo: S.pick3 === c.ok ? '✅' : '🚂', title: c.title(RAIL.rail, S.pick3 === c.ok), lead: c.lead(RAIL.rail), body: c.body(SPOKE.filter((q) => q.reg !== 'hu').length, RAIL), extra: fine });
+  else lab.setState({ emo: '🚉', title: c.preTitle, lead: c.preLead, body: c.preBody, extra: fine });
+  lab.setFacts(facts);
+}
+function renderA(t) {
+  const s = t.sec, done = S.doneA;
+  lab.setGlow('rgba(183, 155, 216, .26)');
+  $('qA').textContent = s.aQ;
+  $('chA').innerHTML = s.aOpts.map((o, i) => chipHtml(o, { act: 'pickA', k: i, cls: answerCls(done, i, s.aOk, S.pickA), dis: done })).join('');
+  $('actA').innerHTML = done ? chipHtml(s.eras[0], { act: 'eraA', k: 0, cls: S.era === 0 ? 'on' : '' }) + chipHtml(s.eras[1], { act: 'eraA', k: 1, cls: S.era === 1 ? 'on' : '' }) + chipHtml(t.again, { act: 'againA' }) : goHtml(s.count, 'goA', S.pickA === null);
+  if (!done) {
+    lab.setReadout('?', s.aValPre, 'Sopron', '#b79bd8');
+    lab.setState({ emo: '🗳️', title: s.aPreTitle, lead: s.aPreLead, body: s.aPreBody, extra: '' });
+  } else {
+    lab.setReadout(String(SOP_YES), s.aVal, 'Sopron', '#9fbf8f');
+    if (S.era === 0) lab.setState({ emo: '📜', title: s.eras[0], lead: s.aEra, body: '', extra: '' });
+    else lab.setState({ emo: '🗳️', title: s.aTitle(SOP_YES), lead: s.aLead, body: s.aBody, extra: '' });
+  }
+  lab.setFacts(done ? t.facts.sop : []);
+}
+function renderB(t) {
+  const s = t.sec, done = S.doneB;
+  lab.setGlow('rgba(255, 210, 122, .24)');
+  $('qB').textContent = s.bQ;
+  $('chB').innerHTML = s.bOpts.map((o, i) => chipHtml(o, { act: 'pickB', k: i, cls: answerCls(done, i, s.bOk, S.pickB), dis: done })).join('');
+  $('actB').innerHTML = done ? chipHtml(s.prev, { act: 'evB', k: -1, dis: S.ev === 0 }) + chipHtml(s.next, { act: 'evB', k: 1, dis: S.ev === EVENTS.length - 1 }) + chipHtml(t.again, { act: 'againB' }) : '';
+  if (!done) {
+    lab.setReadout('?', s.bVal, '', '#ffd27a');
+    lab.setState({ emo: '🖋️', title: s.bPreTitle, lead: s.bPreLead, body: s.bPreBody, extra: '' });
+  } else {
+    const ev = EVENTS[S.ev], txt = s.ev[ev.k];
+    lab.setReadout(s.days(DAYS_PEN), s.bVal, '', '#ffd27a');
+    lab.setState({ emo: S.ev === 3 ? '🖋️' : '📅', title: txt[0], lead: dateTxt(ev.t), body: txt[1], extra: '' });
+  }
+  lab.setFacts(t.facts.pen);
+}
+render();
+</script>
+</body>
+</html>
