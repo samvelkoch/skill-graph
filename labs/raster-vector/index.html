@@ -1,0 +1,866 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Zoom In! · Skill Graph</title>
+<meta name="description" content="Zoom in on two pictures that look the same, shrink a photo and try to bring it back, and pick the right kind of picture for the job. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  body[data-drag="1"] #stage canvas { touch-action: none; cursor: grab; }
+  .rv-opts { display: grid; gap: 8px; }
+  .rv-opt { padding: 11px 14px; border-radius: 12px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1); color: var(--ink);
+    font: 800 14px/1.3 var(--sans); cursor: pointer; text-align: left; min-height: 44px; text-wrap: balance; }
+  .rv-opt:hover { background: rgba(130, 145, 190, .22); }
+  .rv-sl .lbl { display: block; margin-bottom: 4px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-weight: 700; }
+  .rv-sl { margin-top: 2px; }
+  .chip.rv { min-height: 38px; }
+  .rv-fine { margin: 8px 0 0; font-size: 12px; color: var(--mut); }
+  .rv-btn { margin-top: 12px; min-height: 44px; }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, ruPlural, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Zoom In!', title: 'Zoom In!',
+    lines: [['Two pictures look the same.', 'Zoom in and compare them.'], ['Shrink a photo,', 'then try to bring it back.'], ['Pick the right kind', 'of picture for the job.']],
+    views: { zoom: '🔍 Zoom', shrink: '📉 Shrink', format: '🎯 Format' },
+    px: (n) => `${fmt(n)} pixels`, cmds: (n) => `${n} commands`, nums: (n) => `${fmt(n)} colour numbers`, pts: (n) => `${n} points`,
+    z: {
+      fA: 'A', fB: 'B', fAr: 'A · pixels', fBv: 'B · shapes',
+      q: 'What will picture A look like at 8× zoom?',
+      ql: 'A and B are the same drawing. You will zoom in on the fish’s eye. What happens to A?',
+      opts: ['It stays sharp', 'It turns into blocky squares', 'It turns into a blurry smear'], ok: 1,
+      right: 'Right!', no: 'Not quite.',
+      lead: 'A is a raster picture: a grid of coloured squares called pixels. Zooming in makes the squares bigger, not the picture sharper. B is a vector picture, so it stays sharp. Slide the zoom bar and look inside.',
+      same: ['Same drawing, same look.', 'At this size A and B look alike. Slide the zoom bar to the right.'],
+      diff: () => ['A: squares. B: still smooth.', 'A is a raster picture: a grid of tiny coloured squares, the pixels. B is a vector picture: the computer draws it again from shapes at every zoom.'],
+      inside: (a, b) => ['What they are made of.', `A stores one colour number for every pixel (shown here as a coarse grid so you can read them). B stores ${b}. Zoom as far as you like: the list does not change.`],
+      small: 'Zoom in more to read the numbers.',
+      look: '🔍 Look inside', unlook: '🙈 Hide inside', zoom: 'Zoom', hint: 'Drag a picture to move around.', sub: 'zoom',
+      pill: (a, b) => `${a} vs ${b}`,
+    },
+    secrets: { bez: ['Curves', 'A curve is a few points'], font: ['Letters', 'A letter is an outline'] },
+    bez: { t: 'A curve from four points.', l: 'Drag the round dots. The whole curve is stored as just these numbers, so it can be drawn again smooth at any size.', hint: 'Drag the round dots.', sub: 'numbers store the curve', f: 'The curve' },
+    font: { t: 'A letter is an outline.', l: (p, n) => `The letter D is stored as ${p}: corners and curve handles. To show it ${n} pixels tall, the screen fills the outline with pixels.`,
+      lbl: 'Letter size', outline: 'Outline', screen: 'On the screen', sub: 'letter size', pill: (p) => p, unit: 'px' },
+    s: {
+      orig: (n) => `Original ${n}×${n}`, small: (n) => `Shrunk to ${n}×${n}`, grown: (n) => `Grown back to ${n}×${n}`,
+      start: ['Shrink the photo.', 'Drag the slider: the photo keeps fewer and fewer pixels. Then bring it back.'],
+      q: (N) => ['Will the details come back?', `The photo now has only ${N}×${N} = ${fmt(N * N)} pixels. You grow it back to ${TOT}×${TOT}. Think of the whiskers and the sparkles in the eyes. What happens?`],
+      opts: ['They all come back', 'They are gone for good', 'The computer guesses them again'], ok: 1,
+      right: 'Right!', no: 'Not quite.', lost: 'Lost pixels stay lost.',
+      lead: (N) => `Growing back only draws the ${N}×${N} pixels bigger. The photo had ${fmt(TOT * TOT)} pixels and kept ${fmt(N * N)}: the other ${fmt(TOT * TOT - N * N)} are gone, and the computer cannot know what they looked like.`,
+      again: (N) => [`Now ${N}×${N}.`, 'Grow it back and compare it with the original.'],
+      more: (N) => [`Now ${N}×${N}.`, 'Shrink it even more. Then bring it back.'],
+      smooth: 'Smooth only blends neighbours: that is a guess, not the real photo.',
+      diff: ['What was lost.', 'Bright spots show where the grown picture differs from the original. The thin whiskers and the sparkles go first.'],
+      crop: (c, k) => ['A crop is just fewer pixels.', `This part has only ${c}×${c} = ${fmt(c * c)} pixels. Compared with the original it is enlarged ${k}×, so every pixel shows as a square: cutting out a part does not add detail.`],
+      cropLbl: (c) => `Crop ${c}×${c}`,
+      lbl: 'Pixels in a row', sub: 'pixels in a row', subCrop: 'pixels in the crop', pill: (a, b) => `${fmt(a)} of ${fmt(b)}`,
+      grow: '⤢ Grow it back', blocky: '🔲 Blocky', smoothB: '🌫 Smooth', diffB: '🔎 What was lost', cropB: '✂️ Crop', back: '↩ Back', hint: 'Drag the frame on the original.',
+    },
+    f: {
+      q: 'Which kind of picture file do you make?', opts: ['🔲 Pixels (raster)', '✏️ Shapes (vector)'],
+      tasks: [
+        { t: 'A photo of your cat', need: 'It goes into the family album and onto your phone.', why: 'A photo is full of tiny changes of colour. A short list of shapes cannot hold that, so cameras save pixels.' },
+        { t: 'A school logo', need: 'It goes on a T-shirt and on a huge poster.', why: 'A logo is made of simple shapes, so the computer can draw it again sharp at any size, from a badge to a poster.' },
+        { t: 'A pin icon for a map', need: 'The map zooms in and out all the time.', why: 'An icon is a few simple shapes. Drawn again at every zoom, the pin stays sharp and never turns into squares.' },
+        { t: 'A scanned pencil drawing', need: 'You want to keep it exactly as drawn: pencil grain, smudges and paper.', why: 'A scanner records the paper as tiny dots of colour, grain and smudges included. As shapes, all of that would vanish.' },
+      ],
+      asPix: 'As pixels', asShp: 'As shapes', right: 'Right!', no: 'Not this time.', sub: 'task',
+      end: (k) => [`${k} of 4 right.`, 'Simple shapes, like logos and icons: shapes. Photos and scans, full of tiny changes of colour: pixels.'],
+      mine: 'Your pick', next: '→ Next', again: '↻ Again', size: 'How big it is printed', small: 'small', big: 'big',
+    },
+    facts: {
+      zoom: [
+        { emo: '🛰️', text: 'The word “pixel” comes from “picture element”. Frederic Billingsley of the Jet Propulsion Laboratory (JPL) first published it in 1965, for the pictures that space probes sent back from the Moon and Mars.', src: 'https://en.wikipedia.org/wiki/Pixel' },
+        { emo: '📜', text: 'A German patent from 1888 by Paul Nipkow already used the word “Bildpunkt”, which means “picture point”: an early name for the same idea.', src: 'https://en.wikipedia.org/wiki/Pixel' },
+      ],
+      shrink: [{ emo: '🔭', text: 'The camera of the Vera C. Rubin Observatory captures 3.2 gigapixels in a single image: 3,200 million pixels, about 6.4 GB of raw data.', src: 'https://en.wikipedia.org/wiki/Raster_graphics' }],
+      shrinkB: { emo: '📱', text: 'Some phones advertise 200-megapixel sensors. With 4×4 binning, 16 sensor cells are combined into one output pixel, so the picture has 12.5 megapixels.', src: 'https://en.wikipedia.org/wiki/Pixel' },
+      format: [
+        { emo: '🕹️', text: 'Arcade games such as Asteroids, Space Wars and Tempest were played on vector monitors.', src: 'https://en.wikipedia.org/wiki/Vector_graphics' },
+        { emo: '📡', text: 'Vector displays were first used in 1958, by the US air defence system SAGE. In 1963 Ivan Sutherland ran his drawing program Sketchpad on the TX-2 computer at MIT’s Lincoln Laboratory.', src: 'https://en.wikipedia.org/wiki/Vector_graphics' },
+        { emo: '🌐', text: 'SVG, the vector picture format of web pages, was developed by the World Wide Web Consortium (W3C). Version 1.1 became a W3C Recommendation on 14 January 2003.', src: 'https://en.wikipedia.org/wiki/Scalable_Vector_Graphics' },
+      ],
+    },
+    quiz: [
+      { q: 'You enlarge a small pixel picture a lot. What happens?', opts: ['Nothing changes', 'It becomes blocky', 'It gets sharper'], ok: 1, hint: 'Zoom in on picture A.' },
+      { q: 'Why does a vector logo stay sharp on a huge poster?', opts: ['It has more colours', 'It is printed slowly', 'It is saved as shapes the computer redraws'], ok: 2, hint: 'Look inside picture B.' },
+      { q: 'A photo was shrunk to 8×8 pixels and then enlarged again. Will the details come back?', opts: ['No, the lost pixels are gone', 'Yes, all of them', 'Only the colours'], ok: 0, hint: 'Try the Shrink part.' },
+    ],
+  },
+  ru: {
+    name: 'Увеличь!', title: 'Увеличь!',
+    lines: [['Две картинки выглядят одинаково.', 'Увеличь их и сравни.'], ['Сожми фотографию,', 'а потом попробуй вернуть.'], ['Выбери подходящий вид', 'картинки для дела.']],
+    views: { zoom: '🔍 Лупа', shrink: '📉 Сжать', format: '🎯 Формат' },
+    px: (n) => `${fmt(n)} ${ruPlural(n, 'пиксель', 'пикселя', 'пикселей')}`, cmds: (n) => `${n} ${ruPlural(n, 'команду', 'команды', 'команд')}`,
+    nums: (n) => `${fmt(n)} ${ruPlural(n, 'цветовое число', 'цветовых числа', 'цветовых чисел')}`, pts: (n) => `${n} ${ruPlural(n, 'точка', 'точки', 'точек')}`,
+    z: {
+      fA: 'A', fB: 'B', fAr: 'A · пиксели', fBv: 'B · фигуры',
+      q: 'Как будет выглядеть картинка A при увеличении в 8 раз?',
+      ql: 'A и B — один и тот же рисунок. Ты приблизишь глаз рыбки. Что станет с A?',
+      opts: ['Останется чёткой', 'Распадётся на крупные квадраты', 'Превратится в размытое пятно'], ok: 1,
+      right: 'Верно!', no: 'Не совсем.',
+      lead: 'A — растровая картинка: сетка цветных квадратиков, которые называются пикселями. При увеличении квадратики становятся крупнее, а картинка не становится чётче. B — векторная картинка, поэтому она остаётся чёткой. Двигай ползунок увеличения и загляни внутрь.',
+      same: ['Рисунок тот же, вид тот же.', 'В таком размере A и B похожи. Подвигай ползунок увеличения вправо.'],
+      diff: () => ['A — квадраты. B — по-прежнему гладкая.', 'A — растровая картинка: сетка крошечных цветных квадратиков, пикселей. B — векторная: компьютер заново рисует её из фигур при любом увеличении.'],
+      inside: (a, b) => ['Из чего они сделаны.', `A хранит по одному цветовому числу на каждый пиксель (здесь они показаны крупной сеткой, чтобы их можно было прочесть). B хранит ${b}. Увеличивай сколько хочешь: список не меняется.`],
+      small: 'Увеличь ещё, чтобы разглядеть числа.',
+      look: '🔍 Загляни внутрь', unlook: '🙈 Скрыть', zoom: 'Увеличение', hint: 'Тяни картинку, чтобы двигаться по рисунку.', sub: 'увеличение',
+      pill: (a, b) => `${a} против ${b}`,
+    },
+    secrets: { bez: ['Кривые', 'Кривая — это несколько точек'], font: ['Буквы', 'Буква — это контур'] },
+    bez: { t: 'Кривая из четырёх точек.', l: 'Тяни круглые точки. Вся кривая хранится как эти числа, поэтому её можно заново нарисовать гладкой в любом размере.', hint: 'Тяни круглые точки.', sub: 'чисел хранят кривую', f: 'Кривая' },
+    font: { t: 'Буква — это контур.', l: (p, n) => `Буква D хранится как ${p}: углы и «ручки» кривых. Чтобы показать её высотой ${n} ${ruPlural(n, 'пиксель', 'пикселя', 'пикселей')}, экран закрашивает контур пикселями.`,
+      lbl: 'Размер буквы', outline: 'Контур', screen: 'На экране', sub: 'размер буквы', pill: (p) => p, unit: 'px' },
+    s: {
+      orig: (n) => `Оригинал ${n}×${n}`, small: (n) => `Сжато до ${n}×${n}`, grown: (n) => `Увеличено до ${n}×${n}`,
+      start: ['Сожми фотографию.', 'Двигай ползунок: у фотографии остаётся всё меньше пикселей. Потом верни её обратно.'],
+      q: (N) => ['Вернутся ли детали?', `У фотографии осталось всего ${N}×${N} = ${fmt(N * N)} ${ruPlural(N * N, 'пиксель', 'пикселя', 'пикселей')}. Ты увеличиваешь её обратно до ${TOT}×${TOT}. Подумай про усы и блики в глазах. Что будет?`],
+      opts: ['Все вернутся', 'Пропали навсегда', 'Компьютер снова их угадает'], ok: 1,
+      right: 'Верно!', no: 'Не совсем.', lost: 'Потерянные пиксели не вернуть.',
+      lead: (N) => `Увеличение лишь рисует ${N}×${N} пикселей крупнее. У фотографии было ${fmt(TOT * TOT)} ${ruPlural(TOT * TOT, 'пиксель', 'пикселя', 'пикселей')}, осталось ${fmt(N * N)}: остальные ${fmt(TOT * TOT - N * N)} потеряны, и компьютер не может знать, как они выглядели.`,
+      again: (N) => [`Теперь ${N}×${N}.`, 'Верни фотографию и сравни с оригиналом.'],
+      more: (N) => [`Теперь ${N}×${N}.`, 'Сожми ещё сильнее. Потом верни фотографию.'],
+      smooth: 'Режим «Гладко» лишь смешивает соседей: это догадка, а не настоящая фотография.',
+      diff: ['Что потерялось.', 'Яркие пятна — там, где увеличенная картинка отличается от оригинала. Тонкие усы и блики пропадают первыми.'],
+      crop: (c, k) => ['Обрезка — это просто меньше пикселей.', `В этой части всего ${c}×${c} = ${fmt(c * c)} ${ruPlural(c * c, 'пиксель', 'пикселя', 'пикселей')}. По сравнению с оригиналом она увеличена в ${k} ${ruPlural(k, 'раз', 'раза', 'раз')}, и каждый пиксель стал виден как квадрат: вырезав кусок, деталей не добавишь.`],
+      cropLbl: (c) => `Вырезка ${c}×${c}`,
+      lbl: 'Пикселей в ряду', sub: 'пикселей в ряду', subCrop: 'пикселей в вырезке', pill: (a, b) => `${fmt(a)} из ${fmt(b)}`,
+      grow: '⤢ Увеличить обратно', blocky: '🔲 Квадратами', smoothB: '🌫 Гладко', diffB: '🔎 Что потерялось', cropB: '✂️ Вырезать', back: '↩ Назад', hint: 'Двигай рамку по оригиналу.',
+    },
+    f: {
+      q: 'Какой вид картинки ты сделаешь?', opts: ['🔲 Пиксели (растр)', '✏️ Фигуры (вектор)'],
+      tasks: [
+        { t: 'Фотография твоего кота', need: 'Она пойдёт в семейный альбом и на экран телефона.', why: 'В фотографии множество мелких переходов цвета. Короткий список фигур столько не вместит, поэтому камеры сохраняют пиксели.' },
+        { t: 'Эмблема школы', need: 'Её напечатают на футболке и на огромном плакате.', why: 'Эмблема состоит из простых фигур, поэтому компьютер может нарисовать её заново чёткой в любом размере: хоть значком, хоть плакатом.' },
+        { t: 'Значок-метка для карты', need: 'Карту всё время приближают и отдаляют.', why: 'Значок — это несколько простых фигур. Нарисованная заново при каждом масштабе, метка остаётся чёткой и не превращается в квадраты.' },
+        { t: 'Отсканированный рисунок карандашом', need: 'Нужно сохранить его как есть: зерно карандаша, пятна и бумагу.', why: 'Сканер записывает бумагу крошечными точками цвета, вместе с зерном и пятнами. В виде фигур всё это пропало бы.' },
+      ],
+      asPix: 'Как пиксели', asShp: 'Как фигуры', right: 'Верно!', no: 'Не в этот раз.', sub: 'задача',
+      end: (k) => [`${k} из 4 верно.`, 'Простые фигуры, как эмблемы и значки: фигуры. Фотографии и сканы, полные мелких переходов цвета: пиксели.'],
+      mine: 'Твой выбор', next: '→ Дальше', again: '↻ Ещё раз', size: 'Насколько крупно напечатано', small: 'мелко', big: 'крупно',
+    },
+    facts: {
+      zoom: [
+        { emo: '🛰️', text: 'Слово «пиксель» происходит от английского «picture element», «элемент картинки». Впервые его напечатал в 1965 году Фредерик Биллингсли из Лаборатории реактивного движения (JPL): так он назвал точки снимков, которые космические зонды присылали с Луны и Марса.', src: 'https://en.wikipedia.org/wiki/Pixel' },
+        { emo: '📜', text: 'В немецком патенте Пауля Нипкова 1888 года уже стояло слово «Bildpunkt», то есть «точка картинки»: раннее название той же самой идеи.', src: 'https://en.wikipedia.org/wiki/Pixel' },
+      ],
+      shrink: [{ emo: '🔭', text: 'Камера обсерватории имени Веры Рубин делает кадр в 3,2 гигапикселя: это 3200 миллионов пикселей и около 6,4 ГБ необработанных данных.', src: 'https://en.wikipedia.org/wiki/Raster_graphics' }],
+      shrinkB: { emo: '📱', text: 'Некоторые телефоны рекламируют матрицы в 200 мегапикселей. При объединении 4×4 по 16 ячеек датчика сливаются в один пиксель снимка, и получается 12,5 мегапикселя.', src: 'https://en.wikipedia.org/wiki/Pixel' },
+      format: [
+        { emo: '🕹️', text: 'Аркадные игры Asteroids, Space Wars и Tempest работали на векторных мониторах.', src: 'https://en.wikipedia.org/wiki/Vector_graphics' },
+        { emo: '📡', text: 'Векторные дисплеи впервые применили в 1958 году в американской системе ПВО SAGE. В 1963 году Айвен Сазерленд запустил свою программу для рисования Sketchpad на компьютере TX-2 в Линкольновской лаборатории МИТ.', src: 'https://en.wikipedia.org/wiki/Vector_graphics' },
+        { emo: '🌐', text: 'SVG, векторный формат картинок для веб-страниц, разработал Консорциум Всемирной паутины (W3C). Версия 1.1 стала рекомендацией W3C 14 января 2003 года.', src: 'https://en.wikipedia.org/wiki/Scalable_Vector_Graphics' },
+      ],
+    },
+    quiz: [
+      { q: 'Ты сильно увеличиваешь маленькую пиксельную картинку. Что произойдёт?', opts: ['Ничего не изменится', 'Она станет блочной, из квадратов', 'Она станет чётче'], ok: 1, hint: 'Увеличь картинку A.' },
+      { q: 'Почему векторная эмблема остаётся чёткой на огромном плакате?', opts: ['В ней больше цветов', 'Её печатают медленно', 'Она хранится как фигуры, которые компьютер рисует заново'], ok: 2, hint: 'Загляни внутрь картинки B.' },
+      { q: 'Фотографию сжали до 8×8 пикселей и снова увеличили. Вернутся ли детали?', opts: ['Нет, потерянные пиксели пропали', 'Да, все', 'Только цвета'], ok: 0, hint: 'Попробуй часть «Сжать».' },
+    ],
+  },
+  hu: {
+    name: 'Nagyíts!', title: 'Nagyíts!',
+    lines: [['Két kép egyformának látszik.', 'Nagyítsd fel, és hasonlítsd össze.'], ['Kicsinyíts le egy fotót,', 'aztán próbáld visszahozni.'], ['Válaszd ki a feladathoz', 'illő képtípust.']],
+    views: { zoom: '🔍 Nagyít', shrink: '📉 Kicsi', format: '🎯 Típus' },
+    px: (n) => `${fmt(n)} pixel`, cmds: (n) => `${n} parancs`, nums: (n) => `${fmt(n)} színszám`, pts: (n) => `${n} pont`,
+    z: {
+      fA: 'A', fB: 'B', fAr: 'A · pixelek', fBv: 'B · alakzatok',
+      q: 'Hogyan fog kinézni az A kép 8-szoros nagyításnál?',
+      ql: 'Az A és a B ugyanaz a rajz. A hal szemére fogsz ráközelíteni. Mi történik az A-val?',
+      opts: ['Éles marad', 'Nagy négyzetekre esik szét', 'Elmosódott folt lesz'], ok: 1,
+      right: 'Így van!', no: 'Nem egészen.',
+      lead: 'Az A raszteres kép: színes négyzetekből, úgynevezett pixelekből álló rács. Nagyításkor a négyzetek nagyobbak lesznek, a kép nem lesz élesebb. A B vektoros kép, ezért éles marad. Húzd a nagyítás csúszkáját, és nézz be a képek belsejébe.',
+      same: ['Ugyanaz a rajz, ugyanaz a kép.', 'Ekkora méretben az A és a B hasonlít. Húzd jobbra a nagyítás csúszkáját.'],
+      diff: () => ['A: négyzetek. B: még mindig sima.', 'Az A raszteres kép: apró színes négyzetekből, pixelekből álló rács. A B vektoros kép: a számítógép minden nagyításnál újra megrajzolja alakzatokból.'],
+      inside: (a, b) => ['Miből készültek?', `Az A minden pixelhez egy színszámot tárol (itt durva rácson látod, hogy el tudd olvasni őket). A B-ben ${b} van. Nagyíthatsz, ameddig csak akarsz: a lista nem változik.`],
+      small: 'Nagyíts még, hogy el tudd olvasni a számokat.',
+      look: '🔍 Nézz be', unlook: '🙈 Elrejt', zoom: 'Nagyítás', hint: 'Húzd a képet, hogy mozogj a rajzon.', sub: 'nagyítás',
+      pill: (a, b) => `${a} – ${b}`,
+    },
+    secrets: { bez: ['Görbék', 'A görbe néhány pont'], font: ['Betűk', 'A betű körvonal'] },
+    bez: { t: 'Görbe négy pontból.', l: 'Húzd a kerek pontokat. A teljes görbét csak ezek a számok tárolják, ezért bármekkora méretben újra megrajzolható simán.', hint: 'Húzd a kerek pontokat.', sub: 'szám tárolja a görbét', f: 'A görbe' },
+    font: { t: 'A betű körvonal.', l: (p, n) => `A D betű így van tárolva: ${p}, vagyis sarkok és görbekezelők. Hogy ${n} pixel magas legyen, a képernyő kitölti a körvonalat pixelekkel.`,
+      lbl: 'Betűméret', outline: 'Körvonal', screen: 'A képernyőn', sub: 'betűméret', pill: (p) => p, unit: 'px' },
+    s: {
+      orig: (n) => `Eredeti ${n}×${n}`, small: (n) => `Kicsinyítve: ${n}×${n}`, grown: (n) => `Visszanagyítva: ${n}×${n}`,
+      start: ['Kicsinyítsd le a fotót.', 'Húzd a csúszkát: a fotónak egyre kevesebb pixele marad. Aztán hozd vissza.'],
+      q: (N) => ['Visszajönnek a részletek?', `A fotónak már csak ${N}×${N} = ${fmt(N * N)} pixele van. Visszanagyítod ${TOT}×${TOT} méretre. Gondolj a bajuszszálakra és a szemek csillanására. Mi lesz?`],
+      opts: ['Mind visszajön', 'Végleg eltűntek', 'A számítógép újra kitalálja őket'], ok: 1,
+      right: 'Így van!', no: 'Nem egészen.', lost: 'Az elveszett pixelek elvesznek.',
+      lead: (N) => `A visszanagyítás csak nagyobbra rajzolja a megmaradt pixeleket (${N}×${N}). A fotónak ${fmt(TOT * TOT)} pixele volt, ${fmt(N * N)} maradt: a többi ${fmt(TOT * TOT - N * N)} elveszett, és a számítógép nem tudhatja, milyenek voltak.`,
+      again: (N) => [`Most ${N}×${N}.`, 'Nagyítsd vissza, és hasonlítsd össze az eredetivel.'],
+      more: (N) => [`Most ${N}×${N}.`, 'Kicsinyítsd még tovább. Aztán hozd vissza.'],
+      smooth: 'A „Sima” mód csak összekeveri a szomszédokat: ez találgatás, nem az igazi fotó.',
+      diff: ['Mi veszett el.', 'A fényes foltok azt mutatják, hol tér el a visszanagyított kép az eredetitől. A vékony bajuszszálak és a csillanások tűnnek el először.'],
+      crop: (c, k) => ['A kivágás csak kevesebb pixel.', `Ebben a részben mindössze ${c}×${c} = ${fmt(c * c)} pixel van. Az eredetihez képest ${k}× nagyítás látszik, ezért minden pixel négyzetként tűnik elő: a kivágás nem ad hozzá részletet.`],
+      cropLbl: (c) => `Kivágás ${c}×${c}`,
+      lbl: 'Pixel egy sorban', sub: 'pixel egy sorban', subCrop: 'pixel a kivágásban', pill: (a, b) => `${fmt(a)} / ${fmt(b)}`,
+      grow: '⤢ Nagyítsd vissza', blocky: '🔲 Kockás', smoothB: '🌫 Sima', diffB: '🔎 Mi veszett el', cropB: '✂️ Vágás', back: '↩ Vissza', hint: 'Húzd a keretet az eredetin.',
+    },
+    f: {
+      q: 'Melyik képtípust készíted?', opts: ['🔲 Pixelek (raszter)', '✏️ Alakzatok (vektor)'],
+      tasks: [
+        { t: 'Fotó a macskádról', need: 'A családi albumba és a telefonodra kerül.', why: 'A fotó tele van apró színváltásokkal. Rövid alakzatlista ezt nem tudja tárolni, ezért a gépek pixeleket mentenek.' },
+        { t: 'Iskolai logó', need: 'Pólóra és hatalmas plakátra kerül.', why: 'A logó egyszerű alakzatokból áll, ezért a számítógép bármekkora méretben élesen újrarajzolhatja: jelvénynek és plakátnak is.' },
+        { t: 'Jelölő ikon a térképhez', need: 'A térképet folyton nagyítják és kicsinyítik.', why: 'Az ikon néhány egyszerű alakzat. Minden nagyításnál újrarajzolva a jelölő éles marad, és sosem lesz belőle négyzet.' },
+        { t: 'Beszkennelt ceruzarajz', need: 'Úgy akarod megőrizni, ahogy van: ceruzaszemcse, maszatok, papír.', why: 'A szkenner a papírt apró színes pontokként rögzíti, a szemcsékkel és a maszatokkal együtt. Alakzatokként mindez elveszne.' },
+      ],
+      asPix: 'Pixelként', asShp: 'Alakzatként', right: 'Így van!', no: 'Most nem.', sub: 'feladat',
+      end: (k) => [`${k} jó a 4-ből.`, 'Egyszerű alakzatok, mint a logók és az ikonok: alakzatok. Fotók és szkennelt képek, tele apró színváltással: pixelek.'],
+      mine: 'A te választásod', next: '→ Tovább', again: '↻ Újra', size: 'Mekkorára nyomtatják', small: 'kicsi', big: 'nagy',
+    },
+    facts: {
+      zoom: [
+        { emo: '🛰️', text: 'A „pixel” szó az angol „picture element”, vagyis „képelem” rövidítése. Először Frederic Billingsley, a Sugárhajtómű Laboratórium (JPL) munkatársa közölte 1965-ben, a Holdról és a Marsról érkező űrszondaképek pontjaira.', src: 'https://en.wikipedia.org/wiki/Pixel' },
+        { emo: '📜', text: 'Paul Nipkow 1888-as német szabadalmában már szerepelt a „Bildpunkt” szó, vagyis „képpont”: ugyanennek az ötletnek egy korai neve.', src: 'https://en.wikipedia.org/wiki/Pixel' },
+      ],
+      shrink: [{ emo: '🔭', text: 'A Vera C. Rubin Obszervatórium kamerája egyetlen képen 3,2 gigapixelt rögzít: 3200 millió pixelt, nagyjából 6,4 GB nyers adatot.', src: 'https://en.wikipedia.org/wiki/Raster_graphics' }],
+      shrinkB: { emo: '📱', text: 'Egyes telefonok 200 megapixeles érzékelővel hirdetik magukat. 4×4-es összevonásnál 16 érzékelőcella egyetlen képpixellé olvad, így a kép 12,5 megapixeles.', src: 'https://en.wikipedia.org/wiki/Pixel' },
+      format: [
+        { emo: '🕹️', text: 'Az Asteroids, a Space Wars és a Tempest nevű játékautomatákat vektoros monitoron játszották.', src: 'https://en.wikipedia.org/wiki/Vector_graphics' },
+        { emo: '📡', text: 'Vektoros kijelzőt először 1958-ban használt az amerikai SAGE légvédelmi rendszer. 1963-ban Ivan Sutherland az MIT Lincoln Laboratóriumának TX-2 számítógépén futtatta a Sketchpad nevű rajzprogramját.', src: 'https://en.wikipedia.org/wiki/Vector_graphics' },
+        { emo: '🌐', text: 'Az SVG, a weboldalak vektoros képformátuma, a World Wide Web Consortium (W3C) munkája. Az 1.1-es változat 2003. január 14-én lett W3C-ajánlás.', src: 'https://en.wikipedia.org/wiki/Scalable_Vector_Graphics' },
+      ],
+    },
+    quiz: [
+      { q: 'Egy kis pixeles képet nagyon felnagyítasz. Mi történik?', opts: ['Semmi sem változik', 'Kockássá válik', 'Élesebb lesz'], ok: 1, hint: 'Nagyíts rá az A képre.' },
+      { q: 'Miért marad éles egy vektoros logó egy hatalmas plakáton?', opts: ['Több színe van', 'Lassan nyomtatják', 'Alakzatokként van mentve, és a számítógép újrarajzolja'], ok: 2, hint: 'Nézz be a B kép belsejébe.' },
+      { q: 'Egy fotót lekicsinyítettek 8×8 pixelre, aztán újra felnagyították. Visszajönnek a részletek?', opts: ['Nem, az elveszett pixelek eltűntek', 'Igen, mind', 'Csak a színek'], ok: 0, hint: 'Próbáld ki a „Kicsi” részt.' },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'sg_cmp_27', en: 'Editing Digital Images and Multimedia', ru: 'Обработка цифровых изображений и мультимедиа', hu: 'Digitális képek és multimédia szerkesztése' },
+];
+
+// --- constants (declared before anything draws) ------------------------------------------------------------
+const RES = 64;  // the fish as a raster: RES × RES pixels
+const TOT = 128; // the photo: TOT × TOT pixels
+const SIZES = [128, 64, 32, 16, 8];
+const CROP = 32;
+const fmt = (n) => n.toLocaleString(lang === 'ru' ? 'ru-RU' : lang === 'hu' ? 'hu-HU' : 'en-US');
+const fmtZ = (z) => { const s = z < 9.95 ? z.toFixed(1).replace(/\.0$/, '') : String(Math.round(z)); return lang === 'en' ? s : s.replace('.', ','); };
+const ease = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+const rng = (a) => () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+const mkCanvas = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+
+// --- picture 1: the fish, as a list of drawing commands (vector) and as a grid of colour numbers (raster) ---
+const PALH = ['#2f7fc1', '#e6c88c', '#3fa66b', '#f5933a', '#d4561f', '#fff1d0', '#141a2e', '#a9dcf7'];
+const PALRGB = PALH.map((h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]);
+const CMDS = [
+  { k: 'rect', a: [0, 0, 64, 64], c: 0 },
+  { k: 'rect', a: [0, 53, 64, 11], c: 1 },
+  { k: 'path', d: 'M 10 53 C 6 45 14 40 10 30 C 17 40 9 46 14 53 Z M 52 53 C 49 47 56 44 53 37 C 59 44 53 48 57 53 Z', c: 2, at: [10, 53] },
+  { k: 'path', d: 'M 20 29 C 15 27 11 21 7 19 C 9 25 9 33 7 41 C 11 37 15 32 20 29 Z', c: 4, at: [20, 29] },
+  { k: 'path', d: 'M 27 21 C 29 11 40 11 44 21 C 39 18 32 18 27 21 Z', c: 4, at: [27, 21] },
+  { k: 'path', d: 'M 51 29 C 45 16 27 15 17 29 C 27 43 45 42 51 29 Z', c: 3, at: [51, 29] },
+  { k: 'circle', a: [43, 27, 5], c: 5 },
+  { k: 'circle', a: [44, 27, 2.5], c: 6 },
+  { k: 'circle', a: [52, 12, 4], c: 7 },
+];
+CMDS.forEach((m) => { if (m.k === 'path') m.p = new Path2D(m.d); });
+const cmdText = (m) => m.k === 'rect' ? `rect ${m.a.join(' ')}` : m.k === 'circle' ? `circle ${m.a[0]} ${m.a[1]} r${m.a[2]}` : `curve ${m.at.join(' ')} …`;
+function paintCmds(c) {
+  for (const m of CMDS) {
+    c.fillStyle = PALH[m.c];
+    if (m.k === 'rect') c.fillRect(m.a[0], m.a[1], m.a[2], m.a[3]);
+    else if (m.k === 'circle') { c.beginPath(); c.arc(m.a[0], m.a[1], m.a[2], 0, Math.PI * 2); c.fill(); }
+    else c.fill(m.p);
+  }
+}
+// the raster: look at the middle of every pixel and store the number of the colour that is there
+const PIX = new Uint8Array(RES * RES);
+const rastCv = mkCanvas(RES, RES);
+(() => {
+  const probe = mkCanvas(RES, RES).getContext('2d'), rc = rastCv.getContext('2d');
+  for (let y = 0; y < RES; y++) for (let x = 0; x < RES; x++) {
+    const px = x + 0.5, py = y + 0.5;
+    let col = 0;
+    for (const m of CMDS) {
+      const hit = m.k === 'rect' ? px >= m.a[0] && px < m.a[0] + m.a[2] && py >= m.a[1] && py < m.a[1] + m.a[3]
+        : m.k === 'circle' ? (px - m.a[0]) ** 2 + (py - m.a[1]) ** 2 <= m.a[2] ** 2 : probe.isPointInPath(m.p, px, py);
+      if (hit) col = m.c;
+    }
+    PIX[y * RES + x] = col; rc.fillStyle = PALH[col]; rc.fillRect(x, y, 1, 1);
+  }
+})();
+
+// A at 1×: one raster pixel per device pixel of the drawing's on-screen size, made from the same paths, so A and B look the same until you zoom
+const DPR = () => Math.min(window.devicePixelRatio || 1, 2);
+const rasterRes = (F) => Math.max(8, Math.round(F * 0.84 * DPR()));
+let fineCv = null;
+function fineOf(R) {
+  if (fineCv && fineCv.width === R) return fineCv;
+  fineCv = mkCanvas(R, R); const fc = fineCv.getContext('2d'); fc.scale(R / RES, R / RES); paintCmds(fc); return fineCv;
+}
+
+// --- picture 2: a cat "photo" made in code (rich), and the same cat as a few flat shapes ------------------------
+function drawCat(c, W, d) {
+  const r = rng(11); c.save(); c.scale(W / 100, W / 100); c.lineCap = 'round'; c.lineJoin = 'round';
+  const rg = (x0, y0, r0, x1, y1, r1, stops) => { const g = c.createRadialGradient(x0, y0, r0, x1, y1, r1); stops.forEach(([o, col]) => g.addColorStop(o, col)); return g; };
+  const E = (x, y, rx, ry) => { c.beginPath(); c.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); };
+  c.fillStyle = d ? rg(50, 38, 4, 50, 50, 78, [[0, '#3f7a72'], [1, '#10242b']]) : '#2b5c5c'; c.fillRect(0, 0, 100, 100);
+  if (d) for (let i = 0; i < 14; i++) { c.fillStyle = `rgba(255,${200 + r() * 40 | 0},${130 + r() * 60 | 0},${(0.07 + r() * 0.12).toFixed(2)})`; E(r() * 100, r() * 62, 3 + r() * 7, 3 + r() * 7); c.fill(); }
+  c.fillStyle = d ? rg(40, 80, 5, 50, 95, 45, [[0, '#d98a40'], [1, '#8f4f20']]) : '#c97a35';
+  c.fill(new Path2D('M 12 100 C 12 84 28 76 50 76 C 72 76 88 84 88 100 Z'));
+  const ear = () => {
+    c.fillStyle = d ? '#d98a40' : '#c97a35'; c.fill(new Path2D('M 22 42 C 17 26 19 12 23 7 C 33 11 41 18 45 27 Z'));
+    c.fillStyle = '#f2a39d'; c.fill(new Path2D('M 26 36 C 23 26 24 18 26 14 C 31 17 36 22 39 28 Z'));
+  };
+  ear(); c.save(); c.translate(100, 0); c.scale(-1, 1); ear(); c.restore();
+  c.fillStyle = d ? rg(42, 42, 3, 50, 56, 36, [[0, '#f8bd78'], [0.7, '#e29244'], [1, '#b8691f']]) : '#e8a054'; E(50, 54, 30, 26); c.fill();
+  if (!d) { c.strokeStyle = '#7a4316'; c.lineWidth = 1.2; c.stroke(); }
+  if (d) {
+    const cols = ['rgba(255,220,170,.4)', 'rgba(150,80,30,.32)', 'rgba(255,244,220,.35)']; c.lineWidth = 0.5;
+    for (let i = 0; i < 240; i++) {
+      const a = r() * 6.283, rad = Math.sqrt(r()) * 28, x = 50 + Math.cos(a) * rad, y = 54 + Math.sin(a) * rad * 0.87, ang = a + (r() - 0.5) * 0.7, len = 2.5 + r() * 3.5;
+      c.strokeStyle = cols[i % 3]; c.beginPath(); c.moveTo(x, y); c.lineTo(x + Math.cos(ang) * len, y + Math.sin(ang) * len); c.stroke();
+    }
+  }
+  c.strokeStyle = '#8f4d1e'; c.lineWidth = 2.4; c.beginPath(); c.moveTo(50, 30); c.lineTo(50, 40); c.moveTo(41, 31); c.lineTo(43.5, 39); c.moveTo(59, 31); c.lineTo(56.5, 39); c.stroke();
+  c.fillStyle = d ? rg(50, 62, 1, 50, 66, 13, [[0, '#fff3e0'], [1, '#efc79c']]) : '#f9e2c4'; E(50, 66, 12, 8.5); c.fill();
+  for (const dx of [-12, 12]) {
+    const cx = 50 + dx, cy = 52;
+    c.fillStyle = d ? rg(cx, cy - 1, 1, cx, cy, 7, [[0, '#dcf28f'], [1, '#4f9a3f']]) : '#8cc84b'; E(cx, cy, 6.4, 6.8); c.fill();
+    c.strokeStyle = '#2a1608'; c.lineWidth = 1.1; c.stroke();
+    c.fillStyle = '#0b0f14'; E(cx, cy, 1.9, 5.6); c.fill();
+    c.fillStyle = '#fff'; c.beginPath(); c.arc(cx - 2, cy - 2.6, 1.5, 0, 6.283); c.fill();
+    if (d) { c.fillStyle = 'rgba(255,255,255,.7)'; c.beginPath(); c.arc(cx + 2.3, cy + 2.4, 0.7, 0, 6.283); c.fill(); }
+  }
+  c.fillStyle = '#e98a92'; c.fill(new Path2D('M 46.5 59 C 48 57.5 52 57.5 53.5 59 C 52.5 61.5 51 62.5 50 63 C 49 62.5 47.5 61.5 46.5 59 Z'));
+  c.strokeStyle = '#6a3a22'; c.lineWidth = 1; c.beginPath(); c.moveTo(50, 63); c.lineTo(50, 66); c.moveTo(50, 66); c.bezierCurveTo(48, 69, 44, 69.5, 42, 67); c.moveTo(50, 66); c.bezierCurveTo(52, 69, 56, 69.5, 58, 67); c.stroke();
+  if (d) {
+    c.strokeStyle = 'rgba(255,255,255,.9)'; c.lineWidth = 0.85; c.beginPath();
+    for (const [y0, y1, cy] of [[64, 58, 59], [67, 67, 68], [70, 77, 74]]) {
+      c.moveTo(38, y0); c.quadraticCurveTo(22, cy, 5, y1); c.moveTo(62, y0); c.quadraticCurveTo(78, cy, 95, y1);
+    }
+    c.stroke();
+  }
+  c.restore();
+}
+function drawLogo(c, W) {
+  c.save(); c.scale(W / 100, W / 100);
+  c.fillStyle = '#eef1f8'; c.fillRect(0, 0, 100, 100);
+  const sh = new Path2D('M 50 7 L 87 19 C 88 53 76 79 50 94 C 24 79 12 53 13 19 Z'), g = c.createLinearGradient(20, 8, 80, 94);
+  g.addColorStop(0, '#3a62c4'); g.addColorStop(1, '#1a2c6a');
+  c.fillStyle = g; c.fill(sh); c.lineWidth = 4; c.strokeStyle = '#f2c14e'; c.lineJoin = 'round'; c.stroke(sh);
+  c.beginPath();
+  for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rad = i % 2 ? 8.5 : 20; c.lineTo(50 + Math.cos(a) * rad, 41 + Math.sin(a) * rad); }
+  c.closePath(); c.fillStyle = '#f6cf5f'; c.fill();
+  c.strokeStyle = '#fff'; c.lineWidth = 3.6; c.lineCap = 'round'; c.beginPath(); c.moveTo(24, 68); c.bezierCurveTo(34, 60, 42, 76, 50, 68); c.bezierCurveTo(58, 60, 66, 76, 76, 68); c.stroke();
+  c.restore();
+}
+function drawPin(c, W) {
+  c.save(); c.scale(W / 100, W / 100);
+  c.fillStyle = '#e5ecd9'; c.fillRect(0, 0, 100, 100);
+  c.fillStyle = '#cfe3bd'; c.fillRect(58, 58, 42, 42);
+  c.strokeStyle = '#fff'; c.lineWidth = 9; c.lineCap = 'round'; c.beginPath(); c.moveTo(-5, 72); c.lineTo(105, 48); c.moveTo(28, -5); c.lineTo(48, 105); c.stroke();
+  c.fillStyle = 'rgba(0,0,0,.2)'; c.beginPath(); c.ellipse(50, 90, 13, 4, 0, 0, Math.PI * 2); c.fill();
+  const pin = new Path2D('M 50 92 C 24 62 21 48 21 38 C 21 21 34 9 50 9 C 66 9 79 21 79 38 C 79 48 76 62 50 92 Z'), g = c.createLinearGradient(30, 10, 70, 80);
+  g.addColorStop(0, '#f2646a'); g.addColorStop(1, '#c9262e');
+  c.fillStyle = g; c.fill(pin); c.lineWidth = 2.4; c.strokeStyle = '#8f1a21'; c.lineJoin = 'round'; c.stroke(pin);
+  c.fillStyle = '#fff'; c.beginPath(); c.arc(50, 38, 12, 0, Math.PI * 2); c.fill();
+  c.restore();
+}
+const circ = (cx, cy, rad, n = 36) => Array.from({ length: n + 1 }, (_, i) => [cx + Math.cos(i / n * Math.PI * 2) * rad, cy + Math.sin(i / n * Math.PI * 2) * rad]);
+const SKL = [
+  [[24, 80], [24, 46], [76, 46], [76, 80]], [[19, 48], [50, 21], [81, 48]], [[44, 80], [44, 62], [56, 62], [56, 80]],
+  [[30, 54], [40, 54], [40, 64], [30, 64], [30, 54]], [[30, 59], [40, 59]], [[35, 54], [35, 64]], [[62, 35], [62, 25], [70, 25], [70, 41]],
+  [[62, 54], [72, 54], [72, 64], [62, 64], [62, 54]], [[3, 80], [97, 80]], [[12, 80], [12, 58]], circ(85, 15, 7), circ(12, 48, 10),
+  ...Array.from({ length: 8 }, (_, i) => { const a = i * Math.PI / 4; return [[85 + Math.cos(a) * 10, 15 + Math.sin(a) * 10], [85 + Math.cos(a) * 14, 15 + Math.sin(a) * 14]]; }),
+];
+function drawSketch(c, W, d) {
+  const r = rng(5); c.save(); c.scale(W / 100, W / 100); c.lineCap = 'round'; c.lineJoin = 'round';
+  c.fillStyle = d ? '#efe6cf' : '#f6f1e3'; c.fillRect(0, 0, 100, 100);
+  if (d) {
+    for (const [x, y, rad, a] of [[40, 72, 18, 0.12], [80, 58, 15, 0.09], [18, 20, 14, 0.07]]) {
+      const g = c.createRadialGradient(x, y, 0, x, y, rad); g.addColorStop(0, `rgba(90,80,60,${a})`); g.addColorStop(1, 'rgba(90,80,60,0)'); c.fillStyle = g; c.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+    }
+    for (let i = 0; i < 900; i++) { c.fillStyle = `rgba(120,100,70,${(0.05 + r() * 0.1).toFixed(2)})`; c.fillRect(r() * 100, r() * 100, 0.7, 0.7); }
+    for (let pass = 0; pass < 3; pass++) for (const ln of SKL) {
+      c.strokeStyle = `rgba(40,40,52,${(0.3 + r() * 0.35).toFixed(2)})`; c.lineWidth = 0.6 + r() * 0.7; c.beginPath();
+      ln.forEach(([x, y], i) => { const X = x + (r() - 0.5) * 1.3, Y = y + (r() - 0.5) * 1.3; if (i) c.lineTo(X, Y); else c.moveTo(X, Y); }); c.stroke();
+    }
+    c.strokeStyle = 'rgba(40,40,52,.45)'; c.lineWidth = 0.6; c.beginPath();
+    for (let y = 64; y < 80; y += 2.6) { c.moveTo(44.5, y + (r() - 0.5)); c.lineTo(55.5, y - 3.5 + (r() - 0.5)); }
+    c.stroke();
+  } else {
+    c.strokeStyle = '#2d2d36'; c.lineWidth = 1.8;
+    for (const ln of SKL) { c.beginPath(); ln.forEach(([x, y], i) => { if (i) c.lineTo(x, y); else c.moveTo(x, y); }); c.stroke(); }
+  }
+  c.restore();
+}
+const ITEMS = [
+  { ok: 'r', res: TOT, smooth: true, emo: '📷', draw: (c, W, d) => drawCat(c, W, d) },
+  { ok: 'v', res: 24, smooth: false, emo: '🏫', draw: (c, W) => drawLogo(c, W) },
+  { ok: 'v', res: 16, smooth: false, emo: '📍', draw: (c, W) => drawPin(c, W) },
+  { ok: 'r', res: TOT, smooth: true, emo: '✏️', draw: (c, W, d) => drawSketch(c, W, d) },
+];
+ITEMS.forEach((it) => { it.rast = mkCanvas(it.res, it.res); it.draw(it.rast.getContext('2d'), it.res, true); });
+
+// the shrink view: the photo, its box-averaged small copies, and "what was lost" maps
+const PHOTO = mkCanvas(TOT, TOT);
+drawCat(PHOTO.getContext('2d', { willReadFrequently: true }), TOT, true);
+const PHOTO_DATA = PHOTO.getContext('2d').getImageData(0, 0, TOT, TOT).data;
+const smallCache = new Map(), diffCache = new Map();
+function smallOf(N) { // average every k × k block of photo pixels into one pixel
+  if (smallCache.has(N)) return smallCache.get(N);
+  const cv = mkCanvas(N, N), cx = cv.getContext('2d'), img = cx.createImageData(N, N), k = TOT / N;
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    let r = 0, g = 0, b = 0;
+    for (let j = 0; j < k; j++) for (let i = 0; i < k; i++) { const p = ((y * k + j) * TOT + x * k + i) * 4; r += PHOTO_DATA[p]; g += PHOTO_DATA[p + 1]; b += PHOTO_DATA[p + 2]; }
+    const q = (y * N + x) * 4, n = k * k; img.data[q] = r / n; img.data[q + 1] = g / n; img.data[q + 2] = b / n; img.data[q + 3] = 255;
+  }
+  cx.putImageData(img, 0, 0); smallCache.set(N, cv); return cv;
+}
+function diffOf(N, smooth) { // how far the grown-back picture is from the original, brightened
+  const key = `${N}${smooth}`; if (diffCache.has(key)) return diffCache.get(key);
+  const cv = mkCanvas(TOT, TOT), cx = cv.getContext('2d', { willReadFrequently: true });
+  cx.imageSmoothingEnabled = smooth; cx.drawImage(smallOf(N), 0, 0, TOT, TOT);
+  const a = cx.getImageData(0, 0, TOT, TOT), o = cx.createImageData(TOT, TOT);
+  for (let i = 0; i < a.data.length; i += 4) {
+    const dd = (Math.abs(a.data[i] - PHOTO_DATA[i]) + Math.abs(a.data[i + 1] - PHOTO_DATA[i + 1]) + Math.abs(a.data[i + 2] - PHOTO_DATA[i + 2])) / 3, v = Math.min(255, dd * 4);
+    o.data[i] = 20 + v * 0.92; o.data[i + 1] = 24 + v * 0.85; o.data[i + 2] = 40 + v * 0.7; o.data[i + 3] = 255;
+  }
+  cx.putImageData(o, 0, 0); diffCache.set(key, cv); return cv;
+}
+
+// the secret letter: an outline made of corner points and curve handles
+const D_PATH = new Path2D('M 20 10 L 60 10 C 100 10 100 130 60 130 L 20 130 Z M 42 32 L 58 32 C 76 32 76 108 58 108 L 42 108 Z');
+const D_ON = [[20, 10], [60, 10], [60, 130], [20, 130], [42, 32], [58, 32], [58, 108], [42, 108]];
+const D_OFF = [[100, 10], [100, 130], [76, 32], [76, 108]];
+const D_HANDLES = [[[60, 10], [100, 10]], [[60, 130], [100, 130]], [[58, 32], [76, 32]], [[58, 108], [76, 108]]];
+const covCache = new Map();
+function coverOf(n) { // how much of each of the n × n pixels the letter covers
+  if (covCache.has(n)) return covCache.get(n);
+  const cv = mkCanvas(n, n), cx = cv.getContext('2d', { willReadFrequently: true }), hh = n, k = hh / 140;
+  cx.translate((n - 100 * k) / 2, 0); cx.scale(k, k); cx.fillStyle = '#000'; cx.fill(D_PATH, 'evenodd');
+  const d = cx.getImageData(0, 0, n, n).data, out = new Float32Array(n * n);
+  for (let i = 0; i < n * n; i++) out[i] = d[i * 4 + 3] / 255;
+  covCache.set(n, out); return out;
+}
+
+// --- state -------------------------------------------------------------------------------------------------
+const S = {
+  // zoom
+  zt: 1, zs: 1, rate: 10, fx: 44, fy: 27, look: false, rev1: false, guess1: null, showV1: false, sec: null,
+  bez: [[0.14, 0.76], [0.3, 0.1], [0.7, 0.1], [0.86, 0.76]], fn: 14, zTxt: '',
+  // shrink
+  ni: 0, grown: false, g: 0, asked2: false, seen2: false, guess2: null, showV2: false, smooth: false, diff: false, crop: false, cx: 44, cy: 28,
+  // format
+  ti: 0, pick: null, right: [], big: 100, bigS: 100,
+};
+const G = { F: 100, xA: 0, xB: 0, y: 0, s: 1, w: 300, h: 300, bez: null };
+let drag = null;
+
+const lab = shell({ key: 'raster-vector', T, topics: TOPICS, views: ['zoom', 'shrink', 'format'], onLang: render, onView: render });
+const secret = secretLab('raster-vector', () => ({
+  secrets: [{ emo: '✒️', title: T[lang].secrets.bez[0], desc: T[lang].secrets.bez[1] }, { emo: '🔤', title: T[lang].secrets.font[0], desc: T[lang].secrets.font[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="s1">
+    <div id="p1" class="rv-opts"></div>
+    <div id="f1">
+      <div class="rv-sl"><label class="lbl" id="zl" for="zr"></label><input type="range" class="big" id="zr" min="0" max="100" step="1" value="0"><div class="ends"><span>1×</span><span>16×</span></div></div>
+      <div class="row2"><button class="chip rv" data-a="look" id="lookB"></button></div>
+    </div>
+    <div id="fbox" class="rv-sl" hidden><label class="lbl" id="fl" for="fr"></label><input type="range" class="big" id="fr" min="6" max="40" step="1" value="14"><div class="ends"><span>6 px</span><span>40 px</span></div></div>
+    <p class="rv-fine" id="h1"></p>
+    <div class="row2" id="sec1"></div>
+  </div>
+  <div id="s2">
+    <div class="rv-sl" id="nbox"><label class="lbl" id="nl" for="nr"></label><input type="range" class="big" id="nr" min="0" max="4" step="1" value="0"><div class="ends"><span>128</span><span>8</span></div></div>
+    <div id="p2" class="rv-opts"></div>
+    <div class="row2" id="c2"></div>
+    <p class="rv-fine" id="h2"></p>
+  </div>
+  <div id="s3">
+    <div id="p3" class="rv-opts"></div>
+    <div class="rv-sl" id="sbox"><label class="lbl" id="sl" for="sr"></label><input type="range" class="big" id="sr" min="0" max="100" step="1" value="100"><div class="ends"><span id="se0"></span><span id="se1"></span></div></div>
+    <button class="btn rv-btn" id="nx" data-a="next"></button>
+  </div>`;
+
+// --- drawing helpers -----------------------------------------------------------------------------------------
+const rr = (c, x, y, w, h, r) => { c.beginPath(); c.roundRect(x, y, w, h, r); };
+function lay(w, h) { // two square frames side by side, labels above, a strip below
+  const gap = 10, top = 24, bot = 26, F = Math.max(60, Math.min((w - 20 - gap) / 2, h - top - bot, 340));
+  const x0 = (w - (2 * F + gap)) / 2, y0 = (h - (F + top + bot)) / 2 + top;
+  G.w = w; G.h = h; G.F = F; G.xA = x0; G.xB = x0 + F + gap; G.y = y0;
+  return { F, xA: G.xA, xB: G.xB, y: y0 };
+}
+function frame(c, x, y, F, content, stroke = 'rgba(130,145,190,.4)') {
+  c.save(); c.shadowColor = 'rgba(0,0,0,.55)'; c.shadowBlur = 18; c.shadowOffsetY = 6; c.fillStyle = '#0d1019'; rr(c, x, y, F, F, 14); c.fill(); c.restore();
+  c.save(); rr(c, x, y, F, F, 14); c.clip(); content(); c.restore();
+  c.lineWidth = 1.5; c.strokeStyle = stroke; rr(c, x, y, F, F, 14); c.stroke();
+}
+function tag(c, text, x, y, o = {}) { // a dark label that stays on the canvas
+  c.save(); c.font = '800 12px Nunito, sans-serif'; const tw = c.measureText(text).width + 12, th = 20;
+  let X = o.center ? x - tw / 2 : x; X = clamp(X, 2, Math.max(2, G.w - tw - 2));
+  c.fillStyle = 'rgba(10,12,22,.84)'; c.beginPath(); c.roundRect(X, y - th / 2, tw, th, 10); c.fill();
+  c.fillStyle = o.color || '#EDEFF7'; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(text, X + 6, y + 0.5); c.restore();
+}
+function label(c, text, x, y, F, color = '#C6CDE0') {
+  c.save(); c.font = '800 13px Nunito, sans-serif'; c.fillStyle = color; c.textAlign = 'center'; c.textBaseline = 'alphabetic';
+  let X = x + F / 2; const half = c.measureText(text).width / 2; X = clamp(X, half + 2, G.w - half - 2); c.fillText(text, X, y - 9); c.restore();
+}
+const viewOff = (F, big, focus) => big <= F ? (F - big) / 2 : clamp(F / 2 - focus, F - big, 0);
+
+// --- the three pictures ----------------------------------------------------------------------------------------
+function drawZoom(c, w, h, dt) {
+  const t = T[lang], z = t.z, L = lay(w, h), F = L.F;
+  S.zs = Math.exp(Math.log(S.zs) + (Math.log(S.zt) - Math.log(S.zs)) * (1 - Math.exp(-dt * S.rate)));
+  if (Math.abs(S.zs - S.zt) < 0.002) S.zs = S.zt;
+  if (S.rev1 && !S.sec) { const tx = fmtZ(S.zs); if (tx !== S.zTxt) { S.zTxt = tx; readout1(); } }
+  if (S.sec === 'bez') return drawBez(c, w, h);
+  if (S.sec === 'font') return drawFont(c, w, h);
+  const R = rasterRes(F), D = R / DPR(), s = (D / RES) * S.zs, ox = viewOff(F, RES * s, S.fx * s), oy = viewOff(F, RES * s, S.fy * s);
+  G.s = s;
+  const shown = S.rev1;
+  label(c, shown ? z.fAr : z.fA, L.xA, L.y, F); label(c, shown ? z.fBv : z.fB, L.xB, L.y, F);
+  // A: raster. The whole small picture is drawn, scaled, inside a clip; no smoothing, so pixels stay squares.
+  frame(c, L.xA, L.y, F, () => {
+    c.save(); c.translate(L.xA + ox, L.y + oy); c.imageSmoothingEnabled = false;
+    if (S.look && shown) { c.scale(s, s); c.drawImage(rastCv, 0, 0); } else { c.scale(s * RES / R, s * RES / R); c.drawImage(fineOf(R), 0, 0); }
+    c.restore();
+    if (S.look && shown) {
+      const i0 = Math.max(0, Math.floor(-ox / s)), i1 = Math.min(RES, Math.ceil((F - ox) / s)), j0 = Math.max(0, Math.floor(-oy / s)), j1 = Math.min(RES, Math.ceil((F - oy) / s));
+      if (s >= 5) {
+        c.strokeStyle = 'rgba(0,0,0,.4)'; c.lineWidth = 1; c.beginPath();
+        for (let i = i0; i <= i1; i++) { c.moveTo(L.xA + ox + i * s, L.y + oy + j0 * s); c.lineTo(L.xA + ox + i * s, L.y + oy + j1 * s); }
+        for (let j = j0; j <= j1; j++) { c.moveTo(L.xA + ox + i0 * s, L.y + oy + j * s); c.lineTo(L.xA + ox + i1 * s, L.y + oy + j * s); }
+        c.stroke();
+      }
+      if (s >= 15) {
+        c.font = `800 ${clamp(s * 0.5, 12, 22)}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+        for (let j = j0; j < j1; j++) for (let i = i0; i < i1; i++) {
+          const k = PIX[j * RES + i], [r, g, b] = PALRGB[k];
+          c.fillStyle = r * 0.299 + g * 0.587 + b * 0.114 > 140 ? '#141a2e' : '#ffffff'; c.fillText(k, L.xA + ox + (i + 0.5) * s, L.y + oy + (j + 0.5) * s + 1);
+        }
+      }
+    }
+  });
+  // B: vector. The commands are run again at the new scale.
+  frame(c, L.xB, L.y, F, () => {
+    c.save(); c.translate(L.xB + ox, L.y + oy); c.scale(s, s); paintCmds(c); c.restore();
+    if (S.look && shown) {
+      c.fillStyle = 'rgba(13,16,25,.88)'; c.fillRect(L.xB, L.y, F, F);
+      const lh = Math.min(22, (F - 12) / CMDS.length);
+      c.font = '600 12px ui-monospace, Menlo, Consolas, monospace'; c.textAlign = 'left'; c.textBaseline = 'middle';
+      CMDS.forEach((m, i) => {
+        const yy = L.y + 8 + (i + 0.5) * lh;
+        c.fillStyle = PALH[m.c]; c.beginPath(); c.roundRect(L.xB + 8, yy - 5, 10, 10, 3); c.fill();
+        c.fillStyle = '#d3d9e8'; c.fillText(cmdText(m), L.xB + 24, yy + 0.5);
+      });
+    }
+  });
+  tag(c, S.look && shown ? `${fmtZ(S.zs)}×  ${RES}×${RES}` : `${fmtZ(S.zs)}×`, L.xA + 8, L.y + F - 14); if (!(S.look && shown)) tag(c, `${fmtZ(S.zs)}×`, L.xB + 8, L.y + F - 14);
+  if (S.look && shown) { // the colour table of A: number → colour
+    const sw = F / 8;
+    c.font = '800 12px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    for (let k = 0; k < 8; k++) {
+      const [r, g, b] = PALRGB[k]; c.fillStyle = PALH[k]; c.beginPath(); c.roundRect(L.xA + k * sw + 1, L.y + F + 8, sw - 2, 18, 5); c.fill();
+      c.fillStyle = r * 0.299 + g * 0.587 + b * 0.114 > 140 ? '#141a2e' : '#fff'; c.fillText(k, L.xA + k * sw + sw / 2, L.y + F + 18);
+    }
+  }
+}
+
+function drawBez(c, w, h) {
+  const F = Math.max(80, Math.min(w - 20, h - 30, 420)), x = (w - F) / 2, y = (h - F) / 2 + 2;
+  G.bez = { x, y, F }; G.w = w; G.h = h;
+  const P = S.bez.map(([u, v]) => [x + u * F, y + v * F]);
+  frame(c, x, y, F, () => {
+    c.strokeStyle = 'rgba(130,145,190,.12)'; c.lineWidth = 1; c.beginPath();
+    for (let i = 1; i < 8; i++) { c.moveTo(x + i * F / 8, y); c.lineTo(x + i * F / 8, y + F); c.moveTo(x, y + i * F / 8); c.lineTo(x + F, y + i * F / 8); }
+    c.stroke();
+    c.setLineDash([4, 5]); c.strokeStyle = 'rgba(255,200,120,.6)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(...P[0]); c.lineTo(...P[1]); c.moveTo(...P[3]); c.lineTo(...P[2]); c.stroke(); c.setLineDash([]);
+    const g = c.createLinearGradient(P[0][0], 0, P[3][0], 0); g.addColorStop(0, '#6fd0ff'); g.addColorStop(1, '#8f9bff');
+    c.strokeStyle = g; c.lineWidth = Math.max(5, F / 40); c.lineCap = 'round'; c.beginPath(); c.moveTo(...P[0]); c.bezierCurveTo(...P[1], ...P[2], ...P[3]); c.stroke();
+    for (const i of [0, 3]) { c.fillStyle = '#fff'; c.strokeStyle = '#0d1019'; c.lineWidth = 2; c.beginPath(); c.roundRect(P[i][0] - 7, P[i][1] - 7, 14, 14, 3); c.fill(); c.stroke(); }
+    for (const i of [1, 2]) { c.fillStyle = '#ffb457'; c.strokeStyle = '#0d1019'; c.lineWidth = 2; c.beginPath(); c.arc(P[i][0], P[i][1], 10, 0, 6.283); c.fill(); c.stroke(); }
+  });
+  P.forEach(([px, py], i) => {
+    const [u, v] = S.bez[i], txt = `${Math.round(u * RES)}, ${Math.round(v * RES)}`;
+    tag(c, txt, u > 0.55 ? px - 82 : px + 14, py + (i === 1 || i === 2 ? -20 : 20));
+  });
+  label(c, T[lang].bez.f, x, y, F);
+}
+
+function drawFont(c, w, h) {
+  const t = T[lang], L = lay(w, h), F = L.F, n = S.fn, k = F * 0.78 / 140, ox = (F - 100 * k) / 2, oy = (F - 140 * k) / 2;
+  label(c, t.font.outline, L.xA, L.y, F); label(c, t.font.screen, L.xB, L.y, F);
+  frame(c, L.xA, L.y, F, () => {
+    c.save(); c.translate(L.xA + ox, L.y + oy); c.scale(k, k);
+    c.fillStyle = 'rgba(159,208,255,.13)'; c.fill(D_PATH, 'evenodd'); c.lineWidth = 2.4 / k; c.lineJoin = 'round'; c.strokeStyle = '#9fd0ff'; c.stroke(D_PATH);
+    c.setLineDash([4 / k, 4 / k]); c.strokeStyle = 'rgba(255,200,120,.7)'; c.lineWidth = 1.4 / k; c.beginPath();
+    for (const [a, b] of D_HANDLES) { c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); } c.stroke(); c.setLineDash([]);
+    for (const [px, py] of D_ON) { c.fillStyle = '#fff'; c.fillRect(px - 4 / k * 1.1, py - 4 / k * 1.1, 8.8 / k, 8.8 / k); }
+    for (const [px, py] of D_OFF) { c.fillStyle = '#ffb457'; c.beginPath(); c.arc(px, py, 5 / k, 0, 6.283); c.fill(); }
+    c.restore();
+  });
+  const cov = coverOf(n), cell = F / n;
+  frame(c, L.xB, L.y, F, () => {
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+      const a = cov[j * n + i]; if (a <= 0) continue;
+      c.fillStyle = `rgba(159,208,255,${a.toFixed(3)})`; c.fillRect(L.xB + i * cell, L.y + j * cell, cell + 0.5, cell + 0.5);
+    }
+    if (cell >= 6) {
+      c.strokeStyle = 'rgba(130,145,190,.22)'; c.lineWidth = 1; c.beginPath();
+      for (let i = 1; i < n; i++) { c.moveTo(L.xB + i * cell, L.y); c.lineTo(L.xB + i * cell, L.y + F); c.moveTo(L.xB, L.y + i * cell); c.lineTo(L.xB + F, L.y + i * cell); }
+      c.stroke();
+    }
+  });
+  tag(c, `${n} px`, L.xB + 8, L.y + F - 14);
+}
+
+function drawShrink(c, w, h, dt) {
+  const t = T[lang], tt = t.s, L = lay(w, h), F = L.F, N = SIZES[S.ni];
+  if (S.grown && S.g < 1) S.g = Math.min(1, S.g + dt * 1.3);
+  G.s = 1;
+  if (S.crop) {
+    const q = F / TOT, cx0 = L.xA + S.cx * q, cy0 = L.y + S.cy * q, cs = CROP * q;
+    label(c, tt.orig(TOT), L.xA, L.y, F); label(c, tt.cropLbl(CROP), L.xB, L.y, F);
+    frame(c, L.xA, L.y, F, () => {
+      c.imageSmoothingEnabled = true; c.drawImage(PHOTO, L.xA, L.y, F, F);
+      c.fillStyle = 'rgba(8,10,18,.6)'; c.beginPath(); c.rect(L.xA, L.y, F, F); c.rect(cx0, cy0, cs, cs); c.fill('evenodd');
+      c.strokeStyle = '#fff'; c.lineWidth = 2; c.strokeRect(cx0, cy0, cs, cs);
+    });
+    frame(c, L.xB, L.y, F, () => { c.imageSmoothingEnabled = false; c.drawImage(PHOTO, S.cx, S.cy, CROP, CROP, L.xB, L.y, F, F); }, '#ffffff');
+    return;
+  }
+  label(c, tt.orig(TOT), L.xA, L.y, F);
+  label(c, S.grown ? tt.grown(TOT) : N === TOT ? tt.orig(TOT) : tt.small(N), L.xB, L.y, F);
+  frame(c, L.xA, L.y, F, () => { c.imageSmoothingEnabled = true; c.drawImage(PHOTO, L.xA, L.y, F, F); });
+  frame(c, L.xB, L.y, F, () => {
+    if (N === TOT) { c.imageSmoothingEnabled = true; c.drawImage(PHOTO, L.xB, L.y, F, F); return; }
+    const e = S.grown ? ease(S.g) : 0, sz = lerp(F * N / TOT, F, e), px = L.xB + (F - sz) / 2, py = L.y + (F - sz) / 2;
+    if (S.grown && S.diff && S.g >= 1) { c.imageSmoothingEnabled = false; c.drawImage(diffOf(N, S.smooth), L.xB, L.y, F, F); return; }
+    c.imageSmoothingEnabled = S.grown && S.smooth; c.drawImage(smallOf(N), px, py, sz, sz);
+    if (!S.grown) { c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 1; c.strokeRect(px - 0.5, py - 0.5, sz + 1, sz + 1); }
+  });
+  if (S.grown && S.diff && S.g >= 1) tag(c, tt.diffB.replace(/^\S+\s/, ''), L.xB + 8, L.y + F - 14);
+}
+
+function drawFormat(c, w, h, dt) {
+  const t = T[lang], ft = t.f;
+  S.bigS += (S.big - S.bigS) * (1 - Math.exp(-dt * 3.2));
+  G.w = w; G.h = h; G.s = 1;
+  if (S.ti >= 4) { // result: the four pictures with a tick or a cross
+    const gap = 8, F = Math.min((w - 20 - 3 * gap) / 4, h - 70, 150), x0 = (w - (4 * F + 3 * gap)) / 2, y0 = (h - F - 34) / 2 + 6;
+    ITEMS.forEach((it, i) => {
+      const x = x0 + i * (F + gap), ok = S.right[i];
+      frame(c, x, y0, F, () => { c.save(); c.translate(x, y0); it.draw(c, F, true); c.restore(); }, ok ? '#3ddc97' : '#ff5a4d');
+      tag(c, `${ok ? '✓' : '✗'} ${it.ok === 'r' ? '🔲' : '✏️'}`, x + F / 2, y0 + F + 16, { center: true, color: ok ? '#3ddc97' : '#ff8a80' });
+    });
+    return;
+  }
+  const it = ITEMS[S.ti];
+  if (!S.pick) { // one picture, the real thing
+    const F = Math.max(80, Math.min(w - 40, h - 36, 320)), x = (w - F) / 2, y = (h - F) / 2 + 2;
+    frame(c, x, y, F, () => { c.save(); c.translate(x, y); it.draw(c, F, true); c.restore(); });
+    return;
+  }
+  const L = lay(w, h), F = L.F, sz = F * lerp(0.2, 0.96, clamp(S.bigS / 100, 0, 1));
+  const okR = it.ok === 'r', mine = S.pick;
+  label(c, `${okR ? '✓ ' : ''}${ft.asPix}`, L.xA, L.y, F, okR ? '#3ddc97' : '#C6CDE0'); label(c, `${okR ? '' : '✓ '}${ft.asShp}`, L.xB, L.y, F, okR ? '#C6CDE0' : '#3ddc97');
+  const bg = () => { c.fillStyle = '#0d1019'; c.fillRect(0, 0, w, h); };
+  frame(c, L.xA, L.y, F, () => {
+    bg(); const px = L.xA + (F - sz) / 2, py = L.y + (F - sz) / 2;
+    c.imageSmoothingEnabled = it.smooth || sz < it.res; c.drawImage(it.rast, px, py, sz, sz);
+  }, okR ? '#3ddc97' : 'rgba(130,145,190,.4)');
+  frame(c, L.xB, L.y, F, () => {
+    bg(); c.save(); c.translate(L.xB + (F - sz) / 2, L.y + (F - sz) / 2); it.draw(c, sz, false); c.restore();
+  }, okR ? 'rgba(130,145,190,.4)' : '#3ddc97');
+  tag(c, `${it.res}×${it.res}`, L.xA + 8, L.y + F - 14);
+  tag(c, ft.mine, mine === 'r' ? L.xA + F / 2 : L.xB + F / 2, L.y + F + 16, { center: true, color: '#98A0B8' });
+}
+
+// --- pointer: pan the zoomed pictures, drag the curve's dots, move the crop frame ---------------------------------------
+const cv = $('cv');
+const at = (ev) => { const r = cv.getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; };
+const inBox = (px, py, x, y, F) => px >= x && px <= x + F && py >= y && py <= y + F;
+function moveCrop(px, py) {
+  const q = TOT / G.F;
+  S.cx = clamp(Math.round((px - G.xA) * q - CROP / 2), 0, TOT - CROP); S.cy = clamp(Math.round((py - G.y) * q - CROP / 2), 0, TOT - CROP);
+}
+cv.addEventListener('pointerdown', (ev) => {
+  const [px, py] = at(ev), v = lab.view;
+  if (v === 'zoom' && S.sec === 'bez' && G.bez) {
+    const { x, y, F } = G.bez; let best = -1, bd = 34 * 34;
+    S.bez.forEach(([u, w], i) => { const d = (x + u * F - px) ** 2 + (y + w * F - py) ** 2; if (d < bd) { bd = d; best = i; } });
+    if (best >= 0) drag = { k: 'bez', i: best };
+  } else if (v === 'zoom' && !S.sec && S.rev1 && (inBox(px, py, G.xA, G.y, G.F) || inBox(px, py, G.xB, G.y, G.F))) drag = { k: 'pan', x: px, y: py };
+  else if (v === 'shrink' && S.crop && inBox(px, py, G.xA, G.y, G.F)) { drag = { k: 'crop' }; moveCrop(px, py); }
+  if (drag) { cv.setPointerCapture(ev.pointerId); ev.preventDefault(); }
+});
+cv.addEventListener('pointermove', (ev) => {
+  if (!drag) return;
+  const [px, py] = at(ev);
+  if (drag.k === 'pan') { S.fx = clamp(S.fx - (px - drag.x) / G.s, 0, RES); S.fy = clamp(S.fy - (py - drag.y) / G.s, 0, RES); drag.x = px; drag.y = py; }
+  else if (drag.k === 'bez') { const { x, y, F } = G.bez; S.bez[drag.i] = [clamp((px - x) / F, 0.04, 0.96), clamp((py - y) / F, 0.04, 0.96)]; render(); }
+  else if (drag.k === 'crop') moveCrop(px, py);
+});
+const endDrag = () => { drag = null; };
+cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
+
+// --- controls ------------------------------------------------------------------------------------------------
+const showStage = () => { const r = $('stage').getBoundingClientRect(); if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+const zToSlider = (z) => Math.round(Math.log(z) / Math.log(16) * 100);
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-a]'); if (!b) return;
+  const a = b.dataset.a;
+  if (a === 'pick1') {
+    S.guess1 = +b.dataset.i; S.rev1 = true; S.showV1 = true; S.zt = 8; S.rate = 2.4; S.zs = 1; S.fx = 44; S.fy = 27;
+    (S.guess1 === T[lang].z.ok ? sfx.good : sfx.bad)(); showStage();
+  } else if (a === 'look') { S.look = !S.look; S.showV1 = false; sfx.click(); }
+  else if (a === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    S.sec = S.sec === b.dataset.k ? null : b.dataset.k; sfx.click();
+  } else if (a === 'pick2') {
+    S.guess2 = +b.dataset.i; S.asked2 = true; S.seen2 = true; S.grown = true; S.g = 0; S.showV2 = true; (S.guess2 === T[lang].s.ok ? sfx.good : sfx.bad)(); showStage();
+  } else if (a === 'grow') { S.seen2 = true; S.grown = true; S.g = 0; S.showV2 = false; sfx.click(); showStage(); }
+  else if (a === 'smooth') { S.smooth = b.dataset.m === '1'; S.showV2 = false; sfx.click(); }
+  else if (a === 'diff') { S.diff = !S.diff; S.showV2 = false; sfx.click(); }
+  else if (a === 'crop') { S.crop = !S.crop; sfx.click(); }
+  else if (a === 'pick3') {
+    S.pick = b.dataset.k; S.right[S.ti] = S.pick === ITEMS[S.ti].ok; S.big = 100; S.bigS = 20; (S.right[S.ti] ? sfx.good : sfx.bad)(); showStage();
+  } else if (a === 'next') {
+    if (S.ti >= 4) { S.ti = 0; S.right = []; S.pick = null; } else { S.ti++; S.pick = null; }
+    sfx.click();
+  }
+  render();
+});
+$('ctrlBody').addEventListener('input', (ev) => {
+  const id = ev.target.id, v = +ev.target.value;
+  if (id === 'zr') { S.zt = 16 ** (v / 100); S.rate = 10; S.showV1 = false; }
+  else if (id === 'fr') S.fn = v;
+  else if (id === 'nr') { S.ni = v; S.grown = false; S.g = 0; S.diff = false; S.showV2 = false; }
+  else if (id === 'sr') { S.big = v; S.bigS = v; }
+  else return;
+  render();
+});
+
+// --- one render per change ----------------------------------------------------------------------------------
+function readout1() {
+  const t = T[lang], N = RES;
+  if (S.sec === 'bez') lab.setReadout('8', t.bez.sub, '', '#6fd0ff');
+  else if (S.sec === 'font') lab.setReadout(`${S.fn} px`, t.font.sub, t.font.pill(t.pts(D_ON.length + D_OFF.length)), '#9fd0ff');
+  else if (!S.rev1) lab.setReadout('1×', t.z.sub, '', '#4ea8ff');
+  else lab.setReadout(`${fmtZ(S.zs)}×`, t.z.sub, t.z.pill(t.px(rasterRes(G.F) ** 2), t.cmds(CMDS.length)), '#4ea8ff');
+}
+function render1(t) {
+  const z = t.z, open = secret.unlocked(), N = RES, n = CMDS.length;
+  lab.setGlow('rgba(78, 168, 255, .26)');
+  $('sec1').innerHTML = [['bez', '✒️'], ['font', '🔤']].map(([k, e]) => `<button class="chip rv secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-a="sec" data-k="${k}">${open ? `${e} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`).join('');
+  const predict = !S.rev1 && !S.sec, free = S.rev1 && !S.sec;
+  $('p1').hidden = !predict; $('f1').hidden = !free; $('fbox').hidden = S.sec !== 'font';
+  document.body.dataset.drag = (free || S.sec === 'bez') ? '1' : '0';
+  $('p1').innerHTML = predict ? z.opts.map((o, i) => `<button class="rv-opt" data-a="pick1" data-i="${i}">${esc(o)}</button>`).join('') : '';
+  $('zl').textContent = z.zoom; $('zr').value = zToSlider(S.zt); $('lookB').textContent = S.look ? z.unlook : z.look; $('lookB').classList.toggle('on', S.look);
+  $('fl').textContent = t.font.lbl; $('fr').value = S.fn;
+  $('h1').textContent = S.sec === 'bez' ? t.bez.hint : free ? z.hint : '';
+  readout1();
+  if (S.sec === 'bez') {
+    const p = S.bez.map(([u, v]) => [Math.round(u * RES), Math.round(v * RES)]);
+    lab.setState({ emo: '✒️', title: t.bez.t, lead: t.bez.l, body: `M ${p[0].join(' ')}  C ${p[1].join(' ')},  ${p[2].join(' ')},  ${p[3].join(' ')}`, extra: '' });
+    lab.setFacts([]); return;
+  }
+  if (S.sec === 'font') {
+    lab.setState({ emo: '🔤', title: t.font.t, lead: t.font.l(t.pts(D_ON.length + D_OFF.length), S.fn), body: '', extra: '' });
+    lab.setFacts([]); return;
+  }
+  if (!S.rev1) { lab.setState({ emo: '🤔', title: z.q, lead: z.ql, body: '', extra: '' }); lab.setFacts(t.facts.zoom); return; }
+  const wide = (rasterRes(G.F) / DPR() / RES) * S.zt >= 15;
+  let st;
+  if (S.showV1) st = { emo: S.guess1 === z.ok ? '✅' : '🤔', title: S.guess1 === z.ok ? z.right : z.no, lead: z.lead, body: '' };
+  else if (S.look) { const [a, b] = z.inside(t.nums(N * N), t.cmds(n)); st = { emo: '🔍', title: a, lead: b, body: wide ? '' : z.small }; }
+  else if (S.zt < 2.5) st = { emo: '🖼️', title: z.same[0], lead: z.same[1], body: '' };
+  else { const [a, b] = z.diff(); st = { emo: '🔲', title: a, lead: b, body: '' }; }
+  lab.setState({ ...st, extra: '' }); lab.setFacts(t.facts.zoom);
+}
+
+function render2(t) {
+  const s = t.s, N = SIZES[S.ni], total = TOT * TOT;
+  lab.setGlow('rgba(224, 176, 80, .24)');
+  const askNow = N <= 16 && !S.grown && !S.asked2 && !S.crop;
+  document.body.dataset.drag = S.crop ? '1' : '0';
+  $('nbox').hidden = S.crop; $('nl').textContent = s.lbl; $('nr').value = S.ni;
+  $('p2').innerHTML = askNow ? s.opts.map((o, i) => `<button class="rv-opt" data-a="pick2" data-i="${i}">${esc(o)}</button>`).join('') : '';
+  const growBtn = N < TOT && !S.grown && !askNow && !S.crop ? `<button class="chip rv on" data-a="grow">${esc(s.grow)}</button>` : '';
+  const chips = S.crop ? `<button class="chip rv" data-a="crop">${esc(s.back)}</button>`
+    : growBtn + (S.grown ? `<button class="chip rv ${!S.smooth ? 'on' : ''}" data-a="smooth" data-m="0">${esc(s.blocky)}</button><button class="chip rv ${S.smooth ? 'on' : ''}" data-a="smooth" data-m="1">${esc(s.smoothB)}</button><button class="chip rv ${S.diff ? 'on' : ''}" data-a="diff">${esc(s.diffB)}</button>` : '')
+      + (S.seen2 ? `<button class="chip rv" data-a="crop">${esc(s.cropB)}</button>` : '');
+  $('c2').innerHTML = chips; $('c2').hidden = !chips;
+  $('h2').textContent = S.crop ? s.hint : '';
+  if (S.crop) lab.setReadout(`${CROP}×${CROP}`, s.subCrop, s.pill(CROP * CROP, total), '#e0b050');
+  else lab.setReadout(`${N}×${N}`, s.sub, s.pill(N * N, total), '#e0b050');
+  let st;
+  if (S.crop) { const [a, b] = s.crop(CROP, TOT / CROP); st = { emo: '✂️', title: a, lead: b, body: '' }; }
+  else if (N === TOT) st = { emo: '📷', title: s.start[0], lead: s.start[1], body: '' };
+  else if (!S.grown) { const [a, b] = askNow ? s.q(N) : S.seen2 ? s.again(N) : s.more(N); st = { emo: '🤔', title: a, lead: b, body: '' }; }
+  else if (S.diff) st = { emo: '🔎', title: s.diff[0], lead: s.diff[1], body: '' };
+  else st = { emo: S.showV2 && S.guess2 === s.ok ? '✅' : '🔍', title: S.showV2 ? (S.guess2 === s.ok ? s.right : s.no) : s.lost, lead: s.lead(N), body: S.smooth ? s.smooth : '' };
+  lab.setState({ ...st, extra: '' });
+  lab.setFacts(S.grown || S.crop ? [...t.facts.shrink, t.facts.shrinkB] : t.facts.shrink);
+}
+
+function render3(t) {
+  const ft = t.f, end = S.ti >= 4, k = S.right.filter(Boolean).length;
+  lab.setGlow('rgba(61, 220, 151, .22)');
+  document.body.dataset.drag = '0';
+  const pre = !end && !S.pick;
+  $('p3').hidden = !pre; $('sbox').hidden = pre || end; $('nx').hidden = pre;
+  $('p3').innerHTML = pre ? ft.opts.map((o, i) => `<button class="rv-opt" data-a="pick3" data-k="${i ? 'v' : 'r'}">${esc(o)}</button>`).join('') : '';
+  $('sl').textContent = ft.size; $('se0').textContent = ft.small; $('se1').textContent = ft.big; $('sr').value = S.big;
+  $('nx').textContent = end ? ft.again : ft.next;
+  const dots = [0, 1, 2, 3].map((i) => (i < S.ti ? (S.right[i] ? '●' : '○') : i === S.ti ? '◉' : '·')).join(' ');
+  if (end) {
+    const [a, b] = ft.end(k);
+    lab.setReadout(`${k}/4`, dots, '', '#3ddc97'); lab.setState({ emo: '🏆', title: a, lead: b, body: '', extra: '' });
+  } else if (pre) {
+    const task = ft.tasks[S.ti];
+    lab.setReadout(`${S.ti + 1}/4`, ft.sub, '', '#3ddc97'); lab.setState({ emo: ITEMS[S.ti].emo, title: task.t, lead: task.need, body: ft.q, extra: '' });
+  } else {
+    const task = ft.tasks[S.ti], ok = S.right[S.ti];
+    lab.setReadout(`${S.ti + 1}/4`, dots, ok ? '✓' : '✗', '#3ddc97'); lab.setState({ emo: ok ? '✅' : '🤔', title: ok ? ft.right : ft.no, lead: task.why, body: '', extra: '' });
+  }
+  lab.setFacts(t.facts.format);
+}
+
+function render() {
+  const t = T[lang], v = lab.view;
+  document.body.dataset.v = v;
+  $('s1').hidden = v !== 'zoom'; $('s2').hidden = v !== 'shrink'; $('s3').hidden = v !== 'format';
+  if (v === 'zoom') render1(t); else if (v === 'shrink') render2(t); else render3(t);
+}
+
+canvasLoop($('cv'), (c, w, h, dt) => {
+  const v = lab.view;
+  if (v === 'zoom') drawZoom(c, w, h, dt); else if (v === 'shrink') drawShrink(c, w, h, dt); else drawFormat(c, w, h, dt);
+});
+render();
+</script>
+</body>
+</html>
