@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-13
 
 ### Labs
+- New lab `tea-tax` “The Tea Tax”: count the American colonies’ seats in Parliament and guess how colonists answer the Stamp, Townshend and Tea Acts, send the tea overboard on a December night in 1773 and guess Parliament’s reply, and order the road to independence (583). (#509)
 - New lab `berlin-wall` “The Wall”: try three routes to a cousin across divided Berlin before and after 9 November 1989, slide Eastern Europe’s map from 1988 to 1993 and count the new states, and sort which breakups were peaceful (582). (#508)
 - New lab `yuri-day` “St George’s Day”: stand at the manor gate in 1497, 1581, 1597 and 1649 and decide whether a Russian peasant may leave, chase a runaway as the search term grows from five years to forever, and split a serf’s week between the lord’s field and his own (581). (#507)
 - New lab `emancipation` “The Freedom of 1861”: sort what a Russian peasant could do before and after 1861, redraw a village’s fields and run the redemption payments year by year, and match the zemstvo, court, city and army reforms that followed (580). (#506)
