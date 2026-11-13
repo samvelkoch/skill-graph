@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-13
 
 ### Labs
+- New lab `troubles` “The Time of Troubles”: guess how many men held Moscow's throne before Mikhail Romanov and run 1598–1613, predict the price of rye in the famine after the 1600 eruption, and follow Minin and Pozharsky to the Zemsky Sobor of 1613 (608). (#534)
 - New lab `interwar` “Europe Between the Wars”: guess how many of 26 European states are still democracies at the end of 1938 and play the map from 1920, predict German unemployment and votes through the crisis, and sort six signs of democratic and totalitarian states (607). (#533)
 - New lab `vectors` “Arrows on the Map”: compare pairs of arrows placed anywhere on an island map, predict where a+b+c and a−b end, and multiply an arrow by −1, ½ and 2 while its x and y steps update (606). (#532)
 - New lab `conquest` “A New Homeland”: follow the Hungarians across the steppe into the Carpathian Basin and pick what the land offered, sort the magic stag and Emese's dream from recorded history, and order 895, 1000, 1222 and 1241–42 (605). (#531)
