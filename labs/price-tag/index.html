@@ -1,0 +1,674 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The Price Tag · Skill Graph</title>
+<meta name="description" content="Change a price by a percent, undo a sale and chain several rises: watch the bars and the graph show what a percent change really does. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  .pt-q { margin: 0 0 8px; font-weight: 800; font-size: 13.5px; line-height: 1.4; color: var(--ink); }
+  .pt-opts { display: grid; gap: 7px; }
+  .pt-opt { text-align: left; min-height: 40px; padding: 9px 14px; border-radius: 14px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    color: var(--soft); font: 800 13px/1.3 var(--sans); cursor: pointer; }
+  .pt-opt:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .pt-opt:disabled { cursor: default; }
+  .pt-opt.good { background: rgba(61, 220, 151, .18); border-color: #3ddc97; color: #c4f7e0; }
+  .pt-opt.bad { background: rgba(255, 107, 94, .18); border-color: #ff6b5e; color: #ffd3ce; }
+  .pt-opt.dim { opacity: .55; }
+  .pt-sl { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; margin-top: 10px; }
+  .pt-sl:first-child { margin-top: 0; }
+  .pt-lbl { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-weight: 700; }
+  .pt-v { min-width: 56px; text-align: right; font-size: 14px; font-weight: 900; color: #fff; }
+  .pt-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+  .pt-row:first-child { margin-top: 0; }
+  .pt-c, .pt-row .chip, .row2 .chip { min-height: 36px; }
+  .pt-in { width: 130px; height: 44px; border-radius: 14px; border: 1px solid var(--stroke2); background: rgba(10, 12, 20, .6); color: #fff; text-align: center;
+    font: 900 22px var(--sans); }
+  .pt-in:disabled { opacity: .6; }
+  .btn:disabled { opacity: .35; cursor: default; }
+  .pt-push { margin-left: auto; }
+  #nChips .chip, #pChips .chip { min-width: 40px; justify-content: center; }
+  .pt-secs { padding-top: 12px; border-top: 1px solid var(--stroke); }
+  #gauge { display: none; }
+  @media (max-width: 760px) {
+    #stage { height: min(124vw, 520px); }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lang } from '../lab.js';
+
+// --- number helpers: decimal comma in RU/HU, real minus, no float noise ----------------------------------------
+const rnd = (v, d = 2) => Math.round(v * 10 ** d + 1e-9 * Math.sign(v)) / 10 ** d;
+const N = (v, d = 2) => { const s = String(rnd(v, d)).replace('-', '−'); return lang === 'en' ? s : s.replace('.', ','); };
+const F = (f) => N(f, 4); // a factor
+const X = (f) => (Math.abs(f - rnd(f, 4)) > 1e-9 ? '≈\u00A0' : '') + '×' + N(f, 4); // "×factor"; "≈" only when it was rounded
+const sg = (v) => (v > 0 ? '+' : v < 0 ? '−' : '') + N(Math.abs(v));
+const pct = (v) => (lang === 'hu' ? `${v}%` : `${v} %`);
+
+// --- texts -------------------------------------------------------------------------------------------------
+const SRC_SIGN = 'https://en.wikipedia.org/wiki/Percent_sign', SRC_PCT = 'https://en.wikipedia.org/wiki/Percentage';
+const T = {
+  en: {
+    name: 'The Price Tag', title: 'The Price Tag',
+    lines: [['Up, then down.', 'Where does the price land?'], ['Undo a sale:', 'find the price it started from.'], ['A chain of small rises,', 'against one big rise.']],
+    views: { up: '📈 Up, down', back: '↩️ Undo', chain: '🔗 Chain' },
+    right: 'Right!', vs: 'vs', start: 'start', old: 'old', guess: 'guess', or: 'or', net: 'no tax',
+    gcap: 'Price after each step · dashed: start',
+    up: {
+      q: (x) => `A price of 100 goes up ${pct(x)}, then down ${pct(x)}. Where does it end?`,
+      opts: { more: 'More than 100', same: 'The same: 100', less: 'Less than 100' }, xl: 'Percent',
+      t0: 'Up, then down by the same percent', l0: 'Guess first, then watch the bars.', b0: 'Move the slider to try other percents.',
+      ok: (p) => `Right! It ends at ${N(p)}.`, no: (p) => `Not quite: it ends at ${N(p)}.`, neutral: (p1, p2) => `100 → ${N(p1)} → ${N(p2)}`,
+      b: (x, p1, d) => `The two ${pct(x)} are taken from different prices: ${pct(x)} of 100 going up, but ${pct(x)} of ${N(p1)} going down. So the price ends ${N(Math.abs(d))} below the start.`,
+      vs: (d) => `${sg(d)} vs start`, again: '↺ Predict again',
+    },
+    back: {
+      qDown: (p, e) => `Sale: ${pct(p)} off. The sale price is ${N(e)}. What was the price before the sale?`,
+      qUp: (p, e) => `A price went up ${pct(p)}. Now it is ${N(e)}. What was it before?`,
+      label: 'Old price', check: '✓ Check', next: '→ Next', again: '↻ Again', lead0: 'Type your answer, then press Check.', hint: 'The check appears here.',
+      ok: (e, f, o) => `Right! ${N(e)} ÷ ${F(f)} = ${N(o)}.`, leadOk: 'To go back, divide by the factor.',
+      errDown: (e, p, g) => `That is ${N(e)} plus ${pct(p)} of ${N(e)}, but the ${pct(p)} was taken off the old price, which was bigger.`,
+      errUp: (e, p, g) => `That is ${N(e)} minus ${pct(p)} of ${N(e)}, but the ${pct(p)} was added to the old price, which was smaller.`,
+      no: (g) => `Not ${N(g)}.`, slip: (l) => `A common slip: ${l}`, errLine: (e, p, dir, x) => `${N(e)} ${dir < 0 ? '+' : '−'} ${pct(p)} of ${N(e)} = ${N(x)} ✗`,
+      wrong: (g, f, gf, e) => `${N(g)} × ${F(f)} = ${N(gf, 4)}, not ${N(e)}.`, body: (e, f, o) => `Divide by the factor: ${N(e)} ÷ ${F(f)} = ${N(o)}.`,
+      end: (k) => `${k} of 4 right.`, endLead: 'To go back, divide by the factor. Do not take the percent off again.',
+    },
+    chain: {
+      q: (n, p) => `The price rises ${pct(p)}, ${n} times in a row. Or it rises ${pct(n * p)} once. Which price is higher?`,
+      opts: { chain: (n, p) => `${n} rises of ${pct(p)}, one after another`, single: (n, p) => `One rise of ${pct(n * p)}`, same: () => 'The same' },
+      t0: 'Small rises, or one big one?', l0: 'Guess first, then watch the bars.',
+      ok: (c, s) => `Right! ${N(c)} beats ${N(s)}.`, no: (c, s) => `Not quite: ${N(c)} beats ${N(s)}.`, neutral: (c, s) => `${N(c)} vs ${N(s)}`,
+      lead: (chain, p, fc, fs) => `${chain} = ${X(fc)}, but ${pct(p)} is only ${X(fs)}.`,
+      b: (d) => `Each rise is taken from a price that is already higher, so the pieces pile up. Percents multiply; they do not add. The chain ends ${N(d)} higher.`,
+      try: 'Try other numbers', rl: 'Each rise', nl: 'Rises', diff: (d) => `+${N(d)}`,
+    },
+    und: { t: (d, u) => `Down ${pct(d)}, then up ${pct(u)}`, l: (u, f) => `×0.8 × ${F(1 + u / 100)} = ${X(f)}`, b0: 'Move the slider until the price is back at 100.', ul: 'Then up',
+      win: 'Back to the start!', bw: (d, p2) => `The rise is taken from the smaller price, ${N(p2)}, so it has to be bigger than ${pct(d)}. The two factors cancel: ×0.8 × 1.25 = ×1.` },
+    vat: { gl: 'Price with tax', rl: 'Tax rate', t: (g, n) => `${N(g)} with tax is ${N(n)} without`, l: (g, f, n) => `${N(g)} ÷ ${F(f)} = ${N(n)}`,
+      b: (t, r, n, g) => `The tax is ${N(t)}. The ${pct(r)} is counted on the price without tax (${N(n)}), not on the price with tax (${N(g)}).`, pill: (t) => `tax ${N(t)}`, tax: 'tax' },
+    secrets: { undo: ['Undo it', 'Down 20 %: what rise brings it back?'], vat: ['Without tax', 'Price with tax in, price without tax out'] },
+    facts: {
+      up: [{ emo: '✍️', text: 'The % sign comes from the Italian “per cento”, “for a hundred”. Medieval scribes shortened it to “pc” with a small loop; later it became two small circles with a line between them, and in modern times the line turned into a slash.', src: SRC_SIGN }],
+      back: [{ emo: '🏛️', text: 'Percentages are older than the sign. The Roman emperor Augustus put a tax of 1/100 on goods sold at auction. It was called the “centesima rerum venalium”.', src: SRC_PCT }],
+      chain: [{ emo: '✖️', text: 'A 100 % increase doubles a number, and an 800 % increase makes it nine times bigger.', src: SRC_PCT },
+        { emo: '📊', text: 'An interest rate that moves from 10 % to 15 % has risen by 5 percentage points. Calling it a “5 % increase” would wrongly suggest 10.5 %.', src: SRC_PCT }],
+    },
+    quiz: [
+      { q: 'A price rises 10 % and then falls 10 %. It is now…', opts: ['the same', 'a little higher', 'a little lower'], ok: 2, hint: 'Use “Up, down” with 10 %.' },
+      { q: 'After a 25 % discount a jacket costs 60. The original price was…', opts: ['75', '80', '85'], ok: 1, hint: 'Divide by the multiplier in “Undo”.' },
+      { q: 'A 5 % increase means multiplying by…', opts: ['1.05', '1.5', '0.05'], ok: 0, hint: 'Pick 5 % in “Chain” and look at the arrow between the bars.' },
+    ],
+  },
+  ru: {
+    name: 'Ценник', title: 'Ценник',
+    lines: [['Вверх, а потом вниз.', 'Где окажется цена?'], ['Отмени скидку:', 'найди цену, с которой всё началось.'], ['Цепочка небольших подорожаний', 'и одно большое.']],
+    views: { up: '📈 + и −', back: '↩️ Назад', chain: '🔗 Цепь' },
+    right: 'Верно!', vs: 'против', start: 'старт', old: 'было', guess: 'ответ', or: 'или', net: 'нетто',
+    gcap: 'Цена после каждого шага · пунктир: старт',
+    up: {
+      q: (x) => `Цена 100 выросла на ${pct(x)}, а потом упала на ${pct(x)}. Где она окажется?`,
+      opts: { more: 'Больше 100', same: 'Столько же: 100', less: 'Меньше 100' }, xl: 'Процент',
+      t0: 'Вверх, а потом вниз на столько же процентов', l0: 'Сначала предположи, потом смотри на столбики.', b0: 'Двигай ползунок: попробуй другие проценты.',
+      ok: (p) => `Верно! Цена окажется ${N(p)}.`, no: (p) => `Не совсем: цена окажется ${N(p)}.`, neutral: (p1, p2) => `100 → ${N(p1)} → ${N(p2)}`,
+      b: (x, p1, d) => `Проценты берутся от разных цен: ${pct(x)} от 100 при подъёме, но ${pct(x)} от ${N(p1)} при спуске. Поэтому цена оказывается на ${N(Math.abs(d))} ниже начальной.`,
+      vs: (d) => `${sg(d)} к началу`, again: '↺ Ещё раз',
+    },
+    back: {
+      qDown: (p, e) => `Скидка ${pct(p)}. Цена со скидкой — ${N(e)}. Сколько стоил товар до скидки?`,
+      qUp: (p, e) => `Цена выросла на ${pct(p)}. Теперь она ${N(e)}. Какой она была раньше?`,
+      label: 'Старая цена', check: '✓ Проверить', next: '→ Дальше', again: '↻ Ещё раз', lead0: 'Впиши ответ и нажми «Проверить».', hint: 'Здесь появится проверка.',
+      ok: (e, f, o) => `Верно! ${N(e)} ÷ ${F(f)} = ${N(o)}.`, leadOk: 'Чтобы вернуться, дели на множитель.',
+      errDown: (e, p, g) => `Это ${N(e)} плюс ${pct(p)} от ${N(e)}, но ${pct(p)} скидки считали от старой цены, а она была больше.`,
+      errUp: (e, p, g) => `Это ${N(e)} минус ${pct(p)} от ${N(e)}, но ${pct(p)} прибавили к старой цене, а она была меньше.`,
+      no: (g) => `Не ${N(g)}.`, slip: (l) => `Частая ошибка: ${l}`, errLine: (e, p, dir, x) => `${N(e)} ${dir < 0 ? '+' : '−'} ${pct(p)} от ${N(e)} = ${N(x)} ✗`,
+      wrong: (g, f, gf, e) => `${N(g)} × ${F(f)} = ${N(gf, 4)}, а не ${N(e)}.`, body: (e, f, o) => `Дели на множитель: ${N(e)} ÷ ${F(f)} = ${N(o)}.`,
+      end: (k) => `${k} из 4 верно.`, endLead: 'Чтобы вернуться, дели на множитель. Не отнимай процент ещё раз.',
+    },
+    chain: {
+      q: (n, p) => `Цену поднимают на ${pct(p)} ${n} раза подряд. Или один раз на ${pct(n * p)}. Какая цена получится выше?`,
+      opts: { chain: (n, p) => `${n} раза подряд по ${pct(p)}`, single: (n, p) => `Один раз на ${pct(n * p)}`, same: () => 'Одинаковая' },
+      t0: 'Несколько небольших подорожаний или одно большое?', l0: 'Сначала предположи, потом смотри на столбики.',
+      ok: (c, s) => `Верно! ${N(c)} больше, чем ${N(s)}.`, no: (c, s) => `Не совсем: ${N(c)} больше, чем ${N(s)}.`, neutral: (c, s) => `${N(c)} и ${N(s)}`,
+      lead: (chain, p, fc, fs) => `${chain} = ${X(fc)}, а ${pct(p)} — это всего ${X(fs)}.`,
+      b: (d) => `Каждое подорожание считается от цены, которая уже выше, поэтому прибавки накапливаются. Проценты умножаются, а не складываются. Цепочка заканчивается на ${N(d)} выше.`,
+      try: 'Попробуй другие числа', rl: 'Каждый раз', nl: 'Шагов', diff: (d) => `+${N(d)}`,
+    },
+    und: { t: (d, u) => `Вниз на ${pct(d)}, потом вверх на ${pct(u)}`, l: (u, f) => `×0,8 × ${F(1 + u / 100)} = ${X(f)}`, b0: 'Двигай ползунок, пока цена не вернётся к 100.', ul: 'Потом вверх',
+      win: 'Цена вернулась к началу!', bw: (d, p2) => `Прибавка считается от меньшей цены, ${N(p2)}, поэтому она должна быть больше, чем ${pct(d)}. Множители сокращаются: ×0,8 × 1,25 = ×1.` },
+    vat: { gl: 'Цена с налогом', rl: 'Ставка налога', t: (g, n) => `С налогом ${N(g)}, без налога ${N(n)}`, l: (g, f, n) => `${N(g)} ÷ ${F(f)} = ${N(n)}`,
+      b: (t, r, n, g) => `Налог — ${N(t)}. Ставка ${pct(r)} считается от цены без налога (${N(n)}), а не от цены с налогом (${N(g)}).`, pill: (t) => `налог ${N(t)}`, tax: 'налог' },
+    secrets: { undo: ['Верни назад', 'Вниз на 20 %: какой рост вернёт цену?'], vat: ['Без налога', 'Цена с налогом — на входе, без налога — на выходе'] },
+    facts: {
+      up: [{ emo: '✍️', text: 'Знак % произошёл от итальянского «per cento» — «на сотню». Средневековые писцы сокращали его до «pc» с петелькой; потом получились два кружка с чертой между ними, а в наше время черта стала косой.', src: SRC_SIGN }],
+      back: [{ emo: '🏛️', text: 'Проценты старше знака %. Римский император Август ввёл налог в одну сотую на товары, проданные на аукционе. Он назывался «centesima rerum venalium».', src: SRC_PCT }],
+      chain: [{ emo: '✖️', text: 'Рост на 100 % удваивает число, а рост на 800 % делает его больше в девять раз.', src: SRC_PCT },
+        { emo: '📊', text: 'Если процентная ставка выросла с 10 % до 15 %, она выросла на 5 процентных пунктов. Назвать это «ростом на 5 %» было бы ошибкой: получилось бы 10,5 %.', src: SRC_PCT }],
+    },
+    quiz: [
+      { q: 'Цена выросла на 10 %, а потом упала на 10 %. Теперь она…', opts: ['такая же', 'чуть выше', 'чуть ниже'], ok: 2, hint: 'Попробуй вкладку «+ и −» с 10 %.' },
+      { q: 'После скидки 25 % куртка стоит 60. Сначала она стоила…', opts: ['75', '80', '85'], ok: 1, hint: 'Раздели на множитель во вкладке «Назад».' },
+      { q: 'Увеличение на 5 % — это умножение на…', opts: ['1,05', '1,5', '0,05'], ok: 0, hint: 'Выбери 5 % во вкладке «Цепь» и посмотри на стрелку между столбиками.' },
+    ],
+  },
+  hu: {
+    name: 'Az árcédula', title: 'Az árcédula',
+    lines: [['Fel, aztán le.', 'Hol köt ki az ár?'], ['Vond vissza az akciót:', 'keresd meg az eredeti árat.'], ['Sok kis drágulás egymás után,', 'és egy nagy.']],
+    views: { up: '📈 Fel, le', back: '↩️ Vissza', chain: '🔗 Lánc' },
+    right: 'Így van!', vs: 'vs.', start: 'kezdet', old: 'régi', guess: 'tipp', or: 'vagy', net: 'nettó',
+    gcap: 'Az ár minden lépés után · szaggatott: kezdet',
+    up: {
+      q: (x) => `Az ár 100. Emelés: ${pct(x)}. Utána csökkentés: ${pct(x)}. Hol köt ki az ár?`,
+      opts: { more: 'Több mint 100', same: 'Ugyanannyi: 100', less: 'Kevesebb mint 100' }, xl: 'Százalék',
+      t0: 'Fel, majd le ugyanannyi százalékkal', l0: 'Előbb tippelj, aztán nézd az oszlopokat.', b0: 'Húzd a csúszkát: próbálj ki más százalékokat.',
+      ok: (p) => `Így van! ${N(p)} lesz.`, no: (p) => `Nem egészen: ${N(p)} lesz.`, neutral: (p1, p2) => `100 → ${N(p1)} → ${N(p2)}`,
+      b: (x, p1, d) => `A két ${pct(x)} nem ugyanarra az árra vonatkozik: először a 100-ra, aztán az új árra (${N(p1)}). Ezért a végén ${N(Math.abs(d))} hiányzik a kezdőárhoz képest.`,
+      vs: (d) => `${sg(d)} a kezdethez képest`, again: '↺ Újra tippelek',
+    },
+    back: {
+      qDown: (p, e) => `Akció: ${pct(p)} kedvezmény. Az akciós ár ${N(e)}. Mennyi volt az ár az akció előtt?`,
+      qUp: (p, e) => `Drágulás: ${pct(p)}. Az új ár ${N(e)}. Mennyi volt az ár előtte?`,
+      label: 'Régi ár', check: '✓ Ellenőrzés', next: '→ Tovább', again: '↻ Újra', lead0: 'Írd be a választ, majd nyomd meg az Ellenőrzés gombot.', hint: 'Itt jelenik meg az ellenőrzés.',
+      ok: (e, f, o) => `Így van! ${N(e)} ÷ ${F(f)} = ${N(o)}.`, leadOk: 'Visszafelé a szorzóval osztunk.',
+      errDown: (e, p, g) => `Ez úgy jön ki, hogy ${N(e)} + ${pct(p)} (a ${N(e)} értékéből), de a kedvezményt a régi árból vették le, az pedig nagyobb volt.`,
+      errUp: (e, p, g) => `Ez úgy jön ki, hogy ${N(e)} − ${pct(p)} (a ${N(e)} értékéből), de az emelést a régi árhoz adták hozzá, az pedig kisebb volt.`,
+      no: (g) => `Nem ${N(g)}.`, slip: (l) => `Gyakori hiba: ${l}`, errLine: (e, p, dir, x) => `${N(e)} ${dir < 0 ? '+' : '−'} ${pct(p)} a ${N(e)} értékéből = ${N(x)} ✗`,
+      wrong: (g, f, gf, e) => `${N(g)} × ${F(f)} = ${N(gf, 4)}, nem ${N(e)}.`, body: (e, f, o) => `Osszunk a szorzóval: ${N(e)} ÷ ${F(f)} = ${N(o)}.`,
+      end: (k) => `4-ből ${k} jó.`, endLead: 'Visszafelé a szorzóval osztunk. Ne vedd el még egyszer a százalékot.',
+    },
+    chain: {
+      q: (n, p) => `Az ár ${n} lépésben emelkedik, lépésenként ${pct(p)}. Vagy egyetlen lépésben ${pct(n * p)}. Melyik ár lesz magasabb?`,
+      opts: { chain: (n, p) => `${n} emelés egymás után (${pct(p)})`, single: (n, p) => `Egy emelés: ${pct(n * p)}`, same: () => 'Ugyanannyi' },
+      t0: 'Több kis emelés, vagy egy nagy?', l0: 'Előbb tippelj, aztán nézd az oszlopokat.',
+      ok: (c, s) => `Így van! ${N(c)} több, mint ${N(s)}.`, no: (c, s) => `Nem egészen: ${N(c)} több, mint ${N(s)}.`, neutral: (c, s) => `${N(c)} és ${N(s)}`,
+      lead: (chain, p, fc, fs) => `${chain} = ${X(fc)}, de a ${pct(p)} csak ${X(fs)}.`,
+      b: (d) => `Minden emelést már a megemelt árból számolunk, ezért a növekmények egymásra rakódnak. A százalékok szorzódnak, nem összeadódnak. A lánc végén ${N(d)} a különbség.`,
+      try: 'Próbálj ki más számokat', rl: 'Egy emelés', nl: 'Lépés', diff: (d) => `+${N(d)}`,
+    },
+    und: { t: (d, u) => `Le ${pct(d)}, aztán fel ${pct(u)}`, l: (u, f) => `×0,8 × ${F(1 + u / 100)} = ${X(f)}`, b0: 'Húzd a csúszkát, amíg az ár újra 100 nem lesz.', ul: 'Majd fel',
+      win: 'Visszaértünk a kezdethez!', bw: (d, p2) => `A növekedést a kisebb árból (${N(p2)}) számoljuk, ezért nagyobbnak kell lennie, mint ${pct(d)}. A két szorzó kioltja egymást: ×0,8 × 1,25 = ×1.` },
+    vat: { gl: 'Ár adóval', rl: 'Adókulcs', t: (g, n) => `${N(g)} adóval, ${N(n)} adó nélkül`, l: (g, f, n) => `${N(g)} ÷ ${F(f)} = ${N(n)}`,
+      b: (t, r, n, g) => `Az adó ${N(t)}. A ${pct(r)} az adó nélküli ár (${N(n)}) alapján számolódik, nem az adóval növelt ár (${N(g)}) alapján.`, pill: (t) => `adó ${N(t)}`, tax: 'adó' },
+    secrets: { undo: ['Vond vissza', 'Le 20%: mekkora emelés hozza vissza?'], vat: ['Adó nélkül', 'Adóval megadott ár be, adó nélküli ár ki'] },
+    facts: {
+      up: [{ emo: '✍️', text: 'A %-jel az olasz „per cento” („százra”) kifejezésből ered. A középkori írnokok „pc”-re rövidítették egy kis hurokkal; később két kis kör lett belőle egy vonallal köztük, és a modern időkben a vonal ferde lett.', src: SRC_SIGN }],
+      back: [{ emo: '🏛️', text: 'A százalékok régebbiek a jelnél. Augustus római császár 1/100 adót vetett ki az árveréseken eladott árukra. Ezt „centesima rerum venalium” néven ismerték.', src: SRC_PCT }],
+      chain: [{ emo: '✖️', text: 'A 100%-os növekedés megduplázza a számot, a 800%-os pedig kilencszeresére növeli.', src: SRC_PCT },
+        { emo: '📊', text: 'Ha a kamat 10%-ról 15%-ra nő, az 5 százalékpontos emelkedés. „5%-os növekedésnek” nevezni félrevezető lenne: az 10,5%-ot adna.', src: SRC_PCT }],
+    },
+    quiz: [
+      { q: 'Egy ár 10%-kal emelkedik, majd 10%-kal csökken. Most…', opts: ['ugyanannyi', 'kicsit magasabb', 'kicsit alacsonyabb'], ok: 2, hint: 'Próbáld ki a „Fel, le” nézetet 10%-os beállítással.' },
+      { q: 'Egy kabát ára 25% kedvezmény után 60. Az eredeti ára…', opts: ['75', '80', '85'], ok: 1, hint: 'Osszunk a szorzóval a „Vissza” nézetben.' },
+      { q: 'Az 5% növekedés egy szorzás ezzel:', opts: ['1,05', '1,5', '0,05'], ok: 0, hint: 'Válaszd az 5%-ot a „Lánc” nézetben, és nézd a nyilat az oszlopok között.' },
+    ],
+  },
+};
+const TOPICS = [{ id: 'mt_iEXqN48w3x', en: 'Percentages (age 12+)', ru: 'Проценты (12+ лет)', hu: 'Százalékok (12+ éves kor)' }];
+
+// --- numbers and state ---------------------------------------------------------------------------------------
+const DOWN = 20; // the secret "Undo it": the fixed fall
+const TASKS = [ // the price goes down (dir -1) or up (dir +1) by p %, and ends at e; o is the old price
+  { dir: -1, p: 20, e: 64, o: 80 }, { dir: 1, p: 25, e: 75, o: 60 }, { dir: -1, p: 30, e: 63, o: 90 }, { dir: 1, p: 50, e: 96, o: 64 },
+];
+const PS = [5, 10, 20, 30], NS = [2, 3, 4];
+const COL = { // light, dark, chip text
+  start: ['#a9bde8', '#5b74aa', '#10162b'], net: ['#a9bde8', '#5b74aa', '#10162b'], up: ['#7cf0c0', '#1f9d73', '#073b2a'],
+  down: ['#ffb99a', '#d8523d', '#4a1209'], single: ['#ffe28f', '#d89a1d', '#4a3200'], err: ['#ff9b92', '#c23a3a', '#4a0d0d'],
+};
+const FONT = (w, s) => `${w} ${s}px Nunito, ui-rounded, system-ui, sans-serif`;
+const now = () => performance.now() / 1000;
+const S = {
+  x: 20, rev1: false, at1: null, // view 1: percent, revealed, {x, g}
+  ti: 0, guess: '', checked: false, right: [], // view 2
+  n: 3, p: 10, rev3: false, at3: null, // view 3
+  sec: null, u: 25, gross: 120, vat: 20, // secrets
+  t0: -1e9, kick: -9, D: {}, key: '', vm: 0, gl: 0, gh: 0,
+};
+
+// the bars of the current view: every row is one price. k = order of the reveal (0: always there), on = revealed
+function model() {
+  const t = T[lang], v = lab.view, rows = [];
+  const row = (o) => rows.push({ k: 0, on: true, g: false, mult: null, ...o });
+  if (v === 'up' && S.sec === 'vat') {
+    const r = S.vat / 100, n = S.gross / (1 + r);
+    row({ id: 'a', kind: 'net', val: n, st: t.net });
+    row({ id: 'b', kind: 'up', val: S.gross, st: '+' + pct(S.vat), mult: 1 + r, k: 1, split: n });
+    return { rows, main: 'b', vmax: S.gross, lower: 'eq', eq: [[`${N(S.gross)} ÷ ${F(1 + r)} = ${N(n)}`, '#7cf0c0', 18], [`${N(S.gross)} − ${N(n)} = ${N(S.gross - n)} (${t.vat.tax})`, '#ffe28f', 14]] };
+  }
+  if (v === 'up') {
+    const sec = S.sec === 'undo', x = (sec ? DOWN : S.x) / 100, on = sec || S.rev1;
+    const fUp = sec ? 1 + S.u / 100 : 1 + x;
+    row({ id: 'a', kind: 'start', val: 100, st: t.start, g: true, xl: t.start });
+    if (sec) {
+      row({ id: 'b', kind: 'down', val: 80, st: '−' + pct(DOWN), mult: 1 - x, k: 1, g: true });
+      row({ id: 'c', kind: 'up', val: 80 * fUp, st: '+' + pct(S.u), mult: fUp, k: 2, g: true });
+      return { rows, main: 'c', vmax: 130, lower: 'graph', ref: 100 };
+    }
+    row({ id: 'b', kind: 'up', val: 100 * (1 + x), st: '+' + pct(S.x), mult: 1 + x, k: 1, g: true, on });
+    row({ id: 'c', kind: 'down', val: 100 * (1 + x) * (1 - x), st: '−' + pct(S.x), mult: 1 - x, k: 2, g: true, on });
+    return { rows, main: on ? 'c' : 'a', vmax: 100 * (1 + x), lower: 'graph', ref: on ? 100 : null, pre: { lo: 100 - 130 * x, hi: 100 + 130 * x } };
+  }
+  if (v === 'back') {
+    const k = TASKS[Math.min(S.ti, TASKS.length - 1)], f = 1 + k.dir * k.p / 100, g = parseG(), wrong = S.checked && g !== null && Math.abs(g - k.o) > 0.005;
+    const sign = k.dir > 0 ? '+' : '−';
+    row({ id: 'a', kind: 'start', val: k.o, st: S.checked ? t.old : '?', k: 1, on: S.checked, from: 'b' });
+    row({ id: 'b', kind: k.dir > 0 ? 'up' : 'down', val: k.e, st: sign + pct(k.p), mult: f });
+    if (wrong) row({ id: 'g', kind: 'err', val: g, st: t.guess, k: 2, on: true, from: 'a' });
+    const eq = S.checked ? [[`${N(k.e)} ÷ ${F(f)} = ${N(k.o)}`, '#7cf0c0', 18]] : null;
+    if (eq && wrong) eq.push([`${N(g)} × ${F(f)} = ${N(g * f, 4)} ≠ ${N(k.e)}`, '#ff9b92', 14]);
+    if (eq) eq.push([t.back.errLine(k.e, k.p, k.dir, k.e * (1 - k.dir * k.p / 100)), '#ffb99a', 13]);
+    return { rows, main: 'b', vmax: 130, lower: 'eq', eq, k, f, g, wrong };
+  }
+  // chain
+  const f1 = 1 + S.p / 100, n = S.n, on = S.rev3;
+  row({ id: 'a', kind: 'start', val: 100, st: t.start, g: true, xl: t.start });
+  for (let i = 1; i <= n; i++) row({ id: 'c' + i, kind: 'up', val: 100 * f1 ** i, st: '+' + pct(S.p), mult: f1, k: i, g: true, on });
+  row({ id: 'z', kind: 'single', val: 100 * (1 + n * S.p / 100), st: '+' + pct(n * S.p), k: n + 1, on, hline: true, inbar: `${X(1 + n * S.p / 100)}` });
+  return { rows, main: on ? 'c' + n : 'a', vmax: 100 * f1 ** n, lower: 'graph', pre: { lo: 100 - 0.35 * n * S.p, hi: 100 + 1.35 * n * S.p }, ref: null };
+}
+function parseG() {
+  const s = String(S.guess).trim().replace(',', '.');
+  if (s === '' || !/^[0-9]*\.?[0-9]*$/.test(s) || s === '.') return null;
+  return parseFloat(s);
+}
+
+// --- drawing helpers -----------------------------------------------------------------------------------------
+const rr = (c, x, y, w, h, r) => { c.beginPath(); c.roundRect(x, y, Math.max(0, w), Math.max(0, h), Math.max(0, Math.min(r, w / 2, h / 2))); };
+const easeOut = (t) => 1 - (1 - t) ** 3;
+function pill(c, text, cx, cy, w, o = {}) { // text on a dark rounded pill, kept inside the canvas
+  c.font = FONT(800, o.size || 12);
+  const tw = c.measureText(text).width + 14, h = 18, x = clamp(cx - tw / 2, 4, Math.max(4, w - tw - 4));
+  c.save(); c.globalAlpha = (o.alpha ?? 1) * 0.86; rr(c, x, cy - h / 2, tw, h, 9); c.fillStyle = '#0b0e1c'; c.fill(); c.restore();
+  c.save(); c.globalAlpha = o.alpha ?? 1; rr(c, x, cy - h / 2, tw, h, 9); c.lineWidth = 1; c.strokeStyle = o.border || 'rgba(255,255,255,.28)'; c.stroke();
+  c.fillStyle = o.fg || '#fff'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(text, x + tw / 2, cy + 0.5); c.restore();
+}
+function priceTag(c, x, cy, text) { // a little tag with a pointed left end, hole and a cream paper look
+  c.font = FONT(900, 13);
+  const tw = c.measureText(text).width, W = tw + 24, hh = 22, y = cy - hh / 2;
+  c.save();
+  c.shadowColor = 'rgba(0,0,0,.4)'; c.shadowBlur = 6; c.shadowOffsetY = 2;
+  c.beginPath(); c.moveTo(x + 10, y); c.lineTo(x + W - 5, y); c.quadraticCurveTo(x + W, y, x + W, y + 5); c.lineTo(x + W, y + hh - 5);
+  c.quadraticCurveTo(x + W, y + hh, x + W - 5, y + hh); c.lineTo(x + 10, y + hh); c.lineTo(x, cy); c.closePath();
+  const g = c.createLinearGradient(0, y, 0, y + hh); g.addColorStop(0, '#fff8e3'); g.addColorStop(1, '#f0dcab');
+  c.fillStyle = g; c.fill(); c.shadowColor = 'transparent'; c.lineWidth = 1; c.strokeStyle = '#a8884a'; c.stroke();
+  c.beginPath(); c.arc(x + 9, cy, 1.8, 0, Math.PI * 2); c.fillStyle = '#6b5428'; c.fill();
+  c.fillStyle = '#3a2a12'; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(text, x + 16, cy + 0.5);
+  c.restore();
+  return W;
+}
+function shelf(c, w, hH, text, time) { // the shop shelf: a sneaker on a plank and a price tag that swings when the price changes
+  const py = hH - 14;
+  c.save();
+  const sh = c.createLinearGradient(0, py + 8, 0, py + 20); sh.addColorStop(0, 'rgba(0,0,0,.35)'); sh.addColorStop(1, 'rgba(0,0,0,0)');
+  c.fillStyle = sh; c.fillRect(10, py + 8, w - 20, 12);
+  const pg = c.createLinearGradient(0, py, 0, py + 8); pg.addColorStop(0, '#9a6f47'); pg.addColorStop(1, '#5d3f27');
+  rr(c, 10, py, w - 20, 8, 3); c.fillStyle = pg; c.fill(); c.lineWidth = 1; c.strokeStyle = '#3a2616'; c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.18)'; c.fillRect(13, py + 1, w - 26, 1.2);
+  // the sneaker, with a soft shadow on the plank
+  const sx = 46;
+  c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.ellipse(sx, py + 1, 22, 4, 0, 0, Math.PI * 2); c.fill();
+  c.globalAlpha = 1; c.font = '36px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif'; c.textAlign = 'center'; c.textBaseline = 'alphabetic';
+  c.fillStyle = '#fff'; c.fillText('👟', sx, py - 2);
+  // the swinging tag
+  const hx = w - 62, hy = 3, tt = time - S.kick, ang = tt < 3.5 ? 0.22 * Math.sin(tt * 8) * Math.exp(-tt * 2.2) : 0;
+  c.translate(hx, hy); c.rotate(ang);
+  c.strokeStyle = '#d8c694'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(0, 0); c.lineTo(0, 12); c.stroke();
+  c.font = FONT(900, 17);
+  const tw = Math.max(54, c.measureText(text).width + 22);
+  c.shadowColor = 'rgba(0,0,0,.45)'; c.shadowBlur = 8; c.shadowOffsetY = 3;
+  c.beginPath(); c.moveTo(-tw / 2 + 8, 12); c.lineTo(tw / 2 - 8, 12); c.lineTo(tw / 2, 20); c.lineTo(tw / 2, 44); c.quadraticCurveTo(tw / 2, 48, tw / 2 - 4, 48);
+  c.lineTo(-tw / 2 + 4, 48); c.quadraticCurveTo(-tw / 2, 48, -tw / 2, 44); c.lineTo(-tw / 2, 20); c.closePath();
+  const tg = c.createLinearGradient(0, 12, 0, 48); tg.addColorStop(0, '#fff8e3'); tg.addColorStop(1, '#efd9a5');
+  c.fillStyle = tg; c.fill(); c.shadowColor = 'transparent'; c.lineWidth = 1.2; c.strokeStyle = '#a8884a'; c.stroke();
+  c.beginPath(); c.arc(0, 18, 2.2, 0, Math.PI * 2); c.fillStyle = '#4a3a1c'; c.fill();
+  c.fillStyle = '#3a2a12'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(text, 0, 34);
+  c.restore();
+}
+function niceTicks(lo, hi) {
+  const raw = (hi - lo) / 3, e = 10 ** Math.floor(Math.log10(raw)), st = [1, 2, 2.5, 5, 10].map((m) => m * e).find((s) => s >= raw) || e * 10, out = [];
+  for (let v = Math.ceil(lo / st) * st; v <= hi + 1e-9; v += st) out.push(rnd(v, 6));
+  return out;
+}
+
+// --- the scene -----------------------------------------------------------------------------------------------
+const PAD = 10, CHIP = 56;
+const drawScene = (c, w, h, dt, time) => {
+  const t = T[lang], keyNow = `${lab.view}|${S.sec}|${S.ti}`;
+  if (S.key !== keyNow) { S.D = {}; S.key = keyNow; }
+  const M = model(), rows = M.rows, R = rows.length;
+  // the unlock order: rows with k >= 1 appear one after another after S.t0; each starts growing from the row it comes from
+  for (let i = 0; i < R; i++) {
+    const r = rows[i], lag = time - S.t0 - (r.k - 1) * 0.95;
+    r._u = r.on && (r.k === 0 || lag >= 0);
+    r._p = !r.on ? 0 : r.k === 0 ? 1 : clamp(lag / 0.45, 0, 1);
+    if (!r._u) { delete S.D[r.id]; continue; }
+    if (S.D[r.id] === undefined) { const from = rows.find((q) => q.id === (r.from ?? rows[i - 1]?.id)); S.D[r.id] = r.k === 0 ? r.val : (S.D[from?.id] ?? from?.val ?? r.val); }
+    else S.D[r.id] += (r.val - S.D[r.id]) * (1 - Math.exp(-dt * 6));
+    r._d = S.D[r.id];
+  }
+  S.vm = S.vm ? S.vm + (M.vmax - S.vm) * (1 - Math.exp(-dt * 6)) : M.vmax;
+
+  // backdrop: a calm dark wall
+  const bg = c.createLinearGradient(0, 0, 0, h); bg.addColorStop(0, '#1b2140'); bg.addColorStop(1, '#10142a');
+  c.fillStyle = bg; rr(c, 0, 0, w, h, 18); c.fill();
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  const hH = h < 330 ? 56 : 66;
+  const mainRow = rows.find((r) => r.id === M.main) ?? rows[0];
+  const shown = mainRow._u ? (Math.abs(mainRow._d - mainRow.val) > 0.05 ? N(mainRow._d, 0) : N(mainRow.val)) : N(rows[0].val);
+  shelf(c, w, hH, shown, time);
+
+  // layout: bars on top, graph or working below
+  const top = hH + 8, need = R * 20 + (R - 1) * 16;
+  let lowH = M.lower === 'graph' ? clamp(h * 0.34, 96, 175) : clamp(h * 0.3, 80, 124), zone = h - top - 10 - lowH;
+  if (zone < need) { lowH = Math.max(0, h - top - 10 - need); if (lowH < (M.lower === 'graph' ? 84 : 56)) lowH = 0; zone = h - top - 10 - lowH; }
+  const unit = zone / (R * 1.2 + (R - 1)), rowH = clamp(unit * 1.2, 14, 34), gap = R > 1 ? clamp((zone - R * rowH) / (R - 1), 12, 44) : 0;
+  const y0 = top + Math.max(0, (zone - (R * rowH + (R - 1) * gap)) / 2), yRow = (i) => y0 + i * (rowH + gap);
+  const bx0 = PAD + CHIP + 8, bw = Math.max(60, w - bx0 - PAD - 60), sc = bw / S.vm;
+
+  // bars
+  rows.forEach((r, i) => {
+    const y = yRow(i), cy = y + rowH / 2, cl = COL[r.kind], ch = Math.min(22, rowH);
+    // the sticker on the left
+    c.save();
+    const cg = c.createLinearGradient(0, cy - ch / 2, 0, cy + ch / 2); cg.addColorStop(0, cl[0]); cg.addColorStop(1, cl[1]);
+    rr(c, PAD, cy - ch / 2, CHIP, ch, ch / 2); c.fillStyle = cg; c.fill(); c.lineWidth = 1.2; c.strokeStyle = 'rgba(0,0,0,.35)'; c.stroke();
+    c.font = FONT(900, 12); c.fillStyle = cl[2]; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(r.st, PAD + CHIP / 2, cy + 0.5, CHIP - 6);
+    c.restore();
+    if (!r._u) { // a slot: no length, so nothing is given away
+      c.save(); c.setLineDash([5, 4]); c.lineWidth = 1.5; c.strokeStyle = 'rgba(190,205,255,.4)'; rr(c, bx0, y, Math.min(bw * 0.4, 90), rowH, Math.min(8, rowH / 2)); c.stroke(); c.setLineDash([]);
+      c.font = FONT(900, 16); c.fillStyle = '#98A0B8'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('?', bx0 + Math.min(bw * 0.4, 90) / 2, cy + 1); c.restore();
+      return;
+    }
+    const len = Math.min(bw, Math.max(3, r._d * sc)), a = r.k === 0 ? 1 : 0.35 + 0.65 * r._p;
+    c.save(); c.globalAlpha = a;
+    c.shadowColor = 'rgba(0,0,0,.45)'; c.shadowBlur = 8; c.shadowOffsetY = 3;
+    const bgr = c.createLinearGradient(0, y, 0, y + rowH); bgr.addColorStop(0, cl[0]); bgr.addColorStop(1, cl[1]);
+    rr(c, bx0, y, len, rowH, Math.min(8, rowH / 2)); c.fillStyle = bgr; c.fill();
+    c.shadowColor = 'transparent';
+    if (r.split) { // the tax part of a price with tax
+      const sx = bx0 + (r.split / Math.max(r.val, 1e-9)) * len; c.save(); rr(c, bx0, y, len, rowH, Math.min(8, rowH / 2)); c.clip();
+      const tg = c.createLinearGradient(0, y, 0, y + rowH); tg.addColorStop(0, COL.single[0]); tg.addColorStop(1, COL.single[1]); c.fillStyle = tg; c.fillRect(sx, y, len, rowH);
+      c.fillStyle = 'rgba(0,0,0,.35)'; c.fillRect(sx - 0.75, y, 1.5, rowH); c.restore();
+    }
+    rr(c, bx0, y, len, rowH, Math.min(8, rowH / 2)); c.lineWidth = 1.5; c.strokeStyle = 'rgba(0,0,0,.4)'; c.stroke();
+    if (len > 12) { c.fillStyle = 'rgba(255,255,255,.35)'; rr(c, bx0 + 4, y + 2, len - 8, Math.min(3, rowH / 5), 2); c.fill(); }
+    if (r.inbar && len > 56) { c.font = FONT(900, 12); c.fillStyle = cl[2]; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(r.inbar, bx0 + 10, cy + 0.5); }
+    c.restore();
+    r._tag = { x: bx0 + len + 6, cy, a, text: Math.abs(r._d - r.val) > 0.05 ? N(r._d, 0) : N(r.val) };
+  });
+  // the start price as a dashed line down the bars
+  const lastU = [...rows].reverse().find((r) => r._u && r.k > 0);
+  if (M.ref != null && lastU) {
+    const xr = bx0 + M.ref * sc, ya = yRow(0), yb = yRow(R - 1) + rowH;
+    c.save(); c.globalAlpha = 0.6 * (lastU._p ?? 1); c.setLineDash([4, 4]); c.lineWidth = 1.2; c.strokeStyle = '#fff'; c.beginPath(); c.moveTo(xr, ya - 3); c.lineTo(xr, yb + 3); c.stroke(); c.restore();
+  }
+  const single = rows.find((r) => r.hline && r._u), lastChain = [...rows].reverse().find((r) => r.g && r._u);
+  if (single) {
+    const xr = bx0 + single._d * sc, ya = yRow(0), yb = yRow(R - 1) + rowH;
+    c.save(); c.globalAlpha = 0.6 * single._p; c.setLineDash([4, 4]); c.lineWidth = 1.2; c.strokeStyle = '#ffe28f'; c.beginPath(); c.moveTo(xr, ya - 3); c.lineTo(xr, yb + 3); c.stroke(); c.restore();
+  }
+  // the price tags sit on top of the dashed lines
+  for (const r of rows) {
+    if (!r._u || !r._tag) continue;
+    c.font = FONT(900, 13);
+    c.save(); c.globalAlpha = r._tag.a; priceTag(c, Math.min(r._tag.x, w - c.measureText(r._tag.text).width - 28), r._tag.cy, r._tag.text); c.restore();
+  }
+  // the multiplier arrows between neighbouring bars (the label is the percent first, the factor once it is revealed)
+  rows.forEach((r, i) => {
+    const prev = rows[i - 1];
+    if (!prev || r.mult == null || !prev._u || !r._u) return;
+    const a = Math.min(prev._p, r._p), ya = yRow(i - 1) + rowH, yb = yRow(i), xa = bx0 + prev._d * sc - 8, xb = bx0 + r._d * sc - 8, cl = COL[r.kind];
+    c.save(); c.globalAlpha = a; c.lineWidth = 2.2; c.strokeStyle = cl[0];
+    c.beginPath(); c.moveTo(xa, ya + 1); c.bezierCurveTo(xa, ya + gap * 0.75, xb, yb - gap * 0.75, xb, yb - 3); c.stroke();
+    c.beginPath(); c.moveTo(xb - 4.5, yb - 8); c.lineTo(xb, yb - 2); c.lineTo(xb + 4.5, yb - 8); c.stroke(); c.restore();
+    pill(c, X(r.mult), clamp((xa + xb) / 2 + 26, bx0 + 28, w - 40), (ya + yb) / 2, w, { alpha: a, border: cl[1], fg: '#fff' });
+  });
+  if (single && lastChain) { // "or" and the size of the gap between the end of the chain and the single rise
+    const i = rows.indexOf(single), ya = yRow(i - 1) + rowH, yb = yRow(i), d = lastChain.val - single.val;
+    pill(c, t.or, bx0 + 22, (ya + yb) / 2, w, { alpha: single._p, fg: '#c9d2ee' });
+    pill(c, T[lang].chain.diff(d), w - PAD - 26, (ya + yb) / 2, w, { alpha: single._p, fg: '#ffe28f', border: '#d89a1d' });
+  }
+
+  // lower panel
+  if (lowH > 0) {
+    const ly0 = h - lowH - 8, ly1 = h - 8;
+    c.save(); rr(c, PAD, ly0, w - 2 * PAD, ly1 - ly0, 14); c.fillStyle = 'rgba(255,255,255,.04)'; c.fill(); c.lineWidth = 1; c.strokeStyle = 'rgba(130,145,190,.22)'; c.stroke(); c.restore();
+    if (M.lower === 'eq') {
+      c.save(); c.textAlign = 'center'; c.textBaseline = 'middle';
+      if (!M.eq) { c.font = FONT(700, 13); c.fillStyle = '#98A0B8'; c.fillText(t.back.hint, w / 2, (ly0 + ly1) / 2, w - 40); }
+      else {
+        const step = Math.min(30, (ly1 - ly0 - 12) / M.eq.length), yy0 = (ly0 + ly1) / 2 - ((M.eq.length - 1) * step) / 2;
+        M.eq.forEach(([s, col, sz], i) => { c.font = FONT(900, sz); c.fillStyle = col; c.fillText(s, w / 2, yy0 + i * step, w - 36); });
+      }
+      c.restore();
+    } else drawGraph(c, w, ly0, ly1, M, rows, time, dt);
+  }
+};
+
+function drawGraph(c, w, ly0, ly1, M, rows, time, dt) {
+  const t = T[lang], gRows = rows.filter((r) => r.g), N_ = gRows.length;
+  c.save(); c.font = FONT(700, 12); c.fillStyle = '#98A0B8'; c.textAlign = 'left'; c.textBaseline = 'alphabetic'; c.fillText(t.gcap, PAD + 10, ly0 + 17, w - 2 * PAD - 20);
+  const gx0 = PAD + 40, gx1 = w - PAD - 14, gy0 = ly0 + 30, gy1 = ly1 - 22;
+  // range: before the answer only a fixed band around the start; then the real values (eased)
+  const live = gRows.filter((r) => r._u).map((r) => r.val), sing = rows.find((r) => r.hline && r._u);
+  const vals = live.concat(sing ? [sing.val] : []);
+  let lo, hi;
+  if (vals.length > 1) { lo = Math.min(...vals); hi = Math.max(...vals); const pd = 0.22 * Math.max(hi - lo, 6); lo -= pd; hi += pd; } else { lo = M.pre?.lo ?? 60; hi = M.pre?.hi ?? 140; }
+  S.gl = S.gl ? S.gl + (lo - S.gl) * (1 - Math.exp(-dt * 5)) : lo; S.gh = S.gh ? S.gh + (hi - S.gh) * (1 - Math.exp(-dt * 5)) : hi;
+  const yOf = (v) => gy1 - ((v - S.gl) / (S.gh - S.gl)) * (gy1 - gy0);
+  // axes: ticks, labels
+  c.font = FONT(700, 12); c.textAlign = 'right'; c.textBaseline = 'middle';
+  for (const tv of niceTicks(S.gl, S.gh)) {
+    const y = yOf(tv); if (y < gy0 - 4 || y > gy1 + 2) continue;
+    c.strokeStyle = 'rgba(190,205,255,.12)'; c.lineWidth = 1; c.beginPath(); c.moveTo(gx0, y); c.lineTo(gx1, y); c.stroke();
+    c.fillStyle = '#98A0B8'; c.fillText(N(tv, 1), gx0 - 6, y);
+  }
+  const step = (gx1 - gx0 - 28) / Math.max(1, N_ - 1), xs = gRows.map((_, i) => gx0 + 14 + i * step);
+  // the start price, dashed
+  const y100 = yOf(100); if (y100 > gy0 - 2 && y100 < gy1 + 2) { c.setLineDash([4, 4]); c.strokeStyle = 'rgba(255,255,255,.5)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(gx0, y100); c.lineTo(gx1, y100); c.stroke(); c.setLineDash([]); }
+  // the single rise as a dashed gold line, and the gap to the chain
+  if (sing) {
+    const ys = yOf(sing._d), a = sing._p; c.save(); c.globalAlpha = a; c.setLineDash([6, 4]); c.strokeStyle = '#ffe28f'; c.lineWidth = 2; c.beginPath(); c.moveTo(gx0, ys); c.lineTo(gx1, ys); c.stroke(); c.setLineDash([]);
+    c.font = FONT(800, 12); c.fillStyle = '#ffe28f'; c.textAlign = 'left'; c.textBaseline = 'alphabetic'; c.fillText(`${sing.st}`, gx0 + 4, ys + 14); c.restore();
+  }
+  // the staircase: price after each step; each riser is drawn in the colour of its bar
+  const pts = gRows.map((r, i) => ({ x: xs[i], y: r._u ? yOf(r._d) : null, r }));
+  c.lineWidth = 3.2;
+  for (let i = 0; i < N_; i++) {
+    const p = pts[i]; if (p.y === null) break;
+    const nx = pts[i + 1] && pts[i + 1].y !== null ? pts[i + 1].x : p.x + Math.min(step * 0.45, 26);
+    c.strokeStyle = COL[p.r.kind][0]; c.beginPath(); c.moveTo(p.x, p.y); c.lineTo(nx, p.y); c.stroke();
+    if (i > 0) { const q = pts[i - 1]; c.save(); c.globalAlpha = p.r._p; c.strokeStyle = COL[p.r.kind][0]; c.beginPath(); c.moveTo(p.x, q.y); c.lineTo(p.x, p.y); c.stroke(); c.restore(); }
+  }
+  pts.forEach((p, i) => {
+    c.font = FONT(700, 12); c.textAlign = 'center'; c.textBaseline = 'alphabetic'; c.fillStyle = p.y === null ? '#646C84' : '#C6CDE0';
+    c.fillText(gRows[i].xl ?? gRows[i].st, p.x, gy1 + 16, Math.max(40, step - 4));
+    if (p.y === null) return;
+    c.save(); c.globalAlpha = i ? p.r._p : 1; c.shadowColor = COL[p.r.kind][0]; c.shadowBlur = i && p.r._p < 1 ? 12 : 0;
+    c.beginPath(); c.arc(p.x, p.y, 5.5, 0, Math.PI * 2); c.fillStyle = COL[p.r.kind][1]; c.fill(); c.lineWidth = 2; c.strokeStyle = '#fff'; c.stroke(); c.restore();
+  });
+  c.restore();
+}
+
+// --- shell, secrets and controls (all state and helpers are above) ----------------------------------------------
+const lab = shell({ key: 'price-tag', T, topics: TOPICS, views: ['up', 'back', 'chain'], onLang: () => render(), onView: () => { kick(); render(); } });
+const secret = secretLab('price-tag', () => ({
+  secrets: [{ emo: '↩️', title: T[lang].secrets.undo[0], desc: T[lang].secrets.undo[1] }, { emo: '🧾', title: T[lang].secrets.vat[0], desc: T[lang].secrets.vat[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="s1">
+    <div id="s1pred"><p class="pt-q" id="s1q"></p><div class="pt-opts" id="s1opts"></div></div>
+    <div class="pt-sl" id="s1sl"><span class="pt-lbl" id="xl"></span><input class="big" type="range" id="xs" min="10" max="50" step="5" style="--track:linear-gradient(90deg,#5fd0a5,#e0b050,#ff7b6b)"><b class="pt-v" id="xv"></b></div>
+    <div class="pt-row" id="s1again"><button class="chip" data-act="again1" id="again1"></button></div>
+    <div id="undoBox"><div class="pt-sl"><span class="pt-lbl" id="ul"></span><input class="big" type="range" id="us" min="5" max="60" step="5" style="--track:linear-gradient(90deg,#5fd0a5,#7cf0c0)"><b class="pt-v" id="uv"></b></div></div>
+    <div id="vatBox">
+      <div class="pt-sl"><span class="pt-lbl" id="gl"></span><input class="big" type="range" id="gs" min="40" max="300" step="10" style="--track:linear-gradient(90deg,#a9bde8,#5b74aa)"><b class="pt-v" id="gv"></b></div>
+      <div class="pt-sl"><span class="pt-lbl" id="rl"></span><input class="big" type="range" id="rs" min="5" max="30" step="1" style="--track:linear-gradient(90deg,#ffe28f,#d89a1d)"><b class="pt-v" id="rv"></b></div>
+    </div>
+    <div class="pt-row pt-secs" id="secRow"></div>
+  </div>
+  <div id="s2">
+    <p class="pt-q" id="s2q"></p>
+    <div class="pt-row"><span class="pt-lbl" id="s2l"></span><input class="pt-in" id="gi" type="text" inputmode="decimal" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="btn pt-push" id="mainBtn"></button></div>
+  </div>
+  <div id="s3">
+    <div id="s3pred"><p class="pt-q" id="s3q"></p><div class="pt-opts" id="s3opts"></div></div>
+    <div id="s3try">
+      <div class="pt-row" style="margin-top:0"><span class="pt-lbl" id="s3tl"></span></div>
+      <div class="pt-row"><span class="pt-lbl" id="s3rl"></span><div class="chips" id="pChips"></div></div>
+      <div class="pt-row"><span class="pt-lbl" id="s3nl"></span><div class="chips" id="nChips"></div></div>
+    </div>
+  </div>`;
+
+function kick() { S.kick = now(); }
+// on a phone the controls sit below the picture: bring the reveal into view
+const showStage = () => { const r = $('stage').getBoundingClientRect(); if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+const optBtn = (id, label, st, cls = '') => `<button class="pt-opt ${cls}" data-act="pick" data-a="${id}"${st ? ' disabled' : ''}>${esc(label)}</button>`;
+
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b) return;
+  const act = b.dataset.act, v = lab.view;
+  if (act === 'pick') {
+    const a = b.dataset.a;
+    if (v === 'up' && !S.rev1) { S.rev1 = true; S.at1 = { x: S.x, g: a }; S.t0 = now(); kick(); (a === 'less' ? sfx.good : sfx.bad)(); showStage(); }
+    else if (v === 'chain' && !S.rev3) { S.rev3 = true; S.at3 = { n: S.n, p: S.p, g: a }; S.t0 = now(); kick(); (a === 'chain' ? sfx.good : sfx.bad)(); showStage(); }
+  } else if (act === 'again1') { S.rev1 = false; S.at1 = null; S.t0 = -1e9; sfx.click(); }
+  else if (act === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    const k = b.dataset.k; S.sec = S.sec === k ? null : k; if (S.sec === 'undo') S.u = DOWN; S.t0 = now(); kick(); sfx.click();
+  } else if (act === 'setp') { S.p = +b.dataset.v; S.t0 = -1e9; kick(); sfx.tick(); }
+  else if (act === 'setn') { S.n = +b.dataset.v; S.t0 = -1e9; kick(); sfx.tick(); }
+  render();
+});
+const bindRange = (id, key, after) => $(id).addEventListener('input', () => { S[key] = +$(id).value; kick(); sfx.tick(); after?.(); render(); });
+bindRange('xs', 'x'); bindRange('us', 'u'); bindRange('gs', 'gross'); bindRange('rs', 'vat');
+$('gi').addEventListener('input', () => { S.guess = $('gi').value; render(); });
+$('gi').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); mainBtn(); render(); } });
+$('mainBtn').addEventListener('click', () => { mainBtn(); render(); });
+function mainBtn() { // view 2: check, next, again
+  if (S.ti >= TASKS.length) { S.ti = 0; S.right = []; S.guess = ''; S.checked = false; sfx.click(); return; }
+  if (!S.checked) {
+    const g = parseG(); if (g === null) return;
+    const ok = Math.abs(g - TASKS[S.ti].o) <= 0.005; S.right[S.ti] = ok; S.checked = true; S.t0 = now(); kick(); (ok ? sfx.good : sfx.bad)(); showStage();
+  } else { S.ti++; S.guess = ''; S.checked = false; S.t0 = -1e9; sfx.click(); }
+}
+
+// --- one render per change: controls, readout and the state card ---------------------------------------------
+function render() {
+  const t = T[lang], v = lab.view;
+  $('s1').hidden = v !== 'up'; $('s2').hidden = v !== 'back'; $('s3').hidden = v !== 'chain';
+  if (v === 'up') renderUp(t); else if (v === 'back') renderBack(t); else renderChain(t);
+}
+
+function renderUp(t) {
+  const u = t.up, open = secret.unlocked(), x = S.x / 100, sec = S.sec;
+  lab.setGlow('rgba(95, 208, 165, .24)');
+  $('s1pred').hidden = !!sec || (S.rev1 && S.at1.x !== S.x); $('s1sl').hidden = !!sec; $('s1again').hidden = !!sec || !S.rev1;
+  $('undoBox').hidden = sec !== 'undo'; $('vatBox').hidden = sec !== 'vat';
+  $('xl').textContent = u.xl; $('xs').value = S.x; $('xv').textContent = pct(S.x);
+  $('ul').textContent = t.und.ul; $('us').value = S.u; $('uv').textContent = '+' + pct(S.u);
+  $('gl').textContent = t.vat.gl; $('gs').value = S.gross; $('gv').textContent = N(S.gross);
+  $('rl').textContent = t.vat.rl; $('rs').value = S.vat; $('rv').textContent = pct(S.vat);
+  $('again1').textContent = u.again;
+  $('s1q').textContent = u.q(S.x);
+  $('s1opts').innerHTML = ['more', 'same', 'less'].map((k) => optBtn(k, u.opts[k], S.rev1, S.rev1 ? (k === 'less' ? 'good' : S.at1.g === k ? 'bad' : 'dim') : '')).join('');
+  const sc = (k, emo) => `<button class="chip secret ${open ? 'open' : ''} ${sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  $('secRow').innerHTML = sc('undo', '↩️') + sc('vat', '🧾');
+  if (sec === 'undo') {
+    const f = (1 - DOWN / 100) * (1 + S.u / 100), p2 = 80 * (1 + S.u / 100), win = Math.abs(f - 1) < 1e-9;
+    lab.setReadout(N(p2), t.und.l(S.u, f), win ? '✓ ×1' : '', '#7cf0c0');
+    lab.setState({ emo: win ? '🎯' : '↩️', title: win ? t.und.win : t.und.t(DOWN, S.u), lead: t.und.l(S.u, f), body: win ? t.und.bw(DOWN, 80) : t.und.b0 });
+    lab.setFacts([]); return;
+  }
+  if (sec === 'vat') {
+    const r = S.vat / 100, n = S.gross / (1 + r), tx = S.gross - n;
+    lab.setReadout(N(n), `${N(S.gross)} ÷ ${F(1 + r)}`, t.vat.pill(tx), '#ffe28f');
+    lab.setState({ emo: '🧾', title: t.vat.t(S.gross, n), lead: t.vat.l(S.gross, 1 + r, n), body: t.vat.b(tx, S.vat, n, S.gross) });
+    lab.setFacts([]); return;
+  }
+  const p1 = 100 * (1 + x), p2 = p1 * (1 - x), d = p2 - 100, fs = `${X(1 + x)} × ${F(1 - x)} = ${X((1 + x) * (1 - x))}`;
+  lab.setFacts(t.facts.up);
+  if (!S.rev1) {
+    lab.setReadout('100', `+${pct(S.x)} / −${pct(S.x)}`, '', '#5fd0a5');
+    lab.setState({ emo: '🏷️', title: u.t0, lead: u.l0, body: u.b0 });
+  } else if (S.at1.x === S.x) {
+    const ok = S.at1.g === 'less';
+    lab.setReadout(N(p2), fs, u.vs(d), '#5fd0a5');
+    lab.setState({ emo: ok ? '✅' : '🤔', title: ok ? u.ok(p2) : u.no(p2), lead: fs, body: u.b(S.x, p1, d) });
+  } else {
+    lab.setReadout(N(p2), fs, u.vs(d), '#5fd0a5');
+    lab.setState({ emo: '🏷️', title: u.neutral(p1, p2), lead: fs, body: u.b(S.x, p1, d) });
+  }
+}
+
+function renderBack(t) {
+  const b = t.back, end = S.ti >= TASKS.length, k = TASKS[Math.min(S.ti, TASKS.length - 1)], f = 1 + k.dir * k.p / 100, g = parseG(), nOk = S.right.filter(Boolean).length;
+  lab.setGlow('rgba(169, 189, 232, .24)');
+  lab.setFacts(t.facts.back);
+  $('s2q').textContent = end ? b.end(nOk) : (k.dir < 0 ? b.qDown(k.p, k.e) : b.qUp(k.p, k.e));
+  $('s2l').textContent = b.label;
+  const gi = $('gi'); if (gi.value !== S.guess) gi.value = S.guess;
+  gi.disabled = S.checked || end; gi.hidden = end; $('s2l').hidden = end;
+  gi.setAttribute('aria-label', b.label);
+  $('mainBtn').textContent = end ? b.again : S.checked ? b.next : b.check;
+  $('mainBtn').disabled = !end && !S.checked && g === null;
+  const dots = TASKS.map((_, i) => (i < S.ti ? '●' : i === S.ti ? '◉' : '○')).join(' ');
+  if (end) {
+    lab.setReadout(`${nOk}/${TASKS.length}`, dots, '', '#a9bde8');
+    lab.setState({ emo: '🏆', title: b.end(nOk), lead: b.endLead, body: '' }); return;
+  }
+  const sign = k.dir > 0 ? '+' : '−';
+  if (!S.checked) {
+    lab.setReadout('?', `${sign}${pct(k.p)} → ${N(k.e)}`, '', '#a9bde8');
+    lab.setState({ emo: '❓', title: k.dir < 0 ? b.qDown(k.p, k.e) : b.qUp(k.p, k.e), lead: b.lead0, body: '' });
+    return;
+  }
+  const ok = Math.abs(g - k.o) <= 0.005, common = Math.abs(g - k.e * (1 - k.dir * k.p / 100)) <= 0.005;
+  lab.setReadout(N(k.o), `${N(k.e)} ÷ ${F(f)} = ${N(k.o)}`, ok ? t.right : '', '#a9bde8');
+  const slip = b.slip(b.errLine(k.e, k.p, k.dir, k.e * (1 - k.dir * k.p / 100)));
+  if (ok) lab.setState({ emo: '✅', title: b.ok(k.e, f, k.o), lead: b.leadOk, body: slip });
+  else if (common) lab.setState({ emo: '🤔', title: b.no(g), lead: k.dir < 0 ? b.errDown(k.e, k.p, g) : b.errUp(k.e, k.p, g), body: b.body(k.e, f, k.o) });
+  else lab.setState({ emo: '🤔', title: b.no(g), lead: b.wrong(g, f, g * f, k.e), body: `${b.body(k.e, f, k.o)} ${slip}` });
+}
+
+function renderChain(t) {
+  const c3 = t.chain, n = S.n, p = S.p, f1 = 1 + p / 100, chain = 100 * f1 ** n, single = 100 * (1 + n * p / 100), d = chain - single;
+  lab.setGlow('rgba(255, 226, 143, .22)');
+  lab.setFacts(t.facts.chain);
+  const fresh = !S.rev3, same = S.rev3 && S.at3.n === n && S.at3.p === p;
+  $('s3pred').hidden = !fresh && !same; $('s3try').hidden = fresh;
+  $('s3q').textContent = c3.q(n, p);
+  $('s3opts').innerHTML = ['chain', 'single', 'same'].map((k) => optBtn(k, c3.opts[k](n, p), S.rev3, S.rev3 ? (k === 'chain' ? 'good' : S.at3.g === k ? 'bad' : 'dim') : '')).join('');
+  $('s3tl').textContent = c3.try; $('s3rl').textContent = c3.rl; $('s3nl').textContent = c3.nl;
+  $('pChips').innerHTML = PS.map((q) => `<button class="chip ${q === p ? 'on' : ''}" data-act="setp" data-v="${q}">${esc(pct(q))}</button>`).join('');
+  $('nChips').innerHTML = NS.map((q) => `<button class="chip ${q === n ? 'on' : ''}" data-act="setn" data-v="${q}">${q}</button>`).join('');
+  if (fresh) {
+    lab.setReadout('100', `${n} × (+${pct(p)}) / +${pct(n * p)}`, '', '#ffe28f');
+    lab.setState({ emo: '🔗', title: c3.t0, lead: c3.l0, body: '' }); return;
+  }
+  const chainStr = ['×' + N(f1, 4)].concat(Array(n - 1).fill(N(f1, 4))).join(' × ');
+  lab.setReadout(N(chain), `${t.vs} ${N(single)}`, `${X(f1 ** n)} ${t.vs} ${X(1 + n * p / 100)}`, '#ffe28f');
+  const ok = same && S.at3.g === 'chain';
+  lab.setState({ emo: same ? (ok ? '✅' : '🤔') : '🔗', title: same ? (ok ? c3.ok(chain, single) : c3.no(chain, single)) : c3.neutral(chain, single), lead: c3.lead(chainStr, n * p, f1 ** n, 1 + n * p / 100), body: c3.b(d) });
+}
+canvasLoop($('cv'), drawScene);
+render();
+</script>
+</body>
+</html>
