@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-13
 
 ### Labs
+- New lab `choice-chamber` “Where Do They Like to Live?”: set up a choice chamber and guess where ten woodlice gather, give a woodlouse, an earthworm, a butterfly and a pond skater their spot in a garden, and move the wet paper for a fair test (599). (#525)
 - New lab `crow-puzzle` “A Puzzle for a Crow”: choose stones or corks and how many a crow drops to raise the water in three tubes, match a crow, a chimpanzee, a sea otter and an octopus with their tools, and run the mirror test (598). (#524)
 - New lab `line-graph` “What the Line Says”: grow a sunflower beside its height graph and guess the week of fastest growth, measure the gap between Budapest's and Moscow's temperature lines, and spot a cut axis and uneven steps (597). (#523)
 - New lab `comets` “Tailed Visitors”: guess where a comet moves fastest on its stretched orbit, point the way its tail streams, and sort Pluto, Titan, Halley, Mercury, Eros and Ceres by the rules for planets, dwarf planets, moons, asteroids and comets (596). (#522)
