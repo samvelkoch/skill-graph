@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-13
 
 ### Labs
+- New lab `decomposers` “Where Do the Leaves Go?”: run a forest floor for ten years with and without decomposers, match worms, fungi, woodlice and bacteria to their jobs, and fill a compost heap to see what rots in months, in years or never (594). (#520)
 - New lab `antarctica` “Whose Ice?”: find where the seven claims on Antarctica overlap and freeze them with the 1959 treaty, sort six plans into allowed and banned, and see who staffs six research stations in summer and winter (593). (#519)
 - New lab `carbon-cycle` “A Carbon Atom’s Journey”: lead one carbon atom between air, plants, a deer, soil, ocean and coal, guess the biggest carbon store before the bars grow, and burn fossil fuels to see where the carbon goes (592). (#518)
 - New lab `olympus` “The Gods of Olympus”: find the god of each sign falling from the clouds, choose whom a Greek would ask in a storm, with a letter or at a wedding, and pair six Greek gods with their Roman names (591). (#517)
