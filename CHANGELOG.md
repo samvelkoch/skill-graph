@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-13
 
 ### Labs
+- Labs `population-tub` and `berlin-wall` no longer mention present-day conflicts: Germany's example shows the same migration sum as the other countries, and the Yugoslavia fact ends in 2006. (#542)
 - Removed lab `russia-grows`: its map of today's borders touches present-day territorial disputes, which the labs leave out (613). (#541)
 - New lab `trianon` “Trianon”: guess the share of the Kingdom of Hungary's land left inside the 1920 border, compare Hungarian speakers by region from the 1910 census, and see the railways and towns such as Komárom that the new border cut (614). (#540)
 - New lab `russia-grows` “How Russia Grew”: slide Russia's map from 1533 to today and guess when it first reached the Pacific, move the sun over six city clocks from Kaliningrad to Kamchatka, and find its 14 land neighbours and two across the sea (613). (#539)
