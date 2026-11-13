@@ -1,0 +1,853 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Roll It Faster · Skill Graph</title>
+<meta name="description" content="Roll a ball down a ramp and guess where the box stops, knock down a tower, and compare a heavy ball with a light one. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  .se-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .se-row:first-child { margin-top: 0; }
+  .se-lbl { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); font-weight: 800; margin-right: 2px; }
+  .se-seg { display: flex; gap: 6px; flex-wrap: wrap; }
+  .se-pick { min-width: 42px; min-height: 40px; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(20, 24, 38, .6);
+    color: var(--soft); font: 800 14px var(--sans); cursor: pointer; }
+  .se-pick:hover:not(:disabled) { background: rgba(130, 145, 190, .2); }
+  .se-pick.on { background: #fff; color: var(--bg); border-color: #fff; }
+  .se-pick:disabled { opacity: .4; cursor: default; }
+  .se-val { min-width: 84px; text-align: center; font: 900 20px var(--sans); color: #fff; }
+  .se-go { min-height: 44px; }
+  .se-go:disabled { opacity: .35; cursor: default; }
+  .se-sec { min-height: 40px; padding: 6px 14px; border-radius: 999px; border: 1px dashed var(--stroke2); background: rgba(20, 24, 38, .6); color: var(--mut);
+    font: 800 13px var(--sans); cursor: pointer; white-space: nowrap; }
+  .se-sec.open { border-style: solid; border-color: var(--wip); color: var(--wip); }
+  .se-sec.open.on { background: var(--wip); color: var(--bg); }
+  .se-runs { display: grid; gap: 3px; }
+  .se-runs b { color: #fff; }
+  @media (max-width: 760px) {
+    body[data-v=ramp] #stage, body[data-v=tower] #stage, body[data-v=bowl] #stage, body[data-v=school] #stage { height: min(64vw, 330px); }
+    body[data-v=weight] #stage { height: min(84vw, 450px); }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, ruPlural, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Roll It Faster', title: 'Roll It Faster',
+    lines: [['Pick a start mark', 'and guess where the box stops.'], ['Knock a tower down', 'and count the blocks.'], ['Roll a heavy ball', 'and a light one.']],
+    views: { ramp: '📐 Ramp', tower: '🧱 Tower', weight: '⚖️ Weight' },
+    ms: 'm/s', cm: 'cm', m: 'm', kmh: 'km/h',
+    mk: (k) => `Mark ${k}`,
+    bl: (n) => `${n} ${n === 1 ? 'block' : 'blocks'}`,
+    r: {
+      q: 'Where will the box stop?', lead0: 'Pick a start mark on the ramp. Then plant a flag on the floor where you think the box will stop.',
+      startLbl: 'Start mark', flagLbl: 'Flag', go: '▶ Release', again: '↺ Again',
+      flagAt: (c) => `Flag at ${c} cm`, leadFlag: 'Flag planted. Release the ball when you like.',
+      rolling: 'Watch the box…', rollLead: 'The ball is at the bottom already. Where does the box stop?',
+      right: 'Right!', rightLead: (d) => `The box slid ${d} cm, very close to your flag.`,
+      farther: 'Farther than your flag.', nearer: 'Not as far as your flag.', offLead: (d, g) => `The box slid ${d} cm. Your flag was at ${g} cm.`,
+      next: 'Try another mark. Compare the speed with the distance.',
+      energy: 'A rolling ball has energy because it moves. A faster ball has more energy, so it pushes the box farther.',
+      cmp: (a, b) => `Mark ${a.k}: ${a.v} m/s, box ${a.d} cm. Mark ${b.k}: ${b.v} m/s, box ${b.d} cm. How many times faster is the ball, and how many times farther does the box go?`,
+      runs: 'Your runs', run: (k, v, d) => `Mark ${k} · ${v} m/s · box ${d} cm`, sub: 'Distance the box slides', bottom: (v) => `Ball at the bottom: ${v} m/s`,
+    },
+    t: {
+      speeds: { 1: 'Slow', 2: 'Medium', 4: 'Fast' }, startLbl: 'Speed', guessLbl: 'Blocks that fall',
+      q: 'How many blocks will fall?', lead0: 'Pick a speed. Then guess how many blocks the ball will knock off.',
+      leadG: (n) => `You guess ${n}. Release the ball!`, rolling: 'Watch the tower…', rollLead: 'Which blocks does the ball knock off?',
+      right: 'Right!', fewer: 'Fewer fell than you guessed.', more: 'More fell than you guessed.', lead: (n, g) => `${n} of 12 blocks fell. You guessed ${g}.`,
+      next: 'Try another speed and compare the number of blocks.',
+      energy: 'A faster ball has more energy, so it knocks off more blocks.', runs: 'Your runs', sub: 'Blocks that fall', bottom: (v) => `Ball speed: ${v} m/s`, mine: 'Your guess is outlined',
+    },
+    w: {
+      light: 'Light ball', heavy: 'Heavy ball', note: 'The heavy ball is twice as heavy.',
+      startL: 'Light ball starts at', startH: 'Heavy ball starts at', q: 'Which box goes farther?',
+      lead0: 'Each ball rolls down its own ramp. Pick the box you think slides farther.',
+      opts: { h: 'Heavy ball’s box', l: 'Light ball’s box', s: 'The same' },
+      same: 'Both balls start at the same mark, so they reach the bottom at the same speed.', diff: 'The balls start at different marks, so they reach the bottom at different speeds.',
+      leadP: 'Ready? Release both balls.', rolling: 'Watch both boxes…', rollLead: 'Which one slides farther?',
+      right: 'Right!', wrong: 'Not quite.',
+      out: { h: 'The heavy ball pushed farther.', l: 'The light ball pushed farther.', s: 'A tie.' },
+      lead: (dl, dh) => `Light ball’s box: ${dl} cm. Heavy ball’s box: ${dh} cm.`,
+      bodyH: 'Same speed, but the heavy ball has more energy, so it pushes farther. Speed still counts a lot: try the light ball from a higher mark.',
+      bodyH2: 'The heavy ball carries more energy here, so its box slides farther. Speed still counts a lot: try the light ball from a higher mark.',
+      bodyL: 'A fast light ball can beat a slow heavy one: speed and weight both matter.',
+      bodyS: 'The heavy ball is slower, so the two balls have the same energy. Heavier does not always mean more energy.',
+      info: (a, b, va, vb) => `Light ball: mark ${a}, ${va} m/s. Heavy ball: mark ${b}, ${vb} m/s.`, sub: 'Which box slides farther?', done: 'Light · Heavy',
+    },
+    sec: { bowl: ['Bowling alley', 'Fast ball or slow ball: how many pins fall?'], school: ['Near a school', 'Why cars must slow down'] },
+    bowl: {
+      idle: 'Roll the ball down the alley', idleLead: 'Pick a speed and roll. How many pins fall?', rolling: 'Rolling…', rollLead: 'Watch the pins.',
+      done: (n) => `${n} of 10 pins down`, lead: 'A faster ball carries more energy, so it knocks down more pins.',
+      body: 'A simple model: in real bowling it also matters where the ball hits the pins.', go: '▶ Roll', again: '↺ Again', sub: 'Pins down', startLbl: 'Speed', runs: 'Your rolls',
+    },
+    sch: {
+      idle: 'A crossing 30 m ahead', idleLead: 'Pick a speed. The brakes go on at the red line.', rolling: 'Braking…', rollLead: 'Where does the car stop?',
+      ok: 'Stops before the crossing', late: 'Rolls past the crossing', lead: (d, e) => `Braking distance: ${d} m. Energy (30 km/h = ×1): ×${e}.`,
+      body: 'Model: flat road, braking at 3.4 m/s², no time for the driver to react.', go: '▶ Brake', again: '↺ Again', sub: 'Braking distance', startLbl: 'Speed', brake: 'brake', thirty: '30 m',
+    },
+    facts: {
+      ramp: [
+        { emo: '📐', text: 'Galileo ran most of his falling-body experiments on inclined planes like this ramp. A slope slows the fall down, so it is easier to time.', src: 'https://en.wikipedia.org/wiki/Galileo_Galilei' },
+        { emo: '⚡', text: 'The word “kinetic” comes from the Greek kinesis, “motion”. The energy of moving things is called kinetic energy.', src: 'https://en.wikipedia.org/wiki/Kinetic_energy' },
+        { emo: '🔤', text: 'William Thomson, later Lord Kelvin, is credited with coining the term “kinetic energy”, around 1849–1851.', src: 'https://en.wikipedia.org/wiki/Kinetic_energy' },
+      ],
+      tower: [
+        { emo: '🏛️', text: 'The word “energy” comes from the Ancient Greek energeia, “activity, operation”. Aristotle may have been the first to use it, in the 4th century BC.', src: 'https://en.wikipedia.org/wiki/Energy' },
+        { emo: '🔬', text: 'Thomas Young may have been the first to use “energy” in its modern sense, in 1807.', src: 'https://en.wikipedia.org/wiki/Energy' },
+      ],
+      weight: [
+        { emo: '🏺', text: 'In 1722 Willem ’s Gravesande dropped weights from different heights into clay and measured how deep they sank. Émilie du Châtelet recognized what the results meant and published an explanation.', src: 'https://en.wikipedia.org/wiki/Kinetic_energy' },
+      ],
+      school: [
+        { emo: '📏', text: 'A formula for braking distance on roads is d = 0.039 × V² ÷ a (V is the speed in km/h, a the slowing-down in m/s²). The speed is squared.', src: 'https://en.wikipedia.org/wiki/Stopping_distance' },
+        { emo: '🏺', text: 'In 1722 Willem ’s Gravesande dropped weights from different heights into clay. How deep they sank was proportional to the square of their speed on impact.', src: 'https://en.wikipedia.org/wiki/Kinetic_energy' },
+      ],
+    },
+    quiz: [
+      { q: 'A ball rolls twice as fast. What happens to how far it pushes the box?', opts: ['Same distance', 'Half as far', 'More than twice as far'], ok: 2, hint: 'Compare the box distances in the Ramp view for two different marks.' },
+      { q: 'Does a rolling ball have energy?', opts: ['Yes, it can move things', 'No, it is not alive', 'Only when it stops'], ok: 0, hint: 'Look at what the ball does to the box.' },
+      { q: 'Two balls, same speed, one heavier. Which pushes the box farther?', opts: ['The lighter one', 'The heavier one', 'They push the same'], ok: 1, hint: 'Look at the Weight view.' },
+    ],
+  },
+  ru: {
+    name: 'Пусти быстрее', title: 'Пусти быстрее',
+    lines: [['Выбери метку старта', 'и угадай, где остановится коробка.'], ['Сбей башню', 'и сосчитай кубики.'], ['Пусти тяжёлый шар', 'и лёгкий.']],
+    views: { ramp: '📐 Горка', tower: '🧱 Башня', weight: '⚖️ Вес' },
+    ms: 'м/с', cm: 'см', m: 'м', kmh: 'км/ч',
+    mk: (k) => `Метка ${k}`,
+    bl: (n) => `${n} ${ruPlural(n, 'кубик', 'кубика', 'кубиков')}`,
+    r: {
+      q: 'Где остановится коробка?', lead0: 'Выбери метку старта на горке. Потом поставь на полу флажок там, где, по-твоему, остановится коробка.',
+      startLbl: 'Метка старта', flagLbl: 'Флажок', go: '▶ Пустить', again: '↺ Ещё раз',
+      flagAt: (c) => `Флажок на ${c} см`, leadFlag: 'Флажок стоит. Пускай шар, когда захочешь.',
+      rolling: 'Смотри на коробку…', rollLead: 'Шар уже внизу. Где остановится коробка?',
+      right: 'Верно!', rightLead: (d) => `Коробка проехала ${d} см, почти до самого флажка.`,
+      farther: 'Дальше, чем твой флажок.', nearer: 'Не так далеко, как твой флажок.', offLead: (d, g) => `Коробка проехала ${d} см. Твой флажок стоял на ${g} см.`,
+      next: 'Попробуй другую метку. Сравни скорость с расстоянием.',
+      energy: 'У катящегося шара есть энергия, потому что он движется. У быстрого шара энергии больше, поэтому он толкает коробку дальше.',
+      cmp: (a, b) => `Метка ${a.k}: ${a.v} м/с, коробка ${a.d} см. Метка ${b.k}: ${b.v} м/с, коробка ${b.d} см. Во сколько раз быстрее шар и во сколько раз дальше едет коробка?`,
+      runs: 'Твои пуски', run: (k, v, d) => `Метка ${k} · ${v} м/с · коробка ${d} см`, sub: 'Сколько проедет коробка', bottom: (v) => `Шар внизу: ${v} м/с`,
+    },
+    t: {
+      speeds: { 1: 'Медленно', 2: 'Средне', 4: 'Быстро' }, startLbl: 'Скорость', guessLbl: 'Упадёт кубиков',
+      q: 'Сколько кубиков упадёт?', lead0: 'Выбери скорость. Потом угадай, сколько кубиков собьёт шар.',
+      leadG: (n) => `Твоя догадка: ${n}. Пускай шар!`, rolling: 'Смотри на башню…', rollLead: 'Какие кубики собьёт шар?',
+      right: 'Верно!', fewer: 'Упало меньше, чем в твоей догадке.', more: 'Упало больше, чем в твоей догадке.', lead: (n, g) => `Упало ${n} из 12. Твоя догадка: ${g}.`,
+      next: 'Попробуй другую скорость и сравни число кубиков.',
+      energy: 'У быстрого шара больше энергии, поэтому он сбивает больше кубиков.', runs: 'Твои пуски', sub: 'Упадёт кубиков', bottom: (v) => `Скорость шара: ${v} м/с`, mine: 'Твоя догадка обведена',
+    },
+    w: {
+      light: 'Лёгкий шар', heavy: 'Тяжёлый шар', note: 'Тяжёлый шар вдвое тяжелее.',
+      startL: 'Лёгкий шар стартует с метки', startH: 'Тяжёлый шар стартует с метки', q: 'Чья коробка уедет дальше?',
+      lead0: 'Каждый шар катится со своей горки. Выбери коробку, которая, по-твоему, проедет дальше.',
+      opts: { h: 'Коробка тяжёлого шара', l: 'Коробка лёгкого шара', s: 'Одинаково' },
+      same: 'Оба шара стартуют с одной метки, поэтому внизу у них одна скорость.', diff: 'Шары стартуют с разных меток, поэтому внизу скорости разные.',
+      leadP: 'Всё выбрано? Пускай оба шара.', rolling: 'Смотри на обе коробки…', rollLead: 'Какая проедет дальше?',
+      right: 'Верно!', wrong: 'Не совсем.',
+      out: { h: 'Тяжёлый шар толкнул дальше.', l: 'Лёгкий шар толкнул дальше.', s: 'Ничья.' },
+      lead: (dl, dh) => `Коробка лёгкого шара: ${dl} см. Коробка тяжёлого шара: ${dh} см.`,
+      bodyH: 'Скорость одна, но у тяжёлого шара энергии больше, поэтому он толкает дальше. Скорость всё равно очень важна: пусти лёгкий шар с метки повыше.',
+      bodyH2: 'Здесь у тяжёлого шара энергии больше, поэтому его коробка уезжает дальше. Скорость всё равно очень важна: пусти лёгкий шар с метки повыше.',
+      bodyL: 'Быстрый лёгкий шар может обогнать медленный тяжёлый: важны и скорость, и вес.',
+      bodyS: 'Тяжёлый шар медленнее, поэтому энергия у шаров одинаковая. Тяжелее не всегда значит больше энергии.',
+      info: (a, b, va, vb) => `Лёгкий шар: метка ${a}, ${va} м/с. Тяжёлый шар: метка ${b}, ${vb} м/с.`, sub: 'Чья коробка уедет дальше?', done: 'Лёгкий · Тяжёлый',
+    },
+    sec: { bowl: ['Боулинг', 'Быстрый шар или медленный: сколько кеглей упадёт?'], school: ['У школы', 'Почему машинам нужно ехать медленнее'] },
+    bowl: {
+      idle: 'Пусти шар по дорожке', idleLead: 'Выбери скорость и катни шар. Сколько кеглей упадёт?', rolling: 'Шар катится…', rollLead: 'Смотри на кегли.',
+      done: (n) => `Сбито кеглей: ${n} из 10`, lead: 'Быстрый шар несёт больше энергии, поэтому сбивает больше кеглей.',
+      body: 'Упрощённая модель: в настоящем боулинге важно ещё, куда шар попадает.', go: '▶ Катить', again: '↺ Ещё раз', sub: 'Сбито кеглей', startLbl: 'Скорость', runs: 'Твои броски',
+    },
+    sch: {
+      idle: 'Переход в 30 м впереди', idleLead: 'Выбери скорость. Тормоз включается у красной линии.', rolling: 'Торможение…', rollLead: 'Где остановится машина?',
+      ok: 'Останавливается до перехода', late: 'Проезжает переход', lead: (d, e) => `Тормозной путь: ${d} м. Энергия (30 км/ч = ×1): ×${e}.`,
+      body: 'Модель: ровная дорога, торможение 3,4 м/с², без времени на реакцию водителя.', go: '▶ Тормозить', again: '↺ Ещё раз', sub: 'Тормозной путь', startLbl: 'Скорость', brake: 'тормоз', thirty: '30 м',
+    },
+    facts: {
+      ramp: [
+        { emo: '📐', text: 'Галилей проводил большинство опытов с падающими телами на наклонных плоскостях, вроде этой горки. Склон замедляет падение, и его легче измерить по времени.', src: 'https://en.wikipedia.org/wiki/Galileo_Galilei' },
+        { emo: '⚡', text: 'Слово «кинетический» происходит от греческого kinesis — «движение». Энергию движущихся тел называют кинетической энергией.', src: 'https://en.wikipedia.org/wiki/Kinetic_energy' },
+        { emo: '🔤', text: 'Авторство термина «кинетическая энергия» приписывают Уильяму Томсону, будущему лорду Кельвину (около 1849–1851 годов).', src: 'https://en.wikipedia.org/wiki/Kinetic_energy' },
+      ],
+      tower: [
+        { emo: '🏛️', text: 'Слово «энергия» происходит от древнегреческого energeia — «деятельность, действие». Возможно, первым его использовал Аристотель в IV веке до н. э.', src: 'https://en.wikipedia.org/wiki/Energy' },
+        { emo: '🔬', text: 'Томас Юнг, возможно, первым употребил слово «энергия» в современном смысле — в 1807 году.', src: 'https://en.wikipedia.org/wiki/Energy' },
+      ],
+      weight: [
+        { emo: '🏺', text: 'В 1722 году Виллем ’с-Гравезанд ронял грузы с разной высоты в глину и измерял, насколько глубоко они уходят. Эмили дю Шатле поняла, что значат эти результаты, и опубликовала объяснение.', src: 'https://en.wikipedia.org/wiki/Kinetic_energy' },
+      ],
+      school: [
+        { emo: '📏', text: 'Тормозной путь на дорогах считают по формуле d = 0,039 × V² ÷ a (V — скорость в км/ч, a — замедление в м/с²). Скорость стоит в квадрате.', src: 'https://en.wikipedia.org/wiki/Stopping_distance' },
+        { emo: '🏺', text: 'В 1722 году Виллем ’с-Гравезанд ронял грузы с разной высоты в глину. Глубина, на которую они уходили, была пропорциональна квадрату скорости при ударе.', src: 'https://en.wikipedia.org/wiki/Kinetic_energy' },
+      ],
+    },
+    quiz: [
+      { q: 'Шар катится вдвое быстрее. Что будет с расстоянием, на которое он толкнёт коробку?', opts: ['Так же далеко', 'Вдвое ближе', 'Больше чем вдвое дальше'], ok: 2, hint: 'Сравни расстояния коробки на горке для двух разных меток.' },
+      { q: 'Есть ли энергия у катящегося шара?', opts: ['Да, он может двигать предметы', 'Нет, он неживой', 'Только когда остановится'], ok: 0, hint: 'Посмотри, что шар делает с коробкой.' },
+      { q: 'Два шара с одинаковой скоростью, один тяжелее. Какой толкнёт коробку дальше?', opts: ['Лёгкий', 'Тяжёлый', 'Одинаково'], ok: 1, hint: 'Посмотри на вид «Вес».' },
+    ],
+  },
+  hu: {
+    name: 'Gurítsd gyorsabban!', title: 'Gurítsd gyorsabban!',
+    lines: [['Válassz startjelet', 'és találd ki, hol áll meg a doboz.'], ['Döntsd le a tornyot', 'és számold meg a kockákat.'], ['Gurítsd a nehéz labdát', 'és a könnyűt is.']],
+    views: { ramp: '📐 Lejtő', tower: '🧱 Kocka', weight: '⚖️ Súly' },
+    ms: 'm/s', cm: 'cm', m: 'm', kmh: 'km/h',
+    mk: (k) => `${k}. jel`,
+    bl: (n) => `${n} kocka`,
+    r: {
+      q: 'Hol áll meg a doboz?', lead0: 'Válassz startjelet a lejtőn. Aztán szúrd le a zászlót a földön oda, ahol szerinted megáll a doboz.',
+      startLbl: 'Startjel', flagLbl: 'Zászló', go: '▶ Indítás', again: '↺ Újra',
+      flagAt: (c) => `Zászló: ${c} cm`, leadFlag: 'A zászló áll. Indítsd a labdát, ha kész vagy.',
+      rolling: 'Figyeld a dobozt…', rollLead: 'A labda már lent van. Hol áll meg a doboz?',
+      right: 'Így van!', rightLead: (d) => `A doboz ennyit csúszott: ${d} cm, nagyon közel a zászlóhoz.`,
+      farther: 'Messzebb ment, mint a zászló.', nearer: 'Nem ment olyan messzire, mint a zászló.', offLead: (d, g) => `A doboz ennyit csúszott: ${d} cm. A zászló itt állt: ${g} cm.`,
+      next: 'Próbálj ki egy másik jelet. Hasonlítsd össze a sebességet a távolsággal.',
+      energy: 'A guruló labdának van energiája, mert mozog. A gyorsabb labdának több az energiája, ezért messzebb tolja a dobozt.',
+      cmp: (a, b) => `${a.k}. jel: ${a.v} m/s, doboz ${a.d} cm. ${b.k}. jel: ${b.v} m/s, doboz ${b.d} cm. Hányszor gyorsabb a labda, és hányszor messzebb megy a doboz?`,
+      runs: 'A kísérleteid', run: (k, v, d) => `${k}. jel · ${v} m/s · doboz ${d} cm`, sub: 'Ennyit csúszik a doboz', bottom: (v) => `A labda lent: ${v} m/s`,
+    },
+    t: {
+      speeds: { 1: 'Lassan', 2: 'Közepesen', 4: 'Gyorsan' }, startLbl: 'Sebesség', guessLbl: 'Ennyi kocka esik le',
+      q: 'Hány kocka esik le?', lead0: 'Válassz sebességet. Aztán tippeld meg, hány kockát ver le a labda.',
+      leadG: (n) => `A tipped: ${n}. Indítsd a labdát!`, rolling: 'Figyeld a tornyot…', rollLead: 'Melyik kockákat veri le a labda?',
+      right: 'Így van!', fewer: 'Kevesebb esett le, mint tippelted.', more: 'Több esett le, mint tippelted.', lead: (n, g) => `12 kockából ${n} esett le. A tipped: ${g}.`,
+      next: 'Próbálj ki másik sebességet, és hasonlítsd össze a kockák számát.',
+      energy: 'A gyorsabb labdának több az energiája, ezért több kockát ver le.', runs: 'A kísérleteid', sub: 'Ennyi kocka esik le', bottom: (v) => `A labda sebessége: ${v} m/s`, mine: 'A tipped be van karikázva',
+    },
+    w: {
+      light: 'Könnyű labda', heavy: 'Nehéz labda', note: 'A nehéz labda kétszer olyan nehéz.',
+      startL: 'A könnyű labda innen indul', startH: 'A nehéz labda innen indul', q: 'Melyik doboz csúszik messzebb?',
+      lead0: 'Mindkét labda a saját lejtőjén gurul. Válaszd ki azt a dobozt, amelyik szerinted messzebb csúszik.',
+      opts: { h: 'A nehéz labda doboza', l: 'A könnyű labda doboza', s: 'Egyforma' },
+      same: 'Mindkét labda ugyanarról a jelről indul, ezért lent ugyanolyan gyors.', diff: 'A labdák más-más jelről indulnak, ezért lent különböző a sebességük.',
+      leadP: 'Minden megvan? Indítsd el mindkét labdát.', rolling: 'Figyeld mindkét dobozt…', rollLead: 'Melyik csúszik messzebb?',
+      right: 'Így van!', wrong: 'Nem egészen.',
+      out: { h: 'A nehéz labda messzebb tolta.', l: 'A könnyű labda messzebb tolta.', s: 'Döntetlen.' },
+      lead: (dl, dh) => `A könnyű labda doboza: ${dl} cm. A nehéz labda doboza: ${dh} cm.`,
+      bodyH: 'Ugyanakkora a sebesség, de a nehéz labdának több az energiája, ezért messzebb tol. A sebesség így is nagyon számít: próbáld a könnyű labdát magasabbról indítani.',
+      bodyH2: 'Itt a nehéz labdának több az energiája, ezért a doboza messzebb csúszik. A sebesség így is nagyon számít: próbáld a könnyű labdát magasabbról indítani.',
+      bodyL: 'Egy gyors, könnyű labda megelőzheti a lassú, nehezet: a sebesség és a súly is számít.',
+      bodyS: 'A nehéz labda lassabb, ezért a két labda energiája egyforma. A nehezebb nem mindig jelent több energiát.',
+      info: (a, b, va, vb) => `Könnyű labda: ${a}. jel, ${va} m/s. Nehéz labda: ${b}. jel, ${vb} m/s.`, sub: 'Melyik doboz csúszik messzebb?', done: 'Könnyű · Nehéz',
+    },
+    sec: { bowl: ['Bowlingpálya', 'Gyors vagy lassú labda: hány bábu dől le?'], school: ['Iskola közelében', 'Miért kell lassítani az autóknak'] },
+    bowl: {
+      idle: 'Gurítsd le a labdát a pályán', idleLead: 'Válassz sebességet, és gurítsd. Hány bábu dől le?', rolling: 'Gurul…', rollLead: 'Figyeld a bábukat.',
+      done: (n) => `10 bábuból ${n} dőlt le`, lead: 'A gyorsabb labdának több az energiája, ezért több bábut dönt le.',
+      body: 'Egyszerű modell: a valódi bowlingban az is számít, hová találja a labda a bábukat.', go: '▶ Gurítás', again: '↺ Újra', sub: 'Ledőlt bábuk', startLbl: 'Sebesség', runs: 'A gurításaid',
+    },
+    sch: {
+      idle: 'Zebra 30 méterre', idleLead: 'Válassz sebességet. A fék a piros vonalnál lép működésbe.', rolling: 'Fékezés…', rollLead: 'Hol áll meg az autó?',
+      ok: 'A zebra előtt megáll', late: 'Átgurul a zebrán', lead: (d, e) => `Fékút: ${d} m. Energia (30 km/h = ×1): ×${e}.`,
+      body: 'Modell: sík út, 3,4 m/s² lassulás, a sofőr reakcióideje nélkül.', go: '▶ Fékezés', again: '↺ Újra', sub: 'Fékút', startLbl: 'Sebesség', brake: 'fék', thirty: '30 m',
+    },
+    facts: {
+      ramp: [
+        { emo: '📐', text: 'Galilei a leeső testekkel végzett kísérleteinek nagy részét lejtőkön, ilyen rámpákon végezte. A lejtő lelassítja az esést, így könnyebb időt mérni.', src: 'https://en.wikipedia.org/wiki/Galileo_Galilei' },
+        { emo: '⚡', text: 'A „kinetikus” szó a görög kinészisz szóból jön, ami „mozgást” jelent. A mozgó dolgok energiáját mozgási (kinetikus) energiának hívják.', src: 'https://en.wikipedia.org/wiki/Kinetic_energy' },
+        { emo: '🔤', text: 'A „kinetikus energia” kifejezést William Thomsonnak, a későbbi Lord Kelvinnek tulajdonítják, 1849 és 1851 körül.', src: 'https://en.wikipedia.org/wiki/Kinetic_energy' },
+      ],
+      tower: [
+        { emo: '🏛️', text: 'Az „energia” szó az ógörög energeia szóból jön, ami „tevékenységet, működést” jelent. Arisztotelész használhatta először, Kr. e. a 4. században.', src: 'https://en.wikipedia.org/wiki/Energy' },
+        { emo: '🔬', text: 'Thomas Young használhatta először az „energia” szót a mai értelmében, 1807-ben.', src: 'https://en.wikipedia.org/wiki/Energy' },
+      ],
+      weight: [
+        { emo: '🏺', text: '1722-ben Willem ’s Gravesande különböző magasságokból agyagba ejtett súlyokat, és megmérte, milyen mélyre süllyednek. Émilie du Châtelet felismerte az eredmények jelentését, és magyarázatot publikált.', src: 'https://en.wikipedia.org/wiki/Kinetic_energy' },
+      ],
+      school: [
+        { emo: '📏', text: 'Az utak fékútját a d = 0,039 × V² ÷ a képlettel számolják (V a sebesség km/h-ban, a a lassulás m/s²-ben). A sebesség négyzeten szerepel.', src: 'https://en.wikipedia.org/wiki/Stopping_distance' },
+        { emo: '🏺', text: '1722-ben Willem ’s Gravesande különböző magasságokból agyagba ejtett súlyokat. A süllyedés mélysége arányos volt a becsapódási sebesség négyzetével.', src: 'https://en.wikipedia.org/wiki/Kinetic_energy' },
+      ],
+    },
+    quiz: [
+      { q: 'A labda kétszer olyan gyorsan gurul. Mi történik azzal, milyen messzire tolja a dobozt?', opts: ['Ugyanolyan messzire', 'Feleolyan messzire', 'Több mint kétszer olyan messzire'], ok: 2, hint: 'Hasonlítsd össze a doboz távolságát a Lejtő nézetben két különböző jelnél.' },
+      { q: 'Van energiája egy guruló labdának?', opts: ['Igen, el tud mozdítani tárgyakat', 'Nem, mert nem él', 'Csak amikor megáll'], ok: 0, hint: 'Nézd meg, mit csinál a labda a dobozzal.' },
+      { q: 'Két labda egyforma sebességgel, az egyik nehezebb. Melyik tolja messzebb a dobozt?', opts: ['A könnyebb', 'A nehezebb', 'Egyformán tolják'], ok: 1, hint: 'Nézd meg a Súly nézetet.' },
+    ],
+  },
+};
+const TOPICS = [{ id: 'mt_2Um22lTBZV', en: 'Speed and energy', ru: 'Скорость и энергия', hu: 'Sebesség és energia' }];
+
+// --- the model (a toy one: no ramp friction; the box slides against a constant floor friction) ---------------
+const GR = 9.8, MARK_M = 0.05;       // each ramp mark is 5 cm higher than the one before
+const CM_PER_V2 = 10.2;              // cm the box slides per (m/s)² for a ball of mass 1
+const PER_BLOCK = 0.49;              // (m/s)² of the ball per block knocked off
+const vOf = (k) => Math.sqrt(2 * GR * MARK_M * k);     // v = sqrt(2 g h), m/s at the bottom
+const dOf = (k, m = 1) => CM_PER_V2 * vOf(k) ** 2 * m;  // cm
+const blocksOf = (k) => Math.round(vOf(k) ** 2 / PER_BLOCK);
+const num = (x, d = 1) => { const s = x.toFixed(d); return lang === 'en' ? s : s.replace('.', ','); };
+const bowlPins = (k) => clamp(Math.round(vOf(k) ** 2 / PER_BLOCK), 0, 10);
+const A_BRAKE = 3.4;                 // m/s², the slowing-down of the braking car (stopping-distance page)
+const brakeD = (kmh) => (kmh / 3.6) ** 2 / (2 * A_BRAKE);
+
+// --- geometry (design box 380 wide; scaled to fit the canvas) ----------------------------------------------
+const W = 340, BW = 34, BH = 30, PXCM = 1.25, TFULL = 1.1;
+const DH = { ramp: 212, tower: 212, weight: 276, bowl: 212, school: 212 };
+const mkG = (Hf, run, floorY, x0) => ({ Hf, run, floorY, X0: x0, Xb: 32 + run, L: Math.hypot(run, Hf), th: Math.atan2(Hf, run) });
+const G1 = mkG(130, 100, 160, 168), G2 = mkG(130, 88, 160, 176), G3 = mkG(76, 100, 88, 168);
+const MC = { 1: '#5fd0c4', 2: '#f0b94d', 3: '#ef7f6a', 4: '#a99cf5' };
+const TEAL = ['#9ff0e6', '#1fa59a', '#0a4a52'], LIGHT = ['#fff0b0', '#e9ae2f', '#8a5710'], HEAVY = ['#b3c4ff', '#4d66dc', '#1a2672'];
+const BLOCKC = [['#ff9087', '#d6483f'], ['#ffd777', '#e0a02b'], ['#8fe0cf', '#3f9e8e'], ['#9fb0ff', '#5469d8']];
+const BS = 22, TCOLS = 2, TROWS = 6;
+
+// --- state -------------------------------------------------------------------------------------------------
+const S = {
+  sec: null, drag: false, sc: 1, xf: { s: 1, ox: 0, oy: 0 },
+  r: { k: 2, flag: null, phase: 'idle', t: 0, runs: {}, hit: false },
+  t: { k: 2, guess: null, phase: 'idle', t: 0, runs: {}, hit: false },
+  w: { lm: 2, hm: 2, pick: null, phase: 'idle', t: 0, hit: false, res: null },
+  b: { k: 2, phase: 'idle', t: 0, runs: {}, hit: false },
+  c: { kmh: 30, phase: 'idle', t: 0 },
+};
+const MODE = () => S.sec || lab.view;
+const F = (n) => Math.max(n, 12.5 / S.sc); // canvas text never below 12.5 CSS px
+
+// --- run plan: where the ball is at time tt after the release -------------------------------------------------
+function plan(g, k, r, m) {
+  const sn = Math.sin(g.th), cs = Math.cos(g.th), v = vOf(k), Kc = g.L / (TFULL * vOf(4)), vp = Kc * v; // vp: px/s at the bottom
+  const Mx = g.Xb - g.run * k / 4, My = g.floorY - g.Hf * k / 4;
+  const sx = Mx + r * sn, sy = My - r * cs, sJ = r * (cs - 1) / sn;
+  const Jx = g.Xb + r * sn + sJ * cs, Jy = g.floorY - r;
+  const Ls = Math.hypot(Jx - sx, Jy - sy), t1 = 2 * Ls / vp, xc = g.X0 - r, tc = t1 + (xc - Jx) / vp;
+  const u0 = 0.6 * vp * Math.sqrt(m), B = (0.6 * Kc) ** 2 / (2 * CM_PER_V2 * PXCM); // the box slows down at a constant rate: slide ∝ v² · m
+  return { g, k, r, m, v, vp, sx, sy, Jx, Jy, Ls, t1, tc, xc, u0, B, tStop: u0 / B, end: tc + u0 / B };
+}
+function pose(p, tt) {
+  const { r } = p; let x, y, ang, spd = p.v, box = 0;
+  if (tt < p.t1) { const q = Math.max(0, tt) / p.t1, f = q * q; x = lerp(p.sx, p.Jx, f); y = lerp(p.sy, p.Jy, f); ang = p.Ls * f / r; spd = p.v * q; }
+  else if (tt < p.tc) { x = p.Jx + p.vp * (tt - p.t1); y = p.Jy; ang = (p.Ls + x - p.Jx) / r; }
+  else { const u = Math.min(tt - p.tc, p.tStop); box = p.u0 * u - 0.5 * p.B * u * u; x = p.xc + box; y = p.Jy; ang = (p.Ls + p.xc - p.Jx + box) / r; }
+  return { x, y, ang, spd, box };
+}
+const discPos = (g, k, off = 16) => [g.Xb - g.run * k / 4 - off * Math.sin(g.th), g.floorY - g.Hf * k / 4 + off * Math.cos(g.th)];
+
+// --- drawing helpers -------------------------------------------------------------------------------------------
+const rr = (c, x, y, w, h, r) => { c.beginPath(); c.roundRect(x, y, w, h, Math.max(0, r)); };
+function pill(c, text, x, y, o = {}) {
+  const fs = F(o.size ?? 13.5); c.font = `800 ${fs}px Nunito, sans-serif`;
+  const tw = c.measureText(text).width + 16, th = fs + 9, px = clamp(x - tw / 2, 2, W - tw - 2), py = Math.max(2, y - th / 2);
+  c.fillStyle = o.bg ?? 'rgba(10,12,20,.84)'; rr(c, px, py, tw, th, th / 2); c.fill();
+  if (o.stroke) { c.strokeStyle = o.stroke; c.lineWidth = 1.2; c.stroke(); }
+  c.fillStyle = o.fg ?? '#fff'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(text, px + tw / 2, py + th / 2 + 0.5);
+}
+function drawBall(c, x, y, r, ang, col, shTh = 0) { // shTh: angle of the surface the ball rolls on (the soft shadow lies on it)
+  c.save(); c.translate(x, y);
+  c.save(); c.translate(-r * 0.95 * Math.sin(shTh), r * 0.95 * Math.cos(shTh)); c.rotate(shTh); c.scale(1, 0.3);
+  const sg = c.createRadialGradient(0, 0, 0, 0, 0, r * 1.25); sg.addColorStop(0, 'rgba(0,0,0,.5)'); sg.addColorStop(1, 'rgba(0,0,0,0)');
+  c.fillStyle = sg; c.beginPath(); c.arc(0, 0, r * 1.25, 0, 7); c.fill(); c.restore();
+  const gr = c.createRadialGradient(-r * 0.35, -r * 0.4, r * 0.1, 0, 0, r * 1.05);
+  gr.addColorStop(0, col[0]); gr.addColorStop(0.55, col[1]); gr.addColorStop(1, col[2]);
+  c.fillStyle = gr; c.beginPath(); c.arc(0, 0, r, 0, 7); c.fill();
+  c.save(); c.clip(); c.rotate(ang);
+  c.fillStyle = 'rgba(255,255,255,.2)'; c.fillRect(-r * 0.17, -r, r * 0.34, 2 * r);
+  c.fillStyle = 'rgba(0,0,0,.14)'; c.fillRect(-r, -r * 0.15, 2 * r, r * 0.3);
+  c.restore();
+  const rim = c.createRadialGradient(0, 0, r * 0.7, 0, 0, r); rim.addColorStop(0, 'rgba(0,0,0,0)'); rim.addColorStop(1, 'rgba(0,0,0,.3)');
+  c.fillStyle = rim; c.beginPath(); c.arc(0, 0, r, 0, 7); c.fill();
+  c.fillStyle = 'rgba(255,255,255,.65)'; c.beginPath(); c.ellipse(-r * 0.36, -r * 0.42, r * 0.3, r * 0.18, -0.7, 0, 7); c.fill();
+  c.fillStyle = 'rgba(255,255,255,.9)'; c.beginPath(); c.arc(-r * 0.46, -r * 0.5, r * 0.08, 0, 7); c.fill();
+  c.strokeStyle = 'rgba(0,0,0,.4)'; c.lineWidth = 1; c.beginPath(); c.arc(0, 0, r, 0, 7); c.stroke();
+  c.restore();
+}
+function drawBox(c, x, fy) { // x = left edge, fy = floor line: a cardboard box with open flaps and a tape strip
+  c.save(); c.translate(x + BW / 2 + 2, fy + 1); c.scale(1, 0.18);
+  const sg = c.createRadialGradient(0, 0, 0, 0, 0, BW * 0.8); sg.addColorStop(0, 'rgba(0,0,0,.5)'); sg.addColorStop(1, 'rgba(0,0,0,0)');
+  c.fillStyle = sg; c.beginPath(); c.arc(0, 0, BW * 0.8, 0, 7); c.fill(); c.restore();
+  const top = fy - BH;
+  // back flaps (open, tilted up)
+  c.fillStyle = '#c99b62'; c.beginPath(); c.moveTo(x + 2, top); c.lineTo(x + BW / 2 - 1, top); c.lineTo(x + BW / 2 - 3, top - 8); c.lineTo(x - 3, top - 6); c.closePath(); c.fill();
+  c.beginPath(); c.moveTo(x + BW / 2 + 1, top); c.lineTo(x + BW - 2, top); c.lineTo(x + BW + 3, top - 6); c.lineTo(x + BW / 2 + 3, top - 8); c.closePath(); c.fill();
+  c.strokeStyle = 'rgba(80,50,20,.55)'; c.lineWidth = 1; c.stroke();
+  const gr = c.createLinearGradient(x, top, x + BW, fy); gr.addColorStop(0, '#ecc995'); gr.addColorStop(1, '#b3834b');
+  c.fillStyle = gr; rr(c, x, top, BW, BH, 3); c.fill();
+  c.strokeStyle = 'rgba(120,80,35,.25)'; c.lineWidth = 1; for (let i = 1; i < 6; i++) { c.beginPath(); c.moveTo(x + i * BW / 6, top + 8); c.lineTo(x + i * BW / 6, fy - 2); c.stroke(); }
+  c.fillStyle = 'rgba(244,232,184,.92)'; c.fillRect(x + BW / 2 - 4, top, 8, BH);          // tape strip
+  c.fillStyle = 'rgba(70,45,20,.35)'; c.fillRect(x, top, BW, 4);                           // flap seam
+  c.strokeStyle = 'rgba(80,50,20,.6)'; c.lineWidth = 1.2; rr(c, x, top, BW, BH, 3); c.stroke();
+  c.strokeStyle = 'rgba(255,255,255,.45)'; c.beginPath(); c.moveTo(x + 3, top + 6); c.lineTo(x + BW / 2 - 6, top + 6); c.stroke();
+}
+function drawBlock(c, cx, cy, s, ci, rot) {
+  c.save(); c.translate(cx, cy); c.rotate(rot);
+  const col = BLOCKC[ci % 4], gr = c.createLinearGradient(-s / 2, -s / 2, s / 2, s / 2); gr.addColorStop(0, col[0]); gr.addColorStop(1, col[1]);
+  c.fillStyle = gr; rr(c, -s / 2 + 0.5, -s / 2 + 0.5, s - 1, s - 1, 4); c.fill();
+  c.strokeStyle = 'rgba(255,255,255,.5)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(-s / 2 + 4, -s / 2 + 2.5); c.lineTo(s / 2 - 4, -s / 2 + 2.5); c.stroke();
+  c.strokeStyle = 'rgba(0,0,0,.3)'; c.lineWidth = 1; rr(c, -s / 2 + 0.5, -s / 2 + 0.5, s - 1, s - 1, 4); c.stroke();
+  c.restore();
+}
+function drawFlag(c, x, fy) {
+  c.strokeStyle = '#e8e4da'; c.lineWidth = 2; c.beginPath(); c.moveTo(x, fy); c.lineTo(x, fy - 42); c.stroke();
+  c.fillStyle = '#ff4b4b'; c.beginPath(); c.moveTo(x + 1, fy - 42); c.bezierCurveTo(x + 9, fy - 46, x + 17, fy - 38, x + 26, fy - 41); c.lineTo(x + 26, fy - 30);
+  c.bezierCurveTo(x + 17, fy - 27, x + 9, fy - 34, x + 1, fy - 30); c.closePath(); c.fill();
+  c.strokeStyle = 'rgba(0,0,0,.35)'; c.lineWidth = 1; c.stroke();
+  c.fillStyle = '#e8e4da'; c.beginPath(); c.arc(x, fy - 43, 2.2, 0, 7); c.fill();
+}
+function drawRamp(c, g, sel, rad) {
+  const tx = g.Xb - g.run, ty = g.floorY - g.Hf, sn = Math.sin(g.th), cs = Math.cos(g.th);
+  c.save();
+  const body = new Path2D(); body.moveTo(tx, ty); body.lineTo(g.Xb, g.floorY); body.lineTo(tx, g.floorY); body.closePath();
+  const gr = c.createLinearGradient(tx, ty, g.Xb, g.floorY); gr.addColorStop(0, '#d2a06a'); gr.addColorStop(1, '#7d5330');
+  c.fillStyle = gr; c.fill(body);
+  c.save(); c.clip(body); c.strokeStyle = 'rgba(60,35,15,.2)'; c.lineWidth = 1;
+  for (let y = ty + 11; y < g.floorY; y += 9) { c.beginPath(); c.moveTo(tx, y); c.bezierCurveTo(tx + 30, y - 2, tx + 70, y + 3, g.Xb, y - 1); c.stroke(); }
+  c.restore();
+  // the plank on the slope
+  c.fillStyle = '#e7bb82'; c.beginPath(); c.moveTo(tx, ty); c.lineTo(g.Xb, g.floorY); c.lineTo(g.Xb - 6 * sn, g.floorY + 6 * cs); c.lineTo(tx - 6 * sn, ty + 6 * cs); c.closePath(); c.fill();
+  c.strokeStyle = 'rgba(255,240,205,.7)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(tx, ty); c.lineTo(g.Xb, g.floorY); c.stroke();
+  c.strokeStyle = 'rgba(50,28,10,.6)'; c.lineWidth = 1.5; c.stroke(body);
+  // numbered discs: the start marks
+  for (let k = 1; k <= 4; k++) {
+    const [dx, dy] = discPos(g, k, rad + 7);
+    if (k === sel) { c.fillStyle = 'rgba(255,255,255,.25)'; c.beginPath(); c.arc(dx, dy, rad + 4.5, 0, 7); c.fill(); c.strokeStyle = '#fff'; c.lineWidth = 2; c.beginPath(); c.arc(dx, dy, rad + 2, 0, 7); c.stroke(); }
+    c.fillStyle = MC[k]; c.beginPath(); c.arc(dx, dy, rad, 0, 7); c.fill();
+    c.strokeStyle = 'rgba(20,12,5,.55)'; c.lineWidth = 1.2; c.stroke();
+    c.fillStyle = '#1b1208'; c.font = `900 ${Math.max(rad * 1.25, F(12))}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(k, dx, dy + 0.5);
+  }
+  c.restore();
+}
+function drawFloor(c, g) {
+  const y = g.floorY, gr = c.createLinearGradient(0, y, 0, y + 14); gr.addColorStop(0, '#a07a52'); gr.addColorStop(1, '#593f28');
+  c.fillStyle = gr; c.fillRect(0, y, W, 14);
+  c.fillStyle = 'rgba(255,232,190,.4)'; c.fillRect(0, y, W, 1.5);
+  c.fillStyle = 'rgba(0,0,0,.28)'; for (let x = 48; x < W; x += 92) c.fillRect(x, y + 1.5, 1.2, 12.5);
+  const sh = c.createLinearGradient(g.Xb - 50, 0, g.Xb + 14, 0); sh.addColorStop(0, 'rgba(0,0,0,0)'); sh.addColorStop(1, 'rgba(0,0,0,.35)');
+  c.fillStyle = sh; c.fillRect(g.Xb - 50, y + 1.5, 64, 12.5);
+}
+function drawTape(c, g) {
+  const rx = g.X0 + BW, ty = g.floorY + 17, gr = c.createLinearGradient(0, ty, 0, ty + 26);
+  gr.addColorStop(0, '#f3e6b8'); gr.addColorStop(1, '#cdb97a');
+  c.fillStyle = gr; rr(c, rx - 26, ty, 100 * PXCM + 34, 26, 5); c.fill();
+  c.strokeStyle = 'rgba(70,52,20,.5)'; c.lineWidth = 1; c.stroke();
+  c.fillStyle = '#4a3a1a'; c.font = `800 ${F(11)}px Nunito, sans-serif`; c.textBaseline = 'alphabetic';
+  for (let i = 0; i <= 100; i += 5) {
+    const x = rx + i * PXCM, major = i % 25 === 0;
+    c.fillRect(x - 0.5, ty, 1, major ? 8 : i % 10 === 0 ? 5 : 3);
+    if (major) { c.textAlign = 'center'; c.fillText(i, x, ty + 23); }
+  }
+  c.textAlign = 'right'; c.fillText(T[lang].cm, rx - 7, ty + 23);
+}
+// one lane: ramp, floor, ruler, box, speed sign and ball. o: { col, r, label, ghosts, flag, done, sel, tape }
+function drawLane(c, g, p, tt, o) {
+  const T_ = T[lang], rad = g.Hf > 80 ? 9 : 7.5;
+  drawRamp(c, g, o.sel, rad); drawFloor(c, g); if (o.tape) drawTape(c, g);
+  const rx = g.X0 + BW, fy = g.floorY, ps = tt >= 0 ? pose(p, tt) : { x: p.sx, y: p.sy, ang: 0, spd: 0, box: 0 };
+  for (const [k, run] of Object.entries(o.ghosts ?? {})) { // earlier runs: a numbered dot where that box stopped
+    const x = rx + run.d * PXCM; c.fillStyle = MC[k]; c.beginPath(); c.arc(x, fy - 9, 8.5, 0, 7); c.fill();
+    c.strokeStyle = 'rgba(0,0,0,.5)'; c.lineWidth = 1.2; c.stroke();
+    c.fillStyle = '#1b1208'; c.font = `900 ${F(12)}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(k, x, fy - 8.5);
+  }
+  if (o.flag != null) drawFlag(c, rx + o.flag * PXCM, fy);
+  const dBox = o.done ? dOf(p.k, p.m) * PXCM : ps.box;
+  drawBox(c, g.X0 + (tt >= 0 ? dBox : 0), fy);
+  // speed sign at the bottom of the ramp
+  const xS = g.Xb + 22, pastSign = tt >= 0 && ps.x >= xS;
+  c.strokeStyle = '#8b93ab'; c.lineWidth = 2.5; c.beginPath(); c.moveTo(xS, fy); c.lineTo(xS, fy - 44); c.stroke();
+  c.fillStyle = '#ff5a4f'; c.beginPath(); c.arc(xS, fy - 4, 2.6, 0, 7); c.fill();
+  const sp = tt < 0 ? null : pastSign || tt >= p.tc ? p.v : ps.spd;
+  pill(c, sp == null ? `— ${T_.ms}` : `${num(sp)} ${T_.ms}`, xS, fy - 56, { stroke: 'rgba(255,255,255,.25)' });
+  drawBall(c, ps.x, ps.y, p.r, ps.ang, o.col, ps.y >= p.Jy - 0.5 ? 0 : g.th);
+  if (o.label) pill(c, o.label, W - 52, 14, { bg: 'rgba(10,12,20,.7)', stroke: o.col[1] });
+  if (o.done) { // the box's front edge on the tape + its distance
+    const x = rx + dOf(p.k, p.m) * PXCM;
+    c.fillStyle = '#3ddc97'; c.beginPath(); c.moveTo(x, fy + 16); c.lineTo(x - 5, fy + 9); c.lineTo(x + 5, fy + 9); c.closePath(); c.fill();
+    pill(c, `${Math.round(dOf(p.k, p.m))} ${T_.cm}`, x, fy - 50, { bg: 'rgba(8,60,40,.9)', stroke: '#3ddc97' });
+  }
+}
+
+// --- scene: ramp -------------------------------------------------------------------------------------------------
+function sceneRamp(c, dt) {
+  const R = S.r, g = G1, p = plan(g, R.k, 10, 1);
+  if (R.phase === 'run') {
+    R.t += dt;
+    if (!R.hit && R.t >= p.tc) { R.hit = true; sfx.snap(); }
+    if (R.t >= p.end + 0.4) { R.t = p.end + 0.4; R.phase = 'done'; R.runs[R.k] = { v: p.v, d: Math.round(dOf(R.k)) }; endRamp(); }
+  }
+  const ghosts = {};
+  for (const [k, run] of Object.entries(R.runs)) if (+k !== R.k || R.phase === 'done') ghosts[k] = run;
+  drawLane(c, g, p, R.phase === 'idle' ? -1 : R.t, { col: TEAL, sel: R.k, tape: true, ghosts, flag: R.flag, done: R.phase === 'done' });
+}
+function endRamp() {
+  const R = S.r, ok = Math.abs(R.runs[R.k].d - R.flag) <= 4; (ok ? sfx.good : sfx.bad)(); render(); showStage();
+}
+
+// --- scene: tower --------------------------------------------------------------------------------------------------
+const knockOrder = [];
+for (let cc = 0; cc < TCOLS; cc++) for (let rw = 0; rw < TROWS; rw++) knockOrder.push([cc, rw]);
+const towerCells = (n) => { // where every block ends up when the ball has knocked off the first n
+  const knocked = knockOrder.slice(0, n), perCol = Array(TCOLS).fill(0); knocked.forEach(([cc]) => { perCol[cc]++; });
+  return { knocked, perCol };
+};
+function flight(j, x0, y0, g) { // a knocked block flies out low, tumbles and lands on the floor beside the tower; later ones rest on earlier ones
+  const vup = 270 + 25 * (j % 3), col = j % 4, row = Math.floor(j / 4), GG = 1500;
+  const xT = g.X0 + TCOLS * BS + 6 + col * BS + BS / 2 + (row ? BS / 2 : 0), yT = g.floorY - row * BS - BS / 2;
+  const disc = Math.max(0, vup * vup - 2 * GG * (y0 - yT)), Tf = (vup + Math.sqrt(disc)) / GG;
+  return { vup, xT, yT, Tf, GG, vx: (xT - x0) / Tf };
+}
+const towerEnd = (p, n) => p.tc + 0.035 * Math.max(0, n - 1) + 1.0;
+function sceneTower(c, dt) {
+  const Tw = S.t, g = G2, p = plan(g, Tw.k, 10, 1), n = blocksOf(Tw.k);
+  if (Tw.phase === 'run') {
+    Tw.t += dt;
+    if (!Tw.hit && Tw.t >= p.tc) { Tw.hit = true; sfx.snap(); }
+    if (Tw.t >= towerEnd(p, n)) { Tw.t = towerEnd(p, n); Tw.phase = 'done'; Tw.runs[Tw.k] = n; (Tw.guess === n ? sfx.good : sfx.bad)(); render(); showStage(); }
+  }
+  const tt = Tw.phase === 'idle' ? -1 : Tw.t, fy = g.floorY, showN = tt < 0 ? 0 : n;
+  drawRamp(c, g, Tw.k, 9); drawFloor(c, g);
+  // the tower: blocks in place, knocked ones in flight, the rest dropping into the gaps
+  const { knocked, perCol } = towerCells(showN), isK = (cc, rw) => knocked.findIndex(([a, b]) => a === cc && b === rw);
+  const guessSet = tt < 0 && Tw.guess ? knockOrder.slice(0, Tw.guess) : [];
+  const flying = [];
+  for (let cc = 0; cc < TCOLS; cc++) for (let rw = 0; rw < TROWS; rw++) {
+    const x0 = g.X0 + cc * BS + BS / 2, y0 = fy - rw * BS - BS / 2, j = isK(cc, rw), ci = (cc + rw * 2) % 4;
+    if (j >= 0) {
+      const f = flight(j, x0, y0, g), tau = tt - (p.tc + 0.035 * j);
+      if (tau < 0) { drawBlock(c, x0, y0, BS, ci, 0); continue; }
+      const q = Math.min(1, tau / (f.Tf + 0.2)), fin = ((j * 37) % 11 - 5) * 0.012, sgn = j % 2 ? 1 : -1;
+      const hop = tau >= f.Tf ? (() => { const u = clamp((tau - f.Tf) / 0.2, 0, 1); return 7 * 4 * u * (1 - u); })() : 0;
+      const x = tau >= f.Tf ? f.xT : x0 + f.vx * tau, y = (tau >= f.Tf ? f.yT : y0 - f.vup * tau + 0.5 * f.GG * tau * tau) - hop;
+      flying.push([x, y, ci, fin + (1 - q) * (1 - q) * sgn * Math.PI * (1.5 + (j % 3) * 0.5)]);
+    } else {
+      const drop = perCol[cc], dq = tt < 0 ? 0 : (() => { const u = clamp((tt - p.tc - 0.16) / 0.28, 0, 1); return u * u; })();
+      drawBlock(c, x0, y0 + drop * BS * dq, BS, ci, 0);
+    }
+  }
+  flying.forEach(([x, y, ci, rot]) => drawBlock(c, x, y, BS, ci, rot));
+  if (guessSet.length) { // the guess: dashed outline round the blocks the child expects to fall
+    c.save(); c.setLineDash([4, 3]); c.strokeStyle = '#ffd24d'; c.lineWidth = 2;
+    for (const [cc, rw] of guessSet) { rr(c, g.X0 + cc * BS - 1, fy - (rw + 1) * BS - 1, BS + 2, BS + 2, 5); c.stroke(); }
+    c.restore();
+  }
+  // ball, speed sign
+  const ps = tt >= 0 ? pose(p, tt) : { x: p.sx, y: p.sy, ang: 0, spd: 0 }, nudge = tt >= p.tc ? 4 * (1 - Math.exp(-(tt - p.tc) * 12)) : 0;
+  const xS = g.Xb + 22, sp = tt < 0 ? null : ps.x >= xS || tt >= p.tc ? p.v : ps.spd;
+  c.strokeStyle = '#8b93ab'; c.lineWidth = 2.5; c.beginPath(); c.moveTo(xS, fy); c.lineTo(xS, fy - 44); c.stroke();
+  c.fillStyle = '#ff5a4f'; c.beginPath(); c.arc(xS, fy - 4, 2.6, 0, 7); c.fill();
+  pill(c, sp == null ? `— ${T[lang].ms}` : `${num(sp)} ${T[lang].ms}`, xS, fy - 56, { stroke: 'rgba(255,255,255,.25)' });
+  drawBall(c, tt >= p.tc ? p.xc + nudge : ps.x, ps.y, 10, ps.ang, TEAL, ps.y >= p.Jy - 0.5 ? 0 : g.th);
+  if (Tw.phase === 'done') pill(c, `${T[lang].bl(n)}`, g.X0 + 20, fy - TROWS * BS - 14, { bg: 'rgba(8,60,40,.9)', stroke: '#3ddc97' });
+}
+
+// --- scene: weight (two lanes) --------------------------------------------------------------------------------------------
+function sceneWeight(c, dt) {
+  const Wt = S.w, pl = plan(G3, Wt.lm, 8, 1), ph = plan(G3, Wt.hm, 11, 2), endT = Math.max(pl.end, ph.end) + 0.4;
+  if (Wt.phase === 'run') {
+    Wt.t += dt;
+    if (!Wt.hit && Wt.t >= Math.min(pl.tc, ph.tc)) { Wt.hit = true; sfx.snap(); }
+    if (Wt.t >= endT) { Wt.t = endT; Wt.phase = 'done'; endWeight(); }
+  }
+  const tt = Wt.phase === 'idle' ? -1 : Wt.t, done = Wt.phase === 'done', t = T[lang].w;
+  c.save(); drawLane(c, G3, pl, tt, { col: LIGHT, sel: Wt.lm, tape: true, done, label: t.light }); c.restore();
+  c.save(); c.translate(0, 138); drawLane(c, G3, ph, tt, { col: HEAVY, sel: Wt.hm, tape: true, done, label: t.heavy }); c.restore();
+}
+const weightOutcome = () => { const dl = dOf(S.w.lm, 1), dh = dOf(S.w.hm, 2); return Math.abs(dl - dh) < 0.5 ? 's' : dh > dl ? 'h' : 'l'; };
+function endWeight() { const Wt = S.w; Wt.res = weightOutcome(); (Wt.res === Wt.pick ? sfx.good : sfx.bad)(); render(); showStage(); }
+
+// --- secret scene: bowling alley (seen from above) ---------------------------------------------------------------
+const PINS = [];
+for (let row = 0; row < 4; row++) for (let i = 0; i <= row; i++) PINS.push({ row, x: 236 + row * 16, y: 115 + (i - row / 2) * 16 });
+PINS.sort((a, b) => a.row - b.row || Math.abs(a.y - 115) - Math.abs(b.y - 115));
+const BALL0 = 30, BR = 12, BCON = 236 - 16 / 2 - BR; // ball start, radius, x where the ball meets the first pin
+function sceneBowl(c, dt) {
+  const B = S.b, v = vOf(B.k), vpx = 110 * v, n = bowlPins(B.k), tcon = (BCON - BALL0) / vpx, endB = tcon + 0.04 * Math.max(0, n - 1) + 1.1;
+  if (B.phase === 'run') {
+    B.t += dt;
+    if (!B.hit && B.t >= tcon) { B.hit = true; sfx.snap(); }
+    if (B.t >= endB) { B.t = endB; B.phase = 'done'; B.runs[B.k] = n; sfx.good(); render(); showStage(); }
+  }
+  const tt = B.phase === 'idle' ? -1 : B.t;
+  // lane: wood boards, gutters, foul line
+  c.fillStyle = '#2a2f45'; c.fillRect(0, 40, W, 12); c.fillRect(0, 178, W, 12);
+  c.fillStyle = 'rgba(0,0,0,.4)'; c.fillRect(0, 51, W, 2); c.fillRect(0, 177, W, 2);
+  const gr = c.createLinearGradient(0, 52, 0, 178); gr.addColorStop(0, '#d9a766'); gr.addColorStop(0.5, '#e8bc7b'); gr.addColorStop(1, '#c99556');
+  c.fillStyle = gr; c.fillRect(0, 53, W, 124);
+  c.strokeStyle = 'rgba(110,70,30,.28)'; c.lineWidth = 1; for (let y = 53 + 12.4; y < 177; y += 12.4) { c.beginPath(); c.moveTo(0, y); c.lineTo(W, y); c.stroke(); }
+  c.fillStyle = 'rgba(255,255,255,.35)'; c.fillRect(60, 53, 3, 124);
+  for (const x of [96, 126, 156]) { c.fillStyle = 'rgba(110,70,30,.45)'; c.beginPath(); c.moveTo(x, 104); c.lineTo(x + 6, 115); c.lineTo(x, 126); c.lineTo(x - 6, 115); c.closePath(); c.fill(); }
+  // pins
+  PINS.forEach((pn, j) => {
+    const down = j < n && tt >= tcon + 0.04 * j;
+    if (!down) { drawPin(c, pn.x, pn.y, 0, false); return; }
+    const q = ease(clamp((tt - tcon - 0.04 * j) / 0.6, 0, 1)), dirY = (pn.y - 115) * 0.09 + (j % 2 ? 0.5 : -0.5);
+    const len = 46 + 14 * (j % 3), x = clamp(pn.x + len * q, 0, 326), y = clamp(pn.y + dirY * len * q, 62, 168);
+    drawPin(c, x, y, Math.atan2(dirY, 1) + q * (j % 2 ? 1.4 : -1.4), true);
+  });
+  // ball
+  const x0 = tt < 0 ? BALL0 : tt < tcon ? BALL0 + vpx * tt : BCON + Math.min(0.5 * vpx * 0.9 * (1 - (1 - clamp((tt - tcon) / 0.9, 0, 1)) ** 2), 328 - BCON);
+  drawBowlBall(c, x0, 115, x0 / BR);
+  pill(c, `${num(v)} ${T[lang].ms}`, BALL0 + 30, 78, { stroke: 'rgba(255,255,255,.25)' });
+  if (B.phase === 'done') pill(c, T[lang].bowl.done(n), 200, 200, { bg: 'rgba(8,60,40,.9)', stroke: '#3ddc97' });
+}
+const ease = (q) => 1 - (1 - q) ** 3;
+function drawPin(c, x, y, rot, lying) {
+  c.save(); c.translate(x, y); c.rotate(rot);
+  c.fillStyle = 'rgba(0,0,0,.25)'; c.beginPath(); c.ellipse(1.5, 2, lying ? 11 : 7, lying ? 4.5 : 7, 0, 0, 7); c.fill();
+  if (!lying) {
+    const gr = c.createRadialGradient(-2, -2, 1, 0, 0, 7); gr.addColorStop(0, '#fff'); gr.addColorStop(1, '#d9d4c6'); c.fillStyle = gr; c.beginPath(); c.arc(0, 0, 6.5, 0, 7); c.fill();
+    c.strokeStyle = '#d93a3a'; c.lineWidth = 1.6; c.beginPath(); c.arc(0, 0, 3.6, 0, 7); c.stroke();
+    c.strokeStyle = 'rgba(0,0,0,.35)'; c.lineWidth = 1; c.beginPath(); c.arc(0, 0, 6.5, 0, 7); c.stroke();
+  } else {
+    const gr = c.createLinearGradient(0, -4, 0, 4); gr.addColorStop(0, '#fff'); gr.addColorStop(1, '#cfc9b8'); c.fillStyle = gr; rr(c, -10, -3.8, 20, 7.6, 3.8); c.fill();
+    c.fillStyle = '#d93a3a'; c.fillRect(-1, -3.8, 4, 7.6); c.strokeStyle = 'rgba(0,0,0,.35)'; c.lineWidth = 1; rr(c, -10, -3.8, 20, 7.6, 3.8); c.stroke();
+  }
+  c.restore();
+}
+function drawBowlBall(c, x, y, ang) {
+  c.save(); c.translate(x, y);
+  c.fillStyle = 'rgba(0,0,0,.3)'; c.beginPath(); c.ellipse(2, 3, BR, BR * 0.9, 0, 0, 7); c.fill();
+  const gr = c.createRadialGradient(-4, -5, 1, 0, 0, BR * 1.1); gr.addColorStop(0, '#8fa2ff'); gr.addColorStop(0.5, '#2c3a9c'); gr.addColorStop(1, '#0c1240');
+  c.fillStyle = gr; c.beginPath(); c.arc(0, 0, BR, 0, 7); c.fill();
+  c.save(); c.rotate(ang); c.fillStyle = 'rgba(5,8,30,.8)'; for (const [dx, dy] of [[-2.5, -5], [2.5, -5], [0, -1]]) { c.beginPath(); c.arc(dx, dy, 1.7, 0, 7); c.fill(); } c.restore();
+  c.fillStyle = 'rgba(255,255,255,.5)'; c.beginPath(); c.ellipse(-4, -5, 3.4, 2, -0.7, 0, 7); c.fill();
+  c.restore();
+}
+
+// --- secret scene: a car braking before a crossing (seen from above) --------------------------------------------------
+const BX = 44, PXM = 6, XZ = BX + 30 * PXM, CARL = 58, SPD_UP = 1.6, APPR = 95;
+function sceneSchool(c, dt) {
+  const C = S.c, v0 = C.kmh / 3.6, d = brakeD(C.kmh), tA = APPR / (v0 * PXM * SPD_UP), tB = v0 / A_BRAKE / SPD_UP, endC = tA + tB + 0.6;
+  if (C.phase === 'run') { C.t += dt; if (C.t >= endC) { C.t = endC; C.phase = 'done'; sfx[BX + d * PXM > XZ ? 'bad' : 'good'](); render(); showStage(); } }
+  const tt = C.phase === 'idle' ? -1 : C.t;
+  let front = BX - APPR, braking = false;
+  if (tt >= 0) {
+    if (tt < tA) front = BX - APPR + v0 * PXM * SPD_UP * tt;
+    else { const u = Math.min(tt - tA, tB) * SPD_UP; front = BX + PXM * (v0 * u - 0.5 * A_BRAKE * u * u); braking = tt - tA < tB; }
+  }
+  const T_ = T[lang];
+  // pavement, road, lines
+  c.fillStyle = '#3d4560'; c.fillRect(0, 44, W, 30); c.fillRect(0, 152, W, 30);
+  c.fillStyle = 'rgba(255,255,255,.07)'; for (let x = 0; x < W; x += 34) c.fillRect(x, 44, 1.2, 30), c.fillRect(x, 152, 1.2, 30);
+  const rg = c.createLinearGradient(0, 74, 0, 152); rg.addColorStop(0, '#2b3042'); rg.addColorStop(1, '#202433'); c.fillStyle = rg; c.fillRect(0, 74, W, 78);
+  c.fillStyle = '#e8e4da'; c.fillRect(0, 76, W, 2); c.fillRect(0, 148, W, 2);
+  c.fillStyle = '#f2c94c'; for (let x = 6; x < W; x += 30) c.fillRect(x, 111, 16, 2.5);
+  // zebra crossing (stripes run along the road)
+  const late = C.phase === 'done' && front > XZ;
+  c.fillStyle = 'rgba(255,255,255,.9)'; for (let y = 80; y < 146; y += 11) c.fillRect(XZ, y, 26, 6.5);
+  // brake line
+  c.strokeStyle = '#ff4b4b'; c.lineWidth = 2.5; c.setLineDash([6, 4]); c.beginPath(); c.moveTo(BX, 78); c.lineTo(BX, 150); c.stroke(); c.setLineDash([]);
+  pill(c, T_.sch.brake, BX, 60, { fg: '#ff9c94', stroke: '#ff4b4b' });
+  // 30 m dimension line under the road
+  c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(BX, 166); c.lineTo(XZ, 166); c.moveTo(BX, 160); c.lineTo(BX, 172); c.moveTo(XZ, 160); c.lineTo(XZ, 172); c.stroke();
+  pill(c, T_.sch.thirty, (BX + XZ) / 2, 166, { stroke: 'rgba(255,255,255,.3)' });
+  // braking distance bar (above the car lane)
+  if (tt >= 0 && front > BX + 1) {
+    c.fillStyle = '#f5c84c'; rr(c, BX, 94, front - BX, 6, 3); c.fill();
+    if (C.phase === 'done') pill(c, `${num(d, 1)} ${T_.m}`, clamp(BX + (front - BX) / 2, 40, 340), 86, { bg: late ? 'rgba(90,20,20,.92)' : 'rgba(8,60,40,.9)', stroke: late ? '#ff4b4b' : '#3ddc97' });
+  }
+  if (C.phase === 'done') { c.strokeStyle = late ? '#ff4b4b' : '#3ddc97'; c.lineWidth = 2.5; c.strokeRect(XZ - 2, 79, 30, 68); }
+  drawCar(c, front, 130, braking || (C.phase === 'done'));
+  pill(c, `${C.kmh} ${T_.kmh}`, 290, 28, { stroke: 'rgba(255,255,255,.25)' });
+}
+function drawCar(c, front, cy, brk) { // top view, driving to the right
+  const x = front - CARL, h = 28;
+  c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.ellipse(x + CARL / 2 + 2, cy + 3, CARL / 2 + 2, h / 2 + 1, 0, 0, 7); c.fill();
+  c.fillStyle = '#111'; for (const [wx, wy] of [[x + 8, cy - h / 2 - 2], [x + CARL - 18, cy - h / 2 - 2], [x + 8, cy + h / 2 - 3], [x + CARL - 18, cy + h / 2 - 3]]) { rr(c, wx, wy, 11, 5, 2); c.fill(); }
+  const gr = c.createLinearGradient(0, cy - h / 2, 0, cy + h / 2); gr.addColorStop(0, '#ff7a6e'); gr.addColorStop(0.5, '#d9413f'); gr.addColorStop(1, '#8e1f2b');
+  c.fillStyle = gr; rr(c, x, cy - h / 2, CARL, h, 9); c.fill();
+  c.strokeStyle = 'rgba(0,0,0,.45)'; c.lineWidth = 1.3; c.stroke();
+  c.fillStyle = '#1c2540'; rr(c, x + CARL * 0.56, cy - h / 2 + 3.5, CARL * 0.2, h - 7, 4); c.fill();       // windscreen
+  c.fillStyle = '#26315a'; rr(c, x + CARL * 0.16, cy - h / 2 + 4.5, CARL * 0.14, h - 9, 3); c.fill();      // rear window
+  c.fillStyle = 'rgba(255,255,255,.25)'; rr(c, x + CARL * 0.33, cy - h / 2 + 3, CARL * 0.22, 4, 2); c.fill();   // roof highlight
+  c.fillStyle = '#fff6c0'; for (const dy of [-8, 8]) { c.beginPath(); c.ellipse(x + CARL - 2, cy + dy, 2.5, 3.5, 0, 0, 7); c.fill(); }
+  c.fillStyle = brk ? '#ff2a2a' : '#7a1f24'; for (const dy of [-8, 8]) { rr(c, x, cy + dy - 3, 3.5, 6, 1.5); c.fill(); }
+  if (brk) { c.fillStyle = 'rgba(255,40,40,.25)'; c.beginPath(); c.ellipse(x - 4, cy, 9, 15, 0, 0, 7); c.fill(); }
+}
+
+// --- shell, secrets, controls ------------------------------------------------------------------------------------------
+const lab = shell({ key: 'speed-energy', T, topics: TOPICS, views: ['ramp', 'tower', 'weight'], onLang: () => render(), onView: () => { S.sec = null; render(); } });
+const secret = secretLab('speed-energy', () => ({
+  secrets: [{ emo: '🎳', title: T[lang].sec.bowl[0], desc: T[lang].sec.bowl[1] }, { emo: '🚗', title: T[lang].sec.school[0], desc: T[lang].sec.school[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+// --- the canvas loop -------------------------------------------------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt) => {
+  const mode = MODE(), H = DH[mode], sc = Math.min(w / W, h / H);
+  S.sc = sc; S.xf = { s: sc, ox: (w - W * sc) / 2, oy: (h - H * sc) / 2 };
+  c.save(); c.translate(S.xf.ox, S.xf.oy); c.scale(sc, sc); c.lineJoin = 'round'; c.lineCap = 'round';
+  const bg = c.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, 'rgba(150,170,230,.11)'); bg.addColorStop(1, 'rgba(30,36,64,.04)');
+  c.fillStyle = bg; rr(c, 0, 0, W, H, 14); c.fill();
+  if (mode === 'ramp') sceneRamp(c, dt); else if (mode === 'tower') sceneTower(c, dt); else if (mode === 'weight') sceneWeight(c, dt);
+  else if (mode === 'bowl') sceneBowl(c, dt); else sceneSchool(c, dt);
+  c.restore();
+});
+
+$('ctrlBody').innerHTML = `<div id="cR"></div><div id="cT"></div><div id="cW"></div><div id="cB"></div><div id="cC"></div><div class="se-row" id="secRow"></div>`;
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+const pick = (cls, act, key, val, label, on, dis) => `<button class="se-pick${on ? ' on' : ''}" data-a="${act}" data-${key}="${val}"${dis ? ' disabled' : ''}>${esc(label)}</button>`;
+
+function resetRamp() { const R = S.r; R.phase = 'idle'; R.t = 0; R.hit = false; R.flag = null; }
+function resetTower() { const x = S.t; x.phase = 'idle'; x.t = 0; x.hit = false; x.guess = null; }
+function resetWeight() { const x = S.w; x.phase = 'idle'; x.t = 0; x.hit = false; x.pick = null; x.res = null; }
+function resetBowl() { const x = S.b; x.phase = 'idle'; x.t = 0; x.hit = false; }
+function resetSchool() { const x = S.c; x.phase = 'idle'; x.t = 0; }
+
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-a]'); if (!b || b.disabled) return;
+  const a = b.dataset.a, R = S.r, Tw = S.t, Wt = S.w, B = S.b, C = S.c;
+  if (a === 'rk') { if (R.phase === 'done') resetRamp(); R.k = +b.dataset.k; sfx.tick(); }
+  else if (a === 'rf') { if (R.phase === 'done') resetRamp(); R.flag = clamp((R.flag ?? 40) + +b.dataset.s, 0, 100); sfx.tick(); }
+  else if (a === 'rgo') { if (R.phase === 'done') resetRamp(); else if (R.flag != null) { R.phase = 'run'; R.t = 0; R.hit = false; sfx.push(); } }
+  else if (a === 'tk') { if (Tw.phase === 'done') resetTower(); Tw.k = +b.dataset.k; sfx.tick(); }
+  else if (a === 'tg') { if (Tw.phase === 'done') resetTower(); Tw.guess = clamp((Tw.guess ?? 6) + +b.dataset.s, 0, 12); sfx.tick(); }
+  else if (a === 'tgo') { if (Tw.phase === 'done') resetTower(); else if (Tw.guess != null) { Tw.phase = 'run'; Tw.t = 0; Tw.hit = false; sfx.push(); } }
+  else if (a === 'wl' || a === 'wh') { if (Wt.phase === 'done') resetWeight(); Wt[a === 'wl' ? 'lm' : 'hm'] = +b.dataset.k; sfx.tick(); }
+  else if (a === 'wp') { if (Wt.phase === 'done') resetWeight(); Wt.pick = b.dataset.p; sfx.tick(); }
+  else if (a === 'wgo') { if (Wt.phase === 'done') resetWeight(); else if (Wt.pick) { Wt.phase = 'run'; Wt.t = 0; Wt.hit = false; sfx.push(); } }
+  else if (a === 'bk') { if (B.phase === 'done') resetBowl(); B.k = +b.dataset.k; sfx.tick(); }
+  else if (a === 'bgo') { if (B.phase === 'done') resetBowl(); else if (B.phase === 'idle') { B.phase = 'run'; B.t = 0; B.hit = false; sfx.push(); } }
+  else if (a === 'ck') { if (C.phase === 'done') resetSchool(); C.kmh = +b.dataset.k; sfx.tick(); }
+  else if (a === 'cgo') { if (C.phase === 'done') resetSchool(); else if (C.phase === 'idle') { C.phase = 'run'; C.t = 0; sfx.push(); } }
+  else if (a === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    const k = b.dataset.k; S.sec = S.sec === k ? null : k;
+    if (S.sec === 'bowl') resetBowl(); if (S.sec === 'school') resetSchool(); sfx.click();
+  }
+  render();
+});
+
+// the picture's own taps: a start mark on the ramp, or the flag on the floor
+const toD = (ev) => { const r = $('cv').getBoundingClientRect(); return [(ev.clientX - r.left - S.xf.ox) / S.xf.s, (ev.clientY - r.top - S.xf.oy) / S.xf.s]; };
+const setFlagAt = (x) => {
+  const R = S.r; if (R.phase === 'run') return;
+  if (R.phase === 'done') resetRamp();
+  R.flag = clamp(Math.round((x - (G1.X0 + BW)) / PXCM), 0, 100); render();
+};
+$('cv').addEventListener('pointerdown', (ev) => {
+  if (MODE() !== 'ramp' || S.r.phase === 'run') return;
+  const [x, y] = toD(ev), k = [1, 2, 3, 4].find((q) => { const [dx, dy] = discPos(G1, q, 16); return Math.hypot(x - dx, y - dy) < 20; });
+  if (k) { if (S.r.phase === 'done') resetRamp(); S.r.k = k; sfx.tick(); render(); return; }
+  if (y > G1.floorY - 70 && y < G1.floorY + 44 && x > G1.X0 + BW - 24) { S.drag = true; $('cv').setPointerCapture?.(ev.pointerId); setFlagAt(x); sfx.tick(); }
+});
+$('cv').addEventListener('pointermove', (ev) => { if (S.drag) setFlagAt(toD(ev)[0]); });
+['pointerup', 'pointercancel'].forEach((e) => $('cv').addEventListener(e, () => { S.drag = false; }));
+
+// --- one render per change: controls, readout, state card and facts ---------------------------------------------------------
+function render() {
+  const mode = MODE(), t = T[lang];
+  document.body.dataset.v = mode;
+  ['cR', 'cT', 'cW', 'cB', 'cC'].forEach((id) => { $(id).hidden = true; });
+  const open = secret.unlocked();
+  $('secRow').innerHTML = [['bowl', '🎳'], ['school', '🚗']].map(([k, e]) =>
+    `<button class="se-sec${open ? ' open' : ''}${S.sec === k ? ' on' : ''}" data-a="sec" data-k="${k}">${open ? `${e} ${esc(t.sec[k][0])}` : '🔒 ???'}</button>`).join('');
+  ({ ramp: renderRamp, tower: renderTower, weight: renderWeight, bowl: renderBowl, school: renderSchool })[mode](t);
+  lab.checkStage?.();
+}
+const runsList = (title, rows) => rows.length ? `<div class="se-runs"><span class="se-lbl">${esc(title)}</span>${rows.map((x) => `<span>${esc(x)}</span>`).join('')}</div>` : '';
+
+function renderRamp(t) {
+  const R = S.r, r = t.r, done = R.phase === 'done', run = R.phase === 'run', k = R.k, el = $('cR'); el.hidden = false;
+  el.innerHTML = `<div class="se-row"><span class="se-lbl">${esc(r.startLbl)}</span><div class="se-seg">${[1, 2, 3, 4].map((i) => pick('', 'rk', 'k', i, i, i === k, run)).join('')}</div></div>
+    <div class="se-row"><span class="se-lbl">${esc(r.flagLbl)}</span><button class="se-pick" data-a="rf" data-s="-5"${run ? ' disabled' : ''} aria-label="−5">◀</button>
+      <span class="se-val">${R.flag == null ? '—' : `${R.flag} ${esc(t.cm)}`}</span><button class="se-pick" data-a="rf" data-s="5"${run ? ' disabled' : ''} aria-label="+5">▶</button></div>
+    <div class="se-row"><button class="btn se-go" data-a="rgo"${run || (!done && R.flag == null) ? ' disabled' : ''}>${esc(done ? r.again : r.go)}</button></div>`;
+  lab.setGlow('rgba(95, 208, 196, .24)');
+  const shown = Object.entries(R.runs).filter(([q]) => done || +q !== k).sort((a, b) => a[0] - b[0]);
+  const extra = runsList(r.runs, shown.map(([q, x]) => r.run(q, num(x.v), x.d)));
+  if (done) {
+    const d = R.runs[k].d, ok = Math.abs(d - R.flag) <= 4, all = Object.entries(R.runs).map(([q, x]) => ({ k: +q, v: num(x.v), d: x.d, vv: x.v })).sort((a, b) => a.vv - b.vv);
+    lab.setReadout(`${d} ${esc(t.cm)}`, r.bottom(num(vOf(k))), t.mk(k), MC[k]);
+    lab.setState({ emo: ok ? '✅' : '🤔', title: ok ? r.right : d > R.flag ? r.farther : r.nearer, lead: ok ? r.rightLead(d) : r.offLead(d, R.flag),
+      body: `${r.energy} ${all.length >= 2 ? r.cmp(all[0], all[all.length - 1]) : r.next}`, extra });
+  } else if (run) {
+    lab.setReadout('?', r.sub, t.mk(k), MC[k]); lab.setState({ emo: '👀', title: r.rolling, lead: r.rollLead, body: '', extra });
+  } else {
+    lab.setReadout('?', r.sub, t.mk(k), MC[k]);
+    lab.setState({ emo: '🎯', title: r.q, lead: R.flag == null ? r.lead0 : `${r.flagAt(R.flag)}. ${r.leadFlag}`, body: '', extra });
+  }
+  lab.setFacts(t.facts.ramp);
+}
+
+function renderTower(t) {
+  const Tw = S.t, q = t.t, done = Tw.phase === 'done', run = Tw.phase === 'run', k = Tw.k, n = blocksOf(k), el = $('cT'); el.hidden = false;
+  el.innerHTML = `<div class="se-row"><span class="se-lbl">${esc(q.startLbl)}</span><div class="se-seg">${[1, 2, 4].map((i) => pick('', 'tk', 'k', i, q.speeds[i], i === k, run)).join('')}</div></div>
+    <div class="se-row"><span class="se-lbl">${esc(q.guessLbl)}</span><button class="se-pick" data-a="tg" data-s="-1"${run ? ' disabled' : ''} aria-label="−1">−</button>
+      <span class="se-val">${Tw.guess == null ? '—' : Tw.guess}</span><button class="se-pick" data-a="tg" data-s="1"${run ? ' disabled' : ''} aria-label="+1">+</button></div>
+    <div class="se-row"><button class="btn se-go" data-a="tgo"${run || (!done && Tw.guess == null) ? ' disabled' : ''}>${esc(done ? t.r.again : t.r.go)}</button></div>`;
+  lab.setGlow('rgba(240, 185, 77, .24)');
+  const shown = Object.entries(Tw.runs).filter(([s]) => done || +s !== k).sort((a, b) => a[0] - b[0]);
+  const extra = runsList(q.runs, shown.map(([s, v]) => `${q.speeds[s]} · ${t.bl(v)}`)) + (!done && Tw.guess != null && !run ? `<div class="se-lbl" style="margin-top:8px">${esc(q.mine)}</div>` : '');
+  if (done) {
+    const g = Tw.guess, ok = g === n;
+    lab.setReadout(`${n}`, q.bottom(num(vOf(k))), q.speeds[k], '#f0b94d');
+    lab.setState({ emo: ok ? '✅' : '🤔', title: ok ? q.right : n > g ? q.more : q.fewer, lead: q.lead(n, g), body: Object.keys(Tw.runs).length >= 2 ? q.energy : `${q.energy} ${q.next}`, extra });
+  } else if (run) {
+    lab.setReadout('?', q.sub, q.speeds[k], '#f0b94d'); lab.setState({ emo: '👀', title: q.rolling, lead: q.rollLead, body: '', extra });
+  } else {
+    lab.setReadout('?', q.sub, q.speeds[k], '#f0b94d');
+    lab.setState({ emo: '🧱', title: q.q, lead: Tw.guess == null ? q.lead0 : q.leadG(Tw.guess), body: '', extra });
+  }
+  lab.setFacts(t.facts.tower);
+}
+
+function renderWeight(t) {
+  const Wt = S.w, w = t.w, done = Wt.phase === 'done', run = Wt.phase === 'run', el = $('cW'); el.hidden = false;
+  const va = num(vOf(Wt.lm)), vb = num(vOf(Wt.hm)), sameSp = Wt.lm === Wt.hm;
+  el.innerHTML = `<div class="se-row"><span class="se-lbl">${esc(w.startL)}</span><div class="se-seg">${[1, 2, 3, 4].map((i) => pick('', 'wl', 'k', i, i, i === Wt.lm, run)).join('')}</div></div>
+    <div class="se-row"><span class="se-lbl">${esc(w.startH)}</span><div class="se-seg">${[1, 2, 3, 4].map((i) => pick('', 'wh', 'k', i, i, i === Wt.hm, run)).join('')}</div></div>
+    <div class="se-row"><div class="se-seg">${['h', 'l', 's'].map((p) => pick('', 'wp', 'p', p, w.opts[p], Wt.pick === p, run)).join('')}</div></div>
+    <div class="se-row"><button class="btn se-go" data-a="wgo"${run || (!done && !Wt.pick) ? ' disabled' : ''}>${esc(done ? t.r.again : t.r.go)}</button></div>`;
+  lab.setGlow('rgba(120, 140, 255, .24)');
+  const extra = esc(w.info(Wt.lm, Wt.hm, va, vb)) + `<br>${esc(w.note)}`;
+  if (done) {
+    const res = Wt.res, ok = res === Wt.pick, dl = Math.round(dOf(Wt.lm, 1)), dh = Math.round(dOf(Wt.hm, 2));
+    lab.setReadout(`${dl} · ${dh} ${esc(t.cm)}`, w.done, `${Wt.lm} · ${Wt.hm}`, '#8aa0ff');
+    lab.setState({ emo: ok ? '✅' : '🤔', title: ok ? w.right : w.wrong, lead: `${w.out[res]} ${w.lead(dl, dh)}`, body: res === 'h' ? (sameSp ? w.bodyH : w.bodyH2) : res === 'l' ? w.bodyL : w.bodyS, extra });
+  } else if (run) {
+    lab.setReadout('?', w.sub, `${Wt.lm} · ${Wt.hm}`, '#8aa0ff'); lab.setState({ emo: '👀', title: w.rolling, lead: w.rollLead, body: '', extra });
+  } else {
+    lab.setReadout('?', w.sub, `${Wt.lm} · ${Wt.hm}`, '#8aa0ff');
+    lab.setState({ emo: '⚖️', title: w.q, lead: Wt.pick ? `${w.opts[Wt.pick]}. ${w.leadP}` : w.lead0, body: sameSp ? w.same : w.diff, extra });
+  }
+  lab.setFacts(t.facts.weight);
+}
+
+function renderBowl(t) {
+  const B = S.b, q = t.bowl, done = B.phase === 'done', run = B.phase === 'run', n = bowlPins(B.k), el = $('cB'); el.hidden = false;
+  el.innerHTML = `<div class="se-row"><span class="se-lbl">${esc(q.startLbl)}</span><div class="se-seg">${[1, 2, 4].map((i) => pick('', 'bk', 'k', i, t.t.speeds[i], i === B.k, run)).join('')}</div></div>
+    <div class="se-row"><button class="btn se-go" data-a="bgo"${run ? ' disabled' : ''}>${esc(done ? q.again : q.go)}</button></div>`;
+  lab.setGlow('rgba(217, 167, 102, .24)');
+  const extra = runsList(q.runs, Object.entries(B.runs).sort((a, b) => a[0] - b[0]).map(([s, v]) => `${t.t.speeds[s]} · ${v}/10`));
+  if (done) { lab.setReadout(`${n}/10`, q.sub, t.t.speeds[B.k], '#e8bc7b'); lab.setState({ emo: '🎳', title: q.done(n), lead: q.lead, body: q.body, extra }); }
+  else if (run) { lab.setReadout('?', q.sub, t.t.speeds[B.k], '#e8bc7b'); lab.setState({ emo: '🎳', title: q.rolling, lead: q.rollLead, body: '', extra }); }
+  else { lab.setReadout('?', q.sub, t.t.speeds[B.k], '#e8bc7b'); lab.setState({ emo: '🎳', title: q.idle, lead: q.idleLead, body: '', extra }); }
+  lab.setFacts([]);
+}
+
+function renderSchool(t) {
+  const C = S.c, q = t.sch, done = C.phase === 'done', run = C.phase === 'run', d = brakeD(C.kmh), el = $('cC'); el.hidden = false;
+  el.innerHTML = `<div class="se-row"><span class="se-lbl">${esc(q.startLbl)}</span><div class="se-seg">${[20, 30, 40, 50, 60].map((i) => pick('', 'ck', 'k', i, i, i === C.kmh, run)).join('')}</div></div>
+    <div class="se-row"><button class="btn se-go" data-a="cgo"${run ? ' disabled' : ''}>${esc(done ? q.again : q.go)}</button></div>`;
+  lab.setGlow('rgba(245, 200, 76, .2)');
+  if (done) {
+    const e = (C.kmh / 30) ** 2, es = num(e, Math.abs(e - Math.round(e)) < 0.05 ? 0 : 1), late = BX + d * PXM > XZ;
+    lab.setReadout(`${num(d, 0)} ${esc(t.m)}`, q.sub, `${C.kmh} ${t.kmh}`, '#f5c84c');
+    lab.setState({ emo: late ? '⚠️' : '✅', title: late ? q.late : q.ok, lead: q.lead(num(d, 1), es), body: q.body, extra: '' });
+  } else if (run) { lab.setReadout('?', q.sub, `${C.kmh} ${t.kmh}`, '#f5c84c'); lab.setState({ emo: '🚗', title: q.rolling, lead: q.rollLead, body: '', extra: '' }); }
+  else { lab.setReadout('?', q.sub, `${C.kmh} ${t.kmh}`, '#f5c84c'); lab.setState({ emo: '🚗', title: q.idle, lead: q.idleLead, body: '', extra: '' }); }
+  lab.setFacts(done ? t.facts.school : []);
+}
+render();
+</script>
+</body>
+</html>
