@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-13
 
 ### Labs
+- New lab `out-of-africa` “Across the Whole World”: order Australia, Europe and the Americas by when people reached them and run 300,000 years on a world map, try a hand axe, a spear, a bow and a needle, and keep warm on an Ice Age night with fire, a tent and clothes (603). (#529)
 - New lab `myths` “Why Does Thunder Roll?”: tap thunder, a rainbow and winter and guess what Greek, Norse and Slavic myths said, place Troy, Persephone, Robin Hood, Ilya Muromets and King Arthur between legend and myth, and build a myth of your own (602). (#528)
 - New lab `schism` “Rome and Constantinople”: guess whether Clovis, Bulgaria, Poland, Rus and Hungary turned to Rome or Constantinople, sort what divided the churches in 1054, and tell Catholic from Orthodox on a street of churches and a calendar (601). (#527)
 - New lab `speed-energy` “Roll It Faster”: release a ball from four marks on a ramp and flag where the box stops, knock down a block tower at three speeds, and race a heavy and a light ball (600). (#526)
