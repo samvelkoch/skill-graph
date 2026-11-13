@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-13
 
 ### Labs
+- New lab `factorise` “Take It Out”: arrange algebra tiles into equal rows, decide whether a common factor can go further, and expand a factorisation back to check it (585). (#511)
 - New lab `fire-triangle` “What Does a Fire Need?”: cover three candles with jars of different sizes and watch the oxygen fall, put out five kinds of fire by taking away fuel, oxygen or heat, and test four gases with a glowing and a lit splint (584). (#510)
 - New lab `tea-tax` “The Tea Tax”: count the American colonies’ seats in Parliament and guess how colonists answer the Stamp, Townshend and Tea Acts, send the tea overboard on a December night in 1773 and guess Parliament’s reply, and order the road to independence (583). (#509)
 - New lab `berlin-wall` “The Wall”: try three routes to a cousin across divided Berlin before and after 9 November 1989, slide Eastern Europe’s map from 1988 to 1993 and count the new states, and sort which breakups were peaceful (582). (#508)
