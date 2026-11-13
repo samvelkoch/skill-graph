@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-13
 
 ### Labs
+- New lab `three-mammals` “Three Ways to Be Born”: guess how small a newborn kangaroo is and follow a platypus, a kangaroo and a horse from the very start of life, tick what every mammal shares, and place egg-layers and pouched mammals on the world map (576). (#502)
 - New lab `raster-vector` “Zoom In!”: zoom into two pictures that look the same and see one turn into squares, look inside at pixel numbers and drawing commands, shrink a photo and try to bring it back, and pick raster or vector for each job (575). (#501)
 - New lab `price-tag` “The Price Tag”: put a price rise and an equal discount on a pair of trainers and guess where the price lands, undo a sale to find the old price, and race three small rises against one big one (574). (#500)
 
