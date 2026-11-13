@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-13
 
 ### Labs
+- New lab `rail-russia` “Rails Across Russia”: predict the length of Russia's railways in 1900 and watch the network and its graph grow from 1851 to 1913, time the trip from Moscow to Vladivostok, and watch Novonikolayevsk grow by the Ob bridge (612). (#538)
 - New lab `reformation` “Theses on the Door”: buy an indulgence in 1517 and guess what Luther asked for first, choose the faith of thirteen German lands as their prince under the Peace of Augsburg, and order the wars of religion up to 1648 and their cost (611). (#537)
 - New lab `vienna-1815` “Europe After Napoleon”: guess how the other powers answer Russia's and Prussia's claims and level a balance of lands, switch the map between 1812 and 1815, and order the Balkan steps from 1815 to 1908 (610). (#536)
 - New lab `europe-east` “From West to East”: travel from Dublin to Yekaterinburg and watch the climate chart and the summer–winter range change, sort twelve countries into north, west, south and east, and trace raindrops from the Alps and the Valdai Hills to four seas (609). (#535)
