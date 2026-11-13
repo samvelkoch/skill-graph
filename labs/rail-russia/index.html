@@ -1,0 +1,962 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rails Across Russia · Skill Graph</title>
+<meta name="description" content="Slide the years on a map and a graph of Russian railways, guess how long a Trans-Siberian journey takes, and visit a town that grew up beside a station. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  .rr-q { font: 500 19px/1.2 var(--serif); color: #fff; margin: 0 0 10px; text-wrap: balance; }
+  .rr-opts { display: flex; flex-wrap: wrap; gap: 8px; }
+  .rr-opt { flex: 1 1 auto; min-height: 40px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    color: var(--soft); font: 800 13.5px var(--sans); cursor: pointer; text-align: center; }
+  .rr-opt:hover { background: rgba(130, 145, 190, .25); }
+  .rr-opt.good { background: rgba(61, 220, 151, .2); border-color: var(--ok); color: #fff; }
+  .rr-opt.bad { background: rgba(255, 59, 48, .22); border-color: var(--red); color: #fff; }
+  .rr-opt:disabled { cursor: default; }
+  .rr-opt:disabled:not(.good):not(.bad) { opacity: .55; }
+  .rr-fine { font-size: 11.5px; line-height: 1.4; color: var(--faint); margin-top: 8px; }
+  .rr-ctl input[type=range] { width: 100%; }
+  .rr-ctl input[type=range]:disabled { opacity: .4; }
+  .rr-ctl .chip { min-height: 36px; }
+  .rr-ctl .chip:disabled { opacity: .4; cursor: default; }
+  .btn:disabled { opacity: .35; cursor: default; }
+  #stage canvas { touch-action: pan-y; }
+  @media (max-width: 760px) {
+    #stage { height: min(112vw, 520px); }
+    .rr-q { font-size: 17px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, lang } from '../lab.js';
+import { GLOBE } from '../poles/geo.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const num = (n) => Math.round(n).toLocaleString(lang === 'ru' ? 'ru-RU' : lang === 'hu' ? 'hu-HU' : 'en-US');
+const dec1 = (x) => x.toFixed(1).replace('.', lang === 'en' ? '.' : ',');
+const TRAIN_D = 6 + 4 / 24, ROAD_D = 75, FIRST_KM = 649.7; // timetable 6 days 4 hours; Chekhov 1890, "two-and-a-half months"
+const GAUGE_R = 1524, GAUGE_S = 1435;
+
+const T = {
+  en: {
+    name: 'Rails Across Russia', title: 'Rails Across Russia',
+    lines: [['Slide the years', 'and watch the railway grow.'], ['Ride the long way', 'from Moscow to the Pacific.'], ['Visit a town', 'that grew up beside a station.']],
+    views: { net: '📈 Network', trip: '🚂 Trip', town: '🏘️ Town' },
+    cities: { mos: 'Moscow', spb: 'St Petersburg', chel: 'Chelyabinsk', nov: 'Novosibirsk', irk: 'Irkutsk', vla: 'Vladivostok', port: 'Port Baikal', myso: 'Mysovaya', slyu: 'Slyudyanka', lake: 'Lake Baikal', ob: 'Ob' },
+    ln: { 'msk-spb': 'Moscow – St Petersburg', nizh: 'Moscow – Nizhny Novgorod', kursk: 'Moscow – Kursk', ural: 'Samara – Zlatoust (the Urals)', wsib: 'Chelyabinsk – the Ob (Trans-Siberian)', ussuri: 'Vladivostok – Khabarovsk (Ussuri line)',
+      obk: 'the Ob – Krasnoyarsk', kri: 'Krasnoyarsk – Irkutsk', baikal: 'Irkutsk – Chita, with a ferry over Lake Baikal', cer: 'Chita – Harbin – Vladivostok (Chinese Eastern)', circum: 'the Circum-Baikal line' },
+    net: {
+      ask: 'How long was the railway network in 1900?',
+      askLead: 'In 1851 the Moscow – St Petersburg line opened: 650 km. Drag the dot on the graph, or use the slider, to guess the length of all Russian railways together in 1900.',
+      axis: 'thousand km', lastFig: 'latest figure', drag: 'drag ↕', guessSub: 'my guess for 1900', lock: 'Check my guess', year: 'Year',
+      right: 'Right!', wrong: 'Not quite.', you: 'my guess',
+      res: (g, real) => `You guessed ${num(g)} km. In 1900 it was about ${num(real)} km.`,
+      first: 'The Moscow – St Petersburg line opened on 1 November 1851: 649.7 km.',
+      latest: (name, y) => `Latest line on the map: ${name} (${y}).`,
+      exact: (km, y) => `${y}: about ${num(km)} km of railway in all.`,
+      known: (km, y) => `Latest figure we have: about ${num(km)} km (${y}).`,
+      times: (n) => `That is about ${n} times the single line of 1851.`,
+      ferry: 'Lake Baikal has no rails yet: a ferry carries the trains across (the ring on the map).',
+      circum: 'The line round the south end of Lake Baikal is finished: no more ferry.',
+      manch: 'The route to Vladivostok runs through Manchuria. A line wholly on Russian soil, the Amur line, was finished only in 1916.',
+      pill: (n) => `${n}× the 1851 line`,
+      note: 'Figures are rounded, from Wikipedia; the curve between them is a sketch. The map shows main lines only.',
+    },
+    trip: {
+      ask: 'How long does the train take from Moscow to Vladivostok today?',
+      askLead: 'The route is 9,289 km. Pick your guess, then start the clocks.',
+      opts: ['About one day', 'About six days', 'About three weeks'],
+      right: 'Right!', wrong: 'Not quite.',
+      train: '6 days 4 hours', trainRun: (d) => `${dec1(d)} days`, road: 'about 2½ months', roadRun: (d) => `day ${d}`,
+      lTrain: 'Train today', lRoad: 'Road, 1890',
+      stTitle: 'Six days instead of months',
+      stLead: 'In 1890 the writer Anton Chekhov went from Moscow to Sakhalin by train, river steamer and horse-drawn carriage. It took about two and a half months.',
+      stBody: 'The train clock shows today’s timetable for Moscow – Vladivostok. The two trips are from different times and end at different places, so this compares, it is not an exact race.',
+      resTrain: 'The timetable says 6 days 4 hours.', again: '↻ Run the clocks again',
+      sub: 'today’s train · the road in 1890: about 75 days', pill: (n) => `road ≈ ${n}× longer`,
+      note: 'Route today, through Khabarovsk. In 1890 there was no through railway.',
+    },
+    town: {
+      ask: 'The Ob bridge opened in 1897 and Novonikolayevsk had 7,800 people. How many lived there ten years later, in 1907?',
+      opts: ['About 10,000', 'About 25,000', 'More than 45,000'], right: 'Right!', wrong: 'Not quite.',
+      stops: ['1893', '1897', '1907', 'Before 1917'], people: (n, p) => `${num(n)}${p ? '+' : ''} people`, founded: 'founded',
+      st: [
+        { t: 'Founded in 1893', l: 'A settlement starts where the future Trans-Siberian line will cross the river Ob.', b: 'The rail bridge was built between 1893 and 1897.' },
+        { t: 'The bridge opens', l: 'On 31 March 1897 the rail bridge opened. Novonikolayevsk had 7,800 people.', b: 'The new railway soon filled with local traffic, mostly wheat.' },
+        { t: 'A town with its own government', l: 'More than 47,000 people, and full town rights. The first bank had opened in 1906.', b: 'Grain left by rail, and the town grew around the station.' },
+        { t: 'A hub before the revolution', l: 'About 80,000 people; five banks were working by 1915.', b: 'From a camp at a bridge to a transport, trade and industrial centre.' },
+      ],
+      pill: ['', 'bridge opens', 'town status', 'hub'], noteSch: 'The buildings are a sketch. The numbers are real.',
+      resRight: 'In 1907 it had more than 47,000 people.', resWrong: 'In 1907 it had more than 47,000 people: about six times as many as in 1897.',
+      hdr: 'Novonikolayevsk (today Novosibirsk)',
+    },
+    secrets: { ferry: ['Ferry across Baikal', 'Before the loop line, a ship carried the trains'], gauge: ['Wider rails', 'Russian gauge and the rest of Europe'] },
+    fe: { ferry: '⛴️ Ferry', loop: '🚉 Loop line', stF: 'The Baikal ferry', lF: 'Before 1904 trains were ferried across the lake: a crossing of about four hours. SS Baikal (built 1897) could carry 24 railway coaches and a locomotive.', bF: 'In winter sleighs carried passengers and cargo across the ice.',
+      stL: 'The Circum-Baikal line', lL: 'Its completion in 1904 bypassed the ferries.', bL: 'Most of the route had to be laid in tunnels or on platforms cut out of the rock.', note: 'Schematic map, not to scale.' },
+    ga: { w1435: 'Wheels for 1,435 mm', w1524: 'Wheels for 1,524 mm', rails: 'Rails: 1,524 mm', diff: (d) => `${d} mm`, each: (d) => `${d} mm each side`, ok: 'They fit.',
+      stBad: (d) => `${d} mm too narrow`, lBad: (a, b, d) => `The rails are ${a} mm apart, the wheels ${b} mm: the wheelset does not fit, ${d} mm too narrow in all.`,
+      stOk: 'Wheels and rails match', lOk: (a) => `Both are ${a} mm: this wheelset fits the rails of the Russian Empire.`,
+      b: 'Russia chose 5 feet (1,524 mm) in 1843; most of Europe used 1,435 mm. Today it is set at 1,520 mm.', gauge: 'gauge' },
+    facts: {
+      net: [{ emo: '🚂', text: 'The Moscow – St Petersburg railway opened on 1 November 1851. It is 649.7 km long, and the first passenger train took from 11:15 one day to 21:00 the next.', src: 'https://en.wikipedia.org/wiki/Saint_Petersburg%E2%80%93Moscow_railway' }],
+      net2: [{ emo: '🚂', text: 'The Moscow – St Petersburg railway opened on 1 November 1851. It is 649.7 km long, and the first passenger train took from 11:15 one day to 21:00 the next.', src: 'https://en.wikipedia.org/wiki/Saint_Petersburg%E2%80%93Moscow_railway' },
+        { emo: '🛤️', text: 'From 1861 to 1881 more than 19 thousand kilometres of railway were built in the Russian Empire.', src: 'https://en.wikipedia.org/wiki/Economy_of_the_Russian_Empire' },
+        { emo: '📊', text: 'Russian Wikipedia gives the length of the railways as 23,000 km in 1880, 51,000 km in 1900 and 71,300 km in 1913.', src: 'https://ru.wikipedia.org/wiki/%D0%96%D0%B5%D0%BB%D0%B5%D0%B7%D0%BD%D0%BE%D0%B4%D0%BE%D1%80%D0%BE%D0%B6%D0%BD%D1%8B%D0%B9_%D1%82%D1%80%D0%B0%D0%BD%D1%81%D0%BF%D0%BE%D1%80%D1%82_%D0%B2_%D0%A0%D0%BE%D1%81%D1%81%D0%B8%D0%B9%D1%81%D0%BA%D0%BE%D0%B9_%D0%B8%D0%BC%D0%BF%D0%B5%D1%80%D0%B8%D0%B8' }],
+      trip: [{ emo: '🚶', text: 'Anton Chekhov’s journey from Moscow to Sakhalin in 1890, by train, horse-drawn carriage and river steamer, took two and a half months.', src: 'https://en.wikipedia.org/wiki/Sakhalin_Island_(book)' },
+        { emo: '🏗️', text: 'The government announced the Siberian railway on 9 March 1891. The line was split into seven sections, built at the same time by 62,000 workers.', src: 'https://en.wikipedia.org/wiki/Trans-Siberian_Railway' },
+        { emo: '🧩', text: 'Only when the Amur line was finished in 1916 was there a continuous railway from Petrograd to Vladivostok on Russian soil.', src: 'https://en.wikipedia.org/wiki/Trans-Siberian_Railway' },
+        { emo: '🛶', text: 'Before the railway, rivers were the main road in Siberia for about five months a year; in winter, people travelled by horse-drawn sledge.', src: 'https://en.wikipedia.org/wiki/Trans-Siberian_Railway' }],
+      town: [{ emo: '🏁', text: 'Novonikolayevsk (today Novosibirsk) was founded on 30 April 1893 at the planned site of the Ob rail bridge. The bridge opened on 31 March 1897.', src: 'https://en.wikipedia.org/wiki/Novosibirsk · https://en.wikipedia.org/wiki/Novosibirsk_Rail_Bridge' },
+        { emo: '🌾', text: 'From 1896 to 1913 Siberia exported on average about 502 thousand tonnes of grain and flour every year.', src: 'https://en.wikipedia.org/wiki/Trans-Siberian_Railway' },
+        { emo: '🧑‍🌾', text: 'Between 1906 and 1914 about four million peasants moved to Siberia.', src: 'https://en.wikipedia.org/wiki/Trans-Siberian_Railway' },
+        { emo: '🏭', text: 'After a tariff barrier for grain was set up at Chelyabinsk in 1896, mills appeared in Novosibirsk, Tomsk and the Altai to turn grain into bread.', src: 'https://en.wikipedia.org/wiki/Trans-Siberian_Railway' }],
+      ferry: [{ emo: '⛴️', text: 'The ship Baikal was built in Newcastle, taken apart, carried to Listvyanka and put together again there.', src: 'https://en.wikipedia.org/wiki/Trans-Siberian_Railway' }],
+      gauge: [{ emo: '📏', text: 'A popular story says Russia chose wide rails to stop invaders’ trains. Wikipedia calls it a persistent myth.', src: 'https://en.wikipedia.org/wiki/5_ft_and_1520_mm_gauge_railways' }],
+    },
+    quiz: [
+      { q: 'Before the railway, how long did a journey from Moscow across Siberia to the Pacific coast take?', opts: ['About a day', 'Two weeks', 'Months'], ok: 2, hint: 'Open the Trip tab and compare the two clocks.' },
+      { q: 'Which city grew up where the railway crossed the Ob?', opts: ['Kazan', 'Novosibirsk', 'Odessa'], ok: 1, hint: 'Look at the Town tab.' },
+      { q: 'What did the railways mostly change for farmers?', opts: ['Grain could reach ports and cities', 'They stopped farming', 'Nothing'], ok: 0, hint: 'Watch the trains in the Town tab.' },
+    ],
+  },
+  ru: {
+    name: 'Рельсы через Россию', title: 'Рельсы через Россию',
+    lines: [['Двигай годы', '— и смотри, как растёт железная дорога.'], ['Проезжай длинный путь', 'от Москвы до Тихого океана.'], ['Загляни в город,', 'выросший рядом со станцией.']],
+    views: { net: '📈 Сеть', trip: '🚂 Путь', town: '🏘️ Город' },
+    cities: { mos: 'Москва', spb: 'Санкт-Петербург', chel: 'Челябинск', nov: 'Новосибирск', irk: 'Иркутск', vla: 'Владивосток', port: 'Порт Байкал', myso: 'Мысовая', slyu: 'Слюдянка', lake: 'Байкал', ob: 'Обь' },
+    ln: { 'msk-spb': 'Москва — Санкт-Петербург', nizh: 'Москва — Нижний Новгород', kursk: 'Москва — Курск', ural: 'Самара — Златоуст (Урал)', wsib: 'Челябинск — Обь (Транссиб)', ussuri: 'Владивосток — Хабаровск (Уссурийская дорога)',
+      obk: 'Обь — Красноярск', kri: 'Красноярск — Иркутск', baikal: 'Иркутск — Чита, с паромом через Байкал', cer: 'Чита — Харбин — Владивосток (Китайско-Восточная)', circum: 'Кругобайкальская дорога' },
+    net: {
+      ask: 'Какой длины была сеть железных дорог в 1900 году?',
+      askLead: 'В 1851 году открылась одна главная линия: Москва — Санкт-Петербург, 650 км. Потяни точку на графике или двигай ползунок: угадай общую длину всех железных дорог России в 1900 году.',
+      axis: 'тыс. км', lastFig: 'последняя цифра', drag: 'тяни ↕', guessSub: 'моя догадка для 1900 года', lock: 'Проверить догадку', year: 'Год',
+      right: 'Верно!', wrong: 'Не совсем.', you: 'моя догадка',
+      res: (g, real) => `Твоя догадка: ${num(g)} км. В 1900 году было около ${num(real)} км.`,
+      first: 'Линия Москва — Санкт-Петербург открылась 1 ноября 1851 года: 649,7 км.',
+      latest: (name, y) => `Последняя линия на карте: ${name} (${y}).`,
+      exact: (km, y) => `${y} год: всего около ${num(km)} км железных дорог.`,
+      known: (km, y) => `Последняя известная цифра: около ${num(km)} км (${y} год).`,
+      times: (n) => `Это примерно в ${n} раз больше, чем одна линия 1851 года.`,
+      ferry: 'Через Байкал рельсов ещё нет: поезда возит паром (кружок на карте).',
+      circum: 'Дорога вокруг южной оконечности Байкала готова: паром больше не нужен.',
+      manch: 'Путь до Владивостока идёт через Маньчжурию. Дорога целиком по российской земле, Амурская, достроена только в 1916 году.',
+      pill: (n) => `в ${n} раз больше линии 1851`,
+      note: 'Цифры округлены, из «Википедии»; кривая между ними — набросок. На карте только главные линии.',
+    },
+    trip: {
+      ask: 'Сколько сегодня идёт поезд от Москвы до Владивостока?',
+      askLead: 'Путь — 9 289 км. Выбери ответ и запусти часы.',
+      opts: ['Около суток', 'Около шести суток', 'Около трёх недель'],
+      right: 'Верно!', wrong: 'Не совсем.',
+      train: '6 суток 4 часа', trainRun: (d) => `${dec1(d)} суток`, road: 'около 2,5 месяцев', roadRun: (d) => `день ${d}`,
+      lTrain: 'Поезд сегодня', lRoad: 'Дорога, 1890',
+      stTitle: 'Шесть суток вместо месяцев',
+      stLead: 'В 1890 году писатель Антон Чехов ехал из Москвы на Сахалин: поездом, речным пароходом и на лошадях. Дорога заняла около двух с половиной месяцев.',
+      stBody: 'Часы поезда показывают сегодняшнее расписание Москва — Владивосток. Поездки из разных времён и в разные места, так что это сравнение, а не точная гонка.',
+      resTrain: 'По расписанию — 6 суток 4 часа.', again: '↻ Запустить часы снова',
+      sub: 'поезд сегодня · дорога в 1890: около 75 дней', pill: (n) => `дорога ≈ в ${n} раз дольше`,
+      note: 'Путь сегодня, через Хабаровск. В 1890 году сквозной железной дороги не было.',
+    },
+    town: {
+      ask: 'Мост через Обь открыли в 1897 году; в Новониколаевске жили 7 800 человек. Сколько там жило через десять лет, в 1907 году?',
+      opts: ['Около 10 000', 'Около 25 000', 'Больше 45 000'], right: 'Верно!', wrong: 'Не совсем.',
+      stops: ['1893', '1897', '1907', 'До 1917'], people: (n, p) => `${num(n)}${p ? '+' : ''} человек`, founded: 'основан',
+      st: [
+        { t: 'Основан в 1893 году', l: 'Посёлок начинается там, где будущая Транссибирская дорога пересечёт реку Обь.', b: 'Железнодорожный мост строили с 1893 по 1897 год.' },
+        { t: 'Мост открыт', l: '31 марта 1897 года открылся железнодорожный мост. В Новониколаевске жили 7 800 человек.', b: 'Новая дорога скоро заполнилась местными перевозками, в основном пшеницей.' },
+        { t: 'Город с самоуправлением', l: 'Больше 47 000 жителей и полные права города. Первый банк открылся в 1906 году.', b: 'Зерно уходило по железной дороге, а город рос вокруг станции.' },
+        { t: 'Узел перед революцией', l: 'Около 80 000 жителей; к 1915 году работали пять банков.', b: 'От лагеря у моста до центра транспорта, торговли и промышленности.' },
+      ],
+      pill: ['', 'мост открыт', 'права города', 'узел'], noteSch: 'Здания — набросок. Числа настоящие.',
+      resRight: 'В 1907 году там жили больше 47 000 человек.', resWrong: 'В 1907 году там жили больше 47 000 человек: примерно в шесть раз больше, чем в 1897.',
+      hdr: 'Новониколаевск (сегодня Новосибирск)',
+    },
+    secrets: { ferry: ['Паром через Байкал', 'Пока не было обходной дороги, поезда возил корабль'], gauge: ['Широкая колея', 'Русская колея и остальная Европа'] },
+    fe: { ferry: '⛴️ Паром', loop: '🚉 Обход', stF: 'Байкальский паром', lF: 'До 1904 года поезда переправляли через озеро: рейс занимал около четырёх часов. Паром «Байкал» (построен в 1897) брал 24 вагона и паровоз.', bF: 'Зимой пассажиров и грузы возили по льду на санях.',
+      stL: 'Кругобайкальская дорога', lL: 'Когда её закончили в 1904 году, паромы стали не нужны.', bL: 'Большую часть пути пришлось прокладывать в тоннелях или на площадках, вырубленных в скале.', note: 'Схема, не в масштабе.' },
+    ga: { w1435: 'Колёса для 1 435 мм', w1524: 'Колёса для 1 524 мм', rails: 'Рельсы: 1 524 мм', diff: (d) => `${d} мм`, each: (d) => `по ${d} мм с каждой стороны`, ok: 'Подходят.',
+      stBad: (d) => `на ${d} мм уже`, lBad: (a, b, d) => `Рельсы стоят на ${num(a)} мм, колёса — на ${num(b)} мм: колёсная пара не подходит, она уже на ${d} мм.`,
+      stOk: 'Колёса и рельсы совпадают', lOk: (a) => `Оба размера ${num(a)} мм: эта колёсная пара подходит к рельсам Российской империи.`,
+      b: 'Россия выбрала 5 футов (1 524 мм) в 1843 году; почти вся Европа строила 1 435 мм. Сегодня колея — 1 520 мм.', gauge: 'колея' },
+    facts: {
+      net: [{ emo: '🚂', text: 'Железная дорога Москва — Санкт-Петербург открылась 1 ноября 1851 года. Её длина 649,7 км, а первый пассажирский поезд шёл с 11:15 одного дня до 21:00 следующего.', src: 'https://en.wikipedia.org/wiki/Saint_Petersburg%E2%80%93Moscow_railway' }],
+      net2: [{ emo: '🚂', text: 'Железная дорога Москва — Санкт-Петербург открылась 1 ноября 1851 года. Её длина 649,7 км, а первый пассажирский поезд шёл с 11:15 одного дня до 21:00 следующего.', src: 'https://en.wikipedia.org/wiki/Saint_Petersburg%E2%80%93Moscow_railway' },
+        { emo: '🛤️', text: 'С 1861 по 1881 год в Российской империи построили больше 19 тысяч километров железных дорог.', src: 'https://en.wikipedia.org/wiki/Economy_of_the_Russian_Empire' },
+        { emo: '📊', text: 'Русская «Википедия» приводит длину железных дорог: 23 000 км в 1880 году, 51 000 км в 1900 и 71 300 км в 1913.', src: 'https://ru.wikipedia.org/wiki/%D0%96%D0%B5%D0%BB%D0%B5%D0%B7%D0%BD%D0%BE%D0%B4%D0%BE%D1%80%D0%BE%D0%B6%D0%BD%D1%8B%D0%B9_%D1%82%D1%80%D0%B0%D0%BD%D1%81%D0%BF%D0%BE%D1%80%D1%82_%D0%B2_%D0%A0%D0%BE%D1%81%D1%81%D0%B8%D0%B9%D1%81%D0%BA%D0%BE%D0%B9_%D0%B8%D0%BC%D0%BF%D0%B5%D1%80%D0%B8%D0%B8' }],
+      trip: [{ emo: '🚶', text: 'Путь Антона Чехова из Москвы на Сахалин в 1890 году — поездом, на лошадях и речным пароходом — занял два с половиной месяца.', src: 'https://en.wikipedia.org/wiki/Sakhalin_Island_(book)' },
+        { emo: '🏗️', text: 'О строительстве Сибирской железной дороги объявили 9 марта 1891 года. Линию разделили на семь участков, их строили одновременно 62 000 рабочих.', src: 'https://en.wikipedia.org/wiki/Trans-Siberian_Railway' },
+        { emo: '🧩', text: 'Только когда в 1916 году достроили Амурскую линию, появилась сплошная железная дорога от Петрограда до Владивостока по российской земле.', src: 'https://en.wikipedia.org/wiki/Trans-Siberian_Railway' },
+        { emo: '🛶', text: 'До железной дороги реки были главным путём в Сибири около пяти месяцев в году; зимой ездили на санях, запряжённых лошадьми.', src: 'https://en.wikipedia.org/wiki/Trans-Siberian_Railway' }],
+      town: [{ emo: '🏁', text: 'Новониколаевск (сегодня Новосибирск) основан 30 апреля 1893 года на месте будущего железнодорожного моста через Обь. Мост открыли 31 марта 1897 года.', src: 'https://en.wikipedia.org/wiki/Novosibirsk · https://en.wikipedia.org/wiki/Novosibirsk_Rail_Bridge' },
+        { emo: '🌾', text: 'С 1896 по 1913 год Сибирь вывозила в среднем около 502 тысяч тонн зерна и муки в год.', src: 'https://en.wikipedia.org/wiki/Trans-Siberian_Railway' },
+        { emo: '🧑‍🌾', text: 'С 1906 по 1914 год в Сибирь переселились около четырёх миллионов крестьян.', src: 'https://en.wikipedia.org/wiki/Trans-Siberian_Railway' },
+        { emo: '🏭', text: 'Когда в 1896 году в Челябинске поставили тарифный барьер для зерна, в Новосибирске, Томске и на Алтае появились мельницы, где зерно мололи в муку для хлеба.', src: 'https://en.wikipedia.org/wiki/Trans-Siberian_Railway' }],
+      ferry: [{ emo: '⛴️', text: 'Корабль «Байкал» построили в Ньюкасле, разобрали, привезли в Листвянку и собрали заново.', src: 'https://en.wikipedia.org/wiki/Trans-Siberian_Railway' }],
+      gauge: [{ emo: '📏', text: 'Есть рассказ, будто Россия выбрала широкую колею, чтобы поезда захватчиков не проехали. «Википедия» называет это живучим мифом.', src: 'https://en.wikipedia.org/wiki/5_ft_and_1520_mm_gauge_railways' }],
+    },
+    quiz: [
+      { q: 'Сколько времени занимала дорога из Москвы через Сибирь к Тихому океану до железной дороги?', opts: ['Около суток', 'Две недели', 'Месяцы'], ok: 2, hint: 'Открой вкладку «Путь» и сравни два счётчика времени.' },
+      { q: 'Какой город вырос там, где железная дорога пересекла Обь?', opts: ['Казань', 'Новосибирск', 'Одесса'], ok: 1, hint: 'Посмотри вкладку «Город».' },
+      { q: 'Что железные дороги в основном изменили для земледельцев?', opts: ['Зерно могло доехать до портов и городов', 'Они перестали заниматься земледелием', 'Ничего'], ok: 0, hint: 'Понаблюдай за поездами во вкладке «Город».' },
+    ],
+  },
+  hu: {
+    name: 'Sínek Oroszországon át', title: 'Sínek Oroszországon át',
+    lines: [['Húzd az éveket,', 'és nézd, hogyan nő a vasút.'], ['Utazz a hosszú úton', 'Moszkvától a Csendes-óceánig.'], ['Látogass meg egy várost,', 'amely egy állomás mellett nőtt fel.']],
+    views: { net: '📈 Hálózat', trip: '🚂 Út', town: '🏘️ Város' },
+    cities: { mos: 'Moszkva', spb: 'Szentpétervár', chel: 'Cseljabinszk', nov: 'Novoszibirszk', irk: 'Irkutszk', vla: 'Vlagyivosztok', port: 'Bajkál-kikötő', myso: 'Miszovaja', slyu: 'Szljugyanka', lake: 'Bajkál-tó', ob: 'Ob' },
+    ln: { 'msk-spb': 'Moszkva – Szentpétervár', nizh: 'Moszkva – Nyizsnyij Novgorod', kursk: 'Moszkva – Kurszk', ural: 'Szamara – Zlatouszt (Urál)', wsib: 'Cseljabinszk – Ob (Transzszibériai)', ussuri: 'Vlagyivosztok – Habarovszk (Usszuri-vasút)',
+      obk: 'Ob – Krasznojarszk', kri: 'Krasznojarszk – Irkutszk', baikal: 'Irkutszk – Csita, komppal a Bajkálon át', cer: 'Csita – Harbin – Vlagyivosztok (Kínai Keleti)', circum: 'a Bajkál körüli vasút' },
+    net: {
+      ask: 'Milyen hosszú volt a vasúthálózat 1900-ban?',
+      askLead: '1851-ben megnyílt a Moszkva – Szentpétervár vonal: 650 km. Húzd a pontot a grafikonon, vagy használd a csúszkát: tippeld meg Oroszország összes vasútjának hosszát 1900-ban.',
+      axis: 'ezer km', lastFig: 'legutóbbi adat', drag: 'húzd ↕', guessSub: 'tippem erre az évre: 1900', lock: 'Tipp ellenőrzése', year: 'Év',
+      right: 'Így van!', wrong: 'Nem egészen.', you: 'tippem',
+      res: (g, real) => `A tipped: ${num(g)} km. Az 1900. évben kb. ${num(real)} km volt.`,
+      first: 'A Moszkva – Szentpétervár vonal 1851. november 1-jén nyílt meg: 649,7 km.',
+      latest: (name, y) => `A térkép legújabb vonala: ${name} (${y}).`,
+      exact: (km, y) => `${y}: összesen kb. ${num(km)} km vasút.`,
+      known: (km, y) => `A legutóbbi ismert adat: kb. ${num(km)} km (${y}).`,
+      times: (n) => `Ez kb. ${n}× a Moszkva – Szentpétervár vonal hossza.`,
+      ferry: 'A Bajkálon még nincs sín: komp viszi át a vonatokat (a kör a térképen).',
+      circum: 'Elkészült a Bajkál déli végét megkerülő vonal: már nincs szükség kompra.',
+      manch: 'A Vlagyivosztokba vezető út Mandzsúrián át megy. A teljesen orosz földön futó Amur-vasút csak 1916-ra készült el.',
+      pill: (n) => `${n}× az 1851-es vonal`,
+      note: 'Az adatok kerekítettek, a Wikipédiából; közöttük a görbe csak vázlat. A térkép csak a fővonalakat mutatja.',
+    },
+    trip: {
+      ask: 'Mennyi ideig megy ma a vonat Moszkvából Vlagyivosztokba?',
+      askLead: 'Az út 9 289 km. Válassz egy tippet, aztán indítsd az órákat.',
+      opts: ['Körülbelül egy nap', 'Körülbelül hat nap', 'Körülbelül három hét'],
+      right: 'Így van!', wrong: 'Nem egészen.',
+      train: '6 nap 4 óra', trainRun: (d) => `${dec1(d)} nap`, road: 'kb. 2,5 hónap', roadRun: (d) => `${d}. nap`,
+      lTrain: 'Vonat ma', lRoad: 'Úton, 1890',
+      stTitle: 'Hat nap hónapok helyett',
+      stLead: '1890-ben Anton Csehov Moszkvából Szahalinra utazott vonattal, folyami gőzössel és lovas kocsival. Az út kb. két és fél hónapig tartott.',
+      stBody: 'A vonat órája a mai Moszkva – Vlagyivosztok menetrendet mutatja. A két út más korból való, és nem ugyanoda vezet, ezért ez összehasonlítás, nem pontos verseny.',
+      resTrain: 'A menetrend szerint 6 nap 4 óra.', again: '↻ Órák újraindítása',
+      sub: 'a vonat ma · az út 1890-ben: kb. 75 nap', pill: (n) => `az út kb. ${n}× hosszabb`,
+      note: 'A mai útvonal, Habarovszkon át. 1890-ben még nem volt átmenő vasút.',
+    },
+    town: {
+      ask: 'Az Ob hídját 1897-ben adták át, Novonyikolajevszkben 7 800 ember élt. Hányan éltek ott tíz évvel később, 1907-ben?',
+      opts: ['Kb. 10 000', 'Kb. 25 000', 'Több mint 45 000'], right: 'Így van!', wrong: 'Nem egészen.',
+      stops: ['1893', '1897', '1907', '1917 előtt'], people: (n, p) => `${num(n)}${p ? '+' : ''} ember`, founded: 'alapítás',
+      st: [
+        { t: 'Alapítás: 1893', l: 'Egy település indul ott, ahol a jövendő Transzszibériai vasút át fogja szelni az Obot.', b: 'A vasúti hidat 1893 és 1897 között építették.' },
+        { t: 'Megnyílik a híd', l: '1897. március 31-én megnyílt a vasúti híd. Novonyikolajevszkben 7 800 ember élt.', b: 'Az új vasút hamar megtelt helyi forgalommal, főleg búzával.' },
+        { t: 'Önkormányzatú város', l: 'Több mint 47 000 lakos és teljes városi jogok. Az első bank 1906-ban nyílt meg.', b: 'A gabona vasúton indult útnak, a város pedig az állomás körül nőtt.' },
+        { t: 'Csomópont a forradalom előtt', l: 'Kb. 80 000 lakos; 1915-re öt bank működött.', b: 'A híd melletti tábortól a közlekedés, a kereskedelem és az ipar központjáig.' },
+      ],
+      pill: ['', 'híd megnyílt', 'városi jog', 'csomópont'], noteSch: 'Az épületek vázlatosak. A számok valódiak.',
+      resRight: '1907-ben több mint 47 000 ember élt ott.', resWrong: '1907-ben több mint 47 000 ember élt ott: körülbelül hatszor annyi, mint 1897-ben.',
+      hdr: 'Novonyikolajevszk (ma Novoszibirszk)',
+    },
+    secrets: { ferry: ['Komp a Bajkálon', 'A kerülővonal előtt hajó vitte a vonatokat'], gauge: ['Szélesebb nyomtáv', 'Az orosz nyomtáv és Európa többi része'] },
+    fe: { ferry: '⛴️ Komp', loop: '🚉 Kerülő', stF: 'A bajkáli komp', lF: '1904 előtt a vonatokat komp vitte át a tavon: az átkelés kb. négy óráig tartott. A Bajkál hajó (1897-ben épült) 24 vasúti kocsit és egy mozdonyt vitt.', bF: 'Télen szánon vitték át az utasokat és az árut a jégen.',
+      stL: 'A Bajkál körüli vasút', lL: '1904-es elkészülte után a kompokra már nem volt szükség.', bL: 'Az út nagy részét alagutakban vagy a sziklába vájt teraszokon kellett építeni.', note: 'Vázlatos térkép, nem méretarányos.' },
+    ga: { w1435: 'Kerekek 1 435 mm-hez', w1524: 'Kerekek 1 524 mm-hez', rails: 'Sínek: 1 524 mm', diff: (d) => `${d} mm`, each: (d) => `oldalanként ${d} mm`, ok: 'Illeszkednek.',
+      stBad: (d) => `keskenyebb: ${d} mm`, lBad: (a, b, d) => `A sínek ${num(a)} mm-re vannak egymástól, a kerekek ${num(b)} mm-re: a kerékpár nem illik rá: összesen ${d} mm a különbség.`,
+      stOk: 'A kerekek és a sínek egyeznek', lOk: (a) => `Mindkettő ${num(a)} mm: ez a kerékpár illik az Orosz Birodalom síneire.`,
+      b: 'Oroszország 1843-ban az 5 lábat (1 524 mm) választotta; Európa nagy része 1 435 mm-t használt. Ma 1 520 mm az előírás.', gauge: 'nyomtáv' },
+    facts: {
+      net: [{ emo: '🚂', text: 'A Moszkva – Szentpétervár vasút 1851. november 1-jén nyílt meg. 649,7 km hosszú, az első személyvonat az egyik nap 11:15-től a következő nap 21:00-ig ment.', src: 'https://en.wikipedia.org/wiki/Saint_Petersburg%E2%80%93Moscow_railway' }],
+      net2: [{ emo: '🚂', text: 'A Moszkva – Szentpétervár vasút 1851. november 1-jén nyílt meg. 649,7 km hosszú, az első személyvonat az egyik nap 11:15-től a következő nap 21:00-ig ment.', src: 'https://en.wikipedia.org/wiki/Saint_Petersburg%E2%80%93Moscow_railway' },
+        { emo: '🛤️', text: '1861 és 1881 között több mint 19 ezer kilométer vasutat építettek az Orosz Birodalomban.', src: 'https://en.wikipedia.org/wiki/Economy_of_the_Russian_Empire' },
+        { emo: '📊', text: 'Az orosz Wikipédia szerint a vasutak hossza 1880-ban 23 000 km, 1900-ban 51 000 km, 1913-ban 71 300 km volt.', src: 'https://ru.wikipedia.org/wiki/%D0%96%D0%B5%D0%BB%D0%B5%D0%B7%D0%BD%D0%BE%D0%B4%D0%BE%D1%80%D0%BE%D0%B6%D0%BD%D1%8B%D0%B9_%D1%82%D1%80%D0%B0%D0%BD%D1%81%D0%BF%D0%BE%D1%80%D1%82_%D0%B2_%D0%A0%D0%BE%D1%81%D1%81%D0%B8%D0%B9%D1%81%D0%BA%D0%BE%D0%B9_%D0%B8%D0%BC%D0%BF%D0%B5%D1%80%D0%B8%D0%B8' }],
+      trip: [{ emo: '🚶', text: 'Anton Csehov 1890-ben vonattal, lovas kocsival és folyami gőzössel utazott Moszkvából Szahalinra; az út két és fél hónapig tartott.', src: 'https://en.wikipedia.org/wiki/Sakhalin_Island_(book)' },
+        { emo: '🏗️', text: 'A szibériai vasút építését 1891. március 9-én jelentették be. A vonalat hét szakaszra osztották, és 62 000 munkás építette egyszerre.', src: 'https://en.wikipedia.org/wiki/Trans-Siberian_Railway' },
+        { emo: '🧩', text: 'Csak az Amur-vasút 1916-os elkészültével lett folyamatos vasútvonal Petrográdtól Vlagyivosztokig orosz földön.', src: 'https://en.wikipedia.org/wiki/Trans-Siberian_Railway' },
+        { emo: '🛶', text: 'A vasút előtt Szibériában az év kb. öt hónapjában a folyók voltak a fő útvonalak; télen lovas szánon utaztak.', src: 'https://en.wikipedia.org/wiki/Trans-Siberian_Railway' }],
+      town: [{ emo: '🏁', text: 'Novonyikolajevszk (ma Novoszibirszk) 1893. április 30-án keletkezett az Ob tervezett vasúti hídjának helyén. A híd 1897. március 31-én nyílt meg.', src: 'https://en.wikipedia.org/wiki/Novosibirsk · https://en.wikipedia.org/wiki/Novosibirsk_Rail_Bridge' },
+        { emo: '🌾', text: '1896 és 1913 között Szibéria évente átlagosan kb. 502 ezer tonna gabonát és lisztet exportált.', src: 'https://en.wikipedia.org/wiki/Trans-Siberian_Railway' },
+        { emo: '🧑‍🌾', text: '1906 és 1914 között kb. négymillió paraszt költözött Szibériába.', src: 'https://en.wikipedia.org/wiki/Trans-Siberian_Railway' },
+        { emo: '🏭', text: 'Miután 1896-ban Cseljabinszknél vámgátat állítottak a gabonának, Novoszibirszkben, Tomszkban és az Altajban malmok jelentek meg, amelyek a gabonából lisztet őröltek.', src: 'https://en.wikipedia.org/wiki/Trans-Siberian_Railway' }],
+      ferry: [{ emo: '⛴️', text: 'A Bajkál hajót Newcastle-ben építették, szétszedték, Lisztvjankába szállították, és ott újra összeszerelték.', src: 'https://en.wikipedia.org/wiki/Trans-Siberian_Railway' }],
+      gauge: [{ emo: '📏', text: 'Egy népszerű történet szerint Oroszország azért választott széles nyomtávot, hogy a betolakodók vonatai ne jöhessenek be. A Wikipédia ezt makacs mítosznak nevezi.', src: 'https://en.wikipedia.org/wiki/5_ft_and_1520_mm_gauge_railways' }],
+    },
+    quiz: [
+      { q: 'Mennyi ideig tartott az út Moszkvából Szibérián át a Csendes-óceánig a vasút előtt?', opts: ['Körülbelül egy nap', 'Két hét', 'Hónapok'], ok: 2, hint: 'Nyisd meg az „Út” fület, és hasonlítsd össze a két órát.' },
+      { q: 'Melyik város nőtt fel ott, ahol a vasút átkelt az Obon?', opts: ['Kazany', 'Novoszibirszk', 'Odessza'], ok: 1, hint: 'Nézd meg a „Város” fület.' },
+      { q: 'Mit változtattak a vasutak leginkább a gazdálkodók számára?', opts: ['A gabona eljuthatott kikötőkbe és városokba', 'Abbahagyták a gazdálkodást', 'Semmit'], ok: 0, hint: 'Figyeld a vonatokat a „Város” fülön.' },
+    ],
+  },
+};
+const TOPICS = [{ id: 'sg_his_32', en: 'Russian Economy and Society in the Late 19th Century', ru: 'Экономика и общество России во второй половине XIX века', hu: 'Az orosz gazdaság és társadalom a 19. század végén' }];
+
+// --- data ----------------------------------------------------------------------------------------------------
+// total length, km: 1851 = the one Moscow – St Petersburg line (en.wikipedia); 1880, 1900, 1913 = ru.wikipedia "Рост протяжённости железных дорог"
+const KNOWN = [[1851, FIRST_KM], [1880, 23000], [1900, 51000], [1913, 71300]];
+const CITY = {
+  mos: [37.62, 55.75], spb: [30.31, 59.94], chel: [61.4, 55.16], nov: [82.92, 55.03], irk: [104.28, 52.29], vla: [131.9, 43.12],
+  port: [104.83, 51.87], myso: [105.9, 51.68], slyu: [103.72, 51.64],
+};
+const CITY_Y = { mos: 1851, spb: 1851, chel: 1890, nov: 1897, irk: 1899, vla: 1897 };
+// lines by the year they opened (lon, lat); parts of one line share a year. Sketch of main lines only.
+const LINES = [
+  { id: 'msk-spb', y: 1851, c: '#7cc4ff', pts: [CITY.mos, [35.92, 56.86], [34.05, 57.89], [31.67, 59.12], CITY.spb] },
+  { id: 'nizh', y: 1862, c: '#7cc4ff', pts: [CITY.mos, [40.41, 56.13], [44.0, 56.33]] },
+  { id: 'kursk', y: 1868, c: '#7cc4ff', pts: [CITY.mos, [37.62, 54.19], [36.08, 52.97], [36.19, 51.73]] },
+  { id: 'ural', y: 1890, c: '#63d6a7', pts: [[50.1, 53.2], [55.97, 54.74], [59.67, 55.17], CITY.chel] },
+  { id: 'ussuri', y: 1897, c: '#f2c14e', pts: [CITY.vla, [131.9, 43.8], [132.8, 44.6], [135.07, 48.48]] },
+  { id: 'wsib', y: 1897, c: '#f2c14e', pts: [CITY.chel, [65.34, 55.45], [69.15, 54.87], [73.37, 54.99], CITY.nov] },
+  { id: 'obk', y: 1898, c: '#f2c14e', pts: [CITY.nov, [85.6, 56.06], [90.5, 56.27], [92.85, 56.01]] },
+  { id: 'kri', y: 1899, c: '#f2c14e', pts: [[92.85, 56.01], [95.7, 56.2], [100.6, 54.56], [102.05, 53.92], CITY.irk] },
+  { id: 'baikal', y: 1900, c: '#f2c14e', pts: [CITY.irk, CITY.port] },
+  { id: 'baikal', y: 1900, c: '#f2c14e', pts: [CITY.myso, [107.6, 51.83], [113.5, 52.03]] },
+  { id: 'ferry', y: 1900, until: 1904, c: '#ffffff', dash: true, pts: [CITY.port, [105.3, 52.0], CITY.myso] },
+  { id: 'cer', y: 1903, c: '#ef8a5a', pts: [[113.5, 52.03], [114.1, 51.6], [117.4, 49.6], [126.5, 45.75], [131.3, 44.4], [131.9, 43.8], CITY.vla] },
+  { id: 'circum', y: 1904, c: '#ff6b6b', pts: [CITY.port, [104.2, 51.7], CITY.slyu, [104.6, 51.55], [105.3, 51.55], CITY.myso] },
+];
+// the route of today's train, Moscow – Vladivostok (9,289 km)
+const ROUTE = [CITY.mos, [44.0, 56.33], [49.66, 58.6], [56.25, 58.0], [60.6, 56.84], [65.53, 57.15], [73.37, 54.99], CITY.nov, [92.85, 56.01], CITY.irk, [107.6, 51.83], [113.5, 52.03], [123.9, 54.0], [135.07, 48.48], CITY.vla];
+const BAIKAL = [[103.9, 51.85], [105.2, 51.95], [106.3, 52.1], [107.5, 52.9], [108.7, 54.0], [109.6, 55.3]];
+
+// --- map: Natural Earth coastlines from labs/poles/geo.js ----------------------------------------------------
+const K = Math.cos(55 * Math.PI / 180), LON0 = 26, LON1 = 142, LAT0 = 41.5, LAT1 = 62.5;
+const WW = (LON1 - LON0) * K, WH = LAT1 - LAT0;
+function decode(s, k) {
+  const out = []; let i = 0, x = 0, y = 0;
+  const one = () => { let r = 0, sh = 0, b; do { b = s.charCodeAt(i++) - 63; r |= (b & 31) << sh; sh += 5; } while (b >= 32); return r & 1 ? ~(r >> 1) : r >> 1; };
+  while (i < s.length) { x += one(); y += one(); out.push(x / k, y / k); }
+  return out;
+}
+const LANDP = new Path2D();
+for (const s of GLOBE) {
+  const a = decode(s, 10);
+  let keep = false;
+  for (let i = 0; i < a.length; i += 2) if (a[i] > LON0 - 12 && a[i] < LON1 + 12 && a[i + 1] > LAT0 - 12 && a[i + 1] < LAT1 + 12) { keep = true; break; }
+  if (!keep) continue;
+  let pl = null;
+  for (let i = 0; i < a.length; i += 2) {
+    const x = (a[i] - LON0) * K, y = LAT1 - a[i + 1];
+    if (i === 0 || (pl !== null && Math.abs(a[i] - pl) > 180)) LANDP.moveTo(x, y); else LANDP.lineTo(x, y);
+    pl = a[i];
+  }
+  LANDP.closePath();
+}
+function dense(pts, n = 10) {
+  if (pts.length < 3) return pts.map((p) => p);
+  const out = [pts[0]]; let prev = pts[0];
+  for (let i = 1; i < pts.length; i++) {
+    const ctl = pts[i], end = i === pts.length - 1 ? pts[i] : [(pts[i][0] + pts[i + 1][0]) / 2, (pts[i][1] + pts[i + 1][1]) / 2];
+    for (let k = 1; k <= n; k++) { const t = k / n, u = 1 - t; out.push([u * u * prev[0] + 2 * u * t * ctl[0] + t * t * end[0], u * u * prev[1] + 2 * u * t * ctl[1] + t * t * end[1]]); }
+    prev = end;
+  }
+  return out;
+}
+LINES.forEach((l) => { l.d = dense(l.pts); });
+const ROUTE_D = dense(ROUTE, 14);
+const BAIKAL_D = dense(BAIKAL, 12);
+const routeCum = [0];
+for (let i = 1; i < ROUTE_D.length; i++) routeCum.push(routeCum[i - 1] + Math.hypot((ROUTE_D[i][0] - ROUTE_D[i - 1][0]) * K, ROUTE_D[i][1] - ROUTE_D[i - 1][1]));
+const routeAt = (f) => { // lon/lat at the fraction f of the route
+  const L = routeCum[routeCum.length - 1] * clamp(f, 0, 1); let i = routeCum.findIndex((v) => v >= L); if (i <= 0) i = 1;
+  const t = (L - routeCum[i - 1]) / ((routeCum[i] - routeCum[i - 1]) || 1);
+  return [lerp(ROUTE_D[i - 1][0], ROUTE_D[i][0], t), lerp(ROUTE_D[i - 1][1], ROUTE_D[i][1], t), i];
+};
+function monoF(xs, ys) { // smooth monotone curve through the known points (Fritsch–Carlson)
+  const n = xs.length, d = [], m = new Array(n);
+  for (let i = 0; i < n - 1; i++) d.push((ys[i + 1] - ys[i]) / (xs[i + 1] - xs[i]));
+  m[0] = d[0]; m[n - 1] = d[n - 2];
+  for (let i = 1; i < n - 1; i++) m[i] = d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2;
+  for (let i = 0; i < n - 1; i++) {
+    const a = m[i] / d[i], b = m[i + 1] / d[i], s = a * a + b * b;
+    if (s > 9) { const t = 3 / Math.sqrt(s); m[i] = t * a * d[i]; m[i + 1] = t * b * d[i]; }
+  }
+  return (x) => {
+    let i = xs.findIndex((v) => v > x) - 1; if (x >= xs[n - 1] || i < 0) i = n - 2;
+    const h = xs[i + 1] - xs[i], t = (x - xs[i]) / h, t2 = t * t, t3 = t2 * t;
+    return (2 * t3 - 3 * t2 + 1) * ys[i] + (t3 - 2 * t2 + t) * h * m[i] + (-2 * t3 + 3 * t2) * ys[i + 1] + (t3 - t2) * h * m[i + 1];
+  };
+}
+const CURVE = monoF(KNOWN.map((k) => k[0]), KNOWN.map((k) => k[1]));
+const hash = (i) => { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+
+// --- state (all declared before shell / canvasLoop) -------------------------------------------------------------
+const S = {
+  n: { year: 1851, yTarget: 1851, guess: null, locked: false, rev: 0, gauge: false, wheel: 1435, fall: 0, drag: false },
+  t: { pick: null, sim: 0, ferry: false, fmode: 'ferry', sc: 0, smoke: [], emit: 0 },
+  w: { pick: null, stop: 1, cnt: 6, bridge: 0.35, tick: 0 },
+};
+let CW = 0, CH = 0;
+const lab = shell({ key: 'rail-russia', T, topics: TOPICS, views: ['net', 'trip', 'town'], onLang: () => render(), onView: () => render() });
+const secret = secretLab('rail-russia', () => ({
+  secrets: [{ emo: '⛴️', title: T[lang].secrets.ferry[0], desc: T[lang].secrets.ferry[1] }, { emo: '📏', title: T[lang].secrets.gauge[0], desc: T[lang].secrets.gauge[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div class="rr-ctl" id="rrN">
+    <div id="rrNPred"><p class="rr-q" id="rrNq"></p>
+      <input type="range" class="big" id="rrGuess" min="0" max="80000" step="1000" value="40000" aria-label="km">
+      <div class="ends"><span>0</span><span id="rrGuessLbl"></span><span id="rrGuessMax"></span></div>
+      <div class="row2"><button class="btn" id="rrLock" data-act="lock" disabled></button></div></div>
+    <div id="rrNFree"><div class="chips" id="rrYrChips"></div>
+      <input type="range" class="big" id="rrYear" min="1851" max="1913" step="1" value="1851" aria-label="year">
+      <div class="ends"><span>1851</span><span>1913</span></div></div>
+    <div id="rrNGauge"><div class="chips" id="rrGaugeChips"></div></div>
+    <div class="row2"><div class="chips" id="rrNSec"></div></div>
+    <div class="rr-fine" id="rrNNote"></div>
+  </div>
+  <div class="rr-ctl" id="rrT">
+    <div id="rrTPred"><p class="rr-q" id="rrTq"></p><div class="rr-opts" id="rrTOpts"></div></div>
+    <div id="rrTFree"><div class="row2" style="margin-top:0"><button class="chip" data-act="again" id="rrAgain"></button></div></div>
+    <div id="rrTFerry"><div class="chips" id="rrFerryChips"></div></div>
+    <div class="row2"><div class="chips" id="rrTSec"></div></div>
+    <div class="rr-fine" id="rrTNote"></div>
+  </div>
+  <div class="rr-ctl" id="rrW">
+    <div id="rrWPred"><p class="rr-q" id="rrWq"></p><div class="rr-opts" id="rrWOpts"></div></div>
+    <div class="chips" id="rrStops"></div>
+    <div class="rr-fine" id="rrWNote"></div>
+  </div>`;
+
+// --- drawing helpers -------------------------------------------------------------------------------------------
+function rr(c, x, y, w, h, r) { c.beginPath(); c.roundRect(x, y, w, h, Math.max(0, Math.min(r, w / 2, h / 2))); }
+function pill(c, text, x, y, o = {}) { // dark rounded label, kept inside the canvas with a 10 px margin
+  const fs = o.fs || 12; c.font = `${o.w || 800} ${fs}px Nunito, sans-serif`;
+  const pw = c.measureText(text).width + 14, ph = fs + 8;
+  let X = o.align === 'r' ? x - pw : o.align === 'c' ? x - pw / 2 : x;
+  X = clamp(X, 10, Math.max(10, CW - 10 - pw)); const Y = clamp(y - ph / 2, 10, Math.max(10, CH - 10 - ph));
+  c.fillStyle = o.bg || 'rgba(10,12,20,.82)'; rr(c, X, Y, pw, ph, ph / 2); c.fill();
+  if (o.stroke) { c.strokeStyle = o.stroke; c.lineWidth = 1.5; c.stroke(); }
+  c.fillStyle = o.col || '#EDEFF7'; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(text, X + 7, Y + ph / 2 + 0.5);
+  return { x: X, y: Y, w: pw, h: ph };
+}
+const hit = (a, b) => a.x < b.x + b.w + 3 && b.x < a.x + a.w + 3 && a.y < b.y + b.h + 3 && b.y < a.y + a.h + 3;
+function mapGeom(x, y, W) { const s = W / WW; return { x, y, W, H: WH * s, s, P: (lo, la) => [x + (lo - LON0) * K * s, y + (LAT1 - la) * s] }; }
+function drawBase(c, g, o = {}) {
+  c.save(); rr(c, g.x, g.y, g.W, g.H, 12); c.clip();
+  const sea = c.createLinearGradient(g.x, g.y, g.x + g.W * 0.7, g.y + g.H); sea.addColorStop(0, '#2a5a86'); sea.addColorStop(0.55, '#1c4268'); sea.addColorStop(1, '#122c48');
+  c.fillStyle = sea; c.fillRect(g.x, g.y, g.W, g.H);
+  c.strokeStyle = 'rgba(255,255,255,.07)'; c.lineWidth = 1; c.beginPath();
+  for (let lo = 30; lo <= 140; lo += 10) { const [x] = g.P(lo, 50); c.moveTo(x, g.y); c.lineTo(x, g.y + g.H); }
+  for (let la = 45; la <= 60; la += 5) { const [, y] = g.P(30, la); c.moveTo(g.x, y); c.lineTo(g.x + g.W, y); }
+  c.stroke();
+  c.save(); c.translate(g.x, g.y); c.scale(g.s, g.s);
+  const lg = c.createLinearGradient(0, 0, WW, WH); lg.addColorStop(0, '#6f8a5a'); lg.addColorStop(0.5, '#587546'); lg.addColorStop(1, '#4a5f3c');
+  c.shadowColor = 'rgba(0,0,0,.45)'; c.shadowBlur = 10; c.shadowOffsetY = 3; c.fillStyle = lg; c.fill(LANDP);
+  c.shadowColor = 'transparent'; c.shadowBlur = 0; c.shadowOffsetY = 0;
+  c.strokeStyle = 'rgba(214,232,190,.55)'; c.lineWidth = 1.1 / g.s; c.lineJoin = 'round'; c.stroke(LANDP);
+  c.restore();
+  // Lake Baikal: a thick smooth stroke along its axis
+  c.beginPath(); BAIKAL_D.forEach((p, i) => { const [x, y] = g.P(p[0], p[1]); if (i) c.lineTo(x, y); else c.moveTo(x, y); });
+  c.lineCap = 'round'; c.lineJoin = 'round'; c.strokeStyle = '#2c6ea0'; c.lineWidth = Math.max(2.4, 0.5 * g.s * (o.lake || 1)); c.stroke();
+  c.strokeStyle = 'rgba(150,200,240,.5)'; c.lineWidth = Math.max(1, 0.12 * g.s * (o.lake || 1)); c.stroke();
+  const vg = c.createRadialGradient(g.x + g.W / 2, g.y + g.H / 2, g.H * 0.5, g.x + g.W / 2, g.y + g.H / 2, g.W * 0.7);
+  vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.36)'); c.fillStyle = vg; c.fillRect(g.x, g.y, g.W, g.H);
+  c.restore();
+  c.strokeStyle = 'rgba(130,145,190,.35)'; c.lineWidth = 1; rr(c, g.x, g.y, g.W, g.H, 12); c.stroke();
+}
+function strokeDense(c, g, d, frac, col, width, dash, alpha = 1) {
+  const k = Math.max(1, Math.floor((d.length - 1) * frac)); if (frac <= 0) return;
+  c.save(); c.globalAlpha = alpha; c.lineCap = 'round'; c.lineJoin = 'round';
+  const path = () => { c.beginPath(); for (let i = 0; i <= k; i++) { const [x, y] = g.P(d[i][0], d[i][1]); if (i) c.lineTo(x, y); else c.moveTo(x, y); } };
+  path(); c.strokeStyle = 'rgba(8,10,18,.85)'; c.lineWidth = width + 2.4; c.stroke();
+  path(); c.strokeStyle = col; c.lineWidth = width; if (dash) c.setLineDash([5, 4]); c.stroke(); c.setLineDash([]);
+  c.restore();
+}
+function labels(c, g, items) { // city dots, then labels that avoid each other
+  const placed = [];
+  for (const it of items) {
+    const [x, y] = g.P(it.p[0], it.p[1]);
+    c.beginPath(); c.arc(x, y, 3.6, 0, Math.PI * 2); c.fillStyle = it.on ? '#fff' : 'rgba(255,255,255,.4)'; c.fill(); c.strokeStyle = 'rgba(8,10,18,.9)'; c.lineWidth = 1.5; c.stroke();
+  }
+  c.font = '800 12px Nunito, sans-serif';
+  for (const it of items) {
+    const [x, y] = g.P(it.p[0], it.p[1]), pw = c.measureText(it.text).width + 14, ph = 20;
+    for (const m of [...(it.modes || []), 'above', 'below', 'right', 'left']) {
+      let X = m === 'right' ? x + 7 : m === 'left' ? x - 7 - pw : x - pw / 2, Y = m === 'above' ? y - 8 - ph : m === 'below' ? y + 8 : y - ph / 2;
+      X = clamp(X, 10, CW - 10 - pw); Y = clamp(Y, 10, CH - 10 - ph);
+      const r = { x: X, y: Y, w: pw, h: ph };
+      if (placed.some((q) => hit(q, r))) continue;
+      placed.push(r); pill(c, it.text, X, Y + ph / 2, { col: it.on ? '#fff' : '#b9c0d4' }); break;
+    }
+  }
+}
+const cityItems = (t, year, set) => set.map(([k, modes]) => ({ p: CITY[k], text: t.cities[k], on: year >= CITY_Y[k], modes }));
+
+// --- view 1: network (map + graph) -----------------------------------------------------------------------------
+function drawNet(c, w, h, dt) {
+  const n = S.n, t = T[lang];
+  if (n.gauge) return drawGauge(c, w, h, dt);
+  n.year += (n.yTarget - n.year) * Math.min(1, dt * 3.4); if (Math.abs(n.yTarget - n.year) < 0.02) n.year = n.yTarget;
+  if (n.locked) n.rev = Math.min(1, n.rev + dt / 1.2);
+  let mw = w - 20; if (WH * mw / WW > h * 0.42) mw = h * 0.42 * WW / WH;
+  const g = mapGeom((w - mw) / 2, 10, mw); drawBase(c, g);
+  const yr = n.year;
+  for (const l of LINES) {
+    const frac = clamp(yr - (l.y - 1), 0, 1); if (frac <= 0) continue;
+    const alpha = l.until ? clamp(l.until - yr, 0, 1) : 1; if (alpha <= 0) continue;
+    strokeDense(c, g, l.d, frac, l.c, 2.4, l.dash, alpha);
+  }
+  if (yr >= 1900 && yr < 1904) { // the ferry gap: a ring where trains cross by ship
+    const [x, y] = g.P(105.3, 51.95); c.beginPath(); c.arc(x, y, 7, 0, Math.PI * 2); c.strokeStyle = '#ffd27a'; c.lineWidth = 2; c.stroke();
+  }
+  labels(c, g, cityItems(t, yr, [['spb', ['right', 'above']], ['mos', ['below', 'left']], ['chel', ['below', 'above']], ['nov', ['above', 'below']], ['irk', ['below', 'above']], ['vla', ['above', 'left']]]));
+  // graph
+  const gx0 = 46, gx1 = w - 26, gy0 = g.y + g.H + 30, gy1 = h - 28;
+  if (gy1 - gy0 < 50) return;
+  const X = (y) => gx0 + (y - 1851) / (1913 - 1851) * (gx1 - gx0), Y = (km) => gy1 - km / 80000 * (gy1 - gy0);
+  c.font = '700 12px Nunito, sans-serif'; c.textBaseline = 'middle'; c.lineWidth = 1;
+  for (let v = 0; v <= 80000; v += 20000) {
+    c.strokeStyle = v ? 'rgba(130,145,190,.16)' : 'rgba(130,145,190,.45)'; c.beginPath(); c.moveTo(gx0, Y(v)); c.lineTo(gx1, Y(v)); c.stroke();
+    c.fillStyle = '#98A0B8'; c.textAlign = 'right'; c.fillText(String(v / 1000), gx0 - 6, Y(v));
+  }
+  c.fillStyle = '#98A0B8'; c.textAlign = 'left'; c.fillText(t.net.axis, 10, gy0 - 12);
+  KNOWN.forEach(([y], i) => { c.textAlign = i === KNOWN.length - 1 ? 'right' : 'center'; c.fillStyle = '#98A0B8'; c.fillText(String(y), i === KNOWN.length - 1 ? w - 10 : X(y), gy1 + 16); c.strokeStyle = 'rgba(130,145,190,.35)'; c.beginPath(); c.moveTo(X(y), gy1); c.lineTo(X(y), gy1 + 4); c.stroke(); });
+  // the curve between the known points is a sketch: dashed
+  const ye = Math.min(yr, 1913);
+  if (ye > 1851) {
+    c.beginPath(); for (let y = 1851; y <= ye; y += 0.5) { const px = X(y), py = Y(CURVE(y)); if (y === 1851) c.moveTo(px, py); else c.lineTo(px, py); } c.lineTo(X(ye), Y(CURVE(ye)));
+    c.lineJoin = 'round'; c.strokeStyle = 'rgba(255,210,122,.5)'; c.lineWidth = 2; c.setLineDash([5, 4]); c.stroke(); c.setLineDash([]);
+  }
+  const marks = [];
+  for (const [y, km] of KNOWN) {
+    if (yr < y - 0.02) continue; if (y === 1900 && !n.locked) continue;
+    const px = X(y), py = Y(km);
+    const gl = c.createRadialGradient(px, py, 1, px, py, 14); gl.addColorStop(0, 'rgba(255,210,122,.5)'); gl.addColorStop(1, 'rgba(255,210,122,0)'); c.fillStyle = gl; c.beginPath(); c.arc(px, py, 14, 0, Math.PI * 2); c.fill();
+    c.beginPath(); c.arc(px, py, 5.5, 0, Math.PI * 2); c.fillStyle = y === 1900 ? '#3ddc97' : '#ffd27a'; c.fill(); c.strokeStyle = '#0c0e1a'; c.lineWidth = 1.8; c.stroke();
+    marks.push([y, km, px, py]);
+  }
+  for (const [y, km, px, py] of marks) pill(c, num(km), y === 1851 ? px + 8 : px - 8, py - 16, { align: y === 1851 ? 'l' : 'r', fs: 12 });
+  if (!n.locked) { // the guess: a dot at 1900 you drag up and down
+    const px = X(1900); c.strokeStyle = 'rgba(255,255,255,.35)'; c.setLineDash([3, 4]); c.beginPath(); c.moveTo(px, gy0); c.lineTo(px, gy1); c.stroke(); c.setLineDash([]);
+    const py = Y(n.guess ?? 40000);
+    c.save(); c.globalAlpha = n.guess === null ? 0.65 : 1;
+    const gl = c.createRadialGradient(px, py, 2, px, py, 22); gl.addColorStop(0, 'rgba(255,196,80,.55)'); gl.addColorStop(1, 'rgba(255,196,80,0)'); c.fillStyle = gl; c.beginPath(); c.arc(px, py, 22, 0, Math.PI * 2); c.fill();
+    c.beginPath(); c.arc(px, py, 10, 0, Math.PI * 2); c.fillStyle = '#ffc450'; c.fill(); c.strokeStyle = '#0c0e1a'; c.lineWidth = 2; c.stroke();
+    c.fillStyle = '#0c0e1a'; c.beginPath(); c.moveTo(px, py - 6); c.lineTo(px - 4, py - 1.5); c.lineTo(px + 4, py - 1.5); c.fill(); c.beginPath(); c.moveTo(px, py + 6); c.lineTo(px - 4, py + 1.5); c.lineTo(px + 4, py + 1.5); c.fill();
+    c.restore();
+    pill(c, n.guess === null ? t.net.drag : num(n.guess), px - 18, py, { align: 'r' });
+  } else if (yr >= 1899.95) { // after the check: your guess (ring), the real value (green dot) and the gap between them
+    const px = X(1900), py = Y(n.guess), pr = Y(51000), a = clamp(n.rev * 1.5, 0, 1);
+    c.save(); c.globalAlpha = a; c.strokeStyle = '#ffc450'; c.lineWidth = 2; c.setLineDash([4, 3]); c.beginPath(); c.moveTo(px, py); c.lineTo(px, pr); c.stroke(); c.setLineDash([]);
+    c.beginPath(); c.arc(px, py, 8, 0, Math.PI * 2); c.fillStyle = 'rgba(255,196,80,.25)'; c.fill(); c.stroke(); c.restore();
+    pill(c, num(n.guess), px + 14, py, { col: '#ffd27a', stroke: 'rgba(255,196,80,.6)' });
+  }
+  if (yr > 1851 || n.locked) { const px = X(Math.min(yr, 1913)); c.strokeStyle = 'rgba(255,255,255,.22)'; c.beginPath(); c.moveTo(px, gy0); c.lineTo(px, gy1); c.stroke(); }
+}
+
+// --- secret: the gauge ------------------------------------------------------------------------------------------
+function drawGauge(c, w, h, dt) {
+  const n = S.n, t = T[lang].ga;
+  n.fall = Math.max(0, n.fall - dt * 1.6);
+  const bg = c.createLinearGradient(0, 0, 0, h); bg.addColorStop(0, '#1a2140'); bg.addColorStop(1, '#0d1122'); c.fillStyle = bg; rr(c, 0, 0, w, h, 14); c.fill();
+  const sc = Math.min((w - 70) / (GAUGE_R + 190), (h - 130) / 210), cx = w / 2, topY = h * 0.5 - 20 * sc / 2;
+  const mm = (v) => v * sc;
+  const railY = h * 0.55; // top of the rail heads
+  // sleeper and ballast
+  const bal = c.createLinearGradient(0, railY, 0, h); bal.addColorStop(0, '#4a4650'); bal.addColorStop(1, '#25232a'); c.fillStyle = bal; rr(c, cx - mm(GAUGE_R / 2 + 330), railY + mm(110), mm(GAUGE_R + 660), mm(120), 8); c.fill();
+  const sl = c.createLinearGradient(0, railY + mm(60), 0, railY + mm(120)); sl.addColorStop(0, '#8a6a4a'); sl.addColorStop(1, '#5a4330'); c.fillStyle = sl; rr(c, cx - mm(GAUGE_R / 2 + 260), railY + mm(70), mm(GAUGE_R + 520), mm(60), 4); c.fill();
+  const rail = (inner) => { // rail head, web and foot; `inner` is the x of the inner face
+    const dir = inner < cx ? -1 : 1, hx = dir < 0 ? inner - mm(70) : inner;
+    const rg = c.createLinearGradient(0, railY, 0, railY + mm(70)); rg.addColorStop(0, '#d3d9e6'); rg.addColorStop(1, '#8a92a6');
+    c.fillStyle = rg; rr(c, hx, railY, mm(70), mm(34), 4); c.fill();
+    c.fillStyle = '#7a8297'; c.fillRect(hx + mm(24), railY + mm(30), mm(22), mm(40)); c.fillStyle = '#9aa2b6'; rr(c, hx - mm(20), railY + mm(66), mm(110), mm(14), 3); c.fill();
+  };
+  rail(cx - mm(GAUGE_R / 2)); rail(cx + mm(GAUGE_R / 2));
+  // the wheelset: two wheels on an axle, their treads on the rail heads; `half` = half the distance between the flanges
+  const half = n.wheel / 2, lift = n.fall * mm(260), wr = mm(260), wy = railY - wr - lift - mm(8);
+  const wheel = (x, side) => {
+    const g2 = c.createRadialGradient(x - wr * 0.2, wy - wr * 0.2, wr * 0.1, x, wy, wr); g2.addColorStop(0, '#6b7390'); g2.addColorStop(1, '#2c3250');
+    c.fillStyle = g2; c.beginPath(); c.ellipse(x, wy, mm(60), wr, 0, 0, Math.PI * 2); c.fill(); c.strokeStyle = '#0c0e1a'; c.lineWidth = 2; c.stroke();
+    c.fillStyle = '#b9c0d4'; c.beginPath(); c.ellipse(x - side * mm(18), wy, mm(14), wr * 0.96, 0, 0, Math.PI * 2); c.fill();
+  };
+  const lx = cx - mm(half) - mm(35), rx = cx + mm(half) + mm(35);
+  const ax = c.createLinearGradient(0, wy - mm(28), 0, wy + mm(28)); ax.addColorStop(0, '#c3c9d8'); ax.addColorStop(1, '#6a728a'); c.fillStyle = ax; c.fillRect(lx, wy - mm(28), rx - lx, mm(56));
+  wheel(lx, -1); wheel(rx, 1);
+  // measures
+  const bad = n.wheel !== GAUGE_R, dif = GAUGE_R - GAUGE_S;
+  c.strokeStyle = '#ffd27a'; c.fillStyle = '#ffd27a'; c.lineWidth = 2;
+  const my = railY - mm(520) - 56;
+  c.beginPath(); c.moveTo(cx - mm(GAUGE_R / 2), my); c.lineTo(cx + mm(GAUGE_R / 2), my); c.stroke();
+  [-1, 1].forEach((s) => { c.beginPath(); c.moveTo(cx + s * mm(GAUGE_R / 2), my - 6); c.lineTo(cx + s * mm(GAUGE_R / 2), my + 6); c.stroke(); });
+  pill(c, `${num(GAUGE_R)} mm`, cx, my - 18, { align: 'c', col: '#ffd27a' });
+  if (bad) {
+    c.strokeStyle = '#ff6b6b'; [-1, 1].forEach((s) => { const x0 = cx + s * mm(GAUGE_R / 2), x1 = cx + s * mm(half); c.beginPath(); c.moveTo(x0, my + 16); c.lineTo(x1, my + 16); c.lineWidth = 4; c.stroke(); });
+    pill(c, `${num(GAUGE_S)} mm`, cx, my + 34, { align: 'c', col: '#ff9a9a' });
+  }
+  c.textAlign = 'center';
+  pill(c, bad ? t.stBad(dif) : t.ok, cx, h - 22, { align: 'c', col: bad ? '#ff9a9a' : '#7ee3b0' });
+}
+
+// --- view 2: the trip (a steam train in the taiga, the route, two clocks) ----------------------------------------
+function wheelD(c, x, y, r, ang, col) {
+  const g = c.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.1, x, y, r); g.addColorStop(0, col[0]); g.addColorStop(1, col[1]);
+  c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fillStyle = g; c.fill(); c.strokeStyle = '#0c0e1a'; c.lineWidth = Math.max(1, r * 0.1); c.stroke();
+  c.strokeStyle = 'rgba(12,14,26,.75)'; c.lineWidth = Math.max(1, r * 0.09); c.beginPath();
+  for (let i = 0; i < 6; i++) { const a = ang + i * Math.PI / 3; c.moveTo(x, y); c.lineTo(x + Math.cos(a) * r * 0.85, y + Math.sin(a) * r * 0.85); }
+  c.stroke(); c.beginPath(); c.arc(x, y, r * 0.2, 0, Math.PI * 2); c.fillStyle = '#c9a24a'; c.fill();
+}
+function carriage(c, x, rail, u, ang) { // a passenger coach, x = its left end
+  const w = 92 * u, top = rail - 50 * u, hgt = 36 * u;
+  const bg = c.createLinearGradient(0, top, 0, top + hgt); bg.addColorStop(0, '#2f6f58'); bg.addColorStop(1, '#173c30');
+  c.fillStyle = bg; rr(c, x, top, w, hgt, 5 * u); c.fill(); c.strokeStyle = '#0c0e1a'; c.lineWidth = 1.5; c.stroke();
+  c.fillStyle = '#0f2a22'; c.beginPath(); c.moveTo(x - 2 * u, top + 2 * u); c.quadraticCurveTo(x + w / 2, top - 9 * u, x + w + 2 * u, top + 2 * u); c.closePath(); c.fill();
+  c.fillStyle = '#d9a441'; c.fillRect(x, top + hgt * 0.62, w, 2.4 * u);
+  for (let i = 0; i < 5; i++) { const wx = x + 8 * u + i * 17 * u; const wg = c.createLinearGradient(0, top + 6 * u, 0, top + 20 * u); wg.addColorStop(0, '#ffe29a'); wg.addColorStop(1, '#f0a850'); c.fillStyle = wg; rr(c, wx, top + 7 * u, 11 * u, 13 * u, 2.5 * u); c.fill(); }
+  c.fillStyle = '#15171f'; c.fillRect(x + 6 * u, top + hgt, 20 * u, 6 * u); c.fillRect(x + w - 26 * u, top + hgt, 20 * u, 6 * u);
+  [x + 14 * u, x + 22 * u, x + w - 22 * u, x + w - 14 * u].forEach((wx) => wheelD(c, wx, rail - 6.5 * u, 6.5 * u, ang * 2, ['#7b8296', '#2c3040']));
+}
+function drawTrain(c, fx, rail, u, ang, time) {
+  const lx = fx - 124 * u, R = 15 * u, ty = lx - 64 * u;
+  carriage(c, ty - 96 * u, rail, u, ang); carriage(c, ty - 192 * u, rail, u, ang);
+  c.strokeStyle = '#0c0e1a'; c.lineWidth = 2 * u; c.beginPath(); c.moveTo(ty - 4 * u, rail - 18 * u); c.lineTo(ty, rail - 18 * u); c.stroke();
+  // tender: coal heap on a box
+  const tg = c.createLinearGradient(0, rail - 40 * u, 0, rail - 12 * u); tg.addColorStop(0, '#3a3d4c'); tg.addColorStop(1, '#171923');
+  c.fillStyle = tg; rr(c, ty, rail - 40 * u, 62 * u, 28 * u, 4 * u); c.fill(); c.strokeStyle = '#0c0e1a'; c.lineWidth = 1.5; c.stroke();
+  c.fillStyle = '#12131a'; c.beginPath(); c.moveTo(ty + 3 * u, rail - 40 * u); c.quadraticCurveTo(ty + 18 * u, rail - 54 * u, ty + 32 * u, rail - 49 * u); c.quadraticCurveTo(ty + 48 * u, rail - 55 * u, ty + 59 * u, rail - 40 * u); c.closePath(); c.fill();
+  c.fillStyle = '#c0392b'; c.fillRect(ty, rail - 21 * u, 62 * u, 2.5 * u);
+  [ty + 16 * u, ty + 46 * u].forEach((wx) => wheelD(c, wx, rail - 9 * u, 9 * u, ang * 1.6, ['#c0392b', '#5a1912']));
+  // frame and boiler
+  c.fillStyle = '#15171f'; c.fillRect(lx, rail - 20 * u, 132 * u, 6 * u);
+  const bg = c.createLinearGradient(0, rail - 56 * u, 0, rail - 20 * u); bg.addColorStop(0, '#46604f'); bg.addColorStop(0.35, '#2a3f35'); bg.addColorStop(1, '#101a16');
+  c.fillStyle = bg; rr(c, lx + 30 * u, rail - 56 * u, 94 * u, 36 * u, 12 * u); c.fill(); c.strokeStyle = '#0c0e1a'; c.lineWidth = 1.6; c.stroke();
+  c.fillStyle = '#c9a24a'; [lx + 52 * u, lx + 80 * u, lx + 104 * u].forEach((bx) => c.fillRect(bx, rail - 56 * u, 3 * u, 36 * u));
+  const sg = c.createLinearGradient(0, rail - 60 * u, 0, rail - 22 * u); sg.addColorStop(0, '#3b3e4d'); sg.addColorStop(1, '#14151c');
+  c.fillStyle = sg; c.beginPath(); c.ellipse(fx - 6 * u, rail - 38 * u, 8 * u, 18 * u, 0, 0, Math.PI * 2); c.fill(); c.stroke();
+  c.fillStyle = '#e8d9a0'; c.beginPath(); c.arc(fx - 3 * u, rail - 38 * u, 5 * u, 0, Math.PI * 2); c.fill();
+  // chimney, dome
+  c.fillStyle = '#16181f'; c.beginPath(); c.moveTo(fx - 26 * u, rail - 54 * u); c.lineTo(fx - 24 * u, rail - 72 * u); c.quadraticCurveTo(fx - 28 * u, rail - 74 * u, fx - 30 * u, rail - 80 * u); c.lineTo(fx - 10 * u, rail - 80 * u); c.quadraticCurveTo(fx - 14 * u, rail - 74 * u, fx - 12 * u, rail - 72 * u); c.lineTo(fx - 10 * u, rail - 54 * u); c.closePath(); c.fill();
+  c.fillStyle = '#b08a3a'; c.beginPath(); c.arc(lx + 70 * u, rail - 56 * u, 8 * u, Math.PI, 0); c.fill();
+  // cab
+  const cg = c.createLinearGradient(0, rail - 74 * u, 0, rail - 20 * u); cg.addColorStop(0, '#3a2623'); cg.addColorStop(1, '#1c100e');
+  c.fillStyle = cg; rr(c, lx, rail - 70 * u, 36 * u, 52 * u, 3 * u); c.fill(); c.strokeStyle = '#0c0e1a'; c.stroke();
+  c.fillStyle = '#12131a'; rr(c, lx - 4 * u, rail - 76 * u, 46 * u, 8 * u, 3 * u); c.fill();
+  const wg = c.createLinearGradient(0, rail - 62 * u, 0, rail - 44 * u); wg.addColorStop(0, '#ffe29a'); wg.addColorStop(1, '#f0a850'); c.fillStyle = wg; rr(c, lx + 8 * u, rail - 62 * u, 18 * u, 17 * u, 3 * u); c.fill();
+  // cowcatcher and lamp
+  c.fillStyle = '#2a2d3a'; c.beginPath(); c.moveTo(fx - 2 * u, rail - 22 * u); c.lineTo(fx + 15 * u, rail - 3 * u); c.lineTo(fx - 4 * u, rail - 3 * u); c.closePath(); c.fill(); c.stroke();
+  const lg = c.createRadialGradient(fx, rail - 56 * u, 1, fx, rail - 56 * u, 34 * u); lg.addColorStop(0, 'rgba(255,230,150,.7)'); lg.addColorStop(1, 'rgba(255,230,150,0)'); c.fillStyle = lg; c.beginPath(); c.arc(fx, rail - 56 * u, 34 * u, 0, Math.PI * 2); c.fill();
+  c.fillStyle = '#fff3c4'; c.beginPath(); c.arc(fx - 2 * u, rail - 55 * u, 4 * u, 0, Math.PI * 2); c.fill();
+  // wheels and the connecting rod
+  const cxs = [fx - 88 * u, fx - 58 * u, fx - 28 * u];
+  cxs.forEach((wx) => wheelD(c, wx, rail - R, R, ang, ['#d34a3a', '#6a1d15']));
+  wheelD(c, fx - 8 * u, rail - 8 * u, 8 * u, ang * 1.9, ['#8a92a6', '#2c3040']);
+  const pin = (wx) => [wx + Math.cos(ang) * 7 * u, rail - R + Math.sin(ang) * 7 * u];
+  const p0 = pin(cxs[0]), p2 = pin(cxs[2]);
+  c.strokeStyle = '#d8dce8'; c.lineWidth = 3.2 * u; c.lineCap = 'round'; c.beginPath(); c.moveTo(p0[0], p0[1]); c.lineTo(p2[0], p2[1]); c.stroke(); c.lineCap = 'butt';
+  c.fillStyle = '#0c0e1a'; cxs.forEach((wx) => { const p = pin(wx); c.beginPath(); c.arc(p[0], p[1], 2 * u, 0, Math.PI * 2); c.fill(); });
+  return [fx - 20 * u, rail - 80 * u]; // the chimney top
+}
+function treeRow(c, w, base, off, sp, ht, top, bot, seed) {
+  const first = Math.floor(off / sp) - 1, cnt = Math.ceil(w / sp) + 3;
+  for (let k = 0; k < cnt; k++) {
+    const i = first + k, x = i * sp - off + hash(i + seed) * sp * 0.5, th = ht * (0.7 + 0.6 * hash(i * 3 + seed)), tw = th * 0.36;
+    const g = c.createLinearGradient(x - tw, base - th, x + tw, base); g.addColorStop(0, top); g.addColorStop(1, bot); c.fillStyle = g;
+    c.beginPath(); c.moveTo(x, base - th);
+    for (let j = 1; j <= 3; j++) { const y = base - th + th * j / 3.1, ww = tw * (0.45 + j * 0.28); c.quadraticCurveTo(x + ww * 0.3, y - th * 0.12, x + ww, y); c.lineTo(x + ww * 0.5, y); }
+    c.lineTo(x + tw * 0.12, base); c.lineTo(x - tw * 0.12, base);
+    for (let j = 3; j >= 1; j--) { const y = base - th + th * j / 3.1, ww = tw * (0.45 + j * 0.28); c.lineTo(x - ww * 0.5, y); c.quadraticCurveTo(x - ww * 0.3, y - th * 0.12, x - ww, y); }
+    c.closePath(); c.fill();
+  }
+}
+function drawScene(c, w, h, time, dt) {
+  const u = Math.min(1.2, w / 375), horizon = h * 0.58, rail = h * 0.84, st = S.t;
+  const speed = 150 * u; st.sc += dt * speed;
+  c.save(); rr(c, 0, 0, w, h, 14); c.clip();
+  const sky = c.createLinearGradient(0, 0, 0, horizon + 10); sky.addColorStop(0, '#141d44'); sky.addColorStop(0.5, '#5b3f7d'); sky.addColorStop(1, '#f3a766'); c.fillStyle = sky; c.fillRect(0, 0, w, h);
+  const sx = w * 0.74, sy = horizon - 10 * u, sg = c.createRadialGradient(sx, sy, 2, sx, sy, 110 * u); sg.addColorStop(0, 'rgba(255,232,170,1)'); sg.addColorStop(0.12, 'rgba(255,214,140,.85)'); sg.addColorStop(1, 'rgba(255,170,100,0)'); c.fillStyle = sg; c.fillRect(0, 0, w, horizon + 20);
+  for (let i = 0; i < 26; i++) { c.fillStyle = `rgba(255,255,255,${0.25 + 0.5 * hash(i + 9) * (0.6 + 0.4 * Math.sin(time * 2 + i))})`; c.fillRect(hash(i) * w, hash(i + 40) * horizon * 0.5, 1.4, 1.4); }
+  const hill = (off, base, amp, f1, col1, col2) => {
+    c.beginPath(); c.moveTo(0, h); for (let x = 0; x <= w + 6; x += 6) c.lineTo(x, base - amp * (Math.sin((x + off) * f1) + 0.5 * Math.sin((x + off) * f1 * 2.3 + 1.7)));
+    c.lineTo(w, h); c.closePath(); const g = c.createLinearGradient(0, base - amp * 1.5, 0, base + 40 * u); g.addColorStop(0, col1); g.addColorStop(1, col2); c.fillStyle = g; c.fill();
+  };
+  hill(st.sc * 0.05, horizon, 22 * u, 0.011, '#5d4a86', '#34305c');
+  treeRow(c, w, horizon + 6 * u, st.sc * 0.12, 15 * u, 32 * u, '#43457a', '#2d2d58', 3);
+  hill(st.sc * 0.22, horizon + 14 * u, 9 * u, 0.02, '#2c3a52', '#1a2336');
+  treeRow(c, w, horizon + 26 * u, st.sc * 0.32, 22 * u, 50 * u, '#2b4a45', '#173028', 11);
+  const gr = c.createLinearGradient(0, horizon + 20 * u, 0, h); gr.addColorStop(0, '#1d3a2e'); gr.addColorStop(1, '#0b1612'); c.fillStyle = gr; c.fillRect(0, horizon + 28 * u, w, h);
+  treeRow(c, w, rail - 24 * u, st.sc * 0.62, 34 * u, 92 * u, '#234f3d', '#0f2a20', 21);
+  const bal = c.createLinearGradient(0, rail, 0, rail + 14 * u); bal.addColorStop(0, '#4a4650'); bal.addColorStop(1, '#1c1b21'); c.fillStyle = bal;
+  c.beginPath(); c.moveTo(0, rail + 14 * u); c.lineTo(0, rail + 2 * u); c.lineTo(w, rail + 2 * u); c.lineTo(w, rail + 14 * u); c.closePath(); c.fill();
+  c.fillStyle = '#2d2219'; const sp = 17 * u; for (let x = -((st.sc) % sp); x < w; x += sp) c.fillRect(x, rail + 2 * u, 8 * u, 6 * u);
+  c.fillStyle = '#c9d0e0'; c.fillRect(0, rail, w, 2.4 * u); c.fillStyle = 'rgba(255,255,255,.4)'; c.fillRect(0, rail, w, 0.8 * u);
+  c.fillStyle = '#0a1511'; c.fillRect(0, rail + 14 * u, w, h);
+  const ang = st.sc / (15 * u), fx = w * 0.8;
+  const [chx, chy] = drawTrain(c, fx, rail, u, ang, time);
+  // smoke: soft puffs that thicken and drift back as the train passes under them
+  st.emit -= dt; if (st.emit <= 0) { st.emit = 0.07; st.smoke.push({ x: chx, y: chy, a: 0, r: 5 * u, ph: Math.random() * 6 }); }
+  for (const p of st.smoke) { p.a += dt; p.x -= speed * (0.55 + 0.35 * p.a / 3) * dt; p.y -= (30 + 14 * Math.sin(p.a * 2 + p.ph)) * u * dt; p.r += 13 * u * dt; }
+  st.smoke = st.smoke.filter((p) => p.a < 3.2);
+  for (const p of st.smoke) {
+    const k = p.a / 3.2, al = (1 - k) * 0.55, g = c.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r);
+    g.addColorStop(0, `rgba(${230 - 60 * k | 0},${220 - 50 * k | 0},${215 - 20 * k | 0},${al})`); g.addColorStop(1, 'rgba(200,200,215,0)'); c.fillStyle = g; c.beginPath(); c.arc(p.x, p.y, p.r, 0, Math.PI * 2); c.fill();
+  }
+  c.restore();
+  return rail;
+}
+function drawTrip(c, w, h, dt, time) {
+  const st = S.t, t = T[lang];
+  if (st.ferry) return drawFerry(c, w, h, dt, time);
+  let mw = w - 20; if (WH * mw / WW > h * 0.34) mw = h * 0.34 * WW / WH;
+  const g = mapGeom((w - mw) / 2, h - 10 - WH * mw / WW, mw), sh = g.y - 8;
+  drawScene(c, w, sh, time, dt);
+  drawBase(c, g);
+  const route = (frac, col, wd, alpha) => strokeDense(c, g, ROUTE_D, frac, col, wd, false, alpha);
+  route(1, 'rgba(255,255,255,.5)', 2, 1);
+  let fT = 0, fR = 0;
+  if (st.pick !== null) {
+    st.sim = Math.min(ROAD_D, st.sim + dt * 6.25); fT = Math.min(1, st.sim / TRAIN_D); fR = Math.min(1, st.sim / ROAD_D);
+    route(fR, '#ff8a4a', 3, 1); route(fT, '#ffd27a', 3, 1);
+    const mk = (f, col) => { const p = routeAt(f), [x, y] = g.P(p[0], p[1]); const gl = c.createRadialGradient(x, y, 1, x, y, 13); gl.addColorStop(0, col); gl.addColorStop(1, 'rgba(255,255,255,0)'); c.fillStyle = gl; c.beginPath(); c.arc(x, y, 13, 0, Math.PI * 2); c.fill(); c.beginPath(); c.arc(x, y, 5, 0, Math.PI * 2); c.fillStyle = '#fff'; c.fill(); c.strokeStyle = col; c.lineWidth = 2.5; c.stroke(); };
+    mk(fR, '#ff8a4a'); mk(fT, '#ffd27a');
+  }
+  labels(c, g, cityItems(t, 9999, [['mos', ['below', 'right']], ['nov', ['above', 'below']], ['irk', ['below', 'above']], ['vla', ['above', 'left']]]));
+  if (st.pick !== null) {
+    const trainDone = st.sim >= TRAIN_D, roadDone = st.sim >= ROAD_D;
+    pill(c, `${t.trip.lTrain}: ${trainDone ? t.trip.train : t.trip.trainRun(st.sim)}`, 14, 24, { col: '#ffd27a', stroke: 'rgba(255,210,122,.6)' });
+    pill(c, `${t.trip.lRoad}: ${roadDone ? t.trip.road : t.trip.roadRun(Math.max(1, Math.ceil(st.sim)))}`, 14, 54, { col: '#ff9a62', stroke: 'rgba(255,138,74,.6)' });
+  }
+}
+
+// --- secret: the Baikal ferry and the loop line --------------------------------------------------------------------
+function drawFerry(c, w, h, dt, time) {
+  const t = T[lang], st = S.t, loop = st.fmode === 'loop';
+  const bg = c.createLinearGradient(0, 0, w, h); bg.addColorStop(0, '#31503f'); bg.addColorStop(1, '#1b2c26'); c.fillStyle = bg; rr(c, 0, 0, w, h, 14); c.fill();
+  const lo0 = 102.9, lo1 = 108.2, la0 = 50.9, la1 = 55.4, K2 = Math.cos(53 * Math.PI / 180);
+  const s = Math.min((w - 24) / ((lo1 - lo0) * K2), (h - 24) / (la1 - la0)), ox = (w - (lo1 - lo0) * K2 * s) / 2, oy = (h - (la1 - la0) * s) / 2;
+  const P = (lo, la) => [ox + (lo - lo0) * K2 * s, oy + (la1 - la) * s];
+  c.save(); rr(c, 0, 0, w, h, 14); c.clip();
+  c.beginPath(); BAIKAL_D.forEach((p, i) => { const [x, y] = P(p[0], p[1]); if (i) c.lineTo(x, y); else c.moveTo(x, y); });
+  c.lineCap = 'round'; c.lineJoin = 'round'; c.strokeStyle = 'rgba(8,10,18,.55)'; c.lineWidth = 0.78 * s; c.stroke();
+  const wg = c.createLinearGradient(0, 0, w, h); wg.addColorStop(0, '#3b86bf'); wg.addColorStop(1, '#1d4f7e'); c.strokeStyle = wg; c.lineWidth = 0.7 * s; c.stroke();
+  c.strokeStyle = 'rgba(190,225,250,.35)'; c.lineWidth = 0.16 * s; c.stroke();
+  const line = (pts, col, wd, dash) => { const d = dense(pts, 10); c.beginPath(); d.forEach((p, i) => { const [x, y] = P(p[0], p[1]); if (i) c.lineTo(x, y); else c.moveTo(x, y); }); c.strokeStyle = 'rgba(8,10,18,.85)'; c.lineWidth = wd + 2.4; c.stroke(); c.strokeStyle = col; c.lineWidth = wd; if (dash) c.setLineDash([6, 5]); c.stroke(); c.setLineDash([]); return d; };
+  line([CITY.irk, [104.5, 52.1], CITY.port], '#f2c14e', 3);
+  line([CITY.myso, [107.6, 51.83]], '#f2c14e', 3);
+  if (loop) line([CITY.port, [104.2, 51.7], CITY.slyu, [104.6, 51.55], [105.3, 51.55], CITY.myso], '#ff6b6b', 3.6);
+  else {
+    const d = line([CITY.port, [105.3, 52.0], CITY.myso], '#ffffff', 2.4, true);
+    const f = (Math.sin(time * 0.5) + 1) / 2, i = Math.min(d.length - 1, Math.floor(f * (d.length - 1))), [x, y] = P(d[i][0], d[i][1]);
+    const dir = d[Math.min(d.length - 1, i + 1)][0] - d[Math.max(0, i - 1)][0];
+    c.save(); c.translate(x, y); c.scale(dir < 0 ? -1 : 1, 1);
+    const sg = c.createLinearGradient(0, -8, 0, 8); sg.addColorStop(0, '#e8ecf6'); sg.addColorStop(1, '#8a92a6'); c.fillStyle = sg; c.beginPath(); c.moveTo(-15, -3); c.lineTo(15, -3); c.lineTo(11, 7); c.lineTo(-12, 7); c.closePath(); c.fill(); c.strokeStyle = '#0c0e1a'; c.lineWidth = 1.5; c.stroke();
+    c.fillStyle = '#c0392b'; c.fillRect(-4, -11, 8, 8); c.strokeRect(-4, -11, 8, 8); c.restore();
+  }
+  const names = [['irk', 'above', 'left'], ['port', 'above', 'right'], ['slyu', 'below', 'left'], ['myso', 'below', 'right']];
+  const items = names.map(([k, ...m]) => ({ p: CITY[k], text: t.cities[k], on: true, modes: m.concat(['below', 'above']) }));
+  const g = { P }; labels(c, g, items);
+  const lk = P(107.9, 53.9); pill(c, t.cities.lake, lk[0], lk[1], { align: 'c', col: '#cfe6ff' });
+  c.restore();
+  pill(c, t.fe.note, 14, h - 20, { col: '#98A0B8', fs: 12, w: 700 });
+}
+
+// --- view 3: a station town --------------------------------------------------------------------------------------
+const POP = [null, 7800, 47000, 80000], HOUSES = [5, 12, 30, 46];
+function drawTown(c, w, h, dt, time) {
+  const wv = S.w, t = T[lang].town; wv.tick += dt;
+  wv.cnt += (HOUSES[wv.stop] - wv.cnt) * Math.min(1, dt * 1.8); wv.bridge += ((wv.stop === 0 ? 0.35 : 1) - wv.bridge) * Math.min(1, dt * 1.6);
+  const u = Math.min(1.25, w / 375), rail = h * 0.64;
+  c.save(); rr(c, 0, 0, w, h, 14); c.clip();
+  const sky = c.createLinearGradient(0, 0, 0, rail); sky.addColorStop(0, '#27406b'); sky.addColorStop(0.6, '#c78a8a'); sky.addColorStop(1, '#f1c590'); c.fillStyle = sky; c.fillRect(0, 0, w, h);
+  const sg = c.createRadialGradient(w * 0.22, rail - 40 * u, 2, w * 0.22, rail - 40 * u, 120 * u); sg.addColorStop(0, 'rgba(255,236,180,.9)'); sg.addColorStop(1, 'rgba(255,200,140,0)'); c.fillStyle = sg; c.fillRect(0, 0, w, rail);
+  c.beginPath(); c.moveTo(0, rail); for (let x = 0; x <= w + 6; x += 6) c.lineTo(x, rail - 26 * u - 14 * u * Math.sin(x * 0.02) - 8 * u * Math.sin(x * 0.047 + 1)); c.lineTo(w, rail); c.closePath();
+  const fg = c.createLinearGradient(0, rail - 50 * u, 0, rail); fg.addColorStop(0, '#4a5f6a'); fg.addColorStop(1, '#2d4045'); c.fillStyle = fg; c.fill();
+  treeRow(c, w, rail - 2 * u, 0, 26 * u, 40 * u, '#2f5a4b', '#173a30', 7);
+  // ground and the river Ob, with a bridge across it
+  const gg = c.createLinearGradient(0, rail, 0, h); gg.addColorStop(0, '#5b6a45'); gg.addColorStop(1, '#2c3a28'); c.fillStyle = gg; c.fillRect(0, rail, w, h - rail);
+  const rx0 = w * 0.56, rx1 = w * 0.8, wy = rail + 16 * u;
+  c.beginPath(); c.moveTo(rx0 - 24 * u, rail); c.quadraticCurveTo(rx0, rail + 12 * u, rx0 + 8 * u, h); c.lineTo(rx1 - 8 * u, h); c.quadraticCurveTo(rx1, rail + 12 * u, rx1 + 24 * u, rail); c.closePath();
+  const rg = c.createLinearGradient(0, rail, 0, h); rg.addColorStop(0, '#6fa5c8'); rg.addColorStop(1, '#2b5a82'); c.fillStyle = rg; c.fill();
+  c.strokeStyle = 'rgba(255,255,255,.28)'; c.lineWidth = 1.4; for (let i = 0; i < 6; i++) { const yy = rail + 24 * u + i * 20 * u, xx = rx0 + 10 * u + ((i * 37 + time * 10) % (rx1 - rx0 - 30 * u)); c.beginPath(); c.moveTo(xx, yy); c.quadraticCurveTo(xx + 8 * u, yy - 3, xx + 16 * u, yy); c.stroke(); }
+  // bridge: piers always, the steel trusses grow with `bridge`
+  const bx0 = rx0 - 30 * u, bx1 = rx1 + 30 * u, deck = rail - 2 * u, span = (bx1 - bx0) * wv.bridge;
+  c.fillStyle = '#5a5f70'; [rx0 + 6 * u, (rx0 + rx1) / 2, rx1 - 6 * u].forEach((px) => { rr(c, px - 5 * u, deck, 10 * u, 70 * u, 2 * u); c.fill(); });
+  c.strokeStyle = '#222633'; c.lineWidth = 3 * u; c.beginPath(); c.moveTo(bx0, deck); c.lineTo(bx0 + span, deck); c.stroke();
+  c.lineWidth = 1.8 * u; c.strokeStyle = '#8f98ad'; c.beginPath(); c.moveTo(bx0, deck - 26 * u); c.lineTo(bx0 + span, deck - 26 * u);
+  const nb = 10; for (let i = 0; i < nb; i++) { const xa = bx0 + (bx1 - bx0) * i / nb, xb = bx0 + (bx1 - bx0) * (i + 1) / nb; if (xb > bx0 + span) break; c.moveTo(xa, deck); c.lineTo((xa + xb) / 2, deck - 26 * u); c.lineTo(xb, deck); }
+  c.stroke();
+  // rail line, and a grain train on it
+  c.fillStyle = '#c9d0e0'; c.fillRect(0, rail - 1 * u, bx0 + span, 2.2 * u); if (wv.bridge > 0.95) c.fillRect(bx1, rail - 1 * u, w - bx1, 2.2 * u);
+  // houses, back to front
+  const hs = [];
+  for (let i = 0; i < HOUSES[3]; i++) { const row = i % 3, x = w * 0.03 + ((i * 0.6180339) % 1) * w * 0.5, sz = [0.62, 0.95, 0.78][row]; hs.push({ i, x, row, sz, y: [rail + 8 * u, rail + h * 0.2, rail + h * 0.12][row] }); }
+  hs.sort((a, b) => a.y - b.y);
+  const cols = ['#a9764b', '#8d5f3d', '#c9b08a', '#b88a5a', '#d8c6a0'];
+  for (const q of hs) {
+    const a = clamp(wv.cnt - q.i, 0, 1); if (a <= 0) continue;
+    const bw = (24 + 10 * hash(q.i + 5)) * u * q.sz * 1.15, bh = (17 + 6 * hash(q.i + 17)) * u * q.sz * 1.15, x = q.x, y = q.y;
+    c.save(); c.translate(x + bw / 2, y); c.scale(0.4 + 0.6 * a, 0.4 + 0.6 * a); c.globalAlpha = a; c.translate(-(x + bw / 2), -y);
+    c.fillStyle = 'rgba(0,0,0,.25)'; c.beginPath(); c.ellipse(x + bw / 2, y, bw * 0.62, 3 * u, 0, 0, Math.PI * 2); c.fill();
+    const bg = c.createLinearGradient(x, y - bh, x, y); const col = cols[q.i % cols.length]; bg.addColorStop(0, col); bg.addColorStop(1, '#5e4630'); c.fillStyle = bg; c.fillRect(x, y - bh, bw, bh);
+    c.fillStyle = '#4a2f26'; c.beginPath(); c.moveTo(x - 3 * u, y - bh); c.lineTo(x + bw / 2, y - bh - 11 * u * q.sz * 1.1); c.lineTo(x + bw + 3 * u, y - bh); c.closePath(); c.fill();
+    c.fillStyle = Math.sin(wv.tick * 0.5 + q.i) > -0.2 ? '#ffd98a' : '#8a7a58'; c.fillRect(x + bw * 0.3, y - bh * 0.7, bw * 0.22, bh * 0.38);
+    c.restore();
+  }
+  // the station, a grain warehouse, silos and a mill appear as the town grows
+  const stx = w * 0.14, sy2 = rail - 1 * u;
+  if (wv.stop >= 1) {
+    const sgd = c.createLinearGradient(0, sy2 - 36 * u, 0, sy2); sgd.addColorStop(0, '#d7b98a'); sgd.addColorStop(1, '#8a6b4a'); c.fillStyle = sgd; rr(c, stx, sy2 - 34 * u, 74 * u, 34 * u, 3 * u); c.fill();
+    c.fillStyle = '#5a2b2b'; c.beginPath(); c.moveTo(stx - 5 * u, sy2 - 34 * u); c.lineTo(stx + 37 * u, sy2 - 52 * u); c.lineTo(stx + 79 * u, sy2 - 34 * u); c.closePath(); c.fill();
+    c.fillStyle = '#f4efe0'; c.beginPath(); c.arc(stx + 37 * u, sy2 - 40 * u, 5.5 * u, 0, Math.PI * 2); c.fill(); c.strokeStyle = '#222'; c.lineWidth = 1; c.stroke();
+    c.fillStyle = '#ffe29a'; [10, 26, 48, 62].forEach((dx) => c.fillRect(stx + dx * u, sy2 - 22 * u, 7 * u, 12 * u));
+    const wx = stx + 80 * u; c.fillStyle = '#b8864a'; rr(c, wx, sy2 - 24 * u, 52 * u, 24 * u, 2 * u); c.fill(); c.fillStyle = '#6b4a2c'; c.beginPath(); c.moveTo(wx - 3 * u, sy2 - 24 * u); c.lineTo(wx + 26 * u, sy2 - 36 * u); c.lineTo(wx + 55 * u, sy2 - 24 * u); c.closePath(); c.fill();
+    c.fillStyle = '#e0b35a'; c.fillRect(wx + 8 * u, sy2 - 15 * u, 14 * u, 15 * u); c.fillRect(wx + 30 * u, sy2 - 15 * u, 14 * u, 15 * u);
+  }
+  if (wv.stop >= 2) {
+    const ex = rx1 + 30 * u; [0, 1].forEach((k) => { const x = ex + k * 22 * u, sgl = c.createLinearGradient(x, 0, x + 18 * u, 0); sgl.addColorStop(0, '#d6d9e2'); sgl.addColorStop(1, '#7c8396'); c.fillStyle = sgl; c.fillRect(x, sy2 - 52 * u, 18 * u, 52 * u); c.beginPath(); c.ellipse(x + 9 * u, sy2 - 52 * u, 9 * u, 4 * u, 0, 0, Math.PI * 2); c.fillStyle = '#e8ebf2'; c.fill(); });
+    const mx = Math.max(4 * u, stx - 52 * u); const mg = c.createLinearGradient(0, sy2 - 40 * u, 0, sy2); mg.addColorStop(0, '#a85a45'); mg.addColorStop(1, '#6e3a2e'); c.fillStyle = mg; c.fillRect(mx, sy2 - 36 * u, 40 * u, 36 * u);
+    c.fillStyle = '#7a4033'; c.fillRect(mx + 28 * u, sy2 - 70 * u, 9 * u, 34 * u); c.fillStyle = '#ffe29a'; c.fillRect(mx + 6 * u, sy2 - 24 * u, 8 * u, 10 * u); c.fillRect(mx + 20 * u, sy2 - 24 * u, 8 * u, 10 * u);
+    for (let i = 0; i < 4; i++) { const a = (wv.tick * 0.5 + i * 0.25) % 1, px = mx + 32 * u - a * 26 * u, py = sy2 - 72 * u - a * 36 * u, rad = (4 + 9 * a) * u; const g = c.createRadialGradient(px, py, 0, px, py, rad); g.addColorStop(0, `rgba(235,230,225,${0.55 * (1 - a)})`); g.addColorStop(1, 'rgba(235,230,225,0)'); c.fillStyle = g; c.beginPath(); c.arc(px, py, rad, 0, Math.PI * 2); c.fill(); }
+  }
+  // a grain train rolls across the bridge, from the town to the right
+  if (wv.stop >= 1) {
+    const per = 12, ph = (wv.tick % per) / per, tx = -170 * u + ph * (w + 340 * u);
+    const wagon = (x, full) => { const wg = c.createLinearGradient(0, rail - 22 * u, 0, rail - 4 * u); wg.addColorStop(0, '#7a5a3a'); wg.addColorStop(1, '#3e2c1c'); c.fillStyle = wg; rr(c, x, rail - 22 * u, 36 * u, 16 * u, 2 * u); c.fill(); c.strokeStyle = '#0c0e1a'; c.lineWidth = 1.2; c.stroke();
+      if (full) { const gg2 = c.createLinearGradient(0, rail - 30 * u, 0, rail - 20 * u); gg2.addColorStop(0, '#f0cd6a'); gg2.addColorStop(1, '#b68a2c'); c.fillStyle = gg2; c.beginPath(); c.moveTo(x + 2 * u, rail - 22 * u); c.quadraticCurveTo(x + 18 * u, rail - 36 * u, x + 34 * u, rail - 22 * u); c.closePath(); c.fill(); }
+      c.fillStyle = '#15171f'; [x + 7 * u, x + 29 * u].forEach((wx) => { c.beginPath(); c.arc(wx, rail - 4 * u, 3.6 * u, 0, Math.PI * 2); c.fill(); }); };
+    for (let i = 0; i < 4; i++) wagon(tx - (i + 1) * 40 * u, true);
+    const lg = c.createLinearGradient(0, rail - 30 * u, 0, rail - 4 * u); lg.addColorStop(0, '#3b4a45'); lg.addColorStop(1, '#14201c'); c.fillStyle = lg; rr(c, tx - 36 * u + 36 * u, rail - 26 * u, 36 * u, 22 * u, 5 * u); c.fill(); c.strokeStyle = '#0c0e1a'; c.stroke();
+    c.fillStyle = '#16181f'; c.fillRect(tx + 24 * u, rail - 36 * u, 6 * u, 10 * u); c.fillStyle = '#15171f'; [tx + 4 * u, tx + 22 * u].forEach((wx) => { c.beginPath(); c.arc(wx + 0, rail - 5 * u, 5 * u, 0, Math.PI * 2); c.fill(); });
+    for (let i = 0; i < 3; i++) { const a = ((time * 0.8 + i / 3) % 1), px = tx + 27 * u - a * 40 * u, py = rail - 40 * u - a * 26 * u, rad = (3 + 9 * a) * u; const g = c.createRadialGradient(px, py, 0, px, py, rad); g.addColorStop(0, `rgba(235,235,240,${0.6 * (1 - a)})`); g.addColorStop(1, 'rgba(235,235,240,0)'); c.fillStyle = g; c.beginPath(); c.arc(px, py, rad, 0, Math.PI * 2); c.fill(); }
+  }
+  c.restore();
+  pill(c, T[lang].town.stops[wv.stop], 14, 24, { fs: 13, col: '#ffd27a', stroke: 'rgba(255,210,122,.6)' });
+  const known = wv.stop === 0 ? t.founded : t.people(POP[wv.stop], wv.stop === 2);
+  pill(c, known, w - 14, 24, { align: 'r', fs: 13 });
+  pill(c, t.hdr, 14, h - 22, { col: '#c6cde0', w: 700 });
+}
+
+// --- the loop ------------------------------------------------------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  CW = w; CH = h; c.lineJoin = 'round';
+  const v = lab.view;
+  if (v === 'net') drawNet(c, w, h, dt); else if (v === 'trip') drawTrip(c, w, h, dt, time); else drawTown(c, w, h, dt, time);
+});
+
+// --- controls ------------------------------------------------------------------------------------------------------
+const showStage = () => { const r = $('stage').getBoundingClientRect(); if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+const guessAt = (ev) => {
+  const n = S.n; if (lab.view !== 'net' || n.locked || n.gauge) return;
+  const r = $('cv').getBoundingClientRect(), y = ev.clientY - r.top;
+  let mw = r.width - 20; if (WH * mw / WW > r.height * 0.42) mw = r.height * 0.42 * WW / WH;
+  const gy0 = 10 + WH * mw / WW + 30, gy1 = r.height - 28; if (gy1 - gy0 < 50 || y < gy0 - 12 || y > gy1 + 12) return;
+  n.guess = clamp(Math.round((gy1 - y) / (gy1 - gy0) * 80), 0, 80) * 1000; $('rrGuess').value = n.guess; sfx.tick(); render();
+};
+$('cv').addEventListener('pointerdown', (ev) => { if (lab.view !== 'net' || S.n.locked || S.n.gauge) return; S.n.drag = true; $('cv').setPointerCapture(ev.pointerId); guessAt(ev); });
+$('cv').addEventListener('pointermove', (ev) => { if (S.n.drag) guessAt(ev); });
+['pointerup', 'pointercancel'].forEach((e) => $('cv').addEventListener(e, () => { S.n.drag = false; }));
+$('rrGuess').addEventListener('input', (ev) => { S.n.guess = +ev.target.value; render(); });
+$('rrYear').addEventListener('input', (ev) => { S.n.yTarget = +ev.target.value; sfx.tick(); render(); });
+const secChip = (k, emo, on) => `<button class="chip secret ${secret.unlocked() ? 'open' : ''} ${on ? 'on' : ''}" data-act="sec" data-k="${k}">${secret.unlocked() ? `${emo} ${esc(T[lang].secrets[k][0])}` : '🔒 ???'}</button>`;
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const a = b.dataset.act, n = S.n, st = S.t, wv = S.w;
+  if (a === 'lock') { if (n.guess === null) return; n.locked = true; n.yTarget = 1900; n.rev = 0; const ok = Math.abs(n.guess - 51000) <= 10000; (ok ? sfx.good : sfx.bad)(); showStage(); }
+  else if (a === 'yr') { n.yTarget = +b.dataset.y; sfx.click(); }
+  else if (a === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    if (b.dataset.k === 'gauge') { n.gauge = !n.gauge; n.fall = 1; } else { st.ferry = !st.ferry; }
+    sfx.click();
+  } else if (a === 'wheel') { n.wheel = +b.dataset.w; n.fall = 1; sfx.click(); }
+  else if (a === 'fm') { st.fmode = b.dataset.m; sfx.click(); }
+  else if (a === 'tpick') { st.pick = +b.dataset.i; st.sim = 0; (st.pick === 1 ? sfx.good : sfx.bad)(); showStage(); }
+  else if (a === 'again') { st.sim = 0; sfx.click(); }
+  else if (a === 'wpick') { wv.pick = +b.dataset.i; wv.stop = 2; (wv.pick === 2 ? sfx.good : sfx.bad)(); showStage(); }
+  else if (a === 'stop') { wv.stop = +b.dataset.i; sfx.click(); }
+  render();
+});
+
+// --- one render per change: controls, readout and the state card -------------------------------------------------------
+function optHTML(opts, pick, right, act) { // prediction buttons; after a pick the right one is green and a wrong pick red
+  return opts.map((o, i) => `<button class="rr-opt ${pick === null ? '' : i === right ? 'good' : i === pick ? 'bad' : ''}" data-act="${act}" data-i="${i}"${pick === null ? '' : ' disabled'}>${esc(o)}</button>`).join('');
+}
+function render() {
+  const t = T[lang], v = lab.view;
+  $('rrN').hidden = v !== 'net'; $('rrT').hidden = v !== 'trip'; $('rrW').hidden = v !== 'town';
+  if (v === 'net') renderNet(t); else if (v === 'trip') renderTrip(t); else renderTown(t);
+  $('cv').style.touchAction = v === 'net' && !S.n.locked && !S.n.gauge ? 'none' : '';
+}
+function renderNet(t) {
+  const n = S.n, f = t.net, year = n.yTarget;
+  lab.setGlow('rgba(242, 193, 78, .22)');
+  $('rrNPred').hidden = n.locked || n.gauge; $('rrNFree').hidden = !n.locked || n.gauge; $('rrNGauge').hidden = !n.gauge;
+  $('rrNSec').innerHTML = secChip('gauge', '📏', n.gauge); $('rrNNote').textContent = n.gauge ? '' : f.note;
+  $('rrNq').textContent = f.ask; $('rrLock').textContent = f.lock; $('rrLock').disabled = n.guess === null;
+  $('rrGuessLbl').textContent = n.guess === null ? '' : `${num(n.guess)} km`; $('rrGuessMax').textContent = num(80000);
+  $('rrYear').value = year; $('rrYear').setAttribute('aria-label', f.year);
+  $('rrYrChips').innerHTML = [1851, 1880, 1900, 1913].map((y) => `<button class="chip ${year === y ? 'on' : ''}" data-act="yr" data-y="${y}">${y}</button>`).join('');
+  if (n.gauge) {
+    const g = t.ga, dif = GAUGE_R - GAUGE_S, bad = n.wheel !== GAUGE_R;
+    $('rrGaugeChips').innerHTML = [GAUGE_S, GAUGE_R].map((w) => `<button class="chip ${n.wheel === w ? 'on' : ''}" data-act="wheel" data-w="${w}">${esc(w === GAUGE_S ? g.w1435 : g.w1524)}</button>`).join('');
+    lab.setReadout(`${dif} mm`, `${num(GAUGE_R)} − ${num(GAUGE_S)}`, g.gauge, '#ffd27a');
+    lab.setState(bad ? { emo: '📏', title: g.stBad(dif), lead: g.lBad(GAUGE_R, n.wheel, dif), body: g.b, extra: '' } : { emo: '📏', title: g.stOk, lead: g.lOk(GAUGE_R), body: g.b, extra: '' });
+    lab.setFacts(t.facts.gauge); return;
+  }
+  if (!n.locked) {
+    lab.setReadout(n.guess === null ? '?' : `${num(n.guess)} km`, f.guessSub, '', '#ffc450');
+    lab.setState({ emo: '🤔', title: f.ask, lead: f.askLead, body: '', extra: '' });
+    lab.setFacts(t.facts.net); return;
+  }
+  let known = KNOWN[0]; for (const k of KNOWN) if (year >= k[0]) known = k;
+  const exact = known[0] === year, km = known[1], newest = LINES.filter((l) => l.y <= year && l.id !== 'ferry').sort((a, b) => b.y - a.y)[0];
+  const same = [...new Set(LINES.filter((l) => l.y === newest.y && l.id !== 'ferry').map((l) => t.ln[l.id]))].join('; ');
+  const ratio = Math.round(km / FIRST_KM);
+  let body = exact ? (known[0] === 1851 ? f.first : f.exact(km, year)) : f.known(km, known[0]);
+  if (ratio >= 2) body += ` ${f.times(ratio)}`;
+  const extra = [year >= 1900 && year < 1904 ? f.ferry : '', year >= 1904 ? f.circum : '', year >= 1903 ? f.manch : ''].filter(Boolean).join(' ');
+  let title = `${year}`, lead = f.latest(same, newest.y);
+  if (year === 1900) { title = Math.abs(n.guess - 51000) <= 10000 ? f.right : f.wrong; lead = f.res(n.guess, 51000); }
+  lab.setReadout(`${num(km)} km`, exact ? `${year}` : `${f.lastFig}: ${known[0]}`, ratio >= 2 ? f.pill(ratio) : '', '#f2c14e');
+  lab.setState({ emo: '🚂', title, lead, body: `${body}${extra ? ` ${extra}` : ''}`, extra: '' });
+  lab.setFacts(t.facts.net2);
+}
+function renderTrip(t) {
+  const st = S.t, f = t.trip, done = st.pick !== null;
+  lab.setGlow('rgba(255, 138, 74, .22)');
+  $('rrTPred').hidden = done || st.ferry; $('rrTFree').hidden = !done || st.ferry; $('rrTFerry').hidden = !st.ferry;
+  $('rrTq').textContent = f.ask; $('rrTOpts').innerHTML = optHTML(f.opts, st.pick, 1, 'tpick'); $('rrAgain').textContent = f.again;
+  $('rrTSec').innerHTML = secChip('ferry', '⛴️', st.ferry); $('rrTNote').textContent = st.ferry ? t.fe.note : f.note;
+  $('rrFerryChips').innerHTML = ['ferry', 'loop'].map((m) => `<button class="chip ${st.fmode === m ? 'on' : ''}" data-act="fm" data-m="${m}">${esc(t.fe[m])}</button>`).join('');
+  if (st.ferry) {
+    const loop = st.fmode === 'loop', e = t.fe;
+    lab.setReadout(loop ? '1904' : '1897', t.cities.lake, '', '#ff6b6b');
+    lab.setState({ emo: loop ? '🚉' : '⛴️', title: loop ? e.stL : e.stF, lead: loop ? e.lL : e.lF, body: loop ? e.bL : e.bF, extra: '' });
+    lab.setFacts(t.facts.ferry); return;
+  }
+  if (!done) {
+    lab.setReadout('?', f.askLead.split('.')[0] + '.', '', '#ff8a4a');
+    lab.setState({ emo: '🤔', title: f.ask, lead: f.askLead, body: '', extra: '' });
+    lab.setFacts([]); return;
+  }
+  const ok = st.pick === 1;
+  lab.setReadout(f.train, f.sub, f.pill(Math.round(ROAD_D / TRAIN_D)), '#ff8a4a');
+  lab.setState({ emo: ok ? '✅' : '🚂', title: `${ok ? f.right : f.wrong} ${f.stTitle}`, lead: `${f.resTrain} ${f.stLead}`, body: f.stBody, extra: '' });
+  lab.setFacts(t.facts.trip);
+}
+function renderTown(t) {
+  const wv = S.w, f = t.town, pred = wv.pick === null;
+  lab.setGlow('rgba(205, 140, 100, .22)');
+  $('rrWPred').hidden = !pred; $('rrStops').hidden = pred;
+  $('rrWq').textContent = f.ask; $('rrWOpts').innerHTML = optHTML(f.opts, wv.pick, 2, 'wpick');
+  $('rrStops').innerHTML = f.stops.map((s, i) => `<button class="chip ${wv.stop === i ? 'on' : ''}" data-act="stop" data-i="${i}">${esc(s)}</button>`).join('');
+  $('rrWNote').textContent = f.noteSch;
+  lab.setFacts(t.facts.town);
+  const i = pred ? 1 : wv.stop, s = f.st[i];
+  lab.setReadout(POP[i] === null ? f.founded : num(POP[i]) + (i === 2 ? '+' : ''), POP[i] === null ? '' : f.people(POP[i]).replace(num(POP[i]), '').trim(), f.pill[i], '#cd8c64');
+  if (pred) { lab.setState({ emo: '🤔', title: f.ask, lead: f.hdr, body: f.noteSch, extra: '' }); return; }
+  const ok = wv.pick === 2;
+  lab.setState(i === 2 ? { emo: ok ? '✅' : '🤔', title: `${ok ? f.right : f.wrong} ${s.t}`, lead: `${ok ? f.resRight : f.resWrong} ${s.l}`, body: s.b, extra: '' } : { emo: '🏘️', title: s.t, lead: s.l, body: s.b, extra: '' });
+}
+render();
+</script>
+</body>
+</html>
