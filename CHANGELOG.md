@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-13
 
 ### Labs
+- New lab `she-wolf` “The Twins and the She-Wolf”: turn the pages of the legend of Romulus and Remus and guess each next page, sort what the story says from what archaeologists found, and find the Palatine and the Aventine among Rome's seven hills (587). (#513)
 - New lab `carbon-chains` “Carbon Chains”: grow a carbon chain and predict the next boiling point on the graph, compare butane and isobutane, and swap in an −OH or −COOH group to see what mixes with water (586). (#512)
 - New lab `factorise` “Take It Out”: arrange algebra tiles into equal rows, decide whether a common factor can go further, and expand a factorisation back to check it (585). (#511)
 - New lab `fire-triangle` “What Does a Fire Need?”: cover three candles with jars of different sizes and watch the oxygen fall, put out five kinds of fire by taking away fuel, oxygen or heat, and test four gases with a glowing and a lit splint (584). (#510)
