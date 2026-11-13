@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-13
 
 ### Labs
+- New lab `vectors` “Arrows on the Map”: compare pairs of arrows placed anywhere on an island map, predict where a+b+c and a−b end, and multiply an arrow by −1, ½ and 2 while its x and y steps update (606). (#532)
 - New lab `conquest` “A New Homeland”: follow the Hungarians across the steppe into the Carpathian Basin and pick what the land offered, sort the magic stag and Emese's dream from recorded history, and order 895, 1000, 1222 and 1241–42 (605). (#531)
 - New lab `skew-lines` “Lines in a Room”: turn a room and sort pairs of edges into crossing, parallel and skew, find which planes meet and along which line, and check a pole with one and two right angles (604). (#530)
 - New lab `out-of-africa` “Across the Whole World”: order Australia, Europe and the Americas by when people reached them and run 300,000 years on a world map, try a hand axe, a spear, a bow and a needle, and keep warm on an Ice Age night with fire, a tent and clothes (603). (#529)
