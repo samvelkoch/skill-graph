@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-13
 
 ### Labs
+- New lab `crow-puzzle` “A Puzzle for a Crow”: choose stones or corks and how many a crow drops to raise the water in three tubes, match a crow, a chimpanzee, a sea otter and an octopus with their tools, and run the mirror test (598). (#524)
 - New lab `line-graph` “What the Line Says”: grow a sunflower beside its height graph and guess the week of fastest growth, measure the gap between Budapest's and Moscow's temperature lines, and spot a cut axis and uneven steps (597). (#523)
 - New lab `comets` “Tailed Visitors”: guess where a comet moves fastest on its stretched orbit, point the way its tail streams, and sort Pluto, Titan, Halley, Mercury, Eros and Ceres by the rules for planets, dwarf planets, moons, asteroids and comets (596). (#522)
 - New lab `bird-flight` “Built to Fly”: cut open a pigeon's and a rat's bone and weigh feathers against a skeleton, match four wing shapes to four ways of flying, and zoom into a feather down to its barbs and hooks (595). (#521)
