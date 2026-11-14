@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-14
 
 ### Labs
+- New lab `king-parliament` “King or Parliament?”: Absolutism in France vs Parliament in England, 1600–1700. (637). (#566)
 - New lab `two-ways` “Two Ways to Wire”: Series and parallel circuits with meters and a home switchboard. (636). (#565)
 - New lab `circle-area` “Unroll the Circle”: Circle area by rearranging sectors, with the A(r) graph. (635). (#564)
 - New lab `slinky` “Push or Shake”: Transverse and longitudinal waves on a slinky with v = f·λ. (634). (#563)
