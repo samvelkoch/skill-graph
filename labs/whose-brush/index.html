@@ -1,0 +1,975 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Whose Brush? · Skill Graph</title>
+<meta name="description" content="Recognise an artist by the way the brush is used: one vase painted five ways, a guessing game, and Seurat’s dots and Rembrandt’s lamp. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  .wb-row { margin-top: 10px; }
+  .wb-row:first-child { margin-top: 0; }
+  .chip.wb { min-height: 38px; padding: 7px 14px; font-size: 13px; }
+  .wb-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 8px; }
+  .wb-a { min-height: 42px; border-radius: 14px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1); color: var(--ink);
+    font-weight: 800; font-size: 14px; cursor: pointer; padding: 6px 8px; font-family: inherit; }
+  .wb-a:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .wb-a:disabled { cursor: default; }
+  .wb-a.ok { border-color: var(--ok); background: rgba(61, 220, 151, .18); }
+  .wb-a.no { border-color: #ff6a60; background: rgba(255, 59, 48, .14); }
+  .wb-a.dim { opacity: .45; }
+  .wb-pred { display: grid; gap: 8px; margin-top: 10px; }
+  .wb-pred .wb-a { text-align: left; padding: 10px 14px; }
+  .wb-q { font: 500 19px/1.2 var(--serif); color: #fff; margin: 0; text-wrap: balance; }
+  .wb-slide { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+  .wb-slide input { flex: 1; height: 36px; accent-color: #fff; }
+  .wb-slide span { font-size: 12px; color: var(--faint); font-weight: 700; min-width: 52px; }
+  .wb-slide span:last-child { text-align: right; }
+  .wb-next { margin-top: 12px; }
+  @media (max-width: 760px) {
+    #stage { height: min(100vw, 520px); }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, lang } from '../lab.js';
+
+// --- sources actually opened while building (Wikipedia pages) -----------------------------------------------
+const W = 'https://en.wikipedia.org/wiki/';
+const SRC = {
+  vg: W + 'The_Starry_Night', mo: W + 'Impression,_Sunrise', se: W + 'Pointillism', re: W + 'The_Night_Watch', pi: W + 'Cubism',
+  gvg: W + 'The_Starry_Night', gmo: W + 'Impression,_Sunrise', gse: W + 'A_Sunday_Afternoon_on_the_Island_of_La_Grande_Jatte',
+  gre: W + 'The_Night_Watch', gpi: W + 'Les_Demoiselles_d%27Avignon', pt: W + 'Pointillism',
+  pt2: W + 'A_Sunday_Afternoon_on_the_Island_of_La_Grande_Jatte', rem: W + 'Rembrandt',
+  sold: W + 'The_Red_Vineyard · ' + W + 'Vincent_van_Gogh',
+};
+const KEYS = ['vg', 'mo', 'se', 're', 'pi'];
+const Y = { vg: '1853–1890', mo: '1840–1926', se: '1859–1891', re: '1606–1669', pi: '1881–1973' };
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Whose Brush?', title: 'Whose Brush?',
+    lines: [['One vase,', 'five brushes.'], ['Guess whose', 'brush it was.'], ['Look closely,', 'then move the lamp.']],
+    views: { brush: '🖌️ Brush', guess: '🎯 Guess', light: '💡 Light' },
+    art: {
+      vg: { n: 'Van Gogh', c: 'Netherlands, worked in France', man: 'Thick paint in short, swirling strokes.' },
+      mo: { n: 'Monet', c: 'France', man: 'Soft patches of light, painted outdoors, with no hard outlines.' },
+      se: { n: 'Seurat', c: 'France', man: 'Tiny separate dots of pure colour.' },
+      re: { n: 'Rembrandt', c: 'Dutch Republic (now the Netherlands)', man: 'Warm light that comes out of deep darkness.' },
+      pi: { n: 'Picasso', c: 'born in Spain, lived mostly in France', man: 'Flat, angular shapes. The same vase is shown from the side and from above.' },
+    },
+    b: { progress: (k) => `Brushes tried: ${k} of 5. Try them all: the vase never changes, only the brush.`,
+      all: 'All five tried. Next: guess whose brush it is, with no labels.', sub: 'brushes tried', pill: (n) => n },
+    mix: { title: 'Your own vase', lead: 'Drag over the canvas to paint. The colours come from the still life, the strokes from the brushes you switch on. Switch on two or three to mix manners.',
+      kinds: { swirl: '🌀 Swirls', dot: '⚫ Dots', patch: '🟨 Patches' }, clear: '🗑️ Clear', plate: 'your own painting', sub: 'strokes' },
+    sold: { q: 'How many paintings did Van Gogh sell while he was alive?', opts: ['Most of them', 'About a hundred', 'Hardly any'], ok: 2,
+      right: 'Right!', wrong: 'Not quite.', plateQ: 'about 860 oil paintings', plateA: 'The Red Vineyard, sold in 1890',
+      truth: 'Only one painting known by name is recorded as sold in his lifetime: The Red Vineyard, in 1890. Some say he sold a few more, but still very few.', sub: 'oil paintings' },
+    g: { q: 'Whose brush is this?', lead: 'Look at how the paint is put on, not at what is painted.', right: 'Right!', wrong: (c) => `Not this one. The painter: ${c}.`,
+      clue: { vg: 'Thick strokes that swirl along.', mo: 'Soft patches of light, no hard lines.', se: 'Tiny separate dots.', re: 'A bright patch of light in deep darkness.', pi: 'Flat angular pieces, as if the picture were cut up and put together again.' },
+      cred: { vg: 'after “The Starry Night”, Van Gogh, 1889', mo: 'after “Impression, Sunrise”, Monet, 1872', se: 'after “A Sunday on La Grande Jatte”, Seurat, 1884–1886',
+        re: 'after “The Night Watch”, Rembrandt, 1642', pi: 'after Picasso’s cubist portraits' },
+      close: '🔍 close-up', next: 'Next painting →', fin: 'Result →', again: '↻ Again', sub: 'painting', end: (k) => `${k} of 5 right.`,
+      endLead: 'A painter can be recognised by the way the brush is used, not only by the subject.' },
+    s: { parts: ['Dots', 'Lamp'], q: 'What will the dots look like from far away?', lead: 'This is a Seurat-style painting seen very close. Choose, then step back.',
+      opts: ['Still separate dots', 'Colours mixed into smooth shades', 'Just grey'], ok: 1, right: 'Right!', wrong: 'Not quite.',
+      slider: 'Distance', words: ['close', 'a few steps', 'far'], sub: 'distance',
+      near: ['Close up: separate dots', 'Each dot is one pure colour: blue, yellow, red…'],
+      mid: ['Stepping back…', 'The dots start to blur together.'],
+      far: ['From far away: mixed colours', 'Your eye blends neighbouring dots into new colours. The mixing happens in the eye, not on the palette.'],
+      lampQ: ['Move the lamp.', 'Make one side of the face bright and the other side dark. Drag the lamp or use the buttons.'],
+      lampOk: ['Light out of darkness!', 'Light from the side: one cheek shines, the other sinks into shadow. Rembrandt used strong light and deep shadow to make people stand out of the dark.'],
+      lampFlat: ['Both cheeks look the same', 'Light from the front or from above lights both sides alike. Try the sides.'],
+      lampDark: ['Too dark', 'Hardly anything is lit: the lamp is too far away.'],
+      lampMid: ['Getting closer…', 'Make the difference between the two cheeks bigger.'],
+      lamp: { l: 'Left', r: 'Right', u: 'Above', d: 'Below' }, cheeks: 'left cheek | right cheek', lampLabel: 'Lamp' },
+    secrets: { mix: ['Mix the brushes', 'Paint your own vase with swirls and dots'], sold: ['Gallery wall', 'How many paintings did Van Gogh sell?'] },
+    fact: {
+      vg: 'Van Gogh painted The Starry Night in June 1889 in Saint-Rémy-de-Provence, France. The village in it is imagined: it was not part of the view from his window.',
+      mo: 'Monet’s Impression, Sunrise (1872) shows the port of Le Havre. It hung in the first Impressionist exhibition in Paris in April 1874, and the critic Louis Leroy (often credited with it) used the word “impressionists” in his review of that show.',
+      se: 'The dot technique was developed by Georges Seurat and Paul Signac in 1886.',
+      re: 'Rembrandt painted The Night Watch (1642) for the civic militia of Captain Frans Banninck Cocq. He was paid 1,600 guilders.',
+      pi: 'The name “Cubism” goes back to the critic Louis Vauxcelles, who in 1908 wrote that Georges Braque reduced things to “cubes”.',
+      gvg: 'The Starry Night is oil on canvas, 73.7 × 92.1 cm. It has been in the Museum of Modern Art in New York since 1941.',
+      gmo: 'A 2014 study dated the scene of Impression, Sunrise to the morning of 13 November 1872, around 7:35.',
+      gse: 'Seurat worked on La Grande Jatte from May 1884 to March 1885 and again from October 1885 to May 1886. The canvas is about 2 × 3 metres (207.6 × 308 cm).',
+      gre: 'The Night Watch is not a night scene. Dark varnish covered it for a long time and made it look like night; the varnish was removed in the 1940s.',
+      gpi: 'Picasso kept Les Demoiselles d’Avignon (1907) in his studio; the public first saw it in July 1916.',
+      pt: 'The word “Pointillism” was coined by art critics in the late 1880s to make fun of these painters.',
+      pt2: 'Seurat drew on the colour theories of Michel Eugène Chevreul and Ogden Rood.',
+      rem: 'Rembrandt made about 100 self-portraits; more than 40 of them are paintings.',
+      sold: 'Van Gogh made about 2,100 artworks, around 860 of them oil paintings. The only painting known by name that he is recorded as selling is The Red Vineyard (1890, 400 francs, to Anna Boch); one newspaper says he sold at least two.',
+    },
+    quiz: [
+      { q: 'Can you recognise an artist only by what is painted?', opts: ['No, also by how the brush is used', 'Yes, only by subject', 'Only by the frame'], ok: 0, hint: 'Look at one vase painted five ways.' },
+      { q: 'Did Seurat mix his colours on the palette?', opts: ['Yes', 'No, he put dots side by side and the eye mixes them', 'He used only black'], ok: 1, hint: 'Use the distance slider in the Light view.' },
+      { q: 'Why does a Picasso face show an eye from the front and a nose from the side?', opts: ['He could not draw', 'It is a mistake in printing', 'He showed several views at once'], ok: 2, hint: 'Look at the Picasso brush on the vase, and at the Picasso portrait in the Guess view.' },
+    ],
+  },
+  ru: {
+    name: 'Чья кисть?', title: 'Чья кисть?',
+    lines: [['Одна ваза,', 'пять кистей.'], ['Угадай,', 'чья это кисть.'], ['Присмотрись', 'и подвигай лампу.']],
+    views: { brush: '🖌️ Кисти', guess: '🎯 Кто?', light: '💡 Свет' },
+    art: {
+      vg: { n: 'Ван Гог', c: 'Нидерланды, работал во Франции', man: 'Густая краска, короткие закручивающиеся мазки.' },
+      mo: { n: 'Моне', c: 'Франция', man: 'Мягкие пятна света, написанные на открытом воздухе, без жёстких контуров.' },
+      se: { n: 'Сёра', c: 'Франция', man: 'Крошечные отдельные точки чистого цвета.' },
+      re: { n: 'Рембрандт', c: 'Голландская республика (ныне Нидерланды)', man: 'Тёплый свет, выходящий из глубокой тьмы.' },
+      pi: { n: 'Пикассо', c: 'родился в Испании, жил в основном во Франции', man: 'Плоские угловатые формы. Одна и та же ваза показана и сбоку, и сверху.' },
+    },
+    b: { progress: (k) => `Кистей опробовано: ${k} из 5. Попробуй все: ваза не меняется, меняется только кисть.`,
+      all: 'Все пять кистей опробованы. Дальше: угадай, чья кисть, без подписей.', sub: 'кистей опробовано', pill: (n) => n },
+    mix: { title: 'Твоя ваза', lead: 'Води пальцем по холсту. Цвета берутся из натюрморта, а мазки — из включённых кистей. Включи две или три, чтобы смешать манеры.',
+      kinds: { swirl: '🌀 Вихри', dot: '⚫ Точки', patch: '🟨 Пятна' }, clear: '🗑️ Стереть', plate: 'твоя картина', sub: 'мазки' },
+    sold: { q: 'Сколько картин продал Ван Гог при жизни?', opts: ['Большую часть', 'Около ста', 'Почти ни одной'], ok: 2,
+      right: 'Верно!', wrong: 'Не совсем.', plateQ: 'около 860 картин маслом', plateA: 'Картина «Красные виноградники», продана в 1890 году',
+      truth: 'При жизни записана как проданная только одна картина, известная по названию: «Красные виноградники», 1890 год. Говорят, он продал ещё несколько, но всё равно очень мало.', sub: 'картин маслом' },
+    g: { q: 'Чья это кисть?', lead: 'Смотри на то, как положена краска, а не на то, что нарисовано.', right: 'Верно!', wrong: (c) => `Не угадано. Автор — ${c}.`,
+      clue: { vg: 'Густые мазки, которые закручиваются вихрями.', mo: 'Мягкие пятна света, жёстких линий нет.', se: 'Крошечные отдельные точки.', re: 'Яркое пятно света в глубокой темноте.', pi: 'Плоские угловатые куски, будто картину разрезали и сложили заново.' },
+      cred: { vg: 'по мотивам «Звёздной ночи», Ван Гог, 1889', mo: 'по мотивам «Впечатления. Восход солнца», Моне, 1872', se: 'по мотивам «Воскресного дня на острове Гранд-Жатт», Сёра, 1884–1886',
+        re: 'по мотивам «Ночного дозора», Рембрандт, 1642', pi: 'по мотивам кубистических портретов Пикассо' },
+      close: '🔍 крупным планом', next: 'Дальше →', fin: 'Итог →', again: '↻ Ещё раз', sub: 'картина', end: (k) => `${k} из 5 верно.`,
+      endLead: 'Художника можно узнать по тому, как он водит кистью, а не только по сюжету.' },
+    s: { parts: ['Точки', 'Лампа'], q: 'Как будут выглядеть точки издалека?', lead: 'Это картина в духе Сёра вблизи. Выбери ответ, потом отойди.',
+      opts: ['По-прежнему отдельные точки', 'Цвета смешаются в плавные оттенки', 'Просто серый'], ok: 1, right: 'Верно!', wrong: 'Не совсем.',
+      slider: 'Расстояние', words: ['близко', 'несколько шагов', 'далеко'], sub: 'расстояние',
+      near: ['Вблизи: отдельные точки', 'Каждая точка — один чистый цвет: синий, жёлтый, красный…'],
+      mid: ['Отходим…', 'Точки начинают сливаться.'],
+      far: ['Издалека: смешанные цвета', 'Глаз смешивает соседние точки в новые цвета. Смешивание происходит в глазу, а не на палитре.'],
+      lampQ: ['Подвигай лампу.', 'Сделай одну сторону лица светлой, а другую тёмной. Тяни лампу или нажимай кнопки.'],
+      lampOk: ['Свет из темноты!', 'Свет сбоку: одна щека сияет, другая тонет в тени. Рембрандт использовал сильный свет и глубокую тень, чтобы люди выступали из тьмы.'],
+      lampFlat: ['Обе щеки выглядят одинаково', 'Свет спереди или сверху освещает обе стороны одинаково. Попробуй сбоку.'],
+      lampDark: ['Слишком темно', 'Почти ничего не освещено: лампа слишком далеко.'],
+      lampMid: ['Уже ближе…', 'Сделай разницу между щеками больше.'],
+      lamp: { l: 'Слева', r: 'Справа', u: 'Сверху', d: 'Снизу' }, cheeks: 'левая щека | правая щека', lampLabel: 'Лампа' },
+    secrets: { mix: ['Смешай кисти', 'Нарисуй свою вазу вихрями и точками'], sold: ['Стена картин', 'Сколько картин продал Ван Гог?'] },
+    fact: {
+      vg: 'Ван Гог написал «Звёздную ночь» в июне 1889 года в Сен-Реми-де-Прованс, во Франции. Деревня на картине придумана: в виде из его окна её не было.',
+      mo: '«Впечатление. Восход солнца» (1872) Моне изображает порт Гавра. Картину показали на первой выставке импрессионистов в Париже в апреле 1874 года, а критик Луи Леруа (его часто называют автором слова) в рецензии на эту выставку написал «импрессионисты».',
+      se: 'Приём с точками разработали Жорж Сёра и Поль Синьяк в 1886 году.',
+      re: '«Ночной дозор» (1642) Рембрандт написал для городской стрелковой роты капитана Франса Баннинга Кока. Ему заплатили 1600 гульденов.',
+      pi: 'Название «кубизм» восходит к критику Луи Воксселю: в 1908 году он написал, что Жорж Брак сводит всё к «кубикам».',
+      gvg: '«Звёздная ночь» — холст, масло, 73,7 × 92,1 см. С 1941 года она хранится в Музее современного искусства в Нью-Йорке.',
+      gmo: 'Исследование 2014 года датировало сцену «Впечатления. Восход солнца» утром 13 ноября 1872 года, около 7:35.',
+      gse: 'Над «Воскресным днём на острове Гранд-Жатт» Сёра работал с мая 1884 по март 1885 года и снова с октября 1885 по май 1886. Холст размером около 2 × 3 метров (207,6 × 308 см).',
+      gre: '«Ночной дозор» — вовсе не ночная сцена. Тёмный лак долго покрывал картину и делал её похожей на ночь; лак сняли в 1940-х годах.',
+      gpi: 'Пикассо держал «Авиньонских девиц» (1907) в мастерской: публика впервые увидела картину в июле 1916 года.',
+      pt: 'Слово «пуантилизм» придумали художественные критики в конце 1880-х годов, чтобы посмеяться над такими художниками.',
+      pt2: 'Сёра опирался на теории цвета Мишеля Эжена Шевреля и Огдена Руда.',
+      rem: 'Рембрандт создал около ста автопортретов; больше сорока из них — картины.',
+      sold: 'Ван Гог создал около 2100 произведений, из них около 860 картин маслом. Единственная известная по названию проданная им картина — «Красные виноградники» (1890, 400 франков, Анна Бош); одна газета пишет, что он продал не меньше двух.',
+    },
+    quiz: [
+      { q: 'Можно ли узнать художника только по тому, что нарисовано?', opts: ['Нет, ещё и по тому, как он водит кистью', 'Да, только по сюжету', 'Только по раме'], ok: 0, hint: 'Посмотри на одну вазу, написанную пятью кистями.' },
+      { q: 'Смешивал ли Сёра краски на палитре?', opts: ['Да', 'Нет, он ставил точки рядом, а глаз смешивает их', 'Он использовал только чёрный'], ok: 1, hint: 'Подвигай ползунок расстояния на вкладке «Свет».' },
+      { q: 'Почему на лице у Пикассо глаз смотрит спереди, а нос виден сбоку?', opts: ['Он не умел рисовать', 'Это ошибка при печати', 'Он показал сразу несколько ракурсов'], ok: 2, hint: 'Посмотри на вазу, нарисованную кистью Пикассо, и на портрет Пикассо на вкладке «Кто?».' },
+    ],
+  },
+  hu: {
+    name: 'Kinek az ecsetje?', title: 'Kinek az ecsetje?',
+    lines: [['Egy váza,', 'öt ecset.'], ['Találd ki,', 'kié az ecset.'], ['Nézd közelről,', 'aztán mozgasd a lámpát.']],
+    views: { brush: '🖌️ Ecset', guess: '🎯 Tipp', light: '💡 Fény' },
+    art: {
+      vg: { n: 'Van Gogh', c: 'Hollandia, Franciaországban dolgozott', man: 'Vastag festék, rövid, kavargó ecsetvonások.' },
+      mo: { n: 'Monet', c: 'Franciaország', man: 'Puha fényfoltok, szabad ég alatt festve, kemény körvonalak nélkül.' },
+      se: { n: 'Seurat', c: 'Franciaország', man: 'Apró, különálló, tiszta színű pontok.' },
+      re: { n: 'Rembrandt', c: 'Holland Köztársaság (ma Hollandia)', man: 'Meleg fény, amely mély sötétből bukkan elő.' },
+      pi: { n: 'Picasso', c: 'Spanyolországban született, többnyire Franciaországban élt', man: 'Lapos, szögletes formák. Ugyanaz a váza oldalról és felülről is látszik.' },
+    },
+    b: { progress: (k) => `Kipróbált ecsetek: ${k} / 5. Próbáld ki mindet: a váza ugyanaz marad, csak az ecset változik.`,
+      all: 'Mind az öt ecsetet kipróbáltad. Most találd ki, kié az ecset, felirat nélkül.', sub: 'kipróbált ecset', pill: (n) => n },
+    mix: { title: 'A saját vázád', lead: 'Húzd az ujjadat a vásznon. A színek a csendéletből jönnek, a vonások a bekapcsolt ecsetekből. Kapcsolj be kettőt-hármat, és keverd a stílusokat.',
+      kinds: { swirl: '🌀 Kavargás', dot: '⚫ Pontok', patch: '🟨 Foltok' }, clear: '🗑️ Törlés', plate: 'a saját képed', sub: 'vonás' },
+    sold: { q: 'Hány képet adott el Van Gogh életében?', opts: ['A legtöbbet', 'Körülbelül százat', 'Szinte egyet sem'], ok: 2,
+      right: 'Így van!', wrong: 'Nem egészen.', plateQ: 'kb. 860 olajfestmény', plateA: 'A vörös szőlőskert, eladva 1890-ben',
+      truth: 'Életében csak egyetlen névvel ismert képét jegyezték fel eladottként: A vörös szőlőskertet, 1890-ben. Egyesek szerint pár másikat is eladott, de így is nagyon keveset.', sub: 'olajfestmény' },
+    g: { q: 'Kinek az ecsetje ez?', lead: 'Azt nézd, hogyan kerül fel a festék, ne azt, hogy mit ábrázol.', right: 'Így van!', wrong: (c) => `Nem ez. A festő: ${c}.`,
+      clue: { vg: 'Vastag vonások, amelyek kavarognak.', mo: 'Puha fényfoltok, kemény vonalak nélkül.', se: 'Apró, különálló pontok.', re: 'Fényes folt a mély sötétben.', pi: 'Lapos, szögletes darabok, mintha a képet szétvágták és újra összerakták volna.' },
+      cred: { vg: '„Csillagos éj” nyomán, Van Gogh, 1889', mo: '„Impresszió, napfelkelte” nyomán, Monet, 1872', se: '„Vasárnap délután a Grande Jatte szigetén” nyomán, Seurat, 1884–1886',
+        re: '„Az éjjeli őrjárat” nyomán, Rembrandt, 1642', pi: 'Picasso kubista portréi nyomán' },
+      close: '🔍 közelkép', next: 'Következő kép →', fin: 'Eredmény →', again: '↻ Újra', sub: 'kép', end: (k) => `5-ből ${k} jó.`,
+      endLead: 'A festőt abból is fel lehet ismerni, hogyan bánik az ecsettel, nem csak a témából.' },
+    s: { parts: ['Pontok', 'Lámpa'], q: 'Hogyan néznek ki a pontok messziről?', lead: 'Ez egy Seurat-stílusú kép közelről. Válassz, aztán lépj hátra.',
+      opts: ['Továbbra is különálló pontok', 'A színek sima árnyalatokká keverednek', 'Csak szürke'], ok: 1, right: 'Így van!', wrong: 'Nem egészen.',
+      slider: 'Távolság', words: ['közel', 'pár lépés', 'messze'], sub: 'távolság',
+      near: ['Közelről: különálló pontok', 'Minden pont egyetlen tiszta szín: kék, sárga, piros…'],
+      mid: ['Hátralépünk…', 'A pontok kezdenek összemosódni.'],
+      far: ['Messziről: kevert színek', 'A szemed az egymás melletti pontokat új színekké keveri. A keverés a szemben történik, nem a palettán.'],
+      lampQ: ['Mozgasd a lámpát.', 'Világítsd meg az arc egyik felét, a másikat hagyd sötétben. Húzd a lámpát, vagy használd a gombokat.'],
+      lampOk: ['Fény a sötétből!', 'Oldalról jövő fény: az egyik orca ragyog, a másik árnyékba merül. Rembrandt erős fénnyel és mély árnyékkal emelte ki az embereket a sötétből.'],
+      lampFlat: ['Mindkét orca egyformának látszik', 'Az elölről vagy felülről jövő fény mindkét oldalt egyformán megvilágítja. Próbáld oldalról.'],
+      lampDark: ['Túl sötét', 'Alig világít valamit: a lámpa túl messze van.'],
+      lampMid: ['Már közelebb…', 'Növeld a különbséget a két orca között.'],
+      lamp: { l: 'Balról', r: 'Jobbról', u: 'Felülről', d: 'Alulról' }, cheeks: 'bal orca | jobb orca', lampLabel: 'Lámpa' },
+    secrets: { mix: ['Ecsetek keverése', 'Fesd meg a saját vázádat kavargással és pontokkal'], sold: ['Képfal', 'Hány képet adott el Van Gogh?'] },
+    fact: {
+      vg: 'Van Gogh 1889 júniusában festette a Csillagos éjt a franciaországi Saint-Rémy-de-Provence-ban. A kép faluja kitalált: nem szerepelt az ablakából látott kilátásban.',
+      mo: 'Monet Impresszió, napfelkelte című képe (1872) Le Havre kikötőjét ábrázolja. 1874 áprilisában a párizsi első impresszionista kiállításon mutatták be, és Louis Leroy kritikus (gyakran neki tulajdonítják) az erről írt beszámolójában használta az „impresszionisták” szót.',
+      se: 'A pontozó technikát Georges Seurat és Paul Signac dolgozta ki 1886-ban.',
+      re: 'Az éjjeli őrjáratot (1642) Rembrandt Frans Banninck Cocq kapitány polgárőr-századának festette. 1600 guldent kapott érte.',
+      pi: 'A „kubizmus” név Louis Vauxcelles kritikustól ered, aki 1908-ban azt írta, hogy Georges Braque „kockákra” egyszerűsíti a dolgokat.',
+      gvg: 'A Csillagos éj olaj, vászon, 73,7 × 92,1 cm. 1941 óta a New York-i Modern Művészetek Múzeumában van.',
+      gmo: 'Egy 2014-es vizsgálat az Impresszió, napfelkelte jelenetét 1872. november 13-ának reggelére, nagyjából 7:35-re datálta.',
+      gse: 'A Grande Jatte-on Seurat 1884 májusától 1885 márciusáig, majd 1885 októberétől 1886 májusáig dolgozott. A vászon körülbelül 2 × 3 méteres (207,6 × 308 cm).',
+      gre: 'Az éjjeli őrjárat valójában nem éjszakai jelenet. Sötét lakk borította sokáig, ezért látszott éjszakának; a lakkot az 1940-es években távolították el.',
+      gpi: 'Picasso a műteremben tartotta Az avignoni kisasszonyokat (1907); a közönség először 1916 júliusában láthatta.',
+      pt: 'A „pointillizmus” szót a művészeti kritikusok az 1880-as évek végén találták ki, hogy kigúnyolják ezeket a festőket.',
+      pt2: 'Seurat Michel Eugène Chevreul és Ogden Rood színelméletére támaszkodott.',
+      rem: 'Rembrandt nagyjából száz önarcképet készített; több mint negyven közülük festmény.',
+      sold: 'Van Gogh nagyjából 2100 művet alkotott, ebből körülbelül 860 olajfestmény. Az egyetlen névvel ismert, általa eladottként feljegyzett kép A vörös szőlőskert (1890, 400 frank, Anna Boch); egy újság szerint legalább kettőt eladott.',
+    },
+    quiz: [
+      { q: 'Felismerhető egy festő pusztán abból, hogy mit fest?', opts: ['Nem, abból is, hogyan bánik az ecsettel', 'Igen, csak a témájából', 'Csak a keretből'], ok: 0, hint: 'Nézd meg ugyanazt a vázát öt különböző ecsettel megfestve.' },
+      { q: 'Összekeverte Seurat a színeit a palettán?', opts: ['Igen', 'Nem, pontokat tett egymás mellé, és a szem keveri össze őket', 'Csak feketét használt'], ok: 1, hint: 'Mozgasd a távolság-csúszkát a „Fény” nézetben.' },
+      { q: 'Miért látszik Picasso arcán a szem elölről, az orr pedig oldalról?', opts: ['Nem tudott rajzolni', 'Nyomdai hiba', 'Egyszerre több nézetet mutatott meg'], ok: 2, hint: 'Nézd meg a Picasso-ecsettel festett vázát, és a Picasso-portrét a „Tipp” nézetben.' },
+    ],
+  },
+};
+const TOPICS = [{ id: 'sg_art_32', en: 'Famous Artists and Their Works', ru: 'Известные художники и их работы', hu: 'Híres művészek és alkotásaik' }];
+
+// --- small helpers -----------------------------------------------------------------------------------------
+const rngOf = (a) => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+const hashStr = (s) => [...s].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) | 0, 7);
+const shuffle = (arr, rng) => { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; };
+const hex = (h) => { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+const rgbs = (a, al) => (al === undefined ? `rgb(${a[0] | 0},${a[1] | 0},${a[2] | 0})` : `rgba(${a[0] | 0},${a[1] | 0},${a[2] | 0},${al})`);
+const mixc = (a, b, k) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+const lum = (a) => 0.3 * a[0] + 0.59 * a[1] + 0.11 * a[2];
+const ease = (x) => (x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2);
+const lin = (c, x0, y0, x1, y1, stops) => { const g = c.createLinearGradient(x0, y0, x1, y1); stops.forEach(([o, col]) => g.addColorStop(o, col)); return g; };
+const rad = (c, x, y, r, stops) => { const g = c.createRadialGradient(x, y, 0, x, y, Math.max(0.01, r)); stops.forEach(([o, col]) => g.addColorStop(o, col)); return g; };
+const ell = (c, x, y, rx, ry, fill, rot = 0) => { c.beginPath(); c.ellipse(x, y, Math.max(0.01, rx), Math.max(0.01, ry), rot, 0, 7); c.fillStyle = fill; c.fill(); };
+const circ = (c, x, y, r, fill) => { c.beginPath(); c.arc(x, y, Math.max(0.01, r), 0, 7); c.fillStyle = fill; c.fill(); };
+const rr = (c, x, y, w, h, r) => { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); };
+
+// --- the reference pictures: flat, vector-drawn compositions; the brushes read colours from them -----------
+const RS = 220;
+const VASE = { cx: 0.34, top: 0.44 };
+function vasePath(c, S) {
+  const cx = VASE.cx, t = VASE.top;
+  c.beginPath(); c.moveTo(S * (cx - 0.07), S * t);
+  c.bezierCurveTo(S * (cx - 0.04), S * (t + 0.04), S * (cx - 0.045), S * (t + 0.08), S * (cx - 0.075), S * 0.58);
+  c.bezierCurveTo(S * (cx - 0.14), S * 0.66, S * (cx - 0.12), S * 0.8, S * (cx - 0.075), S * 0.88);
+  c.lineTo(S * (cx + 0.075), S * 0.88);
+  c.bezierCurveTo(S * (cx + 0.12), S * 0.8, S * (cx + 0.14), S * 0.66, S * (cx + 0.075), S * 0.58);
+  c.bezierCurveTo(S * (cx + 0.045), S * (t + 0.08), S * (cx + 0.04), S * (t + 0.04), S * (cx + 0.07), S * t);
+  c.closePath();
+}
+const FL = [
+  { x: 0.34, y: 0.2, r: 0.078, t: 'sun' }, { x: 0.21, y: 0.29, r: 0.06, t: 'sun' }, { x: 0.47, y: 0.27, r: 0.062, t: 'sun' },
+  { x: 0.28, y: 0.35, r: 0.042, t: 'poppy' }, { x: 0.41, y: 0.13, r: 0.042, t: 'daisy' }, { x: 0.5, y: 0.38, r: 0.04, t: 'poppy' },
+  { x: 0.17, y: 0.4, r: 0.038, t: 'daisy' }, { x: 0.4, y: 0.35, r: 0.036, t: 'daisy' },
+];
+function flower(c, S, f) {
+  const x = f.x * S, y = f.y * S, r = f.r * S;
+  if (f.t === 'sun') {
+    for (let k = 0; k < 16; k++) { const a = k / 16 * 6.283 + f.r * 9; ell(c, x + Math.cos(a) * r * 0.68, y + Math.sin(a) * r * 0.68, r * 0.42, r * 0.17, k % 2 ? '#f3c322' : '#f9da52', a); }
+    c.fillStyle = rad(c, x - r * 0.1, y - r * 0.1, r * 0.5, [[0, '#8b5a22'], [1, '#3a2410']]); c.beginPath(); c.arc(x, y, r * 0.46, 0, 7); c.fill();
+  } else if (f.t === 'poppy') {
+    for (let k = 0; k < 5; k++) { const a = k / 5 * 6.283; circ(c, x + Math.cos(a) * r * 0.5, y + Math.sin(a) * r * 0.5, r * 0.55, k % 2 ? '#d9382c' : '#ef5a46'); }
+    circ(c, x, y, r * 0.2, '#2a1810');
+  } else {
+    for (let k = 0; k < 10; k++) { const a = k / 10 * 6.283; ell(c, x + Math.cos(a) * r * 0.62, y + Math.sin(a) * r * 0.62, r * 0.4, r * 0.15, '#f7f1e2', a); }
+    circ(c, x, y, r * 0.24, '#f2c230');
+  }
+}
+function fruit(c, S, x, y, r, c1, c2) { c.fillStyle = rad(c, (x - r * 0.3) * S, (y - r * 0.35) * S, r * S * 1.4, [[0, c1], [1, c2]]); c.beginPath(); c.arc(x * S, y * S, r * S, 0, 7); c.fill(); }
+function drawStill(c, S) {
+  c.fillStyle = lin(c, 0, 0, S * 0.5, S * 0.8, [[0, '#7fa9ae'], [1, '#37606d']]); c.fillRect(0, 0, S, S);
+  c.fillStyle = rad(c, S * 0.12, S * 0.08, S * 0.5, [[0, 'rgba(220,235,220,.55)'], [1, 'rgba(220,235,220,0)']]); c.fillRect(0, 0, S, S);
+  c.fillStyle = lin(c, 0, S * 0.78, 0, S, [[0, '#b57a45'], [1, '#5c3920']]); c.fillRect(0, S * 0.78, S, S * 0.22);
+  c.fillStyle = 'rgba(255,230,190,.35)'; c.fillRect(0, S * 0.78, S, S * 0.008);
+  ell(c, S * (VASE.cx + 0.09), S * 0.9, S * 0.14, S * 0.025, 'rgba(30,15,5,.38)');
+  ell(c, S * 0.8, S * 0.92, S * 0.2, S * 0.03, 'rgba(30,15,5,.38)');
+  c.lineCap = 'round';
+  for (const f of FL) {
+    c.beginPath(); c.moveTo(S * (VASE.cx + (f.x - VASE.cx) * 0.3), S * VASE.top); c.quadraticCurveTo(S * (VASE.cx + (f.x - VASE.cx) * 0.8), S * (f.y + 0.2), S * f.x, S * (f.y + f.r * 0.4));
+    c.strokeStyle = '#3d7a3a'; c.lineWidth = S * 0.013; c.stroke();
+  }
+  [[0.25, 0.4, -0.6], [0.45, 0.36, 0.5], [0.3, 0.3, 0.3], [0.39, 0.28, -0.4], [0.2, 0.34, -0.2]].forEach(([x, y, a]) => ell(c, S * x, S * y, S * 0.046, S * 0.016, '#4e8f42', a));
+  vasePath(c, S); c.fillStyle = rad(c, S * (VASE.cx - 0.05), S * 0.64, S * 0.2, [[0, '#8fb3ea'], [0.5, '#3560b0'], [1, '#1b3068']]); c.fill();
+  c.save(); vasePath(c, S); c.clip(); c.fillStyle = 'rgba(240,200,80,.9)'; c.fillRect(0, S * 0.7, S, S * 0.012); c.fillRect(0, S * 0.735, S, S * 0.008);
+  ell(c, S * (VASE.cx - 0.06), S * 0.66, S * 0.018, S * 0.09, 'rgba(255,255,255,.35)', 0.1); c.restore();
+  ell(c, S * VASE.cx, S * VASE.top, S * 0.07, S * 0.017, '#16264f');
+  for (const f of FL) flower(c, S, f);
+  ell(c, S * 0.74, S * 0.77, S * 0.17, S * 0.028, '#cdbf9f');
+  fruit(c, S, 0.67, 0.725, 0.055, '#f06a58', '#9e1f19'); fruit(c, S, 0.77, 0.7, 0.06, '#dbe36e', '#6f9a2a');
+  fruit(c, S, 0.84, 0.74, 0.05, '#ffb14a', '#d86d0d'); fruit(c, S, 0.715, 0.69, 0.04, '#f2e36a', '#b8a52a');
+  c.beginPath(); c.moveTo(S * 0.57, S * 0.77); c.bezierCurveTo(S * 0.58, S * 0.87, S * 0.67, S * 0.9, S * 0.74, S * 0.9); c.bezierCurveTo(S * 0.81, S * 0.9, S * 0.9, S * 0.87, S * 0.91, S * 0.77);
+  c.bezierCurveTo(S * 0.85, S * 0.8, S * 0.63, S * 0.8, S * 0.57, S * 0.77); c.closePath();
+  c.fillStyle = lin(c, S * 0.57, 0, S * 0.91, 0, [[0, '#f6eed6'], [0.6, '#d8c9a4'], [1, '#a59574']]); c.fill();
+}
+function drawStarry(c, S) {
+  c.fillStyle = lin(c, 0, 0, 0, S * 0.72, [[0, '#0e1a48'], [0.45, '#1f3f8c'], [1, '#5c97bf']]); c.fillRect(0, 0, S, S);
+  c.lineCap = 'round';
+  const sw = (cx, cy, r0, r1, a0, turns, col, lw, al) => {
+    c.beginPath();
+    for (let i = 0; i <= 60; i++) { const u = i / 60, a = a0 + u * turns * 6.283, r = r0 + (r1 - r0) * u, x = S * (cx + Math.cos(a) * r), y = S * (cy + Math.sin(a) * r * 0.8); if (i) c.lineTo(x, y); else c.moveTo(x, y); }
+    c.strokeStyle = col; c.lineWidth = S * lw; c.globalAlpha = al; c.stroke(); c.globalAlpha = 1;
+  };
+  sw(0.52, 0.27, 0.015, 0.19, 0, 1.7, '#cfe6f2', 0.028, 0.75); sw(0.52, 0.27, 0.03, 0.15, 2, 1.5, '#7fb3d8', 0.03, 0.7);
+  sw(0.72, 0.42, 0.01, 0.1, 1, 1.6, '#d9ecf4', 0.024, 0.75); sw(0.27, 0.4, 0.01, 0.08, 0, 1.3, '#9cc6e4', 0.022, 0.6);
+  c.beginPath(); c.moveTo(0, S * 0.3); c.bezierCurveTo(S * 0.15, S * 0.22, S * 0.25, S * 0.4, S * 0.4, S * 0.33); c.strokeStyle = '#a9d0ea'; c.lineWidth = S * 0.03; c.globalAlpha = 0.5; c.stroke(); c.globalAlpha = 1;
+  c.fillStyle = rad(c, S * 0.84, S * 0.16, S * 0.12, [[0, 'rgba(245,217,106,.9)'], [1, 'rgba(245,217,106,0)']]); c.fillRect(0, 0, S, S * 0.4);
+  circ(c, S * 0.84, S * 0.16, S * 0.055, '#f5da6a'); circ(c, S * 0.865, S * 0.145, S * 0.05, '#3a62a6');
+  [[0.3, 0.1], [0.4, 0.3], [0.64, 0.11], [0.76, 0.28], [0.92, 0.38], [0.56, 0.46], [0.12, 0.28], [0.2, 0.14]].forEach(([x, y]) => {
+    c.fillStyle = rad(c, S * x, S * y, S * 0.05, [[0, 'rgba(250,225,110,.95)'], [0.4, 'rgba(240,200,80,.45)'], [1, 'rgba(240,200,80,0)']]); c.fillRect(S * (x - 0.06), S * (y - 0.06), S * 0.12, S * 0.12);
+    circ(c, S * x, S * y, S * 0.011, '#fff6c8');
+  });
+  c.beginPath(); c.moveTo(0, S * 0.7); c.bezierCurveTo(S * 0.25, S * 0.6, S * 0.5, S * 0.68, S * 0.75, S * 0.62); c.bezierCurveTo(S * 0.88, S * 0.6, S * 0.95, S * 0.64, S, S * 0.66); c.lineTo(S, S); c.lineTo(0, S); c.closePath();
+  c.fillStyle = lin(c, 0, S * 0.6, 0, S, [[0, '#26427a'], [1, '#162a55']]); c.fill();
+  [[0.4, 0.74, 0.06, 0.05, '#2a3558'], [0.5, 0.76, 0.07, 0.06, '#40344f'], [0.62, 0.7, 0.05, 0.08, '#2b3a63'], [0.72, 0.76, 0.06, 0.05, '#3a3050'], [0.84, 0.75, 0.07, 0.06, '#2a3558']].forEach(([x, y, w, h, col]) => {
+    c.fillStyle = col; c.fillRect(S * x, S * y, S * w, S * h); c.beginPath(); c.moveTo(S * (x - 0.008), S * y); c.lineTo(S * (x + w / 2), S * (y - 0.04)); c.lineTo(S * (x + w + 0.008), S * y); c.closePath(); c.fill();
+    c.fillStyle = '#f2c84b'; c.fillRect(S * (x + w * 0.2), S * (y + h * 0.3), S * 0.012, S * 0.016); c.fillRect(S * (x + w * 0.6), S * (y + h * 0.3), S * 0.012, S * 0.016);
+  });
+  c.fillStyle = '#3a3a62'; c.fillRect(S * 0.64, S * 0.6, S * 0.024, S * 0.14); c.beginPath(); c.moveTo(S * 0.636, S * 0.6); c.lineTo(S * 0.652, S * 0.5); c.lineTo(S * 0.668, S * 0.6); c.closePath(); c.fill();
+  c.beginPath(); c.moveTo(S * 0.15, S); c.bezierCurveTo(S * 0.06, S * 0.7, S * 0.12, S * 0.5, S * 0.17, S * 0.22); c.bezierCurveTo(S * 0.22, S * 0.5, S * 0.3, S * 0.7, S * 0.26, S); c.closePath();
+  c.fillStyle = lin(c, S * 0.1, 0, S * 0.3, 0, [[0, '#0a160d'], [0.6, '#1c3322'], [1, '#2a4a30']]); c.fill();
+  c.fillStyle = '#16210f'; c.fillRect(0, S * 0.92, S, S * 0.08);
+}
+function drawSunrise(c, S) {
+  c.fillStyle = lin(c, 0, 0, 0, S * 0.55, [[0, '#8da4ab'], [0.6, '#c6b29c'], [1, '#e8c79e']]); c.fillRect(0, 0, S, S * 0.55);
+  c.fillStyle = rad(c, S * 0.58, S * 0.42, S * 0.28, [[0, 'rgba(255,170,90,.7)'], [1, 'rgba(255,170,90,0)']]); c.fillRect(0, 0, S, S * 0.6);
+  [[0.06, 0.4, 0.1, 0.1], [0.18, 0.42, 0.06, 0.08], [0.82, 0.4, 0.12, 0.1], [0.92, 0.43, 0.06, 0.06], [0.3, 0.44, 0.05, 0.05]].forEach(([x, y, w, h]) => { c.fillStyle = 'rgba(100,125,140,.55)'; c.fillRect(S * x, S * y, S * w, S * h); });
+  c.fillStyle = lin(c, 0, S * 0.5, 0, S, [[0, '#7d98a2'], [0.5, '#5b7886'], [1, '#34505e']]); c.fillRect(0, S * 0.5, S, S * 0.5);
+  circ(c, S * 0.58, S * 0.42, S * 0.045, '#f0602a');
+  for (let k = 0; k < 10; k++) { const w = S * (0.1 - k * 0.006); c.fillStyle = `rgba(240,128,58,${0.62 - k * 0.04})`; c.fillRect(S * 0.58 - w / 2, S * (0.52 + k * 0.036), w, S * 0.02); }
+  const boat = (x, y, s) => { c.beginPath(); c.moveTo(S * (x - 0.1 * s), S * y); c.quadraticCurveTo(S * x, S * (y + 0.04 * s), S * (x + 0.1 * s), S * y); c.lineTo(S * (x + 0.08 * s), S * (y - 0.012 * s)); c.lineTo(S * (x - 0.08 * s), S * (y - 0.012 * s)); c.closePath(); c.fillStyle = '#2b4352'; c.fill();
+    c.fillRect(S * (x - 0.004 * s), S * (y - 0.07 * s), S * 0.008 * s, S * 0.06 * s); c.beginPath(); c.moveTo(S * x, S * (y - 0.01 * s)); c.lineTo(S * (x + 0.12 * s), S * (y + 0.05 * s)); c.strokeStyle = '#2b4352'; c.lineWidth = S * 0.006 * s; c.stroke(); };
+  boat(0.26, 0.7, 1.4); boat(0.52, 0.6, 0.8); boat(0.76, 0.56, 0.6);
+}
+function drawJatte(c, S) {
+  c.fillStyle = '#d6e6ee'; c.fillRect(0, 0, S, S);
+  c.fillStyle = lin(c, 0, S * 0.12, 0, S * 0.4, [[0, '#8bb9d6'], [1, '#5f94b8']]); c.fillRect(0, S * 0.12, S, S * 0.28);
+  [[0.1, 0.12, 0.1], [0.3, 0.14, 0.08], [0.5, 0.11, 0.09]].forEach(([x, y, r]) => circ(c, S * x, S * y, S * r, '#4d7a4a'));
+  c.fillStyle = lin(c, 0, S * 0.36, 0, S, [[0, '#c9d56c'], [1, '#8fb44c']]); c.fillRect(0, S * 0.36, S, S * 0.64);
+  [[0.3, 0.8, 0.34, 0.05, 0.08], [0.66, 0.9, 0.3, 0.04, -0.06], [0.45, 0.58, 0.2, 0.025, 0.05], [0.15, 0.95, 0.25, 0.03, 0]].forEach(([x, y, rx, ry, a]) => ell(c, S * x, S * y, S * rx, S * ry, 'rgba(60,110,62,.6)', a));
+  c.fillStyle = '#6b4e3a'; c.beginPath(); c.moveTo(S * 0.78, 0); c.lineTo(S * 0.82, 0); c.lineTo(S * 0.85, S * 0.66); c.lineTo(S * 0.8, S * 0.66); c.closePath(); c.fill();
+  [[0.74, 0.08, 0.14], [0.9, 0.1, 0.13], [0.82, 0.2, 0.14], [0.7, 0.26, 0.1]].forEach(([x, y, r], i) => circ(c, S * x, S * y, S * r, i % 2 ? '#3f7a3b' : '#5d9944'));
+  c.beginPath(); c.moveTo(S * 0.5, S * 0.4); c.quadraticCurveTo(S * 0.6, S * 0.28, S * 0.7, S * 0.4); c.closePath(); c.fillStyle = '#c64a4a'; c.fill();
+  c.beginPath(); c.moveTo(S * 0.6, S * 0.34); c.lineTo(S * 0.6, S * 0.56); c.strokeStyle = '#5a3a2a'; c.lineWidth = S * 0.006; c.stroke();
+  circ(c, S * 0.6, S * 0.47, S * 0.026, '#e9c9a8');
+  c.beginPath(); c.moveTo(S * 0.57, S * 0.5); c.quadraticCurveTo(S * 0.52, S * 0.7, S * 0.5, S * 0.86); c.lineTo(S * 0.74, S * 0.86); c.quadraticCurveTo(S * 0.66, S * 0.7, S * 0.63, S * 0.5); c.closePath(); c.fillStyle = '#9b4443'; c.fill();
+  ell(c, S * 0.3, S * 0.74, S * 0.075, S * 0.06, '#2a2a38'); c.fillStyle = '#17171f'; c.fillRect(S * 0.275, S * 0.55, S * 0.05, S * 0.06); circ(c, S * 0.3, S * 0.63, S * 0.026, '#e0bd9a'); ell(c, S * 0.3, S * 0.615, S * 0.04, S * 0.01, '#17171f');
+  c.beginPath(); c.moveTo(S * 0.44, S * 0.7); c.quadraticCurveTo(S * 0.46, S * 0.82, S * 0.42, S * 0.88); c.lineTo(S * 0.52, S * 0.88); c.quadraticCurveTo(S * 0.5, S * 0.8, S * 0.5, S * 0.7); c.closePath(); c.fillStyle = '#f4efe6'; c.fill(); circ(c, S * 0.47, S * 0.67, S * 0.022, '#e9c9a8');
+  ell(c, S * 0.2, S * 0.88, S * 0.04, S * 0.022, '#6b4a2e');
+}
+function drawWatch(c, S) {
+  c.fillStyle = rad(c, S * 0.45, S * 0.4, S * 0.7, [[0, '#33261a'], [1, '#120c07']]); c.fillRect(0, 0, S, S);
+  ell(c, S * 0.3, S * 0.02, S * 0.34, S * 0.2, '#3a2a1c'); c.fillStyle = '#26190f'; c.fillRect(0, S * 0.8, S, S * 0.2);
+  const fig = (x, y, hr, body, bw, bh) => { ell(c, S * x, S * (y + hr * 1.6 + bh / 2), S * bw, S * bh / 2, body); circ(c, S * x, S * y, S * hr, '#d9a97f'); };
+  fig(0.16, 0.3, 0.036, '#2f2318', 0.1, 0.4); fig(0.72, 0.26, 0.034, '#3a2a1c', 0.09, 0.4); fig(0.86, 0.4, 0.034, '#2b1f15', 0.08, 0.36); fig(0.64, 0.18, 0.03, '#2b1f15', 0.07, 0.3);
+  fig(0.44, 0.28, 0.04, '#141311', 0.12, 0.52); c.beginPath(); c.moveTo(S * 0.34, S * 0.4); c.lineTo(S * 0.52, S * 0.7); c.lineTo(S * 0.56, S * 0.64); c.lineTo(S * 0.4, S * 0.38); c.closePath(); c.fillStyle = '#a8321f'; c.fill();
+  c.fillStyle = '#d8d0bc'; c.fillRect(S * 0.41, S * 0.335, S * 0.06, S * 0.018); ell(c, S * 0.44, S * 0.24, S * 0.055, S * 0.014, '#0c0a08');
+  fig(0.57, 0.34, 0.038, '#e6d28c', 0.1, 0.46);
+  ell(c, S * 0.3, S * 0.66, S * 0.05, S * 0.12, '#e9c35a'); circ(c, S * 0.3, S * 0.5, S * 0.026, '#efd8b8');
+  c.beginPath(); c.moveTo(S * 0.78, S * 0.04); c.lineTo(S * 0.78, S * 0.8); c.strokeStyle = '#4a3322'; c.lineWidth = S * 0.01; c.stroke();
+  c.fillStyle = '#6b2a1f'; c.fillRect(S * 0.78, S * 0.08, S * 0.16, S * 0.12);
+}
+const DRAW = { still: drawStill, starry: drawStarry, sunrise: drawSunrise, jatte: drawJatte, watch: drawWatch };
+const REF = {};
+function ref(k) {
+  if (REF[k]) return REF[k];
+  const cv = document.createElement('canvas'); cv.width = cv.height = RS;
+  const c = cv.getContext('2d', { willReadFrequently: true });
+  DRAW[k](c, RS);
+  const d = c.getImageData(0, 0, RS, RS).data;
+  return (REF[k] = { at(x, y) { const i = (Math.round(clamp(y, 0, 1) * (RS - 1)) * RS + Math.round(clamp(x, 0, 1) * (RS - 1))) * 4; return [d[i], d[i + 1], d[i + 2]]; } });
+}
+
+// --- the five manners: each makes a list of drawing steps (closures) that are replayed on a canvas ------------
+const makeFlow = (sw) => (x, y) => {
+  let vx = 0.25, vy = 0.05;
+  for (const [cx, cy, s, dir] of sw) { const dx = x - cx, dy = y - cy, d2 = dx * dx + dy * dy, d = Math.sqrt(d2) + 1e-4, w = Math.exp(-d2 / (s * s)); vx += w * (-dy / d) * dir; vy += w * (dx / d) * dir; }
+  vx += Math.sin(y * 17 + x * 6) * 0.22; vy += Math.cos(x * 15 - y * 5) * 0.22;
+  return Math.atan2(vy, vx);
+};
+const FLOW = {
+  still: makeFlow([[0.3, 0.22, 0.18, 1], [0.74, 0.32, 0.14, -1], [0.1, 0.6, 0.12, 1]]),
+  starry: makeFlow([[0.52, 0.27, 0.2, 1], [0.72, 0.42, 0.11, -1], [0.3, 0.12, 0.1, 1], [0.2, 0.6, 0.12, -1]]),
+};
+function vgStroke(rf, flow, S, rng, ux, uy, len, wid) {
+  const a = flow(ux, uy) + (rng() - 0.5) * 0.35, [r, g, b] = rf.at(ux, uy), L = lum([r, g, b]), j = (rng() - 0.5) * 26;
+  const col = [r, g, b].map((v) => clamp(L + (v - L) * 1.28 + j + (rng() - 0.5) * 14, 0, 255));
+  const x = ux * S, y = uy * S, dx = Math.cos(a) * len / 2, dy = Math.sin(a) * len / 2, bend = (rng() - 0.5) * len * 0.6, px = -Math.sin(a) * bend, py = Math.cos(a) * bend;
+  const dark = `rgb(${col[0] * 0.62 | 0},${col[1] * 0.62 | 0},${col[2] * 0.66 | 0})`, main = rgbs(col);
+  return (c) => {
+    c.lineCap = 'round';
+    c.beginPath(); c.moveTo(x - dx + 1, y - dy + 1.6); c.quadraticCurveTo(x + px + 1, y + py + 1.6, x + dx + 1, y + dy + 1.6); c.strokeStyle = dark; c.lineWidth = wid + 1.4; c.stroke();
+    c.beginPath(); c.moveTo(x - dx, y - dy); c.quadraticCurveTo(x + px, y + py, x + dx, y + dy); c.strokeStyle = main; c.lineWidth = wid; c.stroke();
+    c.beginPath(); c.moveTo(x - dx - wid * 0.18, y - dy - wid * 0.22); c.quadraticCurveTo(x + px - wid * 0.18, y + py - wid * 0.22, x + dx - wid * 0.18, y + dy - wid * 0.22); c.strokeStyle = 'rgba(255,255,235,.22)'; c.lineWidth = Math.max(1, wid * 0.3); c.stroke();
+  };
+}
+function genVG(rf, S, rng, flow) {
+  const ops = [];
+  for (const [n, len, wid] of [[26, 34, 15], [44, 22, 9], [60, 14, 5.2]]) {
+    const list = [];
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) list.push([(i + 0.5 + (rng() - 0.5) * 0.9) / n, (j + 0.5 + (rng() - 0.5) * 0.9) / n]);
+    shuffle(list, rng);
+    for (const [ux, uy] of list) ops.push(vgStroke(rf, flow, S, rng, ux, uy, len * (0.8 + rng() * 0.5) * S / 560, wid * (0.8 + rng() * 0.4) * S / 560));
+  }
+  return ops;
+}
+function monetPatch(rf, rng, S, ux, uy, rd, al, ar) {
+  const [r, g, b] = rf.at(ux, uy), L = lum([r, g, b]), sh = clamp(1 - L / 200, 0, 1);
+  let col = mixc([r, g, b], [112, 108, 192], sh * 0.35); col = mixc(col, [255, 250, 235], 0.12); col = col.map((v) => clamp(v + (rng() - 0.5) * 24, 0, 255));
+  const x = ux * S, y = uy * S, a = (rng() - 0.5) * 0.6, R = rd * S / 560;
+  return (c) => {
+    c.save(); c.translate(x, y); c.rotate(a); c.scale(1, ar);
+    const g2 = c.createRadialGradient(0, 0, 0, 0, 0, Math.max(0.5, R));
+    g2.addColorStop(0, rgbs(col, al)); g2.addColorStop(0.6, rgbs(col, al * 0.7)); g2.addColorStop(1, rgbs(col, 0));
+    c.fillStyle = g2; c.beginPath(); c.arc(0, 0, Math.max(0.5, R), 0, 7); c.fill(); c.restore();
+  };
+}
+function genMonet(rf, S, rng) {
+  const ops = [];
+  for (const [n, rd, al, ar] of [[14, 46, 0.95, 0.6], [24, 28, 0.7, 0.55], [40, 16, 0.8, 0.55], [62, 9, 0.85, 0.6]]) {
+    const list = [];
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) list.push([(i + 0.5 + (rng() - 0.5) * 0.9) / n, (j + 0.5 + (rng() - 0.5) * 0.9) / n]);
+    shuffle(list, rng);
+    for (const [ux, uy] of list) ops.push(monetPatch(rf, rng, S, ux, uy, rd * (0.85 + rng() * 0.3), al, ar));
+  }
+  return ops;
+}
+const PIG = ['#2f55c9', '#f4d23a', '#d9342c', '#2f9c4f', '#f28a1e', '#7e3fb4', '#f7f2e6', '#2aa7c8', '#1d2a6b', '#1f5a34', '#4b2a6b'].map(hex);
+const decompCache = new Map();
+function decomp(r, g, b) {
+  const key = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
+  let v = decompCache.get(key);
+  if (v) return v;
+  let best = 1e12; v = { a: 0, b: 0, f: 1 };
+  for (let i = 0; i < PIG.length; i++) for (let j = i; j < PIG.length; j++) for (let s = 0; s <= 10; s++) {
+    const f = s / 10, mr = PIG[i][0] * f + PIG[j][0] * (1 - f), mg = PIG[i][1] * f + PIG[j][1] * (1 - f), mb = PIG[i][2] * f + PIG[j][2] * (1 - f);
+    const e = (mr - r) ** 2 + (mg - g) ** 2 + (mb - b) ** 2;
+    if (e < best) { best = e; v = { a: i, b: j, f }; }
+  }
+  decompCache.set(key, v);
+  return v;
+}
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+function seuratDot(rf, S, i, j, sp, thrOverride) {
+  const x = (i + (j & 1 ? 0.5 : 0)) * sp, y = j * sp * 0.9, [r, g, b] = rf.at(x / S, y / S), d = decomp(r | 0, g | 0, b | 0);
+  const thr = thrOverride ?? (BAYER[(j & 3) * 4 + (i & 3)] + 0.5) / 16, col = rgbs(PIG[thr < d.f ? d.a : d.b]), R = sp * 0.56;
+  return (c) => { c.beginPath(); c.arc(x, y, R, 0, 7); c.fillStyle = col; c.fill(); };
+}
+function genSeurat(rf, S, rng, sp = 8) {
+  const ops = [], nx = Math.ceil(S / sp) + 1, ny = Math.ceil(S / (sp * 0.9)) + 1, list = [];
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) list.push([i, j]);
+  shuffle(list, rng);
+  for (const [i, j] of list) ops.push(seuratDot(rf, S, i, j, sp));
+  return ops;
+}
+function genRem(rf, S, rng, lamp) {
+  const tone = (x, y) => 0.07 + 0.93 * Math.exp(-(((x - lamp.x) ** 2 + (y - lamp.y) ** 2) / (lamp.R * lamp.R)));
+  const warm = (col) => { const L = lum(col); return mixc(col, [L * 1.2, L * 0.88, L * 0.58], 0.6); };
+  const ops = [];
+  for (const [n, len, wid] of [[22, 34, 16], [40, 20, 9], [64, 12, 5]]) {
+    const list = [];
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const ux = (i + 0.5 + (rng() - 0.5) * 0.9) / n, uy = (j + 0.5 + (rng() - 0.5) * 0.9) / n; list.push([ux, uy, tone(ux, uy)]); }
+    list.sort((p, q) => p[2] - q[2]);
+    for (const [ux, uy, tn] of list) {
+      const col = warm(rf.at(ux, uy)).map((v) => clamp(v * (tn * 1.05) + (rng() - 0.5) * 8, 0, 255)), a = (rng() - 0.5) * 1.2, x = ux * S, y = uy * S, l = len * S / 560 / 2, w = wid * S / 560;
+      const cs = rgbs(col, 0.88);
+      ops.push((c) => { c.lineCap = 'round'; c.beginPath(); c.moveTo(x - Math.cos(a) * l, y - Math.sin(a) * l); c.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); c.strokeStyle = cs; c.lineWidth = w; c.stroke(); });
+    }
+  }
+  for (let k = 0; k < 900; k++) {
+    const ux = rng(), uy = rng(), tn = tone(ux, uy), col = rf.at(ux, uy);
+    if (tn > 0.55 && lum(col) > 120) { const x = ux * S, y = uy * S, a = (rng() - 0.5) * 1.4, l = 3.5 * S / 560, cs = rgbs(mixc(warm(col), [255, 238, 196], 0.4), 0.55); ops.push((c) => { c.lineCap = 'round'; c.beginPath(); c.moveTo(x - Math.cos(a) * l, y - Math.sin(a) * l); c.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); c.strokeStyle = cs; c.lineWidth = 2.2 * S / 560; c.stroke(); }); }
+  }
+  return ops;
+}
+function genPicasso(rf, S, rng) {
+  const n = 14, pts = [], tris = [], ops = [];
+  const PAL = ['#b88a4a', '#7d8a6a', '#3f5068', '#d9c9a3', '#8a3b2f', '#2f2f2f', '#c9b27a'].map(hex);
+  for (let j = 0; j <= n; j++) { pts[j] = []; for (let i = 0; i <= n; i++) pts[j][i] = [(i + (i > 0 && i < n ? (rng() - 0.5) * 0.55 : 0)) / n, (j + (j > 0 && j < n ? (rng() - 0.5) * 0.55 : 0)) / n]; }
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const a = pts[j][i], b = pts[j][i + 1], c2 = pts[j + 1][i + 1], d = pts[j + 1][i], sh = [(rng() - 0.5) * 0.1, (rng() - 0.5) * 0.1];
+    if (rng() < 0.5) tris.push([a, b, c2, sh], [a, c2, d, sh]); else tris.push([a, b, d, sh], [b, c2, d, sh]);
+  }
+  shuffle(tris, rng);
+  for (const [p, q, r, sh] of tris) {
+    const gx = (p[0] + q[0] + r[0]) / 3, gy = (p[1] + q[1] + r[1]) / 3, c0 = rf.at(gx + sh[0], gy + sh[1]);
+    let pal = PAL[0], bd = 1e12; for (const pc of PAL) { const e = (pc[0] - c0[0]) ** 2 + (pc[1] - c0[1]) ** 2 + (pc[2] - c0[2]) ** 2; if (e < bd) { bd = e; pal = pc; } }
+    const col = rgbs(mixc(c0, pal, 0.45).map((v) => clamp(v + (rng() - 0.5) * 16, 0, 255))), edge = rng() < 0.55;
+    ops.push((c) => {
+      c.beginPath(); c.moveTo(p[0] * S, p[1] * S); c.lineTo(q[0] * S, q[1] * S); c.lineTo(r[0] * S, r[1] * S); c.closePath(); c.fillStyle = col; c.fill();
+      if (edge) { c.lineJoin = 'round'; c.strokeStyle = 'rgba(25,22,18,.55)'; c.lineWidth = 1.3; c.stroke(); }
+    });
+  }
+  // the same things seen from several sides at once: the vase from the side AND its round mouth from above; the bowl from the side AND from above
+  ops.push((c) => {
+    c.lineJoin = 'round'; c.lineCap = 'round'; c.strokeStyle = '#14110e'; c.lineWidth = 3.2 * S / 560;
+    vasePath(c, S); c.stroke();
+    circ(c, S * 0.55, S * 0.47, S * 0.075, '#e8dcc0'); c.beginPath(); c.arc(S * 0.55, S * 0.47, S * 0.075, 0, 7); c.stroke();
+    circ(c, S * 0.55, S * 0.47, S * 0.042, '#243a6a'); c.beginPath(); c.arc(S * 0.55, S * 0.47, S * 0.042, 0, 7); c.stroke();
+    for (const f of FL) { c.beginPath(); c.arc(f.x * S, f.y * S, f.r * S, 0, 7); c.stroke(); c.beginPath(); c.moveTo((f.x - f.r) * S, f.y * S); c.lineTo((f.x + f.r) * S, f.y * S); c.moveTo(f.x * S, (f.y - f.r) * S); c.lineTo(f.x * S, (f.y + f.r) * S); c.stroke(); }
+    c.beginPath(); c.ellipse(S * 0.74, S * 0.77, S * 0.17, S * 0.028, 0, 0, 7); c.stroke();
+    c.beginPath(); c.moveTo(S * 0.57, S * 0.77); c.bezierCurveTo(S * 0.58, S * 0.87, S * 0.67, S * 0.9, S * 0.74, S * 0.9); c.bezierCurveTo(S * 0.81, S * 0.9, S * 0.9, S * 0.87, S * 0.91, S * 0.77); c.stroke();
+    circ(c, S * 0.8, S * 0.56, S * 0.09, '#efe5c8'); c.beginPath(); c.arc(S * 0.8, S * 0.56, S * 0.09, 0, 7); c.stroke();
+    [[0.77, 0.54, '#d9342c'], [0.83, 0.55, '#b9cf56'], [0.79, 0.6, '#f28a1e'], [0.84, 0.6, '#d9342c']].forEach(([x, y, col]) => { circ(c, S * x, S * y, S * 0.026, col); c.beginPath(); c.arc(S * x, S * y, S * 0.026, 0, 7); c.stroke(); });
+  });
+  return ops;
+}
+function portraitOps(S) { // a cubist portrait: a profile and a front view share one head
+  const P = (col, pts, edge = true) => (c) => { c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x * S, y * S) : c.moveTo(x * S, y * S))); c.closePath(); c.fillStyle = col; c.fill(); if (edge) { c.strokeStyle = 'rgba(18,15,12,.9)'; c.lineWidth = 2.6 * S / 600; c.lineJoin = 'round'; c.stroke(); } };
+  const Cc = (x, y, r, col) => (c) => circ(c, x * S, y * S, r * S, col);
+  const L = (pts) => (c) => { c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x * S, y * S) : c.moveTo(x * S, y * S))); c.strokeStyle = '#14110e'; c.lineWidth = 3.4 * S / 600; c.lineCap = 'round'; c.lineJoin = 'round'; c.stroke(); };
+  return [
+    P('#7f93a0', [[0, 0], [1, 0], [1, 1], [0, 1]], false), P('#b3a07c', [[0, 0], [0.42, 0], [0.27, 0.5], [0, 0.62]]), P('#5b6f80', [[0.42, 0], [1, 0], [1, 0.42], [0.66, 0.5]]),
+    P('#40403f', [[0, 0.62], [0.27, 0.5], [0.35, 1], [0, 1]]), P('#92795a', [[0.66, 0.5], [1, 0.42], [1, 1], [0.7, 1]]),
+    P('#34506e', [[0.16, 1], [0.28, 0.8], [0.48, 0.75], [0.76, 0.8], [0.9, 1]]), P('#26394f', [[0.48, 0.75], [0.76, 0.8], [0.9, 1], [0.58, 1]]),
+    P('#e8dec6', [[0.38, 0.79], [0.5, 0.74], [0.54, 0.92]]), P('#c9bd9f', [[0.5, 0.74], [0.62, 0.78], [0.54, 0.92]]),
+    P('#b8865e', [[0.43, 0.6], [0.59, 0.6], [0.62, 0.78], [0.46, 0.76]]),
+    P('#d9ad7e', [[0.29, 0.2], [0.5, 0.13], [0.5, 0.67], [0.4, 0.69], [0.33, 0.58], [0.27, 0.4]]), P('#cf9a80', [[0.5, 0.13], [0.71, 0.21], [0.73, 0.43], [0.67, 0.6], [0.56, 0.68], [0.5, 0.67]]),
+    P('#8e9f78', [[0.56, 0.68], [0.67, 0.6], [0.73, 0.43], [0.62, 0.55]]), P('#ecd0a6', [[0.33, 0.22], [0.5, 0.13], [0.5, 0.29], [0.35, 0.33]]),
+    P('#2b2522', [[0.28, 0.21], [0.38, 0.09], [0.58, 0.06], [0.72, 0.13], [0.72, 0.22], [0.5, 0.14]]),
+    P('#b98763', [[0.5, 0.28], [0.5, 0.55], [0.35, 0.53]]), P('#8a5f45', [[0.5, 0.4], [0.5, 0.55], [0.44, 0.54]]),
+    P('#f2ecde', [[0.56, 0.34], [0.62, 0.31], [0.69, 0.34], [0.62, 0.375]]), Cc(0.62, 0.343, 0.02, '#243a55'), Cc(0.62, 0.343, 0.008, '#0c0c0c'),
+    P('#f2ecde', [[0.37, 0.335], [0.42, 0.315], [0.47, 0.34], [0.42, 0.355]]), Cc(0.425, 0.337, 0.015, '#243a55'), Cc(0.425, 0.337, 0.006, '#0c0c0c'),
+    L([[0.54, 0.3], [0.62, 0.27], [0.7, 0.3]]), L([[0.36, 0.3], [0.42, 0.28], [0.48, 0.31]]),
+    P('#a24a3d', [[0.43, 0.61], [0.52, 0.575], [0.62, 0.605], [0.52, 0.64]]), P('#c48b68', [[0.71, 0.33], [0.76, 0.36], [0.74, 0.47], [0.7, 0.45]]),
+  ];
+}
+const BASE = { vg: '#2c3f55', mo: '#d8cfba', se: '#efe6d2', re: '#0d0805', pi: '#cdbf9c' };
+// paintings of the guessing game: [artist, reference, flow or lamp]; the still life of part 1 is the first row
+const SCENES = {
+  still: { vg: { flow: 'still' }, re: { lamp: { x: 0.22, y: 0.18, R: 0.62 } } },
+  starry: { flow: 'starry' }, watch: { lamp: { x: 0.46, y: 0.42, R: 0.5 } },
+};
+function build(k, refKey, S) {
+  const rng = rngOf(hashStr(k + refKey)), rf = ref(refKey);
+  if (k === 'vg') return { base: BASE.vg, ops: genVG(rf, S, rng, FLOW[refKey === 'starry' ? 'starry' : 'still']) };
+  if (k === 'mo') return { base: BASE.mo, ops: genMonet(rf, S, rng) };
+  if (k === 'se') return { base: BASE.se, ops: genSeurat(rf, S, rng, 8 * S / 560) };
+  if (k === 're') return { base: BASE.re, ops: genRem(rf, S, rng, refKey === 'watch' ? SCENES.watch.lamp : SCENES.still.re.lamp) };
+  return { base: BASE.pi, ops: genPicasso(rf, S, rng) };
+}
+function paintAll(spec, S) {
+  const cv = document.createElement('canvas'); cv.width = cv.height = S;
+  const c = cv.getContext('2d'); c.fillStyle = spec.base; c.fillRect(0, 0, S, S);
+  for (const op of spec.ops) op(c);
+  return cv;
+}
+
+// --- state -------------------------------------------------------------------------------------------------
+const S1 = 560, S2 = 600, S3 = 600;
+const ORDER = ['mo', 'pi', 'vg', 're', 'se'];
+const GUESS = { // the guessing game: reference picture, and the close-up window: focus point and width (share of the painting)
+  vg: { refKey: 'starry', fx: 0.55, fy: 0.25, win: 0.34 }, mo: { refKey: 'sunrise', fx: 0.58, fy: 0.55, win: 0.36 }, se: { refKey: 'jatte', fx: 0.38, fy: 0.58, win: 0.3 },
+  re: { refKey: 'watch', fx: 0.46, fy: 0.4, win: 0.36 }, pi: { refKey: null, fx: 0.52, fy: 0.42, win: 0.36 },
+};
+const S = {
+  brush: 'vg', tried: { vg: true }, sec: null, mix: { swirl: true, dot: true, patch: false }, strokes: 0, soldPick: null,
+  r: 0, pick: null, score: [], rev: 0,
+  part: 'dots', g3: null, t: 0, auto: false, bucket: '',
+  lamp: { x: 180, y: 60 }, lampTo: null, lampKey: '', lampMoved: false,
+};
+const P1 = { cv: document.createElement('canvas'), ops: [], i: 0, dur: 1.7 };
+P1.cv.width = P1.cv.height = S1; P1.ctx = P1.cv.getContext('2d');
+const SPEC1 = {};
+function startBrush(k) {
+  const sp = (SPEC1[k] ??= build(k, 'still', S1));
+  P1.ops = sp.ops; P1.i = 0; P1.dur = k === 'pi' ? 1.2 : 1.8;
+  P1.ctx.fillStyle = sp.base; P1.ctx.fillRect(0, 0, S1, S1);
+}
+const MIX = { cv: document.createElement('canvas') };
+MIX.cv.width = MIX.cv.height = S1; MIX.ctx = MIX.cv.getContext('2d');
+const clearMix = () => { MIX.ctx.fillStyle = '#efe6d2'; MIX.ctx.fillRect(0, 0, S1, S1); S.strokes = 0; };
+clearMix();
+const MR = rngOf(4242);
+const P2 = {};
+function guessCanvas(k) {
+  if (P2[k]) return P2[k];
+  const spec = k === 'pi' ? { base: '#7f93a0', ops: portraitOps(S2) } : build(k, GUESS[k].refKey, S2);
+  return (P2[k] = paintAll(spec, S2));
+}
+let DOT = null; // the dot painting for the zoom: the full-size canvas and its halved copies (the "eye" averages neighbouring dots)
+function dots3() {
+  if (DOT) return DOT;
+  const full = paintAll({ base: BASE.se, ops: genSeurat(ref('still'), S3, rngOf(777), 8) }, S3), mips = [full];
+  for (const w of [300, 150, 75, 38]) { const cv = document.createElement('canvas'); cv.width = cv.height = w; const c = cv.getContext('2d'); c.imageSmoothingEnabled = true; c.drawImage(mips[mips.length - 1], 0, 0, w, w); mips.push(cv); }
+  return (DOT = mips);
+}
+const SOLD = 412, TILES = (() => { const r = rngOf(31), pal = ['#e2b93b', '#2f4f8f', '#5b8c4a', '#c8602b', '#8aa6c9', '#3b2f4f', '#d9d0a0', '#a33a2a']; return Array.from({ length: 860 }, () => ({ a: pal[Math.floor(r() * pal.length)], b: pal[Math.floor(r() * pal.length)] })); })();
+let LAY = { ix: 0, iy: 0, I: 100, w: 300, h: 300, F: 100, fx: 0, fy: 0, fw: 8 };
+let LAMPLAY = { ox: 0, oy: 0, sc: 1 };
+
+// --- lamp scene: a portrait lit by one lamp -------------------------------------------------------------------
+const LI = [[0, 1], [0.2, 0.8], [0.45, 0.34], [0.75, 0.12], [1, 0.06]], LR = 330;
+const lampI = (x, y, lp) => {
+  const u = Math.min(1, Math.hypot(x - lp.x, y - lp.y) / LR);
+  for (let i = 1; i < LI.length; i++) if (u <= LI[i][0]) { const [u0, v0] = LI[i - 1], [u1, v1] = LI[i]; return lerp(v0, v1, (u - u0) / (u1 - u0)); }
+  return LI[LI.length - 1][1];
+};
+const facePath = (c) => { c.beginPath(); c.ellipse(180, 215, 66, 82, 0, 0, 7); };
+function drawPortrait(c, lp) {
+  c.fillStyle = rad(c, 180, 200, 280, [[0, '#6a5036'], [1, '#2a1e14']]); c.fillRect(0, 0, 360, 440);
+  // coat and collar
+  c.beginPath(); c.moveTo(14, 440); c.bezierCurveTo(26, 350, 90, 322, 150, 312); c.lineTo(210, 312); c.bezierCurveTo(270, 322, 334, 350, 346, 440); c.closePath();
+  c.fillStyle = lin(c, 0, 312, 0, 440, [[0, '#5b4630'], [1, '#2a1d12']]); c.fill();
+  c.beginPath(); c.moveTo(128, 318); c.bezierCurveTo(150, 352, 210, 352, 232, 318); c.lineTo(242, 334); c.bezierCurveTo(212, 376, 148, 376, 118, 334); c.closePath();
+  c.fillStyle = lin(c, 0, 318, 0, 376, [[0, '#efe7d2'], [1, '#bfb59a']]); c.fill();
+  c.beginPath(); c.moveTo(92, 352); c.bezierCurveTo(130, 420, 230, 420, 268, 352); c.strokeStyle = '#d6a93c'; c.lineWidth = 3.5; c.stroke();
+  // hair, ears, neck
+  ell(c, 180, 192, 84, 98, '#4b3220'); ell(c, 112, 238, 15, 40, '#4b3220'); ell(c, 248, 238, 15, 40, '#4b3220');
+  ell(c, 113, 222, 10, 18, '#c48e68'); ell(c, 247, 222, 10, 18, '#c48e68');
+  c.fillStyle = lin(c, 0, 270, 0, 330, [[0, '#b98660'], [1, '#8a5c3e']]); c.fillRect(155, 268, 50, 56);
+  // face
+  facePath(c); c.fillStyle = rad(c, 165, 190, 110, [[0, '#ecc19b'], [0.7, '#d29e77'], [1, '#b17c58']]); c.fill();
+  // features
+  ell(c, 152, 209, 17, 9, 'rgba(60,30,15,.16)'); ell(c, 208, 209, 17, 9, 'rgba(60,30,15,.16)');
+  [[152, 138, 166], [208, 194, 222]].forEach(([cx, x0, x1]) => {
+    c.beginPath(); c.moveTo(x0, 208); c.quadraticCurveTo(cx, 198, x1, 208); c.quadraticCurveTo(cx, 216, x0, 208); c.closePath(); c.fillStyle = '#f2eadb'; c.fill();
+    circ(c, cx + 1, 207.5, 5.2, '#4a3626'); circ(c, cx + 1, 207.5, 2.3, '#120b06'); circ(c, cx + 2.6, 205.8, 1.3, '#ffffff');
+    c.beginPath(); c.moveTo(x0 - 2, 195); c.quadraticCurveTo(cx, 187, x1 + 2, 193); c.strokeStyle = '#3a2616'; c.lineWidth = 4; c.lineCap = 'round'; c.stroke();
+  });
+  c.beginPath(); c.moveTo(180, 204); c.bezierCurveTo(176, 226, 168, 240, 165, 248); c.quadraticCurveTo(180, 258, 195, 248); c.bezierCurveTo(192, 240, 184, 226, 180, 204); c.closePath();
+  c.fillStyle = lin(c, 165, 0, 195, 0, [[0, '#d9a77f'], [1, '#c08b66']]); c.fill();
+  ell(c, 172, 249, 4, 2.4, 'rgba(60,25,12,.55)'); ell(c, 188, 249, 4, 2.4, 'rgba(60,25,12,.55)');
+  c.beginPath(); c.moveTo(157, 267); c.quadraticCurveTo(180, 274, 203, 267); c.quadraticCurveTo(180, 261, 157, 267); c.closePath(); c.fillStyle = '#9a5446'; c.fill();
+  c.beginPath(); c.moveTo(159, 267); c.quadraticCurveTo(180, 272, 201, 267); c.strokeStyle = '#5e2c22'; c.lineWidth = 1.6; c.stroke();
+  // light and shadow on the form of the face, from the lamp's side
+  const dx = 180 - lp.x, dy = 215 - lp.y, len = Math.hypot(dx, dy) || 1, ux = dx / len, uy = dy / len;
+  c.save(); facePath(c); c.clip();
+  const sg = c.createLinearGradient(180 - ux * 70, 215 - uy * 80, 180 + ux * 70, 215 + uy * 80);
+  sg.addColorStop(0, 'rgba(20,10,5,0)'); sg.addColorStop(0.45, 'rgba(20,10,5,.05)'); sg.addColorStop(1, 'rgba(20,10,5,.72)');
+  c.fillStyle = sg; c.fillRect(100, 120, 160, 190);
+  ell(c, 180 + ux * 13, 240 + uy * 7, 9, 17, 'rgba(40,20,10,.34)');
+  ell(c, 180 - ux * 6, 215 - uy * 6, 4, 22, 'rgba(255,235,205,.16)');
+  c.fillStyle = lin(c, 0, 135, 0, 200, [[0, 'rgba(10,6,3,.55)'], [1, 'rgba(10,6,3,0)']]); c.fillRect(100, 130, 160, 75);
+  c.restore();
+  // beret
+  c.save(); c.translate(180, 130); c.rotate(-0.06);
+  ell(c, 0, 0, 100, 44, rad(c, -30, -18, 130, [[0, '#3a2c20'], [1, '#0b0806']])); ell(c, 0, 26, 98, 18, 'rgba(0,0,0,.45)'); circ(c, 0, -44, 6, '#1a130d'); c.restore();
+  // the lamp lights everything: multiply by the light on each point
+  c.globalCompositeOperation = 'multiply';
+  const g = c.createRadialGradient(lp.x, lp.y, 0, lp.x, lp.y, LR);
+  LI.forEach(([u, v]) => g.addColorStop(u, `rgb(${v * 255 | 0},${v * 0.93 * 255 | 0},${v * 0.8 * 255 | 0})`));
+  c.fillStyle = g; c.fillRect(0, 0, 360, 440);
+  c.globalCompositeOperation = 'lighter';
+  c.fillStyle = rad(c, lp.x, lp.y, 110, [[0, 'rgba(255,196,110,.34)'], [1, 'rgba(255,196,110,0)']]); c.fillRect(0, 0, 360, 440);
+  c.globalCompositeOperation = 'source-over';
+  circ(c, lp.x, lp.y, 13, rad(c, lp.x, lp.y, 13, [[0, '#fffbe8'], [0.6, '#ffd98a'], [1, '#e8a23a']]));
+  c.beginPath(); c.arc(lp.x, lp.y, 17, 0, 7); c.strokeStyle = 'rgba(255,240,200,.75)'; c.lineWidth = 2; c.stroke();
+}
+const formShade = (x, y, lp) => { // the same gradient as the face's shadow side in drawPortrait
+  const dx = 180 - lp.x, dy = 215 - lp.y, len = Math.hypot(dx, dy) || 1, ux = dx / len, uy = dy / len;
+  const x0 = 180 - ux * 70, y0 = 215 - uy * 80, gx = 140 * ux, gy = 160 * uy, gg = gx * gx + gy * gy || 1;
+  const s = clamp(((x - x0) * gx + (y - y0) * gy) / gg, 0, 1);
+  return 1 - (s < 0.45 ? 0.05 * (s / 0.45) : 0.05 + 0.67 * ((s - 0.45) / 0.55));
+};
+const lampStats = () => { const L = lampI(150, 235, S.lamp) * formShade(150, 235, S.lamp), R = lampI(210, 235, S.lamp) * formShade(210, 235, S.lamp), mx = Math.max(L, R), mn = Math.min(L, R); return { L, R, ct: mx > 0 ? (mx - mn) / mx : 0, mx }; };
+
+// --- shell -------------------------------------------------------------------------------------------------
+const lab = shell({ key: 'whose-brush', T, topics: TOPICS, views: ['brush', 'guess', 'light'], onLang: () => render(), onView: () => render() });
+const secret = secretLab('whose-brush', () => ({
+  secrets: [{ emo: '🌀', title: T[lang].secrets.mix[0], desc: T[lang].secrets.mix[1] }, { emo: '🖼️', title: T[lang].secrets.sold[0], desc: T[lang].secrets.sold[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+const cv = $('cv');
+
+$('ctrlBody').innerHTML = `
+  <div id="sBrush">
+    <div class="chips wb-row" id="brushChips"></div>
+    <div class="chips wb-row" id="secChips"></div>
+    <div class="chips wb-row" id="mixChips" hidden></div>
+    <div class="wb-pred" id="soldOpts" hidden></div>
+  </div>
+  <div id="sGuess" hidden>
+    <div class="wb-q" id="guessQ" style="margin-bottom:10px"></div>
+    <div class="wb-grid" id="guessBtns"></div>
+    <button class="btn wb-next" id="gNext" data-act="gnext" hidden></button>
+  </div>
+  <div id="sLight" hidden>
+    <div class="chips wb-row" id="partChips"></div>
+    <div id="dotsCtl">
+      <div class="wb-pred" id="predBtns"></div>
+      <div class="wb-slide" id="slideBox" hidden><span id="slLo"></span><input type="range" id="dist" min="0" max="100" value="0" aria-label="distance"><span id="slHi"></span></div>
+    </div>
+    <div id="lampCtl" hidden><div class="chips wb-row" id="lampChips"></div></div>
+  </div>`;
+
+// --- drawing ------------------------------------------------------------------------------------------------
+function layout(w, h) {
+  const pad = 12, F = Math.max(120, Math.min(w - 2 * pad, h - 2 * pad - 44)), fw = Math.max(8, F * 0.04), fx = (w - F) / 2, fy = pad;
+  return { w, h, F, fw, fx, fy, ix: fx + fw, iy: fy + fw, I: F - 2 * fw };
+}
+function frame(c, L) {
+  c.save(); c.shadowColor = 'rgba(0,0,0,.55)'; c.shadowBlur = 18; c.shadowOffsetY = 6;
+  rr(c, L.fx, L.fy, L.F, L.F, 5); c.fillStyle = lin(c, L.fx, L.fy, L.fx + L.F, L.fy + L.F, [[0, '#e6c26e'], [0.5, '#a67c2e'], [1, '#d9b35c']]); c.fill(); c.restore();
+  rr(c, L.fx + L.fw * 0.5, L.fy + L.fw * 0.5, L.F - L.fw, L.F - L.fw, 2); c.strokeStyle = 'rgba(70,44,10,.75)'; c.lineWidth = 1.5; c.stroke();
+  c.fillStyle = 'rgba(0,0,0,.35)'; c.fillRect(L.ix - 1.5, L.iy - 1.5, L.I + 3, L.I + 3);
+}
+function plate(c, L, text) {
+  c.font = '700 12.5px Nunito, system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  const maxW = L.w - 36, lines = []; let cur = '';
+  for (const wd of String(text).split(' ')) { const tst = cur ? cur + ' ' + wd : wd; if (c.measureText(tst).width > maxW && cur) { lines.push(cur); cur = wd; } else cur = tst; }
+  lines.push(cur);
+  const ls = lines.slice(0, 2), pw = Math.min(L.w - 12, Math.max(...ls.map((s) => c.measureText(s).width)) + 24), ph = 10 + ls.length * 16, y0 = L.fy + L.F + 10;
+  rr(c, (L.w - pw) / 2, y0, pw, ph, 10); c.fillStyle = 'rgba(10,12,20,.82)'; c.fill();
+  c.fillStyle = '#EDEFF7'; ls.forEach((s, i) => c.fillText(s, L.w / 2, y0 + 5 + 8 + i * 16));
+}
+function pill(c, x, y, text) {
+  c.font = '700 12px Nunito, system-ui, sans-serif'; c.textAlign = 'left'; c.textBaseline = 'middle';
+  const w = c.measureText(text).width + 16; rr(c, x, y, w, 22, 11); c.fillStyle = 'rgba(10,12,20,.8)'; c.fill(); c.fillStyle = '#EDEFF7'; c.fillText(text, x + 8, y + 11.5);
+}
+function drawWall(c, L) { // part 1 secret: 860 small paintings, the one that sold lights up after the guess
+  c.fillStyle = '#1b1620'; c.fillRect(L.ix, L.iy, L.I, L.I);
+  const cols = 28, rows = Math.ceil(860 / cols), tw = L.I / cols, th = L.I / rows;
+  for (let n = 0; n < 860; n++) {
+    const x = L.ix + (n % cols) * tw, y = L.iy + Math.floor(n / cols) * th, t = TILES[n];
+    c.fillStyle = lin(c, x, y, x + tw, y + th, [[0, t.a], [1, t.b]]); c.fillRect(x + 0.6, y + 0.6, tw - 1.2, th - 1.2);
+  }
+  if (S.soldPick !== null) {
+    const n = SOLD, x = L.ix + (n % cols) * tw, y = L.iy + Math.floor(n / cols) * th, pulse = 0.5 + 0.5 * Math.sin(performance.now() / 260);
+    c.fillStyle = `rgba(255,255,255,${0.04 + 0.1 * pulse})`; c.fillRect(L.ix, L.iy, L.I, L.I);
+    c.fillStyle = rad(c, x + tw / 2, y + th / 2, 30, [[0, `rgba(255,224,120,${0.7 + 0.3 * pulse})`], [1, 'rgba(255,224,120,0)']]); c.fillRect(x - 30, y - 30, tw + 60, th + 60);
+    c.fillStyle = '#d9342c'; c.fillRect(x - 1, y - 1, tw + 2, th + 2); c.strokeStyle = '#ffe07a'; c.lineWidth = 2; c.strokeRect(x - 2.5, y - 2.5, tw + 5, th + 5);
+  }
+}
+function advanceP1(dt) {
+  if (P1.i >= P1.ops.length) return;
+  const n = Math.max(1, Math.ceil(P1.ops.length * dt / P1.dur)), to = Math.min(P1.ops.length, P1.i + n);
+  for (; P1.i < to; P1.i++) P1.ops[P1.i](P1.ctx);
+}
+function drawBrush(c, L, dt) {
+  if (S.sec === 'sold') { drawWall(c, L); plate(c, L, S.soldPick === null ? T[lang].sold.plateQ : T[lang].sold.plateA); return; }
+  if (S.sec === 'mix') { c.drawImage(MIX.cv, L.ix, L.iy, L.I, L.I); plate(c, L, T[lang].mix.plate); return; }
+  advanceP1(dt);
+  c.drawImage(P1.cv, L.ix, L.iy, L.I, L.I);
+  plate(c, L, `${T[lang].art[S.brush].n} · ${Y[S.brush]}`);
+}
+function drawGuess(c, L, dt) {
+  const t = T[lang], g = t.g;
+  if (S.r >= 5) { // the five paintings together
+    c.fillStyle = '#1b1620'; c.fillRect(L.ix, L.iy, L.I, L.I);
+    const m = L.I / 3, sz = m - 10, pos = [[0, 0], [1, 0], [2, 0], [0.5, 1], [1.5, 1]];
+    ORDER.forEach((k, i) => {
+      const x = L.ix + pos[i][0] * m + 5, y = L.iy + pos[i][1] * (m + 4) + 8 + (L.I - 2 * m - 4) / 2 - 6;
+      c.drawImage(guessCanvas(k), x, y, sz, sz); c.strokeStyle = S.score[i] ? '#3ddc97' : '#ff6a60'; c.lineWidth = 2; c.strokeRect(x - 1, y - 1, sz + 2, sz + 2);
+      c.fillStyle = 'rgba(10,12,20,.82)'; c.fillRect(x, y + sz - 16, sz, 16); c.fillStyle = '#EDEFF7'; c.font = '700 12px Nunito, system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(t.art[k].n, x + sz / 2, y + sz - 7.5);
+    });
+    return;
+  }
+  const k = ORDER[S.r], G = GUESS[k], cvs = guessCanvas(k);
+  if (S.pick !== null && S.rev < 1) S.rev = Math.min(1, S.rev + dt / 0.95);
+  const e = ease(S.rev), win = lerp(G.win, 1, e), cx = clamp(lerp(G.fx, 0.5, e), win / 2, 1 - win / 2), cy = clamp(lerp(G.fy, 0.5, e), win / 2, 1 - win / 2);
+  c.save(); c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
+  c.drawImage(cvs, (cx - win / 2) * S2, (cy - win / 2) * S2, win * S2, win * S2, L.ix, L.iy, L.I, L.I); c.restore();
+  if (S.pick === null) pill(c, L.ix + 8, L.iy + 8, g.close); else plate(c, L, g.cred[k]);
+}
+function drawLight(c, L, dt, time) {
+  if (S.part === 'dots') {
+    const mips = dots3(), tt = S.g3 === null ? 0 : S.t, e = ease(tt), win = lerp(0.2, 1, e), cx = clamp(lerp(0.34, 0.5, e), win / 2, 1 - win / 2), cy = clamp(lerp(0.3, 0.5, e), win / 2, 1 - win / 2);
+    const m = 600 * Math.pow(60 / 600, tt), lvl = Math.log2(600 / m), l0 = Math.min(4, Math.floor(lvl)), l1 = Math.min(4, l0 + 1), a = lvl - l0;
+    const put = (mip) => { const sz = mip.width; c.drawImage(mip, (cx - win / 2) * sz, (cy - win / 2) * sz, win * sz, win * sz, L.ix, L.iy, L.I, L.I); };
+    c.save(); c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high'; put(mips[l0]); if (a > 0.01 && l1 !== l0) { c.globalAlpha = a; put(mips[l1]); c.globalAlpha = 1; } c.restore();
+    return;
+  }
+  // lamp: the portrait fits the whole stage
+  const w = L.w - 20, h = L.h - 20, sc = Math.min(w / 360, h / 440), ox = (L.w - 360 * sc) / 2, oy = (L.h - 440 * sc) / 2;
+  LAMPLAY = { ox, oy, sc };
+  if (S.lampTo) { const k = Math.min(1, dt * 9); S.lamp.x += (S.lampTo.x - S.lamp.x) * k; S.lamp.y += (S.lampTo.y - S.lamp.y) * k; if (Math.hypot(S.lampTo.x - S.lamp.x, S.lampTo.y - S.lamp.y) < 0.5) { S.lamp.x = S.lampTo.x; S.lamp.y = S.lampTo.y; S.lampTo = null; } }
+  c.save(); c.translate(ox, oy); c.scale(sc, sc); rr(c, 0, 0, 360, 440, 10); c.clip(); drawPortrait(c, S.lamp); c.restore();
+  rr(c, ox - 1, oy - 1, 360 * sc + 2, 440 * sc + 2, 10 * sc); c.strokeStyle = 'rgba(214,170,80,.7)'; c.lineWidth = 2; c.stroke();
+  const st = lampStats(), key = `${Math.round(st.L * 100)}|${Math.round(st.R * 100)}`;
+  if (key !== S.lampKey) { S.lampKey = key; renderLight(T[lang]); }
+}
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+const bucketOf = (t) => (t < 0.28 ? 'near' : t < 0.7 ? 'mid' : 'far');
+const dragActive = () => (lab.view === 'brush' && S.sec === 'mix' && secret.unlocked()) || (lab.view === 'light' && S.part === 'lamp');
+const draw = (c, w, h, dt, time) => {
+  const wall = lin(c, 0, 0, 0, h, [[0, '#2a2230'], [1, '#17131d']]); c.fillStyle = wall; c.fillRect(0, 0, w, h);
+  c.fillStyle = rad(c, w / 2, 0, Math.max(w, h) * 0.8, [[0, 'rgba(255,236,200,.16)'], [1, 'rgba(255,236,200,0)']]); c.fillRect(0, 0, w, h);
+  const L = layout(w, h); LAY = L;
+  const v = lab.view;
+  const lamp = v === 'light' && S.part === 'lamp';
+  if (!lamp) frame(c, L);
+  if (v === 'brush') drawBrush(c, L, dt);
+  else if (v === 'guess') { drawGuess(c, L, dt); }
+  else {
+    if (S.part === 'dots' && S.auto) {
+      S.t = Math.min(1, S.t + dt / 3.4); $('dist').value = Math.round(S.t * 100);
+      if (S.t >= 1) S.auto = false;
+      const bk = bucketOf(S.t); if (bk !== S.bucket) renderLight(T[lang]);
+    }
+    drawLight(c, L, dt, time);
+  }
+};
+canvasLoop(cv, draw);
+
+// --- interaction ---------------------------------------------------------------------------------------------
+function paintAt(u, v) {
+  const rf = ref('still'), c = MIX.ctx, k = S.mix;
+  for (let n = 0; n < 3; n++) {
+    const ux = clamp(u + (MR() - 0.5) * 0.06, 0, 1), uy = clamp(v + (MR() - 0.5) * 0.06, 0, 1);
+    if (k.swirl) vgStroke(rf, FLOW.still, S1, MR, ux, uy, 30 * (0.8 + MR() * 0.5), 12 * (0.8 + MR() * 0.4))(c);
+    if (k.patch) monetPatch(rf, MR, S1, ux, uy, 26 * (0.8 + MR() * 0.4), 0.8, 0.6)(c);
+    if (k.dot) { const sp = 8, j = Math.round(uy * S1 / (sp * 0.9)), i = Math.round((ux * S1) / sp - (j & 1 ? 0.5 : 0)); seuratDot(rf, S1, i, j, sp, MR())(c); }
+  }
+  S.strokes += 3;
+}
+let lastPt = null;
+function pointerAt(e, first) {
+  const r = cv.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+  if (lab.view === 'brush') {
+    if (lastPt && !first && Math.hypot(px - lastPt[0], py - lastPt[1]) < 5) return;
+    lastPt = [px, py];
+    const u = (px - LAY.ix) / LAY.I, v = (py - LAY.iy) / LAY.I;
+    if (u < 0 || u > 1 || v < 0 || v > 1) return;
+    paintAt(u, v); lab.setReadout(S.strokes, T[lang].mix.sub, '', '#d6aa50');
+  } else {
+    S.lampMoved = true; S.lampTo = null; S.lamp.x = clamp((px - LAMPLAY.ox) / LAMPLAY.sc, 14, 346); S.lamp.y = clamp((py - LAMPLAY.oy) / LAMPLAY.sc, 14, 426);
+  }
+}
+let dragging = false;
+cv.addEventListener('pointerdown', (e) => { if (!dragActive()) return; dragging = true; lastPt = null; try { cv.setPointerCapture(e.pointerId); } catch { /* old browsers */ } pointerAt(e, true); });
+cv.addEventListener('pointermove', (e) => { if (dragging) pointerAt(e, false); });
+['pointerup', 'pointercancel'].forEach((n) => cv.addEventListener(n, () => { dragging = false; }));
+
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const act = b.dataset.act, t = T[lang];
+  if (act === 'brush') {
+    const k = b.dataset.k; S.sec = null; S.brush = k; S.tried[k] = true; startBrush(k); sfx.click();
+  } else if (act === 'sec') {
+    const k = b.dataset.k;
+    if (!secret.unlocked()) return secret.open();
+    if (S.sec === k) S.sec = null; else { S.sec = k; if (k === 'mix') clearMix(); if (k === 'sold') S.soldPick = null; }
+    sfx.click();
+  } else if (act === 'mixk') {
+    const k = b.dataset.k, on = Object.values(S.mix).filter(Boolean).length;
+    if (S.mix[k] && on <= 1) return;
+    S.mix[k] = !S.mix[k]; sfx.tick();
+  } else if (act === 'mixclear') { clearMix(); sfx.click(); }
+  else if (act === 'sold') { S.soldPick = +b.dataset.j; (S.soldPick === t.sold.ok ? sfx.good : sfx.bad)(); showStage(); }
+  else if (act === 'pick') {
+    if (S.pick !== null) return;
+    S.pick = b.dataset.k; S.rev = 0; const ok = S.pick === ORDER[S.r]; S.score[S.r] = ok; (ok ? sfx.good : sfx.bad)(); showStage();
+  } else if (act === 'gnext') {
+    if (S.r >= 5) { S.r = 0; S.score = []; S.pick = null; S.rev = 0; } else { S.r++; S.pick = null; S.rev = 0; }
+    sfx.click();
+  } else if (act === 'part') { S.part = b.dataset.k; S.lampKey = ''; sfx.click(); }
+  else if (act === 'g3') {
+    if (S.g3 !== null) return;
+    S.g3 = +b.dataset.j; S.t = 0; S.auto = true; (S.g3 === t.s.ok ? sfx.good : sfx.bad)(); showStage();
+  } else if (act === 'lamp') { const P = { l: [70, 215], r: [290, 215], u: [180, 26], d: [180, 412] }[b.dataset.k]; S.lampMoved = true; S.lampTo = { x: P[0], y: P[1] }; sfx.click(); }
+  render();
+});
+$('dist').addEventListener('input', (ev) => { S.auto = false; S.t = +ev.target.value / 100; renderLight(T[lang]); });
+
+// --- one render per change: controls, readout and the state card -------------------------------------------------
+function render() {
+  const t = T[lang], v = lab.view;
+  $('sBrush').hidden = v !== 'brush'; $('sGuess').hidden = v !== 'guess'; $('sLight').hidden = v !== 'light';
+  cv.style.touchAction = dragActive() ? 'none' : '';
+  if (v === 'brush') renderBrush(t); else if (v === 'guess') renderGuess(t); else renderLight(t);
+}
+function renderBrush(t) {
+  const k = S.brush, a = t.art[k], n = Object.keys(S.tried).length, open = secret.unlocked();
+  lab.setGlow('rgba(214,170,80,.25)');
+  cv.style.touchAction = dragActive() ? 'none' : '';
+  $('brushChips').innerHTML = KEYS.map((b) => `<button class="chip wb ${b === k && !S.sec ? 'on' : ''}" data-act="brush" data-k="${b}">${esc(t.art[b].n)}${S.tried[b] && b !== k ? ' ✓' : ''}</button>`).join('');
+  const sc = (key, emo) => `<button class="chip wb secret ${open ? 'open' : ''} ${S.sec === key ? 'on' : ''}" data-act="sec" data-k="${key}">${open ? `${emo} ${esc(t.secrets[key][0])}` : '🔒 ???'}</button>`;
+  $('secChips').innerHTML = sc('mix', '🌀') + sc('sold', '🖼️');
+  $('mixChips').hidden = S.sec !== 'mix';
+  $('mixChips').innerHTML = Object.entries(t.mix.kinds).map(([key, l]) => `<button class="chip wb ${S.mix[key] ? 'on' : ''}" data-act="mixk" data-k="${key}">${esc(l)}</button>`).join('') + `<button class="chip wb" data-act="mixclear">${esc(t.mix.clear)}</button>`;
+  $('soldOpts').hidden = !(S.sec === 'sold' && S.soldPick === null);
+  $('soldOpts').innerHTML = `<div class="wb-q">${esc(t.sold.q)}</div>` + t.sold.opts.map((o, j) => `<button class="wb-a" data-act="sold" data-j="${j}">${esc(o)}</button>`).join('');
+  if (S.sec === 'mix') {
+    lab.setReadout(S.strokes, t.mix.sub, '', '#d6aa50');
+    lab.setState({ emo: '🎨', title: t.mix.title, lead: t.mix.lead, body: '', extra: '' }); lab.setFacts([]);
+  } else if (S.sec === 'sold') {
+    lab.setReadout('≈860', t.sold.sub, '', '#d6aa50');
+    if (S.soldPick === null) { lab.setState({ emo: '🖼️', title: t.sold.q, lead: '', body: '', extra: '' }); lab.setFacts([]); }
+    else {
+      const ok = S.soldPick === t.sold.ok;
+      lab.setState({ emo: ok ? '✅' : '🤔', title: ok ? t.sold.right : t.sold.wrong, lead: t.sold.truth, body: '', extra: '' });
+      lab.setFacts([{ emo: '🖼️', text: t.fact.sold, src: SRC.sold }]);
+    }
+  } else {
+    lab.setReadout(`${n}/5`, t.b.sub, a.n, '#d6aa50');
+    lab.setState({ emo: '🖌️', title: a.n, lead: `${Y[k]} · ${a.c}`, body: a.man, extra: `<div>${esc(n >= 5 ? t.b.all : t.b.progress(n))}</div>` });
+    lab.setFacts([{ emo: '💡', text: t.fact[k], src: SRC[k] }]);
+  }
+}
+function renderGuess(t) {
+  const g = t.g, r = S.r, end = r >= 5, picked = S.pick !== null, cur = ORDER[r] ?? null, k5 = S.score.filter(Boolean).length;
+  lab.setGlow('rgba(143,127,208,.26)');
+  if (!end) guessCanvas(cur);
+  $('guessBtns').hidden = end; $('guessQ').hidden = end; $('guessQ').textContent = g.q;
+  $('guessBtns').innerHTML = end ? '' : KEYS.map((b) => `<button class="wb-a ${picked ? (b === cur ? 'ok' : b === S.pick ? 'no' : 'dim') : ''}" data-act="pick" data-k="${b}"${picked ? ' disabled' : ''}>${esc(t.art[b].n)}</button>`).join('');
+  $('gNext').hidden = !(end || picked);
+  $('gNext').textContent = end ? g.again : r === 4 ? g.fin : g.next;
+  if (end) {
+    lab.setReadout(`${k5}/5`, g.sub, '', '#8f7fd0');
+    lab.setState({ emo: '🏆', title: g.end(k5), lead: g.endLead, body: '', extra: '' }); lab.setFacts([]);
+  } else if (!picked) {
+    lab.setReadout(`${r + 1}/5`, g.sub, '', '#8f7fd0');
+    lab.setState({ emo: '🎯', title: g.q, lead: g.lead, body: '', extra: '' }); lab.setFacts([]);
+  } else {
+    const ok = S.pick === cur;
+    lab.setReadout(`${r + 1}/5`, g.sub, '', '#8f7fd0');
+    lab.setState({ emo: ok ? '✅' : '🤔', title: ok ? g.right : g.wrong(t.art[cur].n), lead: g.clue[cur], body: g.cred[cur], extra: '' });
+    lab.setFacts([{ emo: '🖼️', text: t.fact['g' + cur], src: SRC['g' + cur] }]);
+  }
+}
+function renderLight(t) {
+  const s = t.s, dots = S.part === 'dots';
+  cv.style.touchAction = dragActive() ? 'none' : '';
+  lab.setGlow(dots ? 'rgba(95,143,208,.26)' : 'rgba(224,150,70,.28)');
+  $('partChips').innerHTML = ['dots', 'lamp'].map((k, i) => `<button class="chip wb ${S.part === k ? 'on' : ''}" data-act="part" data-k="${k}">${i + 1} · ${esc(s.parts[i])}</button>`).join('');
+  $('dotsCtl').hidden = !dots; $('lampCtl').hidden = dots;
+  if (dots) {
+    const pre = S.g3 === null;
+    $('predBtns').hidden = !pre;
+    $('predBtns').innerHTML = pre ? `<div class="wb-q">${esc(s.q)}</div>` + s.opts.map((o, j) => `<button class="wb-a" data-act="g3" data-j="${j}">${esc(o)}</button>`).join('') : '';
+    $('slideBox').hidden = pre;
+    $('slLo').textContent = s.words[0]; $('slHi').textContent = s.words[2];
+    $('dist').value = Math.round(S.t * 100);
+    if (pre) {
+      lab.setReadout('?', s.sub, '', '#5f8fd0');
+      lab.setState({ emo: '🔎', title: s.q, lead: s.lead, body: '', extra: '' });
+      lab.setFacts([{ emo: '💡', text: t.fact.pt, src: SRC.pt }]);
+    } else {
+      const bk = bucketOf(S.t), st = s[bk], ok = S.g3 === s.ok; S.bucket = bk;
+      lab.setReadout(s.words[S.t < 0.28 ? 0 : S.t < 0.7 ? 1 : 2], s.sub, '', '#5f8fd0');
+      lab.setState({ emo: bk === 'far' ? '🌈' : '🔎', title: st[0], lead: st[1], body: `${ok ? s.right : s.wrong}`, extra: '' });
+      lab.setFacts([{ emo: '💡', text: t.fact.pt, src: SRC.pt }, { emo: '🎨', text: t.fact.pt2, src: SRC.pt2 }]);
+    }
+  } else {
+    const st = lampStats(), pct = (x) => Math.round(x * 100);
+    if ($('lampChips').dataset.built !== lang) { // built once per language: the lamp moves every frame and a tap may be in progress
+      $('lampChips').dataset.built = lang;
+      $('lampChips').innerHTML = ['l', 'r', 'u', 'd'].map((k) => `<button class="chip wb" data-act="lamp" data-k="${k}">${esc(s.lamp[k])}</button>`).join('');
+    }
+    lab.setReadout(`${pct(st.L)}% | ${pct(st.R)}%`, s.cheeks, '', '#e09646');
+    const info = !S.lampMoved ? s.lampQ : st.ct >= 0.55 && st.mx >= 0.35 ? s.lampOk : st.ct < 0.25 ? s.lampFlat : st.mx < 0.3 ? s.lampDark : s.lampMid;
+    lab.setState({ emo: info === s.lampOk ? '🌟' : '💡', title: info[0], lead: info[1], body: '', extra: '' });
+    lab.setFacts([{ emo: '🖼️', text: t.fact.rem, src: SRC.rem }]);
+  }
+}
+startBrush('vg');
+render();
+</script>
+</body>
+</html>
