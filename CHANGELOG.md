@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-14
 
 ### Labs
+- New lab `dino-or-not` “Dinosaur or Not?”: Six ancient animals to sort, legs to turn, film myths to spot. (632). (#561)
 - New lab `salts` “Name the Salt”: Acid reactions in test tubes with word equations and salt names. (631). (#560)
 - New lab `whose-brush` “Whose Brush?”: One still life in five painters' manners, a guessing game, dots and light. (630). (#559)
 - New lab `chronicle` “Year by Year”: Chronicle year count, entry structure and the 1185 eclipse. (629). (#558)
