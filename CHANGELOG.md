@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-14
 
 ### Labs
+- New lab `papyrus` “From Reed to Scroll”: Make an Egyptian papyrus sheet step by step and roll it into a scroll. (618). (#547)
 - New lab `polar-chains` “Who Eats Krill?”: Polar sea food chains built with arrows, with one link removable. (617). (#546)
 - New lab `call-response` “Question and Answer”: Two birds sing musical questions and answers with Web Audio. (616). (#545)
 - New lab `cold-touch` “Which Feels Colder?”: Touch materials with a thermometer, heat spoons, test properties. (615). (#544)
