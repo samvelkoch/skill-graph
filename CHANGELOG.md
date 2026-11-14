@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-14
 
 ### Labs
+- New lab `shape-for-job` “Shape for the Job”: Spoon, boat and jug shapes tested in a workshop. (627). (#556)
 - New lab `fast-slow` “Fast or Slow?”: A landscape changed by quick events and by a time slider up to a million years. (626). (#555)
 - New lab `kingdoms` “Plant, Animal or Neither?”: Sort organisms into kingdoms, zoom with a microscope, find the deciding rule. (625). (#554)
 - New lab `storm-safe` “When the Storm Comes”: Forecast, shelter choice and the park after a thunderstorm. (624). (#553)
