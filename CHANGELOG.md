@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-14
 
 ### Labs
+- New lab `horde-roads` “Roads Through the Horde”: Rus princes, the Golden Horde and Italian trading posts around 1300. (644). (#573)
 - New lab `wind-belts` “Winds Around the World”: Global circulation cells with and without rotation, real wind belts. (643). (#572)
 - New lab `mantle` “What Moves the Plates?”: Mantle convection, slab pull and plate boundaries in a cross-section. (642). (#571)
 - New lab `kadesh` “Who Won at Kadesh?”: The Battle of Kadesh from two sources, the treaty and Egypt's trade. (641). (#570)
