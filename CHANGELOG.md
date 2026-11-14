@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-14
 
 ### Labs
+- New lab `chronicle` “Year by Year”: Chronicle year count, entry structure and the 1185 eclipse. (629). (#558)
 - New lab `two-lands` “Two Lands, One Crown”: Upper and Lower Egypt on a Nile map, the double crown and the shaduf. (628). (#557)
 - New lab `shape-for-job` “Shape for the Job”: Spoon, boat and jug shapes tested in a workshop. (627). (#556)
 - New lab `fast-slow` “Fast or Slow?”: A landscape changed by quick events and by a time slider up to a million years. (626). (#555)
