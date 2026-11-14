@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-14
 
 ### Labs
+- New lab `storm-safe` “When the Storm Comes”: Forecast, shelter choice and the park after a thunderstorm. (624). (#553)
 - New lab `alexander` “Alexander's March”: Alexander's route on a historical map, the Hellenistic kingdoms and Cleopatra. (623). (#552)
 - New lab `surnames` “Smith, Miller, Baker”: Medieval trades behind surnames in three languages, and medieval inventions. (622). (#551)
 - New lab `push-trolley` “Same Push, Different Load”: Force, mass and acceleration with a live velocity–time graph. (621). (#550)
