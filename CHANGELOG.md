@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-14
 
 ### Labs
+- New lab `cold-touch` “Which Feels Colder?”: Touch materials with a thermometer, heat spoons, test properties. (615). (#544)
 - New lab `space-race` “First in Space”: Space-flight milestones ordered on a rocket timeline. (614). (#543)
 
 ## 2026-11-13
