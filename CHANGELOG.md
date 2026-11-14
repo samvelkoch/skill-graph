@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-14
 
 ### Labs
+- New lab `slinky` “Push or Shake”: Transverse and longitudinal waves on a slinky with v = f·λ. (634). (#563)
 - New lab `growing-up` “How Fast Do We Grow?”: Height by age on a door frame and a WHO-based growth curve. (633). (#562)
 - New lab `dino-or-not` “Dinosaur or Not?”: Six ancient animals to sort, legs to turn, film myths to spot. (632). (#561)
 - New lab `salts` “Name the Salt”: Acid reactions in test tubes with word equations and salt names. (631). (#560)
