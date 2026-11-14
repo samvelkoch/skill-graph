@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-14
 
 ### Labs
+- New lab `kadesh` “Who Won at Kadesh?”: The Battle of Kadesh from two sources, the treaty and Egypt's trade. (641). (#570)
 - New lab `palace-coups` “Who Will Sit on the Throne?”: Russian rulers 1725–1762, who decided the succession, and Catherine II. (640). (#569)
 - New lab `year-1917` “1917: A Year of Choices”: Russia's two revolutions of 1917, dual power and the Constituent Assembly. (639). (#568)
 - New lab `prikazy` “An Office for Every Job”: Prikazy, the Duma and the Zemsky Sobor under Ivan IV, and the oprichnina. (638). (#567)
