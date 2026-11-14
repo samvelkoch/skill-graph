@@ -1,0 +1,906 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>How Fast Do We Grow? · Skill Graph</title>
+<meta name="description" content="Slide the age from 0 to 19 and watch a child grow past pencil marks on a door frame, meet the stages of life, and compare three friends of the same age. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  .qline { font: 800 15px/1.35 var(--sans); margin: 2px 0 8px; color: var(--ink); }
+  .qopts { display: flex; flex-wrap: wrap; gap: 8px; }
+  .qopts button { padding: 10px 14px; min-height: 40px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 800; cursor: pointer; text-align: left; }
+  .qopts button:hover { background: rgba(130, 145, 190, .25); }
+  .vd { font-weight: 800; margin: 2px 0 6px; line-height: 1.35; }
+  .vd.ok { color: var(--ok); } .vd.no { color: var(--wip); }
+  .sldhead { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--faint); font-weight: 700; margin: 12px 0 2px; }
+  .sldhead b { font-size: 18px; letter-spacing: 0; color: var(--ink); }
+  .fine { font-size: 11px; color: var(--faint); }
+  .nextrow { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+  @media (max-width: 760px) {
+    #stage { height: min(125vw, 540px); }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, lang } from '../lab.js';
+
+// --- numbers --------------------------------------------------------------------------------------------------
+// Median height in cm at whole years 0..19, read from the WHO tables (50th percentile, M column):
+//  - birth, 1 year: WHO Child Growth Standards, length-for-age birth to 2 years (lying down)
+//  - 2 to 5 years:  WHO Child Growth Standards, height-for-age 2 to 5 years (standing)
+//  - 6 to 19 years: WHO Growth Reference 2007, height-for-age 5 to 19 years
+const WHO = {
+  boys: [49.88, 75.75, 87.12, 96.08, 103.33, 109.96, 115.95, 121.73, 127.27, 132.57, 137.78, 143.11, 149.08, 156.04, 163.18, 168.96, 172.90, 175.16, 176.14, 176.54],
+  girls: [49.15, 74.02, 85.72, 95.05, 102.73, 109.42, 115.12, 120.81, 126.56, 132.49, 138.64, 144.99, 151.23, 156.37, 159.79, 161.67, 162.52, 162.85, 163.06, 163.15],
+};
+const AMAX = 19;
+// monotone cubic (Fritsch-Carlson) through the yearly points: a smooth curve that never overshoots; only used to draw and animate between years
+function pchip(ys) {
+  const n = ys.length, d = [], m = new Array(n).fill(0);
+  for (let i = 0; i < n - 1; i++) d[i] = ys[i + 1] - ys[i];
+  m[0] = d[0]; m[n - 1] = d[n - 2];
+  for (let i = 1; i < n - 1; i++) m[i] = d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2;
+  for (let i = 0; i < n - 1; i++) {
+    if (d[i] === 0) { m[i] = m[i + 1] = 0; continue; }
+    const a = m[i] / d[i], b = m[i + 1] / d[i], s = a * a + b * b;
+    if (s > 9) { const t = 3 / Math.sqrt(s); m[i] = t * a * d[i]; m[i + 1] = t * b * d[i]; }
+  }
+  const f = (x) => {
+    x = Math.min(n - 1, Math.max(0, x));
+    const i = Math.min(n - 2, Math.floor(x)), t = x - i, t2 = t * t, t3 = t2 * t;
+    return (2 * t3 - 3 * t2 + 1) * ys[i] + (t3 - 2 * t2 + t) * m[i] + (-2 * t3 + 3 * t2) * ys[i + 1] + (t3 - t2) * m[i + 1];
+  };
+  return { f, m, ys };
+}
+const F = { boys: pchip(WHO.boys), girls: pchip(WHO.girls) };
+const gain = (sx, a) => WHO[sx][a] - WHO[sx][a - 1];
+const argmaxGain = (sx, lo, hi) => { let b = lo; for (let a = lo; a <= hi; a++) if (gain(sx, a) > gain(sx, b)) b = a; return b; };
+const PEAK = { boys: argmaxGain('boys', 8, 16), girls: argmaxGain('girls', 8, 16) }; // the age of the biggest gain after the early years
+const BEST = { boys: argmaxGain('boys', 1, AMAX), girls: argmaxGain('girls', 1, AMAX) }; // the age of the biggest gain at all (year 1)
+const MAXG = Math.max(gain('boys', 1), gain('girls', 1));
+const RANGE = (sx) => { let lo = 99, hi = 0; for (let a = 5; a <= 11; a++) { lo = Math.min(lo, gain(sx, a)); hi = Math.max(hi, gain(sx, a)); } return [Math.floor(lo), Math.ceil(hi)]; };
+const PICK_AGES = [1, 6, 13, 18]; // the question's options: the year ending at this age
+
+// three made-up friends of view 3: the median curve, shifted in time (a "simplified model", not data)
+const smoothstep = (x) => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
+const bump = (a) => smoothstep((a - 7) / 5) * (1 - smoothstep((a - 14) / 6));
+const FR = [
+  { s: -1.5, key: 'late', col: '#e8884a', shirt: '#e8884a', hair: '#5a3a22', skin: '#f0c29c', emo: '🟠' },
+  { s: 1.5, key: 'early', col: '#4fb88b', shirt: '#4fb88b', hair: '#1f1a18', skin: '#d9a47c', emo: '🟢' },
+  { s: 0, key: 'avg', col: '#9b7fe0', shirt: '#9b7fe0', hair: '#c79a52', skin: '#b9835c', emo: '🟣' },
+];
+const frH = (sx, i, a) => F[sx].f(a + FR[i].s * bump(a));
+const WAD = 272.0; // Robert Wadlow, last measurement (cm)
+const WAD8 = 183; // Robert Wadlow at age 8 (cm)
+const MORNING = 1.54; // cm, mean morning-to-afternoon loss of 100 children
+
+const n0 = (x) => String(Math.round(x));
+const n1 = (x) => { const s = x.toFixed(1); return lang === 'en' ? s : s.replace('.', ','); };
+const n2 = (x) => { const s = x.toFixed(2); return lang === 'en' ? s : s.replace('.', ','); };
+
+const TOPICS = [
+  { id: 'mt_OSfCeIeBak', en: 'Human Life Stages', ru: 'Этапы жизни человека', hu: 'Az ember életszakaszai' },
+];
+
+// --- texts ----------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'How Fast Do We Grow?', title: 'How Fast Do We Grow?',
+    lines: [['Slide the age', 'and watch a child grow.'], ['Meet the stages of life,', 'from baby to older adult.'], ['Three friends, one age:', 'who is taller, and when?']],
+    views: { door: '🚪 Door', stages: '🌱 Stages', timing: '👭 Three' },
+    girl: 'Girl', boy: 'Boy', age: 'Age', cm: 'cm', right: 'Right!', next: 'Next →', again: '↻ Again',
+    d: {
+      q: 'In which year does a child gain the most centimetres?', ask: 'Pick one, then slide through the years.',
+      opts: ['The first year of life', 'From age 5 to 6', 'From age 12 to 13', 'From age 17 to 18'],
+      vRight: (g) => `The first year wins: +${n1(g)} cm.`,
+      vWrong: (g, p) => `Not quite. The first year wins with +${n1(g)} cm; your pick gained +${n1(p)} cm.`,
+      pill: (g) => `+${n1(g)} cm in the last year`, barCap: 'cm gained in each year', curveCap: 'height by age',
+      born: ['Just born', (h) => `About ${h} cm long.`, 'Slide the age: pencil marks will pile up on the door frame.'],
+      first: ['The first year', (g) => `+${n1(g)} cm in the last year: more than in any later year.`, 'It never happens this fast again.'],
+      fast: ['Still fast, but slowing', (g) => `+${n1(g)} cm in the last year.`, 'Each year adds a little less than the one before.'],
+      steady: ['Slow and steady', (g) => `+${n1(g)} cm in the last year.`, (lo, hi) => `Between ages 5 and 11 a child gains about ${lo} to ${hi} cm a year.`],
+      up: ['Growth picks up again', (g) => `+${n1(g)} cm in the last year.`, 'It runs faster for a few years, then slows down for good.'],
+      slow: ['Slowing down', (g) => `+${n1(g)} cm in the last year.`, 'The yearly gain falls towards zero.'],
+      done: ['Fully grown', (h) => `About ${h} cm.`, 'The WHO tables end at 19. Height stops, but the body keeps changing.'],
+      fine: 'Median heights from the WHO Child Growth Standards (length at birth and age 1, standing height from age 2) and the WHO Growth Reference 2007 (ages 5 to 19). A real child is taller or shorter than the median. The tables end at 19.',
+      dayRd: 'shorter in the evening', tallRd: 'Robert Wadlow',
+      day: ['Taller in the morning', (n) => `In one study, 100 children were on average ${n} cm shorter at 4–5 p.m. than when they got out of bed.`, 'The lens shows that small difference, magnified.'],
+      tall: ['Record height', (h) => `In 1940 Robert Wadlow was measured at 272.0 cm. Beside him: the median height at 19, ${h} cm.`, 'By the age of 8 he was already taller than his father.'],
+      morning: 'morning', evening: 'evening', at8: (h) => `at age 8: ${h} cm`,
+    },
+    secrets: { day: ['Morning and evening', 'Your height changes during the day.'], tall: ['Record height', 'Robert Wadlow, 272 cm.'] },
+    s: {
+      which: 'Which stage is it?', tap: 'Tap the stage in the picture where this happens.', n: (i) => `Change ${i} of 3`,
+      tasks: [['🦷', 'The first teeth push through the gums.'], ['🦷', 'A milk tooth wobbles and falls out.'], ['🎤', 'In boys, the voice drops and gets deeper.']],
+      bad: (nm) => `Not quite: it is the stage “${nm}”.`, explore: 'Explore all five', redo: '↻ Again',
+      freeT: 'Tap a stage', freeL: 'Each stage has its own changes: teeth, voice, hair, knowledge.', freeB: 'Development goes on all your life: one stage flows into the next.',
+      names: ['Baby', 'Child', 'Teen', 'Adult', 'Older adult'], full: ['Baby', 'Child', 'Teen', 'Adult', 'Older adult'], ages: ['0–1', '2–12', '13–19', '20–64', '65+'],
+      about: 'The age limits are rough: nobody changes stage on a birthday.',
+      st: [
+        ['👶', 'First teeth push through at about six months.', 'Babies learn to roll, sit, crawl and, after a while, walk.'],
+        ['🧒', 'From about age 6 milk teeth wobble and fall out, and permanent teeth grow in.', 'Children learn to read, write and ride a bike.'],
+        ['🧑', 'Puberty changes the body, and in boys the voice drops by about an octave.', 'It takes years, and it is different for everybody.'],
+        ['🧍', 'Growth has stopped, but the body and the mind keep changing.', 'Wisdom teeth may come through in the late teens or early twenties. Adults learn new skills and ideas.'],
+        ['🧓', 'Hair often turns grey, muscles get weaker and cuts heal more slowly.', 'But vocabulary and knowledge can keep growing: people can learn at every age.'],
+      ],
+    },
+    m: {
+      fr: ['Orange', 'Green', 'Purple'], tm: { late: 'late spurt', early: 'early spurt', avg: 'average' },
+      q12: 'These three friends are 10 years old. Who will be the tallest when they are 12?', q18: 'Now fast-forward to 18. Who is the tallest then?',
+      same: 'About the same', look: 'Look at the three friends: all of them are 10 years old.',
+      hd: (a) => `Age ${a}`, sub12: (a, b, c) => `At 12: ${a} · ${b} · ${c} cm`,
+      v12: (nm) => `Tallest at 12: ${nm}. This friend’s growth spurt comes first.`, no: 'Not quite.',
+      v18: (sp) => `At 18 the three are within ${n1(sp)} cm of each other. In this model they all end up at the same height: only the timing differed.`,
+      v18no: (nm) => `At 18 the tallest is ${nm}.`,
+      freeBig: (sp) => ['Same age, different timing', `${n1(sp)} cm between the tallest and the shortest.`],
+      freeEq: (h) => ['All about the same', `About ${h} cm each: the timing differed, the end result did not.`],
+      freeNear: (h) => ['Still close together', `About ${h} cm each so far. The differences come later.`],
+      body: 'Made-up friends: the median curve, shifted in time. In real life final heights differ a little too.', curveCap: 'height by age',
+    },
+    facts: {
+      door: [
+        { emo: '📈', text: 'On average, a girl’s growth spurt peaks around age 11–12 and a boy’s around 13–14.', src: 'https://en.wikipedia.org/wiki/Human_height' },
+        { emo: '🛑', text: 'On average, growth slows to zero at about 15–16 in girls and 18–19 in boys.', src: 'https://en.wikipedia.org/wiki/Human_height' },
+        { emo: '📏', text: 'Before puberty boys are about 2 cm shorter than girls on average, and adult men are about 13 cm taller than adult women.', src: 'https://en.wikipedia.org/wiki/Puberty' },
+      ],
+      stages: [
+        { emo: '🦷', text: 'Baby teeth are usually shed first at about age 6, when the middle front teeth loosen. The back molars follow at about 10 to 12.', src: 'https://www.healthychildren.org/English/healthy-living/oral-health/Pages/When-Children-Begin-to-Lose-their-Baby-Teeth.aspx' },
+        { emo: '🎤', text: 'In boys the voice drops by about one octave during puberty, sometimes abruptly but rarely overnight.', src: 'https://en.wikipedia.org/wiki/Puberty' },
+        { emo: '🧠', text: 'Psychology textbooks say that vocabulary and general knowledge keep improving across adulthood, also after age 60.', src: 'https://openstax.org/books/lifespan-development/pages/15-3-cognition-and-memory-in-late-adulthood' },
+      ],
+      timing: [
+        { emo: '🗓️', text: 'Puberty typically starts between ages 8 and 13 for girls and between 9 and 14 for boys.', src: 'https://www.nichd.nih.gov/health/topics/factsheets/puberty' },
+        { emo: '⏳', text: 'Boys keep growing for about six years after the first visible changes of puberty.', src: 'https://en.wikipedia.org/wiki/Puberty' },
+      ],
+    },
+    quiz: [
+      { q: 'Do we grow the same amount every year?', opts: ['No: fast as a baby, slow, then a teenage spurt', 'Yes, the same every year', 'Only after 18'], ok: 0, hint: 'Watch the yearly gain bar.' },
+      { q: 'Do all teenagers start their spurt at the same age?', opts: ['Yes, at 13', 'Only boys have a spurt', 'No, the timing differs'], ok: 2, hint: 'Look at the three friends.' },
+      { q: 'Is old age only about losing things?', opts: ['Yes', 'No, people keep learning and changing', 'Old people do not change'], ok: 1, hint: 'Tap the older adult in Stages.' },
+    ],
+  },
+  ru: {
+    name: 'Как быстро мы растём?', title: 'Как быстро мы растём?',
+    lines: [['Двигай возраст', 'и смотри, как растёт ребёнок.'], ['Познакомься с этапами жизни:', 'от малыша до пожилого человека.'], ['Трое друзей, один возраст:', 'кто выше и когда?']],
+    views: { door: '🚪 Дверь', stages: '🌱 Этапы', timing: '👭 Трое' },
+    girl: 'Девочка', boy: 'Мальчик', age: 'Возраст', cm: 'см', right: 'Верно!', next: 'Дальше →', again: '↻ Ещё раз',
+    d: {
+      q: 'В каком году жизни ребёнок прибавляет больше всего сантиметров?', ask: 'Выбери ответ, а потом листай годы.',
+      opts: ['Первый год жизни', 'От 5 до 6 лет', 'От 12 до 13 лет', 'От 17 до 18 лет'],
+      vRight: (g) => `Побеждает первый год: +${n1(g)} см.`,
+      vWrong: (g, p) => `Не совсем. Первый год впереди: +${n1(g)} см, а в выбранный год прибавка +${n1(p)} см.`,
+      pill: (g) => `+${n1(g)} см за последний год`, barCap: 'прибавка за год, см', curveCap: 'рост по возрастам',
+      born: ['Новорождённый', (h) => `Длина около ${h} см.`, 'Двигай возраст: на дверном косяке будут появляться карандашные метки.'],
+      first: ['Первый год', (g) => `+${n1(g)} см за последний год: больше, чем в любой следующий год.`, 'Так быстро рост больше не идёт.'],
+      fast: ['Всё ещё быстро, но медленнее', (g) => `+${n1(g)} см за последний год.`, 'Каждый год прибавка немного меньше, чем в предыдущий.'],
+      steady: ['Медленно и ровно', (g) => `+${n1(g)} см за последний год.`, (lo, hi) => `От 5 до 11 лет ребёнок прибавляет примерно ${lo}–${hi} см в год.`],
+      up: ['Рост снова ускоряется', (g) => `+${n1(g)} см за последний год.`, 'Несколько лет он идёт быстрее, а потом замедляется насовсем.'],
+      slow: ['Рост замедляется', (g) => `+${n1(g)} см за последний год.`, 'Прибавка за год приближается к нулю.'],
+      done: ['Рост закончился', (h) => `Около ${h} см.`, 'Таблицы ВОЗ заканчиваются на 19 годах. Рост останавливается, но тело продолжает меняться.'],
+      fine: 'Медианный рост по стандартам роста ВОЗ (при рождении и в 1 год — длина тела лёжа, с 2 лет — рост стоя) и справочным данным ВОЗ 2007 (5–19 лет). Реальный ребёнок выше или ниже медианы. Таблицы заканчиваются на 19 годах.',
+      dayRd: 'ниже вечером', tallRd: 'Роберт Уодлоу',
+      day: ['Утром выше', (n) => `В одном исследовании 100 детей к 4–5 часам дня были в среднем ниже на ${n} см, чем сразу после подъёма.`, 'Лупа показывает эту небольшую разницу в увеличенном виде.'],
+      tall: ['Рекордный рост', (h) => `В 1940 году Роберта Уодлоу измерили: 272,0 см. Рядом — медианный рост в 19 лет: ${h} см.`, 'В 8 лет он уже был выше своего отца.'],
+      morning: 'утро', evening: 'вечер', at8: (h) => `в 8 лет: ${h} см`,
+    },
+    secrets: { day: ['Утро и вечер', 'Рост меняется в течение дня.'], tall: ['Рекордный рост', 'Роберт Уодлоу, 272 см.'] },
+    s: {
+      which: 'Какой это этап?', tap: 'Нажми на картинке на этап, когда это происходит.', n: (i) => `Перемена ${i} из 3`,
+      tasks: [['🦷', 'Прорезываются первые зубы.'], ['🦷', 'Молочный зуб шатается и выпадает.'], ['🎤', 'У мальчиков голос становится ниже.']],
+      bad: (nm) => `Не совсем: это этап «${nm}».`, explore: 'Посмотреть все пять', redo: '↻ Ещё раз',
+      freeT: 'Нажми на этап', freeL: 'У каждого этапа свои перемены: зубы, голос, волосы, знания.', freeB: 'Развитие идёт всю жизнь: один этап плавно переходит в следующий.',
+      names: ['Малыш', 'Ребёнок', 'Подросток', 'Взрослый', 'Пожилой'], full: ['Малыш', 'Ребёнок', 'Подросток', 'Взрослый', 'Пожилой человек'], ages: ['0–1', '2–12', '13–19', '20–64', '65+'],
+      about: 'Границы возраста примерные: никто не переходит на новый этап в день рождения.',
+      st: [
+        ['👶', 'Первые зубы прорезываются примерно в полгода.', 'Малыши учатся переворачиваться, сидеть, ползать, а потом и ходить.'],
+        ['🧒', 'Примерно с 6 лет молочные зубы начинают шататься и выпадать, а на их месте растут постоянные.', 'Дети учатся читать, писать и ездить на велосипеде.'],
+        ['🧑', 'Половое созревание меняет тело, а у мальчиков голос становится ниже примерно на октаву.', 'Оно идёт годами и у каждого по-своему.'],
+        ['🧍', 'Рост закончился, но тело и ум продолжают меняться.', 'Зубы мудрости могут прорезаться в конце подросткового возраста или в двадцать с небольшим. Взрослые осваивают новые умения и идеи.'],
+        ['🧓', 'Волосы часто седеют, мышцы слабеют, а порезы заживают медленнее.', 'Но словарный запас и знания могут продолжать расти: учиться можно в любом возрасте.'],
+      ],
+    },
+    m: {
+      fr: ['Оранжевый', 'Зелёный', 'Фиолетовый'], tm: { late: 'скачок поздно', early: 'скачок рано', avg: 'средне' },
+      q12: 'Этим троим друзьям по 10 лет. Кто будет выше всех, когда им исполнится 12?', q18: 'А теперь перенесёмся в 18 лет. Кто выше всех тогда?',
+      same: 'Примерно одинаково', look: 'Посмотри на трёх друзей: всем по 10 лет.',
+      hd: (a) => `Возраст ${a}`, sub12: (a, b, c) => `В 12 лет: ${a} · ${b} · ${c} см`,
+      v12: (nm) => `Выше всех в 12 лет: ${nm}. Скачок роста здесь начинается раньше всех.`, no: 'Не совсем.',
+      v18: (sp) => `В 18 лет разница между тремя не больше ${n1(sp)} см. В этой модели все вырастают до одного роста: отличались только сроки.`,
+      v18no: (nm) => `В 18 лет выше всех: ${nm}.`,
+      freeBig: (sp) => ['Один возраст, разные сроки', `Между самым высоким и самым низким ${n1(sp)} см.`],
+      freeEq: (h) => ['Почти одинаково', `У каждого около ${h} см: сроки были разные, а итог одинаковый.`],
+      freeNear: (h) => ['Пока рядом', `У каждого пока около ${h} см. Разница появится позже.`],
+      body: 'Придуманные друзья: медианная кривая, сдвинутая по времени. В жизни конечный рост тоже немного отличается.', curveCap: 'рост по возрастам',
+    },
+    facts: {
+      door: [
+        { emo: '📈', text: 'В среднем скачок роста у девочек достигает пика около 11–12 лет, а у мальчиков — около 13–14.', src: 'https://en.wikipedia.org/wiki/Human_height' },
+        { emo: '🛑', text: 'В среднем рост замедляется до нуля примерно к 15–16 годам у девочек и к 18–19 годам у мальчиков.', src: 'https://en.wikipedia.org/wiki/Human_height' },
+        { emo: '📏', text: 'До полового созревания мальчики в среднем ниже девочек примерно на 2 см, а взрослые мужчины выше взрослых женщин примерно на 13 см.', src: 'https://en.wikipedia.org/wiki/Puberty' },
+      ],
+      stages: [
+        { emo: '🦷', text: 'Молочные зубы обычно начинают выпадать примерно в 6 лет, когда расшатываются средние передние зубы. Коренные зубы сменяются примерно в 10–12 лет.', src: 'https://www.healthychildren.org/English/healthy-living/oral-health/Pages/When-Children-Begin-to-Lose-their-Baby-Teeth.aspx' },
+        { emo: '🎤', text: 'У мальчиков в период полового созревания голос становится ниже примерно на октаву, иногда резко, но редко за одну ночь.', src: 'https://en.wikipedia.org/wiki/Puberty' },
+        { emo: '🧠', text: 'В учебниках по психологии сказано, что словарный запас и общие знания продолжают расти всю взрослую жизнь, в том числе после 60 лет.', src: 'https://openstax.org/books/lifespan-development/pages/15-3-cognition-and-memory-in-late-adulthood' },
+      ],
+      timing: [
+        { emo: '🗓️', text: 'Половое созревание обычно начинается в возрасте от 8 до 13 лет у девочек и от 9 до 14 лет у мальчиков.', src: 'https://www.nichd.nih.gov/health/topics/factsheets/puberty' },
+        { emo: '⏳', text: 'Мальчики продолжают расти примерно шесть лет после первых заметных признаков полового созревания.', src: 'https://en.wikipedia.org/wiki/Puberty' },
+      ],
+    },
+    quiz: [
+      { q: 'Мы растём одинаково каждый год?', opts: ['Нет: быстро в младенчестве, потом медленно, потом скачок в подростковом возрасте', 'Да, одинаково каждый год', 'Только после 18 лет'], ok: 0, hint: 'Посмотри на столбики прибавки за год.' },
+      { q: 'Скачок роста у всех подростков начинается в одном возрасте?', opts: ['Да, в 13 лет', 'Скачок бывает только у мальчиков', 'Нет, сроки разные'], ok: 2, hint: 'Посмотри на трёх друзей.' },
+      { q: 'Старость — это только потери?', opts: ['Да', 'Нет, люди продолжают учиться и меняться', 'Пожилые люди не меняются'], ok: 1, hint: 'Нажми на пожилого человека в части «Этапы».' },
+    ],
+  },
+  hu: {
+    name: 'Milyen gyorsan növünk?', title: 'Milyen gyorsan növünk?',
+    lines: [['Húzd az életkort,', 'és nézd, ahogy a gyerek nő.'], ['Ismerd meg az élet szakaszait:', 'a csecsemőtől az idősekig.'], ['Három barát, egy életkor:', 'ki magasabb, és mikor?']],
+    views: { door: '🚪 Ajtó', stages: '🌱 Korok', timing: '👭 Három' },
+    girl: 'Lány', boy: 'Fiú', age: 'Életkor', cm: 'cm', right: 'Így van!', next: 'Tovább →', again: '↻ Újra',
+    d: {
+      q: 'Az élet melyik évében nő a legtöbbet egy gyerek?', ask: 'Válassz, aztán húzd végig az éveket.',
+      opts: ['Az élet első évében', '5 és 6 éves kor között', '12 és 13 éves kor között', '17 és 18 éves kor között'],
+      vRight: (g) => `Az első év nyer: +${n1(g)} cm.`,
+      vWrong: (g, p) => `Nem egészen. Az első év nyer: +${n1(g)} cm; a választott évben +${n1(p)} cm a gyarapodás.`,
+      pill: (g) => `+${n1(g)} cm az elmúlt évben`, barCap: 'cm gyarapodás évenként', curveCap: 'magasság kor szerint',
+      born: ['Újszülött', (h) => `Kb. ${h} cm hosszú.`, 'Húzd az életkort: az ajtófélfán gyűlnek a ceruzajelek.'],
+      first: ['Az első év', (g) => `+${n1(g)} cm az elmúlt évben: több, mint bármelyik későbbi évben.`, 'Ilyen gyorsan soha többé nem megy.'],
+      fast: ['Még gyors, de lassul', (g) => `+${n1(g)} cm az elmúlt évben.`, 'Minden év egy kicsit kevesebbet ad, mint az előző.'],
+      steady: ['Lassan, egyenletesen', (g) => `+${n1(g)} cm az elmúlt évben.`, (lo, hi) => `5 és 11 éves kor között egy gyerek évente kb. ${lo}–${hi} cm-t nő.`],
+      up: ['Újra gyorsul a növekedés', (g) => `+${n1(g)} cm az elmúlt évben.`, 'Néhány évig gyorsabb, aztán végleg lassul.'],
+      slow: ['Lassul', (g) => `+${n1(g)} cm az elmúlt évben.`, 'Az éves gyarapodás nullához közelít.'],
+      done: ['Megállt a növekedés', (h) => `Kb. ${h} cm.`, 'A WHO táblázatai 19 évesnél véget érnek. A magasság megáll, de a test tovább változik.'],
+      fine: 'Medián magasságok a WHO gyermeknövekedési standardjaiból (születéskor és 1 évesen hosszúság fekve, 2 évestől állva mért magasság) és a WHO 2007-es referenciaadataiból (5–19 év). A valódi gyerek a mediánnál magasabb vagy alacsonyabb. A táblázatok 19 évnél véget érnek.',
+      dayRd: 'este alacsonyabb', tallRd: 'Robert Wadlow',
+      day: ['Reggel magasabb', (n) => `Egy vizsgálatban 100 gyerek délután 4–5 órára átlagosan ${n} cm-rel alacsonyabb lett, mint közvetlenül felkelés után.`, 'A nagyító ezt a kis különbséget mutatja felnagyítva.'],
+      tall: ['Rekordmagasság', (h) => `1940-ben Robert Wadlow magasságát 272,0 cm-nek mérték. Mellette: a 19 évesek medián magassága, ${h} cm.`, '8 évesen már magasabb volt az apjánál.'],
+      morning: 'reggel', evening: 'este', at8: (h) => `8 évesen: ${h} cm`,
+    },
+    secrets: { day: ['Reggel és este', 'A magasságod napközben változik.'], tall: ['Rekordmagasság', 'Robert Wadlow, 272 cm.'] },
+    s: {
+      which: 'Melyik szakasz ez?', tap: 'Koppints a képen arra a szakaszra, amelyikben ez történik.', n: (i) => `${i}. változás a 3-ból`,
+      tasks: [['🦷', 'Áttörnek az első fogak.'], ['🦷', 'Egy tejfog megmozdul és kiesik.'], ['🎤', 'A fiúk hangja mélyebb lesz.']],
+      bad: (nm) => `Nem egészen: ez a „${nm}” szakasz.`, explore: 'Mind az öt megnézése', redo: '↻ Újra',
+      freeT: 'Koppints egy szakaszra', freeL: 'Minden szakasznak megvannak a maga változásai: fogak, hang, haj, tudás.', freeB: 'A fejlődés egész életünkben tart: az egyik szakasz észrevétlenül átmegy a következőbe.',
+      names: ['Csecsemő', 'Gyerek', 'Tini', 'Felnőtt', 'Idős'], full: ['Csecsemő', 'Gyerek', 'Tinédzser', 'Felnőtt', 'Idős ember'], ages: ['0–1', '2–12', '13–19', '20–64', '65+'],
+      about: 'A korhatárok hozzávetőlegesek: senki sem lép át a következő szakaszba a születésnapján.',
+      st: [
+        ['👶', 'Az első fogak kb. fél évesen törnek át.', 'A csecsemők megtanulnak megfordulni, ülni, mászni, később járni.'],
+        ['🧒', 'Kb. 6 évesen a tejfogak elkezdenek mozogni és kihullanak, helyükön kinőnek az állandó fogak.', 'A gyerekek megtanulnak olvasni, írni és biciklizni.'],
+        ['🧑', 'A pubertás átalakítja a testet, a fiúk hangja pedig kb. egy oktávot mélyül.', 'Évekig tart, és mindenkinél másképp zajlik.'],
+        ['🧍', 'A növekedés megállt, de a test és az elme tovább változik.', 'A bölcsességfogak a tinédzserkor végén vagy a húszas évek elején törhetnek át. A felnőttek új készségeket és ötleteket tanulnak.'],
+        ['🧓', 'A haj gyakran megőszül, az izmok gyengülnek, a sebek lassabban gyógyulnak.', 'De a szókincs és a tudás tovább gyarapodhat: tanulni minden életkorban lehet.'],
+      ],
+    },
+    m: {
+      fr: ['Narancs', 'Zöld', 'Lila'], tm: { late: 'későn nő', early: 'korán nő', avg: 'átlagos' },
+      q12: 'Ez a három barát 10 éves. Ki lesz a legmagasabb 12 éves korában?', q18: 'Most ugorjunk 18 éves korra. Ki a legmagasabb akkor?',
+      same: 'Nagyjából egyforma', look: 'Nézd meg a három barátot: mindannyian 10 évesek.',
+      hd: (a) => `Életkor: ${a}`, sub12: (a, b, c) => `12 évesen: ${a} · ${b} · ${c} cm`,
+      v12: (nm) => `A legmagasabb 12 évesen: ${nm}. Nála jön először a növekedési lökés.`, no: 'Nem egészen.',
+      v18: (sp) => `18 évesen a három barát között legfeljebb ${n1(sp)} cm a különbség. Ebben a modellben mind ugyanakkorára nőnek: csak az ütem volt más.`,
+      v18no: (nm) => `18 évesen a legmagasabb: ${nm}.`,
+      freeBig: (sp) => ['Ugyanaz a kor, más ütem', `${n1(sp)} cm a különbség a legmagasabb és a legalacsonyabb között.`],
+      freeEq: (h) => ['Nagyjából egyformák', `Mindegyik kb. ${h} cm: az ütem más volt, a végeredmény nem.`],
+      freeNear: (h) => ['Még közel egymáshoz', `Egyelőre mindegyik kb. ${h} cm. A különbségek később jönnek.`],
+      body: 'Kitalált barátok: a medián görbe, időben eltolva. A valóságban a végső magasság is kicsit eltér.', curveCap: 'magasság kor szerint',
+    },
+    facts: {
+      door: [
+        { emo: '📈', text: 'Átlagosan a lányok növekedési lökése 11–12 éves kor körül, a fiúké 13–14 éves kor körül éri el a csúcsát.', src: 'https://en.wikipedia.org/wiki/Human_height' },
+        { emo: '🛑', text: 'Átlagosan a növekedés a lányoknál 15–16, a fiúknál 18–19 éves kor körül áll le.', src: 'https://en.wikipedia.org/wiki/Human_height' },
+        { emo: '📏', text: 'A pubertás előtt a fiúk átlagosan kb. 2 cm-rel alacsonyabbak a lányoknál, a felnőtt férfiak viszont kb. 13 cm-rel magasabbak a felnőtt nőknél.', src: 'https://en.wikipedia.org/wiki/Puberty' },
+      ],
+      stages: [
+        { emo: '🦷', text: 'A tejfogak általában kb. 6 évesen kezdenek kihullani, amikor a középső metszőfogak meglazulnak. A hátsó őrlők 10–12 éves kor körül követik őket.', src: 'https://www.healthychildren.org/English/healthy-living/oral-health/Pages/When-Children-Begin-to-Lose-their-Baby-Teeth.aspx' },
+        { emo: '🎤', text: 'A fiúk hangja a pubertás alatt kb. egy oktávot mélyül, néha hirtelen, de ritkán egyik napról a másikra.', src: 'https://en.wikipedia.org/wiki/Puberty' },
+        { emo: '🧠', text: 'A pszichológiai tankönyvek szerint a szókincs és az általános tudás egész felnőttkorban, 60 éves kor után is gyarapodik.', src: 'https://openstax.org/books/lifespan-development/pages/15-3-cognition-and-memory-in-late-adulthood' },
+      ],
+      timing: [
+        { emo: '🗓️', text: 'A pubertás jellemzően a lányoknál 8 és 13, a fiúknál 9 és 14 éves kor között kezdődik.', src: 'https://www.nichd.nih.gov/health/topics/factsheets/puberty' },
+        { emo: '⏳', text: 'A fiúk a pubertás első látható jelei után még kb. hat évig nőnek.', src: 'https://en.wikipedia.org/wiki/Puberty' },
+      ],
+    },
+    quiz: [
+      { q: 'Minden évben ugyanannyit növünk?', opts: ['Nem: csecsemőként gyorsan, aztán lassan, majd tiniként újra lendülettel', 'Igen, minden évben ugyanannyit', 'Csak 18 éves kor után'], ok: 0, hint: 'Figyeld az éves gyarapodást mutató oszlopokat.' },
+      { q: 'Minden tizenéves ugyanabban az életkorban kezd el hirtelen nőni?', opts: ['Igen, 13 évesen', 'Csak a fiúknál van növekedési lökés', 'Nem, az időzítés különböző'], ok: 2, hint: 'Nézd meg a három barátot.' },
+      { q: 'Az öregkor csak veszteségekről szól?', opts: ['Igen', 'Nem, az emberek tovább tanulnak és változnak', 'Az idősek nem változnak'], ok: 1, hint: 'Koppints az idős emberre a „Korok” nézetben.' },
+    ],
+  },
+};
+
+// --- colours and canvas helpers -------------------------------------------------------------------------------
+const hx = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+const mix = (a, b, t) => { const A = hx(a), B = hx(b); return '#' + A.map((v, i) => Math.round(v + (B[i] - v) * t).toString(16).padStart(2, '0')).join(''); };
+let CW = 0, CH = 0;
+// text on a dark rounded pill, clamped inside the canvas
+function tag(c, text, x, y, col = '#fff') {
+  c.save(); c.font = '800 12px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  const tw = c.measureText(text).width + 14, bx = clamp(x - tw / 2, 4, Math.max(4, CW - tw - 4)), by = clamp(y - 10, 4, Math.max(4, CH - 24));
+  c.fillStyle = 'rgba(10,12,22,.82)'; c.strokeStyle = 'rgba(255,255,255,.16)'; c.lineWidth = 1;
+  c.beginPath(); c.roundRect(bx, by, tw, 20, 10); c.fill(); c.stroke();
+  c.fillStyle = col; c.fillText(text, bx + tw / 2, by + 10.5); c.restore();
+}
+// a smooth path through points (quadratic curves between midpoints)
+function smoothPath(c, pts) {
+  c.beginPath(); c.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length - 1; i++) c.quadraticCurveTo(pts[i][0], pts[i][1], (pts[i][0] + pts[i + 1][0]) / 2, (pts[i][1] + pts[i + 1][1]) / 2);
+  const l = pts[pts.length - 1]; c.lineTo(l[0], l[1]);
+}
+// the pchip curve of one sex as exact cubic Beziers (x = age 0..19, y = height)
+function curvePath(c, sx, mapX, mapY) {
+  const { ys, m } = F[sx];
+  c.beginPath(); c.moveTo(mapX(0), mapY(ys[0]));
+  for (let i = 0; i < ys.length - 1; i++) c.bezierCurveTo(mapX(i + 1 / 3), mapY(ys[i] + m[i] / 3), mapX(i + 2 / 3), mapY(ys[i + 1] - m[i + 1] / 3), mapX(i + 1), mapY(ys[i + 1]));
+}
+function panelBg(c, x, y, w, h, r = 16) {
+  c.beginPath(); c.roundRect(x, y, w, h, r); c.fillStyle = 'rgba(14,17,28,.6)'; c.fill();
+  c.strokeStyle = 'rgba(130,145,190,.22)'; c.lineWidth = 1; c.stroke();
+}
+
+// a tapered limb: a rounded quadrilateral from (x0,y0) of width w0 to (x1,y1) of width w1
+function limb(c, x0, y0, x1, y1, w0, w1, fill) {
+  const dx = x1 - x0, dy = y1 - y0, L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
+  c.fillStyle = fill; c.beginPath();
+  c.moveTo(x0 + nx * w0 / 2, y0 + ny * w0 / 2); c.lineTo(x1 + nx * w1 / 2, y1 + ny * w1 / 2);
+  c.lineTo(x1 - nx * w1 / 2, y1 - ny * w1 / 2); c.lineTo(x0 - nx * w0 / 2, y0 - ny * w0 / 2); c.closePath(); c.fill();
+  c.beginPath(); c.arc(x1, y1, w1 / 2, 0, 7); c.fill(); c.beginPath(); c.arc(x0, y0, w0 / 2, 0, 7); c.fill();
+}
+
+// a person drawn with curves: o = { age (proportions), sex, skin, shirt, pants, hair, grey, glasses, cane, lean, outfit: 'hoodie' | 'jacket' | 'cardigan' }
+function person(c, cx, foot, h, o) {
+  if (!(h > 4)) return;
+  const age = o.age, girl = o.sex === 'girls', lean = o.lean || 0;
+  const hf = 0.135 + 0.115 * Math.exp(-age / 4.5), hr = hf * h / 2;
+  const leg = h * (0.30 + 0.17 * (1 - Math.exp(-age / 5)));
+  const neck = h * 0.016;
+  const sw = (0.20 + 0.12 * Math.exp(-age / 5)) * h / 2;
+  const hy = foot - h + hr, shY = hy + hr + neck, hipY = foot - leg;
+  const skin = o.skin || '#f0c29c', shirt = o.shirt || '#5f8fd0', pants = o.pants || '#3d4a78';
+  const hair = mix(o.hair || '#6a4528', '#cfd2dc', o.grey || 0);
+  const lw = Math.max(2.5, h * (age < 2 ? 0.1 : 0.078));
+  const armTop = shY + sw * 0.3, armLen = (hipY - shY) * 0.95, aw = Math.max(2.2, h * 0.056);
+  const hand = (s) => [cx + s * sw * 1.2, armTop + armLen];
+  c.save(); c.globalAlpha = 1; c.lineCap = 'round'; c.lineJoin = 'round';
+  c.fillStyle = 'rgba(0,0,0,.34)'; c.beginPath(); c.ellipse(cx, foot + 1, Math.max(4, sw * 1.6), Math.max(2, h * 0.026), 0, 0, 7); c.fill();
+  // the upper body leans from the feet (older adult)
+  c.translate(cx, foot); c.rotate(lean); c.translate(-cx, -foot);
+  const edge = 'rgba(0,0,0,.28)';
+  // legs: tapered, slightly apart, with shoes
+  const lx = sw * 0.42, legCol = (age < 2 || girl) ? skin : pants;
+  for (const s of [-1, 1]) {
+    limb(c, cx + s * lx * 0.9, hipY - lw * 0.2, cx + s * lx * 1.12, foot - lw * 0.4, lw * 1.12, lw * 0.78, legCol);
+    if (age >= 2) { c.fillStyle = '#2a2d44'; c.beginPath(); c.ellipse(cx + s * (lx * 1.12 + lw * 0.22), foot - lw * 0.28, lw * 0.82, lw * 0.44, 0, 0, 7); c.fill(); }
+  }
+  // torso: curved shoulders, a little waist
+  const th = hipY - shY, tg = c.createLinearGradient(cx - sw, 0, cx + sw, 0);
+  tg.addColorStop(0, mix(shirt, '#ffffff', 0.2)); tg.addColorStop(1, mix(shirt, '#000000', 0.24));
+  if (o.outfit === 'hoodie') { c.fillStyle = mix(shirt, '#000000', 0.3); c.beginPath(); c.ellipse(cx, shY + hr * 0.15, sw * 0.78, hr * 0.62, 0, 0, 7); c.fill(); }
+  c.fillStyle = tg; c.strokeStyle = edge; c.lineWidth = 1;
+  c.beginPath(); c.moveTo(cx - sw * 0.5, shY);
+  c.bezierCurveTo(cx - sw * 0.95, shY - sw * 0.02, cx - sw * 1.08, shY + sw * 0.2, cx - sw * 1.0, shY + th * 0.3);
+  c.bezierCurveTo(cx - sw * 0.9, shY + th * 0.55, cx - sw * 0.8, shY + th * 0.7, cx - sw * 0.88, hipY);
+  c.quadraticCurveTo(cx, hipY + sw * 0.3, cx + sw * 0.88, hipY);
+  c.bezierCurveTo(cx + sw * 0.8, shY + th * 0.7, cx + sw * 0.9, shY + th * 0.55, cx + sw * 1.0, shY + th * 0.3);
+  c.bezierCurveTo(cx + sw * 1.08, shY + sw * 0.2, cx + sw * 0.95, shY - sw * 0.02, cx + sw * 0.5, shY);
+  c.quadraticCurveTo(cx, shY + sw * 0.28, cx - sw * 0.5, shY); c.closePath(); c.fill(); c.stroke();
+  if (girl && age >= 2) { // a dress that flares in soft curves
+    const wy = shY + th * 0.62, hem = hipY + leg * 0.38;
+    c.beginPath(); c.moveTo(cx - sw * 0.85, wy);
+    c.bezierCurveTo(cx - sw * 0.95, wy + (hem - wy) * 0.5, cx - sw * 1.2, hem - (hem - wy) * 0.2, cx - sw * 1.32, hem);
+    c.bezierCurveTo(cx - sw * 0.6, hem + sw * 0.28, cx + sw * 0.6, hem + sw * 0.28, cx + sw * 1.32, hem);
+    c.bezierCurveTo(cx + sw * 1.2, hem - (hem - wy) * 0.2, cx + sw * 0.95, wy + (hem - wy) * 0.5, cx + sw * 0.85, wy);
+    c.closePath(); c.fill(); c.stroke();
+  }
+  // outfit details
+  c.lineWidth = Math.max(1, h * 0.006);
+  if (o.outfit === 'hoodie') { // pocket and drawstrings
+    c.strokeStyle = 'rgba(0,0,0,.3)'; c.beginPath(); c.moveTo(cx - sw * 0.5, hipY - th * 0.22); c.quadraticCurveTo(cx, hipY - th * 0.1, cx + sw * 0.5, hipY - th * 0.22); c.stroke();
+    c.strokeStyle = 'rgba(255,255,255,.7)'; c.beginPath(); c.moveTo(cx - sw * 0.2, shY + th * 0.04); c.lineTo(cx - sw * 0.24, shY + th * 0.26); c.moveTo(cx + sw * 0.2, shY + th * 0.04); c.lineTo(cx + sw * 0.24, shY + th * 0.26); c.stroke();
+  } else if (o.outfit === 'jacket') { // lapels, a white shirt and a tie
+    c.fillStyle = '#f2f2f5'; c.beginPath(); c.moveTo(cx - sw * 0.3, shY + 1); c.lineTo(cx, shY + th * 0.45); c.lineTo(cx + sw * 0.3, shY + 1); c.closePath(); c.fill();
+    c.fillStyle = '#c0504d'; c.beginPath(); c.moveTo(cx - sw * 0.07, shY + th * 0.06); c.lineTo(cx + sw * 0.07, shY + th * 0.06); c.lineTo(cx + sw * 0.1, shY + th * 0.36); c.lineTo(cx, shY + th * 0.42); c.lineTo(cx - sw * 0.1, shY + th * 0.36); c.closePath(); c.fill();
+    c.strokeStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.moveTo(cx - sw * 0.3, shY + 1); c.lineTo(cx, shY + th * 0.45); c.lineTo(cx + sw * 0.3, shY + 1); c.stroke();
+  } else if (o.outfit === 'cardigan') { // an open front with buttons
+    c.strokeStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.moveTo(cx, shY + sw * 0.25); c.lineTo(cx, hipY); c.stroke();
+    c.fillStyle = '#f0e6cf'; for (const k of [0.25, 0.5, 0.75]) { c.beginPath(); c.arc(cx + sw * 0.1, shY + th * k, Math.max(1, sw * 0.07), 0, 7); c.fill(); }
+  }
+  // arms: tapered upper arm (sleeve), forearm and a round hand
+  const sleeveLong = o.outfit === 'jacket' || o.outfit === 'cardigan' || o.outfit === 'hoodie';
+  for (const s of [-1, 1]) {
+    const x0 = cx + s * sw * 0.98, y0 = armTop, xe = cx + s * sw * 1.2, ye = armTop + armLen * 0.5, [xh, yh] = hand(s);
+    limb(c, x0, y0, xe, ye, aw * 1.18, aw * 0.98, shirt);
+    limb(c, xe, ye, xh, yh - aw * 0.3, aw * 0.9, aw * 0.7, sleeveLong ? mix(shirt, '#000000', 0.12) : skin);
+    c.fillStyle = skin; c.beginPath(); c.arc(xh, yh, aw * 0.52, 0, 7); c.fill();
+  }
+  // neck
+  c.fillStyle = mix(skin, '#000000', 0.08); c.fillRect(cx - hr * 0.26, hy + hr * 0.7, hr * 0.52, neck + hr * 0.5);
+  // long hair behind the head
+  if (girl && age >= 3) {
+    c.fillStyle = hair; c.beginPath(); c.moveTo(cx - hr * 0.9, hy - hr * 0.2);
+    c.bezierCurveTo(cx - hr * 1.3, hy + hr * 0.6, cx - hr * 1.2, hy + hr * 1.4, cx - hr * 0.8, shY + hr * 0.9); c.lineTo(cx + hr * 0.8, shY + hr * 0.9);
+    c.bezierCurveTo(cx + hr * 1.2, hy + hr * 1.4, cx + hr * 1.3, hy + hr * 0.6, cx + hr * 0.9, hy - hr * 0.2); c.closePath(); c.fill();
+  }
+  // head
+  const rx = hr * 0.92, hg = c.createRadialGradient(cx - hr * 0.3, hy - hr * 0.35, hr * 0.1, cx, hy, hr * 1.1);
+  hg.addColorStop(0, mix(skin, '#ffffff', 0.25)); hg.addColorStop(1, mix(skin, '#000000', 0.12));
+  c.fillStyle = hg; c.strokeStyle = edge; c.lineWidth = 1;
+  c.beginPath(); c.ellipse(cx, hy, rx, hr, 0, 0, 7); c.fill(); c.stroke();
+  if (age < 1.5) {
+    c.strokeStyle = hair; c.lineWidth = Math.max(1.5, hr * 0.12);
+    c.beginPath(); c.moveTo(cx - hr * 0.12, hy - hr * 0.95); c.quadraticCurveTo(cx + hr * 0.2, hy - hr * 1.35, cx + hr * 0.35, hy - hr * 1.0); c.stroke();
+  } else {
+    const hgd = c.createLinearGradient(cx - rx, hy - hr, cx + rx, hy);
+    hgd.addColorStop(0, mix(hair, '#ffffff', 0.18)); hgd.addColorStop(1, mix(hair, '#000000', 0.2));
+    c.fillStyle = hgd; c.beginPath(); c.moveTo(cx - rx * 1.0, hy - hr * 0.05);
+    c.ellipse(cx, hy, rx * 1.02, hr * 1.02, 0, Math.PI, Math.PI * 2);
+    c.quadraticCurveTo(cx + rx * 0.2, hy - hr * 0.55, cx - rx * 0.15, hy - hr * 0.5);
+    c.quadraticCurveTo(cx - rx * 0.7, hy - hr * 0.45, cx - rx * 1.0, hy - hr * 0.05); c.closePath(); c.fill();
+  }
+  if (hr >= 5) {
+    const er = Math.max(1.2, hr * 0.1);
+    for (const s of [-1, 1]) {
+      c.fillStyle = '#2a2438'; c.beginPath(); c.ellipse(cx + s * hr * 0.36, hy + hr * 0.08, er, er * 1.15, 0, 0, 7); c.fill();
+      c.fillStyle = '#fff'; c.beginPath(); c.arc(cx + s * hr * 0.36 - er * 0.3, hy + hr * 0.08 - er * 0.4, Math.max(0.5, er * 0.35), 0, 7); c.fill();
+      c.fillStyle = 'rgba(235,110,110,.22)'; c.beginPath(); c.ellipse(cx + s * hr * 0.58, hy + hr * 0.38, hr * 0.17, hr * 0.11, 0, 0, 7); c.fill();
+    }
+    c.strokeStyle = '#7a3b3b'; c.lineWidth = Math.max(1, hr * 0.07);
+    c.beginPath(); c.arc(cx, hy + hr * 0.3, hr * 0.28, Math.PI * 0.18, Math.PI * 0.82); c.stroke();
+    if (o.glasses) {
+      c.strokeStyle = '#3d3d4d'; c.lineWidth = Math.max(1, hr * 0.06);
+      for (const s of [-1, 1]) { c.beginPath(); c.arc(cx + s * hr * 0.36, hy + hr * 0.08, hr * 0.25, 0, 7); c.stroke(); }
+      c.beginPath(); c.moveTo(cx - hr * 0.11, hy + hr * 0.06); c.lineTo(cx + hr * 0.11, hy + hr * 0.06); c.stroke();
+    }
+  }
+  c.restore();
+  if (o.cane) { // a walking stick, upright, held in the right hand (hand position rotated by the lean)
+    const [hx0, hy0] = hand(1), dx = hx0 - cx, dy = hy0 - foot;
+    const px = cx + dx * Math.cos(lean) - dy * Math.sin(lean), py = foot + dx * Math.sin(lean) + dy * Math.cos(lean);
+    c.save(); c.lineCap = 'round'; c.strokeStyle = '#8a6439'; c.lineWidth = Math.max(2.5, h * 0.024);
+    c.beginPath(); c.moveTo(px + h * 0.01, foot); c.lineTo(px, py - h * 0.02); c.quadraticCurveTo(px - 0.002 * h, py - h * 0.075, px - h * 0.04, py - h * 0.06); c.stroke();
+    c.fillStyle = o.skin || '#f0c29c'; c.beginPath(); c.arc(px, py, Math.max(2.2, h * 0.028), 0, 7); c.fill(); c.restore();
+  }
+}
+
+// a soft glow behind a figure; drawn for all figures first, so it never covers a neighbour
+function haloAt(c, cx, foot, h, age, rgb) {
+  const sw = (0.20 + 0.12 * Math.exp(-age / 5)) * h / 2, rx = sw * 2 + 6, ry = h * 0.6 + 6, cy = foot - h / 2;
+  c.save(); c.translate(cx, cy); c.scale(rx / ry, 1);
+  const g = c.createRadialGradient(0, 0, ry * 0.1, 0, 0, ry); g.addColorStop(0, `rgba(${rgb},.5)`); g.addColorStop(1, `rgba(${rgb},0)`);
+  c.fillStyle = g; c.beginPath(); c.arc(0, 0, ry, 0, 7); c.fill(); c.restore();
+}
+
+// --- state ----------------------------------------------------------------------------------------------------
+const S = {
+  sex: 'girls',
+  // view 1
+  st1: 'ask', pick1: null, age1: 8, d1: 8, play: 0, sec: null,
+  // view 2
+  st2: 'task', task: 0, pick2: null, rev: null, sel: null,
+  // view 3
+  st3: 'ask12', pick12: null, pick18: null, age3: 10, d3: 10,
+};
+const TASK_WHO = [0, 1, 2]; // the stage of each change card
+
+const lab = shell({ key: 'growing-up', T, topics: TOPICS, views: ['door', 'stages', 'timing'], onLang: render, onView: render });
+const secret = secretLab('growing-up', () => ({
+  secrets: [{ emo: '🔍', title: T[lang].secrets.day[0], desc: T[lang].secrets.day[1] }, { emo: '📏', title: T[lang].secrets.tall[0], desc: T[lang].secrets.tall[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div class="row2" style="margin-top:0"><div class="card seg small" id="sexSeg"></div></div>
+  <div id="sec1">
+    <div id="ask1"></div>
+    <div id="sl1"><div class="sldhead"><span id="ageLbl1"></span><b id="ageVal1"></b></div>
+      <input type="range" class="big" id="age1" min="0" max="19" step="1" value="8" style="--track:linear-gradient(90deg,#6fb3ff,#ffcf6b,#ff8a5c)"></div>
+    <div class="row2" id="secRow1"><div class="chips" id="secChips"></div></div>
+  </div>
+  <div id="sec2"><div id="ask2"></div></div>
+  <div id="sec3">
+    <div id="ask3"></div>
+    <div id="sl3"><div class="sldhead"><span id="ageLbl3"></span><b id="ageVal3"></b></div>
+      <input type="range" class="big" id="age3" min="6" max="19" step="1" value="18" style="--track:linear-gradient(90deg,#6fb3ff,#ffcf6b,#ff8a5c)"></div>
+  </div>`;
+
+// --- drawing --------------------------------------------------------------------------------------------------
+function animate(dt) {
+  if (S.play === 1) { // back to birth first, then forward through the years
+    S.d1 += (0 - S.d1) * Math.min(1, dt * 8);
+    if (S.d1 < 0.04) { S.d1 = 0; S.play = 2; S.age1 = 0; render(); }
+  } else if (S.play === 2) {
+    S.d1 = Math.min(AMAX, S.d1 + dt * 2.2);
+    const a = Math.floor(S.d1 + 1e-6);
+    if (a !== S.age1) { S.age1 = a; render(); }
+    if (S.d1 >= AMAX) { S.play = 0; S.age1 = AMAX; render(); }
+  } else S.d1 += (S.age1 - S.d1) * Math.min(1, dt * 7);
+  S.d3 += (S.age3 - S.d3) * Math.min(1, dt * 3.5);
+}
+
+
+const KIDSTYLE = (sx) => (sx === 'girls'
+  ? { shirt: '#e0709a', hair: '#6a3f22', skin: '#f0c29c' }
+  : { shirt: '#4f8fe0', pants: '#3a4673', hair: '#4a2f1c', skin: '#f0c29c' });
+
+function doorPanel(c, x, y, pw, ph, d, sx, marks, t) {
+  const g = c.createLinearGradient(x, y, x, y + ph); g.addColorStop(0, '#2f2d52'); g.addColorStop(1, '#1b1e3a');
+  panelBg(c, x, y, pw, ph, 18); c.fillStyle = g; c.fill();
+  const fy = y + ph - 16, sc = (ph - 16 - 44) / 205, jw = 11, fl = x + 12, fr = x + pw - 12, top = fy - 202 * sc - jw;
+  // floor
+  c.save(); c.beginPath(); c.roundRect(x, y, pw, ph, 18); c.clip();
+  const fg = c.createLinearGradient(0, fy, 0, y + ph); fg.addColorStop(0, '#5a4330'); fg.addColorStop(1, '#2f2320');
+  c.fillStyle = fg; c.fillRect(x, fy, pw, y + ph - fy); c.restore();
+  // the opening: a lit room behind
+  const ox = fl + jw, ow = fr - fl - 2 * jw, oy = top + jw;
+  const og = c.createLinearGradient(0, oy, 0, fy); og.addColorStop(0, '#4a3f6e'); og.addColorStop(1, '#2a2850');
+  c.fillStyle = og; c.fillRect(ox, oy, ow, fy - oy);
+  const sg = c.createRadialGradient(ox + ow * 0.2, oy + 20, 6, ox + ow * 0.2, oy + 20, ow * 1.1); sg.addColorStop(0, 'rgba(255,225,170,.28)'); sg.addColorStop(1, 'rgba(255,225,170,0)');
+  c.fillStyle = sg; c.fillRect(ox, oy, ow, fy - oy);
+  // wooden frame
+  const wg = c.createLinearGradient(fl, 0, fr, 0); wg.addColorStop(0, '#d4a672'); wg.addColorStop(0.5, '#b88553'); wg.addColorStop(1, '#8f6339');
+  c.fillStyle = wg; c.strokeStyle = '#5e3f21'; c.lineWidth = 1.5;
+  for (const [rx, ry, rw, rh] of [[fl, top, jw, fy - top], [fr - jw, top, jw, fy - top], [fl, top, fr - fl, jw]]) { c.fillRect(rx, ry, rw, rh); c.strokeRect(rx, ry, rw, rh); }
+  // ruler ticks on the right jamb
+  c.strokeStyle = 'rgba(255,236,200,.6)'; c.lineWidth = 1; c.beginPath();
+  for (let cm = 10; cm <= 200; cm += 10) { const yy = fy - cm * sc, len = cm % 50 === 0 ? 9 : 5; c.moveTo(fr - jw, yy); c.lineTo(fr - jw - len, yy); }
+  c.stroke();
+  // pencil marks on the left: one for every birthday the child has passed
+  c.font = '800 12px Nunito, sans-serif'; c.textAlign = 'left'; c.textBaseline = 'middle';
+  if (marks) {
+    for (let a = 0; a <= Math.floor(d + 1e-6); a++) {
+      const yy = fy - WHO[sx][a] * sc, cur = a === S.age1 && S.play !== 1;
+      c.strokeStyle = cur ? '#ffd36a' : 'rgba(235,228,210,.75)'; c.lineWidth = cur ? 2.2 : 1.6;
+      c.beginPath(); c.moveTo(ox, yy + 1); c.quadraticCurveTo(ox + 11, yy - 1, ox + 22, yy); c.stroke();
+      if (a % 5 === 0 || (a >= 1 && a <= 3)) { c.fillStyle = cur ? '#ffd36a' : 'rgba(240,232,214,.85)'; c.fillText(String(a), ox + 26, yy); }
+    }
+  }
+  // the child
+  const cm = F[sx].f(d), figH = cm * sc, cx = ox + ow * 0.62;
+  c.save(); c.setLineDash([4, 4]); c.strokeStyle = 'rgba(255,255,255,.3)'; c.lineWidth = 1;
+  c.beginPath(); c.moveTo(ox, fy - figH); c.lineTo(fr - jw, fy - figH); c.stroke(); c.restore();
+  person(c, cx, fy, figH, { age: d, sex: sx, ...KIDSTYLE(sx) });
+  tag(c, `${n0(cm)} ${t.cm}`, cx, Math.max(oy + 14, fy - figH - 14));
+}
+
+function curvePanel(c, x, y, w, h, d, sx, t) {
+  panelBg(c, x, y, w, h);
+  const L = 34, R = 10, T0 = 26, B0 = 22, px0 = x + L, px1 = x + w - R, py0 = y + T0, py1 = y + h - B0;
+  const mapX = (a) => px0 + (a / AMAX) * (px1 - px0), mapY = (cm) => py1 - ((cm - 40) / (185 - 40)) * (py1 - py0);
+  c.font = '800 12px Nunito, sans-serif'; c.fillStyle = '#98A0B8'; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(t.d.curveCap, x + 10, y + 14);
+  c.textAlign = 'right'; c.strokeStyle = 'rgba(190,205,255,.14)'; c.lineWidth = 1;
+  for (const cm of [50, 100, 150]) { const yy = mapY(cm); c.beginPath(); c.moveTo(px0, yy); c.lineTo(px1, yy); c.stroke(); c.fillStyle = '#7f88a3'; c.fillText(String(cm), px0 - 5, yy); }
+  c.textAlign = 'center';
+  for (const a of [0, 5, 10, 15]) { c.fillStyle = '#7f88a3'; c.fillText(String(a), mapX(a), py1 + 13); }
+  const other = sx === 'girls' ? 'boys' : 'girls';
+  c.save(); c.setLineDash([3, 4]); c.strokeStyle = 'rgba(200,210,255,.32)'; c.lineWidth = 1.5; curvePath(c, other, mapX, mapY); c.stroke(); c.restore();
+  c.strokeStyle = 'rgba(255,200,110,.28)'; c.lineWidth = 3; curvePath(c, sx, mapX, mapY); c.stroke();
+  c.save(); c.beginPath(); c.rect(px0 - 4, y, mapX(d) - px0 + 4, h); c.clip();
+  const lg = c.createLinearGradient(px0, 0, px1, 0); lg.addColorStop(0, '#6fb3ff'); lg.addColorStop(0.5, '#ffcf6b'); lg.addColorStop(1, '#ff8a5c');
+  c.strokeStyle = lg; c.lineWidth = 3.5; curvePath(c, sx, mapX, mapY); c.stroke(); c.restore();
+  const dx = mapX(d), dy = mapY(F[sx].f(d));
+  const gl = c.createRadialGradient(dx, dy, 1, dx, dy, 12); gl.addColorStop(0, 'rgba(255,230,160,.8)'); gl.addColorStop(1, 'rgba(255,230,160,0)');
+  c.fillStyle = gl; c.beginPath(); c.arc(dx, dy, 12, 0, 7); c.fill();
+  c.fillStyle = '#fff'; c.strokeStyle = '#d9822f'; c.lineWidth = 2; c.beginPath(); c.arc(dx, dy, 4.5, 0, 7); c.fill(); c.stroke();
+}
+
+function gainBars(c, x, y, w, h, sx, t) {
+  panelBg(c, x, y, w, h);
+  c.font = '800 12px Nunito, sans-serif'; c.fillStyle = '#98A0B8'; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(t.d.barCap, x + 10, y + 14);
+  const bx0 = x + 10, bw = (w - 20) / AMAX, top = y + 28, bot = y + h - 20, cur = S.age1;
+  for (let a = 1; a <= AMAX; a++) {
+    const hh = Math.max(1.5, gain(sx, a) / MAXG * (bot - top)), on = a <= cur && !(S.play === 1), isCur = a === cur && S.play !== 1;
+    const g = c.createLinearGradient(0, bot - hh, 0, bot);
+    if (isCur) { g.addColorStop(0, '#fff0b0'); g.addColorStop(1, '#ffb43d'); } else if (on) { g.addColorStop(0, '#f5c25f'); g.addColorStop(1, '#c97d2c'); } else { g.addColorStop(0, 'rgba(255,255,255,.14)'); g.addColorStop(1, 'rgba(255,255,255,.06)'); }
+    c.fillStyle = g; c.beginPath(); c.roundRect(bx0 + (a - 1) * bw + 1, bot - hh, Math.max(2, bw - 2), hh, 2); c.fill();
+    if (isCur) { c.strokeStyle = '#fff'; c.lineWidth = 1.2; c.stroke(); }
+  }
+  c.strokeStyle = 'rgba(190,205,255,.25)'; c.lineWidth = 1; c.beginPath(); c.moveTo(bx0, bot + 1); c.lineTo(x + w - 10, bot + 1); c.stroke();
+  c.fillStyle = '#7f88a3'; c.textAlign = 'center';
+  for (const a of [1, 5, 10, 15, 19]) c.fillText(String(a), bx0 + (a - 0.5) * bw, bot + 12);
+}
+
+function lens(c, x, y, w, h, sx, t) {
+  panelBg(c, x, y, w, h);
+  const cx = x + w / 2, cy = y + h / 2 + 2, r = Math.min(w, h) / 2 - 10;
+  const zoom = r * 0.5, rr = r * 0.55, topM = cy - r * 0.55, topE = topM + MORNING * zoom;
+  c.save(); c.beginPath(); c.arc(cx, cy, r, 0, 7); c.clip();
+  const bg = c.createLinearGradient(0, cy - r, 0, cy + r); bg.addColorStop(0, '#5b4f8c'); bg.addColorStop(1, '#2a2850'); c.fillStyle = bg; c.fillRect(cx - r, cy - r, 2 * r, 2 * r);
+  const skin = '#f0c29c', hg = c.createRadialGradient(cx - rr * 0.3, topM + rr * 0.5, rr * 0.1, cx, topM + rr, rr * 1.2);
+  hg.addColorStop(0, mix(skin, '#ffffff', 0.25)); hg.addColorStop(1, mix(skin, '#000000', 0.12));
+  c.fillStyle = hg; c.beginPath(); c.ellipse(cx, topM + rr, rr * 0.92, rr, 0, 0, 7); c.fill();
+  c.fillStyle = sx === 'girls' ? '#6a3f22' : '#4a2f1c'; c.beginPath(); c.ellipse(cx, topM + rr, rr * 0.95, rr * 1.0, 0, Math.PI * 1.02, Math.PI * 1.98); c.quadraticCurveTo(cx, topM + rr * 0.35, cx - rr * 0.95, topM + rr * 0.95); c.fill();
+  c.setLineDash([5, 4]); c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(cx - r, topE); c.lineTo(cx + r, topE); c.stroke();
+  c.setLineDash([]); c.strokeStyle = '#ffd36a'; c.lineWidth = 2; c.beginPath(); c.moveTo(cx - r, topM); c.lineTo(cx + r, topM); c.stroke();
+  c.restore();
+  c.strokeStyle = 'rgba(255,255,255,.5)'; c.lineWidth = 3; c.beginPath(); c.arc(cx, cy, r, 0, 7); c.stroke();
+  tag(c, t.d.morning, cx - r * 0.45, topM - 12, '#ffd36a');
+  tag(c, t.d.evening, cx + r * 0.45, topE + 12);
+}
+
+function drawDoor(c, w, h) {
+  const t = T[lang], asking = S.st1 === 'ask', sx = S.sex, d = S.d1, pad = 8;
+  if (S.sec === 'tall' && !asking) return drawTall(c, w, h, t);
+  let dx, dw;
+  if (asking) { dw = Math.min(w - 2 * pad, 300); dx = (w - dw) / 2; } else { dw = clamp(w * 0.44, 140, 240); dx = pad; }
+  doorPanel(c, dx, pad, dw, h - 2 * pad, d, sx, !asking, t);
+  if (asking) return;
+  const rx = dx + dw + 10, rw = w - rx - pad, rh = h - 2 * pad, ch = rh * 0.56;
+  if (S.sec === 'day') lens(c, rx, pad, rw, ch, sx, t); else curvePanel(c, rx, pad, rw, ch, d, sx, t);
+  gainBars(c, rx, pad + ch + 8, rw, rh - ch - 8, sx, t);
+}
+
+function drawTall(c, w, h, t) {
+  const sx = S.sex, pad = 8;
+  const g = c.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#2f2d52'); g.addColorStop(1, '#1b1e3a');
+  panelBg(c, pad, pad, w - 2 * pad, h - 2 * pad, 18); c.fillStyle = g; c.fill();
+  const fy = h - 26, sc = (fy - 38) / 285, rx = 40;
+  c.save(); c.beginPath(); c.roundRect(pad, pad, w - 2 * pad, h - 2 * pad, 18); c.clip();
+  const fg = c.createLinearGradient(0, fy, 0, h); fg.addColorStop(0, '#5a4330'); fg.addColorStop(1, '#2f2320'); c.fillStyle = fg; c.fillRect(0, fy, w, h - fy); c.restore();
+  c.strokeStyle = 'rgba(255,236,200,.5)'; c.lineWidth = 1; c.font = '800 12px Nunito, sans-serif'; c.fillStyle = '#c9c2ad'; c.textAlign = 'left'; c.textBaseline = 'middle';
+  for (let cm = 50; cm <= 250; cm += 50) { const yy = fy - cm * sc; c.beginPath(); c.moveTo(pad + 12, yy); c.lineTo(pad + 26, yy); c.stroke(); c.fillText(String(cm), pad + 30, yy); }
+  const adult = F[sx].f(AMAX), x1 = w * 0.4, x2 = w * 0.72;
+  c.save(); c.setLineDash([4, 4]); c.strokeStyle = 'rgba(255,255,255,.35)'; c.beginPath(); c.moveTo(rx + 22, fy - WAD8 * sc); c.lineTo(w - pad - 10, fy - WAD8 * sc); c.stroke(); c.restore();
+  person(c, x1, fy, adult * sc, { age: 30, sex: sx, ...KIDSTYLE(sx) });
+  person(c, x2, fy, WAD * sc, { age: 30, sex: 'boys', shirt: '#8a8fd6', pants: '#3a3a52', hair: '#2f2a26', skin: '#e2b08a' });
+  tag(c, `${n0(adult)} ${t.cm}`, x1, fy - adult * sc - 14);
+  tag(c, `${n0(WAD)} ${t.cm}`, x2, fy - WAD * sc - 14, '#ffd36a');
+  tag(c, t.d.at8(WAD8), (x1 + x2) / 2 + 6, fy - WAD8 * sc - 12);
+}
+
+const STAGE_LOOK = (sx) => [
+  { age: 0.8, a: 0.8, sex: sx, shirt: '#8fd0c8', skin: '#f3c9a6', hair: '#8a5a33' },
+  { age: 8, a: 8, sex: sx, ...KIDSTYLE(sx) },
+  { age: 15, a: 15, sex: sx, shirt: '#e0a14a', pants: '#3b4a6e', hair: '#3a2417', skin: '#e6b08a', outfit: 'hoodie' },
+  { age: 30, a: 19, sex: sx, shirt: sx === 'girls' ? '#3f7f9e' : '#46506e', pants: '#2c3350', hair: '#2f2118', skin: '#d9a47c', outfit: 'jacket' },
+  { age: 70, a: 19, sex: sx, shirt: '#b0709a', pants: '#4a4a62', hair: '#6a6a72', skin: '#e3b895', grey: 1, glasses: true, cane: true, lean: 0.07, outfit: 'cardigan' },
+];
+function drawStages(c, w, h) {
+  const t = T[lang], sx = S.sex, cw = w / 5, fy = h - 80, looks = STAGE_LOOK(sx);
+  const sc = Math.min((fy - 40) / 180, (cw / 2 - 3) / (0.16 * 176)); // the widest figure (dress, arms, stick) stays inside its column
+  const task = S.st2 === 'task';
+  // the life ribbon
+  const rg = c.createLinearGradient(cw * 0.5, 0, w - cw * 0.5, 0); rg.addColorStop(0, '#7fd4c8'); rg.addColorStop(0.35, '#7fb3ff'); rg.addColorStop(0.7, '#ffcf6b'); rg.addColorStop(1, '#c7a0d9');
+  c.strokeStyle = rg; c.lineWidth = 5; c.beginPath(); c.moveTo(cw * 0.5, fy + 16); c.lineTo(w - cw * 0.5, fy + 16); c.stroke();
+  for (let i = 0; i < 5; i++) {
+    const lk = looks[i], hh = F[sx].f(lk.a) * sc;
+    const halo = S.rev === i ? '255,208,90' : (S.pick2 === i && S.rev !== i) ? '240,100,100' : (!task && S.sel === i) ? '170,200,255' : null;
+    if (halo) haloAt(c, cw * (i + 0.5), fy, hh, lk.age, halo);
+  }
+  for (let i = 0; i < 5; i++) {
+    const cx = cw * (i + 0.5), lk = looks[i], cm = F[sx].f(lk.a);
+    const sel = !task && S.sel === i, revGood = S.rev === i;
+    person(c, cx, fy, cm * sc, lk);
+    c.fillStyle = sel || revGood ? '#fff' : '#cfd6ea'; c.beginPath(); c.arc(cx, fy + 16, sel || revGood ? 8 : 5.5, 0, 7); c.fill();
+    c.strokeStyle = sel || revGood ? '#d9822f' : 'rgba(0,0,0,.4)'; c.lineWidth = 1.5; c.stroke();
+    c.font = '800 12px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = sel || revGood ? '#fff' : '#c6cde0';
+    const nm = t.s.names[i], words = nm.split(' ');
+    if (words.length > 1 && c.measureText(nm).width > cw - 4) { c.fillText(words[0], cx, fy + 36); c.fillText(words.slice(1).join(' '), cx, fy + 49); } else c.fillText(nm, cx, fy + 38);
+    c.font = '700 12px Nunito, sans-serif'; c.fillStyle = '#8c95b0'; c.fillText(t.s.ages[i], cx, fy + 66);
+  }
+}
+
+function drawTiming(c, w, h) {
+  const t = T[lang], sx = S.sex, free = S.st3 === 'free', d = S.d3, names = S.st3 !== 'ask12';
+  const areaH = free ? h * 0.58 : h, fy = areaH - 36, sc = (fy - 40) / 182;
+  const xs = [w * 0.2, w * 0.5, w * 0.8];
+  const gg = c.createLinearGradient(0, fy, 0, areaH); gg.addColorStop(0, 'rgba(90,67,48,.55)'); gg.addColorStop(1, 'rgba(47,35,32,.0)');
+  c.fillStyle = gg; c.fillRect(8, fy, w - 16, areaH - fy);
+  c.strokeStyle = 'rgba(190,205,255,.22)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(12, fy + 1); c.lineTo(w - 12, fy + 1); c.stroke();
+  for (let i = 0; i < 3; i++) {
+    const fr = FR[i], cm = frH(sx, i, d), pa = Math.max(8, d);
+    const base = sx === 'girls' ? { shirt: fr.shirt, hair: fr.hair, skin: fr.skin } : { shirt: fr.shirt, pants: '#3a4673', hair: fr.hair, skin: fr.skin };
+    person(c, xs[i], fy, cm * sc, { age: pa, sex: sx, ...base });
+    tag(c, `${n0(cm)} ${t.cm}`, xs[i], fy - cm * sc - 14);
+    c.fillStyle = fr.col; c.strokeStyle = 'rgba(0,0,0,.4)'; c.lineWidth = 1.2; c.beginPath(); c.arc(xs[i] - (names ? 28 : 0), fy + 19, 6, 0, 7); c.fill(); c.stroke();
+    if (names) { c.font = '800 12px Nunito, sans-serif'; c.fillStyle = '#c6cde0'; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(t.m.tm[fr.key], xs[i] - 18, fy + 20); }
+  }
+  if (!free) return;
+  // the three curves, only once both guesses are made
+  const px0 = 40, px1 = w - 14, y0 = areaH + 6, py0 = y0 + 26, py1 = h - 30, panelH = h - 8 - y0;
+  panelBg(c, 8, y0, w - 16, panelH);
+  const a0 = 6, mapX = (a) => px0 + ((a - a0) / (AMAX - a0)) * (px1 - px0), mapY = (cm) => py1 - ((cm - 110) / (185 - 110)) * (py1 - py0);
+  c.font = '800 12px Nunito, sans-serif'; c.fillStyle = '#98A0B8'; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(t.m.curveCap, 18, y0 + 14);
+  c.textAlign = 'right'; c.strokeStyle = 'rgba(190,205,255,.14)'; c.lineWidth = 1;
+  for (const cm of [120, 140, 160, 180]) { const yy = mapY(cm); c.beginPath(); c.moveTo(px0, yy); c.lineTo(px1, yy); c.stroke(); c.fillStyle = '#7f88a3'; c.fillText(String(cm), px0 - 5, yy); }
+  c.textAlign = 'center'; c.fillStyle = '#7f88a3';
+  for (const a of [6, 10, 15, 19]) c.fillText(String(a), mapX(a), py1 + 14);
+  for (let i = 0; i < 3; i++) {
+    const pts = []; for (let a = a0; a <= AMAX + 1e-6; a += 0.25) pts.push([mapX(a), mapY(frH(sx, i, a))]);
+    c.strokeStyle = FR[i].col; c.lineWidth = 3; smoothPath(c, pts); c.stroke();
+  }
+  const dx = mapX(clamp(d, a0, AMAX));
+  c.save(); c.setLineDash([3, 4]); c.strokeStyle = 'rgba(255,255,255,.4)'; c.beginPath(); c.moveTo(dx, py0 - 4); c.lineTo(dx, py1); c.stroke(); c.restore();
+  for (let i = 0; i < 3; i++) { c.fillStyle = '#fff'; c.strokeStyle = FR[i].col; c.lineWidth = 2.5; c.beginPath(); c.arc(dx, mapY(frH(sx, i, d)), 4.5, 0, 7); c.fill(); c.stroke(); }
+}
+
+// --- controls -------------------------------------------------------------------------------------------------
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+$('cv').addEventListener('pointerdown', (ev) => {
+  if (lab.view !== 'stages') return;
+  const r = $('cv').getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+  if (y < 6) return;
+  const i = clamp(Math.floor(x / (r.width / 5)), 0, 4);
+  if (S.st2 === 'task') {
+    if (S.pick2 !== null) return;
+    S.pick2 = i; S.rev = TASK_WHO[S.task]; (i === S.rev ? sfx.good : sfx.bad)(); showStage();
+  } else { S.sel = i; sfx.tick(); }
+  render();
+});
+$('age1').addEventListener('input', (ev) => { S.age1 = +ev.target.value; S.play = 0; S.sec = null; sfx.tick(); render(); });
+$('age3').addEventListener('input', (ev) => { S.age3 = +ev.target.value; sfx.tick(); render(); });
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b) return;
+  const act = b.dataset.act, k = b.dataset.k, i = +b.dataset.i;
+  if (act === 'sex') { S.sex = k; sfx.click(); }
+  else if (act === 'pick1') {
+    S.pick1 = i; S.st1 = 'free'; S.play = 1; S.sec = null; (PICK_AGES[i] === BEST[S.sex] ? sfx.good : sfx.bad)(); showStage();
+  } else if (act === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    S.sec = S.sec === k ? null : k; sfx.click(); showStage();
+  } else if (act === 'next2') {
+    S.task++; S.pick2 = null; S.rev = null; S.sel = null;
+    if (S.task >= TASK_WHO.length) S.st2 = 'free';
+    sfx.click();
+  } else if (act === 'redo2') { S.st2 = 'task'; S.task = 0; S.pick2 = null; S.rev = null; S.sel = null; sfx.click(); }
+  else if (act === 'pick12') {
+    S.pick12 = i; S.st3 = 'ask18'; S.age3 = 12; const best = tallestAt(12); (i === best ? sfx.good : sfx.bad)(); showStage();
+  } else if (act === 'pick18') {
+    S.pick18 = i; S.st3 = 'free'; S.age3 = 18; (i === sameAnswer18() ? sfx.good : sfx.bad)(); showStage();
+  }
+  render();
+});
+
+// --- helpers for the model of view 3 --------------------------------------------------------------------------
+const heightsAt = (a) => [0, 1, 2].map((i) => frH(S.sex, i, a));
+const tallestAt = (a) => { const hs = heightsAt(a); return hs.indexOf(Math.max(...hs)); };
+const spreadAt = (a) => { const hs = heightsAt(a); return Math.max(...hs) - Math.min(...hs); };
+const sameAnswer18 = () => (spreadAt(18) <= 1 ? 3 : tallestAt(18)); // option 3 is "about the same"
+
+// --- render: controls, readout, state card and facts for every view -------------------------------------------
+function render() {
+  const t = T[lang], v = lab.view;
+  $('sec1').hidden = v !== 'door'; $('sec2').hidden = v !== 'stages'; $('sec3').hidden = v !== 'timing';
+  $('sexSeg').innerHTML = [['girls', t.girl], ['boys', t.boy]].map(([k, l]) => `<button data-act="sex" data-k="${k}" class="${S.sex === k ? 'on' : ''}">${esc(l)}</button>`).join('');
+  if (v === 'door') r1(t); else if (v === 'stages') r2(t); else r3(t);
+}
+
+function r1(t) {
+  const sx = S.sex, asking = S.st1 === 'ask', a = S.age1, d = t.d;
+  lab.setGlow('rgba(224, 176, 80, .24)');
+  $('sl1').hidden = asking; $('secRow1').hidden = asking;
+  if (asking) {
+    $('ask1').innerHTML = `<div class="qline">${esc(d.q)}</div><div class="qopts">${d.opts.map((o, i) => `<button data-act="pick1" data-i="${i}">${esc(o)}</button>`).join('')}</div>`;
+    lab.setReadout('?', '', '', '#e0b050');
+    lab.setState({ emo: '🤔', title: d.q, lead: d.ask, body: '', extra: '' });
+    lab.setFacts([]);
+    return;
+  }
+  const pa = PICK_AGES[S.pick1], g1 = gain(sx, BEST[sx]), right = pa === BEST[sx];
+  $('ask1').innerHTML = `<div class="vd ${right ? 'ok' : 'no'}">${esc(right ? `${t.right} ${d.vRight(g1)}` : d.vWrong(g1, gain(sx, pa)))}</div>`;
+  $('ageLbl1').textContent = t.age; $('ageVal1').textContent = String(a);
+  if (+$('age1').value !== a) $('age1').value = String(a);
+  const open = secret.unlocked();
+  $('secChips').innerHTML = [['day', '🔍'], ['tall', '📏']].map(([k, emo]) =>
+    `<button class="chip secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`).join('');
+  const fine = `<div class="fine">${esc(d.fine)}</div>`;
+  if (S.sec === 'day') {
+    lab.setReadout(`${n2(MORNING)} ${t.cm}`, d.dayRd, '', '#e0b050');
+    lab.setState({ emo: '🌅', title: d.day[0], lead: d.day[1](n2(MORNING)), body: d.day[2], extra: '' });
+    lab.setFacts([]); return;
+  }
+  if (S.sec === 'tall') {
+    lab.setReadout(`${n0(WAD)} ${t.cm}`, d.tallRd, '', '#e0b050');
+    lab.setState({ emo: '📏', title: d.tall[0], lead: d.tall[1](n0(F[sx].f(AMAX))), body: d.tall[2], extra: '' });
+    lab.setFacts([]); return;
+  }
+  const cm = WHO[sx][a], g = a >= 1 ? gain(sx, a) : 0;
+  lab.setReadout(`${n0(cm)} ${t.cm}`, `${t.age} ${a}`, a >= 1 ? d.pill(g) : '', '#e0b050');
+  const pk = PEAK[sx];
+  let st;
+  if (a === 0) st = { emo: '🍼', title: d.born[0], lead: d.born[1](n0(cm)), body: d.born[2] };
+  else if (a === 1) st = { emo: '👶', title: d.first[0], lead: d.first[1](g), body: d.first[2] };
+  else if (a <= 4) st = { emo: '🧒', title: d.fast[0], lead: d.fast[1](g), body: d.fast[2] };
+  else if (a < pk - 2) { const [lo, hi] = RANGE(sx); st = { emo: '🧒', title: d.steady[0], lead: d.steady[1](g), body: d.steady[2](lo, hi) }; }
+  else if (a <= pk) st = { emo: '🚀', title: d.up[0], lead: d.up[1](g), body: d.up[2] };
+  else if (Math.round(g * 10) >= 10) st = { emo: '🧑', title: d.slow[0], lead: d.slow[1](g), body: d.slow[2] };
+  else st = { emo: '🧍', title: d.done[0], lead: d.done[1](n0(cm)), body: d.done[2] };
+  lab.setState({ ...st, extra: fine });
+  lab.setFacts(t.facts.door);
+}
+
+function r2(t) {
+  const s = t.s, task = S.st2 === 'task';
+  lab.setGlow('rgba(111, 191, 143, .22)');
+  if (task) {
+    const [emo, q] = s.tasks[S.task], done = S.pick2 !== null, who = TASK_WHO[S.task];
+    const good = S.pick2 === who;
+    $('ask2').innerHTML = `<div class="qline">${emo} ${esc(q)}</div>` + (done
+      ? `<div class="vd ${good ? 'ok' : 'no'}">${esc(good ? t.right : s.bad(s.full[who]))}</div><div class="nextrow"><button class="btn" data-act="next2">${esc(S.task === TASK_WHO.length - 1 ? s.explore : t.next)}</button></div>`
+      : `<div class="fine">${esc(s.n(S.task + 1))} · ${esc(s.tap)}</div>`);
+    if (!done) {
+      lab.setReadout('?', '', '', '#6fbf8f');
+      lab.setState({ emo: '🤔', title: s.which, lead: `${q}`, body: s.tap, extra: '' });
+      lab.setFacts([]); return;
+    }
+    const st = s.st[who];
+    lab.setReadout(s.full[who], s.ages[who], '', '#6fbf8f');
+    lab.setState({ emo: st[0], title: s.full[who], lead: st[1], body: st[2], extra: '' });
+    lab.setFacts([]); return;
+  }
+  $('ask2').innerHTML = `<div class="qline">${esc(s.freeT)}</div><div class="nextrow"><button class="chip" data-act="redo2">${esc(s.redo)}</button></div>`;
+  if (S.sel === null) {
+    lab.setReadout('?', '', '', '#6fbf8f');
+    lab.setState({ emo: '🌱', title: s.freeT, lead: s.freeL, body: s.freeB, extra: `<div class="fine">${esc(s.about)}</div>` });
+  } else {
+    const st = s.st[S.sel];
+    lab.setReadout(s.full[S.sel], s.ages[S.sel], '', '#6fbf8f');
+    lab.setState({ emo: st[0], title: s.full[S.sel], lead: st[1], body: st[2], extra: `<div class="fine">${esc(s.freeB)}</div>` });
+  }
+  lab.setFacts(t.facts.stages);
+}
+
+function r3(t) {
+  const m = t.m, st = S.st3, sx = S.sex;
+  lab.setGlow('rgba(155, 127, 224, .22)');
+  $('sl3').hidden = st !== 'free';
+  const names = FR.map((f, i) => `${f.emo} ${m.fr[i]}`);
+  const a = Math.round(S.age3);
+  const hs = heightsAt(S.age3).map(n0);
+  if (st === 'ask12') {
+    $('ask3').innerHTML = `<div class="qline">${esc(m.q12)}</div><div class="qopts">${names.map((n, i) => `<button data-act="pick12" data-i="${i}">${esc(n)}</button>`).join('')}</div>`;
+    lab.setReadout(`${t.age} 10`, '', '', '#9b7fe0');
+    lab.setState({ emo: '🤔', title: m.q12, lead: m.look, body: '', extra: '' });
+    lab.setFacts([]); return;
+  }
+  const best12 = tallestAt(12), ok12 = S.pick12 === best12;
+  const v12 = `<div class="vd ${ok12 ? 'ok' : 'no'}">${esc(ok12 ? t.right : m.no)} ${esc(m.v12(names[best12]))}</div>`;
+  if (st === 'ask18') {
+    $('ask3').innerHTML = `${v12}<div class="qline">${esc(m.q18)}</div><div class="qopts">${[...names, m.same].map((n, i) => `<button data-act="pick18" data-i="${i}">${esc(n)}</button>`).join('')}</div>`;
+    lab.setReadout(`${t.age} 12`, '', '', '#9b7fe0');
+    lab.setState({ emo: '🤔', title: m.q18, lead: m.sub12(hs[0], hs[1], hs[2]), body: m.hd(12), extra: '' });
+    lab.setFacts(t.facts.timing); return;
+  }
+  const ans = sameAnswer18(), ok18 = S.pick18 === ans, sp18 = spreadAt(18);
+  const v18 = `<div class="vd ${ok18 ? 'ok' : 'no'}">${esc(ok18 ? t.right : m.no)} ${esc(ans === 3 ? m.v18(sp18) : m.v18no(names[ans]))}</div>`;
+  $('ask3').innerHTML = `${v12}${v18}`;
+  $('ageLbl3').textContent = t.age; $('ageVal3').textContent = String(a);
+  if (+$('age3').value !== a) $('age3').value = String(a);
+  const sp = spreadAt(S.age3);
+  lab.setReadout(`${t.age} ${a}`, `${hs[0]} · ${hs[1]} · ${hs[2]} ${t.cm}`, '', '#9b7fe0');
+  const mean = heightsAt(S.age3).reduce((x, y) => x + y, 0) / 3;
+  const [ti, le] = sp >= 2 ? m.freeBig(sp) : a >= 16 ? m.freeEq(n0(mean)) : m.freeNear(n0(mean));
+  lab.setState({ emo: sp >= 2 ? '⏱️' : '🤝', title: ti, lead: le, body: m.body, extra: '' });
+  lab.setFacts(t.facts.timing);
+}
+canvasLoop($('cv'), (c, w, h, dt) => {
+  CW = w; CH = h; animate(dt);
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  const v = lab.view;
+  if (v === 'door') drawDoor(c, w, h); else if (v === 'stages') drawStages(c, w, h); else drawTiming(c, w, h);
+});
+render();
+</script>
+</body>
+</html>
