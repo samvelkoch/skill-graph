@@ -12,6 +12,11 @@ Hungarian is on the site: [What's new](https://samvelkoch.github.io/skill-graph/
 
 Counts in brackets are totals after that day.
 
+## 2026-11-14
+
+### Labs
+- New lab `space-race` “First in Space”: Space-flight milestones ordered on a rocket timeline. (614). (#543)
+
 ## 2026-11-13
 
 ### Labs
