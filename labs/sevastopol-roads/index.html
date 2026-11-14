@@ -1,0 +1,951 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Roads to Sevastopol · Skill Graph</title>
+<meta name="description" content="Race supplies to a besieged port on a map of 1854, compare muskets and rifles and sailing ships against steamships, and place the events of Nicholas I's reign before or after the Crimean War. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  [hidden] { display: none !important; }
+  #stage canvas { touch-action: pan-y; }
+  body[data-v^=reign] #stage canvas { cursor: pointer; }
+  .sr-q { font: 500 18px/1.2 var(--serif); color: #fff; margin: 0 0 10px; text-wrap: balance; }
+  .sr-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .sr-chip { flex: 1 1 auto; min-height: 40px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    color: var(--soft); font: 800 13.5px/1.2 var(--sans); cursor: pointer; text-align: center; }
+  .sr-chip:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .sr-chip:disabled { cursor: default; opacity: .55; }
+  .sr-chip.on { background: #fff; color: var(--bg); border-color: #fff; }
+  .sr-chip.good { background: rgba(61, 220, 151, .2); border-color: var(--ok); color: #fff; opacity: 1; }
+  .sr-chip.bad { background: rgba(255, 59, 48, .22); border-color: var(--red); color: #fff; opacity: 1; }
+  .sr-chip.secret { flex: 0 1 auto; }
+  .sr-v { margin: 0 0 8px; font-weight: 900; font-size: 15px; }
+  .sr-v.good { color: var(--ok); } .sr-v.bad { color: var(--wip); }
+  .sr-sl { display: flex; align-items: center; gap: 10px; margin: 12px 0 4px; font-size: 13px; font-weight: 800; color: var(--soft); }
+  .sr-sl input { flex: 1; min-width: 0; height: 36px; }
+  .sr-sl b { min-width: 74px; text-align: right; color: #fff; }
+  .sr-fine { font-size: 11.5px; line-height: 1.4; color: var(--faint); margin-top: 8px; }
+  .sr-sub { margin: 12px 0 8px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-weight: 700; }
+  .sr-secrow { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--stroke); display: flex; gap: 8px; flex-wrap: wrap; }
+  .sr-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .sr-links a { padding: 8px 14px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1); color: #fff; font-weight: 800; font-size: 13px; text-decoration: none; }
+  .sr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  @media (max-width: 760px) {
+    #stage { height: min(112vw, 520px); }
+    body[data-v^=range] #stage { height: min(124vw, 540px); }
+    body[data-v^=reign] #stage { height: min(112vw, 480px); }
+    .sr-q { font-size: 17px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, store, $, esc, clamp, lerp, ruPlural, lang } from '../lab.js';
+import { GLOBE } from '../poles/geo.js';
+
+// --- sources ------------------------------------------------------------------------------------------------------
+// Every number below was read from the pages named here (Wikipedia, English edition) while building the lab.
+const WP = 'https://en.wikipedia.org/wiki/';
+const U = { cw: WP + 'Crimean_War', gccr: WP + 'Grand_Crimean_Central_Railway', mini: WP + 'Mini%C3%A9_ball', rm: WP + 'Rifled_musket', nic: WP + 'Nicholas_I_of_Russia',
+  ts: WP + 'Third_Section', ch: WP + 'His_Imperial_Majesty%27s_Own_Chancellery', sev: WP + 'Sevastopol_railway_station', sin: WP + 'Battle_of_Sinop',
+  pir: WP + 'Nikolay_Pirogov', fn: WP + 'Florence_Nightingale', par: WP + 'Treaty_of_Paris_(1856)', em: WP + 'Emancipation_reform_of_1861' };
+const SHIP_PACE = 300;            // km a day: a MODEL pace for a steam transport (not a measured figure)
+const SHOTS = 20;                 // shots per volley in the Range view
+// hit rates [low, high] in % on a 10 x 10 inch target (U.rm, "Rifled musket": trained shooters; the page cites a class paper)
+const HIT = { s: { 200: [42, 48], 300: [18, 18] }, r: { 300: [46, 58], 500: [24, 42] } };
+
+// --- texts -------------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Roads to Sevastopol', title: 'Roads to Sevastopol',
+    lines: [['Two routes', 'to one besieged port.'], ['Compare the guns', 'and the ships.'], ['Then look at the reign', 'behind it all.']],
+    views: { supply: '🚚 Supply', range: '🎯 Range', reign: '👑 Reign' },
+    s: { q: 'Whose supplies reach the port first: carts from Moscow, or ships from London?', pick: ['Carts from Moscow', 'Ships from London'],
+      pre: 'Guess first. Then both set off on the same day.', ok: 'Right!', no: 'Not quite.',
+      res: (sd, cd, p) => `In this model: about ${sd} days by sea and about ${cd} days by road at ${p} km a day.`,
+      note: (a, b) => `A model, not a measurement: the sea route is about ${a} km at ${SHIP_PACE} km a day (steam), the road about ${b} km in straight pieces between towns. You set the carts’ pace.`,
+      pace: 'Carts, km a day', brk: (n) => `To keep up with the ships, the carts would need about ${n} km a day.`, brkWin: 'At this pace the carts arrive first. Could dirt roads in the mud allow it?',
+      chart: '⇄ Days chart', map: '⇄ Map', ship: 'Steamship from London', cart: 'Carts from Moscow', days: (n) => `Day ${n}`, daysEnd: (n) => `about ${n} days`,
+      rail: 'Balaklava railway, 1855', railSteps: [['19 Jan', 'work starts'], ['23 Feb', 'first loads, by horse'], ['26 Mar', 'top of the hill']], railLen: 'about 23 km at its longest',
+      cities: { lon: 'London', mos: 'Moscow', sev: 'Sevastopol', gib: 'Gibraltar', mal: 'Malta', con: 'Constantinople' }, emp: ['Russian Empire', 'Ottoman Empire'], approx: 'Areas approximate, 1854',
+      axis: 'days on the road', ghost: 'if mud halves the pace', val: 'days: sea · road', pill: 'model pace' },
+    r: { sub: ['🔫 Rifles', '⛵ Ships'],
+      q: `Both lines fire ${SHOTS} shots at a target 300 yards (≈ 274 m) away. Which line hits more?`, pick: ['Smoothbore musket', 'Rifle-musket', 'Same'],
+      pre: 'Guess first, then the lines fire.', ok: 'Right!', no: 'Not quite.', smooth: 'Smoothbore musket', rifle: 'Rifle-musket (Minié ball)', none: 'no figure in the sources',
+      pct: (a) => `${a} %`, ydS: 'yd', hits: (n) => `about ${n} of ${SHOTS}`, yd: (d) => `${d} yd (≈ ${Math.round(d * 0.9144)} m)`,
+      res: (a, b) => `At 300 yards: smoothbore ${a} % of shots hit, rifle-musket ${b} %.`,
+      note: 'Hit rates for trained shooters on a 10 × 10 inch target, from a class paper cited on Wikipedia. A raw recruit would do little better with a rifle than with a smoothbore. Move the target: where a weapon has no figure in the sources, none is shown.',
+      qs: 'The wind blows straight from the harbour at both ships. Which can sail straight in?', picks: ['Only the steamship', 'Only the sailing ship', 'Both'],
+      pres: 'Guess first, then the ships set off.', steam: 'Steamship', sail: 'Sailing ship', windL: 'Wind from', w0: 'ahead', w90: 'the side', w180: 'behind',
+      ress: (r) => `With this wind the sailing ship needs about ${r} times the steamship’s time. Both get the same top speed in the model: only the wind differs.`,
+      straight: 'The sailing ship can also go straight in with this wind.', harbour: 'harbour' },
+    g: { q: 'Was it before the Crimean War, or after it?', pick: ['Before the war', 'After the war'], ok: 'Right!', no: 'Not quite.',
+      bef: 'before the war', aft: 'after the war', done: (k, n) => `${k} of ${n} placed right the first time.`,
+      doneLead: 'Pick any dot on the ribbon to read its card again.', war: 'Crimean War', links: 'Go on to the next labs:', before: 'before', after: 'after',
+      cards: [
+        { t: 'A tsar’s own police', l: 'The Third Section, with gendarmes, spies and informers, watches the whole country. It is the tsar’s personal police.' },
+        { t: 'Wars in the south', l: 'Russia fights Persia, then the Ottoman Empire. Persia gives up its last lands in the Caucasus.' },
+        { t: 'The Polish uprising', l: 'Poland rises against Russian rule. The tsar crushes the uprising.' },
+        { t: 'A motto for the state', l: 'Sergey Uvarov names three pillars: Orthodoxy, Autocracy and Nationality.' },
+        { t: 'The first railway', l: 'A 26 km line opens from St Petersburg to Tsarskoye Selo.' },
+        { t: 'Peace in Paris', l: 'The treaty closes the Black Sea to all warships and bans fortifications on its shores.' },
+        { t: 'The end of serfdom', l: 'Alexander II’s manifesto frees the peasants from serfdom. The war had shown the government how weak the empire was.' },
+        { t: 'A railway to Sevastopol', l: 'At last the first train arrives in Sevastopol.' },
+      ] },
+    facts1: [
+      { emo: '🚂', text: 'In 1855 British contractors built a railway from Balaklava to the siege camps. Work began on 19 January 1855, the first supplies moved on 23 February, drawn by horses, and at its longest the line was about 23 km.', src: U.gccr },
+      { emo: '🛤️', text: 'Russia had not built a railway in that direction, and its communications were poor.', src: U.cw },
+      { emo: '🚆', text: 'The first train arrived in Sevastopol on 15 September 1875, on the Lozova–Sevastopol line.', src: U.sev },
+    ],
+    facts2: [
+      { emo: '🔫', text: 'At the Alma, Campbell’s troops carried the new Minié rifles.', src: U.cw },
+      { emo: '🪖', text: 'Russian infantry were still armed with smoothbore muskets, while the British and French had standardised rifled firearms.', src: U.cw },
+      { emo: '🎖️', text: 'After the defeat Russia developed its own rifle-musket, the M1856 six-line.', src: U.rm },
+      { emo: '⛴️', text: 'The allied landing in the Crimea in September 1854: in seven columns 360 ships sailed, each steamer towing two sailing ships.', src: U.cw },
+      { emo: '⚓', text: 'At Sinop in 1853 the Russian squadron had 6 ships of the line, 2 frigates and 3 steamers, each steamer with 4 guns.', src: U.sin },
+    ],
+    facts3: [
+      { emo: '🏛️', text: 'Under Nicholas I the tsar’s Own Chancellery grew into a large administrative body on a par with the Committee of Ministers.', src: U.ch },
+      { emo: '🪖', text: 'Nicholas I’s army counted about a million men, in a country of 60–70 million people.', src: U.nic },
+      { emo: '🔧', text: 'The Crimean War led the Russian government to realise its technological inferiority, in military practice as well as in weapons.', src: U.cw },
+    ],
+    secrets: { nurse: ['Nurse and surgeon', 'Match four hospital problems with fixes'], wire: ['The wire', 'Send a dispatch to London'] },
+    nu: { q: 'Tap a problem, then the fix that answered it.', probs: ['Disease spreads in the hospital', 'Surgery is agony', 'Too many wounded at once', 'Not enough trained helpers'],
+      fixes: ['Clean the sewers and the air', 'Ether, even in the field', 'Sort them into categories', 'An organised corps of women nurses'],
+      det: ['In the first winter at Scutari roughly ten times more soldiers died of disease than of wounds. A Sanitary Commission arrived in March 1855 and flushed the sewers and improved ventilation.',
+        'Nikolay Pirogov used anaesthesia in the field during the siege of Sevastopol, 1854–55.', 'Pirogov brought in a system that sorted the wounded into five categories.',
+        'Florence Nightingale left England in October 1854 with 38 women volunteer nurses. Pirogov encouraged an organised corps of nurses too.'],
+      src: [U.fn, U.pir, U.pir, U.fn], good: 'Right!', bad: 'Not that one. Try another.', all: 'All four matched.', allLead: 'Two people, one idea: care for the wounded can be organised.',
+      weak: 'The Pirogov page carries accuracy warnings; the death-rate figures for Scutari are disputed.' },
+    wi: { q: 'Send the same dispatch two ways and watch.', modes: ['Telegraph to the Black Sea coast', 'Undersea cable to the Crimea'], t: ['two days', 'a few hours'],
+      lead: 'Schematic route. After the telegraph reached the Black Sea coast news reached London in two days; after the undersea cable to the Crimea, in a few hours.',
+      go: 'Send', title: ['Two days to London', 'A few hours to London'], idle: 'London waits for news', src: U.cw, ft: 'Balaklava', lt: 'London' },
+    quiz: [
+      { q: 'Does the biggest army always win?', opts: ['Yes', 'No, transport and weapons matter too', 'Only at sea'], ok: 1, hint: 'Compare the routes and the ranges.' },
+      { q: 'What was a main weakness of Russia in this war?', opts: ['Too few soldiers', 'No generals', 'No railway to the south and older weapons'], ok: 2, hint: 'Look at the Supply view.' },
+      { q: 'Did anything change in Russia after the war?', opts: ['Yes: railways and the end of serfdom followed', 'Nothing', 'Russia became a republic'], ok: 0, hint: 'Look at the cards after the war.' },
+    ],
+  },
+  ru: {
+    name: 'Дороги к Севастополю', title: 'Дороги к Севастополю',
+    lines: [['Два пути', 'к одному осаждённому порту.'], ['Сравни ружья', 'и корабли.'], ['А потом — царствование,', 'которое за этим стоит.']],
+    views: { supply: '🚚 Путь', range: '🎯 Огонь', reign: '👑 Эпоха' },
+    s: { q: 'Чьи припасы дойдут до порта раньше: обоз из Москвы или корабли из Лондона?', pick: ['Обоз из Москвы', 'Корабли из Лондона'],
+      pre: 'Сначала догадка. Потом оба отправятся в один день.', ok: 'Верно!', no: 'Не совсем.',
+      res: (sd, cd, p) => `В этой модели: морем около ${sd} ${ruPlural(sd, 'дня', 'дней', 'дней')}, по дороге около ${cd} ${ruPlural(cd, 'дня', 'дней', 'дней')} при ${p} км в день.`,
+      note: (a, b) => `Модель, а не измерение: морской путь около ${a} км при ${SHIP_PACE} км в день (пар), дорога около ${b} км отрезками между городами. Скорость обоза задаёшь ты.`,
+      pace: 'Обоз, км в день', brk: (n) => `Чтобы не отстать от кораблей, обозу нужно проходить около ${n} км в день.`, brkWin: 'При такой скорости обоз приходит первым. А разрешила бы это грязь на просёлках?',
+      chart: '⇄ График дней', map: '⇄ Карта', ship: 'Пароход из Лондона', cart: 'Обоз из Москвы', days: (n) => `День ${n}`, daysEnd: (n) => `около ${n} ${ruPlural(n, 'дня', 'дней', 'дней')}`,
+      rail: 'Железная дорога у Балаклавы, 1855', railSteps: [['19 янв.', 'начало работ'], ['23 февр.', 'первые грузы, на лошадях'], ['26 марта', 'вершина холма']], railLen: 'до 23 км в самой длинной части',
+      cities: { lon: 'Лондон', mos: 'Москва', sev: 'Севастополь', gib: 'Гибралтар', mal: 'Мальта', con: 'Константинополь' }, emp: ['Российская империя', 'Османская империя'], approx: 'Границы приблизительны, 1854 год',
+      axis: 'дней в пути', ghost: 'если грязь вдвое замедлит ход', val: 'дней: море · дорога', pill: 'модельная скорость' },
+    r: { sub: ['🔫 Ружья', '⛵ Корабли'],
+      q: `Обе шеренги делают по ${SHOTS} выстрелов в мишень на расстоянии 300 ярдов (≈ 274 м). Какая попадёт чаще?`, pick: ['Гладкоствольное ружьё', 'Нарезное ружьё', 'Одинаково'],
+      pre: 'Сначала догадка, потом шеренги стреляют.', ok: 'Верно!', no: 'Не совсем.', smooth: 'Гладкоствольное ружьё', rifle: 'Нарезное ружьё (пуля Минье)', none: 'в источниках нет цифры',
+      pct: (a) => `${a} %`, ydS: 'ярд', hits: (n) => `около ${n} из ${SHOTS}`, yd: (d) => `${d} ${ruPlural(d, 'ярд', 'ярда', 'ярдов')} (≈ ${Math.round(d * 0.9144)} м)`,
+      res: (a, b) => `На 300 ярдов: у гладкоствольного ружья попадает ${a} % выстрелов, у нарезного ${b} %.`,
+      note: 'Доля попаданий для обученных стрелков по мишени 10 × 10 дюймов, из учебной работы, на которую ссылается Википедия. Новобранец с нарезным ружьём стрелял бы лишь немного лучше, чем с гладкоствольным. Двигай мишень: где в источниках нет цифры, её нет и здесь.',
+      qs: 'Ветер дует прямо из гавани, навстречу обоим кораблям. Какой может идти прямо в гавань?', picks: ['Только пароход', 'Только парусник', 'Оба'],
+      pres: 'Сначала догадка, потом корабли отправляются.', steam: 'Пароход', sail: 'Парусник', windL: 'Ветер', w0: 'в лоб', w90: 'сбоку', w180: 'в спину',
+      ress: (r) => `При таком ветре парусник идёт примерно в ${r} раза дольше парохода. В модели у обоих одинаковая предельная скорость: отличается только ветер.`,
+      straight: 'При таком ветре парусник тоже может идти прямо.', harbour: 'гавань' },
+    g: { q: 'Это было до Крымской войны или после неё?', pick: ['До войны', 'После войны'], ok: 'Верно!', no: 'Не совсем.',
+      bef: 'до войны', aft: 'после войны', done: (k, n) => `С первого раза верно: ${k} из ${n}.`,
+      doneLead: 'Нажми на любую точку на ленте, чтобы снова прочитать карточку.', war: 'Крымская война', links: 'Что дальше:', before: 'до', after: 'после',
+      cards: [
+        { t: 'Личная полиция царя', l: 'III отделение с жандармами, шпионами и осведомителями следит за всей страной. Это личная полиция царя.' },
+        { t: 'Войны на юге', l: 'Россия воюет с Персией, потом с Османской империей. Персия отказывается от последних земель на Кавказе.' },
+        { t: 'Польское восстание', l: 'Польша поднимается против власти России. Царь подавляет восстание.' },
+        { t: 'Девиз для государства', l: 'Сергей Уваров называет три основы: православие, самодержавие, народность.' },
+        { t: 'Первая железная дорога', l: 'Открывается линия длиной 26 км от Петербурга до Царского Села.' },
+        { t: 'Мир в Париже', l: 'Договор закрывает Чёрное море для всех военных кораблей и запрещает укрепления на его берегах.' },
+        { t: 'Конец крепостного права', l: 'Манифест Александра II освобождает крестьян от крепостной зависимости. Война показала власти, как слаба империя.' },
+        { t: 'Железная дорога в Севастополь', l: 'Наконец в Севастополь приходит первый поезд.' },
+      ] },
+    facts1: [
+      { emo: '🚂', text: 'В 1855 году британские подрядчики построили железную дорогу от Балаклавы к лагерям осаждающих. Работы начались 19 января 1855 года, первые грузы пошли 23 февраля, их везли лошади, а самая длинная часть дороги составила около 23 км.', src: U.gccr },
+      { emo: '🛤️', text: 'Россия не построила железную дорогу в этом направлении, а сообщение было плохим.', src: U.cw },
+      { emo: '🚆', text: 'Первый поезд пришёл в Севастополь 15 сентября 1875 года, по линии Лозовая — Севастополь.', src: U.sev },
+    ],
+    facts2: [
+      { emo: '🔫', text: 'При Альме войска Кэмпбелла были вооружены новыми винтовками Минье.', src: U.cw },
+      { emo: '🪖', text: 'Русская пехота всё ещё была вооружена гладкоствольными ружьями, а у британцев и французов были стандартные нарезные ружья.', src: U.cw },
+      { emo: '🎖️', text: 'После поражения Россия создала собственное нарезное ружьё образца 1856 года.', src: U.rm },
+      { emo: '⛴️', text: 'Высадка союзников в Крыму в сентябре 1854 года: семью колоннами шли 360 судов, и каждый пароход тянул два парусных.', src: U.cw },
+      { emo: '⚓', text: 'При Синопе в 1853 году у русской эскадры было 6 линейных кораблей, 2 фрегата и 3 парохода, у каждого парохода по 4 орудия.', src: U.sin },
+    ],
+    facts3: [
+      { emo: '🏛️', text: 'При Николае I Собственная канцелярия царя выросла в крупный орган управления, равный по значению Комитету министров.', src: U.ch },
+      { emo: '🪖', text: 'В армии Николая I было около миллиона человек, в стране с населением 60–70 миллионов.', src: U.nic },
+      { emo: '🔧', text: 'Крымская война заставила российское правительство осознать своё техническое отставание — и в военном деле, и в вооружении.', src: U.cw },
+    ],
+    secrets: { nurse: ['Сестра и хирург', 'Подбери четыре проблемы госпиталя и их решения'], wire: ['Провод', 'Отправь депешу в Лондон'] },
+    nu: { q: 'Нажми на проблему, потом на решение, которое на неё ответило.', probs: ['В госпитале распространяются болезни', 'Операция — это мука', 'Сразу слишком много раненых', 'Не хватает обученных помощниц'],
+      fixes: ['Почистить канализацию и воздух', 'Эфир, даже в полевых условиях', 'Разделить раненых на категории', 'Организованный отряд сестёр милосердия'],
+      det: ['В первую зиму в Скутари от болезней умерло примерно в десять раз больше солдат, чем от ран. В марте 1855 года прибыла Санитарная комиссия: прочистили канализацию и улучшили вентиляцию.',
+        'Николай Пирогов применял наркоз в полевых условиях во время осады Севастополя, в 1854–55 годах.', 'Пирогов ввёл систему, которая делила раненых на пять категорий.',
+        'Флоренс Найтингейл уехала из Англии в октябре 1854 года с 38 женщинами-добровольцами. Пирогов тоже поддерживал организованный отряд сестёр.'],
+      src: [U.fn, U.pir, U.pir, U.fn], good: 'Верно!', bad: 'Не то. Попробуй другое.', all: 'Все четыре подобраны.', allLead: 'Двое людей, одна мысль: уход за ранеными можно организовать.',
+      weak: 'На странице Пирогова есть пометки о точности; цифры смертности в Скутари оспариваются.' },
+    wi: { q: 'Отправь одну депешу двумя способами и смотри.', modes: ['Телеграф до берега Чёрного моря', 'Подводный кабель до Крыма'], t: ['два дня', 'несколько часов'],
+      lead: 'Схематичный путь. Когда телеграф дошёл до берега Чёрного моря, новости доходили до Лондона за два дня; после подводного кабеля до Крыма — за несколько часов.',
+      go: 'Отправить', title: ['Два дня до Лондона', 'Несколько часов до Лондона'], idle: 'Лондон ждёт новостей', src: U.cw, ft: 'Балаклава', lt: 'Лондон' },
+    quiz: [
+      { q: 'Всегда ли побеждает самая большая армия?', opts: ['Да', 'Нет, важны ещё транспорт и оружие', 'Только на море'], ok: 1, hint: 'Сравни пути и дальность стрельбы.' },
+      { q: 'В чём была главная слабость России в этой войне?', opts: ['Мало солдат', 'Не было генералов', 'Нет железной дороги на юг и устаревшее оружие'], ok: 2, hint: 'Посмотри на вид «Путь».' },
+      { q: 'Изменилось ли что-то в России после войны?', opts: ['Да: потом появились железные дороги и закончилось крепостное право', 'Ничего', 'Россия стала республикой'], ok: 0, hint: 'Посмотри на карточки «после войны».' },
+    ],
+  },
+  hu: {
+    name: 'Utak Szevasztopolhoz', title: 'Utak Szevasztopolhoz',
+    lines: [['Két út', 'egyetlen ostromlott kikötőhöz.'], ['Hasonlítsd össze a fegyvereket', 'és a hajókat.'], ['Aztán nézd meg az uralkodást,', 'amely mindez mögött áll.']],
+    views: { supply: '🚚 Utak', range: '🎯 Lőtáv', reign: '👑 Kor' },
+    s: { q: 'Kinek az utánpótlása ér előbb a kikötőbe: a moszkvai szekereké vagy a londoni hajóké?', pick: ['Szekerek Moszkvából', 'Hajók Londonból'],
+      pre: 'Előbb tippelj. Aztán mindkettő ugyanazon a napon indul.', ok: 'Így van!', no: 'Nem egészen.',
+      res: (sd, cd, p) => `Ebben a modellben: tengeren körülbelül ${sd} nap, úton körülbelül ${cd} nap (${p} km naponta).`,
+      note: (a, b) => `Modell, nem mérés: a tengeri út körülbelül ${a} km, naponta ${SHIP_PACE} km (gőz), az országút körülbelül ${b} km, városok közötti egyenes szakaszokból. A szekerek tempóját te állítod.`,
+      pace: 'Szekér, km naponta', brk: (n) => `Hogy a hajókkal lépést tartsanak, a szekereknek napi körülbelül ${n} km kellene.`, brkWin: 'Ennél a tempónál a szekerek érnek oda előbb. Vajon a sáros földutak megengednék?',
+      chart: '⇄ Napok grafikon', map: '⇄ Térkép', ship: 'Gőzhajó Londonból', cart: 'Szekerek Moszkvából', days: (n) => `${n}. nap`, daysEnd: (n) => `körülbelül ${n} nap`,
+      rail: 'A balaklavai vasút, 1855', railSteps: [['jan. 19.', 'munka kezdete'], ['febr. 23.', 'első rakományok, lóval'], ['márc. 26.', 'a domb teteje']], railLen: 'legfeljebb kb. 23 km hosszú',
+      cities: { lon: 'London', mos: 'Moszkva', sev: 'Szevasztopol', gib: 'Gibraltár', mal: 'Málta', con: 'Konstantinápoly' }, emp: ['Orosz Birodalom', 'Oszmán Birodalom'], approx: 'A területek hozzávetőlegesek, 1854',
+      axis: 'nap úton', ghost: 'ha a sár felére lassít', val: 'nap: tenger · út', pill: 'modell-tempó' },
+    r: { sub: ['🔫 Puskák', '⛵ Hajók'],
+      q: `Mindkét sor ${SHOTS} lövést ad le egy 300 yardra (≈ 274 m) levő céltáblára. Melyik talál többet?`, pick: ['Sima csövű muskéta', 'Huzagolt puska', 'Egyformán'],
+      pre: 'Előbb tippelj, aztán a sorok tüzelnek.', ok: 'Így van!', no: 'Nem egészen.', smooth: 'Sima csövű muskéta', rifle: 'Huzagolt puska (Minié-golyó)', none: 'a forrásokban nincs adat',
+      pct: (a) => `${a} %`, ydS: 'yd', hits: (n) => `kb. ${n} / ${SHOTS}`, yd: (d) => `${d} yard (≈ ${Math.round(d * 0.9144)} m)`,
+      res: (a, b) => `300 yardon a találati arány: sima csövű muskéta ${a} %, huzagolt puska ${b} %.`,
+      note: 'Kiképzett lövészek találati aránya egy 10 × 10 hüvelykes céltáblán, egy tanulmányból, amelyre a Wikipédia hivatkozik. Egy újonc huzagolt puskával alig lőne jobban, mint simával. Told el a célt: ahol a forrásokban nincs adat, ott nem mutatunk számot.',
+      qs: 'A szél egyenesen a kikötő felől fúj mindkét hajóra. Melyik tud egyenesen behajózni?', picks: ['Csak a gőzhajó', 'Csak a vitorlás', 'Mindkettő'],
+      pres: 'Előbb tippelj, aztán a hajók elindulnak.', steam: 'Gőzhajó', sail: 'Vitorlás', windL: 'A szél', w0: 'szemből', w90: 'oldalról', w180: 'hátulról',
+      ress: (r) => `Ennél a szélnél a vitorlásnak körülbelül ${r} × annyi idő kell, mint a gőzhajónak. A modellben mindkettőnek ugyanaz a végsebessége: csak a szél más.`,
+      straight: 'Ennél a szélnél a vitorlás is egyenesen mehet.', harbour: 'kikötő' },
+    g: { q: 'A krími háború előtt történt, vagy utána?', pick: ['A háború előtt', 'A háború után'], ok: 'Így van!', no: 'Nem egészen.',
+      bef: 'a háború előtt', aft: 'a háború után', done: (k, n) => `Elsőre jó: ${k} / ${n}.`,
+      doneLead: 'Koppints bármelyik pontra a szalagon, hogy újra elolvasd a kártyáját.', war: 'Krími háború', links: 'Tovább:', before: 'előtt', after: 'után',
+      cards: [
+        { t: 'A cár saját rendőrsége', l: 'A III. osztály csendőrökkel, kémekkel és besúgókkal az egész országot figyeli. Ez a cár személyes rendőrsége.' },
+        { t: 'Háborúk délen', l: 'Oroszország Perzsiával, majd az Oszmán Birodalommal harcol. Perzsia lemond utolsó kaukázusi területeiről.' },
+        { t: 'A lengyel felkelés', l: 'Lengyelország fellázad az orosz uralom ellen. A cár leveri a felkelést.' },
+        { t: 'Jelmondat az államnak', l: 'Szergej Uvarov három pillért nevez meg: ortodoxia, önkényuralom és nemzetiség.' },
+        { t: 'Az első vasút', l: 'Megnyílik a 26 km hosszú vonal Szentpétervár és Carszkoje Szelo között.' },
+        { t: 'Béke Párizsban', l: 'A szerződés a Fekete-tengert minden hadihajó előtt lezárja, és tiltja a part menti erődítményeket.' },
+        { t: 'A jobbágyság vége', l: 'II. Sándor kiáltványa felszabadítja a parasztokat a jobbágyság alól. A háború megmutatta a kormánynak, mennyire gyenge a birodalom.' },
+        { t: 'Vasút Szevasztopolba', l: 'Végre megérkezik az első vonat Szevasztopolba.' },
+      ] },
+    facts1: [
+      { emo: '🚂', text: '1855-ben brit vállalkozók vasutat építettek Balaklavától az ostromtáborokig. A munka 1855. január 19-én kezdődött, az első szállítmányok február 23-án indultak, lovak húzták őket, és a vonal a leghosszabb állapotában körülbelül 23 km volt.', src: U.gccr },
+      { emo: '🛤️', text: 'Oroszország nem épített vasutat abba az irányba, és a közlekedése rossz volt.', src: U.cw },
+      { emo: '🚆', text: 'Az első vonat 1875. szeptember 15-én érkezett meg Szevasztopolba, a Lozova–Szevasztopol vonalon.', src: U.sev },
+    ],
+    facts2: [
+      { emo: '🔫', text: 'Az Almánál Campbell katonái az új Minié-puskákkal voltak felszerelve.', src: U.cw },
+      { emo: '🪖', text: 'Az orosz gyalogság még sima csövű muskétákkal volt felfegyverkezve, miközben a briteknél és a franciáknál már szabványos huzagolt fegyverek voltak.', src: U.cw },
+      { emo: '🎖️', text: 'A vereség után Oroszország kifejlesztette saját huzagolt puskáját, az 1856-os mintát.', src: U.rm },
+      { emo: '⛴️', text: 'A szövetségesek partraszállása a Krímen 1854 szeptemberében: hét oszlopban 360 hajó indult útnak, és minden gőzös két vitorlást vontatott.', src: U.cw },
+      { emo: '⚓', text: 'Szinópnál 1853-ban az orosz osztag 6 sorhajóból, 2 fregattból és 3 gőzösből állt, a gőzösök egyenként 4 ágyúsak voltak.', src: U.sin },
+    ],
+    facts3: [
+      { emo: '🏛️', text: 'I. Miklós alatt a cár Saját Kancelláriája nagy közigazgatási testületté nőtt, a Miniszterek Bizottságával egyenrangúvá.', src: U.ch },
+      { emo: '🪖', text: 'I. Miklós hadserege körülbelül egymillió főt számlált, egy 60–70 millió lakosú országban.', src: U.nic },
+      { emo: '🔧', text: 'A krími háború ráébresztette az orosz kormányt műszaki elmaradására, a katonai gyakorlatban és a fegyverekben is.', src: U.cw },
+    ],
+    secrets: { nurse: ['Ápolónő és sebész', 'Párosíts négy kórházi gondot megoldásokkal'], wire: ['A drót', 'Küldj táviratot Londonba'] },
+    nu: { q: 'Koppints egy problémára, aztán a megoldásra, amely válaszolt rá.', probs: ['A kórházban terjednek a betegségek', 'A műtét gyötrelem', 'Egyszerre túl sok a sebesült', 'Kevés a képzett segítő'],
+      fixes: ['Kitakarítani a csatornákat és a levegőt', 'Éter, a harctéren is', 'Kategóriákba sorolni őket', 'Szervezett női ápolónő-csapat'],
+      det: ['Az első télen Szkutariban nagyjából tízszer annyi katona halt meg betegségben, mint sebben. 1855 márciusában Egészségügyi Bizottság érkezett, kitakarították a csatornákat és javították a szellőzést.',
+        'Nyikolaj Pirogov a szevasztopoli ostrom alatt, 1854–55-ben a harctéren is használt érzéstelenítést.', 'Pirogov olyan rendszert vezetett be, amely a sebesülteket öt kategóriába sorolta.',
+        'Florence Nightingale 1854 októberében indult el Angliából 38 önkéntes női ápolóval. Pirogov is támogatta a szervezett ápolócsapatot.'],
+      src: [U.fn, U.pir, U.pir, U.fn], good: 'Így van!', bad: 'Nem ez. Próbálj másikat.', all: 'Mind a négy párban van.', allLead: 'Két ember, egy gondolat: a sebesültek ellátása megszervezhető.',
+      weak: 'A Pirogov-oldalon pontossági figyelmeztetések vannak; a szkutari halálozási adatok vitatottak.' },
+    wi: { q: 'Küldd el ugyanazt a táviratot két úton, és figyeld.', modes: ['Távíró a Fekete-tenger partjáig', 'Tenger alatti kábel a Krímig'], t: ['két nap', 'néhány óra'],
+      lead: 'Vázlatos útvonal. Amikor a távíró elérte a Fekete-tenger partját, a hírek két nap alatt értek Londonba; a Krímig vezető tenger alatti kábel után néhány óra alatt.',
+      go: 'Küldés', title: ['Két nap Londonig', 'Néhány óra Londonig'], idle: 'London híreket vár', src: U.cw, ft: 'Balaklava', lt: 'London' },
+    quiz: [
+      { q: 'A legnagyobb sereg mindig nyer?', opts: ['Igen', 'Nem, a szállítás és a fegyverek is számítanak', 'Csak a tengeren'], ok: 1, hint: 'Hasonlítsd össze az útvonalakat és a lőtávokat.' },
+      { q: 'Mi volt Oroszország egyik fő gyengesége ebben a háborúban?', opts: ['Kevés katona', 'Nem voltak tábornokai', 'Nem volt vasút dél felé, és régebbi fegyverek'], ok: 2, hint: 'Nézd meg az Utak nézetet.' },
+      { q: 'Változott valami Oroszországban a háború után?', opts: ['Igen: vasutak épültek, és megszűnt a jobbágyság', 'Semmi', 'Oroszország köztársaság lett'], ok: 0, hint: 'Nézd meg a „háború után” kártyákat.' },
+    ],
+  },
+};
+const TOPICS = [{ id: 'sg_his_30', en: 'Russia in the First Half of the 19th Century', ru: 'Россия в первой половине XIX века', hu: 'Oroszország a 19. század első felében' }];
+const LINKS = { rail: { en: 'Rails Across Russia', ru: 'Рельсы через Россию', hu: 'Sínek Oroszországon át' }, em: { en: 'The Freedom of 1861', ru: 'Воля 1861 года', hu: 'Az 1861-es jobbágyfelszabadítás' } };
+
+// --- data: places, routes, historical extents (all approximate) -------------------------------------------------------
+const WIN = { lon0: -13, lon1: 47, lat0: 32, lat1: 62 };
+const COSL = Math.cos((47 * Math.PI) / 180);
+const CITY = { lon: [-0.12, 51.5], mos: [37.62, 55.75], sev: [33.52, 44.6], gib: [-5.35, 36.14], mal: [14.51, 35.9], con: [28.98, 41.01] };
+// supply routes as [lon, lat] waypoints; the sea route is by waypoints around Iberia, Sicily and Greece (a schematic, not a chart)
+const SEA = [[-0.12, 51.5], [1.5, 51.0], [-3, 49.8], [-5.6, 48.5], [-8.5, 44.5], [-10.2, 38.8], [-9.2, 36.9], [-5.6, 36.0], [-1, 36.8], [4, 38.0], [9, 38.0], [11.6, 37.7],
+  [12.8, 36.0], [14.5, 35.6], [18.5, 35.6], [23.0, 35.8], [25.4, 37.3], [25.4, 38.9], [26.0, 40.0], [27.7, 40.7], [29.0, 41.1], [31.5, 42.5], [33.6, 44.45]];
+const ROAD = [[37.62, 55.75], [37.62, 54.2], [36.08, 52.97], [36.19, 51.73], [36.23, 50.0], [35.1, 47.8], [33.7, 46.1], [34.1, 44.95], [33.52, 44.6]];
+const WIRE = [[33.6, 44.5], [27.9, 43.2], [24, 45.5], [16.4, 48.2], [8, 49], [2.35, 48.85], [-0.12, 51.5]];
+// extents of the two empires in 1854, rough polygons [lon, lat]; they are clipped to land, so they may run out to sea
+const RUSSIA = [[20.5, 62.5], [47, 62.5], [47, 40.6], [43.5, 41.2], [41.6, 41.5], [38, 43], [35, 43.5], [31, 44.6], [29.7, 45.3], [28.2, 45.6], [27.4, 47.9], [26.6, 48.4], [24.0, 50.5],
+  [23.5, 50.4], [19.5, 50.3], [18.7, 51.0], [18.2, 51.8], [18.6, 53.0], [19.8, 53.5], [21.5, 54.3], [22.8, 54.4], [22.9, 55.1], [21.1, 55.8], [20.3, 58], [20.5, 62.5]];
+const OTTOMAN = [[16, 45], [20.5, 44.9], [22.5, 44.4], [26, 43.8], [28.5, 43.9], [29.7, 45.2], [33, 43.0], [38, 42.3], [41.8, 41.7], [43.5, 41.1], [44.7, 39.8], [44.5, 37.5], [45.5, 35.5], [46.5, 33.8],
+  [47, 32], [11.5, 32], [11.5, 33.4], [21.5, 33.4], [21.5, 34.9], [23.2, 35.2], [23.3, 35.9], [24.6, 36.4], [25.4, 37.8], [25.4, 39.2], [23.8, 39.3], [23.0, 39.3], [21.0, 39.3], [20.3, 39.8],
+  [19.4, 40.4], [19.4, 41.2], [17.5, 43.0], [16, 44.5]];
+const hav = (a, b) => { const R = 6371, r = Math.PI / 180, dl = (b[1] - a[1]) * r, dn = (b[0] - a[0]) * r, s = Math.sin(dl / 2) ** 2 + Math.cos(a[1] * r) * Math.cos(b[1] * r) * Math.sin(dn / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(s)); };
+const chainKm = (P) => P.reduce((n, p, i) => (i ? n + hav(P[i - 1], p) : 0), 0);
+const SEA_KM = chainKm(SEA), ROAD_KM = chainKm(ROAD);
+const SEA_DAYS = Math.round(SEA_KM / SHIP_PACE);
+const PACE0 = 20;                               // default cart pace, km a day: a MODEL value; the child can change it
+const roundTo = (x, k) => Math.round(x / k) * k;
+const decodeGl = (s, k) => { const out = []; let i = 0, x = 0, y = 0; const one = () => { let r = 0, sh = 0, b; do { b = s.charCodeAt(i++) - 63; r |= (b & 31) << sh; sh += 5; } while (b >= 32); return r & 1 ? ~(r >> 1) : r >> 1; }; while (i < s.length) { x += one(); y += one(); out.push([x / k, y / k]); } return out; };
+const COAST = GLOBE.map((s) => decodeGl(s, 10)).filter((r) => r.some(([lo, la]) => lo > WIN.lon0 - 6 && lo < WIN.lon1 + 6 && la > WIN.lat0 - 6 && la < WIN.lat1 + 6));
+
+// cards of the Reign view: year on the ribbon, label, after the war?
+const CARDS = [{ y: 1826, lab: '1826', a: false }, { y: 1828, lab: '1826–29', a: false }, { y: 1830, lab: '1830–31', a: false }, { y: 1833, lab: '1833', a: false },
+  { y: 1837, lab: '1837', a: false }, { y: 1856, lab: '1856', a: true }, { y: 1861, lab: '1861', a: true }, { y: 1875, lab: '1875', a: true }];
+const ORDER = [5, 0, 4, 7, 2, 6, 3, 1];
+const Y0 = 1824, Y1 = 1878;
+
+// --- state -------------------------------------------------------------------------------------------------------
+const S = {
+  sec: null,
+  g1: null, run1: 0, t1: 0, ok1: null, pace: PACE0, bars: false,
+  sub: 'rifle', g2: null, run2: 0, t2: 0, ok2: null, dist: 300,
+  g2s: null, run2s: 0, t2s: 0, ok2s: null, wind: 0,
+  deck: 0, placed: [], sel: null, flyT: 1,
+  nu: { sel: null, done: [false, false, false, false], bad: -1 }, wi: { mode: null, t: 0 },
+};
+let CW = 0, CH = 0, MC = null, RT = null, HITS_BOX = [];
+const nf = (n) => Math.round(n).toLocaleString(lang === 'en' ? 'en-US' : lang);
+const pf = (x) => (lang === 'en' ? String(x) : String(x).replace('.', ','));
+const ease = (t) => t * t * (3 - 2 * t);
+const FONT = (px, wt = 800) => `${wt} ${px}px Nunito, ui-rounded, system-ui, sans-serif`;
+const dprOf = () => Math.min(window.devicePixelRatio || 1, 2);
+const cartDays = () => Math.round(ROAD_KM / S.pace);
+const breakEven = () => roundTo(ROAD_KM / SEA_DAYS, 5);
+const probOf = (kind, d) => { const h = HIT[kind][d]; return h ? (h[0] + h[1]) / 2 : null; };
+const nHits = (kind, d) => { const p = probOf(kind, d); return p === null ? null : Math.round((SHOTS * p) / 100); };
+const rangeTxt = (h) => (h[0] === h[1] ? `${h[0]}` : `${h[0]}–${h[1]}`);
+
+// sailing model: same top speed as the steamer (1). Speed by the angle a between the heading and the wind's source: none inside 40 degrees,
+// full from 70 to 110, a little less running before the wind. Returns the path in a unit square (x across, y forward) and the time T
+// (the steamer needs 1 for the same distance).
+function sailSpeed(a) { a = Math.abs(a); if (a > 180) a = 360 - a; if (a < 40) return 0; if (a < 70) return ease((a - 40) / 30); if (a <= 110) return 1; return 1 - 0.15 * ((a - 110) / 70); }
+const PLANS = {};
+function sailPlan(phi) {
+  if (PLANS[phi]) return PLANS[phi];
+  const rad = Math.PI / 180, ang = (d) => { let x = Math.abs(d - phi) % 360; return x > 180 ? 360 - x : x; };
+  const hs = []; for (let d = -110; d <= 110; d += 2) { const v = sailSpeed(ang(d)); if (v > 0.001 && d !== 0) hs.push({ d, v, sx: v * Math.sin(d * rad), cy: v * Math.cos(d * rad) }); }
+  const v0 = sailSpeed(ang(0)); let best = { F: v0, legs: null };
+  for (const p of hs) if (p.d < 0) for (const q of hs) if (q.d > 0) {
+    const f1 = q.sx / (q.sx - p.sx), F = f1 * p.cy + (1 - f1) * q.cy;
+    if (F > best.F) best = { F, legs: [p, q], f1 };
+  }
+  let plan;
+  if (!best.legs) { const v = Math.max(0.05, best.F); plan = { verts: [{ x: 0, y: 0, t: 0 }, { x: 0, y: 1, t: 1 / v }], T: 1 / v, straight: true }; }
+  else {
+    const [p, q] = best.legs, f1 = best.f1;
+    const tp = Math.min(0.22 / best.F, 0.28 / Math.max(Math.abs(p.sx) * f1, q.sx * (1 - f1)));
+    const legs = p.cy >= q.cy ? [[p, f1 * tp], [q, (1 - f1) * tp]] : [[q, (1 - f1) * tp], [p, f1 * tp]];
+    const verts = [{ x: 0, y: 0, t: 0 }]; let x = 0, y = 0, t = 0, guard = 0;
+    while (y < 1 && guard++ < 600) {
+      for (const [lg, dt] of legs) {
+        const dy = lg.cy * dt, dx = lg.sx * dt;
+        if (dy > 0 && y + dy >= 1) { const u = (1 - y) / dy; verts.push({ x: x + dx * u, y: 1, t: t + dt * u }); y = 1; break; }
+        x += dx; y += dy; t += dt; verts.push({ x, y, t });
+      }
+    }
+    plan = { verts, T: verts[verts.length - 1].t, straight: false };
+  }
+  PLANS[phi] = plan; return plan;
+}
+const sailAt = (plan, tau) => { const V = plan.verts; if (tau >= plan.T) return { ...V[V.length - 1], hd: 0 }; for (let i = 1; i < V.length; i++) if (tau <= V[i].t) { const a = V[i - 1], b = V[i], u = (tau - a.t) / Math.max(1e-9, b.t - a.t); return { x: lerp(a.x, b.x, u), y: lerp(a.y, b.y, u), hd: Math.atan2(b.x - a.x, b.y - a.y) }; } return { ...V[V.length - 1], hd: 0 }; };
+
+const lab = shell({ key: 'sevastopol-roads', T, topics: TOPICS, views: ['supply', 'range', 'reign'], onLang: render, onView: () => { S.sec = null; render(); } });
+const secret = secretLab('sevastopol-roads', () => ({
+  secrets: [{ emo: '🩺', title: T[lang].secrets.nurse[0], desc: T[lang].secrets.nurse[1] }, { emo: '📡', title: T[lang].secrets.wire[0], desc: T[lang].secrets.wire[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="secSupply">
+    <div class="sr-q" id="svQ"></div>
+    <div class="sr-chips" id="svPick"></div>
+    <div id="svPost" hidden>
+      <label class="sr-sl"><span id="svPaceL"></span><input id="svPace" type="range" min="5" max="60" step="1"><b id="svPaceV"></b></label>
+      <div class="sr-fine" id="svBrk"></div>
+      <div class="sr-chips" style="margin-top:10px"><button class="sr-chip" id="svToggle" data-act="bars"></button></div>
+    </div>
+  </div>
+  <div id="secRange" hidden>
+    <div class="sr-chips" id="rgSub"></div>
+    <div id="rgRifle">
+      <div class="sr-q" id="rfQ" style="margin-top:12px"></div>
+      <div class="sr-chips" id="rfPick"></div>
+      <div id="rfPost" hidden><div class="sr-sub" id="rfDistL"></div><div class="sr-chips" id="rfDist"></div><div class="sr-fine" id="rfNote"></div></div>
+    </div>
+    <div id="rgShip" hidden>
+      <div class="sr-q" id="shQ" style="margin-top:12px"></div>
+      <div class="sr-chips" id="shPick"></div>
+      <div id="shPost" hidden><label class="sr-sl"><span id="shWindL"></span><input id="shWind" type="range" min="0" max="180" step="5"><b id="shWindV"></b></label></div>
+    </div>
+  </div>
+  <div id="secReign" hidden>
+    <div class="sr-q" id="rnQ"></div>
+    <div class="sr-chips" id="rnPick"></div>
+    <div id="rnLinks" hidden></div>
+  </div>
+  <div id="secNurse" hidden><div class="sr-q" id="nuQ"></div><div class="sr-grid" id="nuGrid"></div></div>
+  <div id="secWire" hidden><div class="sr-q" id="wiQ"></div><div class="sr-chips" id="wiPick"></div></div>
+  <div class="sr-secrow" id="secRow"></div>`;
+
+// --- map base layer (sea, land, empires), cached by size ------------------------------------------------------------
+function layout(w, h, reserve) {
+  const m = 8, ratio = ((WIN.lon1 - WIN.lon0) * COSL) / (WIN.lat1 - WIN.lat0);
+  let mw = w - 2 * m, mh = mw / ratio;
+  const cap = Math.max(120, h - reserve);
+  if (mh > cap) { mh = cap; mw = mh * ratio; }
+  const ox = (w - mw) / 2, oy = m;
+  return { w, h, ox, oy, mw, mh, key: `${Math.round(w)}x${Math.round(h)}x${Math.round(reserve)}|${dprOf()}`,
+    x: (lo) => ox + ((lo - WIN.lon0) / (WIN.lon1 - WIN.lon0)) * mw, y: (la) => oy + ((WIN.lat1 - la) / (WIN.lat1 - WIN.lat0)) * mh };
+}
+function smoothInto(p, pts, L) {
+  const q = pts.map(([lo, la]) => [L.x(lo), L.y(la)]), n = q.length;
+  if (n < 3) return;
+  p.moveTo((q[n - 1][0] + q[0][0]) / 2, (q[n - 1][1] + q[0][1]) / 2);
+  for (let i = 0; i < n; i++) { const a = q[i], b = q[(i + 1) % n]; p.quadraticCurveTo(a[0], a[1], (a[0] + b[0]) / 2, (a[1] + b[1]) / 2); }
+  p.closePath();
+}
+function crSample(P, per = 14) {
+  const out = [P[0]];
+  for (let i = 0; i < P.length - 1; i++) {
+    const p0 = P[Math.max(0, i - 1)], p1 = P[i], p2 = P[i + 1], p3 = P[Math.min(P.length - 1, i + 2)];
+    for (let k = 1; k <= per; k++) {
+      const t = k / per, t2 = t * t, t3 = t2 * t, f = (a, b, c, d) => 0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3);
+      out.push([f(p0[0], p1[0], p2[0], p3[0]), f(p0[1], p1[1], p2[1], p3[1])]);
+    }
+  }
+  const cum = [0]; for (let i = 1; i < out.length; i++) cum.push(cum[i - 1] + Math.hypot(out[i][0] - out[i - 1][0], out[i][1] - out[i - 1][1]));
+  return { pts: out, cum, len: cum[cum.length - 1] };
+}
+function atFrac(R, f) {
+  const d = clamp(f, 0, 1) * R.len; let i = 1; while (i < R.cum.length - 1 && R.cum[i] < d) i++;
+  const a = R.pts[i - 1], b = R.pts[i], u = (d - R.cum[i - 1]) / Math.max(1e-9, R.cum[i] - R.cum[i - 1]);
+  return [lerp(a[0], b[0], u), lerp(a[1], b[1], u)];
+}
+function mapFor(w, h, reserve) {
+  const L = layout(w, h, reserve);
+  if (MC && MC.L.key === L.key) return MC;
+  const d = dprOf(), cv = document.createElement('canvas'); cv.width = Math.round(w * d); cv.height = Math.round(h * d);
+  const g = cv.getContext('2d'); g.scale(d, d);
+  g.save(); g.beginPath(); g.roundRect(L.ox, L.oy, L.mw, L.mh, 14); g.clip();
+  const sea = g.createLinearGradient(L.ox, L.oy, L.ox + L.mw * 0.8, L.oy + L.mh); sea.addColorStop(0, '#1b3250'); sea.addColorStop(0.55, '#132339'); sea.addColorStop(1, '#0c1627');
+  g.fillStyle = sea; g.fillRect(L.ox, L.oy, L.mw, L.mh);
+  const land = new Path2D(); for (const r of COAST) smoothInto(land, r, L);
+  const lg = g.createLinearGradient(L.ox, L.oy, L.ox + L.mw, L.oy + L.mh); lg.addColorStop(0, '#4a5668'); lg.addColorStop(0.5, '#3a4558'); lg.addColorStop(1, '#2c3649');
+  g.shadowColor = 'rgba(0,0,0,.45)'; g.shadowBlur = 8 * d; g.shadowOffsetY = 2 * d; g.fillStyle = lg; g.fill(land, 'evenodd');
+  g.shadowColor = 'transparent'; g.shadowBlur = 0; g.shadowOffsetY = 0;
+  // empires: soft tints clipped to land, dashed edge
+  const tint = (poly, col) => {
+    const p = new Path2D(); poly.forEach(([lo, la], i) => (i ? p.lineTo(L.x(lo), L.y(la)) : p.moveTo(L.x(lo), L.y(la)))); p.closePath();
+    g.save(); g.clip(land, 'evenodd'); g.fillStyle = col + '38'; g.fill(p); g.lineWidth = 1.2; g.setLineDash([5, 4]); g.strokeStyle = col + 'aa'; g.stroke(p); g.restore();
+  };
+  tint(RUSSIA, '#c07ab8'); tint(OTTOMAN, '#e08a5f');
+  g.strokeStyle = 'rgba(200,215,235,.4)'; g.lineWidth = 1.1; g.lineJoin = 'round'; g.stroke(land);
+  g.strokeStyle = 'rgba(255,255,255,.05)'; g.lineWidth = 1; g.beginPath();
+  for (let lo = Math.ceil(WIN.lon0 / 10) * 10; lo <= WIN.lon1; lo += 10) { g.moveTo(L.x(lo), L.oy); g.lineTo(L.x(lo), L.oy + L.mh); }
+  for (let la = Math.ceil(WIN.lat0 / 10) * 10; la <= WIN.lat1; la += 10) { g.moveTo(L.ox, L.y(la)); g.lineTo(L.ox + L.mw, L.y(la)); }
+  g.stroke(); g.restore();
+  g.strokeStyle = 'rgba(150,165,215,.28)'; g.lineWidth = 1; g.beginPath(); g.roundRect(L.ox, L.oy, L.mw, L.mh, 14); g.stroke();
+  const conv = (P) => P.map(([lo, la]) => [L.x(lo), L.y(la)]);
+  RT = { sea: crSample(conv(SEA)), road: crSample(conv(ROAD)), wire: crSample(conv(WIRE)) };
+  MC = { L, img: cv };
+  return MC;
+}
+
+// --- small drawing helpers -----------------------------------------------------------------------------------------
+function pill(c, text, x, y, o = {}) {
+  const size = o.size || 12, pad = o.pad ?? 7; c.font = FONT(size, o.wt || 800);
+  const tw = c.measureText(text).width + pad * 2, th = size + 8;
+  let rx = o.align === 'left' ? x : o.align === 'right' ? x - tw : x - tw / 2;
+  rx = clamp(rx, 4, Math.max(4, CW - 4 - tw)); const ry = clamp(y - th / 2, 3, Math.max(3, CH - 3 - th));
+  c.fillStyle = o.bg || 'rgba(10,14,26,.82)'; c.beginPath(); c.roundRect(rx, ry, tw, th, th / 2); c.fill();
+  if (o.stroke) { c.strokeStyle = o.stroke; c.lineWidth = 1.2; c.stroke(); }
+  c.fillStyle = o.fg || '#fff'; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(text, rx + pad, ry + th / 2 + 0.5);
+  return { x: rx, y: ry, w: tw, h: th };
+}
+function wrapText(c, text, maxW) {
+  const words = text.split(/\s+/), lines = []; let cur = '';
+  for (const w of words) { const t = cur ? cur + ' ' + w : w; if (c.measureText(t).width > maxW && cur) { lines.push(cur); cur = w; } else cur = t; }
+  if (cur) lines.push(cur); return lines;
+}
+function drawShip(c, x, y, s, time, smoke = true) { // steamship, side view, about 30 px wide at s = 1
+  c.save(); c.translate(x, y); c.scale(s, s); c.lineJoin = 'round';
+  if (smoke) for (let i = 0; i < 4; i++) { const u = ((time * 0.7 + i / 4) % 1); c.globalAlpha = (1 - u) * 0.5; c.fillStyle = '#cfd6e4'; c.beginPath(); c.arc(-4 - u * 16, -16 - u * 9, 2.5 + u * 4, 0, 7); c.fill(); }
+  c.globalAlpha = 1;
+  c.fillStyle = 'rgba(0,0,0,.28)'; c.beginPath(); c.ellipse(0, 4, 17, 3, 0, 0, 7); c.fill();
+  const hg = c.createLinearGradient(0, -2, 0, 5); hg.addColorStop(0, '#3a2f2a'); hg.addColorStop(1, '#1a1512');
+  c.fillStyle = hg; c.beginPath(); c.moveTo(-16, -3); c.quadraticCurveTo(-13, 5, -4, 5); c.lineTo(10, 5); c.quadraticCurveTo(15, 3, 18, -4); c.closePath(); c.fill();
+  c.fillStyle = '#e8dcc6'; c.fillRect(-12, -7, 24, 4);
+  c.fillStyle = '#cdbfa5'; c.fillRect(-6, -11, 10, 4);
+  const fg = c.createLinearGradient(-9, 0, -3, 0); fg.addColorStop(0, '#4a4f5c'); fg.addColorStop(1, '#2a2d36');
+  c.fillStyle = fg; c.fillRect(-9, -17, 5, 10); c.fillStyle = '#c4473e'; c.fillRect(-9, -15, 5, 2);
+  c.strokeStyle = '#2a2018'; c.lineWidth = 1; c.beginPath(); c.moveTo(8, -7); c.lineTo(8, -20); c.stroke();
+  c.fillStyle = '#f2ead8'; c.beginPath(); c.moveTo(8, -20); c.quadraticCurveTo(14, -15, 8, -9); c.closePath(); c.fill();
+  c.restore();
+}
+function drawCart(c, x, y, s, time, moving) { // cart pulled by an ox, side view, about 34 px wide at s = 1
+  c.save(); c.translate(x, y); c.scale(s, s); c.lineJoin = 'round'; c.lineCap = 'round';
+  const bob = moving ? Math.sin(time * 9) * 0.8 : 0;
+  c.fillStyle = 'rgba(0,0,0,.28)'; c.beginPath(); c.ellipse(2, 5, 19, 3, 0, 0, 7); c.fill();
+  const og = c.createLinearGradient(0, -12, 0, 2); og.addColorStop(0, '#9b7a58'); og.addColorStop(1, '#6e5238');
+  c.fillStyle = og; c.beginPath(); c.ellipse(10, -5 + bob, 8, 5.5, 0, 0, 7); c.fill();
+  c.beginPath(); c.ellipse(18.5, -7 + bob, 3.6, 3, -0.3, 0, 7); c.fill();
+  c.strokeStyle = '#e8dcc6'; c.lineWidth = 1.4; c.beginPath(); c.moveTo(17, -10 + bob); c.quadraticCurveTo(15, -13, 17.5, -13); c.moveTo(20.5, -10 + bob); c.quadraticCurveTo(23, -13, 21, -14); c.stroke();
+  c.strokeStyle = '#4e3a28'; c.lineWidth = 2; for (const lx of [5, 8, 13, 16]) { const sw = moving ? Math.sin(time * 9 + lx) * 1.5 : 0; c.beginPath(); c.moveTo(lx, -2); c.lineTo(lx + sw, 4); c.stroke(); }
+  c.strokeStyle = '#6a5036'; c.lineWidth = 1.6; c.beginPath(); c.moveTo(2, -4); c.lineTo(9, -6); c.stroke();
+  const cg = c.createLinearGradient(0, -14, 0, -2); cg.addColorStop(0, '#c9a46b'); cg.addColorStop(1, '#8a6a3e');
+  c.fillStyle = cg; c.beginPath(); c.roundRect(-16, -13, 20, 9, 2); c.fill(); c.strokeStyle = '#4e3a28'; c.lineWidth = 1; c.stroke();
+  c.fillStyle = '#d8c9a4'; c.beginPath(); c.moveTo(-14, -13); c.quadraticCurveTo(-6, -22, 2, -13); c.closePath(); c.fill(); c.stroke();
+  c.strokeStyle = '#3e2e20'; c.lineWidth = 2; c.fillStyle = '#6e5238';
+  const ph = moving ? time * 6 : 0; for (const wx of [-10, 0]) { c.beginPath(); c.arc(wx, -2, 4.6, 0, 7); c.fill(); c.stroke(); c.beginPath(); for (let k = 0; k < 3; k++) { c.moveTo(wx + Math.cos(ph + k * 1.047) * 4.4, -2 + Math.sin(ph + k * 1.047) * 4.4); c.lineTo(wx - Math.cos(ph + k * 1.047) * 4.4, -2 - Math.sin(ph + k * 1.047) * 4.4); } c.stroke(); }
+  c.restore();
+}
+function drawSoldier(c, x, y, s, col, long, aim) { // standing soldier facing right; x,y = feet
+  c.save(); c.translate(x, y); c.scale(s, s); c.lineJoin = 'round'; c.lineCap = 'round';
+  c.fillStyle = 'rgba(0,0,0,.3)'; c.beginPath(); c.ellipse(0, 1, 16, 3.5, 0, 0, 7); c.fill();
+  c.fillStyle = '#2b3042'; c.fillRect(-7, -24, 5.5, 24); c.fillRect(1.5, -24, 5.5, 24);
+  c.fillStyle = '#17161c'; c.fillRect(-8.5, -4, 8, 4); c.fillRect(1, -4, 8, 4);
+  const bg = c.createLinearGradient(-9, -48, 9, -22); bg.addColorStop(0, col[0]); bg.addColorStop(1, col[1]);
+  c.fillStyle = bg; c.beginPath(); c.roundRect(-9.5, -48, 19, 26, 5); c.fill(); c.strokeStyle = 'rgba(0,0,0,.45)'; c.lineWidth = 1.2; c.stroke();
+  c.strokeStyle = '#e9e4d6'; c.lineWidth = 2; c.beginPath(); c.moveTo(-7, -46); c.lineTo(7, -26); c.moveTo(7, -46); c.lineTo(-7, -26); c.stroke();
+  c.fillStyle = '#b8a07a'; c.fillRect(-9.5, -31, 19, 3);
+  const fg = c.createRadialGradient(-1, -58, 1, 0, -56, 8); fg.addColorStop(0, '#f1cfae'); fg.addColorStop(1, '#c79672');
+  c.fillStyle = fg; c.beginPath(); c.arc(0, -56, 6.5, 0, 7); c.fill();
+  c.fillStyle = '#1d1a24'; c.beginPath(); c.roundRect(-6.5, -69, 13, 11, 2); c.fill(); c.fillRect(-7.5, -59, 15, 2.2);
+  c.fillStyle = '#d7b44a'; c.beginPath(); c.arc(0, -64, 2, 0, 7); c.fill();
+  c.fillStyle = '#17161c'; c.beginPath(); c.arc(3, -56, 1, 0, 7); c.fill();
+  // musket pointing right, slightly up
+  const L = long ? 40 : 34, ang = -0.1 + (aim || 0);
+  c.save(); c.translate(2, -40); c.rotate(ang);
+  c.fillStyle = '#7b5636'; c.beginPath(); c.roundRect(-6, -1.5, 14, 4, 1.5); c.fill();
+  const mg = c.createLinearGradient(0, -2, 0, 2); mg.addColorStop(0, '#9aa3b4'); mg.addColorStop(1, '#4b5262');
+  c.fillStyle = mg; c.fillRect(8, -1, L - 8, 2.2);
+  c.fillStyle = '#d9dde6'; c.fillRect(L - 2, -1.5, 2, 1);
+  c.restore();
+  c.fillStyle = bg; c.beginPath(); c.roundRect(2, -45, 11, 5, 2.5); c.fill();
+  c.restore();
+}
+function puff(c, x, y, u, r0 = 6) { // muzzle smoke at progress u in 0..1
+  if (u <= 0 || u >= 1) return; c.globalAlpha = (1 - u) * 0.55; c.fillStyle = '#dfe3ec'; c.beginPath(); c.arc(x + u * 14, y - u * 6, r0 + u * 10, 0, 7); c.fill(); c.globalAlpha = 1;
+}
+
+// --- View 1: supply -------------------------------------------------------------------------------------------------
+function drawSupply(c, w, h, time) {
+  const bottom = S.bars ? 0 : 152, M = mapFor(w, h, bottom), L = M.L;
+  if (S.bars && S.run1) return drawBars(c, w, h);
+  c.drawImage(M.img, 0, 0, w, h);
+  const sea = RT.sea, road = RT.road;
+  const dash = (R, col, wd) => { c.save(); c.setLineDash([2, 6]); c.lineCap = 'round'; c.lineWidth = wd; c.strokeStyle = col; c.beginPath(); R.pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.stroke(); c.restore(); };
+  dash(sea, 'rgba(95,208,192,.8)', 2.4); dash(road, 'rgba(224,176,80,.9)', 2.4);
+  // progress (solid) along each route once running
+  const cd = ROAD_KM / S.pace, sd = SEA_KM / SHIP_PACE;
+  const fs = S.run1 ? clamp(S.t1 / sd, 0, 1) : 0, fc = S.run1 ? clamp(S.t1 / cd, 0, 1) : 0;
+  const solid = (R, f, col) => { if (f <= 0) return; c.save(); c.lineWidth = 3.4; c.lineCap = 'round'; c.strokeStyle = col; c.beginPath(); const lim = f * R.len; let i = 0; R.pts.forEach(([x, y], k) => { if (R.cum[k] <= lim) { i = k; (k ? c.lineTo(x, y) : c.moveTo(x, y)); } }); const p = atFrac(R, f); c.lineTo(p[0], p[1]); c.stroke(); c.restore(); };
+  solid(sea, fs, '#5fd0c0'); solid(road, fc, '#e0b050');
+  // cities, no overlapping labels
+  const placed = [];
+  const lab_ = (key, side, gap = 8) => {
+    const [lo, la] = CITY[key], x = L.x(lo), y = L.y(la), name = T[lang].s.cities[key];
+    c.fillStyle = '#fff'; c.strokeStyle = '#0c1220'; c.lineWidth = 2; c.beginPath(); c.arc(x, y, 3.6, 0, 7); c.fill(); c.stroke();
+    c.font = FONT(12); const tw = c.measureText(name).width + 12, th = 18;
+    for (const sd_ of side) {
+      let rx = sd_ === 'r' ? x + gap : sd_ === 'l' ? x - gap - tw : x - tw / 2, ry = sd_ === 't' ? y - 9 - th : sd_ === 'b' ? y + 9 : y - th / 2;
+      rx = clamp(rx, 10, Math.max(10, w - 10 - tw)); ry = clamp(ry, 4, Math.max(4, h - 4 - th));
+      if (placed.some((p) => rx < p.x + p.w && rx + tw > p.x && ry < p.y + p.h && ry + th > p.y)) continue;
+      placed.push({ x: rx, y: ry, w: tw, h: th });
+      c.fillStyle = 'rgba(10,14,26,.8)'; c.beginPath(); c.roundRect(rx, ry, tw, th, 9); c.fill(); c.fillStyle = '#fff'; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(name, rx + 6, ry + th / 2 + 0.5); return;
+    }
+  };
+  lab_('lon', ['b', 'l', 'r']); lab_('mos', ['l', 't'], 24); lab_('sev', ['b', 'r', 'l']); lab_('gib', ['b', 'r']); lab_('mal', ['b', 'l']); lab_('con', ['b', 'l']);
+  // empire names (soft italic) and the "approximate" note
+  c.font = `italic 700 12px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+  const emp = (txt, lo, la, col) => { const tw = c.measureText(txt).width; c.fillStyle = col; c.fillText(txt, clamp(L.x(lo), L.ox + 10 + tw / 2, L.ox + L.mw - 10 - tw / 2), L.y(la)); };
+  emp(T[lang].s.emp[0], 40.5, 57.0, 'rgba(225,170,220,.92)'); emp(T[lang].s.emp[1], 37.5, 37.6, 'rgba(245,175,140,.94)');
+  c.font = FONT(12, 700); c.fillStyle = 'rgba(190,200,225,.8)'; c.textAlign = 'left'; c.fillText(T[lang].s.approx, L.ox + 10, L.oy + 16);
+  // tokens
+  const ps = atFrac(sea, fs), pc = atFrac(road, fc), sc = clamp(L.mw / 330, 0.85, 1.25);
+  drawCart(c, pc[0], pc[1] - 3, sc * 0.8, time, S.run1 === 1 && fc < 1);
+  drawShip(c, ps[0], ps[1] - 4, sc * 0.8, time, S.run1 === 1 && fs < 1);
+  if (S.run1) {
+    const dd = (R, f, days, col, dx) => { const p = atFrac(R, f); pill(c, T[lang].s.days(Math.round(days)), p[0] + dx, p[1] - 22, { size: 12, bg: 'rgba(10,14,26,.88)', stroke: col }); };
+    dd(sea, fs, Math.min(S.t1, sd), '#5fd0c0', -26); dd(road, fc, Math.min(S.t1, cd), '#e0b050', 26);
+  }
+  // strip under the map
+  const sy = L.oy + L.mh + 10;
+  if (!S.run1) {
+    drawShip(c, 34, sy + 22, 0.9, time, false); pill(c, T[lang].s.ship, 60, sy + 18, { align: 'left', size: 12.5 });
+    drawCart(c, 34, sy + 60, 0.9, time, false); pill(c, T[lang].s.cart, 60, sy + 56, { align: 'left', size: 12.5 });
+  } else {
+    const mx = Math.max(sd, cd);
+    drawBar(c, 12, sy + 2, w - 24, 26, S.t1, sd, sd, mx, '#5fd0c0', true, time);
+    drawBar(c, 12, sy + 34, w - 24, 26, S.t1, cd, cd, mx, '#e0b050', false, time);
+    if (S.run1 === 2) drawRail(c, 12, sy + 68, w - 24);
+  }
+}
+function drawBar(c, x, y, w, h, t, dur, days, maxD, col, isShip, time) {
+  const bw = w - 168, fill = clamp(t / maxD, 0, 1), end = clamp(dur / maxD, 0, 1);
+  c.fillStyle = 'rgba(130,145,190,.14)'; c.beginPath(); c.roundRect(x + 36, y + 3, bw, h - 6, 8); c.fill();
+  const len = Math.min(fill, end) * bw;
+  if (len > 1) { const g = c.createLinearGradient(x + 36, 0, x + 36 + bw, 0); g.addColorStop(0, col + '88'); g.addColorStop(1, col); c.fillStyle = g; c.beginPath(); c.roundRect(x + 36, y + 3, Math.max(2, len), h - 6, 8); c.fill(); }
+  if (isShip) drawShip(c, x + 16, y + h - 6, 0.7, time, false); else drawCart(c, x + 16, y + h - 6, 0.7, time, false);
+  if (t >= dur) pill(c, T[lang].s.daysEnd(Math.round(days)), x + 36 + bw + 6, y + h / 2, { align: 'left', size: 12 });
+}
+function drawRail(c, x, y, w) {
+  const t = T[lang].s, st = t.railSteps, colW = w / 3;
+  c.font = FONT(12, 800); c.fillStyle = '#9aa6c4'; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(t.rail.toUpperCase(), x, y + 5);
+  c.strokeStyle = 'rgba(190,205,255,.35)'; c.lineWidth = 2; c.beginPath(); c.moveTo(x + 6, y + 22); c.lineTo(x + w - 6, y + 22); c.stroke();
+  st.forEach((s, i) => {
+    const cx = x + colW * i + 6; c.fillStyle = '#e0b050'; c.strokeStyle = '#0c1220'; c.lineWidth = 2; c.beginPath(); c.arc(cx, y + 22, 5, 0, 7); c.fill(); c.stroke();
+    c.font = FONT(12, 900); c.fillStyle = '#fff'; c.textAlign = 'left'; c.fillText(s[0], cx - 2, y + 38);
+    c.font = FONT(12, 700); c.fillStyle = '#c3cbe0'; const ls = wrapText(c, s[1], colW - 10); ls.slice(0, 2).forEach((ln, k) => c.fillText(ln, cx - 2, y + 52 + k * 13));
+  });
+}
+function drawBars(c, w, h, time) {
+  const t = T[lang].s, sd = SEA_KM / SHIP_PACE, cd = ROAD_KM / S.pace, mud = cd * 2, maxD = Math.max(sd, mud, 30) * 1.04;
+  const x0 = 16, x1 = w - 16, bw = x1 - x0, top = 28;
+  c.fillStyle = 'rgba(12,16,32,.55)'; c.beginPath(); c.roundRect(6, 6, w - 12, h - 12, 14); c.fill();
+  c.strokeStyle = 'rgba(190,205,255,.14)'; c.fillStyle = '#8c97b4'; c.font = FONT(12, 700); c.textAlign = 'center'; c.textBaseline = 'middle';
+  const step = maxD > 160 ? 40 : 20;
+  for (let d = 0; d <= maxD; d += step) { const X = x0 + (d / maxD) * bw; c.beginPath(); c.moveTo(X, top + 10); c.lineTo(X, h - 40); c.stroke(); c.fillText(String(d), X, top); }
+  c.textAlign = 'left'; c.fillText(t.axis, x0, h - 22);
+  const rows = [[t.ship, sd, '#5fd0c0', true], [t.cart, cd, '#e0b050', false]], rh = Math.min(78, (h - top - 70) / 2);
+  rows.forEach(([name, days, col, ship], i) => {
+    const y = top + 24 + i * (rh + 12), len = Math.min(clamp(S.t1, 0, days), days) / maxD * bw;
+    c.font = FONT(13, 800); c.fillStyle = '#fff'; c.textAlign = 'left'; c.fillText(name, x0, y - 6);
+    c.fillStyle = 'rgba(130,145,190,.14)'; c.beginPath(); c.roundRect(x0, y + 4, bw, rh - 20, 9); c.fill();
+    const g = c.createLinearGradient(x0, 0, x0 + bw, 0); g.addColorStop(0, col + '88'); g.addColorStop(1, col); c.fillStyle = g; c.beginPath(); c.roundRect(x0, y + 4, Math.max(2, len), rh - 20, 9); c.fill();
+    if (S.t1 >= days) pill(c, t.daysEnd(Math.round(days)), Math.min(x0 + len - 8, x1 - 4), y + rh / 2 - 6, { align: 'right', size: 13 });
+    if (!ship && S.t1 >= days) { const X = x0 + (mud / maxD) * bw; c.save(); c.setLineDash([4, 4]); c.strokeStyle = '#ff9d6e'; c.lineWidth = 2; c.beginPath(); c.moveTo(X, y + 4); c.lineTo(X, y + rh - 16); c.stroke(); c.restore(); c.font = FONT(12, 700); c.fillStyle = '#ffb590'; c.textAlign = 'right'; c.fillText(t.ghost, X - 4, y + rh + 4); }
+  });
+  c.font = FONT(12, 700); c.fillStyle = '#8c97b4'; c.textAlign = 'right'; c.fillText(t.pill, x1, h - 22);
+}
+
+// --- View 2: range (rifles, ships) -----------------------------------------------------------------------------------
+function drawRange(c, w, h, time) { if (S.sub === 'rifle') drawRifles(c, w, h, time); else drawShips(c, w, h, time); }
+function drawRifles(c, w, h, time) {
+  const t = T[lang].r, laneH = (h - 12) / 2, x0 = 70, x1 = w - 34, kinds = ['s', 'r'], cols = [['#7d8f76', '#566650'], ['#6b87b6', '#455f8c']];
+  const bx = (d) => x0 + (d / 500) * (x1 - x0), D = S.run2 ? S.dist : 300, sc = clamp(laneH / 150, 0.6, 1.1);
+  kinds.forEach((k, li) => {
+    const y = 6 + li * (laneH + 0), gy = y + laneH - 34;
+    const sky = c.createLinearGradient(0, y, 0, gy); sky.addColorStop(0, li ? '#24324f' : '#2a3350'); sky.addColorStop(1, '#4a5b7a');
+    c.fillStyle = sky; c.beginPath(); c.roundRect(6, y, w - 12, laneH - 6, 12); c.fill();
+    const gr = c.createLinearGradient(0, gy, 0, y + laneH - 6); gr.addColorStop(0, '#4d6a45'); gr.addColorStop(1, '#2f4530');
+    c.save(); c.beginPath(); c.roundRect(6, y, w - 12, laneH - 6, 12); c.clip(); c.fillStyle = gr; c.fillRect(6, gy, w - 12, laneH);
+    c.fillStyle = 'rgba(255,255,255,.07)'; c.beginPath(); c.ellipse(w * 0.55, gy - 2, w * 0.5, 7, 0, Math.PI, 0); c.fill(); c.restore();
+    // ruler ticks
+    c.font = FONT(12, 800); c.textAlign = 'center'; c.textBaseline = 'middle'; c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 1.5;
+    [200, 300, 500].forEach((d) => { const X = bx(d); c.beginPath(); c.moveTo(X, gy + 3); c.lineTo(X, gy + 11); c.stroke(); c.fillStyle = d === D ? '#fff' : 'rgba(255,255,255,.6)'; c.fillText(d === 500 ? `${d} ${t.ydS}` : String(d), X, gy + 21); });
+    c.beginPath(); c.moveTo(x0, gy + 3); c.lineTo(x0, gy + 11); c.stroke();
+    // soldier
+    const fire = S.run2 ? S.t2 : -1;
+    drawSoldier(c, 40, gy + 2, sc, cols[li], k === 'r', 0);
+    // target board
+    const X = bx(D), bh = 62 * sc;
+    c.fillStyle = 'rgba(0,0,0,.3)'; c.beginPath(); c.ellipse(X, gy + 2, 10, 3, 0, 0, 7); c.fill();
+    c.fillStyle = '#6a5036'; c.fillRect(X - 1.5, gy - 8, 3, 10);
+    const bg = c.createLinearGradient(X - 8, 0, X + 8, 0); bg.addColorStop(0, '#e9dfc8'); bg.addColorStop(1, '#c9bc9e');
+    c.fillStyle = bg; c.beginPath(); c.roundRect(X - 8, gy - 8 - bh, 16, bh, 3); c.fill(); c.strokeStyle = '#5a4630'; c.lineWidth = 1.2; c.stroke();
+    c.strokeStyle = '#c4473e'; c.lineWidth = 1.5; c.beginPath(); c.arc(X, gy - 8 - bh / 2, 4.5, 0, 7); c.stroke();
+    const n = nHits(k, D), figure = n !== null;
+    // volley
+    if (S.run2 && figure) {
+      for (let s = 0; s < SHOTS; s++) {
+        const t0 = s * 0.075, u = (S.t2 - t0) / 0.5, hit = ((s * 7) % SHOTS) < n;
+        puff(c, 40 + 38 * sc, gy - 40 * sc, (S.t2 - t0) / 0.9, 4);
+        if (u > 0 && u < 1) { const bxp = lerp(40 + 36 * sc, hit ? X - 8 : X + 30, ease(Math.min(1, u))), byp = lerp(gy - 40 * sc, hit ? gy - 8 - bh * (0.15 + 0.7 * (((s * 13) % 17) / 17)) : gy - 8 - bh * (1.1 + ((s * 5) % 7) / 20), u) - Math.sin(u * Math.PI) * 6; c.fillStyle = '#ffe9a8'; c.beginPath(); c.arc(bxp, byp, 2, 0, 7); c.fill(); }
+        if (hit && u >= 1) { const fy = gy - 8 - bh * (0.12 + 0.76 * (((s * 13) % 17) / 17)), fx = X - 4 + (((s * 11) % 9) - 4) * 0.7; c.fillStyle = '#2b2118'; c.beginPath(); c.arc(fx, fy, 1.7, 0, 7); c.fill(); }
+      }
+    }
+    // labels
+    pill(c, k === 's' ? t.smooth : t.rifle, 12, y + 18, { align: 'left', size: 12.5 });
+    if (S.run2) {
+      const done = S.t2 > SHOTS * 0.075 + 0.55;
+      if (!figure) pill(c, t.none, w / 2, y + laneH * 0.4, { size: 12.5, bg: 'rgba(60,40,30,.85)' });
+      else if (done) pill(c, `${t.hits(n)} · ${t.pct(rangeTxt(HIT[k][D]))}`, 12, y + 44, { align: 'left', size: 12.5, bg: 'rgba(14,50,38,.88)', stroke: 'rgba(61,220,151,.7)' });
+    }
+  });
+}
+function panelSea(c, x, y, w, h) {
+  const g = c.createLinearGradient(x, y, x, y + h); g.addColorStop(0, '#1d3a5a'); g.addColorStop(1, '#0e1d33');
+  c.fillStyle = g; c.beginPath(); c.roundRect(x, y, w, h, 12); c.fill();
+}
+function drawShips(c, w, h, time) {
+  const t = T[lang].r, gap = 8, pw = (w - 12 - gap) / 2, ph = h - 12, y = 6, phi = S.run2s ? S.wind : 0, rad = Math.PI / 180;
+  const plan = sailPlan(phi), Tmax = Math.max(1, plan.T), tau = S.run2s ? S.t2s : 0;
+  [0, 1].forEach((i) => {
+    const x = 6 + i * (pw + gap); panelSea(c, x, y, pw, ph);
+    c.save(); c.beginPath(); c.roundRect(x, y, pw, ph, 12); c.clip();
+    // wind streaks drifting with the wind
+    const sx = Math.sin(phi * rad), sy = -Math.cos(phi * rad); c.strokeStyle = 'rgba(210,225,255,.16)'; c.lineWidth = 1.6; c.lineCap = 'round';
+    for (let k = 0; k < 10; k++) { const u = ((time * 0.15 + k * 0.137) % 1), px = x + ((k * 53) % 100) / 100 * pw - sx * (u - 0.5) * 90, py = y + ((k * 37) % 100) / 100 * ph + (-sy) * 0 - sy * (u - 0.5) * 90; c.beginPath(); c.moveTo(px, py); c.lineTo(px - sx * 14, py - sy * 14); c.stroke(); }
+    // harbour: two headlands at the top, a small fort
+    const hx = x + pw / 2, top = y;
+    const lg = c.createLinearGradient(0, top, 0, top + 70); lg.addColorStop(0, '#5a6a54'); lg.addColorStop(1, '#3b4a3a');
+    c.fillStyle = lg; c.beginPath(); c.moveTo(x, top); c.lineTo(hx - 22, top); c.quadraticCurveTo(hx - 24, top + 34, hx - 46, top + 46); c.quadraticCurveTo(x + 20, top + 60, x, top + 58); c.closePath(); c.fill();
+    c.beginPath(); c.moveTo(x + pw, top); c.lineTo(hx + 22, top); c.quadraticCurveTo(hx + 24, top + 34, hx + 46, top + 46); c.quadraticCurveTo(x + pw - 20, top + 60, x + pw, top + 58); c.closePath(); c.fill();
+    c.fillStyle = '#9a8f78'; c.fillRect(hx + 26, top + 8, 18, 12); c.fillStyle = '#6e6652'; c.fillRect(hx + 26, top + 8, 18, 3); for (let k = 0; k < 3; k++) c.fillRect(hx + 27 + k * 6, top + 5, 3, 3);
+    c.restore();
+    const y0 = y + ph - 26, y1 = y + 70, hsc = y0 - y1;
+    c.strokeStyle = 'rgba(255,255,255,.18)'; c.setLineDash([3, 5]); c.beginPath(); c.moveTo(hx, y0); c.lineTo(hx, y1); c.stroke(); c.setLineDash([]);
+    // ship
+    let px, py, hd = 0;
+    if (i === 0) { px = hx; py = y0 - hsc * clamp(tau, 0, 1); }
+    else { const s = sailAt(plan, tau); px = hx + s.x * pw * 0.9; py = y0 - hsc * s.y; hd = s.hd; if (S.run2s && plan.T > 1.05) { c.strokeStyle = 'rgba(255,255,255,.28)'; c.lineWidth = 1.5; c.beginPath(); plan.verts.forEach((v, k) => { const X = hx + v.x * pw * 0.9, Y = y0 - hsc * v.y; k ? c.lineTo(X, Y) : c.moveTo(X, Y); }); c.stroke(); } }
+    // wake and hull (top view)
+    c.save(); c.translate(px, py); c.rotate(hd);
+    c.fillStyle = 'rgba(255,255,255,.22)'; c.beginPath(); c.moveTo(-3, 6); c.lineTo(0, 26); c.lineTo(3, 6); c.closePath(); c.fill();
+    const hg = c.createLinearGradient(-7, 0, 7, 0); hg.addColorStop(0, '#5a4636'); hg.addColorStop(1, '#2d2218');
+    c.fillStyle = hg; c.beginPath(); c.moveTo(0, -17); c.quadraticCurveTo(9, -4, 6, 12); c.lineTo(-6, 12); c.quadraticCurveTo(-9, -4, 0, -17); c.closePath(); c.fill(); c.strokeStyle = '#17110b'; c.lineWidth = 1; c.stroke();
+    if (i === 0) { c.fillStyle = '#3a3f4c'; c.beginPath(); c.arc(0, -1, 3.6, 0, 7); c.fill(); c.fillStyle = '#c4473e'; c.beginPath(); c.arc(0, -1, 1.6, 0, 7); c.fill(); }
+    else { // sails: trimmed to the wind, drawn as curved white strips across the hull
+      const rel = (phi * rad - hd), tr = clamp(Math.sin(rel) * 0.6, -0.9, 0.9);
+      for (const [sy_, wd] of [[-8, 11], [1, 12]]) { c.save(); c.translate(0, sy_); c.rotate(tr); const sg = c.createLinearGradient(-wd, 0, wd, 0); sg.addColorStop(0, '#f6f0e0'); sg.addColorStop(1, '#cbbfa6'); c.fillStyle = sg; c.strokeStyle = 'rgba(60,50,40,.6)'; c.lineWidth = 1; c.beginPath(); c.moveTo(-wd, 0); c.quadraticCurveTo(0, -4, wd, 0); c.quadraticCurveTo(0, 3, -wd, 0); c.fill(); c.stroke(); c.restore(); }
+    }
+    c.restore();
+    if (i === 0 && S.run2s) for (let k = 0; k < 4; k++) { const u = ((time * 0.8 + k / 4) % 1); c.globalAlpha = (1 - u) * 0.45; c.fillStyle = '#d6dbe8'; c.beginPath(); c.arc(px - Math.sin(hd) * 0 + 2 * Math.sin(k + time), py + 8 + u * 22, 2.5 + u * 5, 0, 7); c.fill(); c.globalAlpha = 1; }
+    pill(c, i === 0 ? t.steam : t.sail, x + 10, y + ph - 12, { align: 'left', size: 12.5 });
+    pill(c, t.harbour, x + pw - 10, y + ph - 12, { align: 'right', size: 12, bg: 'rgba(10,14,26,.6)', fg: '#9ab' });
+    // wind arrow badge
+    c.save(); c.translate(x + 22, y + 82); c.rotate(phi * rad); c.strokeStyle = '#cfe0ff'; c.fillStyle = '#cfe0ff'; c.lineWidth = 2; c.beginPath(); c.moveTo(0, -12); c.lineTo(0, 12); c.stroke(); c.beginPath(); c.moveTo(0, 15); c.lineTo(-5, 7); c.lineTo(5, 7); c.closePath(); c.fill(); c.restore();
+  });
+}
+
+// --- View 3: reign ribbon ----------------------------------------------------------------------------------------------
+function drawReign(c, w, h, time) {
+  const t = T[lang].g, x0 = 22, x1 = w - 22, ry = h - 92, X = (yr) => x0 + ((yr - Y0) / (Y1 - Y0)) * (x1 - x0);
+  c.fillStyle = 'rgba(12,16,32,.5)'; c.beginPath(); c.roundRect(6, 6, w - 12, h - 12, 14); c.fill();
+  // the war band and the ribbon
+  const wg = c.createLinearGradient(0, ry - 26, 0, ry + 26); wg.addColorStop(0, 'rgba(224,100,80,.05)'); wg.addColorStop(1, 'rgba(224,100,80,.35)');
+  c.fillStyle = wg; c.fillRect(X(1853), ry - 26, X(1856) - X(1853), 52);
+  c.strokeStyle = '#e0705c'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(X(1853), ry - 26); c.lineTo(X(1853), ry + 26); c.moveTo(X(1856), ry - 26); c.lineTo(X(1856), ry + 26); c.stroke();
+  pill(c, t.war + ' 1853–56', X(1854.5), ry - 40, { size: 12, bg: 'rgba(80,28,24,.9)', stroke: '#e0705c' });
+  const rg = c.createLinearGradient(x0, 0, x1, 0); rg.addColorStop(0, '#6f80a8'); rg.addColorStop(1, '#a9b9e0'); c.fillStyle = rg; c.beginPath(); c.roundRect(x0, ry - 3, x1 - x0, 6, 3); c.fill();
+  c.strokeStyle = 'rgba(190,205,255,.35)'; c.lineWidth = 1; for (let yr = 1830; yr <= 1870; yr += 10) { c.beginPath(); c.moveTo(X(yr), ry + 4); c.lineTo(X(yr), ry + 9); c.stroke(); }
+  // placed dots with stems on three tiers
+  HITS_BOX = [];
+  const tiers = [20, 42, 64];
+  S.placed.forEach((p, k) => {
+    const cd = CARDS[p.i], fx = X(cd.y), tier = tiers[p.i % 3], fly = p.fly === undefined ? 1 : p.fly, e = ease(clamp(fly, 0, 1));
+    const cy = lerp(ry - 160, ry, e), cx = lerp(w / 2, fx, e), sel = S.sel === p.i;
+    c.strokeStyle = 'rgba(190,205,255,.3)'; c.lineWidth = 1; if (e >= 1) { c.beginPath(); c.moveTo(fx, ry); c.lineTo(fx, ry + tier - 9); c.stroke(); }
+    c.fillStyle = p.ok ? '#3ddc97' : '#f0a34a'; c.strokeStyle = sel ? '#fff' : '#0c1220'; c.lineWidth = sel ? 3 : 2; c.beginPath(); c.arc(cx, cy, sel ? 8 : 6.5, 0, 7); c.fill(); c.stroke();
+    if (e >= 1) { pill(c, cd.lab, fx, ry + tier, { size: 12, bg: sel ? 'rgba(40,60,110,.95)' : 'rgba(10,14,26,.82)' }); HITS_BOX.push({ i: p.i, x: fx, y: ry }); }
+  });
+  // the card in hand
+  if (S.deck < ORDER.length && !S.sec) {
+    const idx = ORDER[S.deck], cd = T[lang].g.cards[idx], cw_ = Math.min(w - 40, 330), ch_ = ry - 70, cx = (w - cw_) / 2, cy = 18;
+    const lift = Math.sin(time * 1.6) * 1.5;
+    c.save(); c.shadowColor = 'rgba(0,0,0,.45)'; c.shadowBlur = 14; c.shadowOffsetY = 4;
+    const g = c.createLinearGradient(cx, cy, cx, cy + ch_); g.addColorStop(0, '#f2ead6'); g.addColorStop(1, '#d9ccae'); c.fillStyle = g; c.beginPath(); c.roundRect(cx, cy + lift, cw_, ch_, 14); c.fill(); c.restore();
+    c.strokeStyle = 'rgba(120,90,50,.5)'; c.lineWidth = 1.5; c.beginPath(); c.roundRect(cx + 6, cy + 6 + lift, cw_ - 12, ch_ - 12, 10); c.stroke();
+    c.fillStyle = '#3a2d1e'; c.textAlign = 'center'; c.textBaseline = 'alphabetic'; c.font = `500 ${w < 420 ? 20 : 24}px EB Garamond, Georgia, serif`;
+    const tl = wrapText(c, cd.t, cw_ - 40); let yy = cy + 40 + lift; tl.forEach((ln) => { c.fillText(ln, w / 2, yy); yy += 26; });
+    c.font = FONT(w < 420 ? 13.5 : 15, 700); c.fillStyle = '#4a3a28'; yy += 6; wrapText(c, cd.l, cw_ - 44).forEach((ln) => { c.fillText(ln, w / 2, yy); yy += 20; });
+    c.font = FONT(12, 800); c.fillStyle = '#8a7656'; c.fillText(`${S.deck + 1} / ${ORDER.length}`, w / 2, cy + ch_ - 14 + lift);
+  }
+}
+$('cv').addEventListener('pointerdown', (ev) => {
+  if (lab.view !== 'reign' || S.sec) return;
+  const r = $('cv').getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+  const hit = HITS_BOX.filter((b) => Math.abs(b.x - x) < 20 && Math.abs(y - b.y) < 84).sort((a, b) => Math.abs(a.x - x) - Math.abs(b.x - x))[0];
+  if (hit) { S.sel = hit.i; sfx.tick(); render(); }
+});
+
+// --- secrets -----------------------------------------------------------------------------------------------------------
+function drawWire(c, w, h, time) {
+  const t = T[lang].wi, M = mapFor(w, h, 70), L = M.L; c.drawImage(M.img, 0, 0, w, h);
+  const R = RT.wire; c.save(); c.setLineDash([2, 6]); c.lineCap = 'round'; c.lineWidth = 2.4; c.strokeStyle = 'rgba(255,230,140,.85)'; c.beginPath(); R.pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.stroke(); c.restore();
+  const f = S.wi.mode === null ? 0 : clamp(S.wi.t, 0, 1), p = atFrac(R, f);
+  for (const [lo, la, nm] of [[33.6, 44.5, t.ft], [-0.12, 51.5, t.lt]]) { const x = L.x(lo), y = L.y(la); c.fillStyle = '#fff'; c.strokeStyle = '#0c1220'; c.lineWidth = 2; c.beginPath(); c.arc(x, y, 3.8, 0, 7); c.fill(); c.stroke(); pill(c, nm, x, y + (la > 50 ? -16 : 18), { size: 12 }); }
+  if (S.wi.mode !== null) { c.save(); c.translate(p[0], p[1] - 9); c.fillStyle = '#fff6d8'; c.strokeStyle = '#6a5636'; c.lineWidth = 1.2; c.beginPath(); c.roundRect(-8, -5.5, 16, 11, 2); c.fill(); c.stroke(); c.beginPath(); c.moveTo(-8, -5.5); c.lineTo(0, 1); c.lineTo(8, -5.5); c.stroke(); c.restore(); }
+  const sy = L.oy + L.mh + 14, bwid = w - 40; c.fillStyle = 'rgba(130,145,190,.14)'; c.beginPath(); c.roundRect(20, sy + 4, bwid, 18, 9); c.fill();
+  const done = S.wi.mode !== null && S.wi.t >= 1;
+  if (S.wi.mode !== null) { const g = c.createLinearGradient(20, 0, 20 + bwid, 0); g.addColorStop(0, '#e0b05088'); g.addColorStop(1, '#ffe08a'); c.fillStyle = g; c.beginPath(); c.roundRect(20, sy + 4, Math.max(4, bwid * f), 18, 9); c.fill(); }
+  pill(c, done ? t.t[S.wi.mode] : t.idle, w / 2, sy + 40, { size: 13.5, bg: done ? 'rgba(14,50,38,.88)' : 'rgba(10,14,26,.82)' });
+}
+function drawNurse(c, w, h, time) {
+  const t = T[lang].nu, rowH = (h - 20) / 4;
+  c.fillStyle = 'rgba(12,16,32,.5)'; c.beginPath(); c.roundRect(6, 6, w - 12, h - 12, 14); c.fill();
+  for (let i = 0; i < 4; i++) {
+    const y = 14 + i * rowH, done = S.nu.done[i], pw_ = Math.min(w * 0.42, 170);
+    const g = c.createLinearGradient(0, y, 0, y + rowH - 10); g.addColorStop(0, done ? '#2c5a47' : '#4a3a3a'); g.addColorStop(1, done ? '#1c3b2e' : '#2f2525');
+    c.fillStyle = g; c.beginPath(); c.roundRect(14, y, w - 28, rowH - 10, 12); c.fill();
+    c.font = FONT(13, 800); c.fillStyle = '#fff'; c.textAlign = 'left'; c.textBaseline = 'middle';
+    const pl = wrapText(c, t.probs[i], pw_ - 8); pl.slice(0, 3).forEach((ln, k) => c.fillText(ln, 24, y + (rowH - 10) / 2 + (k - (pl.length - 1) / 2) * 16));
+    c.strokeStyle = done ? '#3ddc97' : 'rgba(255,255,255,.25)'; c.lineWidth = 2; c.setLineDash(done ? [] : [3, 5]); c.beginPath(); c.moveTo(24 + pw_, y + (rowH - 10) / 2); c.quadraticCurveTo(w / 2, y + (rowH - 10) / 2 - 10, w - 24 - pw_ + 8, y + (rowH - 10) / 2); c.stroke(); c.setLineDash([]);
+    if (done) { c.fillStyle = '#d9f7e8'; c.textAlign = 'right'; const fl = wrapText(c, t.fixes[i], pw_ - 8); fl.slice(0, 3).forEach((ln, k) => c.fillText(ln, w - 26, y + (rowH - 10) / 2 + (k - (fl.length - 1) / 2) * 16)); }
+    else { c.fillStyle = 'rgba(255,255,255,.35)'; c.textAlign = 'right'; c.fillText('?', w - 30, y + (rowH - 10) / 2); }
+    if (S.nu.sel === i) { c.strokeStyle = '#fff'; c.lineWidth = 2.5; c.beginPath(); c.roundRect(14, y, w - 28, rowH - 10, 12); c.stroke(); }
+  }
+}
+
+// --- the loop ------------------------------------------------------------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  CW = w; CH = h; const v = lab.view;
+  // advance the clocks
+  if (S.run1 === 1) { const sd = SEA_KM / SHIP_PACE, cd = ROAD_KM / S.pace, mx = Math.max(sd, cd); S.t1 += dt * (mx / 6); if (S.t1 >= mx) { S.t1 = mx; S.run1 = 2; render(); } }
+  else if (S.run1 === 2) S.t1 = Math.max(SEA_KM / SHIP_PACE, ROAD_KM / S.pace);
+  if (S.run2 === 1) { S.t2 += dt; if (S.t2 > SHOTS * 0.075 + 0.6) { S.run2 = 2; render(); } }
+  if (S.run2s === 1) { const plan = sailPlan(S.wind), mx = Math.max(1, plan.T); S.t2s += dt * (mx / 6); if (S.t2s >= mx) { S.t2s = mx; S.run2s = 2; render(); } }
+  else if (S.run2s === 2) S.t2s = Math.max(1, sailPlan(S.wind).T);
+  if (S.wi.mode !== null && S.wi.t < 1) { S.wi.t = Math.min(1, S.wi.t + dt / (S.wi.mode === 0 ? 4.8 : 0.9)); if (S.wi.t >= 1) render(); }
+  for (const p of S.placed) if (p.fly !== undefined && p.fly < 1) p.fly = Math.min(1, p.fly + dt / 0.6);
+  if (S.sec === 'wire') drawWire(c, w, h, time);
+  else if (S.sec === 'nurse') drawNurse(c, w, h, time);
+  else if (v === 'supply') drawSupply(c, w, h, time);
+  else if (v === 'range') drawRange(c, w, h, time);
+  else drawReign(c, w, h, time);
+});
+
+// --- controls --------------------------------------------------------------------------------------------------------------
+const showStage = () => { const r = $('stage').getBoundingClientRect(); if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const a = b.dataset.act, k = +b.dataset.k;
+  if (a === 'g1') { if (S.g1 !== null) return; S.g1 = k; S.ok1 = k === 1; S.run1 = 1; S.t1 = 0; S.bars = false; (S.ok1 ? sfx.good : sfx.bad)(); showStage(); }
+  else if (a === 'bars') { S.bars = !S.bars; sfx.click(); }
+  else if (a === 'sub') { S.sub = b.dataset.s; sfx.click(); }
+  else if (a === 'g2') { if (S.g2 !== null) return; S.g2 = k; S.ok2 = k === 1; S.run2 = 1; S.t2 = 0; (S.ok2 ? sfx.good : sfx.bad)(); showStage(); }
+  else if (a === 'dist') { S.dist = k; S.run2 = 1; S.t2 = 0; sfx.click(); }
+  else if (a === 'g2s') { if (S.g2s !== null) return; S.g2s = k; S.ok2s = k === 0; S.run2s = 1; S.t2s = 0; S.wind = 0; (S.ok2s ? sfx.good : sfx.bad)(); showStage(); }
+  else if (a === 'place') placeCard(k === 1);
+  else if (a === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    const id = b.dataset.id; S.sec = S.sec === id ? null : id; if (S.sec === 'wire') S.wi = { mode: null, t: 0 }; sfx.click();
+  } else if (a === 'nup') { if (!S.nu.done[k]) { S.nu.sel = k; S.nu.bad = -1; sfx.tick(); } }
+  else if (a === 'nuf') {
+    if (S.nu.sel === null) return;
+    if (k === S.nu.sel) { S.nu.done[k] = true; S.nu.sel = null; S.nu.last = k; sfx.good(); S.nu.bad = -1; } else { S.nu.bad = k; sfx.bad(); }
+  } else if (a === 'wi') { S.wi = { mode: k, t: 0 }; sfx.click(); }
+  render();
+});
+$('svPace').addEventListener('input', (ev) => { S.pace = +ev.target.value; render(); });
+$('shWind').addEventListener('input', (ev) => { S.wind = +ev.target.value; if (S.run2s !== 1) S.run2s = 2; render(); });
+function placeCard(after) {
+  if (S.deck >= ORDER.length) return;
+  const i = ORDER[S.deck], ok = CARDS[i].a === after; S.placed.push({ i, ok, fly: 0 }); S.sel = i; S.deck++; (ok ? sfx.good : sfx.bad)();
+}
+
+// --- one render per change: controls, readout, state card, facts -----------------------------------------------------------
+const secChip = (id, emo) => `<button class="sr-chip secret" data-act="sec" data-id="${id}">${secret.unlocked() ? `${emo} ${esc(T[lang].secrets[id][0])}` : '🔒 ???'}</button>`;
+function render() {
+  const t = T[lang], v = lab.view, sec = S.sec;
+  document.body.dataset.v = sec ? `${v}-sec` : v === 'range' ? `range-${S.sub}` : v;
+  $('secSupply').hidden = !!sec || v !== 'supply'; $('secRange').hidden = !!sec || v !== 'range'; $('secReign').hidden = !!sec || v !== 'reign';
+  $('secNurse').hidden = sec !== 'nurse'; $('secWire').hidden = sec !== 'wire';
+  $('secRow').innerHTML = secChip('nurse', '🩺') + secChip('wire', '📡');
+  document.querySelectorAll('#secRow .sr-chip').forEach((el) => el.classList.toggle('on', el.dataset.id === sec));
+  if (sec === 'nurse') return renderNurse(t);
+  if (sec === 'wire') return renderWire(t);
+  if (v === 'supply') renderSupply(t); else if (v === 'range') renderRange(t); else renderReign(t);
+}
+function renderSupply(t) {
+  const s = t.s, sd = Math.round(SEA_KM / SHIP_PACE), cd = cartDays();
+  lab.setGlow('rgba(95, 208, 192, .24)');
+  $('svQ').textContent = s.q;
+  $('svPick').innerHTML = s.pick.map((p, i) => `<button class="sr-chip ${S.g1 === i ? (S.ok1 ? 'good' : 'bad') : ''}" data-act="g1" data-k="${i}" ${S.g1 !== null ? 'disabled' : ''}>${esc(p)}</button>`).join('');
+  $('svPost').hidden = !S.run1;
+  if (!S.run1) {
+    lab.setReadout('?', '', '', '#e0b050'); lab.setFacts([]);
+    lab.setState({ emo: '🧭', title: s.q, lead: s.pre, body: '', extra: '' });
+    return;
+  }
+  $('svPaceL').textContent = s.pace; $('svPaceV').textContent = `${S.pace} km`;
+  if (+$('svPace').value !== S.pace) $('svPace').value = S.pace;
+  const be = breakEven(), win = cd <= sd;
+  $('svBrk').textContent = win ? s.brkWin : s.brk(be);
+  $('svToggle').textContent = S.bars ? s.map : s.chart;
+  lab.setReadout(`${sd} · ${cd}`, s.val, s.pill, '#e0b050');
+  const done = S.run1 === 2;
+  lab.setFacts(done ? t.facts1 : []);
+  lab.setState({ emo: S.ok1 ? '✅' : '🤔', title: S.ok1 ? s.ok : s.no, lead: s.res(sd, cd, S.pace), body: s.note(nf(roundTo(SEA_KM, 100)), nf(roundTo(ROAD_KM, 100))), extra: '' });
+}
+function renderRange(t) {
+  const r = t.r;
+  $('rgSub').innerHTML = ['rifle', 'ship'].map((k, i) => `<button class="sr-chip ${S.sub === k ? 'on' : ''}" data-act="sub" data-s="${k}">${esc(r.sub[i])}</button>`).join('');
+  $('rgRifle').hidden = S.sub !== 'rifle'; $('rgShip').hidden = S.sub !== 'ship';
+  if (S.sub === 'rifle') {
+    lab.setGlow('rgba(107, 135, 182, .26)');
+    $('rfQ').textContent = r.q;
+    $('rfPick').innerHTML = r.pick.map((p, i) => `<button class="sr-chip ${S.g2 === i ? (S.ok2 ? 'good' : 'bad') : ''}" data-act="g2" data-k="${i}" ${S.g2 !== null ? 'disabled' : ''}>${esc(p)}</button>`).join('');
+    $('rfPost').hidden = S.g2 === null;
+    if (S.g2 === null) { lab.setReadout('?', '', '', '#6b87b6'); lab.setFacts([]); lab.setState({ emo: '🎯', title: r.q, lead: r.pre, body: '', extra: '' }); return; }
+    $('rfDistL').textContent = r.yd(S.dist);
+    $('rfDist').innerHTML = [200, 300, 500].map((d) => `<button class="sr-chip ${S.dist === d ? 'on' : ''}" data-act="dist" data-k="${d}">${esc(r.yd(d))}</button>`).join('');
+    $('rfNote').textContent = r.note;
+    const hs = HIT.s[S.dist], hr = HIT.r[S.dist], fmt = (hh) => (hh ? r.pct(rangeTxt(hh)) : '—');
+    lab.setReadout(`${fmt(hs)} · ${fmt(hr)}`, `${r.smooth} · ${r.rifle}`, r.yd(S.dist), '#6b87b6');
+    lab.setFacts(S.run2 === 2 ? t.facts2.filter((_, i) => i < 3) : []);
+    lab.setState({ emo: S.ok2 ? '✅' : '🤔', title: S.ok2 ? r.ok : r.no, lead: r.res(rangeTxt(HIT.s[300]), rangeTxt(HIT.r[300])), body: hs && hr ? '' : r.none + ' · ' + r.yd(S.dist), extra: '' });
+  } else {
+    lab.setGlow('rgba(95, 168, 208, .26)');
+    $('shQ').textContent = r.qs;
+    $('shPick').innerHTML = r.picks.map((p, i) => `<button class="sr-chip ${S.g2s === i ? (S.ok2s ? 'good' : 'bad') : ''}" data-act="g2s" data-k="${i}" ${S.g2s !== null ? 'disabled' : ''}>${esc(p)}</button>`).join('');
+    $('shPost').hidden = S.g2s === null;
+    if (S.g2s === null) { lab.setReadout('?', '', '', '#5fa8d0'); lab.setFacts([]); lab.setState({ emo: '⛵', title: r.qs, lead: r.pres, body: '', extra: '' }); return; }
+    const plan = sailPlan(S.wind), ratio = Math.max(1, plan.T), rs = pf((Math.round(ratio * 10) / 10).toFixed(1));
+    $('shWindL').textContent = r.windL; $('shWindV').textContent = S.wind <= 25 ? r.w0 : S.wind >= 155 ? r.w180 : S.wind >= 65 && S.wind <= 115 ? r.w90 : `${S.wind}°`;
+    if (+$('shWind').value !== S.wind) $('shWind').value = S.wind;
+    lab.setReadout(`×${rs}`, `${r.sail} : ${r.steam}`, r.windL + ' ' + (S.wind <= 25 ? r.w0 : S.wind >= 155 ? r.w180 : `${S.wind}°`), '#5fa8d0');
+    lab.setFacts(S.run2s === 2 ? t.facts2.filter((_, i) => i >= 3) : []);
+    lab.setState({ emo: S.ok2s ? '✅' : '🤔', title: S.ok2s ? r.ok : r.no, lead: r.ress(rs), body: plan.straight ? r.straight : '', extra: '' });
+  }
+}
+function renderReign(t) {
+  const g = t.g, n = CARDS.length, k = S.placed.filter((p) => p.ok).length, done = S.deck >= n;
+  lab.setGlow('rgba(192, 122, 184, .26)');
+  $('rnQ').textContent = done ? g.done(k, n) : g.q;
+  $('rnPick').innerHTML = g.pick.map((p, i) => `<button class="sr-chip" data-act="place" data-k="${i}" ${done ? 'hidden' : ''}>${esc(p)}</button>`).join('');
+  $('rnLinks').hidden = !done;
+  if (done) $('rnLinks').innerHTML = `<div class="sr-sub">${esc(g.links)}</div><div class="sr-links"><a href="../rail-russia/?lang=${lang}">${esc(LINKS.rail[lang])}</a><a href="../emancipation/?lang=${lang}">${esc(LINKS.em[lang])}</a></div>`;
+  lab.setReadout(S.placed.length ? `${k}/${S.placed.length}` : '?', g.war, S.placed.length ? `${S.placed.length} / ${n}` : '', '#c07ab8');
+  lab.setFacts(done ? t.facts3 : []);
+  const sel = S.sel === null ? null : S.placed.find((p) => p.i === S.sel);
+  if (!sel) { lab.setState({ emo: '🗂️', title: g.q, lead: '', body: '', extra: '' }); return; }
+  const cd = CARDS[sel.i], tx = g.cards[sel.i], when = cd.a ? g.aft : g.bef;
+  lab.setState({ emo: sel.ok ? '✅' : '🤔', title: sel.ok ? g.ok : g.no, lead: `${tx.t}, ${cd.lab}: ${when}.`, body: tx.l, extra: done ? `<div class="fine" style="font-size:11.5px;color:var(--faint)">${esc(g.doneLead)}</div>` : '' });
+}
+function renderNurse(t) {
+  const n = t.nu, all = S.nu.done.every(Boolean);
+  lab.setGlow('rgba(61, 220, 151, .22)');
+  $('nuQ').textContent = n.q;
+  const col = (list, act, order) => order.map((i) => `<button class="sr-chip ${act === 'nup' ? (S.nu.sel === i && !S.nu.done[i] ? 'on' : S.nu.done[i] ? 'good' : '') : (S.nu.done[i] ? 'good' : S.nu.bad === i ? 'bad' : '')}" data-act="${act}" data-k="${i}" ${S.nu.done[i] ? 'disabled' : ''}>${esc(list[i])}</button>`).join('');
+  $('nuGrid').innerHTML = `<div class="sr-chips" style="flex-direction:column">${col(n.probs, 'nup', [0, 1, 2, 3])}</div><div class="sr-chips" style="flex-direction:column">${col(n.fixes, 'nuf', [2, 0, 3, 1])}</div>`;
+  const cnt = S.nu.done.filter(Boolean).length;
+  lab.setReadout(`${cnt}/4`, '', '', '#3ddc97'); lab.setFacts([]);
+  if (all) lab.setState({ emo: '🩺', title: n.all, lead: n.allLead, body: n.weak, extra: '' });
+  else if (S.nu.last !== undefined && S.nu.done[S.nu.last] && S.nu.bad === -1) lab.setState({ emo: '✅', title: n.good, lead: n.det[S.nu.last], body: n.src[S.nu.last], extra: '' });
+  else lab.setState({ emo: '🩺', title: S.nu.bad >= 0 ? n.bad : n.q, lead: '', body: '', extra: '' });
+}
+function renderWire(t) {
+  const w = t.wi;
+  lab.setGlow('rgba(255, 224, 138, .22)');
+  $('wiQ').textContent = w.q;
+  $('wiPick').innerHTML = w.modes.map((m, i) => `<button class="sr-chip ${S.wi.mode === i ? 'on' : ''}" data-act="wi" data-k="${i}">${esc(w.go)}: ${esc(m)}</button>`).join('');
+  lab.setReadout(S.wi.mode === null ? '?' : w.t[S.wi.mode], '', '', '#e0b050'); lab.setFacts([]);
+  const done = S.wi.mode !== null && S.wi.t >= 1;
+  lab.setState({ emo: '📡', title: done ? w.title[S.wi.mode] : w.q, lead: w.lead, body: w.src, extra: '' });
+}
+render();
+</script>
+</body>
+</html>

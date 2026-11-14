@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-14
 
 ### Labs
+- New lab `sevastopol-roads` “Roads to Sevastopol”: Nicholas I's Russia and the Crimean War: supply routes, weapons, reforms. (645). (#574)
 - New lab `horde-roads` “Roads Through the Horde”: Rus princes, the Golden Horde and Italian trading posts around 1300. (644). (#573)
 - New lab `wind-belts` “Winds Around the World”: Global circulation cells with and without rotation, real wind belts. (643). (#572)
 - New lab `mantle` “What Moves the Plates?”: Mantle convection, slab pull and plate boundaries in a cross-section. (642). (#571)
