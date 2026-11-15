@@ -1,0 +1,858 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sharps, Flats and Keys · Skill Graph</title>
+<meta name="description" content="Find where a sharp or a flat moves a note on the keyboard, build a major scale from any key and see which black keys it needs, and read low notes in the bass clef. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  #stage canvas { touch-action: manipulation; }
+  .sf-q { margin: 0 0 10px; font: 700 14px/1.4 var(--sans); color: var(--soft); }
+  .sf-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+  .sf-row .lbl { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-weight: 700; }
+  .sf-btn { min-height: 44px; padding: 6px 20px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(20, 24, 38, .6);
+    color: var(--soft); font: 800 14px var(--sans); cursor: pointer; transition: background .15s; }
+  .sf-btn:hover:not(:disabled) { background: rgba(130, 145, 190, .16); }
+  .sf-btn.main { background: #fff; color: var(--bg); border-color: #fff; }
+  .sf-btn.main:hover:not(:disabled) { background: #e8ecf8; }
+  .sf-btn:disabled { opacity: .4; cursor: default; }
+  .sf-chip { min-width: 44px; min-height: 40px; padding: 4px 14px; border-radius: 14px; border: 1px solid var(--stroke2); background: rgba(20, 24, 38, .6);
+    color: var(--soft); font: 800 15px var(--sans); cursor: pointer; }
+  .sf-chip.on { background: #fff; color: var(--bg); border-color: #fff; }
+  .sf-step { display: inline-flex; align-items: center; gap: 6px; }
+  .sf-step button { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1); font-size: 22px; font-weight: 800; line-height: 1; padding: 0; cursor: pointer; }
+  .sf-step button:disabled { opacity: .3; cursor: default; }
+  .sf-step b { min-width: 30px; text-align: center; font-size: 24px; font-weight: 900; }
+  .sf-sec { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--stroke); }
+  .sf-sec .chip { min-height: 40px; }
+  .sf-hint { position: absolute; left: 50%; top: 6px; transform: translateX(-50%); min-height: 38px; padding: 6px 14px; border-radius: 999px;
+    border: 1px solid var(--wip); background: rgba(20, 17, 8, .9); color: var(--wip); font: 800 13px var(--sans); cursor: pointer; white-space: nowrap; z-index: 2; }
+  .sf-hint[hidden] { display: none; }
+  .fine { font-size: 11px; color: var(--faint); }
+  @media (max-width: 760px) {
+    #stage { height: min(106vw, 500px); }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, store, $, esc, clamp, lang, unmuteIOS } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Sharps, Flats and Keys', title: 'Black keys and strange signs',
+    lines: [['Find where a sharp or a flat', 'moves a note.'], ['Build a major scale', 'from any key.'], ['Read low notes', 'in the bass clef.']],
+    views: { step: '🎹 Up or down one key', scale: '🪜 Build a major scale', bass: '🎼 Bass clef' },
+    soundHint: '🔈 Tap for sound', right: 'Right!', next: 'Next →', again: '↻ Again', fineLab: 'Keys are drawn from C. Notes are quarter notes in the treble and bass clefs.',
+    st: {
+      q: (n) => `Where is ${n}?`, lead: 'Tap the key where you think it is. The gold ring marks the same note without its sign.',
+      no: 'Not that key.', green: (n) => `The green key is ${n}.`,
+      sharp: 'A sharp raises a note by one semitone: the very next key to the right.',
+      flat: 'A flat lowers a note by one semitone: the very next key to the left.',
+      e: 'E♯ is the very next key to the right of E. That is F, a white key: between E and F there is no black key.',
+      b: 'B♯ is the very next key to the right of B. That is C, a white key.',
+      pillR: '1 key right', pillL: '1 key left', end: (k) => `${k} of 5 right.`,
+      endLead: 'A sharp moves a note one key to the right, a flat one key to the left. The key you land on is not always black.',
+    },
+    sc: {
+      start: 'Start key', major: (n) => `${n} major`, predQ: 'How many black keys will this scale use?', predUnit: 'black keys', go: 'Build it →',
+      leadPred: 'Make a guess first. Then tap the keys one by one.', wl: ['W', 'H'],
+      legend: 'W = whole step (skip one key), H = half step (the very next key).',
+      noteN: (n) => `Note ${n} of 8`, first: 'Tap the key that comes next in the scale. The gauge shows how big each step is.',
+      follow: 'Follow the step pattern in the gauge.', pattern: 'The pattern: W W H W W W H.',
+      miss: (d, need) => (d <= 0 ? 'A scale climbs: tap a key to the right of the last note.'
+        : `That key is ${d} ${d === 1 ? 'key' : 'keys'} up. Here the scale needs ${need === 1 ? 'a half step (H): the very next key' : 'a whole step (W): skip one key'}.`),
+      hintBtn: '💡 Show the next key', play: '▶ Play it', ok: 'Right!', guessed: (g) => `You guessed ${g}.`,
+      uses: (n, list) => (n ? `${list}: ${n} black ${n === 1 ? 'key' : 'keys'}.` : 'No black keys: C major is all white keys.'),
+      sig: 'The key signature at the start lists them once, so the sign is not repeated on every note.',
+      why: { 1: 'The last step up to the top G must be a half step (H), so F is raised to F♯.', 2: 'The step from A to the fourth note must be a half step (H), so B is lowered to B♭.' },
+      tryNext: (n) => `Try ${n} major next.`, tryAll: 'Pick any other start key.',
+      count: (n) => `${n}/8`, notes: 'notes', blk: 'black keys', mine: (g) => `your guess: ${g}`,
+    },
+    ba: {
+      midTitle: 'Middle C', midLead: 'The treble and bass staves are neighbours. Middle C sits on one little line between them: it is one key, written either way.',
+      got: 'Got it →', mid: 'Middle C', q: 'Which key is this note?', lead: 'The two dots of the clef surround the gold F line. Count from there.',
+      no: 'Not that key.', green: (n) => `The green key is ${n}.`, end: (k) => `${k} of 6 right.`, endLead: 'Low notes live on the bass staff, and its lines mean different notes than the treble staff.',
+      expl: [
+        (n) => `It sits on the ${n[3]} line, between the clef’s two dots.`,
+        (n) => `Top line. Count up from the ${n[3]} line: ${n[4]} is the space, ${n[5]} the next line.`,
+        (n) => `Middle line, one line below ${n[3]}. Going down from ${n[3]}: ${n[2]} (space), ${n[1]} (line).`,
+        (n) => `The space just under the ${n[3]} line.`,
+        (n) => `The space just under the middle line (${n[1]}).`,
+        () => 'One ledger line above the staff: middle C, the very same key as in the treble clef.',
+      ],
+    },
+    secrets: { enh: ['Same key, two names', 'One black key can wear two names'], fif: ['Circle of fifths', 'A wheel of keys and their signs'] },
+    enh: {
+      title: (a, b) => `${a} and ${b} are one key`, lead: 'Same key, same sound, two spellings on the staff. Such twin names are called enharmonic.',
+      next: 'Next pair →', play: '🔊 Play', val: 'one key', tap: 'Tap the glowing key to hear it.',
+    },
+    fif: {
+      title: (k, n, sh) => `${k}: ${n} ${sh ? (n === 1 ? 'sharp' : 'sharps') : (n === 1 ? 'flat' : 'flats')}`,
+      zero: (k) => `${k}: no sharps, no flats`, lead: 'Start at C and go clockwise: each new key adds one more sharp. Go the other way and you add flats.',
+      prev: '↺ Back', nxt: 'Clockwise ↻', tap: 'Tap a key on the wheel.', both: 'also G♭ (6 flats)',
+    },
+    facts: {
+      step: [{ emo: '🔤', text: 'In Hungary and Germany the note B is called H, and B means B-flat: that’s why Bach could write his own name in notes: B–A–C–H.', src: 'https://en.wikipedia.org/wiki/BACH_motif' }],
+      scale: [
+        { emo: '🎹', text: 'A standard piano has 88 keys: 52 white and 36 black.', src: 'https://en.wikipedia.org/wiki/Piano#Keyboard' },
+        { emo: '✍️', text: 'The flat sign ♭ grew out of a rounded letter b, and the natural ♮ and sharp ♯ out of a square b.', src: 'https://en.wikipedia.org/wiki/Flat_(music)#History' },
+      ],
+      bass: [{ emo: '🎼', text: 'The bass clef is also called the F clef: its two dots sit on either side of the line for F.', src: 'https://en.wikipedia.org/wiki/Clef#F-clefs' }],
+    },
+    quiz: [
+      { q: 'Which key is E♯ on a piano?', opts: ['A black key between E and F', 'The white key F', 'There is no E♯'], ok: 1, hint: 'In Up or down one key, look between E and F.' },
+      { q: 'Why does G major need F♯?', opts: ['It sounds happier', 'The major step pattern needs a half step before the last G', 'Every scale has an F♯'], ok: 1, hint: 'In Build a major scale, watch the step gauge at the last step.' },
+      { q: 'What is the bass clef for?', opts: ['For louder music', 'For low notes, like a cello or the left hand of the piano', 'For fast music'], ok: 1, hint: 'In Bass clef, look which keys you press.' },
+    ],
+  },
+  ru: {
+    name: 'Диезы, бемоли и тональности', title: 'Чёрные клавиши и странные знаки',
+    lines: [['Найди, куда диез или бемоль', 'сдвигает ноту.'], ['Построй мажорную гамму', 'от любой клавиши.'], ['Читай низкие ноты', 'в басовом ключе.']],
+    views: { step: '🎹 На клавишу вверх или вниз', scale: '🪜 Построй мажорную гамму', bass: '🎼 Басовый ключ' },
+    soundHint: '🔈 Нажми, чтобы включить звук', right: 'Верно!', next: 'Дальше →', again: '↻ Ещё раз', fineLab: 'Клавиши отсчитываются от до. Ноты нарисованы четвертными в скрипичном и басовом ключах.',
+    st: {
+      q: (n) => `Где ${n}?`, lead: 'Нажми клавишу, где, по-твоему, эта нота. Золотое кольцо отмечает ту же ноту без знака.',
+      no: 'Не та клавиша.', green: (n) => `Зелёная клавиша — это ${n}.`,
+      sharp: 'Диез повышает ноту на один полутон: это ближайшая клавиша справа.',
+      flat: 'Бемоль понижает ноту на один полутон: это ближайшая клавиша слева.',
+      e: 'Ми-диез — ближайшая клавиша справа от ми. Это фа, белая клавиша: между ми и фа чёрной клавиши нет.',
+      b: 'Си-диез — ближайшая клавиша справа от си. Это до, белая клавиша.',
+      pillR: '1 клавиша вправо', pillL: '1 клавиша влево', end: (k) => `Верно: ${k} из 5.`,
+      endLead: 'Диез сдвигает ноту на клавишу вправо, бемоль — на клавишу влево. Клавиша, на которую попадаешь, не всегда чёрная.',
+    },
+    sc: {
+      start: 'Первая нота', major: (n) => `${n} мажор`, predQ: 'Сколько чёрных клавиш понадобится этой гамме?', predUnit: 'чёрных клавиш', go: 'Строить →',
+      leadPred: 'Сначала сделай догадку. Потом нажимай клавиши по одной.', wl: ['Т', 'П'],
+      legend: 'Т = тон (через одну клавишу), П = полутон (ближайшая клавиша).',
+      noteN: (n) => `Нота ${n} из 8`, first: 'Нажми клавишу, которая идёт в гамме следующей. Шкала показывает размер каждого шага.',
+      follow: 'Следуй схеме шагов на шкале.', pattern: 'Схема: Т Т П Т Т Т П.',
+      miss: (d, need) => (d <= 0 ? 'Гамма идёт вверх: нажми клавишу правее последней ноты.'
+        : `Эта клавиша на ${d} ${d === 1 ? 'шаг' : d < 5 ? 'шага' : 'шагов'} выше. Здесь гамме нужен ${need === 1 ? 'полутон (П): ближайшая клавиша' : 'тон (Т): через одну клавишу'}.`),
+      hintBtn: '💡 Показать следующую клавишу', play: '▶ Сыграть', ok: 'Верно!', guessed: (g) => `Твоя догадка: ${g}.`,
+      uses: (n, list) => (n ? `${list}: ${n} ${n === 1 ? 'чёрная клавиша' : n < 5 ? 'чёрные клавиши' : 'чёрных клавиш'}.` : 'Чёрных клавиш нет: до мажор — одни белые клавиши.'),
+      sig: 'Ключевые знаки в начале перечисляют их один раз, чтобы не писать знак у каждой ноты.',
+      why: { 1: 'Последний шаг к верхней ноте соль должен быть полутоном (П), поэтому фа повышается до фа-диеза.', 2: 'Шаг от ля к четвёртой ноте должен быть полутоном (П), поэтому си понижается до си-бемоля.' },
+      tryNext: (n) => `Теперь попробуй ${n} мажор.`, tryAll: 'Выбери любую другую первую ноту.',
+      count: (n) => `${n}/8`, notes: 'нот', blk: 'чёрных клавиш', mine: (g) => `твоя догадка: ${g}`,
+    },
+    ba: {
+      midTitle: 'До первой октавы', midLead: 'Скрипичный и басовый нотоносцы — соседи. Нота до первой октавы стоит на одной маленькой линейке между ними: это одна клавиша, записанная двумя способами.',
+      got: 'Понятно →', mid: 'до первой октавы', q: 'Какая клавиша соответствует этой ноте?', lead: 'Две точки ключа окружают золотую линейку фа. Считай от неё.',
+      no: 'Не та клавиша.', green: (n) => `Зелёная клавиша — это ${n}.`, end: (k) => `Верно: ${k} из 6.`, endLead: 'Низкие ноты живут на басовом нотоносце, и его линейки означают другие ноты, чем в скрипичном.',
+      expl: [
+        (n) => `Она стоит на линейке ${n[3]}, между двумя точками ключа.`,
+        (n) => `Верхняя линейка. От линейки ${n[3]} считай вверх: ${n[4]} — промежуток, ${n[5]} — следующая линейка.`,
+        (n) => `Средняя линейка, на одну ниже ${n[3]}. Вниз от ${n[3]}: ${n[2]} (промежуток), ${n[1]} (линейка).`,
+        (n) => `Промежуток сразу под линейкой ${n[3]}.`,
+        (n) => `Промежуток сразу под средней линейкой (${n[1]}).`,
+        () => 'Одна добавочная линейка над нотоносцем: до первой октавы, та же клавиша, что и в скрипичном ключе.',
+      ],
+    },
+    secrets: { enh: ['Одна клавиша, два имени', 'У одной чёрной клавиши два имени'], fif: ['Квинтовый круг', 'Колесо тональностей и их знаков'] },
+    enh: {
+      title: (a, b) => `${a} и ${b} — одна клавиша`, lead: 'Одна клавиша, один звук, два написания на нотоносце. Такие двойники называются энгармоническими.',
+      next: 'Следующая пара →', play: '🔊 Сыграть', val: 'одна клавиша', tap: 'Нажми светящуюся клавишу, чтобы услышать её.',
+    },
+    fif: {
+      title: (k, n, sh) => `${k}: ${n} ${sh ? (n === 1 ? 'диез' : n < 5 ? 'диеза' : 'диезов') : (n === 1 ? 'бемоль' : n < 5 ? 'бемоля' : 'бемолей')}`,
+      zero: (k) => `${k}: ни диезов, ни бемолей`, lead: 'Начни с до и иди по часовой стрелке: каждая новая тональность добавляет ещё один диез. В другую сторону добавляются бемоли.',
+      prev: '↺ Назад', nxt: 'По часовой ↻', tap: 'Нажми тональность на колесе.', both: 'она же соль-бемоль (6 бемолей)',
+    },
+    facts: {
+      step: [{ emo: '🔤', text: 'В Венгрии и Германии нота си называется H, а буквой B обозначают си-бемоль; поэтому Бах мог записать своё имя нотами: B–A–C–H.', src: 'https://en.wikipedia.org/wiki/BACH_motif' }],
+      scale: [
+        { emo: '🎹', text: 'У обычного фортепиано 88 клавиш: 52 белые и 36 чёрных.', src: 'https://en.wikipedia.org/wiki/Piano#Keyboard' },
+        { emo: '✍️', text: 'Знак бемоля ♭ вырос из круглой буквы b, а бекар ♮ и диез ♯ — из квадратной b.', src: 'https://en.wikipedia.org/wiki/Flat_(music)#History' },
+      ],
+      bass: [{ emo: '🎼', text: 'Басовый ключ называют ещё ключом фа: его две точки стоят по обе стороны от линейки ноты фа.', src: 'https://en.wikipedia.org/wiki/Clef#F-clefs' }],
+    },
+    quiz: [
+      { q: 'Какая клавиша на фортепиано — ми-диез?', opts: ['Чёрная клавиша между ми и фа', 'Белая клавиша фа', 'Ми-диеза не бывает'], ok: 1, hint: 'В «На клавишу вверх или вниз» посмотри между ми и фа.' },
+      { q: 'Почему в соль мажоре нужен фа-диез?', opts: ['Так веселее звучит', 'Мажорная схема шагов требует полутона перед последним соль', 'Фа-диез есть в каждой гамме'], ok: 1, hint: 'В «Построй мажорную гамму» посмотри на шкалу шагов на последнем шаге.' },
+      { q: 'Для чего басовый ключ?', opts: ['Для громкой музыки', 'Для низких нот, как у виолончели или левой руки на фортепиано', 'Для быстрой музыки'], ok: 1, hint: 'В «Басовом ключе» посмотри, на какие клавиши ты нажимаешь.' },
+    ],
+  },
+  hu: {
+    name: 'Keresztek, bék és hangnemek', title: 'Fekete billentyűk és furcsa jelek',
+    lines: [['Keresd meg, hová tolja a hangot', 'a kereszt vagy a bé.'], ['Építs dúr skálát', 'bármelyik billentyűről.'], ['Olvasd a mély hangokat', 'basszuskulcsban.']],
+    views: { step: '🎹 Egy billentyűvel fel vagy le', scale: '🪜 Dúr skála építése', bass: '🎼 Basszuskulcs' },
+    soundHint: '🔈 Koppints a hangért', right: 'Így van!', next: 'Tovább →', again: '↻ Újra', fineLab: 'A billentyűk C-től indulnak. A hangok negyedhangok violin- és basszuskulcsban.',
+    st: {
+      q: (n) => `Hol van ${n}?`, lead: 'Koppints arra a billentyűre, ahol szerinted van. Az arany gyűrű ugyanazt a hangot jelöli jel nélkül.',
+      no: 'Nem az a billentyű.', green: (n) => `A zöld billentyű: ${n}.`,
+      sharp: 'A kereszt egy félhanggal megemeli a hangot: a következő billentyű jobbra.',
+      flat: 'A bé egy félhanggal lejjebb viszi a hangot: a következő billentyű balra.',
+      e: 'Az E♯ az E-től jobbra a legközelebbi billentyű. Ez az F, egy fehér billentyű: az E és az F között nincs fekete.',
+      b: 'A H♯ a H-tól jobbra a legközelebbi billentyű. Ez a C, egy fehér billentyű.',
+      pillR: '1 billentyű jobbra', pillL: '1 billentyű balra', end: (k) => `5-ből ${k} jó.`,
+      endLead: 'A kereszt egy billentyűvel jobbra viszi a hangot, a bé eggyel balra. A billentyű, ahova érkezel, nem mindig fekete.',
+    },
+    sc: {
+      start: 'Kezdőhang', major: (n) => `${n}-dúr`, predQ: 'Hány fekete billentyűt használ ez a skála?', predUnit: 'fekete billentyű', go: 'Építsd →',
+      leadPred: 'Először tippelj. Aztán koppints a billentyűkre egyenként.', wl: ['1', '½'],
+      legend: '1 = egész lépés (egy billentyűt átugrasz), ½ = fél lépés (a következő billentyű).',
+      noteN: (n) => `${n}. hang a 8-ból`, first: 'Koppints a skála következő billentyűjére. A lépésmérő megmutatja, mekkora az egyes lépés.',
+      follow: 'Kövesd a lépésmintát a lépésmérőn.', pattern: 'A minta: 1 1 ½ 1 1 1 ½.',
+      miss: (d, need) => (d <= 0 ? 'A skála felfelé megy: koppints az utolsó hangtól jobbra lévő billentyűre.'
+        : `Ez a billentyű ${d} lépéssel feljebb van. Itt a skálának ${need === 1 ? 'fél lépés (½) kell: a következő billentyű' : 'egész lépés (1) kell: egy billentyűt átugrasz'}.`),
+      hintBtn: '💡 Mutasd a következőt', play: '▶ Lejátszás', ok: 'Így van!', guessed: (g) => `A tipped: ${g}.`,
+      uses: (n, list) => (n ? `${list}: ${n} fekete billentyű.` : 'Nincs fekete billentyű: a C-dúr csupa fehér billentyű.'),
+      sig: 'Az előjegyzés az elején egyszer sorolja fel őket, így nem kell minden hang elé kitenni a jelet.',
+      why: { 1: 'Az utolsó lépésnek a felső G-ig fél lépésnek (½) kell lennie, ezért az F-ből Fisz lesz.', 2: 'Az A-tól a negyedik hangig fél lépés (½) kell, ezért a H-ból B lesz.' },
+      tryNext: (n) => `Most próbáld ki a ${n}-t.`, tryAll: 'Válassz másik kezdőhangot.',
+      count: (n) => `${n}/8`, notes: 'hang', blk: 'fekete billentyű', mine: (g) => `a tipped: ${g}`,
+    },
+    ba: {
+      midTitle: 'Középső C', midLead: 'A violin- és a basszuskulcsos vonalrendszer szomszédos. A középső C egy kis vonalon áll köztük: egyetlen billentyű, kétféleképpen leírva.',
+      got: 'Értem →', mid: 'középső C', q: 'Melyik billentyű ez a hang?', lead: 'A kulcs két pontja az arany F vonalat fogja közre. Onnan számolj.',
+      no: 'Nem az a billentyű.', green: (n) => `A zöld billentyű: ${n}.`, end: (k) => `6-ból ${k} jó.`, endLead: 'A mély hangok a basszus vonalrendszerben élnek, és vonalai más hangokat jelentenek, mint a violinkulcsban.',
+      expl: [
+        (n) => `Az ${n[3]} vonalán áll, a kulcs két pontja között.`,
+        (n) => `Felső vonal. Az ${n[3]} vonaltól felfelé: ${n[4]} a köz, ${n[5]} a következő vonal.`,
+        (n) => `Középső vonal, eggyel lejjebb, mint az ${n[3]}. Az ${n[3]}-től lefelé: ${n[2]} (köz), ${n[1]} (vonal).`,
+        (n) => `A köz közvetlenül az ${n[3]} vonal alatt.`,
+        (n) => `A köz közvetlenül a középső vonal (${n[1]}) alatt.`,
+        () => 'Egy pótvonal a vonalrendszer felett: a középső C, ugyanaz a billentyű, mint violinkulcsban.',
+      ],
+    },
+    secrets: { enh: ['Egy billentyű, két név', 'Egy fekete billentyűnek két neve van'], fif: ['Kvintkör', 'A hangnemek és jeleik kereke'] },
+    enh: {
+      title: (a, b) => `${a} és ${b} egy billentyű`, lead: 'Ugyanaz a billentyű, ugyanaz a hang, két írásmód a vonalrendszeren. Az ilyen ikernevek az enharmonikus párok.',
+      next: 'Következő pár →', play: '🔊 Lejátszás', val: 'egy billentyű', tap: 'Koppints a világító billentyűre, hogy meghallgasd.',
+    },
+    fif: {
+      title: (k, n, sh) => `${k}: ${n} ${sh ? 'kereszt' : 'bé'}`,
+      zero: (k) => `${k}: nincs kereszt, nincs bé`, lead: 'Indulj C-ről az óramutató járásával egyezően: minden új hangnem eggyel több keresztet kap. A másik irányban bék jönnek.',
+      prev: '↺ Vissza', nxt: 'Óramutató szerint ↻', tap: 'Koppints egy hangnemre a keréken.', both: 'ugyanez Ges (6 bé)',
+    },
+    facts: {
+      step: [{ emo: '🔤', text: 'Magyarországon és Németországban a h hang neve H, a B pedig a b-t (h-bé) jelenti; ezért írhatta le Bach a nevét hangokkal: B–A–C–H.', src: 'https://en.wikipedia.org/wiki/BACH_motif' }],
+      scale: [
+        { emo: '🎹', text: 'Egy szabványos zongorának 88 billentyűje van: 52 fehér és 36 fekete.', src: 'https://en.wikipedia.org/wiki/Piano#Keyboard' },
+        { emo: '✍️', text: 'A bé ♭ jele egy kerek b betűből fejlődött ki, a feloldójel ♮ és a kereszt ♯ pedig egy szögletes b-ből.', src: 'https://en.wikipedia.org/wiki/Flat_(music)#History' },
+      ],
+      bass: [{ emo: '🎼', text: 'A basszuskulcsot F-kulcsnak is hívják: két pontja az F hang vonalának két oldalán áll.', src: 'https://en.wikipedia.org/wiki/Clef#F-clefs' }],
+    },
+    quiz: [
+      { q: 'Melyik billentyű az eisz (E♯) a zongorán?', opts: ['Egy fekete billentyű az E és az F között', 'A fehér F billentyű', 'Nincs eisz'], ok: 1, hint: 'Az Egy billentyűvel fel vagy le részben nézz az E és az F közé!' },
+      { q: 'Miért kell a G-dúrba Fisz?', opts: ['Vidámabban szól', 'A dúr lépésminta félhangot kér az utolsó G előtt', 'Minden skálában van Fisz'], ok: 1, hint: 'A Dúr skála építése részben figyeld a lépésmérőt az utolsó lépésnél!' },
+      { q: 'Mire való a basszuskulcs?', opts: ['A hangosabb zenéhez', 'A mély hangokhoz, például a csellóhoz vagy a zongora bal kezéhez', 'A gyors zenéhez'], ok: 1, hint: 'A Basszuskulcs részben nézd meg, melyik billentyűket nyomod!' },
+    ],
+  },
+};
+
+const TOPICS = [
+  { id: 'sg_art_60', en: 'Keys, Sharps, Flats and the Bass Clef', ru: 'Тональности, диезы, бемоли и басовый ключ', hu: 'Hangnemek, keresztek, bék és a basszuskulcs' },
+];
+
+// --- note names ----------------------------------------------------------------------------------------------
+const LET = { en: ['C', 'D', 'E', 'F', 'G', 'A', 'B'], ru: ['до', 'ре', 'ми', 'фа', 'соль', 'ля', 'си'], hu: ['C', 'D', 'E', 'F', 'G', 'A', 'H'] };
+const HU_SP = { s: ['cisz', 'disz', 'eisz', 'fisz', 'gisz', 'aisz', 'hisz'], f: ['ces', 'des', 'es', 'fes', 'ges', 'as', 'b'] };
+const WHITEPC = [0, 2, 4, 5, 7, 9, 11], BLACKPC = [1, 3, 6, 8, 10];
+const midiOf = (l, a, o) => 12 * (o + 1) + WHITEPC[l] + a;
+const freq = (m) => 440 * 2 ** ((m - 69) / 12);
+// tokens for drawing: strings and accidentals ({ a: +1 / -1 }); Hungarian B-flat is simply "B"
+const tok = (l, a) => (lang === 'hu' && l === 6 && a < 0 ? ['B'] : a ? [LET[lang][l], { a }] : [LET[lang][l]]);
+const txt = (l, a) => tok(l, a).map((x) => (typeof x === 'string' ? x : x.a > 0 ? '♯' : '♭')).join('');
+const latin = (l, a) => `${LET.hu[l] && lang === 'hu' ? LET.hu[l] : ['C', 'D', 'E', 'F', 'G', 'A', 'B'][l]}${a > 0 ? '♯' : a < 0 ? '♭' : ''}`;
+function spoken(l, a) { // a name to say in a sentence
+  if (!a) return LET[lang][l];
+  if (lang === 'ru') return `${LET.ru[l]}-${a > 0 ? 'диез' : 'бемоль'}`;
+  if (lang === 'hu') return HU_SP[a > 0 ? 's' : 'f'][l];
+  return txt(l, a);
+}
+const huArt = (w) => (/^[aeiouáéíóöőúüű]/i.test(w) ? 'az' : 'a');
+function askName(l, a) { // the note named inside "Where is ...?"
+  if (lang === 'ru') return spoken(l, a);
+  if (lang === 'hu') { const s = spoken(l, a); return `${huArt(s)} ${s} (${latin(l, a)})`; }
+  return txt(l, a);
+}
+const nameHTML = (l, a) => (lang === 'ru' && a ? `${spoken(l, a)} (${latin(l, a)})` : lang === 'hu' && a ? `${spoken(l, a)} (${latin(l, a)})` : txt(l, a));
+const majorName = (l, a) => (lang === 'ru' ? `${LET.ru[l]}${a ? '-бемоль' : ''}` : txt(l, a));
+
+// --- geometry of the picture (design box W x H, scaled to fit) --------------------------------------------
+const W = 360, H = 380, KY = 182, KH = 188, BH = 112, KW = W / 14, KB = 17;
+const KEYS = [];
+{ let wi = 0; for (let i = 0; i < 24; i++) { if (BLACKPC.includes(i % 12)) KEYS.push({ i, black: true, x: wi * KW - KB / 2, w: KB }); else { KEYS.push({ i, black: false, x: wi * KW, w: KW }); wi++; } } }
+const keyCX = (i) => KEYS[i].x + KEYS[i].w / 2;
+const INK = '#262a40', GOLD = '#f5c84c', GREEN = '#3ddc97', RED = '#ff5d52', BLUE = '#4ea8ff', CORAL = '#ff8a5c';
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+const ease = (x) => 1 - (1 - clamp01(x)) ** 3;
+const nowS = () => performance.now() / 1000;
+const G = { s: 1, ox: 0, oy: 0 };
+const fpx = (n) => Math.max(n, 12 / G.s);
+const rr = (c, x, y, w, h, r) => { c.beginPath(); c.roundRect(x, y, w, h, r); };
+
+// --- state ---------------------------------------------------------------------------------------------------
+const TASK1 = [{ l: 0, a: 1, o: 4 }, { l: 2, a: -1, o: 5 }, { l: 6, a: -1, o: 4 }, { l: 2, a: 1, o: 4 }, { l: 6, a: 1, o: 4 }];
+const STARTS = [{ l: 0, a: 0, i: 0 }, { l: 4, a: 0, i: 7 }, { l: 3, a: 0, i: 5 }, { l: 1, a: 0, i: 2 }, { l: 5, a: 0, i: 9 }, { l: 6, a: -1, i: 10 }];
+const PAT = [2, 2, 1, 2, 2, 2, 1];
+const TASK3 = [{ l: 3, o: 3 }, { l: 5, o: 3 }, { l: 1, o: 3 }, { l: 2, o: 3 }, { l: 0, o: 3 }, { l: 0, o: 4 }];
+const PAIRS = [{ pc: 6, a: [3, 1], b: [4, -1] }, { pc: 1, a: [0, 1], b: [1, -1] }, { pc: 8, a: [4, 1], b: [5, -1] }, { pc: 3, a: [1, 1], b: [2, -1] }, { pc: 10, a: [5, 1], b: [6, -1] }];
+// circle of fifths: key names, how many signs, sharps or flats, the root's pitch class
+const FIF = [{ n: [[0, 0]], c: 0, sh: 1, pc: 0 }, { n: [[4, 0]], c: 1, sh: 1, pc: 7 }, { n: [[1, 0]], c: 2, sh: 1, pc: 2 }, { n: [[5, 0]], c: 3, sh: 1, pc: 9 },
+  { n: [[2, 0]], c: 4, sh: 1, pc: 4 }, { n: [[6, 0]], c: 5, sh: 1, pc: 11 }, { n: [[3, 1], [4, -1]], c: 6, sh: 1, pc: 6 }, { n: [[1, -1]], c: 5, sh: 0, pc: 1 },
+  { n: [[5, -1]], c: 4, sh: 0, pc: 8 }, { n: [[2, -1]], c: 3, sh: 0, pc: 3 }, { n: [[6, -1]], c: 2, sh: 0, pc: 10 }, { n: [[3, 0]], c: 1, sh: 0, pc: 5 }];
+const SH_ORDER = [3, 0, 4, 1, 5, 2, 6], FL_ORDER = [6, 2, 5, 1, 4, 0, 3];
+const SH_POS = { 3: 8, 0: 5, 4: 9, 1: 6, 5: 3, 2: 7, 6: 4 }, FL_POS = { 6: 4, 2: 7, 5: 3, 1: 6, 4: 2, 0: 5, 3: 1 };
+
+const S = {
+  v1: { i: 0, guess: null, reveal: false, t1: 0, right: [], fin: false, t0: 0 },
+  sc: null, b3: { intro: true, i: 0, guess: null, reveal: false, t1: 0, right: [], fin: false, t0: 0 },
+  sec: null, enh: 0, fif: 0, press: {}, hintShown: false, ruleKnown: store.get('sf:rule', false), hintTm: 0,
+};
+const newScale = (k) => ({ k, pred: 0, phase: 'pred', n: 1, miss: 0, hint: false, times: [0], bad: null, msg: null, doneT: 0, run: null });
+S.sc = newScale(0);
+const mode = () => S.sec || lab.view;
+
+function scaleOf(k) {
+  const s = STARTS[k], out = []; let m = 60 + s.i;
+  for (let n = 0; n < 8; n++) {
+    const d = 28 + s.l + n, l = d % 7, o = Math.floor(d / 7);
+    out.push({ m, idx: m - 60, l, a: m - (12 * (o + 1) + WHITEPC[l]), o });
+    if (n < 7) m += PAT[n];
+  }
+  return out;
+}
+const blackCount = (sc) => new Set(sc.slice(0, 7).filter((q) => BLACKPC.includes(q.m % 12)).map((q) => q.m % 12)).size;
+
+// --- sound: a soft piano-like tone from a few sines, only after a tap --------------------------------------
+let AC = null, master = null;
+function actx() {
+  try {
+    if (!AC) {
+      AC = new (window.AudioContext || window.webkitAudioContext)();
+      const comp = AC.createDynamicsCompressor(); master = AC.createGain(); master.gain.value = 0.9;
+      master.connect(comp); comp.connect(AC.destination);
+    }
+    if (AC.state !== 'running') AC.resume().catch(() => {});
+    return AC;
+  } catch { return null; }
+}
+['pointerdown', 'pointerup', 'touchend', 'keydown', 'click'].forEach((e) => addEventListener(e, () => { if (store.get('sound', false)) { unmuteIOS(); actx(); } }, { passive: true }));
+function audioReady() {
+  if (store.get('sound', null) === null) $('sound').click(); // the first tap that plays turns sound on, unless it was switched off before
+  if (!store.get('sound', false)) return false;
+  unmuteIOS(); return !!actx();
+}
+function voice(m, when, vol = 1) {
+  const f = freq(m), g = AC.createGain();
+  g.gain.setValueAtTime(0.0001, when); g.gain.linearRampToValueAtTime(0.3 * vol, when + 0.008);
+  g.gain.exponentialRampToValueAtTime(0.0001, when + 1.3); g.connect(master);
+  [[1, 'triangle', 0.5], [2, 'sine', 0.18], [3, 'sine', 0.06]].forEach(([mul, type, a]) => {
+    const o = AC.createOscillator(), og = AC.createGain();
+    o.type = type; o.frequency.value = f * mul; og.gain.value = a; o.connect(og).connect(g); o.start(when); o.stop(when + 1.35);
+  });
+}
+function ping(m, delay = 0) {
+  if (!audioReady()) { maybeHint(); return; }
+  try { voice(m, AC.currentTime + 0.01 + delay); } catch { /* no audio */ }
+}
+function maybeHint() {
+  if (store.get('sound', false) || S.hintShown) return;
+  S.hintShown = true;
+  const b = $('sfHint'); b.textContent = T[lang].soundHint; b.hidden = false;
+  clearTimeout(S.hintTm); S.hintTm = setTimeout(() => { b.hidden = true; }, 7000);
+}
+
+// --- shell ---------------------------------------------------------------------------------------------------
+const lab = shell({ key: 'sharps-flats', T, topics: TOPICS, views: ['step', 'scale', 'bass'], onLang: render, onView: () => { S.sec = null; render(); } });
+const secret = secretLab('sharps-flats', () => ({
+  secrets: [{ emo: '🎹', title: T[lang].secrets.enh[0], desc: T[lang].secrets.enh[1] }, { emo: '⭕', title: T[lang].secrets.fif[0], desc: T[lang].secrets.fif[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+$('overlay').insertAdjacentHTML('beforeend', '<button class="sf-hint" id="sfHint" type="button" hidden></button>');
+$('sfHint').addEventListener('click', () => { if (!store.get('sound', false)) $('sound').click(); unmuteIOS(); actx(); $('sfHint').hidden = true; });
+$('ctrlBody').innerHTML = '<div id="sfBody"></div>';
+
+// --- vector helpers: sharp, flat, clefs, notes ---------------------------------------------------------------
+function sharp(c, x, y, u, col) {
+  c.save(); c.strokeStyle = col; c.lineCap = 'butt';
+  c.lineWidth = u * 0.17; c.beginPath(); c.moveTo(x - u * 0.28, y - u); c.lineTo(x - u * 0.28, y + u * 1.3); c.moveTo(x + u * 0.28, y - u * 1.3); c.lineTo(x + u * 0.28, y + u); c.stroke();
+  c.lineWidth = u * 0.42; c.beginPath(); c.moveTo(x - u * 0.55, y - u * 0.1); c.lineTo(x + u * 0.55, y - u * 0.5); c.moveTo(x - u * 0.55, y + u * 0.55); c.lineTo(x + u * 0.55, y + u * 0.15); c.stroke();
+  c.restore();
+}
+function flat(c, x, y, u, col) {
+  c.save(); c.strokeStyle = col; c.lineCap = 'round'; c.lineJoin = 'round';
+  c.lineWidth = u * 0.18; c.beginPath(); c.moveTo(x - u * 0.3, y - u * 1.7); c.lineTo(x - u * 0.3, y + u * 0.7); c.stroke();
+  c.lineWidth = u * 0.22; c.beginPath(); c.moveTo(x - u * 0.3, y + u * 0.7); c.bezierCurveTo(x + u * 0.2, y + u * 0.4, x + u * 0.8, y - u * 0.05, x + u * 0.65, y - u * 0.45);
+  c.bezierCurveTo(x + u * 0.5, y - u * 0.85, x, y - u * 0.65, x - u * 0.3, y - u * 0.2); c.stroke();
+  c.restore();
+}
+const acc = (c, a, x, y, u, col) => (a > 0 ? sharp : flat)(c, x, y, u, col);
+function tokW(c, toks, px) { c.font = `800 ${px}px Nunito, sans-serif`; return toks.reduce((w, t) => w + (typeof t === 'string' ? c.measureText(t).width : px * 0.55), 0); }
+function drawTok(c, toks, cx, cy, px, col) {
+  const w = tokW(c, toks, px); let x = cx - w / 2;
+  c.fillStyle = col; c.textBaseline = 'middle'; c.textAlign = 'left'; c.font = `800 ${px}px Nunito, sans-serif`;
+  for (const t of toks) {
+    if (typeof t === 'string') { c.fillText(t, x, cy + 0.5); x += c.measureText(t).width; } else { acc(c, t.a, x + px * 0.25, cy, px * 0.45, col); x += px * 0.55; }
+  }
+}
+function pill(c, x, y, w, h, fill) { c.fillStyle = fill; rr(c, x - w / 2, y - h / 2, w, h, h / 2); c.fill(); }
+function trebleClef(c, x, yG, u, col) {
+  c.save(); c.translate(x, yG); c.scale(u, u); c.strokeStyle = col; c.lineWidth = 0.27; c.lineCap = 'round'; c.lineJoin = 'round';
+  c.beginPath(); c.moveTo(-0.7, 2.35);
+  c.bezierCurveTo(-0.7, 3.25, 0.55, 3.45, 0.55, 2.55);
+  c.bezierCurveTo(0.5, 1.2, 0.15, -1.4, 0.05, -3.2);
+  c.bezierCurveTo(0, -4.6, 1.1, -4.8, 1, -3.6);
+  c.bezierCurveTo(0.9, -2.6, -1, -1.4, -1, -0.2);
+  c.bezierCurveTo(-1, 1.2, 1, 1.3, 1, 0);
+  c.bezierCurveTo(1, -0.9, -0.3, -1, -0.3, -0.1);
+  c.bezierCurveTo(-0.3, 0.4, 0.3, 0.4, 0.3, 0); c.stroke(); c.restore();
+}
+function bassClef(c, x, yF, u, col) {
+  c.save(); c.translate(x, yF); c.scale(u, u); c.strokeStyle = col; c.fillStyle = col; c.lineWidth = 0.3; c.lineCap = 'round';
+  c.beginPath(); c.arc(-0.1, 0, 0.34, 0, Math.PI * 2); c.fill();
+  c.beginPath(); c.moveTo(-0.1, -0.3); c.bezierCurveTo(0.6, -1.1, 1.7, -0.9, 1.7, 0.3); c.bezierCurveTo(1.7, 1.6, 0.6, 2.3, -0.9, 2.9); c.stroke();
+  [-0.55, 0.55].forEach((dy) => { c.beginPath(); c.arc(2.4, dy, 0.22, 0, Math.PI * 2); c.fill(); });
+  c.restore();
+}
+function paper(c, x, y, w, h) {
+  c.save(); c.shadowColor = 'rgba(0,0,0,.45)'; c.shadowBlur = 14; c.shadowOffsetY = 5;
+  const g = c.createLinearGradient(x, y, x + w * 0.3, y + h); g.addColorStop(0, '#fbf6ea'); g.addColorStop(1, '#e4d9bf');
+  c.fillStyle = g; rr(c, x, y, w, h, 12); c.fill(); c.restore();
+  c.strokeStyle = 'rgba(60,50,30,.35)'; c.lineWidth = 1; rr(c, x, y, w, h, 12); c.stroke();
+}
+// 5 lines, bottom line at yb, spacing g; the clef sits at the left
+function staff(c, x0, x1, yb, g, kind, goldF) {
+  c.save(); c.strokeStyle = INK; c.lineWidth = 1.2;
+  for (let k = 0; k < 5; k++) { c.beginPath(); c.moveTo(x0, yb - k * g); c.lineTo(x1, yb - k * g); c.stroke(); }
+  if (goldF) { c.strokeStyle = 'rgba(232,160,20,.9)'; c.lineWidth = 3; c.beginPath(); c.moveTo(x0 + g * 4.4, yb - 3 * g); c.lineTo(x1, yb - 3 * g); c.stroke(); }
+  c.strokeStyle = INK; c.lineWidth = 1.8; c.beginPath(); c.moveTo(x0, yb); c.lineTo(x0, yb - 4 * g); c.stroke();
+  if (kind === 'treble') trebleClef(c, x0 + g * 1.7, yb - g, g, INK); else bassClef(c, x0 + g * 0.9, yb - 3 * g, g, INK);
+  c.restore();
+}
+// a quarter note at staff position pos (0 = bottom line, 1 per step), with its sign
+function note(c, x, pos, yb, g, col, o = {}) {
+  const y = yb - pos * g / 2, rx = g * 0.62;
+  c.save(); c.globalAlpha = o.alpha ?? 1;
+  c.strokeStyle = INK; c.lineWidth = 1.2;
+  for (let p = -2; p >= pos; p -= 2) { const ly = yb - p * g / 2; c.beginPath(); c.moveTo(x - g * 0.95, ly); c.lineTo(x + g * 0.95, ly); c.stroke(); }
+  for (let p = 10; p <= pos; p += 2) { const ly = yb - p * g / 2; c.beginPath(); c.moveTo(x - g * 0.95, ly); c.lineTo(x + g * 0.95, ly); c.stroke(); }
+  c.strokeStyle = col; c.lineWidth = 1.5; c.beginPath();
+  if (pos < 4) { c.moveTo(x + rx - 0.7, y - 1); c.lineTo(x + rx - 0.7, y - g * 3.2); } else { c.moveTo(x - rx + 0.7, y + 1); c.lineTo(x - rx + 0.7, y + g * 3.2); }
+  c.stroke();
+  c.save(); c.translate(x, y); c.rotate(-0.38); c.fillStyle = col; c.beginPath(); c.ellipse(0, 0, Math.max(0, rx), Math.max(0, g * 0.46), 0, 0, Math.PI * 2); c.fill();
+  c.fillStyle = 'rgba(255,255,255,.28)'; c.beginPath(); c.ellipse(-rx * 0.3, -g * 0.16, rx * 0.35, g * 0.12, 0, 0, Math.PI * 2); c.fill(); c.restore();
+  if (o.acc) { c.globalAlpha = (o.alpha ?? 1) * (o.accA ?? 1); acc(c, o.acc, x - rx - g * 0.85, y, g * 0.85, o.accCol ?? col); }
+  c.restore();
+}
+const posT = (l, o) => o * 7 + l - 30; // treble: E4 = bottom line
+const posB = (l, o) => o * 7 + l - 18; // bass: G2 = bottom line
+function sigList(count, sharps) {
+  const order = sharps ? SH_ORDER : FL_ORDER, pos = sharps ? SH_POS : FL_POS;
+  return order.slice(0, count).map((l) => ({ l, pos: pos[l], a: sharps ? 1 : -1 }));
+}
+function drawSig(c, list, x0, yb, g, col, tm) {
+  list.forEach((s, i) => {
+    const t = tm ? ease((tm(s, i)) / 0.35) : 1;
+    if (t <= 0) return;
+    c.save(); c.globalAlpha = t; const x = x0 + i * g * 1.15, y = yb - s.pos * g / 2;
+    c.translate(x, y); c.scale(0.6 + 0.4 * t, 0.6 + 0.4 * t); acc(c, s.a, 0, 0, g * 0.85, col); c.restore();
+  });
+}
+
+// --- keyboard -------------------------------------------------------------------------------------------------
+const letterOfKey = (i) => WHITEPC.indexOf(i % 12);
+function drawKeys(c, time, marks, o = {}) {
+  c.save();
+  const fr = c.createLinearGradient(0, KY - 10, 0, KY + KH + 6); fr.addColorStop(0, '#222638'); fr.addColorStop(1, '#10121c');
+  c.fillStyle = fr; rr(c, -2, KY - 10, W + 4, KH + 18, 9); c.fill();
+  c.fillStyle = '#8a2432'; c.fillRect(0, KY - 4, W, 4);
+  const pr = (i) => clamp01(1 - (time - (S.press[i] ?? -9)) / 0.28) * 2.5;
+  KEYS.filter((k) => !k.black).forEach((k) => {
+    const dy = pr(k.i), x = k.x + 0.8, w = k.w - 1.6;
+    const g = c.createLinearGradient(0, KY, 0, KY + KH); g.addColorStop(0, '#fdfdfb'); g.addColorStop(0.78, '#eceff6'); g.addColorStop(1, '#bcc2d3');
+    c.fillStyle = g; rr(c, x, KY + dy, w, KH, [0, 0, 5, 5]); c.fill();
+    c.strokeStyle = 'rgba(70,76,100,.55)'; c.lineWidth = 1; c.stroke();
+    c.fillStyle = 'rgba(255,255,255,.7)'; c.fillRect(x + 1.5, KY + dy + 1, 2, KH - 14);
+    const mk = marks[k.i]; if (mk) overlay(c, k, mk, time, KH, dy);
+    if (!o.noLabels) {
+      c.fillStyle = '#4b5068'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.font = `${lang === 'ru' ? 700 : 800} ${fpx(lang === 'ru' ? 12 : 13)}px Nunito, sans-serif`; c.fillText(LET[lang][letterOfKey(k.i)], k.x + k.w / 2, KY + KH - 14 + dy);
+    }
+  });
+  KEYS.filter((k) => k.black).forEach((k) => {
+    const dy = pr(k.i) * 0.8;
+    c.fillStyle = 'rgba(0,0,0,.4)'; rr(c, k.x + 2.5, KY + 3, k.w, BH, [0, 0, 4, 4]); c.fill();
+    const g = c.createLinearGradient(0, KY, 0, KY + BH); g.addColorStop(0, '#5a6078'); g.addColorStop(0.85, '#1c1f2e'); g.addColorStop(1, '#0a0b12');
+    c.fillStyle = g; rr(c, k.x, KY + dy, k.w, BH - dy * 0.3, [0, 0, 4, 4]); c.fill();
+    c.strokeStyle = '#06070c'; c.lineWidth = 1; c.stroke();
+    c.fillStyle = 'rgba(255,255,255,.16)'; c.fillRect(k.x + 2.5, KY + dy + 1, 3, BH - 16);
+    const mk = marks[k.i]; if (mk) overlay(c, k, mk, time, BH, dy);
+  });
+  c.restore();
+}
+function overlay(c, k, mk, time, hh, dy) {
+  const pulse = mk.pulse ? 0.55 + 0.45 * Math.sin(time * 6) : 1, x = k.x + (k.black ? 0 : 0.8), w = k.w - (k.black ? 0 : 1.6);
+  c.save(); c.globalAlpha = (mk.fill ?? 0.5) * pulse; c.fillStyle = mk.col; rr(c, x, KY + dy, w, hh, [0, 0, k.black ? 4 : 5, k.black ? 4 : 5]); c.fill(); c.restore();
+  if (mk.dot) {
+    const cy = KY + (k.black ? BH - 16 : KH - 40) + dy;
+    c.save(); c.fillStyle = mk.col; c.strokeStyle = '#fff'; c.lineWidth = 2; c.beginPath(); c.arc(k.x + k.w / 2, cy, Math.max(0, 6 + (mk.pulse ? pulse * 1.5 : 0)), 0, Math.PI * 2); c.fill(); c.stroke(); c.restore();
+  }
+  if (mk.ring) { c.save(); c.strokeStyle = mk.ring; c.lineWidth = 3; rr(c, x + 1, KY + dy + 1, w - 2, hh - 2, [0, 0, 4, 4]); c.stroke(); c.restore(); }
+}
+// a one-key arc above the keyboard from key i to key j, grown to progress t
+function arcOver(c, i, j, col, t, label, h) {
+  const x1 = keyCX(i), x2 = keyCX(j), y = KY - 14, hgt = h ?? 15 + Math.abs(x2 - x1) * 0.12;
+  if (t <= 0) return;
+  c.save(); c.strokeStyle = col; c.lineWidth = 3; c.lineCap = 'round'; c.beginPath();
+  const n = Math.max(2, Math.floor(24 * clamp01(t)));
+  for (let s = 0; s <= n; s++) { const u = s / 24, X = x1 + (x2 - x1) * u, Y = y - 4 * hgt * u * (1 - u); if (s === 0) c.moveTo(X, Y); else c.lineTo(X, Y); }
+  c.stroke();
+  if (t >= 1) {
+    const d = x2 > x1 ? 1 : -1; c.fillStyle = col; c.beginPath(); c.moveTo(x2, y + 2); c.lineTo(x2 - d * 7, y - 6); c.lineTo(x2 - d * 1, y - 8); c.closePath(); c.fill();
+    if (label) { const tw = 44; pill(c, (x1 + x2) / 2, y - hgt - 8, tw, 20, 'rgba(10,12,20,.85)'); c.fillStyle = '#fff'; c.font = `800 ${fpx(13)}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(label, (x1 + x2) / 2, y - hgt - 7); }
+  }
+  c.restore();
+}
+function hitKey(px, py) {
+  if (py < KY || py > KY + KH) return -1;
+  if (py <= KY + BH) { const b = KEYS.find((k) => k.black && px >= k.x && px <= k.x + k.w); if (b) return b.i; }
+  const wk = KEYS.find((k) => !k.black && px >= k.x && px < k.x + k.w);
+  return wk ? wk.i : -1;
+}
+
+// --- the three views and the secrets: drawing ---------------------------------------------------------------
+const YB = 80, GT = 11; // treble staff: bottom line y, line gap
+function trebleBase(c, g) { paper(c, 6, 10, 348, 118); staff(c, 16, 344, YB, g ?? GT, 'treble'); }
+
+function drawStep(c, time) {
+  const V = S.v1; trebleBase(c);
+  const marks = {};
+  if (!V.fin) {
+    const t = TASK1[V.i], nat = midiOf(t.l, 0, t.o) - 60, tgt = midiOf(t.l, t.a, t.o) - 60, an = ease((time - V.t0) / 0.45);
+    marks[nat] = { col: GOLD, ring: GOLD, fill: 0.18, dot: true };
+    if (V.reveal) {
+      marks[tgt] = { col: GREEN, fill: 0.5, dot: true };
+      if (V.guess !== tgt) marks[V.guess] = { col: RED, fill: 0.5, dot: true };
+    }
+    note(c, 214, posT(t.l, t.o), YB, GT, V.reveal && V.guess === tgt ? '#1f9e6d' : INK, { acc: t.a, accCol: CORAL, alpha: an });
+    drawTok(c, tok(t.l, t.a), 214, 116, fpx(15), INK);
+    drawKeys(c, time, marks);
+    if (V.reveal) arcOver(c, nat, tgt, GREEN, ease((time - V.t1) / 0.5), t.a > 0 ? '+1' : '−1');
+  } else {
+    TASK1.forEach((t, i) => note(c, 84 + i * 52, posT(t.l, t.o), YB, GT, V.right[i] ? '#1f9e6d' : '#c0392b', { acc: t.a, accCol: CORAL }));
+    TASK1.forEach((t, i) => drawTok(c, tok(t.l, t.a), 84 + i * 52, 116, fpx(13), INK));
+    drawKeys(c, time, marks);
+  }
+}
+
+function drawScale(c, time) {
+  const sc = S.sc, list = scaleOf(sc.k), tt = T[lang].sc, built = sc.phase === 'pred' ? 1 : sc.n, done = sc.phase === 'done';
+  paper(c, 6, 10, 348, 118); staff(c, 14, 346, YB, GT, 'treble');
+  // key signature: signs appear as the notes that need them are placed
+  const shp = list.some((q) => q.a > 0);
+  const need = list.slice(0, 7).map((q, i) => ({ q, i })).filter((x) => x.q.a !== 0);
+  const placed = (s) => { const x = need.find((y) => y.q.l === s.l); return x && x.i < built ? sc.times[x.i] ?? 0 : -1; };
+  const sigs = sigList(7, shp).filter((s) => need.some((x) => x.q.l === s.l));
+  drawSig(c, sigs, 52, YB, GT, INK, (s) => { const p = placed(s); return p < 0 ? -1 : time - p; });
+  const fade = done ? 1 - ease((time - sc.doneT) / 0.8) : 1;
+  const run = sc.run, ri = run ? Math.floor((time - run.t0) / run.gap) : -1;
+  if (run && time - run.t0 > 8 * run.gap + 0.6) sc.run = null;
+  list.forEach((q, i) => {
+    if (i >= built) return;
+    const x = 108 + i * 30.5, an = ease((time - (sc.times[i] ?? 0)) / 0.4), hot = run && i === ri;
+    note(c, x, posT(q.l, q.o), YB, GT, hot ? CORAL : i === built - 1 && !done ? '#1b6fc2' : INK, { acc: q.a, accCol: CORAL, alpha: an, accA: fade });
+    if (done || i < built) drawTok(c, tok(q.l, q.a), x, 116, fpx(12), hot ? CORAL : INK);
+  });
+  // marks on the keyboard
+  const marks = {};
+  list.slice(0, built).forEach((q, i) => { marks[q.idx] = { col: BLUE, fill: 0.34, dot: true }; if (i === built - 1 && !done) marks[q.idx] = { col: GOLD, ring: GOLD, fill: 0.3, dot: true }; });
+  if (sc.hint && !done && sc.phase === 'build') marks[list[built].idx] = { col: GREEN, fill: 0.5, dot: true, pulse: true };
+  if (sc.bad && time - sc.bad.t < 0.7) marks[sc.bad.i] = { col: RED, fill: 0.5 };
+  if (run && ri >= 0 && ri < 8) marks[list[ri].idx] = { col: CORAL, fill: 0.55, dot: true };
+  drawKeys(c, time, marks);
+  for (let i = 1; i < built; i++) {
+    const st = list[i].m - list[i - 1].m;
+    arcOver(c, list[i - 1].idx, list[i].idx, st === 1 ? CORAL : BLUE, ease((time - (sc.times[i] ?? 0)) / 0.4), '', 8);
+  }
+  // the step gauge
+  const wl = tt.wl;
+  for (let i = 0; i < 7; i++) {
+    const x = 29 + i * 44, y = 133, has = sc.phase !== 'pred' && i + 1 < built;
+    const w = PAT[i] === 2;
+    c.fillStyle = has ? (w ? 'rgba(78,168,255,.9)' : 'rgba(255,138,92,.95)') : 'rgba(130,145,190,.16)';
+    rr(c, x, y, 38, 24, 12); c.fill();
+    c.strokeStyle = has ? 'rgba(255,255,255,.7)' : 'rgba(130,145,190,.4)'; c.lineWidth = 1.2; rr(c, x, y, 38, 24, 12); c.stroke();
+    c.fillStyle = has ? '#0a0c14' : '#98A0B8'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.font = `900 ${fpx(14)}px Nunito, sans-serif`;
+    c.fillText(has ? (w ? wl[0] : wl[1]) : S.ruleKnown ? (w ? wl[0] : wl[1]) : '?', x + 19, y + 13);
+    if (!has && S.ruleKnown) { c.fillStyle = 'rgba(10,12,20,.45)'; rr(c, x, y, 38, 24, 12); c.fill(); }
+  }
+}
+
+function drawBass(c, time) {
+  const V = S.b3, marks = {};
+  paper(c, 6, 10, 348, 118);
+  if (V.intro) {
+    // grand staff, once: treble above, bass below, middle C on the line between
+    const g = 9, ybT = 60, ybB = 114;
+    staff(c, 14, 346, ybT, g, 'treble'); staff(c, 14, 346, ybB, g, 'bass');
+    c.strokeStyle = INK; c.lineWidth = 1.8; c.beginPath(); c.moveTo(14, ybT - 4 * g); c.lineTo(14, ybB); c.stroke();
+    note(c, 214, posT(0, 4), ybT, g, '#1b6fc2');
+    const tm = T[lang].ba.mid; c.font = `800 ${fpx(13)}px Nunito, sans-serif`; const tw = c.measureText(tm).width + 18;
+    pill(c, Math.min(W - tw / 2 - 12, 214 + 26 + tw / 2), 69, tw, 22, 'rgba(38,42,64,.9)'); c.fillStyle = '#fff'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(tm, Math.min(W - tw / 2 - 12, 214 + 26 + tw / 2), 70);
+    marks[12] = { col: GOLD, ring: GOLD, fill: 0.4, dot: true, pulse: true };
+    drawKeys(c, time, marks);
+    return;
+  }
+  const yb = 88, g = 12;
+  staff(c, 14, 346, yb, g, 'bass', true);
+  if (!V.fin) {
+    const t = TASK3[V.i], tgt = midiOf(t.l, 0, t.o) - 48, an = ease((time - V.t0) / 0.45);
+    note(c, 214, posB(t.l, t.o), yb, g, V.reveal && V.guess === tgt ? '#1f9e6d' : INK, { alpha: an });
+    pill(c, 326, yb - 3 * g, 34, 20, 'rgba(232,160,20,.95)'); c.fillStyle = '#2a1c00'; c.font = `900 ${fpx(13)}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(LET[lang][3], 326, yb - 3 * g + 1);
+    if (V.reveal) { marks[tgt] = { col: GREEN, fill: 0.5, dot: true }; if (V.guess !== tgt) marks[V.guess] = { col: RED, fill: 0.5, dot: true }; drawTok(c, tok(t.l, 0), 214, 118, fpx(15), INK); }
+  } else {
+    TASK3.forEach((t, i) => { note(c, 84 + i * 48, posB(t.l, t.o), yb, g, V.right[i] ? '#1f9e6d' : '#c0392b'); });
+  }
+  drawKeys(c, time, marks);
+}
+
+function drawEnh(c, time) {
+  const P = PAIRS[S.enh], marks = {};
+  paper(c, 6, 10, 348, 118); staff(c, 14, 346, YB, GT, 'treble');
+  const [la, aa] = P.a, [lb, ab] = P.b;
+  note(c, 130, posT(la, 4), YB, GT, INK, { acc: aa, accCol: CORAL });
+  note(c, 250, posT(lb, 4), YB, GT, INK, { acc: ab, accCol: CORAL });
+  c.fillStyle = INK; c.font = `900 ${fpx(24)}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('=', 190, 54);
+  drawTok(c, tok(la, aa), 130, 116, fpx(15), INK); drawTok(c, tok(lb, ab), 250, 116, fpx(15), INK);
+  marks[P.pc] = { col: GOLD, fill: 0.45, dot: true, pulse: true, ring: GOLD };
+  drawKeys(c, time, marks);
+}
+
+function wedge(c, cx, cy, r0, r1, a0, a1) { c.beginPath(); c.arc(cx, cy, r1, a0, a1); c.arc(cx, cy, r0, a1, a0, true); c.closePath(); }
+function drawFif(c, time) {
+  const cx = 180, cy = 142, R = 120, r0 = 56, K = S.fif, step = Math.PI / 6;
+  FIF.forEach((f, k) => {
+    const a0 = -Math.PI / 2 + k * step - step / 2 + 0.012, a1 = a0 + step - 0.024, on = k === K;
+    c.save(); if (on) { c.shadowColor = 'rgba(0,0,0,.5)'; c.shadowBlur = 12; }
+    const hue = f.c === 0 ? 215 : f.sh ? 28 : 205, sat = f.c === 0 ? 14 : 70, lit = (on ? 62 : 38) - (f.c === 0 ? 0 : 0);
+    const g = c.createRadialGradient(cx, cy, r0, cx, cy, R); g.addColorStop(0, `hsl(${hue},${sat}%,${lit + 8}%)`); g.addColorStop(1, `hsl(${hue},${sat}%,${lit - 8}%)`);
+    c.fillStyle = g; wedge(c, cx, cy, on ? r0 : r0 + 2, on ? R + 6 : R, a0, a1); c.fill(); c.restore();
+    c.strokeStyle = on ? '#fff' : 'rgba(255,255,255,.28)'; c.lineWidth = on ? 2.5 : 1; wedge(c, cx, cy, on ? r0 : r0 + 2, on ? R + 6 : R, a0, a1); c.stroke();
+    const am = a0 + step / 2 - 0.012, rm = (r0 + R) / 2 + (on ? 3 : 0);
+    const toks = f.n.length > 1 ? [...tok(...f.n[0]), '/', ...tok(...f.n[1])] : tok(...f.n[0]);
+    drawTok(c, toks, cx + Math.cos(am) * rm, cy + Math.sin(am) * rm, fpx(13), '#fff');
+  });
+  const f = FIF[K], sharps = f.sh === 1;
+  c.fillStyle = 'rgba(10,12,20,.85)'; c.beginPath(); c.arc(cx, cy, Math.max(0, r0 - 6), 0, Math.PI * 2); c.fill();
+  c.fillStyle = '#fff'; c.font = `900 ${fpx(30)}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(String(f.c), cx - (f.c ? 10 : 0), cy);
+  if (f.c) acc(c, sharps ? 1 : -1, cx + 18, cy, 11, f.sh ? '#ffb27a' : '#8fc7ff');
+  // a small staff with the key signature of the chosen key
+  paper(c, 6, 282, 348, 92);
+  const yb = 346, g = 10; staff(c, 14, 346, yb, g, 'treble');
+  const list = sigList(f.c, sharps);
+  drawSig(c, list, 14 + g * 3.8, yb, g, INK, (s, i) => time - (S.fifT ?? -9) - i * 0.07);
+  const names = f.n.map(([l, a]) => tok(l, a));
+  drawTok(c, names[0], 300, 300, fpx(15), INK);
+}
+
+// --- one draw for everything ---------------------------------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  G.s = Math.min(w / W, h / H); G.ox = (w - W * G.s) / 2; G.oy = (h - H * G.s) / 2;
+  c.save(); c.translate(G.ox, G.oy); c.scale(G.s, G.s); c.lineJoin = 'round'; c.lineCap = 'round';
+  const m = mode();
+  if (m === 'step') drawStep(c, time); else if (m === 'scale') drawScale(c, time); else if (m === 'bass') drawBass(c, time);
+  else if (m === 'enh') drawEnh(c, time); else if (m === 'fif') drawFif(c, time);
+  c.restore();
+});
+
+// --- taps ----------------------------------------------------------------------------------------------------
+$('cv').addEventListener('pointerdown', (ev) => {
+  const r = $('cv').getBoundingClientRect(), x = (ev.clientX - r.left - G.ox) / G.s, y = (ev.clientY - r.top - G.oy) / G.s, m = mode();
+  if (m === 'fif') {
+    const dx = x - 180, dy = y - 142, d = Math.hypot(dx, dy);
+    if (d < 56 || d > 128) return;
+    const k = Math.floor(((Math.atan2(dx, -dy) + Math.PI * 2 + Math.PI / 12) % (Math.PI * 2)) / (Math.PI / 6)) % 12;
+    setFif(k); return;
+  }
+  const i = hitKey(x, y); if (i < 0) return;
+  S.press[i] = nowS();
+  const base = m === 'bass' ? 48 : 60;
+  if (m === 'step') tapStep(i);
+  else if (m === 'scale') tapScale(i);
+  else if (m === 'bass') tapBass(i, base);
+  else ping(base + i);
+});
+function showStage() {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+function tapStep(i) {
+  const V = S.v1; if (V.fin || V.reveal) { ping(60 + i); return; }
+  const t = TASK1[V.i], tgt = midiOf(t.l, t.a, t.o) - 60;
+  V.guess = i; V.reveal = true; V.t1 = nowS(); V.right[V.i] = i === tgt;
+  ping(60 + i); if (i !== tgt) setTimeout(() => ping(60 + tgt), 500);
+  render();
+}
+function tapBass(i, base) {
+  const V = S.b3;
+  if (V.intro || V.fin || V.reveal) { ping(base + i); return; }
+  const t = TASK3[V.i], tgt = midiOf(t.l, 0, t.o) - 48;
+  V.guess = i; V.reveal = true; V.t1 = nowS(); V.right[V.i] = i === tgt;
+  ping(base + i); if (i !== tgt) setTimeout(() => ping(base + tgt), 500);
+  render();
+}
+function tapScale(i) {
+  const sc = S.sc, list = scaleOf(sc.k);
+  if (sc.phase !== 'build') { ping(60 + i); return; }
+  const need = list[sc.n];
+  if (i === need.idx) {
+    sc.times[sc.n] = nowS(); sc.n++; sc.miss = 0; sc.hint = false; sc.msg = null; ping(need.m);
+    if (sc.n === 8) { sc.phase = 'done'; sc.doneT = nowS(); S.ruleKnown = true; store.set('sf:rule', true); }
+  } else {
+    sc.miss++; sc.bad = { i, t: nowS() }; sc.msg = { d: i - list[sc.n - 1].idx, need: PAT[sc.n - 1] }; ping(60 + i);
+    if (sc.miss >= 3) sc.hint = true;
+  }
+  render();
+}
+function playScale() {
+  const sc = S.sc, list = scaleOf(sc.k), gap = 0.45, t0 = nowS() + 0.05;
+  sc.run = { t0, gap };
+  if (audioReady()) { try { list.forEach((q, i) => voice(q.m, AC.currentTime + 0.05 + i * gap)); } catch { /* no audio */ } } else maybeHint();
+}
+function setFif(k) { S.fif = k; S.fifT = nowS(); ping(60 + FIF[k].pc); render(); }
+
+// --- controls ------------------------------------------------------------------------------------------------
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const act = b.dataset.act, V = S.v1, B = S.b3, sc = S.sc;
+  if (act === 'next1') { if (V.i + 1 >= TASK1.length) { V.fin = true; sfx.click(); } else { V.i++; V.guess = null; V.reveal = false; V.t0 = nowS(); sfx.tick(); } showStage(); }
+  else if (act === 'again1') { Object.assign(V, { i: 0, guess: null, reveal: false, right: [], fin: false, t0: nowS() }); sfx.click(); }
+  else if (act === 'got') { B.intro = false; B.t0 = nowS(); sfx.click(); }
+  else if (act === 'next3') { if (B.i + 1 >= TASK3.length) { B.fin = true; sfx.click(); } else { B.i++; B.guess = null; B.reveal = false; B.t0 = nowS(); sfx.tick(); } showStage(); }
+  else if (act === 'again3') { Object.assign(B, { i: 0, guess: null, reveal: false, right: [], fin: false, t0: nowS() }); sfx.click(); }
+  else if (act === 'start') { S.sc = newScale(+b.dataset.k); sfx.tick(); }
+  else if (act === 'pdec') sc.pred = clamp(sc.pred - 1, 0, 4);
+  else if (act === 'pinc') sc.pred = clamp(sc.pred + 1, 0, 4);
+  else if (act === 'go') { sc.phase = 'build'; sc.n = 1; sc.times = [nowS()]; ping(scaleOf(sc.k)[0].m); sfx.click(); }
+  else if (act === 'hint') { sc.hint = true; sfx.tick(); }
+  else if (act === 'play') playScale();
+  else if (act === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    S.sec = S.sec === b.dataset.k ? null : b.dataset.k; sfx.click();
+    if (S.sec === 'fif') S.fifT = nowS();
+  } else if (act === 'enhnext') { S.enh = (S.enh + 1) % PAIRS.length; ping(60 + PAIRS[S.enh].pc); }
+  else if (act === 'enhplay') ping(60 + PAIRS[S.enh].pc);
+  else if (act === 'fprev') return setFif((S.fif + 11) % 12);
+  else if (act === 'fnext') return setFif((S.fif + 1) % 12);
+  render();
+});
+
+// --- render: controls, readout, state card and facts, one place ---------------------------------------------
+const secChips = (t) => {
+  const open = secret.unlocked(), c = (k, emo) => `<button class="chip secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+  return `<div class="sf-sec">${c('enh', '🎹')}${c('fif', '⭕')}</div>`;
+};
+function render() {
+  const t = T[lang], m = mode(), view = lab.view;
+  document.body.dataset.v = m;
+  lab.setFacts(t.facts[view] ?? []);
+  let html = '';
+  if (m === 'step') html = renderStep(t);
+  else if (m === 'scale') html = renderScale(t);
+  else if (m === 'bass') html = renderBass(t);
+  else if (m === 'enh') html = renderEnh(t);
+  else html = renderFif(t);
+  $('sfBody').innerHTML = html + secChips(t) + `<div class="fine" style="margin-top:8px">${esc(t.fineLab)}</div>`;
+}
+
+function renderStep(t) {
+  const V = S.v1, st = t.st; lab.setGlow('rgba(255, 138, 92, .24)');
+  if (V.fin) {
+    const k = V.right.filter(Boolean).length;
+    lab.setReadout(`${k}/5`, '', '', CORAL);
+    lab.setState({ emo: '🏆', title: st.end(k), lead: st.endLead, body: '', extra: '' });
+    return `<div class="sf-row"><button class="sf-btn main" data-act="again1">${esc(t.again)}</button></div>`;
+  }
+  const q = TASK1[V.i], tgt = midiOf(q.l, q.a, q.o) - 60, ok = V.guess === tgt;
+  const ex = q.l === 2 && q.a > 0 ? st.e : q.l === 6 && q.a > 0 ? st.b : q.a > 0 ? st.sharp : st.flat;
+  const asked = st.q(askName(q.l, q.a));
+  lab.setReadout(esc(txt(q.l, q.a)), `${V.i + 1} / 5`, V.reveal ? (q.a > 0 ? st.pillR : st.pillL) : '', CORAL);
+  if (!V.reveal) lab.setState({ emo: '🎹', title: asked, lead: st.lead, body: '', extra: '' });
+  else lab.setState(ok ? { emo: '✅', title: t.right, lead: ex, body: '', extra: '' }
+    : { emo: '🤔', title: st.no, lead: `${st.green(nameHTML(q.l, q.a))} ${ex}`, body: '', extra: '' });
+  return `<p class="sf-q">${esc(asked)}</p><div class="sf-row">${V.reveal ? `<button class="sf-btn main" data-act="next1">${esc(t.next)}</button>` : ''}</div>`;
+}
+
+function renderScale(t) {
+  const sc = S.sc, tt = t.sc, list = scaleOf(sc.k), s0 = STARTS[sc.k]; lab.setGlow('rgba(78, 168, 255, .24)');
+  const chips = STARTS.map((s, k) => `<button class="sf-chip ${k === sc.k ? 'on' : ''}" data-act="start" data-k="${k}">${esc(txt(s.l, s.a))}</button>`).join('');
+  const head = `<div class="sf-row"><span class="lbl">${esc(tt.start)}</span>${chips}</div>`;
+  const name = tt.major(majorName(s0.l, s0.a));
+  if (sc.phase === 'pred') {
+    lab.setReadout(String(sc.pred), tt.predUnit, '', BLUE);
+    lab.setState({ emo: '🪜', title: name, lead: tt.predQ, body: tt.leadPred, extra: '' });
+    return `${head}<p class="sf-q">${esc(tt.predQ)}</p><div class="sf-row"><span class="sf-step"><button data-act="pdec" aria-label="−"${sc.pred <= 0 ? ' disabled' : ''}>−</button><b>${sc.pred}</b><button data-act="pinc" aria-label="+"${sc.pred >= 4 ? ' disabled' : ''}>+</button></span>
+      <button class="sf-btn main" data-act="go">${esc(tt.go)}</button></div>`;
+  }
+  if (sc.phase === 'build') {
+    lab.setReadout(tt.count(sc.n), tt.notes, '', BLUE);
+    const lead = sc.msg ? tt.miss(sc.msg.d, sc.msg.need) : S.ruleKnown ? tt.follow : tt.first;
+    lab.setState({ emo: '🎹', title: tt.noteN(sc.n + 1), lead, body: tt.legend, extra: '' });
+    return `${head}<p class="sf-q">${esc(lead)}</p><div class="sf-row"><button class="sf-btn" data-act="hint">${esc(tt.hintBtn)}</button></div>`;
+  }
+  const blk = blackCount(list), ok = blk === sc.pred;
+  const accs = list.slice(0, 7).filter((q) => q.a).map((q) => txt(q.l, q.a)).join(' ');
+  const next = STARTS[sc.k + 1], tryN = next ? tt.tryNext(tt.major(majorName(next.l, next.a))) : tt.tryAll;
+  lab.setReadout(String(blk), tt.blk, ok ? `✓ ${tt.ok}` : tt.mine(sc.pred), BLUE);
+  lab.setState({ emo: ok ? '✅' : '🤔', title: ok ? tt.ok : tt.guessed(sc.pred), lead: `${tt.uses(blk, accs)} ${tt.why[sc.k] ?? ''}`.trim(), body: `${tt.pattern} ${blk ? tt.sig : ''} ${tryN}`.trim(), extra: '' });
+  return `${head}<div class="sf-row"><button class="sf-btn main" data-act="play">${esc(tt.play)}</button></div>`;
+}
+
+function renderBass(t) {
+  const V = S.b3, bt = t.ba; lab.setGlow('rgba(61, 220, 151, .2)');
+  const n = LET[lang];
+  if (V.intro) {
+    lab.setReadout(esc(bt.mid), '', '', GREEN);
+    lab.setState({ emo: '🎼', title: bt.midTitle, lead: bt.midLead, body: '', extra: '' });
+    return `<div class="sf-row"><button class="sf-btn main" data-act="got">${esc(bt.got)}</button></div>`;
+  }
+  if (V.fin) {
+    const k = V.right.filter(Boolean).length;
+    lab.setReadout(`${k}/6`, '', '', GREEN); lab.setState({ emo: '🏆', title: bt.end(k), lead: bt.endLead, body: '', extra: '' });
+    return `<div class="sf-row"><button class="sf-btn main" data-act="again3">${esc(t.again)}</button></div>`;
+  }
+  const q = TASK3[V.i], tgt = midiOf(q.l, 0, q.o) - 48, ok = V.guess === tgt;
+  lab.setReadout(V.reveal ? esc(txt(q.l, 0)) : '?', `${V.i + 1} / 6`, '', GREEN);
+  if (!V.reveal) lab.setState({ emo: '🎼', title: bt.q, lead: bt.lead, body: '', extra: '' });
+  else { const ex = bt.expl[V.i](n); lab.setState(ok ? { emo: '✅', title: t.right, lead: ex, body: '', extra: '' } : { emo: '🤔', title: bt.no, lead: `${bt.green(txt(q.l, 0))} ${ex}`, body: '', extra: '' }); }
+  return `<p class="sf-q">${esc(bt.q)}</p><div class="sf-row">${V.reveal ? `<button class="sf-btn main" data-act="next3">${esc(t.next)}</button>` : ''}</div>`;
+}
+
+function renderEnh(t) {
+  const et = t.enh, P = PAIRS[S.enh]; lab.setGlow('rgba(245, 200, 76, .22)');
+  const a = txt(...P.a), b = txt(...P.b);
+  lab.setReadout(`${esc(a)} = ${esc(b)}`, et.val, '', GOLD);
+  lab.setState({ emo: '🎹', title: et.title(a, b), lead: et.lead, body: et.tap, extra: '' });
+  return `<div class="sf-row"><button class="sf-btn main" data-act="enhplay">${esc(et.play)}</button><button class="sf-btn" data-act="enhnext">${esc(et.next)}</button></div>`;
+}
+
+function renderFif(t) {
+  const ft = t.fif, f = FIF[S.fif]; lab.setGlow('rgba(255, 138, 92, .22)');
+  const key = f.n.map(([l, a]) => txt(l, a)).join(' / ');
+  lab.setReadout(`${f.c}${f.c ? (f.sh ? '♯' : '♭') : ''}`, key, '', f.sh ? CORAL : BLUE);
+  lab.setState({ emo: '⭕', title: f.c ? ft.title(key, f.c, f.sh === 1) : ft.zero(key), lead: ft.lead, body: ft.tap, extra: '' });
+  return `<div class="sf-row"><button class="sf-btn" data-act="fprev">${esc(ft.prev)}</button><button class="sf-btn main" data-act="fnext">${esc(ft.nxt)}</button></div>`;
+}
+render();
+</script>
+</body>
+</html>

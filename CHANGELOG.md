@@ -15,6 +15,16 @@ Counts in brackets are totals after that day.
 ## 2026-11-15
 
 ### Labs
+- New lab `blues` “Twelve Bars of Blues”: The 12-bar blues, blue notes and the family tree of popular music. (666). (#577)
+- New lab `sharps-flats` “Sharps, Flats and Keys”: Sharps, flats, the major-scale pattern and the bass clef. (665). (#577)
+- New lab `texture` “One Voice or Many?”: Monophony, melody with chords, and a round. (664). (#577)
+- New lab `packets` “A Photo in Pieces”: Packets, rerouting around a cut cable, cable vs Wi-Fi vs Bluetooth. (663). (#577)
+- New lab `bits-letters` “Letters Made of Bulbs”: 2ⁿ codes, ASCII, UTF-8 bytes per letter, Morse. (662). (#577)
+- New lab `same-different` “Same and Different”: Similarities and differences in a Venn diagram. (661). (#577)
+- New lab `permission` “May I?”: When to ask first, how to ask, and photos of friends. (660). (#577)
+- New lab `join-in` “Who Will Come on Saturday?”: Why people join community work, and how kids can help. (659). (#577)
+- New lab `practice-curve` “The Not-Yet Curve”: Learning curves with plateaus, self-talk and strategy. (658). (#577)
+- New lab `mixed-feelings` “Two Feelings at Once”: Two feelings at once, and how a strong feeling narrows choices. (657). (#577)
 - New lab `fact-check` “Source Detective”: Judging sources, independent vs copied sources, lateral reading. (656). (#576)
 - New lab `translator` “The Translator’s Choice”: Word-for-word vs free translation, names in translation. (655). (#576)
 - New lab `theme` “What Is It Really About?”: Topic vs theme, one theme across different stories. (654). (#576)
