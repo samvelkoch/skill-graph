@@ -1,0 +1,587 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Make It Vivid · Skill Graph</title>
+<meta name="description" content="Paint a grey autumn forest with words: add colours with epithets, faces with personification and giant sizes with hyperbole, then catch all three in real lines. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  .ep-card { position: absolute; left: 8px; right: 8px; top: 8px; padding: 10px 12px; border-radius: 16px; background: rgba(14, 17, 28, .9);
+    border: 1px solid var(--stroke2); box-shadow: 0 6px 20px rgba(0, 0, 0, .35); }
+  .ep-sent { font: 500 21px/1.28 var(--serif); color: #fff; text-align: center; text-wrap: balance; }
+  .ep-sent .ep-h, .ep-sentbox .ep-h { font-weight: 700; border-bottom: 3px solid; padding-bottom: 1px; }
+  .ep-src { font-size: 12px; color: var(--faint); text-align: center; margin-top: 6px; }
+  .ep-toks { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+  .ep-tok { min-height: 38px; padding: 4px 11px; border-radius: 12px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .12);
+    font: 500 20px/1.1 var(--serif); color: #fff; cursor: pointer; }
+  .ep-tok:hover:not(:disabled) { background: rgba(130, 145, 190, .26); }
+  .ep-tok.sel { outline: 2px solid #fff; outline-offset: 1px; }
+  .ep-tok.lit { color: #10131c; background: var(--tc); border-color: var(--tc); font-weight: 700; }
+  .ep-tok:disabled { cursor: default; }
+  .ep-sentbox { padding: 10px 12px; border-radius: 14px; background: rgba(10, 12, 20, .55); border: 1px solid var(--stroke);
+    font: 500 19px/1.35 var(--serif); color: #fff; margin-bottom: 4px; }
+  .ep-row { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+  .ep-lbl { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; font-weight: 800; }
+  .chip.ep-chip { min-height: 38px; }
+  .chip.ep-chip.on { background: var(--tc); color: #10131c; border-color: var(--tc); }
+  .ep-tools { display: flex; flex-wrap: wrap; gap: 8px; }
+  .ep-tool { flex: 1 1 30%; min-height: 44px; padding: 8px 10px; border-radius: 14px; border: 2px solid var(--tc); background: rgba(130, 145, 190, .1);
+    font-weight: 800; font-size: 13.5px; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; text-align: center; }
+  .ep-tool:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .ep-tool.pick { background: var(--tc); color: #10131c; }
+  .ep-tool.ok { box-shadow: 0 0 0 3px var(--ok); }
+  .ep-tool.bad { box-shadow: 0 0 0 3px var(--red); }
+  .ep-tool:disabled { cursor: default; }
+  .btn:disabled { opacity: .35; cursor: default; }
+  .push { margin-left: auto; }
+  @media (max-width: 760px) {
+    body[data-v=which] #stage, body[data-v=poems] #stage { height: min(108vw, 460px); }
+    .ep-sent { font-size: 19px; }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+// sent(o): the sentence of "Paint with words" as [text, tool?] parts; o = which cards are on (E0 E1 E2 · P0 P1 P2 · H0 H1 H2)
+// which: [sentence with [[key words]], tool]; poems: [text, indices of the tapped words, tool, source]
+// fixed: [before, epithet, after] pairs of the first secret
+const T = {
+  en: {
+    name: 'Make It Vivid', title: 'Make the grey forest come alive',
+    lines: [['Add colours', 'with epithets.'], ['Give things faces', 'with personification.'], ['Make things giant', 'with hyperbole.']],
+    views: { paint: '🎨 Paint with words', which: '🔍 Which tool?', poems: '📜 In real texts' },
+    tools: { E: 'Epithet', P: 'Personification', H: 'Hyperbole' },
+    tool: {
+      E: ['Epithets add colour', 'An epithet is a describing word with a picture in it: golden, silver, icy.'],
+      P: ['Personification gives faces', 'Things act like people: the wind sings, the trees whisper.'],
+      H: ['Hyperbole makes things giant', 'A huge exaggeration on purpose: an oak as tall as the sky.'],
+    },
+    chips: { E: ['golden forest', 'silver river', 'icy wind'], P: ['the wind sings', 'the trees whisper', 'the river laughs'], H: ['oak as tall as the sky', 'river as wide as the sea', 'a million leaves'] },
+    sent(o) {
+      const p = []; const a = (s, k) => p.push(k ? [s, k] : [s]);
+      a('The '); if (o.E0) a('golden ', 'E'); a('forest stands by the '); if (o.E1) a('silver ', 'E'); a('river.');
+      if (o.H1) a(' The river is as wide as the sea.', 'H');
+      a(' The '); if (o.E2) a('icy ', 'E'); a('wind '); if (o.P0) a('sings', 'P'); else a('blows'); a('.');
+      if (o.P1) a(' The trees whisper.', 'P'); if (o.P2) a(' The river laughs.', 'P');
+      if (o.H0) a(' A thousand-year-old oak is as tall as the sky.', 'H'); if (o.H2) a(' A million leaves fly in the air.', 'H');
+      return p;
+    },
+    of9: 'of 9 word cards',
+    start: ['A flat grey forest', 'Tap a word card. The picture and the sentence change together.'],
+    much: ['Too much!', 'Everything at once sounds silly. Tap cards to take words away until it sounds good.'],
+    better: ['Getting better.', 'Keep taking words away. Which ones help the picture most?'],
+    good: ['That sounds good!', 'There is no single right answer: keep the words you like best.'],
+    fix: ['Words that always go together', 'Folk tales repeat the same pairs. Tap one to see it pop up over the forest.'],
+    fixed: [['the ', 'good', ' lad'], ['the ', 'fair', ' maiden'], ['the ', 'deep blue', ' sea'], ['the ', 'open', ' field']],
+    secrets: { fixed: ['Fixed epithets', 'Pairs that never change'], much: ['Too much!', 'All the words at once'] },
+    wq: 'Which tool is it?', wlead: 'Read the sentence, then tap the tool.', wright: 'Right!', wwrong: (n) => `Not quite: ${n}.`,
+    sentence: 'sentence', next: '→ Next', again: '↻ Again',
+    wend: (k) => `${k} of 8 right.`, wendLead: 'Colours, faces or giant sizes: now you can spot all three.',
+    which: [
+      ['The [[sleepy sun went to bed]].', 'P'], ['I have told you [[a million times]]!', 'H'], ['a [[silver]] frost', 'E'], ['The old house [[groaned]] in the storm.', 'P'],
+      ['My bag [[weighs a ton]].', 'H'], ['a [[gloomy, rainy]] morning', 'E'], ['The kettle [[sang]] on the stove.', 'P'], ['We waited [[forever]].', 'H'],
+    ],
+    pm: { q: 'Find the tool in the line', tap: 'Tap a word that uses a tool, then tap the tool’s name.', check: '✓ Check',
+      right: 'Right!', wordsOnly: 'Right words, other tool.', toolOnly: 'Right tool, other words.', none: 'Not quite.', end: (k, n) => `${k} of ${n} right.`,
+      endLead: 'Real writers use the same three tools you painted with.' },
+    poems: [
+      ['rosy-fingered Dawn', [0], 'E', 'Homer (in English translation)'],
+      ['the deep blue sea', [1, 2], 'E', 'a fixed epithet of tales and songs'],
+      ['A rare bird will fly to the middle of the Dnieper', [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 'H', 'N. V. Gogol, A Terrible Vengeance (in English translation)'],
+      ['Because I could not stop for Death – / He kindly stopped for me –', [6, 9, 10, 11], 'P', 'Emily Dickinson'],
+    ],
+    facts: {
+      paint: [{ emo: '🌅', text: 'Homer calls the dawn ‘rosy-fingered’ again and again: about twenty times in the Odyssey.', src: 'https://en.wikipedia.org/wiki/Homeric_epithet' }],
+      which: [{ emo: '📖', text: 'Russian folk tales use ‘fixed epithets’ that always go together: the good lad, the blue sea, the open field.', src: 'https://ru.wikipedia.org/wiki/Постоянный_эпитет' }],
+      poems: [{ emo: '🦅', text: 'Gogol wrote that ‘a rare bird will fly to the middle of the Dnieper’: a hyperbole, since the river is wide but birds easily cross it.', src: 'N. V. Gogol, “A Terrible Vengeance” (1832), ch. X.' }],
+    },
+    quiz: [
+      { q: '“The wind whispered secrets to the trees.” Which tool is this?', opts: ['Epithet', 'Personification', 'Hyperbole'], ok: 1, hint: 'In Paint with words, see which chip gives the trees faces.' },
+      { q: '“I’m so hungry I could eat an elephant.” What is it?', opts: ['Hyperbole', 'Epithet', 'The plain truth'], ok: 0, hint: 'Ask yourself: could it really happen?' },
+      { q: 'Which phrase has an epithet?', opts: ['The sun is shining', 'a golden autumn', 'The tree is waving to us'], ok: 1, hint: 'Epithets paint in gold in Paint with words.' },
+    ],
+  },
+  ru: {
+    name: 'Оживи картинку', title: 'Оживи серый лес',
+    lines: [['Добавь краски', 'эпитетами.'], ['Дай вещам лица', 'олицетворением.'], ['Сделай всё великанским', 'гиперболой.']],
+    views: { paint: '🎨 Раскрась словами', which: '🔍 Какой приём?', poems: '📜 В настоящих текстах' },
+    tools: { E: 'Эпитет', P: 'Олицетворение', H: 'Гипербола' },
+    tool: {
+      E: ['Эпитеты добавляют краски', 'Эпитет — слово-описание, в котором есть картинка: золотой, серебряный, ледяной.'],
+      P: ['Олицетворение даёт лица', 'Вещи ведут себя как люди: ветер поёт, деревья шепчутся.'],
+      H: ['Гипербола делает всё великанским', 'Намеренное сильное преувеличение: дуб выше неба.'],
+    },
+    chips: { E: ['золотой лес', 'серебряная река', 'ледяной ветер'], P: ['ветер поёт', 'деревья шепчутся', 'река смеётся'], H: ['дуб выше неба', 'река широкая, как море', 'миллион листьев'] },
+    sent(o) {
+      const p = []; const a = (s, k) => p.push(k ? [s, k] : [s]);
+      if (o.E0) { a('Золотой ', 'E'); a('лес'); } else a('Лес');
+      a(' стоит у '); if (o.E1) a('серебряной ', 'E'); a('реки.');
+      if (o.H1) a(' Река широкая, как море.', 'H');
+      a(' '); if (o.E2) { a('Ледяной ', 'E'); a('ветер '); } else a('Ветер ');
+      if (o.P0) a('поёт', 'P'); else a('дует'); a('.');
+      if (o.P1) a(' Деревья шепчутся.', 'P'); if (o.P2) a(' Река смеётся.', 'P');
+      if (o.H0) a(' Тысячелетний дуб выше неба.', 'H'); if (o.H2) a(' В воздухе миллион листьев.', 'H');
+      return p;
+    },
+    of9: 'из 9 карточек со словами',
+    start: ['Плоский серый лес', 'Нажимай на карточки со словами: картинка и предложение меняются вместе.'],
+    much: ['Слишком много!', 'Всё сразу звучит смешно. Убирай карточки, пока не зазвучит хорошо.'],
+    better: ['Уже лучше.', 'Убирай слова дальше. Какие из них больше всего помогают картинке?'],
+    good: ['Звучит хорошо!', 'Единственного верного ответа нет: оставь слова, которые нравятся больше всего.'],
+    fix: ['Слова, которые всегда вместе', 'В сказках повторяются одни и те же пары. Нажми на любую, и она всплывёт над лесом.'],
+    fixed: [['', 'добрый', ' молодец'], ['', 'красна', ' девица'], ['', 'сине', ' море'], ['', 'чисто', ' поле']],
+    secrets: { fixed: ['Постоянные эпитеты', 'Пары, которые не меняются'], much: ['Слишком много!', 'Все слова сразу'] },
+    wq: 'Какой это приём?', wlead: 'Прочитай предложение и нажми на приём.', wright: 'Верно!', wwrong: (n) => `Не совсем: ${n}.`,
+    sentence: 'предложение', next: '→ Дальше', again: '↻ Ещё раз',
+    wend: (k) => `${k} из 8 верно.`, wendLead: 'Краски, лица или великанские размеры: теперь ты узнаёшь все три.',
+    which: [
+      ['[[Сонное солнце ушло спать]].', 'P'], ['Тебе говорили [[миллион раз]]!', 'H'], ['[[серебряный]] иней', 'E'], ['Старый дом [[стонал]] в бурю.', 'P'],
+      ['Мой рюкзак [[весит тонну]].', 'H'], ['[[хмурое, дождливое]] утро', 'E'], ['Чайник [[пел]] на плите.', 'P'], ['Мы ждали [[целую вечность]].', 'H'],
+    ],
+    pm: { q: 'Найди приём в строчке', tap: 'Нажми на слово, где есть приём, а потом на его название.', check: '✓ Проверить',
+      right: 'Верно!', wordsOnly: 'Слова верные, приём другой.', toolOnly: 'Приём верный, слова другие.', none: 'Не совсем.', end: (k, n) => `${k} из ${n} верно.`,
+      endLead: 'Настоящие писатели пользуются теми же тремя приёмами, что и в твоём лесу.' },
+    poems: [
+      ['Унылая пора! Очей очарованье!', [0], 'E', 'А. С. Пушкин'],
+      ['сине море', [0], 'E', 'постоянный эпитет сказок'],
+      ['красна девица', [0], 'E', 'постоянный эпитет сказок'],
+      ['Редкая птица долетит до середины Днепра', [0, 1, 2, 3, 4, 5], 'H', 'Н. В. Гоголь, «Страшная месть»'],
+      ['Ночевала тучка золотая / На груди утёса-великана', [0, 1], 'P', 'М. Ю. Лермонтов', [[[2], 'E']]],
+    ],
+    facts: {
+      paint: [{ emo: '🌅', text: 'Гомер снова и снова называет зарю «розовоперстой»: в «Одиссее» около двадцати раз.', src: 'https://en.wikipedia.org/wiki/Homeric_epithet' }],
+      which: [{ emo: '📖', text: 'В русских сказках и былинах есть постоянные эпитеты, которые всегда идут вместе: добрый молодец, сине море, чисто поле.', src: 'https://ru.wikipedia.org/wiki/Постоянный_эпитет' }],
+      poems: [{ emo: '🦅', text: 'Гоголь написал: «Редкая птица долетит до середины Днепра» — это гипербола: река широкая, но птицы легко её перелетают.', src: 'Н. В. Гоголь, «Страшная месть» (1832), гл. X.' }],
+    },
+    quiz: [
+      { q: '«Ветер шептал деревьям секреты». Какой это приём?', opts: ['Эпитет', 'Олицетворение', 'Гипербола'], ok: 1, hint: 'В «Раскрась словами» посмотри, какая карточка даёт деревьям лица.' },
+      { q: '«Я так голоден, что съел бы слона». Что это?', opts: ['Гипербола', 'Эпитет', 'Чистая правда'], ok: 0, hint: 'Спроси себя: так правда может быть?' },
+      { q: 'В каком выражении есть эпитет?', opts: ['Солнце светит', 'золотая осень', 'Дерево машет нам'], ok: 1, hint: 'В «Раскрась словами» эпитеты красят золотом.' },
+    ],
+  },
+  hu: {
+    name: 'Keltsd életre!', title: 'Keltsd életre a szürke erdőt',
+    lines: [['Adj színt', 'jelzőkkel.'], ['Adj arcot a dolgoknak', 'megszemélyesítéssel.'], ['Növeszd óriásira', 'túlzással.']],
+    views: { paint: '🎨 Fess szavakkal', which: '🔍 Melyik eszköz?', poems: '📜 Igazi szövegekben' },
+    tools: { E: 'Jelző', P: 'Megszemélyesítés', H: 'Túlzás' },
+    tool: {
+      E: ['A jelzők színt adnak', 'A jelző olyan szó, amely képet fest: aranyló, ezüstös, jeges.'],
+      P: ['A megszemélyesítés arcot ad', 'A dolgok úgy viselkednek, mint az emberek: a szél énekel, a fák suttognak.'],
+      H: ['A túlzás óriássá növeszt', 'Szándékos, hatalmas eltúlzás: égig érő tölgy.'],
+    },
+    chips: { E: ['aranyló erdő', 'ezüstös folyó', 'jeges szél'], P: ['a szél énekel', 'a fák suttognak', 'a folyó nevet'], H: ['égig érő tölgy', 'a folyó széles, mint a tenger', 'millió falevél'] },
+    sent(o) {
+      const p = []; const a = (s, k) => p.push(k ? [s, k] : [s]);
+      a('Az '); if (o.E0) a('aranyló ', 'E'); a('erdő '); a(o.E1 ? 'az ' : 'a '); if (o.E1) a('ezüstös ', 'E'); a('folyó mellett áll.');
+      if (o.H1) a(' A folyó olyan széles, mint a tenger.', 'H');
+      a(' A '); if (o.E2) a('jeges ', 'E'); a('szél '); if (o.P0) a('énekel', 'P'); else a('fúj'); a('.');
+      if (o.P1) a(' A fák suttognak.', 'P'); if (o.P2) a(' A folyó nevet.', 'P');
+      if (o.H0) a(' Egy ezeréves tölgy olyan magas, mint az ég.', 'H'); if (o.H2) a(' A levegőben millió falevél repked.', 'H');
+      return p;
+    },
+    of9: 'a 9 szókártyából',
+    start: ['Lapos, szürke erdő', 'Koppints egy szókártyára: a kép és a mondat együtt változik.'],
+    much: ['Túl sok!', 'Minden egyszerre bután hangzik. Vegyél el kártyákat, amíg jól nem hangzik.'],
+    better: ['Már jobb.', 'Vegyél el még szavakat. Melyik segít legtöbbet a képnek?'],
+    good: ['Ez jól hangzik!', 'Nincs egyetlen jó megoldás: tartsd meg azokat a szavakat, amelyek a legjobban tetszenek.'],
+    fix: ['Szavak, amelyek mindig együtt járnak', 'A népmesékben ugyanazok a párok ismétlődnek. Koppints egyre, és nézd, ahogy felbukkan az erdő fölött.'],
+    fixed: [['', 'kerek', ' erdő'], ['', 'zöld', ' mező'], ['', 'derék', ' legény'], ['', 'kék', ' tenger']],
+    secrets: { fixed: ['Állandó jelzők', 'Párok, amelyek sosem változnak'], much: ['Túl sok!', 'Minden szó egyszerre'] },
+    wq: 'Melyik eszköz ez?', wlead: 'Olvasd el a mondatot, aztán koppints az eszközre.', wright: 'Így van!', wwrong: (n) => `Nem egészen: ${n}.`,
+    sentence: 'mondat', next: '→ Tovább', again: '↻ Újra',
+    wend: (k) => `Helyes: ${k} / 8.`, wendLead: 'Színek, arcok vagy óriás méretek: most már mindhármat felismered.',
+    which: [
+      ['Az [[álmos nap aludni tért]].', 'P'], ['[[Milliószor]] mondtam már neked!', 'H'], ['[[ezüstös]] dér', 'E'], ['A régi ház [[nyögött]] a viharban.', 'P'],
+      ['A táskám [[egy tonnát nyom]].', 'H'], ['[[borongós, esős]] reggel', 'E'], ['A kanna [[dalolt]] a tűzhelyen.', 'P'], ['[[Egy örökkévalóságig]] vártunk.', 'H'],
+    ],
+    pm: { q: 'Keresd meg az eszközt a sorban', tap: 'Koppints egy szóra, amely eszközt használ, aztán az eszköz nevére.', check: '✓ Ellenőrzés',
+      right: 'Így van!', wordsOnly: 'Jók a szavak, de más az eszköz.', toolOnly: 'Jó az eszköz, de más a szavak.', none: 'Nem egészen.', end: (k, n) => `Helyes: ${k} / ${n}.`,
+      endLead: 'Az igazi írók ugyanazt a három eszközt használják, amellyel te is festettél.' },
+    poems: [
+      ['kerek erdő', [0], 'E', 'népdalok állandó jelzője'],
+      ['zöld mező', [0], 'E', 'népdalok állandó jelzője'],
+      ['Nagy, mint egy ház', [0, 1, 2, 3], 'H', 'népnyelvi túlzás'],
+      ['Ritka madár repül el a Dnyeper közepéig', [0, 1, 2, 3, 4, 5, 6], 'H', 'N. V. Gogol, A rettenetes bosszú (magyar fordításban)'],
+      ['Aranyló felhőcske aludt / egy óriás szikla keblén', [1, 2], 'P', 'Lermontov (saját fordítás)', [[[0], 'E']]],
+    ],
+    facts: {
+      paint: [{ emo: '🌅', text: 'Homérosz újra és újra »rózsaujjú« hajnalról beszél: az Odüsszeiában mintegy hússzor.', src: 'https://en.wikipedia.org/wiki/Homeric_epithet' }],
+      which: [{ emo: '📖', text: 'Az orosz népmesékben állandó jelzők vannak, amelyek mindig együtt járnak: derék legény, kék tenger, tiszta mező.', src: 'https://ru.wikipedia.org/wiki/Постоянный_эпитет' }],
+      poems: [{ emo: '🦅', text: 'Gogol azt írta: »Ritka madár repül el a Dnyeper közepéig« – ez túlzás, hiszen a folyó széles, de a madarak könnyen átrepülik.', src: 'N. V. Gogol, „Страшная месть” (1832), X. fejezet.' }],
+    },
+    quiz: [
+      { q: '„A szél titkokat suttogott a fáknak.” Melyik eszköz ez?', opts: ['Jelző', 'Megszemélyesítés', 'Túlzás'], ok: 1, hint: 'A Fess szavakkal részben nézd meg, melyik kártya ad arcot a fáknak!' },
+      { q: '„Olyan éhes vagyok, hogy megennék egy elefántot.” Mi ez?', opts: ['Túlzás', 'Jelző', 'A színtiszta igazság'], ok: 0, hint: 'Kérdezd meg magadtól: tényleg megtörténhet?' },
+      { q: 'Melyikben van jelző?', opts: ['Süt a nap', 'aranyló ősz', 'A fa integet nekünk'], ok: 1, hint: 'A Fess szavakkal részben a jelzők arannyal festenek.' },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'sg_lit_31', en: 'Epithet, personification and hyperbole', ru: 'Эпитет, олицетворение, гипербола', hu: 'Jelző, megszemélyesítés és hiperbola' },
+];
+
+// --- constants and state -------------------------------------------------------------------------------------
+const COL = { E: '#f0b84a', P: '#a88cf0', H: '#f0645c' };
+const EMO = { E: '🖌️', P: '😊', H: '🏔️' };
+const KEYS = ['E0', 'E1', 'E2', 'P0', 'P1', 'P2', 'H0', 'H1', 'H2'];
+const ORDER = ['E', 'P', 'H'];
+const S = {
+  on: {}, last: null, sec: null, pops: [], popN: 0,
+  wi: 0, wpick: null, wright: [],
+  pi: 0, pword: null, ptool: null, pchecked: false, pright: [],
+};
+const A = Object.fromEntries(KEYS.map((k) => [k, 0])); // animated strength of each card, 0..1
+
+const lab = shell({ key: 'epithets', T, topics: TOPICS, views: ['paint', 'which', 'poems'], onLang: () => { resetPoems(); S.pops = []; render(); }, onView: render });
+const secret = secretLab('epithets', () => ({
+  secrets: [{ emo: '🧵', title: T[lang].secrets.fixed[0], desc: T[lang].secrets.fixed[1] }, { emo: '🤪', title: T[lang].secrets.much[0], desc: T[lang].secrets.much[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="secPaint">
+    <div class="ep-sentbox" id="sent"></div>
+    <div id="rows"></div>
+    <div class="row2" id="secRow"></div>
+    <div class="row2" id="fixRow"></div>
+  </div>
+  <div id="secWhich"><div class="ep-tools" id="wTools"></div><div class="row2"><button class="btn push" id="wNext" data-act="wnext"></button></div></div>
+  <div id="secPoems"><div class="ep-tools" id="pTools"></div><div class="row2"><button class="btn push" id="pMain" data-act="pmain"></button></div></div>`;
+const cardEl = Object.assign(document.createElement('div'), { className: 'ep-card' });
+$('overlay').append(cardEl);
+
+// --- colour helpers ------------------------------------------------------------------------------------------
+const hex2rgb = (h) => { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+const mix = (a, b, t) => { const x = hex2rgb(a), y = hex2rgb(b); return '#' + x.map((v, i) => Math.round(v + (y[i] - v) * clamp(t, 0, 1)).toString(16).padStart(2, '0')).join(''); };
+const rgba = (h, a) => { const [r, g, b] = hex2rgb(h); return `rgba(${r},${g},${b},${a})`; };
+const ease = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+const back = (x) => { x = clamp(x, 0, 1); return 1 + 2.4 * Math.pow(x - 1, 3) + 1.4 * Math.pow(x - 1, 2); }; // eased stretch with a little overshoot
+const frac = (x) => x - Math.floor(x);
+const rnd = (i) => frac(Math.sin(i * 12.9898 + 4.1) * 43758.5453);
+
+// --- the picture: a grey forest by a river that the word cards paint -------------------------------------------
+const W = 360, H = 300;
+const TREES = [
+  { x: 40, b: 214, r: 29, th: 30, v: 0 }, { x: 102, b: 224, r: 35, th: 40, v: 1 }, { x: 172, b: 216, r: 30, th: 34, v: 2 },
+  { x: 238, b: 226, r: 35, th: 42, v: 0 }, { x: 298, b: 228, r: 29, th: 36, v: 1, oak: true },
+];
+const GOLD = [['#ffe07d', '#f4b13c', '#c97a20'], ['#ffd06c', '#ec9a2e', '#b9651b'], ['#ffc064', '#e5742f', '#a8481a']];
+const GREY = ['#b6bcc8', '#8f96a4', '#6d7482'];
+const riverY = (x, hth) => 270 + 6 * Math.sin(x / 55) - (hth - 15) * 0.15;
+function crown(c, cx, cy, r, tones) {
+  const parts = [[-0.55, 0.12, 0.72], [0.55, 0.16, 0.68], [0, -0.38, 0.88], [0, 0.3, 0.82]];
+  for (const [dx, dy, k] of parts) { c.beginPath(); c.arc(cx + dx * r, cy + dy * r, Math.max(0, r * k + 1.8), 0, 6.283); c.fillStyle = tones[2]; c.fill(); }
+  for (const [dx, dy, k] of parts) {
+    const x = cx + dx * r, y = cy + dy * r, rr = Math.max(0.5, r * k), g = c.createRadialGradient(x - rr * 0.38, y - rr * 0.42, rr * 0.1, x, y, rr * 1.05);
+    g.addColorStop(0, tones[0]); g.addColorStop(0.6, tones[1]); g.addColorStop(1, tones[2]);
+    c.beginPath(); c.arc(x, y, rr, 0, 6.283); c.fillStyle = g; c.fill();
+  }
+}
+function face(c, x, y, s, a, happy) { // a round friendly face: eyes with a white highlight, a smile and blush
+  c.save(); c.globalAlpha = a;
+  for (const d of [-1, 1]) {
+    c.beginPath(); c.ellipse(x + d * s * 0.5, y - s * 0.12, Math.max(0.5, s * 0.17), Math.max(0.5, s * 0.22), 0, 0, 6.283); c.fillStyle = '#2b2433'; c.fill();
+    c.beginPath(); c.arc(x + d * s * 0.5 - s * 0.06, y - s * 0.2, Math.max(0.5, s * 0.07), 0, 6.283); c.fillStyle = '#fff'; c.fill();
+    c.beginPath(); c.arc(x + d * s * 0.85, y + s * 0.2, Math.max(0.5, s * 0.2), 0, 6.283); c.fillStyle = 'rgba(255,120,130,.45)'; c.fill();
+  }
+  c.beginPath();
+  if (happy) c.arc(x, y + s * 0.12, Math.max(0.5, s * 0.34), 0.15 * Math.PI, 0.85 * Math.PI); else c.ellipse(x, y + s * 0.45, s * 0.14, s * 0.18, 0, 0, 6.283);
+  c.strokeStyle = '#2b2433'; c.lineWidth = Math.max(1, s * 0.1); c.lineCap = 'round'; c.stroke();
+  c.restore();
+}
+function drawTree(c, tr, time, e) {
+  const gold = e.E0, p = e.P1, g1 = tr.oak ? e.H0 : 0;
+  const th = tr.th + 92 * g1, r = Math.max(4, tr.r + 21 * g1), tw = 9 * (1 + 0.7 * g1);
+  const tones = [0, 1, 2].map((i) => mix(GREY[i], GOLD[tr.v][i], gold));
+  c.save(); c.translate(tr.x, tr.b); c.rotate(Math.sin(time * 1.5 + tr.x * 0.05) * (0.012 + 0.04 * p));
+  const tg = c.createLinearGradient(-tw / 2, 0, tw / 2, 0);
+  tg.addColorStop(0, mix('#8a909d', '#9a6a3a', gold)); tg.addColorStop(1, mix('#585e6b', '#5f3a1c', gold));
+  c.beginPath(); c.moveTo(-tw / 2, 3); c.quadraticCurveTo(-tw * 0.35, -th * 0.5, -tw * 0.3, -th); c.lineTo(tw * 0.3, -th); c.quadraticCurveTo(tw * 0.35, -th * 0.5, tw / 2, 3); c.closePath();
+  c.fillStyle = tg; c.fill(); c.strokeStyle = mix('#444a57', '#4a2a12', gold); c.lineWidth = 1.4; c.stroke();
+  const cy = -th - r * 0.35;
+  crown(c, 0, cy, r, tones);
+  if (p > 0.01) face(c, 0, cy + r * 0.05, Math.max(5, r * 0.3), p, true);
+  c.restore();
+}
+function windFace(c, time, a) {
+  const x = 150 + Math.sin(time * 0.7) * 38, y = 60 + Math.sin(time * 1.3) * 5;
+  c.save(); c.globalAlpha = a;
+  for (const [dx, dy, r] of [[-17, 4, 13], [17, 4, 13], [0, -6, 17], [0, 8, 16]]) {
+    const g = c.createRadialGradient(x + dx - r * 0.3, y + dy - r * 0.4, 1, x + dx, y + dy, r * 1.1);
+    g.addColorStop(0, '#ffffff'); g.addColorStop(1, '#c9d2e6'); c.beginPath(); c.arc(x + dx, y + dy, r, 0, 6.283); c.fillStyle = g; c.fill();
+  }
+  for (const d of [-1, 1]) { c.beginPath(); c.arc(x + d * 8, y + 1, 4, 1.15 * Math.PI, 1.85 * Math.PI); c.strokeStyle = '#2b2433'; c.lineWidth = 2; c.lineCap = 'round'; c.stroke();
+    c.beginPath(); c.arc(x + d * 14, y + 8, 3.2, 0, 6.283); c.fillStyle = 'rgba(255,120,130,.45)'; c.fill(); }
+  c.beginPath(); c.ellipse(x + 3, y + 10, 3.6, 4.4, 0, 0, 6.283); c.fillStyle = '#2b2433'; c.fill();
+  for (let i = 0; i < 3; i++) { const k = (time * 0.9 + i / 3) % 1, nx = x + 26 + k * 70, ny = y + 8 - k * 26 - i * 4; // music notes drift away on the wind
+    c.save(); c.globalAlpha = a * (1 - k); c.fillStyle = '#7a5bd6'; c.strokeStyle = '#7a5bd6'; c.lineWidth = 1.8;
+    c.beginPath(); c.ellipse(nx, ny, 4.2, 3.2, -0.4, 0, 6.283); c.fill();
+    c.beginPath(); c.moveTo(nx + 3.6, ny - 1); c.lineTo(nx + 3.6, ny - 12); c.lineTo(nx + 8, ny - 9); c.stroke(); c.restore(); }
+  c.restore();
+}
+function star4(c, x, y, s, col) { c.beginPath(); for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4, r = i % 2 ? s * 0.28 : s; c.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r); } c.closePath(); c.fillStyle = col; c.fill(); }
+
+function drawScene(c, time, e) {
+  const warm = e.E0, sil = e.E1, ice = e.E2, wide = e.H1;
+  // sky, sun and clouds
+  let g = c.createLinearGradient(0, 0, 0, 215);
+  g.addColorStop(0, mix('#8f96a6', '#f2ad63', warm * 0.9)); g.addColorStop(1, mix('#c9cdd6', '#fff0cc', warm));
+  c.fillStyle = g; c.fillRect(0, 0, W, H);
+  const sunC = mix('#eceff5', '#ffd75e', warm);
+  g = c.createRadialGradient(66, 62, 4, 66, 62, 66); g.addColorStop(0, rgba(sunC, 0.55)); g.addColorStop(1, rgba(sunC, 0)); c.fillStyle = g; c.fillRect(0, 0, 150, 140);
+  g = c.createRadialGradient(60, 56, 2, 66, 62, 24); g.addColorStop(0, mix('#ffffff', '#fff6c8', warm)); g.addColorStop(1, sunC);
+  c.beginPath(); c.arc(66, 62, 22, 0, 6.283); c.fillStyle = g; c.fill();
+  for (const [cx, cy, k] of [[240 + Math.sin(time * 0.2) * 8, 52, 1], [310 + Math.sin(time * 0.17 + 1) * 6, 92, 0.7]]) {
+    c.fillStyle = mix('#d9dce3', '#ffe3c4', warm); c.beginPath();
+    for (const [dx, dy, r] of [[-20, 4, 12], [-4, -4, 16], [16, 2, 13], [4, 6, 12]]) { c.moveTo(cx + (dx + r) * k, cy + dy * k); c.arc(cx + dx * k, cy + dy * k, r * k, 0, 6.283); }
+    c.fill();
+  }
+  // wind streaks behind the trees; the icy wind is stronger and blue
+  const nst = 3 + Math.round(5 * ice);
+  c.lineCap = 'round';
+  for (let i = 0; i < nst; i++) {
+    const x0 = ((time * (34 + i * 7) + i * 97) % 470) - 70, y0 = 78 + (i % 5) * 20 + Math.sin(time + i) * 3;
+    c.strokeStyle = ice > 0.05 ? rgba(mix('#ffffff', '#bfe6ff', ice), 0.35 + 0.35 * ice) : 'rgba(255,255,255,.32)'; c.lineWidth = 2 + ice;
+    c.beginPath(); c.moveTo(x0, y0); c.bezierCurveTo(x0 + 24, y0 - 8, x0 + 44, y0 + 8, x0 + 70, y0 - 2); c.stroke();
+  }
+  // hills and ground
+  c.beginPath(); c.moveTo(0, 205); c.bezierCurveTo(60, 150, 120, 150, 190, 190); c.bezierCurveTo(240, 215, 290, 160, 360, 185); c.lineTo(360, 230); c.lineTo(0, 230); c.closePath();
+  g = c.createLinearGradient(0, 150, 0, 225); g.addColorStop(0, mix('#a3aab7', '#e0ad66', warm)); g.addColorStop(1, mix('#8b92a0', '#c4914c', warm)); c.fillStyle = g; c.fill();
+  c.beginPath(); c.moveTo(0, 222); c.bezierCurveTo(80, 196, 170, 214, 250, 200); c.bezierCurveTo(300, 192, 340, 200, 360, 204); c.lineTo(360, H); c.lineTo(0, H); c.closePath();
+  g = c.createLinearGradient(0, 195, 0, H); g.addColorStop(0, mix('#8e95a3', '#bd9446', warm)); g.addColorStop(1, mix('#6f7684', '#8a6a2f', warm)); c.fillStyle = g; c.fill();
+  // trees (soft shadows first, then the trees)
+  for (const tr of TREES) { c.beginPath(); c.ellipse(tr.x + 8, tr.b + 3, tr.r * 0.9 * (tr.oak ? 1 + 0.5 * e.H0 : 1), 5, 0, 0, 6.283); c.fillStyle = 'rgba(30,34,46,.22)'; c.fill(); }
+  TREES.slice().sort((a, b) => a.b - b.b).forEach((tr) => drawTree(c, tr, time, e));
+  // river: a wavy band that widens into a sea
+  const hth = lerp(15, 33, wide), pts = [];
+  for (let x = -6; x <= W + 6; x += 12) pts.push([x, riverY(x, hth)]);
+  const band = (grow) => { c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x, y - hth - grow) : c.moveTo(x, y - hth - grow))); for (let i = pts.length - 1; i >= 0; i--) c.lineTo(pts[i][0], pts[i][1] + hth + grow); c.closePath(); };
+  band(4); c.fillStyle = mix('#a8aeba', '#caa65a', warm * 0.8); c.fill();
+  band(0);
+  const wc = mix('#9fabc0', '#6f97c9', wide * 0.55);
+  g = c.createLinearGradient(0, 232, 0, 304); g.addColorStop(0, mix(wc, '#f4f8fd', sil)); g.addColorStop(1, mix(mix('#7f8ba2', '#4f7bb0', wide * 0.55), '#a9bcd8', sil));
+  c.fillStyle = g; c.fill(); c.strokeStyle = 'rgba(40,50,70,.5)'; c.lineWidth = 1.5; c.stroke();
+  c.save(); band(0); c.clip();
+  c.strokeStyle = 'rgba(255,255,255,.3)'; c.lineWidth = 1.5;
+  for (let i = 0; i < 5; i++) { const x0 = ((time * 12 + i * 80) % 420) - 30, y0 = riverY(x0, hth) + (i % 3 - 1) * hth * 0.5; c.beginPath(); c.moveTo(x0, y0); c.quadraticCurveTo(x0 + 9, y0 - 3, x0 + 18, y0); c.stroke(); }
+  if (sil > 0.02) for (let i = 0; i < 8; i++) { const x = 24 + i * 45 + Math.sin(time + i) * 6, tw = Math.max(0, Math.sin(time * 3 + i * 1.7) * 0.5 + 0.5); star4(c, x, riverY(x, hth) + Math.sin(i * 2.3) * hth * 0.4, 2 + 4 * tw * sil, rgba('#ffffff', 0.9 * sil)); }
+  c.restore();
+  if (e.P2 > 0.01) { // the laughing river
+    const fx = 180, fy = riverY(fx, hth);
+    c.save(); c.globalAlpha = e.P2; c.beginPath(); c.ellipse(fx, fy, 27, 13, 0, 0, 6.283); c.fillStyle = 'rgba(255,255,255,.42)'; c.fill(); c.restore();
+    face(c, fx, fy - 1, 7.5, e.P2, true);
+  }
+  if (wide > 0.02) { // a boat shows how wide it is
+    const bx = 258, by = riverY(bx, hth) + Math.sin(time * 1.6) * 1.5;
+    c.save(); c.globalAlpha = wide; c.translate(bx, by);
+    c.beginPath(); c.moveTo(-15, -1); c.lineTo(15, -1); c.lineTo(10, 8); c.lineTo(-10, 8); c.closePath(); c.fillStyle = '#b98a55'; c.fill(); c.strokeStyle = '#6e4a24'; c.lineWidth = 1.4; c.stroke();
+    c.beginPath(); c.moveTo(0, -1); c.lineTo(0, -26); c.strokeStyle = '#6e4a24'; c.stroke();
+    c.beginPath(); c.moveTo(2, -25); c.lineTo(2, -4); c.lineTo(15, -4); c.closePath(); c.fillStyle = '#f6f7fb'; c.fill(); c.strokeStyle = '#b8bfd0'; c.stroke();
+    c.restore();
+  }
+  // falling leaves: a few always, a whole sky of them for "a million"
+  const nl = Math.round(lerp(7, 62, e.H2));
+  for (let i = 0; i < nl; i++) {
+    const x = rnd(i) * W + Math.sin(time * 0.9 + i) * 14, y = ((rnd(i + 50) * 300 + time * (16 + rnd(i + 90) * 18)) % 330) - 15;
+    c.save(); c.translate(x, y); c.rotate(time * 1.4 + i); c.beginPath(); c.ellipse(0, 0, 4.6, 2.5, 0, 0, 6.283);
+    c.fillStyle = mix('#9aa1ae', i % 2 ? '#e8892a' : '#f4b73c', warm); c.fill(); c.strokeStyle = 'rgba(60,40,20,.25)'; c.lineWidth = 0.8; c.stroke(); c.restore();
+  }
+  if (ice > 0.02) for (let i = 0; i < 16; i++) { // icy sparkles
+    const x = ((rnd(i + 7) * W + time * 20) % (W + 20)) - 10, y = 40 + rnd(i + 33) * 150 + Math.sin(time * 2 + i) * 4, tw = Math.max(0, Math.sin(time * 3 + i) * 0.5 + 0.5);
+    star4(c, x, y, 1.5 + 2.8 * tw * ice, rgba('#e8f6ff', 0.9 * ice));
+  }
+  if (e.P0 > 0.01) windFace(c, time, e.P0);
+}
+
+// --- fixed epithets pop up over the forest -------------------------------------------------------------------------
+function drawPops(c, w, h, time, ox, oy, s) {
+  c.save(); c.font = '800 15px Nunito, system-ui, sans-serif'; c.textBaseline = 'middle';
+  S.pops = S.pops.filter((p) => time - p.t0 < 3.6);
+  for (const p of S.pops) {
+    const a = time - p.t0, k = clamp(a / 0.4, 0, 1), sc = 0.6 + 0.4 * back(k), fade = clamp((3.6 - a) / 0.8, 0, 1);
+    const [pre, ep, post] = p.words, wd = [pre, ep, post].map((x) => c.measureText(x).width), tw = wd[0] + wd[1] + wd[2], pw = tw + 24, ph = 30;
+    const cx = clamp(ox + p.x * s, pw / 2 + 6, w - pw / 2 - 6), cy = oy + (p.y - a * 10) * s;
+    c.save(); c.globalAlpha = fade; c.translate(cx, cy); c.scale(sc, sc);
+    c.shadowColor = 'rgba(0,0,0,.35)'; c.shadowBlur = 8; c.shadowOffsetY = 2;
+    c.beginPath(); c.roundRect(-pw / 2, -ph / 2, pw, ph, 15); c.fillStyle = 'rgba(14,17,28,.86)'; c.fill();
+    c.shadowColor = 'transparent'; c.strokeStyle = rgba(COL.E, 0.7); c.lineWidth = 1.5; c.stroke();
+    let x = -tw / 2; c.textAlign = 'left';
+    c.fillStyle = '#fff'; c.fillText(pre, x, 1); x += wd[0];
+    c.fillStyle = COL.E; c.fillText(ep, x, 1); x += wd[1];
+    c.fillStyle = '#fff'; c.fillText(post, x, 1);
+    c.restore();
+  }
+  c.restore();
+}
+
+// --- targets of the cards in each view -----------------------------------------------------------------------------
+function targets() {
+  const t = Object.fromEntries(KEYS.map((k) => [k, 0])), v = lab.view;
+  const set = (...ks) => ks.forEach((k) => { t[k] = 1; });
+  const tool = (k) => { if (k === 'E') set('E0', 'E1', 'E2'); else if (k === 'P') set('P0', 'P1', 'P2'); else if (k === 'H') set('H0', 'H2'); };
+  if (v === 'paint') KEYS.forEach((k) => { if (S.on[k]) t[k] = 1; });
+  else if (v === 'which') { if (S.wi >= 8) set('E0', 'E1', 'P1', 'H0'); else if (S.wpick !== null) tool(T[lang].which[S.wi][1]); }
+  else { const it = T[lang].poems[S.pi]; if (!it) set('E0', 'E1', 'P1', 'H0'); else if (S.pchecked) { tool(it[2]); (it[4] || []).forEach((g) => tool(g[1])); } }
+  return t;
+}
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  const v = lab.view, tg = targets();
+  for (const k of KEYS) A[k] += clamp(tg[k] - A[k], -dt / 0.9, dt / 0.9);
+  const e = Object.fromEntries(KEYS.map((k) => [k, ease(A[k])])); e.H0 = back(A.H0);
+  const top = v === 'paint' ? 0 : (cardEl.offsetHeight || 80) + 16;
+  const rx = 8, ry = top + 6, rw = w - 16, rh = h - ry - 8, s = Math.max(0.2, Math.min(rw / W, rh / H));
+  const ox = rx + (rw - W * s) / 2, oy = ry + (rh - H * s) / 2;
+  c.save(); c.translate(ox, oy); c.scale(s, s);
+  c.shadowColor = 'rgba(0,0,0,.45)'; c.shadowBlur = 16; c.shadowOffsetY = 5; c.beginPath(); c.roundRect(0, 0, W, H, 18); c.fillStyle = '#6d7482'; c.fill();
+  c.shadowColor = 'transparent'; c.save(); c.beginPath(); c.roundRect(0, 0, W, H, 18); c.clip();
+  drawScene(c, time, e);
+  c.restore(); c.beginPath(); c.roundRect(0, 0, W, H, 18); c.strokeStyle = 'rgba(20,24,36,.7)'; c.lineWidth = 2; c.stroke();
+  c.restore();
+  if (v === 'paint') drawPops(c, w, h, time, ox, oy, s);
+});
+
+// --- controls ------------------------------------------------------------------------------------------------
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+const groupOf = (it, w) => (it[1].includes(w) ? { idx: it[1], tool: it[2] } : (it[4] || []).map(([idx, tool]) => ({ idx, tool })).find((g) => g.idx.includes(w)) || { idx: it[1], tool: it[2] });
+function resetPoems() { S.pi = 0; S.pword = null; S.ptool = null; S.pchecked = false; S.pright = []; }
+const nOn = () => KEYS.filter((k) => S.on[k]).length;
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b) return;
+  const act = b.dataset.act, k = b.dataset.k;
+  if (act === 'chip') { S.on[k] = !S.on[k]; if (S.on[k]) S.last = k[0]; sfx.click(); }
+  else if (act === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    if (k === 'fixed') S.sec = S.sec === 'fixed' ? null : 'fixed';
+    else if (S.sec === 'much') S.sec = null;
+    else { KEYS.forEach((x) => { S.on[x] = true; }); S.sec = 'much'; S.last = null; }
+    sfx.click();
+  } else if (act === 'fix') {
+    const w = T[lang].fixed[+b.dataset.i];
+    S.pops.push({ words: w, x: 80 + ((S.popN * 83) % 200), y: 96 + (S.popN % 3) * 30, t0: performance.now() / 1000 }); S.popN++; sfx.good();
+  } else if (act === 'wtool') {
+    if (S.wpick !== null) return;
+    S.wpick = k; const ok = k === T[lang].which[S.wi][1]; S.wright[S.wi] = ok; (ok ? sfx.good : sfx.bad)(); showStage();
+  } else if (act === 'wnext') {
+    if (S.wi >= 8) { S.wi = 0; S.wright = []; S.wpick = null; } else if (S.wpick !== null) { S.wi++; S.wpick = null; } else return;
+    sfx.click();
+  } else if (act === 'ptool') { if (S.pchecked) return; S.ptool = k; sfx.tick(); }
+  else if (act === 'pmain') {
+    const n = T[lang].poems.length;
+    if (S.pi >= n) { resetPoems(); sfx.click(); }
+    else if (!S.pchecked) {
+      if (S.pword === null || S.ptool === null) return;
+      const it = T[lang].poems[S.pi], g = groupOf(it, S.pword), ok = g.idx.includes(S.pword) && S.ptool === g.tool;
+      S.pright[S.pi] = ok; S.pchecked = true; (ok ? sfx.good : sfx.bad)(); showStage();
+    } else { S.pi++; S.pword = null; S.ptool = null; S.pchecked = false; sfx.click(); }
+  }
+  render();
+});
+cardEl.addEventListener('click', (ev) => {
+  const b = ev.target.closest('.ep-tok'); if (!b || S.pchecked) return;
+  S.pword = +b.dataset.i; sfx.tick(); render();
+});
+
+// --- render: controls, readout, state card and facts in every view ----------------------------------------------------
+const segs = (str) => str.split(/\[\[|\]\]/).map((txt, i) => [txt, i % 2 === 1]);
+const toolBtns = (act, picked, right, checked) => ORDER.map((k) => {
+  const cls = ['ep-tool'];
+  if (checked) { if (k === right) cls.push('ok'); else if (k === picked) cls.push('bad'); } else if (k === picked) cls.push('pick');
+  return `<button type="button" class="${cls.join(' ')}" style="--tc:${COL[k]}" data-act="${act}" data-k="${k}"${checked ? ' disabled' : ''}>${EMO[k]} ${esc(T[lang].tools[k])}</button>`;
+}).join('');
+
+function render() {
+  const t = T[lang], v = lab.view;
+  document.body.dataset.v = v;
+  $('secPaint').style.display = v === 'paint' ? '' : 'none';
+  $('secWhich').style.display = v === 'which' ? '' : 'none';
+  $('secPoems').style.display = v === 'poems' ? '' : 'none';
+  cardEl.style.display = v === 'paint' ? 'none' : '';
+  lab.setFacts(t.facts[v]);
+  if (v === 'paint') renderPaint(t); else if (v === 'which') renderWhich(t); else renderPoems(t);
+}
+
+function renderPaint(t) {
+  const n = nOn(), cnt = Object.fromEntries(ORDER.map((k) => [k, KEYS.filter((x) => x[0] === k && S.on[x]).length]));
+  $('sent').innerHTML = t.sent(S.on).map(([txt, k]) => (k ? `<span class="ep-h" style="color:${COL[k]};border-color:${COL[k]}">${esc(txt)}</span>` : esc(txt))).join('');
+  $('rows').innerHTML = ORDER.map((k) => `<div class="ep-row"><span class="ep-lbl" style="color:${COL[k]}">${EMO[k]} ${esc(t.tools[k])}</span><div class="chips">${
+    t.chips[k].map((lbl, i) => `<button type="button" class="chip ep-chip ${S.on[k + i] ? 'on' : ''}" style="--tc:${COL[k]}" data-act="chip" data-k="${k + i}" aria-pressed="${!!S.on[k + i]}">${esc(lbl)}</button>`).join('')}</div></div>`).join('');
+  const open = secret.unlocked();
+  $('secRow').innerHTML = [['fixed', '🧵'], ['much', '🤪']].map(([k, emo]) => `<button type="button" class="chip secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`).join('');
+  $('fixRow').innerHTML = S.sec === 'fixed' && open ? t.fixed.map((w, i) => `<button type="button" class="chip ep-chip" style="--tc:${COL.E}" data-act="fix" data-i="${i}">${esc(w.join(''))}</button>`).join('') : '';
+  $('fixRow').style.display = $('fixRow').innerHTML ? '' : 'none';
+  lab.setGlow('rgba(240, 184, 74, .24)');
+  lab.setReadout(n, t.of9, ORDER.map((k) => `${EMO[k]} ${cnt[k]}`).join(' · '), COL[S.last || 'E']);
+  let st;
+  if (S.sec === 'fixed') st = { emo: '🧵', title: t.fix[0], lead: t.fix[1] };
+  else if (S.sec === 'much') st = n >= 7 ? { emo: '🤪', title: t.much[0], lead: t.much[1] } : n >= 4 ? { emo: '🤔', title: t.better[0], lead: t.better[1] } : { emo: '😌', title: t.good[0], lead: t.good[1] };
+  else if (S.last && n > 0) st = { emo: EMO[S.last], title: t.tool[S.last][0], lead: t.tool[S.last][1] };
+  else st = { emo: '🍂', title: t.start[0], lead: t.start[1] };
+  lab.setState({ ...st, body: '', extra: '' });
+}
+
+function renderWhich(t) {
+  const i = S.wi, end = i >= 8, k = S.wright.filter(Boolean).length;
+  lab.setGlow('rgba(168, 140, 240, .24)');
+  if (end) {
+    cardEl.innerHTML = `<div class="ep-sent">${esc(t.wend(k))}</div>`;
+    $('wTools').innerHTML = '';
+    $('wNext').style.display = ''; $('wNext').textContent = t.again;
+    lab.setReadout(`${k}/8`, t.sentence, '', COL.E);
+    lab.setState({ emo: '🏆', title: t.wend(k), lead: t.wendLead, body: '', extra: '' });
+    return;
+  }
+  const [str, right] = t.which[i], picked = S.wpick !== null;
+  cardEl.innerHTML = `<div class="ep-sent">${segs(str).map(([txt, key]) => (key && picked
+    ? `<span class="ep-h" style="color:${COL[right]};border-color:${COL[right]}">${esc(txt)}</span>` : esc(txt))).join('')}</div>`;
+  $('wTools').innerHTML = toolBtns('wtool', S.wpick, right, picked);
+  $('wNext').style.display = picked ? '' : 'none'; $('wNext').textContent = t.next;
+  lab.setReadout(`${i + 1}/8`, t.sentence, picked ? `✓ ${k}` : '', picked ? COL[right] : COL.E);
+  if (!picked) lab.setState({ emo: '🔍', title: t.wq, lead: t.wlead, body: '', extra: '' });
+  else lab.setState({ emo: S.wpick === right ? '✅' : '🤔', title: S.wpick === right ? t.wright : t.wwrong(t.tools[right]), lead: t.tool[right][1], body: '', extra: '' });
+}
+
+function renderPoems(t) {
+  const items = t.poems, n = items.length, i = S.pi, end = i >= n, k = S.pright.filter(Boolean).length, pm = t.pm;
+  lab.setGlow('rgba(240, 100, 92, .22)');
+  if (end) {
+    cardEl.innerHTML = `<div class="ep-sent">${esc(pm.end(k, n))}</div>`;
+    $('pTools').innerHTML = ''; $('pMain').textContent = t.again; $('pMain').disabled = false;
+    lab.setReadout(`${k}/${n}`, '', '', COL.H);
+    lab.setState({ emo: '🏆', title: pm.end(k, n), lead: pm.endLead, body: '', extra: '' });
+    return;
+  }
+  const [text, tgt0, tool0, src, alts = []] = items[i], gs = [{ idx: tgt0, tool: tool0 }, ...alts.map(([idx, tool]) => ({ idx, tool }))], toks = text.split(' '), ch = S.pchecked;
+  cardEl.innerHTML = `<div class="ep-toks">${toks.map((w, j) => `<button type="button" class="ep-tok ${ch && gs.some((g) => g.idx.includes(j)) ? 'lit' : ''} ${!ch && S.pword === j ? 'sel' : ''}" style="--tc:${COL[(gs.find((g) => g.idx.includes(j)) || gs[0]).tool]}" data-i="${j}"${ch ? ' disabled' : ''}>${esc(w)}</button>`).join('')}</div><div class="ep-src">${esc(src)}</div>`;
+  $('pTools').innerHTML = toolBtns('ptool', S.ptool, groupOf(items[i], S.pword).tool, ch);
+  $('pMain').textContent = ch ? t.next : pm.check; $('pMain').disabled = !ch && (S.pword === null || S.ptool === null);
+  lab.setReadout(`${i + 1}/${n}`, '', ch ? `✓ ${k}` : '', ch ? COL[groupOf(items[i], S.pword).tool] : COL.H);
+  if (!ch) lab.setState({ emo: '📜', title: pm.q, lead: pm.tap, body: '', extra: '' });
+  else {
+    const g = groupOf(items[i], S.pword), wOk = gs.some((x) => x.idx.includes(S.pword)), tOk = S.ptool === g.tool, words = g.idx.map((j) => toks[j]).join(' ').replace(/[!?,.]+$/, '');
+    lab.setState({ emo: wOk && tOk ? '✅' : '🤔', title: wOk && tOk ? pm.right : wOk ? pm.wordsOnly : tOk ? pm.toolOnly : pm.none, lead: `“${words}”: ${t.tools[g.tool]}.`, body: '', extra: '' });
+  }
+}
+render();
+</script>
+</body>
+</html>

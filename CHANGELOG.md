@@ -12,6 +12,20 @@ Hungarian is on the site: [What's new](https://samvelkoch.github.io/skill-graph/
 
 Counts in brackets are totals after that day.
 
+## 2026-11-15
+
+### Labs
+- New lab `fact-check` “Source Detective”: Judging sources, independent vs copied sources, lateral reading. (656). (#576)
+- New lab `translator` “The Translator’s Choice”: Word-for-word vs free translation, names in translation. (655). (#576)
+- New lab `theme` “What Is It Really About?”: Topic vs theme, one theme across different stories. (654). (#576)
+- New lab `epithets` “Make It Vivid”: Epithet, personification and hyperbole. (653). (#576)
+- New lab `novel-size` “How Big Is a Book?”: Short story, novella and novel by scope and word count. (652). (#576)
+- New lab `symbol` “More Than It Seems”: Symbols in a story, fable animals and allegory. (651). (#576)
+- New lab `arc` “How a Hero Changes”: A character arc, the turning point, round and flat characters. (650). (#576)
+- New lab `sound-play` “Sounds That Paint”: Alliteration, assonance and onomatopoeia. (649). (#576)
+- New lab `metre` “Tap the Beat”: Strong and weak beats, iamb, trochee and three-syllable feet. (648). (#576)
+- New lab `narrator` “Who Is Telling?”: First-, third-person and all-knowing narrators, and two characters' views of one event. (647). (#576)
+
 ## 2026-11-14
 
 ### Labs
