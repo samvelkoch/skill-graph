@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-16
 
 ### Labs
+- New lab `reaction-rate` “Speed Up the Reaction”: temperature, concentration, surface area and catalysts in collision theory (707). (#600)
 - New lab `greek-colonies` “Where Did the Greeks Go?”: why Greek city-states founded colonies around the Mediterranean and Black Sea, trade with the Scythians (706). (#599)
 - New lab `planet-landing` “Could You Land There?”: rocky and gas planets, Venus the hottest, rings on all giants, rusty Mars (705). (#598)
 - New lab `joints` “How Joints Move”: tendons, ligaments, cartilage and joint types (704). (#597)
