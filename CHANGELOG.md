@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-16
 
 ### Labs
+- New lab `year-1905` “The Year 1905”: Russia under Nicholas II, the revolution of 1905, the October Manifesto and the first Duma (709). (#602)
 - New lab `homeostasis` “The Thermostat Inside”: homeostasis: temperature control by the skin, negative feedback, insulin and glucagon (708). (#601)
 - New lab `reaction-rate` “Speed Up the Reaction”: temperature, concentration, surface area and catalysts in collision theory (707). (#600)
 - New lab `greek-colonies` “Where Did the Greeks Go?”: why Greek city-states founded colonies around the Mediterranean and Black Sea, trade with the Scythians (706). (#599)
