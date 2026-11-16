@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-16
 
 ### Labs
+- New lab `bead-patterns` “The Bead Necklace”: the repeating unit (core) of a pattern, far terms and the same pattern in other forms (689). (#582)
 - New lab `recipe-scale` “Pancakes for Everyone”: measuring with the right tool, following steps in order, scaling a recipe (688). (#581)
 - Robot Lab (`robot-lab`) reworked for a class on a projector: on a big screen the whole lab fits one screen without scrolling (and scales up on Full HD and larger); the task is shown above the board and as a live mission checklist; the robot has a beam that shows which way it faces; the block the robot stopped at is framed in red; loops show their round; blocks can be inserted after any block; speed ×1/×2/×4, a "Next" button after a win and keyboard keys (arrows, Enter, Backspace). Two new "find the bug" levels start with a broken program (12 levels). A new "Quiz" tab has 10 questions for the whole class, two of them with a robot that runs the program after the answer. Unlocking the secret levels now marks the lab's topics as "learning" on the map. (#579)
 - Robot Lab quiz: 10 more questions on how robots are built (sense, decide, act; the five parts), what they are for (dull, dirty, dangerous work; surgery, space, factories) and their risks (hacking, jobs), 20 in total; the quiz now starts with a choice of 7, 10, 15 or 20 questions (`?view=quiz&n=10` opens one directly). (#580)
