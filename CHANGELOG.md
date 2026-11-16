@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-16
 
 ### Labs
+- New lab `salt-share` “How Salty Is It?”: mass fraction of a solution, dilution and saturation (722). (#615)
 - New lab `chain-reaction` “One Neutron, Many Neutrons”: nuclear fission, chain reactions and control rods, fusion in the Sun (721). (#614)
 - New lab `ions-conduct` “Which Water Lights the Bulb?”: electrolytes and ions: which solutions conduct, ions moving to electrodes, ion exchange reactions (720). (#613)
 - New lab `carbon-forms` “A Gem and a Pencil”: crystal structure: diamond, graphite and salt lattices and their properties (719). (#612)
