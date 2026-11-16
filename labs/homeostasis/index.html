@@ -1,0 +1,923 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The Thermostat Inside · Skill Graph</title>
+<meta name="description" content="Run in the heat and the cold, build the feedback loop that keeps your temperature steady, and watch insulin and glucagon hold blood sugar. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { visibility: hidden; }
+  #stage { height: 540px; }
+  .hm-q { font: 500 19px/1.2 var(--serif); color: #fff; margin: 2px 0 10px; text-wrap: balance; }
+  .hm-opts { display: flex; flex-wrap: wrap; gap: 8px; }
+  .hm-opt { padding: 10px 16px; min-height: 42px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font: 800 14px var(--sans); color: var(--ink); cursor: pointer; }
+  .hm-opt:hover { background: rgba(130, 145, 190, .25); }
+  .hm-lab { display: flex; justify-content: space-between; font-size: 13px; font-weight: 800; color: var(--soft); margin-bottom: 2px; }
+  .hm-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 10px; }
+  .hm-chip { display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; min-height: 38px; border-radius: 999px; border: 1px solid var(--stroke2);
+    background: rgba(20, 24, 38, .6); color: var(--soft); font: 800 13px var(--sans); cursor: pointer; white-space: nowrap; }
+  .hm-chip:hover { background: rgba(130, 145, 190, .16); }
+  .hm-chip.on { background: #fff; color: var(--bg); border-color: #fff; }
+  .hm-chip:disabled { opacity: .35; cursor: default; }
+  .hm-chip.sec { border-style: dashed; color: var(--mut); }
+  .hm-chip.sec.open { border-style: solid; border-color: var(--wip); color: var(--wip); }
+  .hm-chip.sec.open.on { background: var(--wip); color: var(--bg); }
+  .hm-lbl { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-weight: 700; margin-right: 2px; }
+  .hm-fine { font-size: 11px; color: var(--faint); margin-top: 10px; }
+  @media (max-width: 760px) { #stage { height: min(132vw, 560px); } .hm-q { font-size: 17px; } }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, store, $, esc, clamp, lerp, ruPlural, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const FEVER = 38.8; // the raised set point of the fever experiment, °C
+const LATENT = 2.3e6; // J to evaporate 1 kg of water (about 2257 kJ/kg at 100 °C; the model rounds it)
+const T = {
+  en: {
+    name: 'The Thermostat Inside', title: 'The Thermostat Inside',
+    lines: [['Run in the heat', 'and in the cold.'], ['Build the loop', 'that keeps you steady.'], ['Eat a big lunch', 'and watch the sugar.']],
+    views: { heat: '🌡️ Heat', loop: '🔁 Loop', sugar: '🍬 Sugar' },
+    cs: '°C', min: ' min',
+    h: {
+      q: 'During a run, if sweating is switched off, the core temperature line will…', opts: ['stay flat', 'rise steadily', 'drop'],
+      pre: 'Make your guess, then the test starts.', ok: 'Right!', no: 'Not quite.',
+      rev: 'A run makes a lot of heat. With sweating off, most of it cannot leave, so the line climbs. Now switch sweating on and compare.',
+      weather: 'Air temperature', run: '🏃 Run', humid: '💦 Humid air', restart: '↺ Restart', resp: 'Body responses',
+      sweat: '💧 Sweat', vess: '🩸 Vessels', shiv: '🥶 Shiver', goose: '🪶 Goosebumps',
+      gland: 'sweat gland', hair: 'hair + muscle', vessel: 'blood vessel', core: 'body core', air: 'air', set: 'set point',
+      sub: 'core temperature', pill: (a) => `air ${a} °C`,
+      vz: { wide: 'Skin vessels: wide.', mid: 'Skin vessels: normal.', narrow: 'Skin vessels: narrow.' },
+      st: {
+        steady: ['🙂', 'Steady at about 37 °C', 'Heat made and heat lost are about equal.'],
+        sweat: ['💦', 'Sweating', 'Droplets evaporate and carry heat away.'],
+        wet: ['💦', 'Sweat that cannot dry', 'The air is so wet that the droplets stay on the skin and take away little heat.'],
+        shiver: ['🥶', 'Shivering', 'Muscles shake to make heat. Narrow vessels keep it in.'],
+        wide: ['🩸', 'Vessels widen', 'More warm blood flows through the skin and gives heat to the air.'],
+        stuck: ['🔥', 'Heat has nowhere to go', 'Running makes heat. With sweating off, the line climbs.'],
+        hot: ['🥵', 'Too hot!', 'Above 40 °C is dangerous. Switch the responses on, stop running or cool the air.'],
+        cold: ['🥶', 'Too cold!', 'The core is cooling down. Switch the responses on or warm the air.'],
+        fup: ['🤒', 'The set point is up', `The brain now aims for ${FEVER} °C. Until the body gets there it shivers and feels cold, though it is warm.`],
+        fhold: ['🤒', `Fever: holding at ${FEVER} °C`, 'The thermostat works as before, just at a higher setting.'],
+        fend: ['😅', 'The set point is back', 'Now the body is too warm for it: sweating starts and the vessels widen.'],
+        desert: (l) => ['🏜️', `${l} litres of sweat per hour`, 'Every litre that evaporates carries off about 2.3 MJ of heat. Drink as you go.'],
+      },
+    },
+    l: {
+      nodes: [['🔥', 'Change', 'Body gets too warm'], ['👁️', 'Sensors', 'Skin and brain notice'], ['🧠', 'Control centre', 'Hypothalamus · 37 °C'],
+        ['💪', 'Effectors', 'Glands, vessels, muscles'], ['💨', 'Response', 'Heat leaves the body']],
+      build: 'Build the loop', next: (p) => `Tap the card that comes next after “${p}”.`, miss: (p) => `Not that one. Which card takes over from “${p}”?`,
+      cards: 'Cards', progress: (n) => `${n} of 4 cards`,
+      done: ['🔁', 'The loop is closed', 'The response goes back to the change. One question before you test it.'],
+      q: 'If the response pushed the same way as the change, what would the line do?', opts: ['Stay steady', 'Run away', 'Come back to normal'],
+      ok: 'Right!', no: 'Not quite.', rev: 'A response that adds to the change feeds itself, so the line runs away. Flip the sign below and see.',
+      neg: '➖ Reduces the change', pos: '➕ Wrong sign: adds to it', warm: '🔥 Warm +1 °C', cool: '🧊 Cool −1 °C', restart: '↺ Restart', sign: 'Sign of the response',
+      pillNeg: 'negative feedback', pillPos: 'wrong sign', sub: 'core temperature (model)',
+      st: {
+        negIdle: ['⚖️', 'Steady at 37 °C', 'Give the body a push with a button.'],
+        negBack: ['↩️', 'Pushed back to 37 °C', 'Each step of the response cancels part of the change: negative feedback.'],
+        posIdle: ['⚖️', 'Balanced on a knife edge', 'With the wrong sign any push will grow. Try one.'],
+        posRun: ['🚨', 'Runaway!', 'Every bit of change makes more change. That is why the body’s loop works the other way round.'],
+      },
+      cap: 'The graph stops at the top.', ref: '37 °C',
+    },
+    s: {
+      q: 'After a big lunch, which hormone rises?', opts: ['Glucagon', 'Insulin', 'Neither'], pre: 'Make your guess, then lunch is served.', ok: 'Right!', no: 'Not quite.',
+      rev: 'The meal puts sugar into the blood. The pancreas answers with insulin: cells take up the sugar and the liver stores it as glycogen. Now try the walk.',
+      meal: '🍝 Big lunch', walk: '🚶 Long walk, no food', restart: '↺ Restart',
+      pancreas: 'pancreas', cells: 'cells', liver: 'liver', gut: 'meal', blood: 'blood sugar', ins: 'insulin', glu: 'glucagon', band: 'about 4–7', unit: 'mmol/L',
+      sub: 'blood sugar', pill: (c) => `🕐 ${c}`, hor: (i, g) => `insulin ${i}% · glucagon ${g}%`,
+      st: {
+        steady: ['🙂', 'Blood sugar steady', 'Sugar in and sugar out balance at about 5 mmol/L.'],
+        gut: ['🍝', 'Sugar arrives', 'The meal is digested and sugar enters the blood.'],
+        ins: ['🔵', 'Insulin at work', 'Cells take up sugar and the liver stores it as glycogen, so the level comes back down.'],
+        glu: ['🟠', 'Glucagon at work', 'The liver releases stored sugar, so the level comes back up.'],
+        walk: ['🚶', 'Muscles use sugar', 'The level slowly sinks. If it gets low, the pancreas sends glucagon.'],
+      },
+    },
+    secrets: { a: ['Fever', 'The set point moves up: you shiver while warm'], b: ['Desert run', 'How much water leaves as sweat?'] },
+    facts: {
+      h: [{ emo: '🌡️', text: 'Normal body temperature is about 37 °C, but anything from 36.5 to 37.5 °C counts as normal.', src: 'https://en.wikipedia.org/wiki/Human_body_temperature' },
+        { emo: '🕓', text: 'Your temperature moves by about 0.5 °C every day: lowest around 4 a.m., highest in the late afternoon.', src: 'https://en.wikipedia.org/wiki/Human_body_temperature' }],
+      l: [{ emo: '🧠', text: 'The hypothalamus, a part of the brain about the size of an almond, works like the body’s thermostat.', src: 'https://en.wikipedia.org/wiki/Hypothalamus' },
+        { emo: '🤒', text: 'A fever is not a broken thermostat: the hypothalamus is set to a higher temperature.', src: 'https://en.wikipedia.org/wiki/Hypothalamus' }],
+      s: [{ emo: '💉', text: 'Insulin was first isolated from dog pancreas in 1921 by Frederick Banting and Charles Best, in John Macleod’s lab in Toronto.', src: 'https://en.wikipedia.org/wiki/Insulin' },
+        { emo: '🥄', text: 'A 75 kg adult has only about 5 g of sugar dissolved in all their blood: roughly one teaspoon.', src: 'https://en.wikipedia.org/wiki/Blood_sugar_level' }],
+    },
+    quiz: [
+      { q: 'Why does sweat cool you?', opts: ['Because it evaporates and takes heat away', 'Because the skin is wet', 'Because it is cold water'], ok: 0, hint: 'In Heat, switch on Humid air and watch what the droplets do.' },
+      { q: 'On a hot day, the blood vessels in your skin…', opts: ['move closer to the surface', 'widen, so more blood flows near the surface', 'shrink'], ok: 1, hint: 'Look at the blood vessel in the skin picture.' },
+      { q: 'In negative feedback the body’s response…', opts: ['has no effect', 'makes the change bigger', 'reduces the change'], ok: 2, hint: 'Flip the sign of the loop in Loop.' },
+    ],
+  },
+  ru: {
+    name: 'Термостат внутри', title: 'Термостат внутри',
+    lines: [['Побегай в жару', 'и на морозе.'], ['Собери петлю,', 'которая держит температуру.'], ['Съешь большой обед', 'и следи за сахаром.']],
+    views: { heat: '🌡️ Жара', loop: '🔁 Петля', sugar: '🍬 Сахар' },
+    cs: '°C', min: ' мин',
+    h: {
+      q: 'Во время бега, если выключить потоотделение, линия температуры тела…', opts: ['останется ровной', 'будет расти', 'упадёт'],
+      pre: 'Сделай прогноз, и опыт начнётся.', ok: 'Верно!', no: 'Не совсем.',
+      rev: 'Бег даёт много тепла. Без пота большая часть его не уходит, и линия ползёт вверх. Теперь включи потоотделение и сравни.',
+      weather: 'Температура воздуха', run: '🏃 Бег', humid: '💦 Влажный воздух', restart: '↺ Заново', resp: 'Реакции тела',
+      sweat: '💧 Пот', vess: '🩸 Сосуды', shiv: '🥶 Дрожь', goose: '🪶 Мурашки',
+      gland: 'потовая железа', hair: 'волос и мышца', vessel: 'кровеносный сосуд', core: 'тело внутри', air: 'воздух', set: 'цель',
+      sub: 'температура тела внутри', pill: (a) => `воздух ${a} °C`,
+      vz: { wide: 'Сосуды кожи: широкие.', mid: 'Сосуды кожи: обычные.', narrow: 'Сосуды кожи: узкие.' },
+      st: {
+        steady: ['🙂', 'Ровно около 37 °C', 'Тепла получается столько же, сколько уходит.'],
+        sweat: ['💦', 'Потоотделение', 'Капли испаряются и уносят тепло.'],
+        wet: ['💦', 'Пот, который не сохнет', 'Воздух такой влажный, что капли остаются на коже и почти не охлаждают.'],
+        shiver: ['🥶', 'Дрожь', 'Мышцы дрожат и дают тепло. Узкие сосуды удерживают его.'],
+        wide: ['🩸', 'Сосуды расширяются', 'Через кожу идёт больше тёплой крови и отдаёт тепло воздуху.'],
+        stuck: ['🔥', 'Теплу некуда деваться', 'Бег даёт тепло. Без пота линия ползёт вверх.'],
+        hot: ['🥵', 'Слишком жарко!', 'Выше 40 °C опасно. Включи реакции тела, остановись или охлади воздух.'],
+        cold: ['🥶', 'Слишком холодно!', 'Тело остывает. Включи реакции тела или согрей воздух.'],
+        fup: ['🤒', 'Цель поднялась', `Мозг теперь хочет ${FEVER} °C. Пока тело не дойдёт до неё, оно дрожит и мёрзнет, хотя ему тепло.`],
+        fhold: ['🤒', `Жар: держится ${FEVER} °C`, 'Термостат работает как обычно, только на более высокой отметке.'],
+        fend: ['😅', 'Цель вернулась', 'Теперь телу слишком жарко: начинается потоотделение, сосуды расширяются.'],
+        desert: (l) => ['🏜️', `${l} л пота в час`, 'Каждый литр испарившегося пота уносит около 2,3 МДж тепла. Пей по дороге.'],
+      },
+    },
+    l: {
+      nodes: [['🔥', 'Изменение', 'Телу становится жарко'], ['👁️', 'Датчики', 'Кожа и мозг замечают'], ['🧠', 'Центр управления', 'Гипоталамус · 37 °C'],
+        ['💪', 'Исполнители', 'Железы, сосуды, мышцы'], ['💨', 'Ответ', 'Тепло уходит из тела']],
+      build: 'Собери петлю', next: (p) => `Нажми карточку, которая идёт после «${p}».`, miss: (p) => `Не та. Какая карточка продолжает «${p}»?`,
+      cards: 'Карточки', progress: (n) => `${n} из 4 карточек`,
+      done: ['🔁', 'Петля замкнулась', 'Ответ возвращается к изменению. Один вопрос, прежде чем проверять.'],
+      q: 'Если бы ответ толкал в ту же сторону, что и изменение, что сделала бы линия?', opts: ['Осталась бы ровной', 'Ушла бы всё дальше', 'Вернулась бы к норме'],
+      ok: 'Верно!', no: 'Не совсем.', rev: 'Ответ, который добавляет к изменению, сам себя подпитывает, и линия убегает. Переверни знак ниже и посмотри.',
+      neg: '➖ Уменьшает изменение', pos: '➕ Не тот знак: добавляет', warm: '🔥 Нагреть на 1 °C', cool: '🧊 Охладить на 1 °C', restart: '↺ Заново', sign: 'Знак ответа',
+      pillNeg: 'отрицательная обратная связь', pillPos: 'не тот знак', sub: 'температура тела (модель)',
+      st: {
+        negIdle: ['⚖️', 'Ровно 37 °C', 'Толкни тело кнопкой.'],
+        negBack: ['↩️', 'Возврат к 37 °C', 'Каждый шаг ответа гасит часть изменения: отрицательная обратная связь.'],
+        posIdle: ['⚖️', 'Равновесие на острие', 'С неверным знаком любой толчок будет расти. Попробуй.'],
+        posRun: ['🚨', 'Убегает!', 'Каждое изменение рождает ещё большее. Поэтому петля тела работает наоборот.'],
+      },
+      cap: 'График доходит до верхнего края.', ref: '37 °C',
+    },
+    s: {
+      q: 'После большого обеда растёт уровень…', opts: ['глюкагона', 'инсулина', 'ни одного гормона'], pre: 'Сделай прогноз, и обед подадут.', ok: 'Верно!', no: 'Не совсем.',
+      rev: 'Еда добавляет сахар в кровь. Поджелудочная железа отвечает инсулином: клетки забирают сахар, а печень запасает его в виде гликогена. Теперь попробуй прогулку.',
+      meal: '🍝 Большой обед', walk: '🚶 Долгая прогулка без еды', restart: '↺ Заново',
+      pancreas: 'поджелудочная', cells: 'клетки', liver: 'печень', gut: 'еда', blood: 'сахар в крови', ins: 'инсулин', glu: 'глюкагон', band: 'примерно 4–7', unit: 'ммоль/л',
+      sub: 'сахар в крови', pill: (c) => `🕐 ${c}`, hor: (i, g) => `инсулин ${i}% · глюкагон ${g}%`,
+      st: {
+        steady: ['🙂', 'Сахар в крови ровный', 'Сколько сахара приходит, столько и уходит: около 5 ммоль/л.'],
+        gut: ['🍝', 'Сахар поступает', 'Еда переваривается, и сахар попадает в кровь.'],
+        ins: ['🔵', 'Работает инсулин', 'Клетки забирают сахар, печень запасает его как гликоген, и уровень падает обратно.'],
+        glu: ['🟠', 'Работает глюкагон', 'Печень выпускает запасённый сахар, и уровень поднимается обратно.'],
+        walk: ['🚶', 'Мышцы тратят сахар', 'Уровень медленно снижается. Когда он низкий, поджелудочная железа посылает глюкагон.'],
+      },
+    },
+    secrets: { a: ['Лихорадка', 'Цель сдвигается вверх: дрожишь, хотя тепло'], b: ['Бег в пустыне', 'Сколько воды уходит с потом?'] },
+    facts: {
+      h: [{ emo: '🌡️', text: 'Нормальная температура тела — около 37 °C, но нормой считается всё от 36,5 до 37,5 °C.', src: 'https://en.wikipedia.org/wiki/Human_body_temperature' },
+        { emo: '🕓', text: 'За день температура меняется примерно на 0,5 °C: ниже всего около 4 утра, выше всего ближе к вечеру.', src: 'https://en.wikipedia.org/wiki/Human_body_temperature' }],
+      l: [{ emo: '🧠', text: 'Гипоталамус — часть мозга размером с миндальный орех — работает как термостат тела.', src: 'https://en.wikipedia.org/wiki/Hypothalamus' },
+        { emo: '🤒', text: 'Жар — это не поломка термостата: гипоталамус просто настроен на более высокую температуру.', src: 'https://en.wikipedia.org/wiki/Hypothalamus' }],
+      s: [{ emo: '💉', text: 'Инсулин впервые выделили из поджелудочной железы собаки в 1921 году Фредерик Бантинг и Чарльз Бест в лаборатории Джона Маклеода в Торонто.', src: 'https://en.wikipedia.org/wiki/Insulin' },
+        { emo: '🥄', text: 'Во всей крови взрослого человека весом 75 кг растворено всего около 5 г сахара: примерно одна чайная ложка.', src: 'https://en.wikipedia.org/wiki/Blood_sugar_level' }],
+    },
+    quiz: [
+      { q: 'Почему пот охлаждает?', opts: ['Потому что он испаряется и забирает тепло', 'Потому что кожа мокрая', 'Потому что пот — холодная вода'], ok: 0, hint: 'Во вкладке «Жара» включи влажный воздух и посмотри, что делают капли.' },
+      { q: 'В жаркий день кровеносные сосуды в коже…', opts: ['подходят ближе к поверхности', 'расширяются, и больше крови идёт у поверхности', 'сужаются'], ok: 1, hint: 'Посмотри на кровеносный сосуд на картинке кожи.' },
+      { q: 'При отрицательной обратной связи ответ тела…', opts: ['ни на что не влияет', 'увеличивает изменение', 'уменьшает изменение'], ok: 2, hint: 'Переверни знак петли во вкладке «Петля».' },
+    ],
+  },
+  hu: {
+    name: 'A belső termosztát', title: 'A belső termosztát',
+    lines: [['Fuss a hőségben', 'és a fagyban.'], ['Építsd fel a kört,', 'amely egyensúlyban tart.'], ['Egyél egy nagy ebédet,', 'és figyeld a cukrot.']],
+    views: { heat: '🌡️ Hő', loop: '🔁 Kör', sugar: '🍬 Cukor' },
+    cs: '°C', min: ' perc',
+    h: {
+      q: 'Futás közben, ha kikapcsoljuk az izzadást, a testhőmérséklet vonala…', opts: ['vízszintes marad', 'folyamatosan emelkedik', 'lecsökken'],
+      pre: 'Tippelj, és indul a kísérlet.', ok: 'Így van!', no: 'Nem egészen.',
+      rev: 'A futás sok hőt termel. Izzadás nélkül ennek nagy része nem tud távozni, ezért a vonal emelkedik. Most kapcsold be az izzadást, és hasonlítsd össze.',
+      weather: 'Levegő hőmérséklete', run: '🏃 Futás', humid: '💦 Párás levegő', restart: '↺ Újra', resp: 'A test válaszai',
+      sweat: '💧 Izzadás', vess: '🩸 Erek', shiv: '🥶 Reszketés', goose: '🪶 Libabőr',
+      gland: 'verejtékmirigy', hair: 'szőr és izom', vessel: 'véredény', core: 'test belseje', air: 'levegő', set: 'cél',
+      sub: 'testhőmérséklet (belül)', pill: (a) => `levegő ${a} °C`,
+      vz: { wide: 'A bőr erei: tágak.', mid: 'A bőr erei: átlagosak.', narrow: 'A bőr erei: szűkek.' },
+      st: {
+        steady: ['🙂', 'Egyenletesen kb. 37 °C', 'Ugyanannyi hő keletkezik, mint amennyi távozik.'],
+        sweat: ['💦', 'Izzadás', 'A cseppek elpárolognak, és elviszik a hőt.'],
+        wet: ['💦', 'Izzadság, amely nem szárad meg', 'A levegő annyira párás, hogy a cseppek a bőrön maradnak, és alig hűtenek.'],
+        shiver: ['🥶', 'Reszketés', 'Az izmok remegve hőt termelnek. A szűk erek bent tartják.'],
+        wide: ['🩸', 'Az erek kitágulnak', 'Több meleg vér áramlik a bőrben, és hőt ad a levegőnek.'],
+        stuck: ['🔥', 'A hőnek nincs hová mennie', 'A futás hőt termel. Izzadás nélkül a vonal emelkedik.'],
+        hot: ['🥵', 'Túl meleg!', '40 °C fölött veszélyes. Kapcsold be a válaszokat, állj meg, vagy hűtsd a levegőt.'],
+        cold: ['🥶', 'Túl hideg!', 'A test belseje hűl. Kapcsold be a válaszokat, vagy melegítsd a levegőt.'],
+        fup: ['🤒', 'A cél feljebb ment', `Az agy most ${FEVER} °C-ot akar. Amíg a test oda nem ér, reszket és fázik, pedig meleg van.`],
+        fhold: ['🤒', `Láz: ${FEVER} °C körül marad`, 'A termosztát ugyanúgy működik, csak magasabbra állították.'],
+        fend: ['😅', 'A cél visszatért', 'Most már túl meleg a testnek: elindul az izzadás, és az erek kitágulnak.'],
+        desert: (l) => ['🏜️', `${l} liter izzadság óránként`, 'Minden elpárolgó liter kb. 2,3 MJ hőt visz el. Menet közben igyál.'],
+      },
+    },
+    l: {
+      nodes: [['🔥', 'Változás', 'A test túlmelegszik'], ['👁️', 'Érzékelők', 'A bőr és az agy észleli'], ['🧠', 'Vezérlőközpont', 'Hipotalamusz · 37 °C'],
+        ['💪', 'Végrehajtók', 'Mirigyek, erek, izmok'], ['💨', 'Válasz', 'A hő távozik a testből']],
+      build: 'Építsd fel a kört', next: (p) => `Koppints arra a kártyára, amely a(z) „${p}” után jön.`, miss: (p) => `Nem ez. Melyik kártya veszi át a(z) „${p}” szerepét?`,
+      cards: 'Kártyák', progress: (n) => `${n} / 4 kártya`,
+      done: ['🔁', 'A kör bezárult', 'A válasz visszatér a változáshoz. Egy kérdés, mielőtt kipróbálod.'],
+      q: 'Ha a válasz ugyanabba az irányba tolna, mint a változás, mit tenne a vonal?', opts: ['Egyenletes maradna', 'Elszaladna', 'Visszatérne a normálishoz'],
+      ok: 'Így van!', no: 'Nem egészen.', rev: 'Az a válasz, amely hozzátesz a változáshoz, önmagát táplálja, ezért a vonal elszalad. Fordítsd meg lent az előjelet, és nézd meg.',
+      neg: '➖ Csökkenti a változást', pos: '➕ Rossz előjel: növeli', warm: '🔥 Melegítés +1 °C', cool: '🧊 Hűtés −1 °C', restart: '↺ Újra', sign: 'A válasz előjele',
+      pillNeg: 'negatív visszacsatolás', pillPos: 'rossz előjel', sub: 'testhőmérséklet (modell)',
+      st: {
+        negIdle: ['⚖️', 'Egyenletesen 37 °C', 'Lökd meg a testet egy gombbal.'],
+        negBack: ['↩️', 'Visszatért 37 °C-ra', 'A válasz minden lépése lebont a változásból: negatív visszacsatolás.'],
+        posIdle: ['⚖️', 'Késélen egyensúlyoz', 'Rossz előjellel minden lökés nőni fog. Próbáld ki.'],
+        posRun: ['🚨', 'Elszalad!', 'Minden változás még nagyobb változást szül. Ezért működik a test köre fordítva.'],
+      },
+      cap: 'A grafikon felső széléig ér.', ref: '37 °C',
+    },
+    s: {
+      q: 'Egy nagy ebéd után melyik hormon szintje emelkedik?', opts: ['A glükagoné', 'Az inzuliné', 'Egyiké sem'], pre: 'Tippelj, és kihozzák az ebédet.', ok: 'Így van!', no: 'Nem egészen.',
+      rev: 'Az étel cukrot visz a vérbe. A hasnyálmirigy inzulinnal válaszol: a sejtek felveszik a cukrot, a máj pedig glikogénként raktározza. Most próbáld ki a sétát.',
+      meal: '🍝 Nagy ebéd', walk: '🚶 Hosszú séta evés nélkül', restart: '↺ Újra',
+      pancreas: 'hasnyálmirigy', cells: 'sejtek', liver: 'máj', gut: 'étel', blood: 'vércukor', ins: 'inzulin', glu: 'glükagon', band: 'kb. 4–7', unit: 'mmol/l',
+      sub: 'vércukor', pill: (c) => `🕐 ${c}`, hor: (i, g) => `inzulin ${i}% · glükagon ${g}%`,
+      st: {
+        steady: ['🙂', 'A vércukor egyenletes', 'Ugyanannyi cukor érkezik, mint amennyi elfogy: kb. 5 mmol/l.'],
+        gut: ['🍝', 'Érkezik a cukor', 'Az étel megemésztődik, és a cukor a vérbe kerül.'],
+        ins: ['🔵', 'Az inzulin dolgozik', 'A sejtek felveszik a cukrot, a máj glikogénként raktározza, így a szint visszaesik.'],
+        glu: ['🟠', 'A glükagon dolgozik', 'A máj kiengedi a raktározott cukrot, így a szint visszaemelkedik.'],
+        walk: ['🚶', 'Az izmok cukrot használnak', 'A szint lassan süllyed. Ha alacsony lesz, a hasnyálmirigy glükagont küld.'],
+      },
+    },
+    secrets: { a: ['Láz', 'A cél feljebb megy: reszketsz, miközben meleg vagy'], b: ['Sivatagi futás', 'Mennyi víz távozik izzadsággal?'] },
+    facts: {
+      h: [{ emo: '🌡️', text: 'A normál testhőmérséklet kb. 37 °C, de a 36,5 és 37,5 °C közötti érték is normálisnak számít.', src: 'https://en.wikipedia.org/wiki/Human_body_temperature' },
+        { emo: '🕓', text: 'A hőmérsékleted naponta kb. 0,5 °C-ot ingadozik: hajnali 4 körül a legalacsonyabb, késő délután a legmagasabb.', src: 'https://en.wikipedia.org/wiki/Human_body_temperature' }],
+      l: [{ emo: '🧠', text: 'A hipotalamusz, az agy mandula nagyságú része, a test termosztátjaként működik.', src: 'https://en.wikipedia.org/wiki/Hypothalamus' },
+        { emo: '🤒', text: 'A láz nem elromlott termosztát: a hipotalamuszt magasabb hőmérsékletre állították.', src: 'https://en.wikipedia.org/wiki/Hypothalamus' }],
+      s: [{ emo: '💉', text: 'Az inzulint először 1921-ben vonta ki kutyák hasnyálmirigyéből Frederick Banting és Charles Best, John Macleod torontói laboratóriumában.', src: 'https://en.wikipedia.org/wiki/Insulin' },
+        { emo: '🥄', text: 'Egy 75 kg-os felnőtt egész vérében csak kb. 5 gramm cukor van oldva: nagyjából egy teáskanálnyi.', src: 'https://en.wikipedia.org/wiki/Blood_sugar_level' }],
+    },
+    quiz: [
+      { q: 'Miért hűt az izzadság?', opts: ['Mert elpárolog, és hőt von el', 'Mert nedves a bőr', 'Mert hideg víz'], ok: 0, hint: 'A Hő nézetben kapcsold be a párás levegőt, és nézd, mit csinálnak a cseppek.' },
+      { q: 'Hőségben a bőr erei…', opts: ['közelebb kerülnek a felszínhez', 'kitágulnak, így több vér áramlik a felszín közelében', 'összehúzódnak'], ok: 1, hint: 'Nézd meg a véredényt a bőr képén.' },
+      { q: 'Negatív visszacsatolásnál a test válasza…', opts: ['nem hat semmire', 'növeli a változást', 'csökkenti a változást'], ok: 2, hint: 'Fordítsd meg a kör előjelét a Kör nézetben.' },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_zaXr5wcJD2', en: 'Body Temperature Regulation', ru: 'Регуляция температуры тела', hu: 'A testhőmérséklet szabályozása' },
+  { id: 'mt_J40cOn7VWn', en: 'How the Body Stays in Balance', ru: 'Как организм поддерживает равновесие', hu: 'Hogyan marad egyensúlyban a test' },
+];
+
+// --- small helpers ------------------------------------------------------------------------------------------
+const hexRGB = (h) => { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+const mixHex = (a, b, t) => { const A = hexRGB(a), B2 = hexRGB(b), k = clamp(t, 0, 1); return '#' + A.map((v, i) => Math.round(lerp(v, B2[i], k)).toString(16).padStart(2, '0')).join(''); };
+const rr = (c, x, y, w, h, r) => { c.beginPath(); c.roundRect(x, y, w, h, Math.max(0, r)); };
+const sstep = (x) => { const t = clamp(x, 0, 1); return t * t * (3 - 2 * t); };
+const hash = (i) => { const s = Math.sin(i * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+// air colours (top, bottom) for a temperature in °C
+const airCols = (a) => {
+  const k = clamp((a + 10) / 50, 0, 1);
+  return k < 0.55 ? [mixHex('#25406a', '#2f5a63', k / 0.55), mixHex('#3a6a9c', '#5a8c7c', k / 0.55)]
+    : [mixHex('#2f5a63', '#7a3b24', (k - 0.55) / 0.45), mixHex('#5a8c7c', '#e0903f', (k - 0.55) / 0.45)];
+};
+// a text pill, clamped into [minX, maxX]
+function pill(c, text, cx, y, minX, maxX, fill = 'rgba(10,12,20,.82)', col = '#EDEFF7') {
+  c.font = '800 12px Nunito, sans-serif';
+  const tw = c.measureText(text).width + 14, px = clamp(cx - tw / 2, minX, Math.max(minX, maxX - tw));
+  c.fillStyle = fill; rr(c, px, y - 10, tw, 20, 10); c.fill();
+  c.fillStyle = col; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(text, px + 7, y + 1);
+  return px + tw / 2;
+}
+const leader = (c, x1, y1, x2, y2) => { c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1; c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); };
+const fmt = (v, d = 1) => v.toFixed(d).replace('.', lang === 'en' ? '.' : ',');
+
+// --- state --------------------------------------------------------------------------------------------------
+const B = { Tc: 37, Tset: 37, t: 0, last: -1, Tair: 22, run: false, humid: false, sweat: true, vess: true, shiv: true, goose: true,
+  fever: false, fevered: false, desert: false, sw: 0, vd: 0, sh: 0, gs: 0, dry: 0, hist: [], ghost: [], guess: null, touched: false };
+const LP = { Tc: 37, r: 0, t: 0, last: -1, sign: -1, hist: [], placed: [true, false, false, false, false], miss: 0, shake: 0, guess: null, pushed: false };
+const SG = { tg: 0, G: 5, gut: 0, I: 0, A: 0, store: 0.55, t: 0, last: -1, hist: [], walk: 0, marks: [], guess: null, touched: false, spI: 0, spA: 0, spD: 0, bounce: 0 };
+const TRAY = [2, 4, 1, 3];
+const drops = [], parts = [];
+let dropAcc = 0, liveAcc = 9;
+const SPEED = { heat: 1.5, loop: 1.5, sugar: 12 };
+
+const lab = shell({ key: 'homeostasis', T, topics: TOPICS, views: ['heat', 'loop', 'sugar'], onLang: () => render(), onView: () => render() });
+const secret = secretLab('homeostasis', () => ({
+  secrets: [{ emo: '🤒', title: T[lang].secrets.a[0], desc: T[lang].secrets.a[1] }, { emo: '🏜️', title: T[lang].secrets.b[0], desc: T[lang].secrets.b[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+// --- models -------------------------------------------------------------------------------------------------
+function resetBody() {
+  if (B.hist.length > 8) B.ghost = B.hist.slice();
+  B.hist = []; B.t = 0; B.last = -1; B.Tc = 37; B.Tset = B.fever ? FEVER : 37; B.sw = B.vd = B.sh = B.gs = 0; drops.length = 0;
+}
+// minutes of body time; core temperature in °C, heat in watts
+function stepBody(dt) {
+  const b = B;
+  b.Tset += ((b.fever ? FEVER : 37) - b.Tset) * Math.min(1, dt / 2);
+  const s = (b.Tc - b.Tset) + 0.01 * (b.Tair - 24); // what the sensors report: core a bit off, and the skin feels the air
+  const tSw = b.sweat ? clamp(s / 0.6, 0, 1) : 0, tVd = b.vess ? clamp(s / 0.5, -1, 1) : 0;
+  const tSh = b.shiv ? clamp(-s / 1.2, 0, 1) : 0, tGs = b.goose ? clamp(-s / 0.6, 0, 1) : 0;
+  const k = Math.min(1, dt / 0.8);
+  b.sw += (tSw - b.sw) * k; b.vd += (tVd - b.vd) * k; b.sh += (tSh - b.sh) * k; b.gs += (tGs - b.gs) * k;
+  const G = 8 * (1 + (b.vd > 0 ? 0.8 : 0.5) * b.vd) * (1 - 0.1 * b.gs); // W/K from core to air
+  const hDry = G * (b.Tc - b.Tair), hEv = 1000 * b.sw * (b.humid ? 0.1 : 1);
+  b.dry = hDry;
+  b.Tc = clamp(b.Tc + (90 + (b.run ? 600 : 0) + 350 * b.sh - hDry - hEv) * dt * 60 / 245000, 30, 43);
+  b.t += dt;
+  if (b.t - b.last >= 0.25) { b.last = b.t; b.hist.push([b.t, b.Tc, b.Tair]); while (b.hist.length && b.hist[0][0] < b.t - 60) b.hist.shift(); }
+}
+function stepLoop(dt) {
+  const p = LP;
+  p.r += ((p.Tc - 37) - p.r) / 1.5 * dt;
+  p.Tc = clamp(p.Tc + -p.sign * 0.2 * p.r * dt, 34, 42);
+  p.t += dt;
+  if (p.t - p.last >= 0.25) { p.last = p.t; p.hist.push([p.t, p.Tc]); while (p.hist.length && p.hist[0][0] < p.t - 60) p.hist.shift(); }
+}
+function stepSugar(dt) {
+  const g = SG;
+  const ab = 0.03 * g.gut; g.gut = Math.max(0, g.gut - ab * dt);
+  g.I += (clamp((g.G - 5.2) / 2.5, 0, 1) - g.I) * Math.min(1, dt / 6);
+  g.A += (clamp((4.8 - g.G) / 1.2, 0, 1) - g.A) * Math.min(1, dt / 6);
+  const use = 0.02 + 0.12 * g.I * (g.G / 5) + (g.walk > 0 ? 0.06 : 0);
+  const liver = 0.02 + 0.09 * g.A * clamp(g.store / 0.15, 0, 1);
+  g.G = clamp(g.G + (ab + liver - use) * dt, 1.5, 14);
+  g.store = clamp(g.store + (g.I * 0.012 - g.A * 0.012) * dt, 0, 1);
+  g.walk = Math.max(0, g.walk - dt);
+  g.t += dt; g.ab = ab;
+  if (g.t - g.last >= 2) { g.last = g.t; g.hist.push([g.t, g.G]); while (g.hist.length && g.hist[0][0] < g.t - 800) g.hist.shift(); }
+}
+const clock = (t) => { const m = 11 * 60 + Math.floor(t), hh = Math.floor(m / 60) % 24; return `${hh}:${String(m % 60).padStart(2, '0')}`; };
+const litresPerHour = () => B.sw * 1000 * 3600 / LATENT;
+
+// --- shapes: graph ------------------------------------------------------------------------------------------
+function curve(c, pts, X, Y, k) {
+  c.beginPath(); c.moveTo(X(pts[0][0]), Y(pts[0][k]));
+  for (let i = 1; i < pts.length - 1; i++) c.quadraticCurveTo(X(pts[i][0]), Y(pts[i][k]), (X(pts[i][0]) + X(pts[i + 1][0])) / 2, (Y(pts[i][k]) + Y(pts[i + 1][k])) / 2);
+  const l = pts[pts.length - 1]; c.lineTo(X(l[0]), Y(l[k]));
+}
+// g: { t, win, lo, hi, ticks, bands, spans, ref:{v,label}, marks, series:[{pts,k,lo,hi,col,w,dash,dot}], r:{lo,hi,ticks}, xt:(a,b)=>[[t,label]], legend:[[col,label]] }
+function graph(c, x, y, w, h, g) {
+  const ML = 36, MR = g.r ? 36 : 10, MT = 24, MB = 22, px = x + ML, py = y + MT, pw = w - ML - MR, ph = h - MT - MB;
+  const t0 = Math.max(0, g.t - g.win), X = (t) => px + (t - t0) / g.win * pw, Yp = (v, lo, hi) => py + ph - (v - lo) / (hi - lo) * ph;
+  c.save();
+  c.fillStyle = 'rgba(14,17,28,.78)'; rr(c, x, y, w, h, 14); c.fill(); c.strokeStyle = 'rgba(130,145,190,.28)'; c.lineWidth = 1; c.stroke();
+  c.save(); c.beginPath(); c.rect(px, py, pw, ph); c.clip();
+  for (const bd of g.bands || []) { c.fillStyle = bd.col; const ya = Yp(bd.b, g.lo, g.hi), yb = Yp(bd.a, g.lo, g.hi); c.fillRect(px, ya, pw, yb - ya); }
+  for (const s of g.spans || []) { c.fillStyle = s.col; c.fillRect(X(s.a), py, X(s.b) - X(s.a), ph); }
+  c.strokeStyle = 'rgba(190,205,255,.12)'; c.lineWidth = 1; c.beginPath();
+  for (const v of g.ticks) { const yy = Math.round(Yp(v, g.lo, g.hi)) + 0.5; c.moveTo(px, yy); c.lineTo(px + pw, yy); }
+  c.stroke();
+  if (g.ref) { c.setLineDash([5, 5]); c.strokeStyle = 'rgba(237,239,247,.5)'; c.beginPath(); const yy = Yp(g.ref.v, g.lo, g.hi); c.moveTo(px, yy); c.lineTo(px + pw, yy); c.stroke(); c.setLineDash([]); }
+  for (const m of g.marks || []) { c.setLineDash([3, 4]); c.strokeStyle = 'rgba(237,239,247,.45)'; c.beginPath(); c.moveTo(X(m.t), py); c.lineTo(X(m.t), py + ph); c.stroke(); c.setLineDash([]); }
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  for (const s of g.series) {
+    if (!s.pts || s.pts.length < 2) continue;
+    const Ys = (v) => Yp(v, s.lo, s.hi);
+    c.setLineDash(s.dash || []); c.strokeStyle = s.col; c.lineWidth = s.w || 2.5; c.globalAlpha = s.alpha ?? 1;
+    curve(c, s.pts, X, Ys, s.k); c.stroke(); c.setLineDash([]); c.globalAlpha = 1;
+  }
+  c.restore();
+  // end dot of the live line
+  for (const s of g.series) if (s.dot && s.pts && s.pts.length) {
+    const l = s.pts[s.pts.length - 1], dx = X(l[0]), dy = Yp(l[s.k], s.lo, s.hi);
+    c.fillStyle = s.col; c.globalAlpha = 0.25; c.beginPath(); c.arc(dx, dy, 8, 0, 7); c.fill(); c.globalAlpha = 1;
+    c.beginPath(); c.arc(dx, dy, 4, 0, 7); c.fill(); c.strokeStyle = '#fff'; c.lineWidth = 1.5; c.stroke();
+  }
+  c.font = '700 12px Nunito, sans-serif'; c.fillStyle = '#98A0B8'; c.textBaseline = 'middle'; c.textAlign = 'right';
+  for (const v of g.ticks) c.fillText(String(v), px - 6, Yp(v, g.lo, g.hi));
+  if (g.r) { c.textAlign = 'left'; for (const v of g.r.ticks) c.fillText(String(v), px + pw + 5, Yp(v, g.r.lo, g.r.hi)); }
+  c.textAlign = 'center'; c.textBaseline = 'top';
+  for (const [tt, lb] of g.xt(t0, t0 + g.win)) { const xx = X(tt); if (xx > px + 14 && xx < px + pw - 10) c.fillText(lb, xx, py + ph + 4); }
+  if (g.ref && g.ref.label) pill(c, g.ref.label, px + pw - 36, Yp(g.ref.v, g.lo, g.hi) - 13, px, px + pw);
+  // legend
+  c.textBaseline = 'middle'; c.textAlign = 'left'; let lx = px;
+  for (const [col, lb] of g.legend) {
+    c.fillStyle = col; c.beginPath(); c.arc(lx + 4, y + 12, 4, 0, 7); c.fill();
+    c.fillStyle = '#D3D9E8'; c.fillText(lb, lx + 12, y + 13); lx += c.measureText(lb).width + 28;
+  }
+  c.restore();
+}
+
+// --- view 1: person + skin ----------------------------------------------------------------------------------
+const limb = (c, x, y, a1, l1, a2, l2, wd, col) => {
+  const x1 = x + Math.sin(a1) * l1, y1 = y + Math.cos(a1) * l1, x2 = x1 + Math.sin(a2) * l2, y2 = y1 + Math.cos(a2) * l2;
+  c.lineCap = 'round'; c.lineJoin = 'round'; c.strokeStyle = col; c.lineWidth = wd;
+  c.beginPath(); c.moveTo(x, y); c.lineTo(x1, y1); c.lineTo(x2, y2); c.stroke();
+  return [x1, y1, x2, y2];
+};
+const SWEATSPOTS = [[-0.03, -0.05], [0.03, -0.02], [-0.045, 0.01], [0.05, 0.03], [0, 0.2], [-0.06, 0.26], [0.06, 0.3], [-0.02, 0.36]];
+function drawPerson(c, x, y, cw, ch, time) {
+  const b = B, run = b.run ? 1 : 0, H = Math.min(ch - 16, cw * 2.25), cx = x + cw / 2, top = y + (ch - H) / 2 + 4;
+  const tone = b.Tc > 37.3 ? mixHex('#e9bd98', '#f08070', (b.Tc - 37.3) / 2.2) : b.Tc < 36.7 ? mixHex('#e9bd98', '#a9c0e6', (36.7 - b.Tc) / 1.7) : '#e9bd98';
+  const dark = mixHex(tone, '#3a2a30', 0.35), shirt = '#2f8f9a', shorts = '#283a64';
+  const a = Math.sin(time * 9) * run, jit = Math.sin(time * 70) * 1.6 * b.sh;
+  c.save();
+  c.translate(jit, 0);
+  if (run) { c.translate(cx, top + H * 0.5); c.rotate(0.1); c.translate(-cx, -(top + H * 0.5)); }
+  const shY = top + 0.19 * H, hipY = top + 0.53 * H, lw = H * 0.085;
+  // shadow
+  c.fillStyle = 'rgba(0,0,0,.28)'; c.beginPath(); c.ellipse(cx, top + H * 1.0, H * 0.2, H * 0.025, 0, 0, 7); c.fill();
+  const legs = (side, col, ol) => {
+    const th = (side > 0 ? a : -a) * 0.85, kb = run ? 0.25 + 0.9 * Math.max(0, -(side > 0 ? a : -a)) : 0;
+    const p = limb(c, cx + side * 0.045 * H, hipY, th, 0.21 * H, th - kb, 0.22 * H, lw + ol, col);
+    return p;
+  };
+  const arms = (side, col, ol) => {
+    const up = (side > 0 ? -a : a) * 0.9 + side * 0.06, fo = up + (run ? 1.1 : 0.1);
+    return limb(c, cx + side * 0.115 * H, shY + 0.03 * H, up, 0.15 * H, fo, 0.14 * H, lw * 0.8 + ol, col);
+  };
+  // back limbs, torso, front limbs
+  for (const [fn, side] of [[arms, -1], [legs, -1]]) { fn(side, dark, 2); fn(side, dark, 0); }
+  const tg = c.createLinearGradient(cx - 0.1 * H, 0, cx + 0.1 * H, 0); tg.addColorStop(0, mixHex(shirt, '#ffffff', 0.18)); tg.addColorStop(1, mixHex(shirt, '#0b2a33', 0.35));
+  c.fillStyle = tg; c.strokeStyle = '#0d1a22'; c.lineWidth = 1.5; rr(c, cx - 0.115 * H, shY - 0.01 * H, 0.23 * H, 0.35 * H, 0.09 * H); c.fill(); c.stroke();
+  c.fillStyle = shorts; rr(c, cx - 0.115 * H, hipY - 0.04 * H, 0.23 * H, 0.1 * H, 0.04 * H); c.fill(); c.stroke();
+  legs(1, dark, 2); const fl = legs(1, tone, 0);
+  c.fillStyle = '#f4f4f8'; c.beginPath(); c.ellipse(fl[2] + 0.02 * H, fl[3] + 0.01 * H, 0.05 * H, 0.025 * H, 0, 0, 7); c.fill();
+  const bl = legs(-1, dark, -1); c.fillStyle = '#d9dae4'; c.beginPath(); c.ellipse(bl[2] + 0.02 * H, bl[3] + 0.01 * H, 0.05 * H, 0.025 * H, 0, 0, 7); c.fill();
+  arms(1, dark, 2); const arm = arms(1, tone, 0);
+  // head
+  const hg = c.createRadialGradient(cx - 0.02 * H, top + 0.07 * H, 2, cx, top + 0.09 * H, 0.09 * H);
+  hg.addColorStop(0, mixHex(tone, '#ffffff', 0.25)); hg.addColorStop(1, tone);
+  c.fillStyle = hg; c.strokeStyle = '#6b4a3a'; c.lineWidth = 1.5; c.beginPath(); c.arc(cx, top + 0.09 * H, 0.075 * H, 0, 7); c.fill(); c.stroke();
+  c.fillStyle = '#4a3426'; c.beginPath(); c.arc(cx, top + 0.09 * H, 0.078 * H, Math.PI * 1.08, Math.PI * 1.95); c.quadraticCurveTo(cx + 0.02 * H, top + 0.045 * H, cx - 0.075 * H, top + 0.085 * H); c.fill();
+  c.fillStyle = '#2a1d18'; for (const ex of [-0.027, 0.03]) { c.beginPath(); c.arc(cx + ex * H, top + 0.095 * H, Math.max(1.4, 0.009 * H), 0, 7); c.fill(); }
+  c.fillStyle = '#fff'; for (const ex of [-0.027, 0.03]) { c.beginPath(); c.arc(cx + ex * H + 0.4, top + 0.093 * H, 0.6, 0, 7); c.fill(); }
+  c.strokeStyle = '#7a3b30'; c.lineWidth = 1.5; c.beginPath();
+  if (b.Tc > 38.2 || b.sh > 0.5) c.arc(cx + 0.002 * H, top + 0.12 * H, 0.016 * H, Math.PI * 1.1, Math.PI * 1.9);
+  else c.arc(cx + 0.002 * H, top + 0.108 * H, 0.02 * H, 0.15 * Math.PI, 0.85 * Math.PI);
+  c.stroke();
+  // sweat drops on the skin of the person
+  const n = Math.round(b.sw * SWEATSPOTS.length);
+  for (let i = 0; i < n; i++) {
+    const [dx, dy] = SWEATSPOTS[i], sx = cx + dx * H * 1.6, sy = top + 0.09 * H + dy * H * 1.5 + (i > 3 ? 0.06 * H : 0), tw = 0.6 + 0.4 * Math.sin(time * 3 + i * 1.7);
+    c.save(); c.globalAlpha = 0.85; c.fillStyle = '#bfe9ff'; c.beginPath(); c.arc(sx, sy, 2.4 + tw * 0.8, 0, 7); c.fill();
+    c.fillStyle = '#fff'; c.beginPath(); c.arc(sx - 0.7, sy - 0.8, 0.9, 0, 7); c.fill(); c.restore();
+  }
+  // heat shimmer above a hot head
+  const hot = clamp((b.Tc - 37) / 2, 0, 1);
+  if (hot > 0.05) {
+    c.strokeStyle = `rgba(255,150,90,${0.55 * hot})`; c.lineWidth = 2; c.lineCap = 'round';
+    for (let i = -1; i <= 1; i++) { c.beginPath(); for (let k = 0; k <= 10; k++) { const yy = top - 4 - k * 2.4, xx = cx + i * 0.06 * H + Math.sin(time * 4 + k * 0.8 + i) * 3; k ? c.lineTo(xx, yy) : c.moveTo(xx, yy); } c.stroke(); }
+  }
+  c.restore();
+  return [(cx + 0.115 * H + arm[0]) / 2 + jit, (shY + 0.03 * H + arm[1]) / 2];
+}
+function drawSkin(c, x, y, w, h, time, dt) {
+  const b = B, t = T[lang].h, pw = w, ph = h;
+  const [s0, s1] = airCols(b.Tair);
+  const ys = 0.3 * ph, t1 = ys + 0.06 * ph, rem = ph - ys, dermB = ys + 0.46 * rem, fatB = ys + 0.8 * rem;
+  const gxp = pw * 0.17, hxp = pw * 0.45, vxp = pw * 0.71, dd = clamp(pw * 0.055, 11, 16);
+  const gl = clamp(b.gs, 0, 1), hot = clamp(b.Tc - 37, 0, 3);
+  const bump = (xx) => 4.5 * gl * Math.exp(-(((xx - (hxp - 26)) / 14) ** 2)) + 3.5 * gl * Math.exp(-(((xx - pw * 0.88) / 12) ** 2));
+  const yS = (xx) => ys - bump(xx);
+  c.save(); c.translate(x, y); rr(c, 0, 0, pw, ph, 16); c.clip();
+  // air
+  const ag = c.createLinearGradient(0, 0, 0, ys); ag.addColorStop(0, s0); ag.addColorStop(1, s1); c.fillStyle = ag; c.fillRect(0, 0, pw, ys + 6);
+  if (b.humid) { for (let i = 0; i < 9; i++) { c.fillStyle = 'rgba(235,245,255,.13)'; c.beginPath(); c.arc(((hash(i) * pw + time * 6 * (0.5 + hash(i + 9))) % (pw + 40)) - 20, hash(i + 3) * ys * 0.9, 16 + hash(i + 5) * 16, 0, 7); c.fill(); } }
+  if (b.Tair < 5) { c.fillStyle = 'rgba(255,255,255,.8)'; for (let i = 0; i < 14; i++) { const sx2 = (hash(i) * pw + Math.sin(time + i) * 6), sy2 = ((hash(i + 20) * ys + time * 14 * (0.5 + hash(i + 40))) % ys); c.beginPath(); c.arc(sx2, sy2, 1.6, 0, 7); c.fill(); } }
+  // layers (the top edge follows the goosebumps)
+  const layer = (yTop, yBot, c0, c1) => {
+    const g2 = c.createLinearGradient(0, yTop, 0, yBot); g2.addColorStop(0, c0); g2.addColorStop(1, c1); c.fillStyle = g2; c.fillRect(0, yTop, pw, yBot - yTop + 1);
+  };
+  layer(t1, dermB, '#efb6a6', '#e29a92'); layer(dermB, fatB, '#f6dc96', '#efc974'); layer(fatB, ph, '#b8485b', '#8c2f46');
+  c.beginPath(); c.moveTo(0, yS(0));
+  for (let xx = 0; xx <= pw; xx += 4) c.lineTo(xx, yS(xx));
+  c.lineTo(pw, t1); c.lineTo(0, t1); c.closePath();
+  const eg = c.createLinearGradient(0, ys - 5, 0, t1); eg.addColorStop(0, '#e7b894'); eg.addColorStop(1, '#cf9772'); c.fillStyle = eg; c.fill();
+  c.strokeStyle = 'rgba(80,40,30,.45)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(0, yS(0)); for (let xx = 0; xx <= pw; xx += 4) c.lineTo(xx, yS(xx)); c.stroke();
+  // muscle fibres at the bottom
+  c.strokeStyle = `rgba(255,${Math.round(190 + 40 * b.sh)},${Math.round(190 + 40 * b.sh)},.55)`; c.lineWidth = 2; c.lineCap = 'round';
+  for (let i = 0; i < 4; i++) { const yy = fatB + 6 + i * (ph - fatB - 10) / 3.2; c.beginPath(); for (let xx = 0; xx <= pw; xx += 6) { const o = Math.sin(xx * 0.09 + i) * 1.5 + Math.sin(time * 55 + xx * 0.3 + i) * 1.8 * b.sh; xx ? c.lineTo(xx, yy + o) : c.moveTo(xx, yy + o); } c.stroke(); }
+  // heat leaving
+  const dry = clamp(b.dry / 220, 0, 1);
+  if (dry > 0.03) {
+    c.lineWidth = 2.2; c.lineCap = 'round';
+    for (let i = 0; i < 5; i++) {
+      const bx = pw * (0.12 + i * 0.19) + 6, a2 = dry * (0.55 - 0.05 * i);
+      c.strokeStyle = `rgba(255,170,90,${a2})`; c.beginPath();
+      for (let k = 0; k <= 12; k++) { const yy = ys - 6 - k * (ys * 0.045) - ((time * 18 + i * 9) % 12), xx = bx + Math.sin(time * 3 + k * 0.7 + i * 2) * 3; k ? c.lineTo(xx, yy) : c.moveTo(xx, yy); }
+      c.stroke();
+    }
+  }
+  // capillary loop (fixed place; only the width changes), arteriole red, venule darker
+  const vd = clamp(b.vd, -1, 1), wd = 5 + 3.5 * (vd + 1), vtop = t1 + 16 + dd, vbot = dermB + 8, vx = vxp;
+  const flow = 0.15 + 0.35 * (vd + 1);
+  const vpath = () => { c.beginPath(); c.moveTo(vx - dd, vbot); c.lineTo(vx - dd, vtop); c.arc(vx, vtop, dd, Math.PI, 0); c.lineTo(vx + dd, vbot); };
+  c.lineCap = 'butt'; vpath(); c.strokeStyle = 'rgba(70,10,25,.75)'; c.lineWidth = wd + 3; c.stroke();
+  const vg = c.createLinearGradient(vx - dd, 0, vx + dd, 0); vg.addColorStop(0, '#f0525c'); vg.addColorStop(1, '#b02a55');
+  vpath(); c.strokeStyle = vg; c.lineWidth = wd; c.stroke();
+  const len = 2 * (vbot - vtop) + Math.PI * dd;
+  for (let i = 0; i < 9; i++) {
+    const sd = ((i / 9 + time * flow * 0.25) % 1) * len; let px2, py2;
+    if (sd < vbot - vtop) { px2 = vx - dd; py2 = vbot - sd; } else if (sd < vbot - vtop + Math.PI * dd) { const an = Math.PI + (sd - (vbot - vtop)) / dd; px2 = vx + Math.cos(an) * dd; py2 = vtop + Math.sin(an) * dd; } else { px2 = vx + dd; py2 = vtop + (sd - (vbot - vtop) - Math.PI * dd); }
+    c.fillStyle = '#ffb3b8'; c.beginPath(); c.ellipse(px2, py2, Math.max(1.6, wd * 0.28), Math.max(1.2, wd * 0.2), 0, 0, 7); c.fill();
+  }
+  // hair with its erector muscle
+  const bulbY = dermB - 14, hx = hxp, sf = yS(hx), ang = lerp(1.15, 0.1, gl);
+  c.lineCap = 'round'; c.strokeStyle = '#f9e3d2'; c.lineWidth = 9; c.beginPath(); c.moveTo(hx + 8, bulbY); c.quadraticCurveTo(hx + 7, sf + (bulbY - sf) * 0.45, hx, sf + 1); c.stroke();
+  c.fillStyle = '#f9e3d2'; c.beginPath(); c.arc(hx + 8, bulbY, 7, 0, 7); c.fill(); c.strokeStyle = 'rgba(120,70,50,.5)'; c.lineWidth = 1; c.stroke();
+  const mx0 = hx + 5, my0 = sf + (bulbY - sf) * 0.5, mx1 = lerp(hx - 52, hx - 36, gl), my1 = t1 + 3;
+  c.strokeStyle = '#7a2438'; c.lineWidth = lerp(6, 9, gl) + 2; c.beginPath(); c.moveTo(mx0, my0); c.quadraticCurveTo((mx0 + mx1) / 2 + 4, (my0 + my1) / 2 + 8 * (1 - gl), mx1, my1); c.stroke();
+  c.strokeStyle = '#d25a74'; c.lineWidth = lerp(6, 9, gl); c.beginPath(); c.moveTo(mx0, my0); c.quadraticCurveTo((mx0 + mx1) / 2 + 4, (my0 + my1) / 2 + 8 * (1 - gl), mx1, my1); c.stroke();
+  c.strokeStyle = '#4a3426'; c.lineWidth = 3; c.beginPath(); c.moveTo(hx + 8, bulbY); c.quadraticCurveTo(hx + 7, sf + (bulbY - sf) * 0.45, hx, sf);
+  c.quadraticCurveTo(hx + Math.sin(ang) * 6, sf - 18 * Math.cos(ang), hx + Math.sin(ang) * 28, sf - 30 * Math.cos(ang) + 2); c.stroke();
+  // sweat gland: a coil in the dermis, a duct to the pore
+  const gx = gxp, gy = dermB - 24, act = clamp(b.sw, 0, 1), gcol = mixHex('#7fb6cc', '#37c4ee', act);
+  c.strokeStyle = gcol; c.lineWidth = 2.6; c.beginPath(); c.moveTo(gx, gy - 7); c.bezierCurveTo(gx - 9, gy - 30, gx + 12, gy - 46, gx + 4, yS(gx + 4)); c.stroke();
+  const cg = c.createRadialGradient(gx - 3, gy - 3, 1, gx, gy, 14); cg.addColorStop(0, mixHex(gcol, '#ffffff', 0.45)); cg.addColorStop(1, mixHex(gcol, '#25506a', 0.3));
+  c.fillStyle = cg; c.strokeStyle = '#25506a'; c.lineWidth = 1.2;
+  for (let i = 0; i < 4; i++) { c.beginPath(); c.ellipse(gx, gy - 9 + i * 5.2, 11, 4.6, i % 2 ? 0.25 : -0.25, 0, 7); c.fill(); c.stroke(); }
+  c.fillStyle = '#3a2a30'; c.beginPath(); c.arc(gx + 4, yS(gx + 4), 2.2, 0, 7); c.fill();
+  if (act > 0.05) for (let i = 0; i < 3; i++) {
+    const u = ((time * (0.4 + act) + i / 3) % 1), tt = 1 - u, X1 = gx, Y1 = gy - 7, X2 = gx - 9, Y2 = gy - 30, X3 = gx + 12, Y3 = gy - 46, X4 = gx + 4, Y4 = yS(gx + 4);
+    const px2 = tt ** 3 * X1 + 3 * tt * tt * u * X2 + 3 * tt * u * u * X3 + u ** 3 * X4, py2 = tt ** 3 * Y1 + 3 * tt * tt * u * Y2 + 3 * tt * u * u * Y3 + u ** 3 * Y4;
+    c.fillStyle = '#d8f4ff'; c.beginPath(); c.arc(px2, py2, 2.2, 0, 7); c.fill();
+  }
+  // sweat droplets on the skin: they dry in dry air, stay in wet air
+  const poreX = gx + 4, evap = !b.humid;
+  dropAcc += dt * b.sw * 4.5;
+  while (dropAcc >= 1 && drops.length < 40) { dropAcc -= 1; drops.push({ dx: (Math.random() - 0.5) * 34, age: 0, life: evap ? 2.6 : 5, rm: 3 + Math.random() * 2.2 }); }
+  dropAcc = Math.min(dropAcc, 3);
+  for (let i = drops.length - 1; i >= 0; i--) {
+    const d = drops[i]; d.age += dt;
+    if (d.age > d.life) { drops.splice(i, 1); continue; }
+    const grow = sstep(d.age / 0.9), shrink = evap ? 1 - sstep((d.age - 1.4) / 1.1) : 1 - 0.35 * sstep((d.age - 3.2) / 1.8);
+    const r = d.rm * grow * shrink, dxp = poreX + d.dx * grow, dyp = yS(dxp) - r * 0.55;
+    if (r > 0.3) {
+      const dg = c.createRadialGradient(dxp - r * 0.3, dyp - r * 0.4, 0.5, dxp, dyp, r); dg.addColorStop(0, '#f2fbff'); dg.addColorStop(1, 'rgba(110,200,240,.9)');
+      c.fillStyle = dg; c.strokeStyle = 'rgba(40,110,150,.7)'; c.lineWidth = 0.8; c.beginPath(); c.arc(dxp, dyp, r, 0, 7); c.fill(); c.stroke();
+    }
+    if (evap && d.age > 1.3) { // vapour rising from the drying drop
+      const u2 = clamp((d.age - 1.3) / 1.3, 0, 1);
+      c.strokeStyle = `rgba(235,245,255,${0.6 * (1 - u2)})`; c.lineWidth = 1.6; c.beginPath();
+      for (let k = 0; k <= 8; k++) { const yy = dyp - 4 - k * 3 - u2 * 12, xx = dxp + Math.sin(time * 5 + k * 0.9 + i) * 2.5; k ? c.lineTo(xx, yy) : c.moveTo(xx, yy); }
+      c.stroke();
+    }
+  }
+  // labels in the fat layer, with leaders to the parts
+  const r1 = dermB + 17, r2 = dermB + 41;
+  if (fatB - dermB > 44) {
+    leader(c, gx, r1 - 10, gx, gy + 14); pill(c, t.gland, gx, r1, 6, pw - 6);
+    leader(c, vx, r1 - 10, vx + dd, vbot - 2); pill(c, t.vessel, vx + 12, r1, 6, pw - 6);
+    leader(c, hx + 8, r2 - 10, hx + 8, bulbY + 8); pill(c, t.hair, hx + 8, r2, 6, pw - 6);
+  } else {
+    pill(c, t.gland, gx, dermB + 12, 6, pw - 6); pill(c, t.vessel, vx + 12, dermB + 12, 6, pw - 6); pill(c, t.hair, hx, fatB + 8 + 10, 6, pw - 6);
+  }
+  c.restore();
+  c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 1.5; rr(c, x, y, w, h, 16); c.stroke();
+}
+function drawHeat(c, w, h, time, dt) {
+  const narrow = w < 560, cw = narrow ? 98 : Math.round(w * 0.3), sx = cw + 8, sw2 = w - sx - 2;
+  const [s0, s1] = airCols(B.Tair);
+  c.save(); rr(c, 2, 2, cw, h - 4, 16); c.clip();
+  const bg = c.createLinearGradient(0, 0, 0, h); bg.addColorStop(0, s0); bg.addColorStop(1, s1); c.fillStyle = bg; c.fillRect(0, 0, cw + 4, h);
+  const gg = c.createRadialGradient(cw / 2, h * 0.5, 4, cw / 2, h * 0.5, h * 0.5); const hotk = clamp((B.Tc - 37.2) / 2, 0, 1), cold = clamp((36.8 - B.Tc) / 1.5, 0, 1);
+  gg.addColorStop(0, hotk > cold ? `rgba(255,90,70,${0.35 * hotk})` : `rgba(110,160,255,${0.35 * cold})`); gg.addColorStop(1, 'rgba(0,0,0,0)'); c.fillStyle = gg; c.fillRect(0, 0, cw + 4, h);
+  if (B.Tair < 5) { c.fillStyle = 'rgba(255,255,255,.8)'; for (let i = 0; i < 12; i++) { c.beginPath(); c.arc(hash(i) * cw, (hash(i + 20) * h + time * 16 * (0.5 + hash(i + 40))) % h, 1.6, 0, 7); c.fill(); } }
+  const arm = drawPerson(c, 2, 2, cw, h - 4, time);
+  c.restore();
+  // magnifier ring on the arm and the two lines to the skin picture
+  const rx = arm[0] + 0, ry = arm[1];
+  c.strokeStyle = 'rgba(255,255,255,.45)'; c.lineWidth = 1; c.setLineDash([4, 4]); c.beginPath(); c.moveTo(rx + 9, ry - 5); c.lineTo(sx, 8); c.moveTo(rx + 9, ry + 5); c.lineTo(sx, h - 8); c.stroke(); c.setLineDash([]);
+  c.strokeStyle = '#fff'; c.lineWidth = 2; c.beginPath(); c.arc(rx, ry, 10, 0, 7); c.stroke();
+  drawSkin(c, sx, 2, sw2, h - 4, time, dt);
+}
+
+// --- view 2: the loop ---------------------------------------------------------------------------------------
+const NODEC = ['#e0614d', '#d6a243', '#8f7fd0', '#d9825f', '#5fa8a0'];
+const loopGeo = (w, h) => {
+  const nw = Math.min(w - 96, 270), nh = clamp((h - 16) / 5 - 8, 36, 50), gap = clamp((h - 16 - 5 * nh) / 4, 6, 16), x = (w - nw) / 2 - 12;
+  return { nw, nh, gap, x, y0: 8 };
+};
+const nodeY = (g, i) => g.y0 + i * (g.nh + g.gap);
+function fitText(c, s, maxW, size, wt) {
+  let z = size; c.font = `${wt} ${z}px Nunito, sans-serif`;
+  while (z > 12 && c.measureText(s).width > maxW) { z -= 0.5; c.font = `${wt} ${z}px Nunito, sans-serif`; }
+  return z;
+}
+function drawLoop(c, w, h, time, dt) {
+  const t = T[lang].l, p = LP, g = loopGeo(w, h), done = p.placed.every(Boolean), nextI = p.placed.indexOf(false);
+  const act = clamp(Math.abs(p.Tc - 37) / 0.8, 0, 1);
+  p.shake = Math.max(0, p.shake - dt * 2);
+  // arrows between the cards and the return arrow
+  c.lineCap = 'round'; c.lineJoin = 'round';
+  const cx = g.x + g.nw / 2, xr = g.x + g.nw;
+  for (let i = 0; i < 4; i++) {
+    const ya = nodeY(g, i) + g.nh, yb = nodeY(g, i + 1), on = p.placed[i] && p.placed[i + 1];
+    c.strokeStyle = on ? 'rgba(237,239,247,.85)' : 'rgba(237,239,247,.25)'; c.lineWidth = 2.5; c.beginPath(); c.moveTo(cx, ya + 1); c.lineTo(cx, yb - 5); c.stroke();
+    c.fillStyle = c.strokeStyle; c.beginPath(); c.moveTo(cx - 5, yb - 6); c.lineTo(cx + 5, yb - 6); c.lineTo(cx, yb - 0.5); c.closePath(); c.fill();
+  }
+  const y4 = nodeY(g, 4) + g.nh / 2, y0 = nodeY(g, 0) + g.nh / 2, bx = xr + 40;
+  const signCol = !done || p.guess === null ? 'rgba(237,239,247,.85)' : p.sign < 0 ? '#3ddc97' : '#ff6b5f';
+  c.strokeStyle = done ? signCol : 'rgba(237,239,247,.25)'; c.lineWidth = 2.5; c.setLineDash(done ? [] : [5, 5]);
+  c.beginPath(); c.moveTo(xr + 2, y4); c.bezierCurveTo(bx, y4, bx, y0, xr + 9, y0); c.stroke(); c.setLineDash([]);
+  c.fillStyle = c.strokeStyle; c.beginPath(); c.moveTo(xr + 2, y0); c.lineTo(xr + 11, y0 - 5); c.lineTo(xr + 11, y0 + 5); c.closePath(); c.fill();
+  if (done && p.guess !== null) { // the sign of the return arrow
+    const mx = xr + 30, my = (y0 + y4) / 2; c.fillStyle = signCol; c.beginPath(); c.arc(mx, my, 13, 0, 7); c.fill();
+    c.fillStyle = '#10131f'; c.font = '900 20px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(p.sign < 0 ? '−' : '+', mx, my + 1);
+  }
+  // the cards
+  for (let i = 0; i < 5; i++) {
+    const y = nodeY(g, i), pl = p.placed[i], isNext = i === nextI;
+    const shk = p.shake > 0 && isNext ? Math.sin(p.shake * 40) * 4 * p.shake : 0;
+    c.save(); c.translate(shk, 0);
+    c.shadowColor = pl ? NODEC[i] : 'transparent'; c.shadowBlur = pl ? 6 + 16 * act * (i > 0 ? 1 : 0.6) : 0;
+    const fg = c.createLinearGradient(0, y, 0, y + g.nh);
+    if (pl) { fg.addColorStop(0, mixHex(NODEC[i], '#10131f', 0.28)); fg.addColorStop(1, mixHex(NODEC[i], '#10131f', 0.58)); } else { fg.addColorStop(0, 'rgba(130,145,190,.08)'); fg.addColorStop(1, 'rgba(130,145,190,.04)'); }
+    c.fillStyle = fg; rr(c, g.x, y, g.nw, g.nh, 12); c.fill(); c.shadowBlur = 0;
+    c.lineWidth = isNext ? 2 : 1.5; c.setLineDash(pl ? [] : [5, 4]);
+    c.strokeStyle = pl ? NODEC[i] : isNext ? `rgba(255,255,255,${0.5 + 0.4 * Math.sin(time * 5)})` : 'rgba(130,145,190,.4)'; c.stroke(); c.setLineDash([]);
+    c.textBaseline = 'middle'; c.textAlign = 'left';
+    if (pl) {
+      const nd = t.nodes[i];
+      c.font = '22px sans-serif'; c.globalAlpha = 1; c.fillStyle = '#fff'; c.fillText(nd[0], g.x + 11, y + g.nh / 2 + 1);
+      const tw = g.nw - 54; fitText(c, nd[1], tw, 14, 900); c.fillStyle = '#fff'; c.fillText(nd[1], g.x + 44, y + g.nh / 2 - 8);
+      fitText(c, nd[2], tw, 12, 700); c.fillStyle = '#D3D9E8'; c.fillText(nd[2], g.x + 44, y + g.nh / 2 + 9);
+    } else {
+      c.fillStyle = '#98A0B8'; c.font = '900 16px Nunito, sans-serif'; c.fillText(`${i + 1}  ?`, g.x + 14, y + g.nh / 2 + 1);
+    }
+    c.restore();
+  }
+  // a pulse travels round the closed loop
+  if (done) {
+    const u = (time * (0.1 + 0.18 * act)) % 1, k = Math.floor(u * 5), f = (u * 5) % 1;
+    let px2, py2;
+    if (k < 4) { px2 = cx; py2 = lerp(nodeY(g, k) + g.nh / 2, nodeY(g, k + 1) + g.nh / 2, sstep(f)); }
+    else { const tt = 1 - f, X1 = xr, Y1 = y4, X2 = bx, Y2 = y4, X3 = bx, Y3 = y0, X4 = xr + 9, Y4 = y0; px2 = tt ** 3 * X1 + 3 * tt * tt * f * X2 + 3 * tt * f * f * X3 + f ** 3 * X4; py2 = tt ** 3 * Y1 + 3 * tt * tt * f * Y2 + 3 * tt * f * f * Y3 + f ** 3 * Y4; }
+    c.fillStyle = '#fff'; c.shadowColor = '#fff'; c.shadowBlur = 10; c.beginPath(); c.arc(px2, py2, 4.5, 0, 7); c.fill(); c.shadowBlur = 0;
+  }
+}
+
+// --- view 3: sugar ------------------------------------------------------------------------------------------
+const GLY = Array.from({ length: 16 }, (_, i) => { const a = i * 2.39996, r = Math.sqrt((i + 0.5) / 16); return [Math.cos(a) * r * 0.82, Math.sin(a) * r * 0.72]; });
+function spawn(kind, x0, y0, x1, y1, dur, end) {
+  if (parts.length > 70) return;
+  parts.push({ kind, x0, y0, x1, y1, cx: (x0 + x1) / 2 + (Math.random() - 0.5) * 50, cy: (y0 + y1) / 2 + (Math.random() - 0.5) * 18, t: 0, dur, end });
+}
+function drawSugar(c, w, h, time, dt) {
+  const t = T[lang].s, g = SG, tubeH = clamp(h * 0.1, 24, 34), tubeY = h * 0.46, x0 = 10, x1 = w - 10;
+  const pan = { x: w * 0.54, y: h * 0.17, rx: clamp(w * 0.13, 38, 66) }, meal = { x: w * 0.87, y: h * 0.16 };
+  const cell = { x: w * 0.22, y: h * 0.8, rx: w * 0.15, ry: h * 0.1 }, liv = { x: w * 0.68, y: h * 0.79, rx: w * 0.2, ry: h * 0.115 };
+  // background room
+  const bgr = c.createLinearGradient(0, 0, 0, h); bgr.addColorStop(0, '#1a2038'); bgr.addColorStop(1, '#141830'); c.fillStyle = bgr; rr(c, 2, 2, w - 4, h - 4, 16); c.fill();
+  // particles spawn
+  g.spI += dt * g.I * 2.6; g.spA += dt * g.A * 2.6; g.spD += dt * clamp((g.ab || 0) * 40, 0, 12);
+  while (g.spI >= 1) { g.spI -= 1; spawn('ins', pan.x - 10 + Math.random() * 20, pan.y + pan.rx * 0.3, cell.x - cell.rx * 0.4 + Math.random() * cell.rx * 0.8, cell.y - cell.ry, 1.7, () => {
+    const toLiver = Math.random() < 0.4;
+    spawn('dot', toLiver ? liv.x - 20 + Math.random() * 40 : cell.x - 20 + Math.random() * 40, tubeY + tubeH * 0.4, toLiver ? liv.x : cell.x, toLiver ? liv.y - liv.ry * 0.3 : cell.y - cell.ry * 0.2, 1.1);
+  }); }
+  while (g.spA >= 1) { g.spA -= 1; spawn('glu', pan.x + Math.random() * 20, pan.y + pan.rx * 0.3, liv.x - 20 + Math.random() * 40, liv.y - liv.ry, 1.9, () => {
+    spawn('dot', liv.x, liv.y - liv.ry * 0.4, liv.x - 20 + Math.random() * 40, tubeY + tubeH * 0.45, 1.2); }); }
+  while (g.spD >= 1) { g.spD -= 1; spawn('dot', meal.x - 8 + Math.random() * 16, meal.y + 24, meal.x - 8 + Math.random() * 16, tubeY - tubeH * 0.3, 1.0); }
+  g.spI = Math.min(g.spI, 3); g.spA = Math.min(g.spA, 3); g.spD = Math.min(g.spD, 3);
+  // blood vessel with glucose dots
+  const tg = c.createLinearGradient(0, tubeY - tubeH / 2, 0, tubeY + tubeH / 2); tg.addColorStop(0, '#9a3040'); tg.addColorStop(0.5, '#702231'); tg.addColorStop(1, '#4e1824');
+  c.fillStyle = tg; c.strokeStyle = '#2a0c14'; c.lineWidth = 2; rr(c, x0, tubeY - tubeH / 2, x1 - x0, tubeH, tubeH / 2); c.fill(); c.stroke();
+  c.fillStyle = 'rgba(255,200,200,.16)'; rr(c, x0 + 10, tubeY - tubeH / 2 + 3, x1 - x0 - 20, 3, 2); c.fill();
+  const cnt = g.G * 6;
+  for (let i = 0; i < 64; i++) {
+    const a = clamp(cnt - i, 0, 1); if (a <= 0) continue;
+    const xx = x0 + 12 + ((i * 37.3 + time * (26 + 12 * hash(i))) % (x1 - x0 - 24)), yy = tubeY + (hash(i + 7) - 0.5) * (tubeH - 12);
+    c.globalAlpha = a; c.fillStyle = '#f5c84c'; c.strokeStyle = '#8a6a10'; c.lineWidth = 1; c.beginPath(); c.arc(xx, yy, 3.4, 0, 7); c.fill(); c.stroke();
+    c.fillStyle = '#fff6c8'; c.beginPath(); c.arc(xx - 1, yy - 1, 1, 0, 7); c.fill(); c.globalAlpha = 1;
+  }
+  // pancreas
+  c.save(); c.translate(pan.x, pan.y); c.rotate(-0.12);
+  const pg = c.createLinearGradient(0, -pan.rx * 0.4, 0, pan.rx * 0.4); pg.addColorStop(0, '#f6c3a0'); pg.addColorStop(1, '#d6876a');
+  c.fillStyle = pg; c.strokeStyle = '#8a4a38'; c.lineWidth = 1.5; c.beginPath(); c.ellipse(0, 0, pan.rx, pan.rx * 0.38, 0, 0, 7); c.fill(); c.stroke();
+  c.fillStyle = 'rgba(150,70,60,.4)'; for (let i = 0; i < 9; i++) { c.beginPath(); c.arc((hash(i) - 0.5) * pan.rx * 1.5, (hash(i + 9) - 0.5) * pan.rx * 0.45, 2.4, 0, 7); c.fill(); }
+  c.restore();
+  // meal (the gut): a plate
+  const bn = g.bounce > 0 ? Math.sin(g.bounce * 14) * 4 * g.bounce : 0; g.bounce = Math.max(0, g.bounce - dt * 1.5);
+  c.fillStyle = 'rgba(255,255,255,.1)'; c.beginPath(); c.ellipse(meal.x, meal.y + 18, 28, 8, 0, 0, 7); c.fill();
+  c.save(); c.globalAlpha = 1; c.fillStyle = '#fff'; c.font = '34px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('🍝', meal.x, meal.y + bn); c.restore();
+  // cells and liver
+  const cg = c.createRadialGradient(cell.x - cell.rx * 0.3, cell.y - cell.ry * 0.4, 4, cell.x, cell.y, cell.rx);
+  cg.addColorStop(0, '#f2a6b8'); cg.addColorStop(1, '#b8506a'); c.fillStyle = cg; c.strokeStyle = '#6e2238'; c.lineWidth = 2; c.beginPath(); c.ellipse(cell.x, cell.y, cell.rx, cell.ry, 0, 0, 7); c.fill(); c.stroke();
+  c.fillStyle = '#7a2a48'; c.beginPath(); c.ellipse(cell.x + cell.rx * 0.2, cell.y + 2, cell.rx * 0.22, cell.ry * 0.4, 0, 0, 7); c.fill();
+  const lg = c.createRadialGradient(liv.x - liv.rx * 0.3, liv.y - liv.ry * 0.4, 4, liv.x, liv.y, liv.rx);
+  lg.addColorStop(0, '#b0603f'); lg.addColorStop(1, '#6e3220'); c.fillStyle = lg; c.strokeStyle = '#3a160c'; c.lineWidth = 2;
+  c.beginPath(); c.moveTo(liv.x - liv.rx, liv.y + liv.ry * 0.2); c.bezierCurveTo(liv.x - liv.rx, liv.y - liv.ry * 1.2, liv.x + liv.rx * 0.6, liv.y - liv.ry * 1.3, liv.x + liv.rx, liv.y - liv.ry * 0.1);
+  c.bezierCurveTo(liv.x + liv.rx * 0.9, liv.y + liv.ry, liv.x - liv.rx * 0.4, liv.y + liv.ry * 1.1, liv.x - liv.rx, liv.y + liv.ry * 0.2); c.fill(); c.stroke();
+  const ng = Math.round(g.store * GLY.length);
+  for (let i = 0; i < ng; i++) { const [gx2, gy2] = GLY[i]; c.fillStyle = '#ffd98a'; c.strokeStyle = '#8a5a18'; c.lineWidth = 1; c.beginPath(); c.arc(liv.x + gx2 * liv.rx * 0.85, liv.y + gy2 * liv.ry * 0.9, 3.6, 0, 7); c.fill(); c.stroke(); }
+  // flying particles
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const q = parts[i]; q.t += dt; const u = sstep(q.t / q.dur), m = 1 - u;
+    if (q.t >= q.dur) { parts.splice(i, 1); q.end?.(q); continue; }
+    const px2 = m * m * q.x0 + 2 * m * u * q.cx + u * u * q.x1, py2 = m * m * q.y0 + 2 * m * u * q.cy + u * u * q.y1, al = q.kind === 'dot' ? 1 - 0.7 * u * u : 1;
+    c.globalAlpha = al;
+    if (q.kind === 'dot') { c.fillStyle = '#f5c84c'; c.strokeStyle = '#8a6a10'; c.lineWidth = 1; c.beginPath(); c.arc(px2, py2, 3.4, 0, 7); c.fill(); c.stroke(); }
+    else { c.fillStyle = q.kind === 'ins' ? '#6aa7ff' : '#ff9b4a'; c.strokeStyle = '#10131f'; c.lineWidth = 1; c.beginPath(); c.moveTo(px2, py2 - 5.5); c.lineTo(px2 + 4.5, py2); c.lineTo(px2, py2 + 5.5); c.lineTo(px2 - 4.5, py2); c.closePath(); c.fill(); c.stroke(); }
+    c.globalAlpha = 1;
+  }
+  // meters
+  c.font = '800 12px Nunito, sans-serif'; c.textBaseline = 'middle'; c.textAlign = 'left';
+  const lw = Math.max(c.measureText(t.ins).width, c.measureText(t.glu).width) + 8, bw = clamp(w * 0.16, 44, 70);
+  [[t.ins, g.I, '#6aa7ff', 18], [t.glu, g.A, '#ff9b4a', 38]].forEach(([lb, v, col, yy]) => {
+    c.fillStyle = '#D3D9E8'; c.fillText(lb, 12, yy); c.fillStyle = 'rgba(130,145,190,.2)'; rr(c, 12 + lw, yy - 4, bw, 8, 4); c.fill();
+    c.fillStyle = col; rr(c, 12 + lw, yy - 4, Math.max(0, bw * clamp(v, 0, 1)), 8, 4); c.fill();
+  });
+  // labels
+  pill(c, t.pancreas, pan.x, pan.y + pan.rx * 0.38 + 18, 6, w - 6);
+  pill(c, t.gut, meal.x, meal.y + 36, 6, w - 6);
+  pill(c, t.blood, w * 0.5, tubeY - tubeH / 2 - 14, 6, w - 6);
+  pill(c, t.cells, cell.x, cell.y + cell.ry + 14, 6, w - 6);
+  pill(c, t.liver, liv.x, liv.y + liv.ry * 1.1 + 12, 6, w - 6);
+}
+
+// --- canvas loop --------------------------------------------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  const v = lab.view;
+  let m = dt * SPEED[v];
+  if (v === 'heat') { while (m > 0) { const d = Math.min(0.1, m); stepBody(d); m -= d; } }
+  else if (v === 'loop') { while (m > 0) { const d = Math.min(0.1, m); stepLoop(d); m -= d; } }
+  else { while (m > 0) { const d = Math.min(0.5, m); stepSugar(d); m -= d; } }
+  const gh = clamp(h * 0.36, 128, 210), ht = h - gh - 8;
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  if (v === 'heat') drawHeat(c, w, ht, time, dt);
+  else if (v === 'loop') drawLoop(c, w, ht, time, dt);
+  else drawSugar(c, w, ht, time, dt);
+  c.save(); c.translate(0, ht + 8);
+  const hh = T[lang].h;
+  if (v === 'heat') {
+    graph(c, 0, 0, w, gh, { t: B.t, win: 45, lo: 33, hi: 42, ticks: [34, 36, 38, 40, 42], bands: [{ a: 40, b: 43, col: 'rgba(255,59,48,.14)' }, { a: 32, b: 35, col: 'rgba(90,140,255,.14)' }],
+      ref: { v: B.Tset, label: hh.set }, r: { lo: -10, hi: 40, ticks: [-10, 10, 30] },
+      series: [{ pts: B.ghost, k: 1, lo: 33, hi: 42, col: '#ff8a80', w: 2, dash: [4, 4], alpha: 0.4 },
+        { pts: B.hist, k: 2, lo: -10, hi: 40, col: '#9aa3b8', w: 2 }, { pts: B.hist, k: 1, lo: 33, hi: 42, col: '#ff5a4d', w: 3, dot: true }],
+      xt: (a, b) => { const o = []; for (let k = Math.ceil(a / 15); k * 15 <= b; k++) o.push([k * 15, `${k * 15}${T[lang].min}`]); return o; },
+      legend: [['#ff5a4d', `${hh.core} (${T[lang].cs})`], ['#9aa3b8', hh.air]] });
+  } else if (v === 'loop') {
+    graph(c, 0, 0, w, gh, { t: LP.t, win: 45, lo: 34, hi: 42, ticks: [36, 38, 40, 42], bands: [{ a: 40, b: 43, col: 'rgba(255,59,48,.12)' }],
+      ref: { v: 37, label: T[lang].l.ref }, series: [{ pts: LP.hist, k: 1, lo: 34, hi: 42, col: '#ff5a4d', w: 3, dot: true }],
+      xt: (a, b) => { const o = []; for (let k = Math.ceil(a / 15); k * 15 <= b; k++) o.push([k * 15, `${k * 15}${T[lang].min}`]); return o; },
+      legend: [['#ff5a4d', `${hh.core} (${T[lang].cs})`]] });
+  } else {
+    const sg = T[lang].s;
+    graph(c, 0, 0, w, gh, { t: SG.t, win: 720, lo: 2, hi: 10, ticks: [2, 4, 6, 8, 10], bands: [{ a: 4, b: 7, col: 'rgba(61,220,151,.14)' }],
+      spans: SG.marks.filter((k) => k.kind === 'walk').map((k) => ({ a: k.t, b: k.t + 90, col: 'rgba(130,145,190,.14)' })),
+      marks: SG.marks.filter((k) => k.kind === 'meal'),
+      series: [{ pts: SG.hist, k: 1, lo: 2, hi: 10, col: '#f5c84c', w: 3, dot: true }],
+      xt: (a, b) => { const o = []; for (let k = Math.ceil(a / 180); k * 180 <= b; k++) o.push([k * 180, clock(k * 180)]); return o; },
+      legend: [['#f5c84c', `${sg.blood} (${sg.unit})`], ['#3ddc97', sg.band]] });
+    c.font = '16px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    const t0 = Math.max(0, SG.t - 720);
+    for (const k of SG.marks) { const xx = 36 + (k.t - t0) / 720 * (w - 36 - 10); if (xx > 40 && xx < w - 14) { c.globalAlpha = 1; c.fillStyle = '#fff'; c.fillText(k.kind === 'meal' ? '🍝' : '🚶', xx, 40); } }
+  }
+  c.restore();
+  liveAcc += dt;
+  if (liveAcc > 0.2) { liveAcc = 0; renderLive(); }
+});
+
+// --- controls ------------------------------------------------------------------------------------------------
+$('ctrlBody').innerHTML = `
+  <div id="s1">
+    <div class="hm-lab"><label for="wx" id="wl"></label><b id="wv"></b></div>
+    <input id="wx" class="big" type="range" min="-10" max="40" step="1" value="22" style="--track:linear-gradient(90deg,#3b82f6,#f5c84c 62%,#ef4444)">
+    <div id="hAsk"></div><div id="hFree"></div>
+  </div>
+  <div id="s2"></div>
+  <div id="s3"></div>`;
+const chip = (act, label, on, extra = '', dis = false) => `<button class="hm-chip${on ? ' on' : ''}" data-a="${act}" ${extra}${dis ? ' disabled' : ''}>${esc(label)}</button>`;
+const asked = (q, opts, act) => `<div class="hm-q">${esc(q)}</div><div class="hm-opts">${opts.map((o, i) => `<button class="hm-opt" data-a="${act}" data-i="${i}">${esc(o)}</button>`).join('')}</div>`;
+const showStage = () => { const r = $('stage').getBoundingClientRect(); if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+const secChip = (k, emo, on) => { const open = secret.unlocked(); return `<button class="hm-chip sec${open ? ' open' : ''}${on ? ' on' : ''}" data-a="sec" data-k="${k}">${open ? `${emo} ${esc(T[lang].secrets[k][0])}` : '🔒 ???'}</button>`; };
+
+$('wx').addEventListener('input', (ev) => { B.Tair = +ev.target.value; B.touched = true; $('wv').textContent = `${B.Tair} °C`; });
+$('ctrlBody').addEventListener('click', (ev) => {
+  const bt = ev.target.closest('[data-a]'); if (!bt || bt.disabled) return;
+  const a = bt.dataset.a, i = +bt.dataset.i;
+  if (a === 'g1') { // the test after the guess: a mild day, a run, sweating off
+    B.guess = i; B.Tair = 22; B.humid = false; B.fever = false; B.desert = false; B.run = true; B.sweat = false; B.touched = false; resetBody(); sfx.click(); showStage();
+  } else if (a === 'run') { B.run = !B.run; B.touched = true; sfx.click(); }
+  else if (a === 'humid') { B.humid = !B.humid; B.touched = true; sfx.click(); }
+  else if (a === 'restart') { resetBody(); B.touched = true; sfx.click(); }
+  else if (['sweat', 'vess', 'shiv', 'goose'].includes(a)) { B[a] = !B[a]; B.touched = true; sfx.click(); }
+  else if (a === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    B.touched = true; sfx.click();
+    if (bt.dataset.k === 'a') { B.fever = !B.fever; if (B.fever) { B.fevered = true; B.desert = false; B.run = false; B.sweat = B.vess = B.shiv = B.goose = true; B.Tair = 22; } }
+    else { B.desert = !B.desert; if (B.desert) { B.fever = false; B.Tair = 40; B.run = true; B.humid = false; B.sweat = B.vess = B.shiv = B.goose = true; resetBody(); } }
+  } else if (a === 'place') {
+    const k = LP.placed.indexOf(false);
+    if (i === k) { LP.placed[k] = true; LP.miss = 0; sfx.snap(); } else { LP.miss++; LP.shake = 1; sfx.bad(); }
+  } else if (a === 'g2') { LP.guess = i; LP.pushed = false; sfx.click(); showStage(); }
+  else if (a === 'sign') { LP.sign = +bt.dataset.s; LP.pushed = true; sfx.click(); }
+  else if (a === 'bump') { LP.Tc = clamp(LP.Tc + +bt.dataset.d, 34, 42); LP.pushed = true; sfx.push(); showStage(); }
+  else if (a === 'lrestart') { LP.Tc = 37; LP.r = 0; LP.hist = []; LP.t = 0; LP.last = -1; LP.pushed = false; sfx.click(); }
+  else if (a === 'g3') { SG.guess = i; SG.touched = false; SG.tg = SG.t; eatLunch(); sfx.click(); showStage(); }
+  else if (a === 'meal') { eatLunch(); SG.touched = true; sfx.click(); }
+  else if (a === 'walk') { SG.walk = 90; SG.marks.push({ t: SG.t, kind: 'walk' }); SG.touched = true; sfx.click(); }
+  else if (a === 'srestart') { Object.assign(SG, { G: 5, gut: 0, I: 0, A: 0, store: 0.55, t: 0, last: -1, hist: [], walk: 0, marks: [], touched: true }); parts.length = 0; sfx.click(); }
+  render();
+});
+function eatLunch() { SG.gut += 8; SG.marks.push({ t: SG.t, kind: 'meal' }); SG.bounce = 1; }
+
+// --- render: controls and facts on events; readout and state card live ----------------------------------------
+function render() {
+  const v = lab.view, t = T[lang];
+  document.documentElement.lang = lang;
+  $('s1').hidden = v !== 'heat'; $('s2').hidden = v !== 'loop'; $('s3').hidden = v !== 'sugar';
+  if (v === 'heat') {
+    const h = t.h, ask = B.guess === null;
+    $('wl').textContent = h.weather; $('wv').textContent = `${B.Tair} °C`; $('wx').value = B.Tair;
+    $('hAsk').hidden = !ask; $('hFree').hidden = ask;
+    $('hAsk').innerHTML = ask ? asked(h.q, h.opts, 'g1') : '';
+    $('hFree').innerHTML = ask ? '' : `<div class="hm-row">${chip('run', h.run, B.run)}${chip('humid', h.humid, B.humid)}${chip('restart', h.restart, false)}</div>
+      <div class="hm-row"><span class="hm-lbl">${esc(h.resp)}</span>${chip('sweat', h.sweat, B.sweat)}${chip('vess', h.vess, B.vess)}${chip('shiv', h.shiv, B.shiv)}${chip('goose', h.goose, B.goose)}</div>
+      <div class="hm-row">${secChip('a', '🤒', B.fever)}${secChip('b', '🏜️', B.desert)}</div>`;
+    lab.setFacts(t.facts.h);
+  } else if (v === 'loop') {
+    const l = t.l, done = LP.placed.every(Boolean);
+    let body = '';
+    if (!done) body = `<div class="hm-q">${esc(l.build)}</div><div class="hm-row" style="margin-top:0"><span class="hm-lbl">${esc(l.cards)}</span>${TRAY.filter((n) => !LP.placed[n]).map((n) => `<button class="hm-chip" data-a="place" data-i="${n}">${esc(l.nodes[n][0])} ${esc(l.nodes[n][1])}</button>`).join('')}</div>`;
+    else if (LP.guess === null) body = asked(l.q, l.opts, 'g2');
+    else body = `<div class="hm-row" style="margin-top:0"><span class="hm-lbl">${esc(l.sign)}</span>${chip('sign', l.neg, LP.sign < 0, 'data-s="-1"')}${chip('sign', l.pos, LP.sign > 0, 'data-s="1"')}</div>
+      <div class="hm-row">${chip('bump', l.warm, false, 'data-d="1"')}${chip('bump', l.cool, false, 'data-d="-1"')}${chip('lrestart', l.restart, false)}</div>`;
+    $('s2').innerHTML = body;
+    lab.setFacts(t.facts.l);
+  } else {
+    const s = t.s, ask = SG.guess === null;
+    $('s3').innerHTML = ask ? asked(s.q, s.opts, 'g3') : `<div class="hm-row" style="margin-top:0">${chip('meal', s.meal, false)}${chip('walk', s.walk, SG.walk > 0)}${chip('srestart', s.restart, false)}</div>`;
+    lab.setFacts(ask ? [] : t.facts.s);
+  }
+  renderLive();
+}
+function renderLive() {
+  const v = lab.view, t = T[lang];
+  if (v === 'heat') {
+    const h = t.h, b = B;
+    lab.setReadout(`${fmt(b.Tc)} <small>${t.cs}</small>`, h.sub, h.pill(b.Tair), '#ff5a4d'); lab.setGlow('rgba(255, 90, 77, .25)');
+    let st, body = b.sw > 0.05 || b.vd !== 0 ? h.vz[b.vd > 0.3 ? 'wide' : b.vd < -0.3 ? 'narrow' : 'mid'] : '';
+    if (b.guess === null) { st = ['🤔', h.q, h.pre]; body = ''; }
+    else if (!b.touched && b.t < 40) st = ['🧪', b.guess === 1 ? h.ok : h.no, h.rev];
+    else if (b.fever && b.Tc < FEVER - 0.3) st = h.st.fup;
+    else if (b.fever) st = h.st.fhold;
+    else if (b.fevered && b.Tset > 37.3 && b.Tc > 37.6) st = h.st.fend;
+    else if (b.desert && b.run && b.sw > 0.05) st = h.st.desert(fmt(litresPerHour()));
+    else if (b.Tc > 40) st = h.st.hot;
+    else if (b.Tc < 35.5) st = h.st.cold;
+    else if (b.run && !b.sweat && b.Tc > 37.4) st = h.st.stuck;
+    else if (b.sw > 0.2) st = b.humid ? h.st.wet : h.st.sweat;
+    else if (b.sh > 0.2) st = h.st.shiver;
+    else if (b.vd > 0.5) st = h.st.wide;
+    else st = h.st.steady;
+    lab.setState({ emo: st[0], title: st[1], lead: st[2], body, extra: '' });
+  } else if (v === 'loop') {
+    const l = t.l, p = LP, done = p.placed.every(Boolean), n = p.placed.filter(Boolean).length - 1;
+    lab.setGlow('rgba(143, 127, 208, .26)');
+    let st;
+    if (!done) {
+      const prev = l.nodes[p.placed.indexOf(false) - 1][1];
+      lab.setReadout(`${n}/4`, l.progress(n), '', '#8f7fd0');
+      st = ['🧩', l.build, p.miss ? l.miss(prev) : l.next(prev)];
+    } else if (p.guess === null) {
+      lab.setReadout(`${fmt(p.Tc)} <small>${t.cs}</small>`, l.sub, '', '#8f7fd0');
+      st = ['🤔', l.q, l.done[2]];
+    } else {
+      lab.setReadout(`${fmt(p.Tc)} <small>${t.cs}</small>`, l.sub, p.sign < 0 ? l.pillNeg : l.pillPos, '#8f7fd0');
+      const dev = Math.abs(p.Tc - 37);
+      if (!p.pushed) st = ['🧪', p.guess === 1 ? l.ok : l.no, l.rev];
+      else if (p.sign < 0) st = dev > 0.15 ? l.st.negBack : l.st.negIdle;
+      else st = dev > 0.15 ? l.st.posRun : l.st.posIdle;
+    }
+    const atCap = p.sign > 0 && (p.Tc >= 41.95 || p.Tc <= 34.05);
+    lab.setState({ emo: st[0], title: st[1], lead: st[2], body: atCap ? l.cap : '', extra: '' });
+  } else {
+    const s = t.s, g = SG;
+    lab.setReadout(`${fmt(g.G)} <small>${s.unit}</small>`, s.sub, s.pill(clock(g.t)), '#f5c84c'); lab.setGlow('rgba(245, 200, 76, .22)');
+    let st, body = '';
+    if (g.guess === null) st = ['🤔', s.q, s.pre];
+    else {
+      body = s.hor(Math.round(g.I * 100), Math.round(g.A * 100));
+      if (!g.touched && g.t < g.tg + 120) st = ['🧪', g.guess === 1 ? s.ok : s.no, s.rev];
+      else if (g.A > 0.15) st = s.st.glu;
+      else if (g.I > 0.15 && g.G > 5.3) st = s.st.ins;
+      else if (g.gut > 0.8) st = s.st.gut;
+      else if (g.walk > 0) st = s.st.walk;
+      else st = s.st.steady;
+    }
+    lab.setState({ emo: st[0], title: st[1], lead: st[2], body, extra: '' });
+  }
+}
+render();
+</script>
+</body>
+</html>
