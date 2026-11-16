@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-16
 
 ### Labs
+- New lab `on-target` “Tight or True?”: precision vs accuracy, repeats and systematic error, honest significant figures (698). (#591)
 - New lab `telescope` “Look Through the Telescope”: a telescope gathers light; mirror size, Hubble and Webb, why telescopes go to space (697). (#590)
 - New lab `biomagnify` “A Drop in the Lake”: bioaccumulation of persistent toxins up a food chain and the DDT story (696). (#589)
 - New lab `farm-gifts` “What Does the Farm Give?”: what farm animals give and the daily care that comes first (695). (#588)
