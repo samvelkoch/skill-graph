@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-16
 
 ### Labs
+- New lab `body-scan` “Seeing Inside the Body”: X-ray, ultrasound, MRI and ECG: what each shows and how (724). (#617)
 - New lab `galileo-ramp` “Galileo's Ramp”: uniformly accelerated motion on an inclined plane, the odd-number rule, then steady motion (723). (#616)
 - New lab `salt-share` “How Salty Is It?”: mass fraction of a solution, dilution and saturation (722). (#615)
 - New lab `chain-reaction` “One Neutron, Many Neutrons”: nuclear fission, chain reactions and control rods, fusion in the Sun (721). (#614)
