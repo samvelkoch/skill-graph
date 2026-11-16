@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-16
 
 ### Labs
+- New lab `thermos` “Keep the Tea Hot”: conduction, convection and radiation, the vacuum flask and a house in winter (713). (#606)
 - New lab `thermal-expansion` “Gaps in the Bridge”: thermal expansion of solids, liquids and gases, water's anomaly and gas pressure (712). (#605)
 - New lab `fields-of-europe` “Fields of Europe”: how climate, soil, relief and markets shape farming across Europe (711). (#604)
 - New lab `lens-image` “Where Is the Picture?”: ray diagrams for a converging lens and a plane mirror; real and virtual images (710). (#603)
