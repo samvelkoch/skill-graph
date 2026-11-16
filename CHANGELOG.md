@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-16
 
 ### Labs
+- New lab `motor-effect` “Why the Motor Turns”: the force on a current in a magnetic field, the DC motor and the loudspeaker (715). (#608)
 - New lab `star-elements` “Where Did Your Atoms Come From?”: where the elements come from: the Big Bang, stars, supernovae and neutron-star mergers (714). (#607)
 - New lab `thermos` “Keep the Tea Hot”: conduction, convection and radiation, the vacuum flask and a house in winter (713). (#606)
 - New lab `thermal-expansion` “Gaps in the Bridge”: thermal expansion of solids, liquids and gases, water's anomaly and gas pressure (712). (#605)
