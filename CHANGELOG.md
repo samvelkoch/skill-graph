@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-16
 
 ### Labs
+- New lab `exoplanets` “Planets of Other Stars”: the transit method, light curves and the habitable zone (701). (#594)
 - New lab `trial-reward` “The Mouse and the Cheese”: reinforcement learning: rewards, exploration and badly chosen rewards (700). (#593)
 - New lab `reaction-heat` “Warmer or Colder?”: exothermic and endothermic reactions, energy diagrams, everyday examples (699). (#592)
 - New lab `on-target` “Tight or True?”: precision vs accuracy, repeats and systematic error, honest significant figures (698). (#591)
