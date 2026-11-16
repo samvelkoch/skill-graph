@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-16
 
 ### Labs
+- New lab `one-neuron` “Inside a Neural Network”: a neuron as weighted sum and threshold; learning as nudging weights (692). (#585)
 - New lab `radiation` “Alpha, Beta, Gamma”: alpha, beta and gamma radiation: penetration, deflection, nuclear change (691). (#584)
 - New lab `nested-loops` “A Loop Inside a Loop”: nested loops: inner and outer loops, outer × inner runs (690). (#583)
 - New lab `bead-patterns` “The Bead Necklace”: the repeating unit (core) of a pattern, far terms and the same pattern in other forms (689). (#582)
