@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-16
 
 ### Labs
+- New lab `chain-reaction` “One Neutron, Many Neutrons”: nuclear fission, chain reactions and control rods, fusion in the Sun (721). (#614)
 - New lab `ions-conduct` “Which Water Lights the Bulb?”: electrolytes and ions: which solutions conduct, ions moving to electrodes, ion exchange reactions (720). (#613)
 - New lab `carbon-forms` “A Gem and a Pencil”: crystal structure: diamond, graphite and salt lattices and their properties (719). (#612)
 - New lab `memory-span` “How Much Can You Hold?”: short-term memory span, chunking and meaningful memorising (718). (#611)
