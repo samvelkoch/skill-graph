@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-16
 
 ### Labs
+- New lab `joints` “How Joints Move”: tendons, ligaments, cartilage and joint types (704). (#597)
 - New lab `sky-weeks` “The Night Sky, Week by Week”: planets moving among the stars, Mars's loop, Earth-centred and Sun-centred models (703). (#596)
 - New lab `line-spectra` “Barcodes of Light”: continuous, emission and absorption spectra, hydrogen lines and stellar spectra (702). (#595)
 - New lab `exoplanets` “Planets of Other Stars”: the transit method, light curves and the habitable zone (701). (#594)
