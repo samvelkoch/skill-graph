@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-16
 
 ### Labs
+- New lab `biomagnify` “A Drop in the Lake”: bioaccumulation of persistent toxins up a food chain and the DDT story (696). (#589)
 - New lab `farm-gifts` “What Does the Farm Give?”: what farm animals give and the daily care that comes first (695). (#588)
 - New lab `egypt-maths` “Sums of the Scribes”: Egyptian doubling multiplication, unit fractions from the Rhind papyrus, the seked (694). (#587)
 - New lab `snowflake` “How Snow Is Made”: snow as ice crystals grown from vapour, six arms, a snowdrift is mostly air (693). (#586)
