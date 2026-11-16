@@ -1,0 +1,819 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sums of the Scribes · Skill Graph</title>
+<meta name="description" content="Work like an Egyptian scribe: add up the right rows on a papyrus, share nine loaves among ten men and tilt a pyramid by its slope. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  #ctrlBody .eg-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+  #ctrlBody .eg-row.first, #ctrlBody > div > .eg-row:first-child { margin-top: 0; }
+  .eg-chip { min-height: 40px; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    color: var(--soft); font: 800 13px var(--sans); cursor: pointer; }
+  .eg-chip:hover { background: rgba(130, 145, 190, .22); }
+  .eg-chip.on { background: #fff; color: var(--bg); border-color: #fff; }
+  .eg-chip.secret { border-style: dashed; color: var(--mut); }
+  .eg-chip.secret.open { border-style: solid; border-color: var(--wip); color: var(--wip); }
+  .eg-chip.secret.open.on { background: var(--wip); color: var(--bg); }
+  .eg-btn { min-height: 42px; padding: 8px 20px; border-radius: 999px; border: 1px solid #fff; background: #fff; color: var(--bg); font: 900 14px var(--sans); cursor: pointer; }
+  .eg-btn:disabled { opacity: .35; cursor: default; }
+  .eg-btn.ghost { background: transparent; color: var(--soft); border-color: var(--stroke2); }
+  .eg-q { font: 500 20px/1.2 var(--serif); color: #fff; margin: 0 0 6px; text-wrap: balance; }
+  .eg-sub { font-size: 13px; color: var(--soft); font-weight: 700; margin: 8px 0 0; }
+  .eg-yn { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .eg-yn .t { flex: 1 1 100%; font-size: 13px; color: var(--soft); font-weight: 700; }
+  .eg-yn button { flex: 1 1 0; min-width: 84px; }
+  .eg-slide { display: flex; align-items: center; gap: 10px; width: 100%; }
+  .eg-slide input { flex: 1; }
+  .eg-slide b { min-width: 3.2em; text-align: right; font-weight: 900; font-size: 15px; }
+  #stage canvas { touch-action: pan-y; }
+  @media (max-width: 760px) {
+    #stage { height: min(112vw, 480px); }
+    body[data-v=slope] #stage { height: min(118vw, 500px); }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, ruPlural, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const SRC = { rhind: 'en.wikipedia.org/wiki/Rhind_Mathematical_Papyrus', frac: 'en.wikipedia.org/wiki/Egyptian_fraction', seked: 'en.wikipedia.org/wiki/Seked',
+  cubit: 'en.wikipedia.org/wiki/Cubit', moscow: 'en.wikipedia.org/wiki/Moscow_Mathematical_Papyrus' };
+const T = {
+  en: {
+    name: 'Sums of the Scribes', title: 'Sums of the Scribes',
+    lines: [['Tick the rows', 'that add up.'], ['Share the loaves', 'so nobody misses out.'], ['Turn the dial', 'and watch the slope.']],
+    views: { rows: '🧮 Rows', bread: '🍞 Bread', slope: '🔺 Slope' },
+    yes: 'Yes', no: 'No', check: '✓ Check', another: '→ Another one', clear: '✕ Clear ticks', show: 'Show me', next: 'Next →', rightW: 'Right!', notQ: 'Not quite.',
+    modes: { mul: '✏️ Multiply', any: '🔢 Any number' },
+    secrets: { div: ['Divide', 'Divide with the same rows'], eye: ['Eye of Horus', 'Six pieces of a famous sign'] },
+    gate: { t: 'Finish the first sum', l: 'Tick the rows for the first multiplication and check it. Then this opens.' },
+    r: {
+      q: (n) => `Which rows add up to ${n}?`,
+      leadFirst: (n) => `Tap the rows whose left numbers add up to ${n}. A red tick marks a row, as the scribes did.`,
+      lead: (n) => `Tap rows until they make ${n}.`,
+      leadDiv: (D) => `Tap the rows whose right numbers add up to ${D}. Their left numbers are the answer.`,
+      ticked: (p, s) => (p.length ? `Ticked: ${p.join(' + ')} = ${s}` : 'Tap a row to tick it'),
+      wrong: (g, n) => `Not quite: your rows make ${g}, not ${n}.`,
+      doneMul: (L, R, n, m) => `Rows ${L} make ${n}. The same rows on the right: ${R} = ${n * m}.`,
+      doneDiv: (L, R, n, m) => `Rows ${R} make ${n * m}. Their left numbers ${L} = ${n}, so ${n * m} ÷ ${m} = ${n}.`,
+      body: 'No times table: only doubling and adding.', bodyDiv: 'Division runs the same table backwards.',
+      anyQ: 'Every number from 1 to 31?', anyAsk: 'Can every number from 1 to 31 be made from 1, 2, 4, 8 and 16, using each at most once?',
+      anyLead: 'Answer first, then try the numbers.', anyYes: 'Every number from 1 to 31 works, and each in exactly one way.',
+      anyLead2: 'Slide to any number: a different set of rows lights up.', anyT: (n, p) => `${n} = ${p.join(' + ')}`, num: (n) => `Number: ${n}`, anySub: 'rows that make the number',
+      eyeT: 'The Eye of Horus', tap: 'Tap the pieces of the eye.', lit: (s) => `Lit so far: ${s}`, all: 'All six together make 63/64: one sixty-fourth short of a whole.',
+      note: 'An idea from 1911 (Georg Möller): the six pieces stand for fractions of a hekat, an Egyptian measure of volume. Some scholars doubt it was used this way.', whole: 'of a whole',
+    },
+    b: {
+      q: 'Nine loaves, ten men.', lead: 'Everyone must get exactly the same, with nothing left over. Answer both questions.',
+      qa: 'Whole loaves only: can everyone get the same?', qb: 'Whole loaves and halves: can everyone get the same?', loaves: '9 loaves', men: '10 men',
+      r1: 'With whole loaves, nine men get a loaf and the tenth gets nothing.', r2: 'With halves, each man gets one half and 8 halves are left over: not enough for a second round.',
+      valW: '1 or 0', sub: 'of a loaf for each man', done: '= 9/10 of a loaf',
+      steps: [
+        ['The scribe’s way', 'Plan: 2/3 of a loaf for each man. Ten men need 20 thirds, so cut 7 loaves into thirds: 21 pieces.', '✂️ Cut 7 loaves into thirds'],
+        ['Thirds', 'Seven loaves became 21 thirds. Hand one to every man.', '🤲 Give every man a third'],
+        ['Everyone has 1/3', '10 pieces are gone, 11 are left.', '🤲 Give every man another third'],
+        ['Everyone has 2/3', '20 pieces are gone. One third is left over, and 2 loaves are still whole.', '✂️ Cut the last 2 loaves into fifths'],
+        ['Fifths', 'Two loaves became 10 fifths. Hand one to every man.', '🤲 Give every man a fifth'],
+        ['Everyone has 2/3 + 1/5', 'Only the leftover third remains. Cut it into 10 equal tiny pieces: each is 1/30 of a loaf.', '✂️ Cut the leftover third into 10'],
+        ['Tiny pieces', 'Ten pieces of 1/30. Hand one to every man.', '🤲 Give every man a tiny piece'],
+        ['Everyone has 2/3 + 1/5 + 1/30', 'All ten men have the same and nothing is left over: 9/10 of a loaf each.', '↺ Again'],
+      ],
+      fin: 'A scribe wrote such a share as a sum of fractions with 1 on top (2/3 had a sign of its own).',
+    },
+    s: {
+      q: 'Steeper or flatter?', lead: 'Scribes measured a slope with the seked: how many palms the face leans in while it rises 1 cubit (7 palms).',
+      body: 'This pyramid has a seked of 5. We will turn the seked up to 7½.', setup: 'Seked 5 now, turned up to 7½.', opt: ['Steeper', 'Flatter'],
+      verdict: (a, b) => `A bigger seked leans in more for the same rise, so the pyramid is flatter: ${a}° at seked 5, ${b}° at 7½.`, revealBtn: 'Match the pyramids →',
+      task: 'Match the dashed pyramid.', taskL: (i) => `Task ${i} of 3. Move the seked until your pyramid sits exactly on the dashed one.`,
+      solvedL: (s) => `Seked ${fmtS(s)}: the face leans in ${fmtS(s)} palms for every 7 palms of rise.`, free: 'Free play', freeL: 'Try a seked of 5½: it is the Great Pyramid’s (about 51.8°).',
+      sub: 'palms in, for 7 palms up', unit: 'Measured in palms', gp: 'Great Pyramid', free2: 'Free play', done: 'Free play',
+    },
+    facts: {
+      rows: [
+        { emo: '📜', text: 'The Rhind papyrus was copied around 1550 BC by a scribe named Ahmes, from an older text.', src: SRC.rhind },
+        { emo: '🏺', text: 'Problems 1 to 84 of the Rhind papyrus are the mathematics: sharing loaves, areas, volumes of granaries and slopes of pyramids.', src: SRC.rhind },
+      ],
+      bread: [
+        { emo: '🍞', text: 'Nine loaves among ten men is problem 6 of the Rhind papyrus. Problems 1 to 6 share 1, 2, 6, 7, 8 and 9 loaves among ten men.', src: SRC.rhind },
+        { emo: '🧩', text: 'The papyrus includes a table that writes 2/n, for every odd n from 3 to 101, as a sum of fractions with 1 on top. For example 2/15 = 1/10 + 1/30.', src: SRC.rhind },
+        { emo: '🖊️', text: 'Scribes had special signs for 1/2, 2/3 and 3/4. A fraction with 1 on top was written by putting a mark over the number.', src: SRC.frac },
+      ],
+      slope: [
+        { emo: '🔺', text: 'The Great Pyramid’s seked was 5½ palms (5 palms and 2 digits), a slope of about 51.8°.', src: SRC.seked },
+        { emo: '📏', text: 'A royal cubit rod is about 52 to 53 cm long and is divided into 7 palms, or 28 digits.', src: SRC.cubit },
+        { emo: '🏛️', text: 'The Moscow papyrus, kept in the Pushkin Museum, has 25 problems. Problem 14 finds the volume of a truncated square pyramid: sides 4 and 2, height 6, volume 56.', src: SRC.moscow },
+      ],
+    },
+    quiz: [
+      { q: 'How did a scribe find 13 × 24?', opts: ['By doubling 24 and adding the right rows', 'From a times table', 'By counting 13 times'], ok: 0, hint: 'Look at the ticks in the Rows tab: which numbers did you add?' },
+      { q: 'How did Egyptians usually write 3/5?', opts: ['As 3/5, with a 3 over a 5', 'They had no fractions', 'As 1/2 + 1/10, a sum of fractions with 1 on top'], ok: 2, hint: 'See how the bread was shared.' },
+      { q: 'A pyramid gets a bigger seked. It becomes…', opts: ['steeper', 'flatter', 'taller but the same slope'], ok: 1, hint: 'Move the seked slider and watch the pyramid.' },
+    ],
+  },
+  ru: {
+    name: 'Задачи писцов', title: 'Задачи писцов',
+    lines: [['Отметь строки,', 'которые дают нужную сумму.'], ['Раздели хлеб', 'так, чтобы хватило всем.'], ['Поверни ползунок', 'и смотри на склон.']],
+    views: { rows: '🧮 Ряды', bread: '🍞 Хлеб', slope: '🔺 Наклон' },
+    yes: 'Да', no: 'Нет', check: '✓ Проверить', another: '→ Ещё пример', clear: '✕ Снять отметки', show: 'Покажи', next: 'Дальше →', rightW: 'Верно!', notQ: 'Не совсем.',
+    modes: { mul: '✏️ Умножь', any: '🔢 Любое число' },
+    secrets: { div: ['Деление', 'Делим по тем же рядам'], eye: ['Глаз Гора', 'Шесть частей знаменитого знака'] },
+    gate: { t: 'Сначала первый пример', l: 'Отметь строки в первом умножении и проверь. Тогда это откроется.' },
+    r: {
+      q: (n) => `Какие строки дают в сумме ${n}?`,
+      leadFirst: (n) => `Нажимай на строки, у которых левые числа дают в сумме ${n}. Красная галочка — так писцы отмечали строку.`,
+      lead: (n) => `Нажимай на строки, пока не получится ${n}.`,
+      leadDiv: (D) => `Нажимай на строки, у которых правые числа дают в сумме ${D}. Левые числа этих строк — ответ.`,
+      ticked: (p, s) => (p.length ? `Отмечено: ${p.join(' + ')} = ${s}` : 'Нажми на строку, чтобы отметить'),
+      wrong: (g, n) => `Не совсем: твои строки дают ${g}, а не ${n}.`,
+      doneMul: (L, R, n, m) => `Строки ${L} дают ${n}. Те же строки справа: ${R} = ${n * m}.`,
+      doneDiv: (L, R, n, m) => `Строки ${R} дают ${n * m}. Их левые числа ${L} = ${n}, значит ${n * m} ÷ ${m} = ${n}.`,
+      body: 'Таблица умножения не нужна: только удвоение и сложение.', bodyDiv: 'Деление идёт по той же таблице, только в обратную сторону.',
+      anyQ: 'Любое число от 1 до 31?', anyAsk: 'Можно ли составить любое число от 1 до 31 из чисел 1, 2, 4, 8 и 16, беря каждое не больше одного раза?',
+      anyLead: 'Сначала ответь, а потом попробуй разные числа.', anyYes: 'Подходит любое число от 1 до 31, и каждое — единственным способом.',
+      anyLead2: 'Двигай ползунок: каждый раз загорается другой набор строк.', anyT: (n, p) => `${n} = ${p.join(' + ')}`, num: (n) => `Число: ${n}`, anySub: 'строки, которые дают число',
+      eyeT: 'Глаз Гора', tap: 'Нажимай на части глаза.', lit: (s) => `Горит: ${s}`, all: 'Все шесть вместе дают 63/64: до целого не хватает одной шестьдесят четвёртой.',
+      note: 'Идея 1911 года (Георг Мёллер): шесть частей — это доли гекат, египетской меры объёма. Некоторые учёные сомневаются, что так и было.', whole: 'от целого',
+    },
+    b: {
+      q: 'Девять хлебов на десятерых.', lead: 'Каждому нужно дать поровну, и чтобы ничего не осталось. Ответь на оба вопроса.',
+      qa: 'Только целые хлеба: можно ли дать всем поровну?', qb: 'Целые хлеба и половинки: можно ли дать всем поровну?', loaves: '9 хлебов', men: '10 человек',
+      r1: 'Целыми хлебами: девять человек получат по хлебу, а десятый — ничего.', r2: 'Половинками: каждый получит одну половинку, и ещё 8 половинок останутся. На второй круг их не хватит.',
+      valW: '1 или 0', sub: 'хлеба на каждого', done: '= 9/10 хлеба',
+      steps: [
+        ['Путь писца', 'Сначала план: каждому по 2/3 хлеба. Десятерым нужно 20 третей, поэтому разрежь 7 хлебов на трети: получится 21 кусок.', '✂️ Разрезать 7 хлебов на трети'],
+        ['Трети', 'Из семи хлебов вышло 21 треть. Дай каждому по одной.', '🤲 Дать каждому треть'],
+        ['У каждого 1/3', '10 кусков роздано, 11 осталось.', '🤲 Дать каждому ещё треть'],
+        ['У каждого 2/3', 'Роздано 20 кусков. Одна треть осталась, и два хлеба ещё целые.', '✂️ Разрезать 2 хлеба на пятые доли'],
+        ['Пятые доли', 'Из двух хлебов вышло 10 пятых. Дай каждому одну.', '🤲 Дать каждому пятую'],
+        ['У каждого 2/3 + 1/5', 'Осталась только лишняя треть. Раздели её на 10 равных крошечных кусочков: каждый — 1/30 хлеба.', '✂️ Разрезать остаток на 10'],
+        ['Крошечные кусочки', 'Десять кусочков по 1/30. Дай каждому один.', '🤲 Дать каждому кусочек'],
+        ['У каждого 2/3 + 1/5 + 1/30', 'У всех десяти поровну, и ничего не осталось: по 9/10 хлеба.', '↺ Ещё раз'],
+      ],
+      fin: 'Писец записывал такую долю суммой дробей с единицей сверху (у 2/3 был свой особый знак).',
+    },
+    s: {
+      q: 'Круче или площе?', lead: 'Писцы измеряли склон секедом: на сколько ладоней грань отходит в сторону, пока поднимается на 1 локоть (7 ладоней).',
+      body: 'У этой пирамиды секед равен 5. Мы увеличим его до 7½.', setup: 'Сейчас секед 5, потом 7½.', opt: ['Круче', 'Площе'],
+      verdict: (a, b) => `Чем больше секед, тем сильнее грань отходит при том же подъёме, поэтому пирамида площе: ${a}° при секеде 5 и ${b}° при 7½.`, revealBtn: 'Совмести пирамиды →',
+      task: 'Совмести с пунктирной пирамидой.', taskL: (i) => `Задание ${i} из 3. Двигай секед, пока твоя пирамида не ляжет точно на пунктирную.`,
+      solvedL: (s) => `Секед ${fmtS(s)}: грань отходит на ${fmtS(s)} ${rpal(s)} на каждые 7 ладоней подъёма.`, free: 'Свободная игра', freeL: 'Попробуй секед 5½: такой был у Великой пирамиды (около 51,8°).',
+      sub: 'сдвиг в ладонях на 7 ладоней подъёма', unit: 'Мера: ладони', gp: 'Великая пирамида', free2: 'Свободная игра', done: 'Свободная игра',
+    },
+    facts: {
+      rows: [
+        { emo: '📜', text: 'Папирус Райнда около 1550 года до н. э. переписал писец Ахмес с более старого текста.', src: SRC.rhind },
+        { emo: '🏺', text: 'Задачи 1–84 папируса Райнда — это математика: деление хлебов, площади, объёмы зернохранилищ и наклон пирамид.', src: SRC.rhind },
+      ],
+      bread: [
+        { emo: '🍞', text: 'Девять хлебов на десятерых — задача 6 папируса Райнда. Задачи 1–6 делят 1, 2, 6, 7, 8 и 9 хлебов на десятерых.', src: SRC.rhind },
+        { emo: '🧩', text: 'В папирусе есть таблица, где число 2/n для каждого нечётного n от 3 до 101 записано суммой дробей с единицей сверху. Например, 2/15 = 1/10 + 1/30.', src: SRC.rhind },
+        { emo: '🖊️', text: 'У писцов были особые знаки для 1/2, 2/3 и 3/4. Дробь с единицей сверху записывали так: над числом ставили значок.', src: SRC.frac },
+      ],
+      slope: [
+        { emo: '🔺', text: 'Секед Великой пирамиды — 5½ ладоней (5 ладоней и 2 пальца), это наклон около 51,8°.', src: SRC.seked },
+        { emo: '📏', text: 'Царский локоть — линейка длиной около 52–53 см. Она делится на 7 ладоней, или 28 пальцев.', src: SRC.cubit },
+        { emo: '🏛️', text: 'В Московском папирусе, который хранится в музее имени Пушкина, 25 задач. Задача 14 находит объём усечённой квадратной пирамиды: стороны 4 и 2, высота 6, объём 56.', src: SRC.moscow },
+      ],
+    },
+    quiz: [
+      { q: 'Как писец находил 13 × 24?', opts: ['Удваивал 24 и складывал нужные строки', 'По таблице умножения', 'Считал 13 раз'], ok: 0, hint: 'Посмотри на галочки во вкладке «Ряды»: какие числа ты складывал?' },
+      { q: 'Как египтяне обычно записывали 3/5?', opts: ['Как 3/5: тройка над пятёркой', 'У них не было дробей', 'Как 1/2 + 1/10: сумма дробей с единицей сверху'], ok: 2, hint: 'Посмотри, как делили хлеб.' },
+      { q: 'Секед пирамиды стал больше. Она стала…', opts: ['круче', 'площе', 'выше, а склон тот же'], ok: 1, hint: 'Подвигай ползунок секеда и смотри на пирамиду.' },
+    ],
+  },
+  hu: {
+    name: 'Az írnokok feladatai', title: 'Az írnokok feladatai',
+    lines: [['Jelöld meg a sorokat,', 'amelyek kiadják az összeget.'], ['Oszd el a kenyeret,', 'hogy mindenkinek jusson.'], ['Állítsd a tárcsát,', 'és nézd a lejtést.']],
+    views: { rows: '🧮 Sorok', bread: '🍞 Cipó', slope: '🔺 Lejtő' },
+    yes: 'Igen', no: 'Nem', check: '✓ Ellenőrzés', another: '→ Még egy', clear: '✕ Jelek törlése', show: 'Mutasd', next: 'Tovább →', rightW: 'Így van!', notQ: 'Nem egészen.',
+    modes: { mul: '✏️ Szorzás', any: '🔢 Bármely szám' },
+    secrets: { div: ['Osztás', 'Osztás ugyanazokkal a sorokkal'], eye: ['Hórusz szeme', 'Egy híres jel hat darabja'] },
+    gate: { t: 'Előbb az első feladat', l: 'Jelöld meg a sorokat az első szorzásban, és ellenőrizd. Utána ez kinyílik.' },
+    r: {
+      q: (n) => `Mely sorok adják ki együtt: ${n}?`,
+      leadFirst: (n) => `Koppints azokra a sorokra, amelyeknek a bal oldali számai összeadva: ${n}. A piros pipa az írnokok jelölése.`,
+      lead: (n) => `Koppints sorokra, amíg ki nem jön: ${n}.`,
+      leadDiv: (D) => `Koppints azokra a sorokra, amelyeknek a jobb oldali számai összeadva: ${D}. A bal oldali számaik adják a választ.`,
+      ticked: (p, s) => (p.length ? `Megjelölve: ${p.join(' + ')} = ${s}` : 'Koppints egy sorra a megjelöléshez'),
+      wrong: (g, n) => `Nem egészen: a sorok összege ${g}, nem ${n}.`,
+      doneMul: (L, R, n, m) => `Sorok: ${L}, összegük ${n}. Ugyanezek a sorok jobbra: ${R} = ${n * m}.`,
+      doneDiv: (L, R, n, m) => `Sorok: ${R}, összegük ${n * m}. A bal oldali számaik ${L} = ${n}, tehát ${n * m} ÷ ${m} = ${n}.`,
+      body: 'Szorzótábla nélkül: csak duplázás és összeadás.', bodyDiv: 'Az osztás ugyanazt a táblázatot használja visszafelé.',
+      anyQ: 'Minden szám 1-től 31-ig?', anyAsk: 'Kirakható minden szám 1-től 31-ig az 1, 2, 4, 8 és 16 számokból, mindegyiket legfeljebb egyszer használva?',
+      anyLead: 'Előbb válaszolj, aztán próbálj ki számokat.', anyYes: '1-től 31-ig minden szám kirakható, mégpedig pontosan egyféleképpen.',
+      anyLead2: 'Húzd a csúszkát: mindig más sorok gyulladnak ki.', anyT: (n, p) => `${n} = ${p.join(' + ')}`, num: (n) => `Szám: ${n}`, anySub: 'a számot kiadó sorok',
+      eyeT: 'Hórusz szeme', tap: 'Koppints a szem darabjaira.', lit: (s) => `Kigyulladt: ${s}`, all: 'Mind a hat együtt 63/64: egy hatvannegyed hiányzik az egészhez.',
+      note: 'Egy 1911-es ötlet (Georg Möller): a hat darab a hekat törtrészeit jelöli, ami egy egyiptomi űrmérték. Egyes kutatók kétlik, hogy valóban így használták.', whole: 'az egészből',
+    },
+    b: {
+      q: 'Kilenc cipó, tíz férfi.', lead: 'Mindenkinek pontosan ugyanannyit kell adni, és nem maradhat semmi. Válaszolj mindkét kérdésre.',
+      qa: 'Csak egész cipókkal: kaphat mindenki ugyanannyit?', qb: 'Egész és fél cipókkal: kaphat mindenki ugyanannyit?', loaves: '9 cipó', men: '10 férfi',
+      r1: 'Egész cipókkal kilencen kapnak egy-egy cipót, a tizedik semmit.', r2: 'Fél cipókkal mindenki kap egy felet, de 8 fél marad. Egy második körre nem elég.',
+      valW: '1 vagy 0', sub: 'cipó fejenként', done: '= 9/10 cipó',
+      steps: [
+        ['Az írnok útja', 'Előbb a terv: mindenki 2/3 cipót kap. Tíz embernek 20 harmad kell, ezért vágj fel 7 cipót harmadokra: 21 darab lesz.', '✂️ 7 cipó harmadolása'],
+        ['Harmadok', 'A hét cipóból 21 harmad lett. Adj mindenkinek egyet.', '🤲 Mindenkinek egy harmad'],
+        ['Mindenkinél 1/3', '10 darab elfogyott, 11 maradt.', '🤲 Mindenkinek még egy harmad'],
+        ['Mindenkinél 2/3', '20 darab elfogyott. Egy harmad megmaradt, és két cipó még egész.', '✂️ A 2 cipó felvágása ötödökre'],
+        ['Ötödök', 'A két cipóból 10 ötöd lett. Adj mindenkinek egyet.', '🤲 Mindenkinek egy ötöd'],
+        ['Mindenkinél 2/3 + 1/5', 'Már csak a megmaradt harmad van. Vágd 10 egyforma apró darabra: mindegyik 1/30 cipó.', '✂️ A maradék felvágása tízfelé'],
+        ['Apró darabok', 'Tíz darab, egyenként 1/30. Adj mindenkinek egyet.', '🤲 Mindenkinek egy apró darab'],
+        ['Mindenkinél 2/3 + 1/5 + 1/30', 'Mind a tízen ugyanannyit kaptak, és nem maradt semmi: fejenként 9/10 cipó.', '↺ Újra'],
+      ],
+      fin: 'Az írnok az ilyen részt olyan törtek összegeként írta fel, amelyeknél felül 1 áll (a 2/3-nak külön jele volt).',
+    },
+    s: {
+      q: 'Meredekebb vagy laposabb?', lead: 'Az írnokok a lejtést a szekeddel mérték: hány tenyérnyit dől be a lap, miközben 1 könyöknyit (7 tenyér) emelkedik.',
+      body: 'Ennek a piramisnak a szekedje 5. A szekedet 7½-ig növeljük.', setup: 'Most szeked 5, aztán 7½.', opt: ['Meredekebb', 'Laposabb'],
+      verdict: (a, b) => `Nagyobb szeked ugyanakkora emelkedésnél jobban beljebb dől, ezért a piramis laposabb: ${a}° az 5-ös szekednél, ${b}° a 7½-esnél.`, revealBtn: 'Illeszd a piramisokat →',
+      task: 'Illeszd rá a szaggatott piramisra.', taskL: (i) => `${i}. feladat a 3-ból. Állítsd a szekedet, amíg a piramisod pontosan ráfekszik a szaggatottra.`,
+      solvedL: (s) => `Szeked ${fmtS(s)}: a lap ${fmtS(s)} tenyérnyit dől be minden 7 tenyér emelkedésnél.`, free: 'Szabad játék', freeL: 'Próbáld ki az 5½-et: ez a Nagy Piramis szekedje (kb. 51,8°).',
+      sub: 'tenyér befelé 7 tenyér emelkedésnél', unit: 'Mérték: tenyér', gp: 'Nagy Piramis', free2: 'Szabad játék', done: 'Szabad játék',
+    },
+    facts: {
+      rows: [
+        { emo: '📜', text: 'A Rhind-papiruszt 1550 körül Kr. e. egy Ahmesz nevű írnok másolta egy régebbi szövegből.', src: SRC.rhind },
+        { emo: '🏺', text: 'A Rhind-papirusz 1–84. feladata a matematika: cipók elosztása, területek, magtárak térfogata és piramisok lejtése.', src: SRC.rhind },
+      ],
+      bread: [
+        { emo: '🍞', text: 'A kilenc cipó tíz férfi között a Rhind-papirusz 6. feladata. Az 1–6. feladat 1, 2, 6, 7, 8 és 9 cipót oszt el tíz férfi között.', src: SRC.rhind },
+        { emo: '🧩', text: 'A papirusz tartalmaz egy táblázatot, amely a 2/n számot minden 3 és 101 közötti páratlan n-re olyan törtek összegeként írja fel, amelyeknél felül 1 áll. Például 2/15 = 1/10 + 1/30.', src: SRC.rhind },
+        { emo: '🖊️', text: 'Az írnokoknak külön jelük volt az 1/2-re, a 2/3-ra és a 3/4-re. Az olyan törtet, amelynek felül 1 áll, úgy írták, hogy a szám fölé jelet tettek.', src: SRC.frac },
+      ],
+      slope: [
+        { emo: '🔺', text: 'A Nagy Piramis szekedje 5½ tenyér (5 tenyér és 2 ujjnyi) volt, ez körülbelül 51,8°-os lejtés.', src: SRC.seked },
+        { emo: '📏', text: 'Egy királyi könyök mérőpálca körülbelül 52–53 cm hosszú, és 7 tenyérre, azaz 28 ujjnyira van osztva.', src: SRC.cubit },
+        { emo: '🏛️', text: 'A Puskin Múzeumban őrzött moszkvai papiruszon 25 feladat van. A 14. feladat egy csonka négyzetes gúla térfogatát számolja ki: az oldalak 4 és 2, a magasság 6, a térfogat 56.', src: SRC.moscow },
+      ],
+    },
+    quiz: [
+      { q: 'Hogyan találta meg az írnok a 13 × 24 eredményét?', opts: ['A 24 duplázásával és a megfelelő sorok összeadásával', 'Szorzótáblából', '13-szor összeszámolva'], ok: 0, hint: 'Nézd meg a pipákat a Sorok fülön: mely számokat adtad össze?' },
+      { q: 'Hogyan írták fel az egyiptomiak általában a 3/5-öt?', opts: ['Úgy, hogy 3/5, a 3 az 5 fölött', 'Nem volt törtjük', 'Úgy, hogy 1/2 + 1/10: olyan törtek összege, amelyeknél felül 1 áll'], ok: 2, hint: 'Nézd meg, hogyan osztották el a kenyeret.' },
+      { q: 'A piramis szekedje nagyobb lett. A piramis…', opts: ['meredekebb lett', 'laposabb lett', 'magasabb lett, de a lejtés ugyanaz'], ok: 1, hint: 'Mozgasd a szeked csúszkáját, és figyeld a piramist.' },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_PPNDO7BUrY', en: 'Egyptian Maths and Engineering', ru: 'Египетская математика и инженерное дело', hu: 'Egyiptomi matematika és mérnöki tudomány' },
+];
+
+// --- helpers and state (everything is declared before the shell starts) -------------------------------------
+const now = () => performance.now() / 1000;
+const INK = '#2a1e14', RED = '#b3261e', GRN = '#2f7d4f';
+function fmtS(s) { return Number.isInteger(s) ? String(s) : `${Math.floor(s)}½`; }
+function rpal(s) { return ruPlural(Math.floor(s), 'ладонь', 'ладони', 'ладоней'); }
+const dec = (x) => (lang === 'en' ? x.toFixed(1) : x.toFixed(1).replace('.', ','));
+const deg = (s) => Math.atan(7 / s) * 180 / Math.PI;
+const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+const pows = (n) => { const a = []; for (let p = 1; p <= n; p *= 2) a.push(p); return a; };
+const bitsOf = (n) => pows(n).filter((p) => n & p);
+const mkTask = (n, m, first) => ({ n, m, ticks: [], tickT: [], checked: false, ok: false, first });
+function freshTask() {
+  let n; do { n = 11 + Math.floor(Math.random() * 21); } while (bitsOf(n).length < 2);
+  return mkTask(n, 12 + Math.floor(Math.random() * 38), false);
+}
+const EYE = [['1/2', 32, '#d9822b'], ['1/4', 16, '#3b6ea5'], ['1/8', 8, '#8a5a2b'], ['1/16', 4, '#7b4fa0'], ['1/32', 2, '#2f8f83'], ['1/64', 1, '#b04a3a']];
+const TARGETS = [4.5, 6.5, 5];
+const S = {
+  mode: 'mul', mul: mkTask(13, 24, true), div: mkTask(13, 24, true), rowT0: now(), exDone: false, note: '',
+  anyGuess: null, anyN: 21, anyMoved: false, eye: [false, false, false, false, false, false],
+  ph: 0, qa: null, qb: null, step: 0, evT: -9,
+  p3: 'predict', g3: null, seked: 5, sk: 5, ti3: 0, wasSolved: false,
+};
+const kOf = () => (S.mode === 'div' ? S.div : S.mul);
+const tickedP = (k) => pows(k.n).filter((p, i) => k.ticks[i]);
+const sumP = (k) => tickedP(k).reduce((a, b) => a + b, 0);
+const sumVal = (k) => (S.mode === 'div' ? sumP(k) * k.m : sumP(k));
+const targetOf = (k) => (S.mode === 'div' ? k.n * k.m : k.n);
+const HIT = [];
+let LAY = { s: 1, ox: 0, oy: 0 };
+
+// papyrus texture: fixed random fibres and stars, made once
+let seed = 20241;
+const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+const FIB = [], STARS = [];
+for (let i = 0; i < 120; i++) FIB.push({ x: rnd(), y: rnd(), len: .12 + rnd() * .5, a: .05 + rnd() * .09, w: .6 + rnd() * 1.1, dy: (rnd() - .5) * 4 });
+for (let i = 0; i < 45; i++) STARS.push({ x: rnd(), y: rnd() * .5, r: .5 + rnd() * 1.1, a: .25 + rnd() * .5 });
+
+const lab = shell({ key: 'egypt-maths', T, topics: TOPICS, views: ['rows', 'bread', 'slope'], onLang: render, onView: render });
+const secret = secretLab('egypt-maths', () => ({
+  secrets: [{ emo: '➗', title: T[lang].secrets.div[0], desc: T[lang].secrets.div[1] }, { emo: '👁️', title: T[lang].secrets.eye[0], desc: T[lang].secrets.eye[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="v1">
+    <div class="eg-row first" id="modes"></div>
+    <div id="v1ask" hidden></div>
+    <div class="eg-row" id="v1any" hidden><div class="eg-slide"><input id="anyR" class="big" type="range" min="1" max="31" step="1" value="21" style="--track: linear-gradient(90deg,#f0d49a,#b8793a)" aria-label="1–31"><b id="anyLbl"></b></div></div>
+    <div class="eg-row" id="v1act"></div>
+  </div>
+  <div id="v2" hidden>
+    <div id="v2ask" hidden></div>
+    <div class="eg-row" id="v2act"></div>
+  </div>
+  <div id="v3" hidden>
+    <div id="v3ask" hidden></div>
+    <div class="eg-row first" id="v3sl" hidden><div class="eg-slide"><input id="sk" class="big" type="range" min="4" max="8" step="0.5" value="5" style="--track: linear-gradient(90deg,#f0d49a,#b8793a)" aria-label="seked"><b id="skLbl"></b></div></div>
+    <div class="eg-row" id="v3act"></div>
+  </div>`;
+
+// --- drawing helpers -----------------------------------------------------------------------------------------
+function roll(c, x, cy, w) {
+  const g = c.createLinearGradient(0, cy - 9, 0, cy + 9);
+  g.addColorStop(0, '#a98240'); g.addColorStop(.3, '#f3e0a8'); g.addColorStop(.65, '#d4b070'); g.addColorStop(1, '#8f6b30');
+  c.save(); c.shadowColor = 'rgba(0,0,0,.35)'; c.shadowBlur = 8; c.shadowOffsetY = 3;
+  c.fillStyle = g; c.beginPath(); c.roundRect(x - 8, cy - 9, w + 16, 18, 9); c.fill(); c.restore();
+  c.strokeStyle = 'rgba(70,45,15,.5)'; c.lineWidth = 1; c.beginPath(); c.roundRect(x - 8, cy - 9, w + 16, 18, 9); c.stroke();
+}
+function paper(c, x, y, w, h) {
+  const e = (i) => Math.sin(i * 1.9) * 1.3 + Math.sin(i * 4.3 + 1) * .9, N = 24;
+  c.save();
+  c.beginPath();
+  for (let i = 0; i <= N; i++) { const px = x + w * i / N, py = y + e(i); if (i) c.lineTo(px, py); else c.moveTo(px, py); }
+  for (let i = 0; i <= N; i++) c.lineTo(x + w + e(i + 31), y + h * i / N);
+  for (let i = N; i >= 0; i--) c.lineTo(x + w * i / N, y + h + e(i + 57));
+  for (let i = N; i >= 0; i--) c.lineTo(x + e(i + 83), y + h * i / N);
+  c.closePath();
+  c.shadowColor = 'rgba(0,0,0,.5)'; c.shadowBlur = 22; c.shadowOffsetY = 8;
+  const g = c.createLinearGradient(x, y, x + w, y + h);
+  g.addColorStop(0, '#f1e1b0'); g.addColorStop(.5, '#e6d09a'); g.addColorStop(1, '#d5ba80');
+  c.fillStyle = g; c.fill();
+  c.shadowColor = 'transparent'; c.shadowBlur = 0; c.shadowOffsetY = 0;
+  c.clip();
+  c.lineCap = 'round'; c.lineWidth = 1;
+  for (const f of FIB) {
+    const fx = x + f.x * w * (1 - f.len), fy = y + f.y * h, len = f.len * w;
+    c.strokeStyle = `rgba(110,78,30,${f.a})`; c.lineWidth = f.w;
+    c.beginPath(); c.moveTo(fx, fy); c.quadraticCurveTo(fx + len / 2, fy + f.dy, fx + len, fy); c.stroke();
+  }
+  c.strokeStyle = 'rgba(110,78,30,.04)'; c.lineWidth = 1;
+  for (let k = 0; k < 17; k++) { const vx = x + (k + .5) * w / 17; c.beginPath(); c.moveTo(vx, y); c.lineTo(vx + Math.sin(k) * 2, y + h); c.stroke(); }
+  const v = c.createRadialGradient(x + w / 2, y + h / 2, h * .25, x + w / 2, y + h / 2, w * .75);
+  v.addColorStop(0, 'rgba(120,80,30,0)'); v.addColorStop(1, 'rgba(120,80,30,.28)');
+  c.fillStyle = v; c.fillRect(x, y, w, h);
+  c.restore();
+  roll(c, x, y, w); roll(c, x, y + h, w);
+}
+function pill(c, txt, cx, cy, W, col = '#fff') {
+  c.save(); c.font = '800 13px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  const tw = c.measureText(txt).width + 16, x = clamp(cx - tw / 2, 6, Math.max(6, W - tw - 6));
+  c.fillStyle = 'rgba(10,12,20,.8)'; c.beginPath(); c.roundRect(x, cy - 11, tw, 22, 11); c.fill();
+  c.fillStyle = col; c.fillText(txt, x + tw / 2, cy + 1); c.restore();
+}
+function fitText(c, txt, x, y, maxW, size) {
+  let s = size; c.font = `900 ${s}px Nunito, sans-serif`;
+  while (c.measureText(txt).width > maxW && s > 13) { s--; c.font = `900 ${s}px Nunito, sans-serif`; }
+  c.fillText(txt, x, y);
+}
+function tickMark(c, x, y, col, sc = 1, dash = false) {
+  c.save(); c.translate(x, y); c.scale(sc, sc);
+  c.strokeStyle = col; c.lineWidth = 3.4; c.lineCap = 'round'; c.lineJoin = 'round'; if (dash) c.setLineDash([3, 4]);
+  c.beginPath(); c.moveTo(-8, 1); c.quadraticCurveTo(-5, 6, -2.5, 9); c.quadraticCurveTo(3, -4, 11, -12); c.stroke(); c.restore();
+}
+function crossMark(c, x, y, col) {
+  c.save(); c.strokeStyle = col; c.lineWidth = 3.4; c.lineCap = 'round';
+  c.beginPath(); c.moveTo(x - 7, y - 7); c.lineTo(x + 7, y + 7); c.moveTo(x + 7, y - 7); c.lineTo(x - 7, y + 7); c.stroke(); c.restore();
+}
+
+// --- view 1: the papyrus table (multiply, divide, any number) -----------------------------------------------
+function drawRows(c, time) {
+  const t = T[lang], mode = S.mode, k = kOf(), any = mode === 'any', gated = any && S.anyGuess === null;
+  const R = any ? [1, 2, 4, 8, 16] : pows(k.n), good = !any && k.checked ? bitsOf(k.n) : [];
+  paper(c, 12, 22, 336, 356);
+  c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = INK; c.font = '500 30px "EB Garamond", Georgia, serif';
+  c.fillText(any ? (gated ? '?' : String(S.anyN)) : mode === 'div' ? `${k.n * k.m} ÷ ${k.m}` : `${k.n} × ${k.m}`, 180, 54);
+  R.forEach((p, i) => {
+    const a = clamp((time - S.rowT0 - i * 0.16) / 0.3, 0, 1), e = a * a * (3 - 2 * a);
+    if (e <= 0) return;
+    const y = 74 + i * 46 + (1 - e) * -10, on = any ? (!gated && (S.anyN & p) > 0) : !!k.ticks[i], isGood = good.includes(p);
+    c.globalAlpha = e;
+    if (isGood) { c.fillStyle = 'rgba(47,125,79,.2)'; c.beginPath(); c.roundRect(22, y - 3, 316, 44, 12); c.fill(); }
+    else if (on) { c.fillStyle = 'rgba(201,138,26,.2)'; c.beginPath(); c.roundRect(22, y - 3, 316, 44, 12); c.fill(); }
+    // tick spot
+    if (any) { if (on) tickMark(c, 40, y + 19, RED); }
+    else if (k.checked) {
+      if (on && isGood) tickMark(c, 40, y + 19, GRN); else if (on) crossMark(c, 40, y + 19, RED); else if (isGood) tickMark(c, 40, y + 19, GRN, 1, true);
+    } else if (on) { const age = time - (k.tickT[i] ?? -9); tickMark(c, 40, y + 19, RED, 1 + .35 * Math.max(0, 1 - age / .25)); }
+    else { c.strokeStyle = 'rgba(42,30,20,.5)'; c.lineWidth = 1.5; c.setLineDash([3, 3]); c.beginPath(); c.arc(40, y + 19, 11, 0, Math.PI * 2); c.stroke(); c.setLineDash([]); }
+    // left number
+    c.fillStyle = 'rgba(255,250,232,.55)'; c.strokeStyle = 'rgba(42,30,20,.55)'; c.lineWidth = 1.5;
+    c.beginPath(); c.roundRect(62, y, 70, 38, 10); c.fill(); c.stroke();
+    c.fillStyle = INK; c.font = '900 22px Nunito, sans-serif'; c.fillText(String(p), 97, y + 20);
+    // right value, or a bar in the any-number view
+    if (any) {
+      c.fillStyle = 'rgba(255,250,232,.4)'; c.beginPath(); c.roundRect(188, y + 6, 140, 26, 8); c.fill();
+      const bw = Math.max(8, p * 8);
+      const g = c.createLinearGradient(0, y, 0, y + 38); g.addColorStop(0, on ? '#f0b94a' : '#cdb98a'); g.addColorStop(1, on ? '#c98a1a' : '#b8a173');
+      c.fillStyle = g; c.beginPath(); c.roundRect(190, y + 8, bw, 22, 6); c.fill();
+      c.strokeStyle = 'rgba(42,30,20,.5)'; c.lineWidth = 1; c.stroke();
+    } else {
+      c.fillStyle = 'rgba(255,250,232,.55)'; c.strokeStyle = 'rgba(42,30,20,.55)'; c.lineWidth = 1.5;
+      c.beginPath(); c.roundRect(186, y, 140, 38, 10); c.fill(); c.stroke();
+      c.fillStyle = INK; c.font = '900 22px Nunito, sans-serif'; c.fillText(String(p * k.m), 256, y + 20);
+      HIT.push({ x: 22, y: y - 3, w: 316, h: 44, fn: () => { if (k.checked) return; S.note = ''; k.ticks[i] = !k.ticks[i]; k.tickT[i] = now(); sfx.tick(); render(); } });
+    }
+    // the doubling arrows between this row and the next
+    const nx = clamp((time - S.rowT0 - (i + 1) * 0.16) / 0.3, 0, 1);
+    if (i < R.length - 1 && nx > 0) {
+      c.globalAlpha = e * nx; c.strokeStyle = 'rgba(42,30,20,.6)'; c.fillStyle = 'rgba(42,30,20,.6)'; c.lineWidth = 1.6;
+      const sides = any ? [[132, 20]] : [[132, 20], [326, 20]];
+      for (const [ax, bulge] of sides) {
+        c.beginPath(); c.moveTo(ax + 1, y + 19); c.bezierCurveTo(ax + bulge, y + 19, ax + bulge, y + 65, ax + 2, y + 65); c.stroke();
+        c.beginPath(); c.moveTo(ax - 3, y + 65); c.lineTo(ax + 5, y + 60); c.lineTo(ax + 5, y + 70); c.closePath(); c.fill();
+      }
+      if (!any) { c.font = '900 13px Nunito, sans-serif'; c.fillStyle = INK; c.fillText('×2', 160, y + 42); }
+    }
+    c.globalAlpha = 1;
+  });
+  // the sums under the rows
+  c.fillStyle = INK; c.textAlign = 'center';
+  if (any) {
+    if (!gated) fitText(c, t.r.anyT(S.anyN, bitsOf(S.anyN)), 180, 322, 300, 20);
+  } else {
+    const tp = tickedP(k);
+    fitText(c, t.r.ticked(mode === 'div' ? tp.map((p) => p * k.m) : tp, sumVal(k)), 180, 318, 300, 18);
+    if (k.checked) {
+      const bits = bitsOf(k.n), txt = mode === 'div' ? `${bits.join(' + ')} = ${k.n}` : `${bits.map((p) => p * k.m).join(' + ')} = ${k.n * k.m}`;
+      c.fillStyle = k.ok ? GRN : INK; fitText(c, txt, 180, 346, 300, 20);
+      c.strokeStyle = RED; c.lineWidth = 2; c.lineCap = 'round'; c.beginPath(); c.moveTo(60, 362); c.quadraticCurveTo(180, 355, 300, 362); c.stroke();
+    }
+  }
+}
+
+// --- view 1, secret: the Eye of Horus ------------------------------------------------------------------------
+function almond(c) { c.beginPath(); c.moveTo(94, 152); c.quadraticCurveTo(180, 74, 266, 152); c.quadraticCurveTo(180, 206, 94, 152); c.closePath(); }
+function drawEye(c) {
+  const t = T[lang], on = S.eye;
+  paper(c, 12, 22, 336, 356);
+  c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = INK; c.font = '500 30px "EB Garamond", Georgia, serif';
+  c.fillText(t.r.eyeT, 180, 52);
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  // the eye's outline and its two corner regions
+  almond(c); c.fillStyle = 'rgba(255,250,232,.55)'; c.fill();
+  for (const [i, x0, x1] of [[0, 88, 136], [3, 226, 272]]) {
+    c.save(); c.beginPath(); c.rect(x0, 90, x1 - x0, 110); c.clip(); almond(c);
+    if (on[i]) { c.fillStyle = EYE[i][2]; c.shadowColor = EYE[i][2]; c.shadowBlur = 12; c.fill(); }
+    c.restore();
+  }
+  c.strokeStyle = 'rgba(42,30,20,.35)'; c.lineWidth = 1.5; c.setLineDash([3, 4]);
+  for (const x of [136, 226]) { c.beginPath(); c.moveTo(x, 118); c.lineTo(x, 186); c.stroke(); }
+  c.setLineDash([]);
+  almond(c); c.strokeStyle = INK; c.lineWidth = 3; c.stroke();
+  // pupil
+  c.save(); c.beginPath(); c.arc(183, 150, 20, 0, Math.PI * 2);
+  if (on[1]) { c.shadowColor = EYE[1][2]; c.shadowBlur = 14; }
+  c.fillStyle = on[1] ? EYE[1][2] : 'rgba(42,30,20,.88)'; c.fill(); c.restore();
+  c.beginPath(); c.arc(183, 150, 20, 0, Math.PI * 2); c.strokeStyle = INK; c.lineWidth = 2; c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.7)'; c.beginPath(); c.arc(176, 143, 3.5, 0, Math.PI * 2); c.fill();
+  // eyebrow, curl, cheek mark
+  const strokes = [[2, 11, () => { c.beginPath(); c.moveTo(108, 112); c.quadraticCurveTo(182, 62, 260, 108); }],
+    [4, 6, () => { c.beginPath(); c.moveTo(238, 172); c.quadraticCurveTo(264, 178, 264, 200); c.quadraticCurveTo(264, 222, 246, 220); c.quadraticCurveTo(234, 216, 240, 206); }],
+    [5, 6, () => { c.beginPath(); c.moveTo(172, 178); c.lineTo(172, 212); c.quadraticCurveTo(172, 230, 150, 228); }]];
+  for (const [i, lw, path] of strokes) {
+    c.save(); path(); c.lineWidth = lw; c.strokeStyle = on[i] ? EYE[i][2] : 'rgba(42,30,20,.85)';
+    if (on[i]) { c.shadowColor = EYE[i][2]; c.shadowBlur = 12; }
+    c.stroke(); c.restore();
+  }
+  // fraction labels
+  c.font = '900 13px Nunito, sans-serif';
+  const lab_ = [[0, 112, 152, on[0] ? '#fff' : INK], [1, 183, 150, '#fff'], [2, 184, 74, INK], [3, 250, 152, on[3] ? '#fff' : INK], [4, 292, 204, INK], [5, 126, 222, INK]];
+  for (const [i, x, y, col] of lab_) { c.fillStyle = col; c.fillText(EYE[i][0], x, y); }
+  // the bar: one whole, filled from the left by the lit pieces
+  let x = 30, sum = 0;
+  c.fillStyle = 'rgba(255,250,232,.4)'; c.beginPath(); c.roundRect(30, 280, 300, 24, 6); c.fill();
+  EYE.forEach(([, k, col], i) => {
+    if (!on[i]) return;
+    const w = 300 * k / 64; sum += k;
+    c.fillStyle = col; c.fillRect(x, 280, w, 24); c.strokeStyle = 'rgba(255,255,255,.6)'; c.lineWidth = 1; c.strokeRect(x, 280, w, 24); x += w;
+  });
+  c.strokeStyle = INK; c.lineWidth = 1.5; c.setLineDash([4, 3]); c.beginPath(); c.roundRect(30, 280, 300, 24, 6); c.stroke(); c.setLineDash([]);
+  c.fillStyle = INK; fitText(c, sum ? `${eyeSum(sum)}` : '0', 180, 328, 300, 22);
+  EYE.forEach((e, i) => {
+    const cx = [112, 183, 184, 250, 258, 166][i], cy = [152, 150, 92, 152, 200, 205][i];
+    HIT.push({ x: cx - 34, y: cy - 30, w: 68, h: 60, fn: () => { S.eye[i] = !S.eye[i]; sfx.tick(); render(); } });
+  });
+}
+const eyeSum = (k) => { if (k % 64 === 0) return String(k / 64); const g = gcd(k, 64); return `${k / g}/${64 / g}`; };
+
+// --- view 2: nine loaves, ten men ----------------------------------------------------------------------------
+const LOAF = [0, 1, 2, 3, 4].map((i) => [40 + i * 66, 70]).concat([0, 1, 2, 3].map((i) => [73 + i * 66, 118]));
+const evOf = () => (S.ph === 3 ? 30 + S.step : S.ph * 10);
+function loafInfo(i) {
+  const ph = S.ph, st = S.step, th = st >= 7 ? 21 : st >= 3 ? 20 : st >= 2 ? 10 : 0, fi = st >= 5 ? 10 : 0;
+  if (ph === 0) return { k: 1, gone: () => false };
+  if (ph === 1) return { k: 1, gone: () => true };
+  if (ph === 2) return { k: 2, gone: (j) => i * 2 + j < 10 };
+  if (i < 7) return { k: st >= 1 ? 3 : 1, gone: (j) => st >= 1 && i * 3 + j < th };
+  return { k: st >= 4 ? 5 : 1, gone: (j) => st >= 4 && (i - 7) * 5 + j < fi };
+}
+function segsFor(i) {
+  const s = [], st = S.step;
+  if (S.ph === 1) { if (i < 9) s.push({ w: 1, col: '#d9a441', e: 10 }); }
+  else if (S.ph === 2) s.push({ w: .5, col: '#d9a441', e: 20 });
+  else if (S.ph === 3) {
+    if (st >= 2) s.push({ w: 1 / 3, col: '#d9a441', e: 32 });
+    if (st >= 3) s.push({ w: 1 / 3, col: '#e8bb62', e: 33 });
+    if (st >= 5) s.push({ w: 1 / 5, col: '#e08a3c', e: 35 });
+    if (st >= 7) s.push({ w: 1 / 30, col: '#c2452d', e: 37 });
+  }
+  return s;
+}
+function loafShape(c, x, y) {
+  c.beginPath(); c.moveTo(x - 26, y + 10); c.bezierCurveTo(x - 28, y - 6, x - 14, y - 15, x, y - 15);
+  c.bezierCurveTo(x + 14, y - 15, x + 28, y - 6, x + 26, y + 10); c.quadraticCurveTo(x, y + 17, x - 26, y + 10); c.closePath();
+}
+function loafBody(c, x, y) {
+  const g = c.createLinearGradient(0, y - 15, 0, y + 15); g.addColorStop(0, '#f3cb74'); g.addColorStop(.55, '#d9a04a'); g.addColorStop(1, '#b4752f');
+  loafShape(c, x, y); c.fillStyle = g; c.fill(); c.strokeStyle = '#7a4a1a'; c.lineWidth = 1.5; c.stroke();
+  c.strokeStyle = 'rgba(255,240,200,.55)'; c.lineWidth = 1.6; c.lineCap = 'round';
+  for (const dx of [-12, 0, 12]) { c.beginPath(); c.moveTo(x + dx - 4, y - 7); c.quadraticCurveTo(x + dx, y - 11, x + dx + 4, y - 5); c.stroke(); }
+  c.fillStyle = 'rgba(255,255,255,.22)'; c.beginPath(); c.ellipse(x - 8, y - 8, 11, 3.4, -.15, 0, Math.PI * 2); c.fill();
+}
+function drawLoaf(c, x, y, k, gone) {
+  for (let j = 0; j < k; j++) {
+    if (gone(j)) continue;
+    c.save();
+    c.beginPath(); c.rect(x - 26 + j * 52 / k, y - 20, 52 / k, 44); c.clip();
+    c.translate((j - (k - 1) / 2) * (k > 1 ? 3 : 0), 0);
+    loafBody(c, x, y);
+    c.restore();
+  }
+}
+function man(c, cx, y, i) {
+  const skin = ['#c68a5a', '#b87a4c', '#cf9660', '#bb8050', '#c18756'][i % 5];
+  c.save(); c.lineCap = 'round'; c.lineJoin = 'round';
+  c.strokeStyle = '#9a6540'; c.lineWidth = 5; c.beginPath(); c.moveTo(cx - 4, y + 52); c.lineTo(cx - 4, y + 60); c.moveTo(cx + 4, y + 52); c.lineTo(cx + 4, y + 60); c.stroke();
+  c.strokeStyle = skin; c.lineWidth = 5; c.beginPath(); c.moveTo(cx - 10, y + 23); c.lineTo(cx - 14, y + 37); c.moveTo(cx + 10, y + 23); c.lineTo(cx + 14, y + 37); c.stroke();
+  const tg = c.createLinearGradient(cx - 9, 0, cx + 9, 0); tg.addColorStop(0, skin); tg.addColorStop(1, '#a8703f');
+  c.fillStyle = tg; c.beginPath(); c.roundRect(cx - 9, y + 19, 18, 20, 6); c.fill();
+  const kg = c.createLinearGradient(cx - 12, 0, cx + 12, 0); kg.addColorStop(0, '#fffdf4'); kg.addColorStop(1, '#d9d2bd');
+  c.fillStyle = kg; c.strokeStyle = '#b3a98e'; c.lineWidth = 1;
+  c.beginPath(); c.moveTo(cx - 10, y + 36); c.lineTo(cx + 10, y + 36); c.lineTo(cx + 14, y + 54); c.quadraticCurveTo(cx, y + 58, cx - 14, y + 54); c.closePath(); c.fill(); c.stroke();
+  c.strokeStyle = '#c99a2c'; c.lineWidth = 3; c.beginPath(); c.moveTo(cx - 10, y + 36.5); c.lineTo(cx + 10, y + 36.5); c.stroke();
+  const hg = c.createRadialGradient(cx - 3, y + 6, 1, cx, y + 10, 11); hg.addColorStop(0, '#dca272'); hg.addColorStop(1, skin);
+  c.fillStyle = hg; c.beginPath(); c.arc(cx, y + 10, 9, 0, Math.PI * 2); c.fill();
+  c.fillStyle = '#1d1a22'; c.beginPath(); c.moveTo(cx - 10.5, y + 19); c.lineTo(cx - 10.5, y + 9); c.arc(cx, y + 9, 10.5, Math.PI, 0); c.lineTo(cx + 10.5, y + 19);
+  c.lineTo(cx + 7.5, y + 19); c.lineTo(cx + 7.5, y + 9.5); c.quadraticCurveTo(cx, y + 3.5, cx - 7.5, y + 9.5); c.lineTo(cx - 7.5, y + 19); c.closePath(); c.fill();
+  for (const dx of [-3, 3]) { c.fillStyle = '#1d1a22'; c.beginPath(); c.arc(cx + dx, y + 11.5, 1.4, 0, Math.PI * 2); c.fill(); c.fillStyle = '#fff'; c.beginPath(); c.arc(cx + dx + .5, y + 11, .5, 0, Math.PI * 2); c.fill(); }
+  c.strokeStyle = '#7a4a2a'; c.lineWidth = 1.2; c.beginPath(); c.arc(cx, y + 14.5, 2.6, .2, Math.PI - .2); c.stroke();
+  c.restore();
+}
+function drawBread(c, time) {
+  const t = T[lang], ev = evOf(), tp = time - S.evT;
+  paper(c, 12, 22, 336, 340);
+  c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillStyle = INK; c.font = '900 14px Nunito, sans-serif';
+  c.fillText(t.b.loaves, 30, 42); c.fillText(t.b.men, 30, 152);
+  LOAF.forEach(([x, y], i) => { const li = loafInfo(i); drawLoaf(c, x, y, li.k, li.gone); });
+  if (S.ph === 3 && S.step >= 3 && S.step < 7) { // the leftover third glows
+    const [x, y] = LOAF[6], gx = x - 26 + 2 * 52 / 3 + 52 / 6;
+    c.save(); c.strokeStyle = `rgba(179,38,30,${.55 + .35 * Math.sin(time * 5)})`; c.lineWidth = 2.2; c.beginPath(); c.ellipse(gx, y - 1, 11, 17, 0, 0, Math.PI * 2); c.stroke(); c.restore();
+  }
+  if (S.ph === 3 && S.step >= 5 && S.step < 7) { // zoom bubble: the leftover third cut into 10
+    c.save(); c.fillStyle = 'rgba(255,250,232,.7)'; c.strokeStyle = INK; c.lineWidth = 1.5; c.beginPath(); c.arc(322, 108, 28, 0, Math.PI * 2); c.fill(); c.stroke();
+    for (let j = 0; j < 10; j++) { c.fillStyle = j % 2 ? '#d9a441' : '#e8bb62'; c.fillRect(302 + j * 4, 98, 4, 22); }
+    c.strokeStyle = '#7a4a1a'; c.lineWidth = 1; c.strokeRect(302, 98, 40, 22);
+    c.restore();
+  }
+  // the ten men, two rows of five, each with a bar: one loaf long
+  for (let i = 0; i < 10; i++) {
+    const cx = 36 + (i % 5) * 72, y0 = 166 + Math.floor(i / 5) * 104, by = y0 + 68;
+    man(c, cx, y0, i);
+    c.fillStyle = 'rgba(255,250,232,.45)'; c.beginPath(); c.roundRect(cx - 30, by, 60, 10, 5); c.fill();
+    let bx = cx - 30;
+    const p = clamp((tp - i * 0.05) / 0.6, 0, 1), pe = p * p * (3 - 2 * p);
+    for (const sg of segsFor(i)) {
+      const live = sg.e === ev && p < 1, w = Math.max(3, sg.w * 60) * (sg.e === ev ? pe : 1);
+      if (w > .2) { c.fillStyle = sg.col; c.fillRect(bx, by + 1, w, 8); c.fillStyle = 'rgba(42,30,20,.55)'; c.fillRect(bx + w - 1, by + 1, 1, 8); }
+      bx += w;
+      if (live && p > 0) { // a piece flies from the pool to this man
+        const sx = 180, sy = 92, ex = cx, ey = by + 5, fx = sx + (ex - sx) * pe, fy = sy + (ey - sy) * pe - Math.sin(Math.PI * pe) * 34;
+        c.fillStyle = sg.col; c.strokeStyle = '#7a4a1a'; c.lineWidth = 1; c.beginPath(); c.ellipse(fx, fy, 7, 4.5, 0, 0, Math.PI * 2); c.fill(); c.stroke();
+      }
+    }
+    c.strokeStyle = 'rgba(42,30,20,.7)'; c.lineWidth = 1.5; c.beginPath(); c.roundRect(cx - 30, by, 60, 10, 5); c.stroke();
+  }
+}
+
+// --- view 3: the pyramid and its seked -----------------------------------------------------------------------
+function drawSlope(c, w, h, dt, time) {
+  const t = T[lang], gy = h - 44;
+  S.sk += (S.seked - S.sk) * (1 - Math.exp(-dt * 9)); if (Math.abs(S.seked - S.sk) < .002) S.sk = S.seked;
+  const sk = S.sk;
+  const sky = c.createLinearGradient(0, 0, 0, gy); sky.addColorStop(0, '#16254a'); sky.addColorStop(.5, '#4f5686'); sky.addColorStop(.82, '#e3a46b'); sky.addColorStop(1, '#f4cf8f');
+  c.fillStyle = sky; c.fillRect(0, 0, w, h);
+  for (const s of STARS) { c.fillStyle = `rgba(255,255,255,${s.a})`; c.beginPath(); c.arc(s.x * w, s.y * gy, s.r, 0, Math.PI * 2); c.fill(); }
+  const sx = w * .82, sy = gy * .6, sg = c.createRadialGradient(sx, sy, 2, sx, sy, gy * .55);
+  sg.addColorStop(0, 'rgba(255,236,170,.95)'); sg.addColorStop(.12, 'rgba(255,214,130,.55)'); sg.addColorStop(1, 'rgba(255,190,110,0)');
+  c.fillStyle = sg; c.fillRect(0, 0, w, gy);
+  c.fillStyle = '#fff3c4'; c.beginPath(); c.arc(sx, sy, 11, 0, Math.PI * 2); c.fill();
+  // far dunes
+  const dg = c.createLinearGradient(0, gy - 36, 0, gy); dg.addColorStop(0, '#c99560'); dg.addColorStop(1, '#b07a44');
+  c.fillStyle = dg; c.beginPath(); c.moveTo(0, gy); c.lineTo(0, gy - 18);
+  c.bezierCurveTo(w * .2, gy - 36, w * .38, gy - 6, w * .55, gy - 20); c.bezierCurveTo(w * .7, gy - 32, w * .85, gy - 10, w, gy - 24); c.lineTo(w, gy); c.closePath(); c.fill();
+  // ground
+  const gg = c.createLinearGradient(0, gy, 0, h); gg.addColorStop(0, '#dcaa68'); gg.addColorStop(1, '#a8703a'); c.fillStyle = gg; c.fillRect(0, gy, w, h - gy);
+  c.strokeStyle = 'rgba(255,230,170,.35)'; c.lineWidth = 2; c.beginPath(); c.moveTo(0, gy + 24); c.bezierCurveTo(w * .3, gy + 14, w * .6, gy + 32, w, gy + 20); c.stroke();
+  // the pyramid: base half-width is fixed (35 palms), the seked sets the height
+  const hw = Math.min(w * .4, (gy - 34) / 1.75), ppx = hw / 35, cx = w / 2, ph = hw * 7 / sk, ay = gy - ph, lx = cx - hw, rx = cx + hw;
+  c.fillStyle = 'rgba(60,30,10,.35)'; c.beginPath(); c.ellipse(cx + hw * .2, gy + 3, hw * 1.08, 7, 0, 0, Math.PI * 2); c.fill();
+  const gl = c.createLinearGradient(lx, 0, cx, 0); gl.addColorStop(0, '#a47845'); gl.addColorStop(1, '#c79a63');
+  c.fillStyle = gl; c.beginPath(); c.moveTo(cx, ay); c.lineTo(lx, gy); c.lineTo(cx, gy); c.closePath(); c.fill();
+  const gr = c.createLinearGradient(cx, 0, rx, 0); gr.addColorStop(0, '#f6dba0'); gr.addColorStop(1, '#e4b878');
+  c.fillStyle = gr; c.beginPath(); c.moveTo(cx, ay); c.lineTo(rx, gy); c.lineTo(cx, gy); c.closePath(); c.fill();
+  c.save(); c.beginPath(); c.moveTo(cx, ay); c.lineTo(rx, gy); c.lineTo(lx, gy); c.closePath(); c.clip();
+  c.strokeStyle = 'rgba(70,40,10,.22)'; c.lineWidth = 1;
+  for (let k = 1; k * 7 * ppx < ph; k++) { const yy = gy - k * 7 * ppx, hx = hw * (1 - k * 7 * ppx / ph); c.beginPath(); c.moveTo(cx - hx, yy); c.lineTo(cx + hx, yy); c.stroke(); }
+  c.strokeStyle = 'rgba(70,40,10,.18)'; c.beginPath(); c.moveTo(cx, ay); c.lineTo(cx, gy); c.stroke();
+  c.restore();
+  c.strokeStyle = '#6e4a22'; c.lineWidth = 1.6; c.lineJoin = 'round'; c.beginPath(); c.moveTo(lx, gy); c.lineTo(cx, ay); c.lineTo(rx, gy); c.stroke();
+  c.fillStyle = 'rgba(255,245,210,.9)'; c.beginPath(); c.arc(cx, ay + 1.5, 2.2, 0, Math.PI * 2); c.fill();
+  // the dashed pyramid to match
+  if (S.p3 === 'task') {
+    const tg = TARGETS[S.ti3], gh = hw * 7 / tg, solved = Math.abs(S.seked - tg) < .01;
+    c.save(); c.setLineDash([7, 5]); c.lineWidth = 2.4; c.strokeStyle = solved ? '#3ddc97' : '#ffd877';
+    c.fillStyle = solved ? 'rgba(61,220,151,.14)' : 'rgba(255,216,119,.1)';
+    c.beginPath(); c.moveTo(lx, gy); c.lineTo(cx, gy - gh); c.lineTo(rx, gy); c.closePath(); c.fill(); c.stroke(); c.restore();
+  }
+  // the seked triangle: 7 palms up, `seked` palms in, at the left foot
+  const ax = lx, bx = lx + sk * ppx, cy2 = gy - 7 * ppx;
+  c.fillStyle = 'rgba(179,38,30,.3)'; c.strokeStyle = '#ffb4a8'; c.lineWidth = 1.6; c.setLineDash([4, 3]);
+  c.beginPath(); c.moveTo(ax, gy); c.lineTo(bx, gy); c.lineTo(bx, cy2); c.closePath(); c.fill(); c.stroke(); c.setLineDash([]);
+  c.strokeStyle = 'rgba(255,230,220,.85)'; c.lineWidth = 1;
+  for (let k = 1; k < 7; k++) { c.beginPath(); c.moveTo(bx, gy - k * ppx); c.lineTo(bx - 3, gy - k * ppx); c.stroke(); }
+  for (let k = 1; k < sk; k++) { c.beginPath(); c.moveTo(ax + k * ppx, gy); c.lineTo(ax + k * ppx, gy - 3); c.stroke(); }
+  pill(c, '7', bx + 14, gy - 3.5 * ppx, w); pill(c, fmtS(S.seked), (ax + bx) / 2, gy + 15, w);
+  pill(c, t.s.unit, 10 + 60, 18, w, '#ffd877');
+  if (S.p3 === 'free' && S.seked === 5.5) pill(c, t.s.gp, cx, Math.max(40, ay - 20), w, '#3ddc97');
+}
+
+// --- the canvas loop and the taps on it ------------------------------------------------------------------------
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  HIT.length = 0;
+  const v = lab.view;
+  if (v === 'slope') { LAY = { s: 1, ox: 0, oy: 0 }; drawSlope(c, w, h, dt, time); return; }
+  const W = 360, H = v === 'rows' ? 400 : 380, s = Math.min(w / W, h / H), ox = (w - W * s) / 2, oy = (h - H * s) / 2;
+  LAY = { s, ox, oy };
+  const bg = c.createRadialGradient(w / 2, h / 2, 10, w / 2, h / 2, Math.max(w, h) * .6); bg.addColorStop(0, 'rgba(200,150,70,.16)'); bg.addColorStop(1, 'rgba(200,150,70,0)');
+  c.fillStyle = bg; c.fillRect(0, 0, w, h);
+  c.save(); c.translate(ox, oy); c.scale(s, s);
+  if (v === 'rows') { if (S.mode === 'eye') drawEye(c); else drawRows(c, time); } else drawBread(c, time);
+  c.restore();
+});
+$('cv').addEventListener('pointerdown', (ev) => {
+  const r = $('cv').getBoundingClientRect(), x = (ev.clientX - r.left - LAY.ox) / LAY.s, y = (ev.clientY - r.top - LAY.oy) / LAY.s;
+  for (let i = HIT.length - 1; i >= 0; i--) { const h = HIT[i]; if (x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) { h.fn(); return; } }
+});
+
+// --- controls ------------------------------------------------------------------------------------------------
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+function setMode(m) {
+  if (m === S.mode) return;
+  if ((m === 'any' || m === 'div') && !S.exDone) { S.mode = 'mul'; S.note = 'gate'; sfx.bad(); return; }
+  S.mode = m; S.note = ''; S.rowT0 = now(); sfx.click();
+}
+function doCheck() {
+  const k = kOf();
+  if (k.checked || !k.ticks.some(Boolean)) return;
+  k.checked = true; k.ok = sumVal(k) === targetOf(k);
+  if (S.mode === 'mul' && k.first) S.exDone = true;
+  (k.ok ? sfx.good : sfx.bad)(); showStage();
+}
+function bump() { S.evT = now(); }
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const a = b.dataset.act, d = b.dataset;
+  if (a !== 'mode') S.note = '';
+  if (a === 'mode') {
+    if ((d.m === 'div' || d.m === 'eye') && !secret.unlocked()) { secret.open(); return; }
+    setMode(d.m);
+  } else if (a === 'check') doCheck();
+  else if (a === 'another') { S[S.mode] = freshTask(); S.rowT0 = now(); sfx.click(); }
+  else if (a === 'clear') { kOf().ticks = []; sfx.tick(); }
+  else if (a === 'any') { S.anyGuess = d.a === '1'; S.anyMoved = false; S.rowT0 = now(); sfx.click(); showStage(); }
+  else if (a === 'yn') { S[d.q === 'a' ? 'qa' : 'qb'] = d.a === '1'; sfx.tick(); }
+  else if (a === 'show') { S.ph = 1; bump(); sfx.click(); showStage(); }
+  else if (a === 'nph') { S.ph = 2; bump(); sfx.click(); }
+  else if (a === 'scribe') { S.ph = 3; S.step = 0; bump(); sfx.click(); }
+  else if (a === 'step') { S.step = S.step >= 7 ? 0 : S.step + 1; bump(); if (S.step === 7) sfx.good(); else (S.step % 3 === 0 || S.step === 1 || S.step === 5) ? sfx.snap() : sfx.click(); }
+  else if (a === 'g3') { S.g3 = d.a; S.p3 = 'reveal'; S.seked = 7.5; sfx.click(); showStage(); }
+  else if (a === 'next3') { S.p3 = 'task'; S.ti3 = 0; S.wasSolved = false; sfx.click(); }
+  else if (a === 'nextT') { if (S.ti3 >= 2) S.p3 = 'free'; else S.ti3++; S.wasSolved = false; sfx.click(); }
+  render();
+});
+$('anyR').addEventListener('input', (ev) => { S.anyN = +ev.target.value; S.anyMoved = true; sfx.tick(); render(); });
+$('sk').addEventListener('input', (ev) => { S.seked = +ev.target.value; sfx.tick(); render(); });
+
+// --- one render per change ---------------------------------------------------------------------------------
+function render() {
+  const t = T[lang], v = lab.view;
+  document.body.dataset.v = v;
+  $('v1').hidden = v !== 'rows'; $('v2').hidden = v !== 'bread'; $('v3').hidden = v !== 'slope';
+  if (v === 'rows') renderRows(t); else if (v === 'bread') renderBread(t); else renderSlope(t);
+  lab.setFacts(t.facts[v]);
+}
+const btn = (act, label, extra = '', cls = 'eg-btn') => `<button class="${cls}" data-act="${act}" ${extra}>${esc(label)}</button>`;
+
+function renderRows(t) {
+  const r = t.r, m = S.mode, k = kOf(), open = secret.unlocked(), mulLike = m === 'mul' || m === 'div';
+  lab.setGlow('rgba(214, 170, 90, .26)');
+  const sc = (key, emo) => `<button class="eg-chip secret ${open ? 'open' : ''} ${m === key ? 'on' : ''}" data-act="mode" data-m="${key}">${open ? `${emo} ${esc(t.secrets[key][0])}` : '🔒 ???'}</button>`;
+  $('modes').innerHTML = `<button class="eg-chip ${m === 'mul' ? 'on' : ''}" data-act="mode" data-m="mul">${esc(t.modes.mul)}</button>`
+    + `<button class="eg-chip ${m === 'any' ? 'on' : ''}" data-act="mode" data-m="any">${esc(t.modes.any)}</button>` + sc('div', '➗') + sc('eye', '👁️');
+  $('v1ask').hidden = !(m === 'any' && S.anyGuess === null);
+  $('v1any').hidden = !(m === 'any' && S.anyGuess !== null);
+  $('v1act').hidden = !mulLike;
+  if (m === 'any') {
+    if (S.anyGuess === null) {
+      $('v1ask').innerHTML = `<div class="eg-q">${esc(r.anyAsk)}</div><div class="eg-yn">${btn('any', t.yes, 'data-a="1"', 'eg-chip')}${btn('any', t.no, 'data-a="0"', 'eg-chip')}</div>`;
+      lab.setReadout('?', r.anySub, '', '#d6aa5a');
+      lab.setState({ emo: '🔢', title: r.anyQ, lead: r.anyLead, body: '', extra: '' });
+    } else {
+      const parts = bitsOf(S.anyN);
+      $('anyR').value = S.anyN; $('anyLbl').textContent = S.anyN;
+      lab.setReadout(String(S.anyN), r.anySub, '', '#d6aa5a');
+      lab.setState(S.anyMoved ? { emo: '🔢', title: r.anyT(S.anyN, parts), lead: r.num(S.anyN), body: r.anyLead2, extra: '' }
+        : { emo: S.anyGuess ? '✅' : '🤔', title: S.anyGuess ? t.rightW : t.notQ, lead: r.anyYes, body: r.anyLead2, extra: '' });
+    }
+    return;
+  }
+  if (m === 'eye') {
+    const sum = EYE.reduce((a, e, i) => a + (S.eye[i] ? e[1] : 0), 0), all = S.eye.every(Boolean);
+    lab.setReadout(sum ? eyeSum(sum) : '0', r.whole, '', '#d9822b');
+    lab.setState({ emo: '👁️', title: r.eyeT, lead: all ? r.all : sum ? r.lit(eyeSum(sum)) : r.tap, body: r.note, extra: '' });
+    return;
+  }
+  const tp = tickedP(k), n = k.n, mm = k.m, D = n * mm, bits = bitsOf(n), L = bits.join(' + '), R = bits.map((p) => p * mm).join(' + ');
+  $('v1act').innerHTML = k.checked ? btn('another', t.another) : btn('check', t.check, tp.length ? '' : 'disabled') + (tp.length ? btn('clear', t.clear, '', 'eg-btn ghost') : '');
+  if (S.note === 'gate' && m === 'mul') lab.setState({ emo: '🔒', title: t.gate.t, lead: t.gate.l, body: '', extra: '' });
+  else if (!k.checked) lab.setState({ emo: '📜', title: r.q(m === 'mul' ? n : D), lead: m === 'mul' ? (k.first ? r.leadFirst(n) : r.lead(n)) : r.leadDiv(D), body: '', extra: '' });
+  else lab.setState({ emo: k.ok ? '✅' : '🤔', title: k.ok ? t.rightW : r.wrong(sumVal(k), targetOf(k)), lead: m === 'mul' ? r.doneMul(L, R, n, mm) : r.doneDiv(L, R, n, mm), body: m === 'mul' ? r.body : r.bodyDiv, extra: '' });
+  lab.setReadout(k.checked ? (m === 'mul' ? `${n} × ${mm} = ${D}` : `${D} ÷ ${mm} = ${n}`) : (m === 'mul' ? `${n} × ${mm}` : `${D} ÷ ${mm}`),
+    r.ticked(m === 'div' ? tp.map((p) => p * mm) : tp, sumVal(k)), '', '#d6aa5a');
+}
+
+function renderBread(t) {
+  const b = t.b, ph = S.ph, st = S.step;
+  lab.setGlow('rgba(224, 140, 70, .24)');
+  $('v2ask').hidden = ph !== 0;
+  if (ph === 0) {
+    const row = (q, key, label) => `<div class="eg-yn"><span class="t">${esc(label)}</span>${btn('yn', t.yes, `data-q="${q}" data-a="1"`, `eg-chip ${S[key] === true ? 'on' : ''}`)}${btn('yn', t.no, `data-q="${q}" data-a="0"`, `eg-chip ${S[key] === false ? 'on' : ''}`)}</div>`;
+    $('v2ask').innerHTML = `<div class="eg-q">${esc(b.q)}</div>${row('a', 'qa', b.qa)}${row('b', 'qb', b.qb)}`;
+  }
+  const act = ph === 0 ? btn('show', t.show, S.qa === null || S.qb === null ? 'disabled' : '')
+    : ph === 1 ? btn('nph', t.next) : ph === 2 ? btn('scribe', `${b.steps[0][0]} →`) : btn('step', b.steps[st][2]);
+  $('v2act').innerHTML = act;
+  let state, val = '?', pill_ = '';
+  if (ph === 0) state = { emo: '🍞', title: b.q, lead: b.lead };
+  else if (ph === 1) { val = b.valW; state = { emo: S.qa === false ? '✅' : '🤔', title: S.qa === false ? t.rightW : t.notQ, lead: b.r1 }; }
+  else if (ph === 2) { val = '1/2'; state = { emo: S.qb === false ? '✅' : '🤔', title: S.qb === false ? t.rightW : t.notQ, lead: b.r2 }; }
+  else {
+    val = st < 2 ? '0' : st < 3 ? '1/3' : st < 5 ? '2/3' : st < 7 ? '2/3 + 1/5' : '2/3 + 1/5 + 1/30';
+    if (st === 7) pill_ = b.done;
+    state = { emo: st === 7 ? '🏆' : st % 3 === 0 || st === 1 || st === 5 ? '🍞' : '🤲', title: b.steps[st][0], lead: b.steps[st][1], body: st === 7 ? b.fin : '' };
+  }
+  lab.setState({ body: '', extra: '', ...state });
+  lab.setReadout(val, b.sub, pill_, '#e08c46');
+}
+
+function renderSlope(t) {
+  const s = t.s, ph = S.p3, tg = TARGETS[S.ti3], solved = ph === 'task' && Math.abs(S.seked - tg) < .01;
+  lab.setGlow('rgba(233, 169, 107, .26)');
+  if (solved && !S.wasSolved) sfx.good();
+  S.wasSolved = solved;
+  $('v3ask').hidden = ph !== 'predict';
+  $('v3sl').hidden = ph === 'predict';
+  if (ph === 'predict') $('v3ask').innerHTML = `<div class="eg-q">${esc(s.q)}</div><div class="eg-sub">${esc(s.setup)}</div><div class="eg-row">${btn('g3', s.opt[0], 'data-a="s"')}${btn('g3', s.opt[1], 'data-a="f"')}</div>`;
+  $('sk').value = S.seked; $('skLbl').textContent = fmtS(S.seked);
+  $('v3act').innerHTML = ph === 'reveal' ? btn('next3', s.revealBtn) : solved ? btn('nextT', S.ti3 >= 2 ? s.free : t.next) : '';
+  let st;
+  if (ph === 'predict') st = { emo: '🔺', title: s.q, lead: s.lead, body: s.body };
+  else if (ph === 'reveal') st = { emo: S.g3 === 'f' ? '✅' : '🤔', title: S.g3 === 'f' ? t.rightW : t.notQ, lead: s.verdict(Math.round(deg(5)), Math.round(deg(7.5))) };
+  else if (ph === 'task') st = solved ? { emo: '✅', title: t.rightW, lead: s.solvedL(S.seked) } : { emo: '🎯', title: s.task, lead: s.taskL(S.ti3 + 1) };
+  else st = { emo: '🔺', title: s.free, lead: s.freeL };
+  lab.setState({ body: '', extra: '', ...st });
+  lab.setReadout(fmtS(S.seked), s.sub, ph === 'predict' ? '' : `${dec(deg(S.seked))}°`, '#e0a458');
+}
+render();
+</script>
+</body>
+</html>
