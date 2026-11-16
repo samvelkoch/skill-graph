@@ -12,6 +12,11 @@ Hungarian is on the site: [What's new](https://samvelkoch.github.io/skill-graph/
 
 Counts in brackets are totals after that day.
 
+## 2026-11-16
+
+### Labs
+- Robot Lab (`robot-lab`) reworked for a class on a projector: on a big screen the whole lab fits one screen without scrolling (and scales up on Full HD and larger); the task is shown above the board and as a live mission checklist; the robot has a beam that shows which way it faces; the block the robot stopped at is framed in red; loops show their round; blocks can be inserted after any block; speed ×1/×2/×4, a "Next" button after a win and keyboard keys (arrows, Enter, Backspace). Two new "find the bug" levels start with a broken program (12 levels). A new "Quiz" tab has 10 questions for the whole class, two of them with a robot that runs the program after the answer. Unlocking the secret levels now marks the lab's topics as "learning" on the map. (#579)
+
 ## 2026-11-15
 
 ### Labs

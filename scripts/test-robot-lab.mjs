@@ -12,6 +12,7 @@ for (const lv of E.LEVELS) {
   const L = E.parseMap(lv.map), body = E.prog(lv.solution), n = E.countBlocks(body), S = E.runAll(L, body);
   const errs = [];
   if (new Set(lv.map.map((r) => r.length)).size !== 1) errs.push('ragged map');
+  if (lv.preset && E.runAll(L, E.prog(lv.preset)).win) errs.push("the preset program must be broken, but it wins");
   if (!L.start || !L.goal) errs.push('map needs a robot and a goal');
   if (!S.win) errs.push(`solution fails (${S.fail ?? 'did not reach the goal'} at ${S.x},${S.y})`);
   if (n !== lv.par) errs.push(`solution has ${n} blocks, par is ${lv.par}`);
