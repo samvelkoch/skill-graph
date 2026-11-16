@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-16
 
 ### Labs
+- New lab `south-america` “South America, 1810–1830”: the independence of Spanish and Portuguese America, 1810–1830 (717). (#610)
 - New lab `two-skaters` “Two Skaters”: Newton's third law: force pairs on different bodies (716). (#609)
 - New lab `motor-effect` “Why the Motor Turns”: the force on a current in a magnetic field, the DC motor and the loudspeaker (715). (#608)
 - New lab `star-elements` “Where Did Your Atoms Come From?”: where the elements come from: the Big Bang, stars, supernovae and neutron-star mergers (714). (#607)
