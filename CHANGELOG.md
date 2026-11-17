@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-17
 
 ### Labs
+- New lab `rivers-map` “Source to Mouth”: continents, oceans and rivers on maps (746). (#639)
 - New lab `africa-belts` “Africa, North to South”: Africa's natural zones mirrored around the equator (745). (#638)
 - New lab `jelly-worm` “Hydra and Earthworm”: cnidarians and worms: body layers, segments, soil (744). (#637)
 - New lab `fruit-smells` “Molecules That Smell”: alcohols, carboxylic acids and esters (743). (#636)
