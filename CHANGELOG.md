@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-17
 
 ### Labs
+- New lab `heat-flow` “Where Does the Warmth Go?”: heat sources and heat moving from hotter to colder (738). (#631)
 - New lab `born-or-learned` “Born Knowing or Learned?”: innate and learned behaviour: triggers, imprinting, conditioning (737). (#630)
 - New lab `sharp-sight` “Why Is It Blurry?”: short and long sight and how glasses correct them (736). (#629)
 - New lab `shade-builder` “A Cool Spot in the Sun”: how shade blocks sunlight, and why it must follow the moving Sun (735). (#628)
