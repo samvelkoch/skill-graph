@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-17
 
 ### Labs
+- New lab `shade-builder` “A Cool Spot in the Sun”: how shade blocks sunlight, and why it must follow the moving Sun (735). (#628)
 - New lab `gut-bugs` “Who Lives in Your Gut?”: gut bacteria, fibre and antibiotics (734). (#627)
 - New lab `yeast-balloon` “Breathing Without Air”: anaerobic respiration in yeast and muscles (733). (#626)
 - New lab `same-bones` “Arm, Wing, Flipper”: evidence for evolution: homologous limbs, fossil order, island species (732). (#625)
