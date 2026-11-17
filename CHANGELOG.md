@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-17
 
 ### Labs
+- New lab `africa-belts` “Africa, North to South”: Africa's natural zones mirrored around the equator (745). (#638)
 - New lab `jelly-worm` “Hydra and Earthworm”: cnidarians and worms: body layers, segments, soil (744). (#637)
 - New lab `fruit-smells` “Molecules That Smell”: alcohols, carboxylic acids and esters (743). (#636)
 - New lab `molluscs` “Soft Body, Hard Shell”: molluscs: one body plan, three ways of life (742). (#635)
