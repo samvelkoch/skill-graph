@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-17
 
 ### Labs
+- New lab `born-or-learned` “Born Knowing or Learned?”: innate and learned behaviour: triggers, imprinting, conditioning (737). (#630)
 - New lab `sharp-sight` “Why Is It Blurry?”: short and long sight and how glasses correct them (736). (#629)
 - New lab `shade-builder` “A Cool Spot in the Sun”: how shade blocks sunlight, and why it must follow the moving Sun (735). (#628)
 - New lab `gut-bugs` “Who Lives in Your Gut?”: gut bacteria, fibre and antibiotics (734). (#627)
