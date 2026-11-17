@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-17
 
 ### Labs
+- New lab `sort-list` “A Row of Boxes”: arrays: loops over a list, linear search, bubble sort (729). (#622)
 - New lab `safe-at-home` “Read the Label”: hazard pictograms, chemicals that must not be mixed, first aid (728). (#621)
 
 ## 2026-11-16
