@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-17
 
 ### Labs
+- New lab `meadow-garden` “Meadow or Garden Bed?”: natural and artificial communities, succession and pests (747). (#640)
 - New lab `rivers-map` “Source to Mouth”: continents, oceans and rivers on maps (746). (#639)
 - New lab `africa-belts` “Africa, North to South”: Africa's natural zones mirrored around the equator (745). (#638)
 - New lab `jelly-worm` “Hydra and Earthworm”: cnidarians and worms: body layers, segments, soil (744). (#637)
