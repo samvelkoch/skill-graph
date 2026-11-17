@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-17
 
 ### Labs
+- New lab `same-bones` “Arm, Wing, Flipper”: evidence for evolution: homologous limbs, fossil order, island species (732). (#625)
 - New lab `museum` “Curate a Museum Room”: what museums do: choosing, protecting and showing objects (731). (#624)
 - New lab `beat-maker` “Make a Beat”: loops, layers and tempo in digital music (730). (#623)
 - New lab `sort-list` “A Row of Boxes”: arrays: loops over a list, linear search, bubble sort (729). (#622)
