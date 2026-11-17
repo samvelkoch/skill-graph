@@ -12,6 +12,11 @@ Hungarian is on the site: [What's new](https://samvelkoch.github.io/skill-graph/
 
 Counts in brackets are totals after that day.
 
+## 2026-11-17
+
+### Labs
+- New lab `safe-at-home` “Read the Label”: hazard pictograms, chemicals that must not be mixed, first aid (728). (#621)
+
 ## 2026-11-16
 
 ### Labs
