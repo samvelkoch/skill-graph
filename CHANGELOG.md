@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-17
 
 ### Labs
+- New lab `hungarian-minds` “Who Invented It?”: Hungarian inventors, scientists and athletes around the world (757). (#650)
 - New lab `americas-cross` “Across the Americas”: mountains, lowlands, rain shadows and rivers of the Americas (756). (#649)
 - New lab `us-1800s` “Across a Growing Country”: the United States in the 19th century: expansion, railways, the Civil War and abolition (755). (#648)
 - New lab `container-ship` “The Steel Box”: the shipping container, globalisation and the digital age (754). (#647)
