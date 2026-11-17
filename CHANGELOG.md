@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-17
 
 ### Labs
+- New lab `fruit-smells` “Molecules That Smell”: alcohols, carboxylic acids and esters (743). (#636)
 - New lab `molluscs` “Soft Body, Hard Shell”: molluscs: one body plan, three ways of life (742). (#635)
 - New lab `blood-drop` “One Drop of Blood”: blood cells and tissues under the microscope (741). (#634)
 - New lab `polymers` “Chains, Crystals and Mixes”: ceramics, polymers and composites and why they behave as they do (740). (#633)
