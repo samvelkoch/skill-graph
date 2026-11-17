@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-17
 
 ### Labs
+- New lab `container-ship` “The Steel Box”: the shipping container, globalisation and the digital age (754). (#647)
 - New lab `ancient-china` “Rivers, Walls and Paper”: ancient China: the river valleys, unification under Qin, inventions (753). (#646)
 - New lab `decolonisation` “Maps of a Changing World, 1945–1975”: decolonisation and social movements after 1945 (752). (#645)
 - New lab `scaling-up` “From One Stall to Ten”: growing a small business: batches, demand and quality (751). (#644)
