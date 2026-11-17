@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-17
 
 ### Labs
+- New lab `blood-drop` “One Drop of Blood”: blood cells and tissues under the microscope (741). (#634)
 - New lab `polymers` “Chains, Crystals and Mixes”: ceramics, polymers and composites and why they behave as they do (740). (#633)
 - New lab `ant-trail` “Ants and the Sugar Cube”: how ants find food together with scent trails (739). (#632)
 - New lab `heat-flow` “Where Does the Warmth Go?”: heat sources and heat moving from hotter to colder (738). (#631)
