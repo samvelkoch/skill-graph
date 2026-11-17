@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-17
 
 ### Labs
+- New lab `australia-dry` “The Island Continent”: Australia and Oceania: a dry continent, unique animals, coral atolls (750). (#643)
 - New lab `seas-europe` “Europe's Seas Compared”: the seas around Europe: salinity, tides, fishing (749). (#642)
 - New lab `medieval-court` “Guilty or Not?”: medieval justice: ordeals, evidence and juries (748). (#641)
 - New lab `meadow-garden` “Meadow or Garden Bed?”: natural and artificial communities, succession and pests (747). (#640)
