@@ -12,6 +12,11 @@ Hungarian is on the site: [What's new](https://samvelkoch.github.io/skill-graph/
 
 Counts in brackets are totals after that day.
 
+## 2026-11-19
+
+### Labs
+- New lab `balaton-park` “Balaton-felvidéki Nemzeti Park”: a class lab for the projector with a map of the park's places (1997 vs 2026), a find-it game, how a volcano became a witness hill, animal riddles and a 20-question class quiz; HU first, also EN and RU (758). (#651)
+
 ## 2026-11-17
 
 ### Labs
