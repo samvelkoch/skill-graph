@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-21
 
 ### Labs
+- New lab `dress-weather` “What Shall I Wear?”: choosing clothes for rain, sun and cold, and why layers keep you warm (771). (#664)
 - New lab `bump` “Bump!”: what happens to motion and energy when objects collide (770). (#663)
 - New lab `farm-glass` “A Farm Under Glass”: greenhouses, irrigation and terraces: managed environments for food (769). (#662)
 - New lab `place-names` “Names on the Map”: Viking and Anglo-Saxon place names in England and the Danelaw (768). (#661)
