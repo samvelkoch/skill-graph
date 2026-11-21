@@ -12,6 +12,11 @@ Hungarian is on the site: [What's new](https://samvelkoch.github.io/skill-graph/
 
 Counts in brackets are totals after that day.
 
+## 2026-11-21
+
+### Labs
+- New lab `stem-leaf` “Stems and Leaves”: stem-and-leaf plots: building, reading and comparing (759). (#652)
+
 ## 2026-11-19
 
 ### Labs
