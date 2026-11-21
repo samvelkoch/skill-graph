@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-21
 
 ### Labs
+- New lab `euclid` “Cut the Biggest Square”: Euclid's algorithm as cutting squares, and the greatest common divisor (763). (#656)
 - New lab `plant-families` “Plant Families”: plant families by flower and fruit: crucifers, legumes, the rose family and conifers (762). (#655)
 - New lab `divisibility` “Does It Divide?”: divisibility rules for 2, 3, 4, 5, 6, 9 and 10, and why they work (761). (#654)
 - New lab `one-key` “One Key for Every Door?”: why every account needs its own password, and two-step login (760). (#653)
