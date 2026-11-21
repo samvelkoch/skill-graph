@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-21
 
 ### Labs
+- New lab `dot-shapes` “Shapes on Dots”: areas of polygons on dot paper and Pick's rule (780). (#673)
 - New lab `mirror-halves` “Mirror Halves”: planes of symmetry of solids (779). (#672)
 - New lab `forest-fire` “A Model of a Forest Fire”: computer modelling and simulation with a forest-fire model (778). (#671)
 - New lab `which-way-down` “Which Way Is Down?”: gravity pulls towards the Earth's centre, so down is different everywhere (777). (#670)
