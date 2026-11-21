@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-21
 
 ### Labs
+- New lab `sound-fade` “Can You Still Hear It?”: how sound fades as it spreads out from its source (772). (#665)
 - New lab `dress-weather` “What Shall I Wear?”: choosing clothes for rain, sun and cold, and why layers keep you warm (771). (#664)
 - New lab `bump` “Bump!”: what happens to motion and energy when objects collide (770). (#663)
 - New lab `farm-glass` “A Farm Under Glass”: greenhouses, irrigation and terraces: managed environments for food (769). (#662)
