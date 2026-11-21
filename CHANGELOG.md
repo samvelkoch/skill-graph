@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-21
 
 ### Labs
+- `balaton-park` reworked for a classroom projector: a real Natural Earth map of Lake Balaton with large on-map names and the witness hills, a fitted map view, no scrolling on big screens, and a crafted volcano-to-witness-hill cross-section with the old ground level marked. (#680)
 - New lab `spring-bounce` “Bounce on a Spring”: the period of a spring pendulum and what it depends on (787). (#681)
 - New lab `lomonosov` “Lomonosov and Venus”: Russian science in the 18th century: Lomonosov, the Academy and Moscow University (786). (#679)
 - New lab `power-curves` “x to the Power n”: power functions, roots and Kepler's third law (785). (#678)
