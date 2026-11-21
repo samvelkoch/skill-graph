@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-21
 
 ### Labs
+- New lab `lomonosov` “Lomonosov and Venus”: Russian science in the 18th century: Lomonosov, the Academy and Moscow University (786). (#679)
 - New lab `power-curves` “x to the Power n”: power functions, roots and Kepler's third law (785). (#678)
 - New lab `crossing-chords` “Crossing Chords”: the intersecting chords and tangent–secant theorems (784). (#677)
 - New lab `read-building` “What Does a Building Say?”: reading buildings as messages about power (783). (#676)
