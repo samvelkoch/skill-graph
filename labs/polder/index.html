@@ -1,0 +1,751 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Land from the Sea · Skill Graph</title>
+<meta name="description" content="Land below the sea: guess where the rain goes, build a chain of windmills to lift the water, and keep a storm out with your own dike. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  .pd-q { margin: 0 0 10px; font-weight: 800; font-size: 14px; line-height: 1.45; color: var(--ink); }
+  .pd-opts { display: flex; flex-direction: column; gap: 8px; }
+  .pd-nums { display: flex; gap: 8px; flex-wrap: wrap; }
+  .pd-opt { min-height: 42px; padding: 9px 16px; border-radius: 14px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    color: var(--ink); font: 800 14px/1.3 var(--sans); text-align: left; cursor: pointer; }
+  .pd-nums .pd-opt { min-width: 52px; text-align: center; }
+  .pd-opt:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .pd-opt:disabled { cursor: default; }
+  .pd-opt.good { border-color: var(--ok); background: rgba(61, 220, 151, .16); }
+  .pd-opt.bad { border-color: var(--wip); background: rgba(245, 200, 76, .12); }
+  .pd-chip { min-height: 38px; }
+  .pd-chip:disabled { opacity: .35; cursor: default; }
+  .pd-sl { display: flex; justify-content: space-between; align-items: baseline; margin: 10px 0 0; font-size: 12.5px; font-weight: 800; color: var(--soft); }
+  .pd-sl b { font-size: 15px; color: #fff; }
+  .pd-sl + input[type=range].big { margin-bottom: 2px; }
+  .pd-go { margin-left: auto; }
+  .pd-fine { font-size: 11.5px; color: var(--faint); margin-top: 8px; line-height: 1.4; }
+  @media (max-width: 760px) { #stage { height: min(88vw, 470px); } }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, store, $, esc, clamp, lerp, ruPlural, lang } from '../lab.js';
+
+// --- numbers: shown with the language's decimal mark and a real minus sign -------------------------------------
+const fm = (x) => { const s = String(+(+x).toFixed(2)).replace('-', '−'); return lang === 'en' ? s : s.replace('.', ','); };
+const LIFT = 1.5; // m one mill lifts the water: a rough figure from mill guides, labelled "rough" in the text
+const needOf = (D) => Math.ceil(Math.round(D * 10) / (LIFT * 10) - 1e-9);
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Land from the Sea', title: 'Land from the Sea',
+    lines: [['A field lower than the sea.', 'And yet it is dry.'], ['Make a prediction,', 'then switch the mill on and off.'], ['Build a chain of mills', 'and hold back a storm.']],
+    views: { pump: '💧 Pump', mills: '🌬️ Mills', storm: '🌊 Storm' },
+    lbl: { sea: 'Sea', canal: 'Canal', polder: 'Polder', seaLvl: 'Sea level 0 m', canalLvl: 'Canal level', lake: 'IJsselmeer', northSea: 'North Sea' },
+    on: 'on', off: 'off', rainL: 'Rain', millL: 'Mill',
+    p: {
+      t0: 'Where does the rain go?', q: (d) => `This field is ${fm(d)} m below sea level. Rain falls on it. Where does the water go?`,
+      opts: ['It runs away to the sea by itself', 'It soaks into the ground for good', 'It stays, and the field floods'],
+      lead: 'Make a guess, then watch what happens.',
+      right: ['Right!', 'The sea is higher than the field, so water cannot run downhill into it. It stays.'],
+      w0: ['Not quite.', 'Water only runs downhill. The sea is higher than this field, so nothing runs that way. It stays.'],
+      w1: ['Not quite.', 'The ground here is already full of water. It does not go away: it stays.'],
+      next: 'Now switch the mill on and watch the water.',
+      reset: '↺ Again', readSub: 'water level in the ditch', askSub: (d) => `Field: ${fm(d)} m below sea level`, flooded: '🌊 flooded', dry: '✅ dry',
+      fill: ['The ditch fills up.', 'The water has nowhere to go.'], fillDry: ['Still filling.', 'No rain now, and the level still creeps up.'],
+      flood: ['The field is under water.', 'Switch the mill on.'], pump: ['The mill is at work.', 'It lifts the water up into the canal, step by step.'],
+      ok: ['The field is dry again.', 'The mill lifts the water up into the canal. From there it runs out to the sea at low tide.'],
+      body: 'One mill is drawn here to keep the picture simple.',
+    },
+    m: {
+      t0: 'How many mills in a row?', q: (d) => `The polder is ${fm(d)} m below the canal. You can see what one mill lifts. How many mills in a row does it take to reach the canal?`,
+      lead: 'Look at the step, then guess.',
+      mills: (n) => (n === 1 ? 'mill' : 'mills'),
+      right: (n) => ['Right!', `${n} mills: ${n} × ${fm(LIFT)} m = ${fm(n * LIFT)} m. Each mill lifts the water one step up.`],
+      wrong: (n) => ['Not quite.', `Count the steps from the polder up to the canal: it takes ${n} mills.`],
+      lift: `≈${fm(LIFT)} m`, depthL: 'Depth below the canal', add: '➕ Mill', rem: '➖ Mill', clear: '↺ Clear',
+      zero: ['No mills yet.', 'The water stays down in the polder.'],
+      part: (n, sh) => [`${n} ${n === 1 ? 'mill' : 'mills'}: ${fm(sh)} m short.`, 'Add one more mill to lift the water higher.'],
+      done: (n, d) => ['The chain reaches the canal!', `${n} × ${fm(LIFT)} m = ${fm(n * LIFT)} m, enough for ${fm(d)} m.`],
+      over: (x) => `The last mill only needs to lift the water ${fm(x)} m.`,
+      body: `About ${fm(LIFT)} m per mill is a rough figure: real mills differed.`,
+      sub: (n) => `${n === 1 ? 'mill' : 'mills'} in a row`, okP: '✅ reaches the canal', shortP: (sh) => `⬇️ ${fm(sh)} m short`,
+    },
+    s: {
+      surge: 'Storm surge', dike: 'Dike height', go: '🌊 Storm!', again: '↺ Again',
+      set: ['Build the dike.', 'Set the storm and the dike, then let the storm come. Find the lowest dike that keeps the polder dry.'],
+      setBody: 'Waves ride on top of the surge. They are drawn as an illustrative allowance.',
+      run: ['The storm is rising…', 'Watch the tops of the waves.'],
+      flood: ['Over the top!', 'The surge and the waves came higher than the dike. The mill starts to pump the polder dry again.'],
+      lowest: (s, h) => ['Dry, and the dike is as low as it can be!', `The top of the dike must be higher than the surge plus the waves: ${fm(s)} m + ${fm(h)} m.`],
+      dryHigh: ['Dry!', 'But a lower dike would also hold. Try again with a lower one.'],
+      afs: ['Afsluitdijk', 'A dam 32 km long that closed off a bay of the North Sea. Behind it lies a calm lake.', 'Its top is about 7.25 m above sea level. Raise the storm and see.'],
+      afsDry: ['Dry. The dam holds.', 'Behind it the water stays calm.'],
+      readSub: 'dike top above sea level', pillSet: (s) => `Surge +${fm(s)} m`, pillRun: '🌊 storm', pillDry: '✅ dry', pillWet: '🌊 flooded',
+    },
+    facts: {
+      p: [
+        { emo: '🌷', text: 'About a quarter of the Netherlands (26%) lies below sea level, and about 21% of its people live there.', src: 'en.wikipedia.org/wiki/Netherlands' },
+        { emo: '🏞️', text: 'A polder is low land enclosed by dikes. The Netherlands has about 3,000 of them.', src: 'en.wikipedia.org/wiki/Polder' },
+      ],
+      low: [
+        { emo: '🕳️', text: 'In the Zuidplaspolder the land lies 6.76 m below sea level. It is the lowest point of the European Union (together with Lammefjord in Denmark).', src: 'en.wikipedia.org/wiki/Zuidplaspolder' },
+        { emo: '🏞️', text: 'The lake there was drained between 1825 and 1840.', src: 'en.wikipedia.org/wiki/Zuidplaspolder' },
+      ],
+      m: [
+        { emo: '🌬️', text: 'At Kinderdijk, 19 windmills were built around 1740. The mill network became a World Heritage Site in 1997.', src: 'en.wikipedia.org/wiki/Kinderdijk' },
+        { emo: '🔗', text: 'Mills built next to each other, called a molengang in Dutch, lifted water over greater heights, so deeper polders could be created.', src: 'holland.com/global/tourism/get-inspired/dutch-icons/windmills-in-the-netherlands' },
+        { emo: '⚙️', text: 'In 1868 Kinderdijk got a pumping station to help the mills in very wet periods. Today pumping stations with screw pumps driven by electricity do the work.', src: 'kinderdijk.nl/en/windmills-pumping-stations' },
+      ],
+      s: [
+        { emo: '🌊', text: 'In the night of 31 January to 1 February 1953 a storm flood hit the Netherlands; the water reached 5.6 m above mean sea level. It covered 1,365 km² of land, and more than 1,800 people died.', src: 'en.wikipedia.org/wiki/North_Sea_flood_of_1953' },
+        { emo: '🏗️', text: 'After 1953 the Netherlands began the Delta Works to protect the country from floods. The project started in 1958 and was largely finished in the late 1990s.', src: 'en.wikipedia.org/wiki/Netherlands' },
+      ],
+      afs: [
+        { emo: '🛣️', text: 'The Afsluitdijk is 32 km long. Its last gap was closed on 28 May 1932.', src: 'en.wikipedia.org/wiki/Afsluitdijk' },
+        { emo: '🏞️', text: 'It turned the Zuiderzee, a saltwater inlet of the North Sea, into the IJsselmeer, a freshwater lake. Its top is 90 m wide.', src: 'en.wikipedia.org/wiki/Afsluitdijk' },
+      ],
+    },
+    secrets: { low: ['Lowest point', 'The lowest place in the country'], afs: ['Afsluitdijk', 'A dam that turned a bay into a lake'] },
+    low: ['The lowest place in the country', 'Here the field lies 6.76 m below sea level. The ditch is deeper too. Switch the mill on and off.'],
+    quiz: [
+      { q: 'Why must polders be pumped even when it doesn’t rain?', opts: ['To water the cows', 'Water seeps in through the ground', 'They never need pumping'], ok: 1, hint: 'Look at the small arrows in Pump.' },
+      { q: 'Old windmills on Dutch polders were mostly used to…', opts: ['grind flour', 'make electricity', 'lift water out of the polder'], ok: 2, hint: 'Watch the mill in Pump.' },
+      { q: 'If the sea level rises, the dikes…', opts: ['must be higher and stronger', 'can be lower', 'don’t matter'], ok: 0, hint: 'Try the surge in Storm.' },
+    ],
+  },
+  ru: {
+    name: 'Земля у моря', title: 'Земля у моря',
+    lines: [['Поле лежит ниже моря.', 'И всё же оно сухое.'], ['Сделай предположение,', 'потом включай и выключай мельницу.'], ['Построй цепь мельниц', 'и удержи шторм.']],
+    views: { pump: '💧 Насос', mills: '🌬️ Цепь', storm: '🌊 Шторм' },
+    lbl: { sea: 'Море', canal: 'Канал', polder: 'Польдер', seaLvl: 'Уровень моря 0 м', canalLvl: 'Уровень канала', lake: 'Эйсселмер', northSea: 'Северное море' },
+    on: 'вкл.', off: 'выкл.', rainL: 'Дождь', millL: 'Мельница',
+    p: {
+      t0: 'Куда денется дождь?', q: (d) => `Это поле лежит на ${fm(d)} м ниже уровня моря. На него идёт дождь. Куда денется вода?`,
+      opts: ['Сама стечёт в море', 'Навсегда уйдёт в землю', 'Останется, и поле затопит'],
+      lead: 'Сделай предположение, а потом смотри.',
+      right: ['Верно!', 'Море выше поля, поэтому вода не может стечь в него. Она остаётся.'],
+      w0: ['Не совсем.', 'Вода течёт только вниз. Море выше этого поля, поэтому туда ничего не стечёт. Вода остаётся.'],
+      w1: ['Не совсем.', 'Земля здесь и так полна воды. Вода никуда не девается: она остаётся.'],
+      next: 'Теперь включи мельницу и посмотри на воду.',
+      reset: '↺ Заново', readSub: 'уровень воды в канаве', askSub: (d) => `Поле: на ${fm(d)} м ниже моря`, flooded: '🌊 затоплено', dry: '✅ сухо',
+      fill: ['Канава наполняется.', 'Воде некуда деваться.'], fillDry: ['Всё ещё наполняется.', 'Дождя нет, а уровень всё равно ползёт вверх.'],
+      flood: ['Поле под водой.', 'Включи мельницу.'], pump: ['Мельница работает.', 'Она поднимает воду в канал шаг за шагом.'],
+      ok: ['Поле снова сухое.', 'Мельница поднимает воду в канал. Оттуда она уходит в море во время отлива.'],
+      body: 'Мельница нарисована одна, чтобы картинка была проще.',
+    },
+    m: {
+      t0: 'Сколько мельниц подряд?', q: (d) => `Польдер лежит на ${fm(d)} м ниже канала. Ты видишь, на сколько поднимает воду одна мельница. Сколько мельниц подряд нужно, чтобы вода дошла до канала?`,
+      lead: 'Посмотри на ступеньку, потом выбирай.',
+      mills: (n) => ruPlural(n, 'мельница', 'мельницы', 'мельниц'),
+      right: (n) => ['Верно!', `${n} ${ruPlural(n, 'мельница', 'мельницы', 'мельниц')}: ${n} × ${fm(LIFT)} м = ${fm(n * LIFT)} м. Каждая мельница поднимает воду на одну ступень.`],
+      wrong: (n) => ['Не совсем.', `Сосчитай ступени от польдера до канала: нужно ${n} ${ruPlural(n, 'мельница', 'мельницы', 'мельниц')}.`],
+      lift: `≈${fm(LIFT)} м`, depthL: 'Глубина под каналом', add: '➕ Мельница', rem: '➖ Мельница', clear: '↺ Убрать все',
+      zero: ['Мельниц пока нет.', 'Вода остаётся внизу, в польдере.'],
+      part: (n, sh) => [`${n} ${ruPlural(n, 'мельница', 'мельницы', 'мельниц')}: не хватает ${fm(sh)} м.`, 'Добавь ещё одну мельницу, чтобы поднять воду выше.'],
+      done: (n, d) => ['Цепь дошла до канала!', `${n} × ${fm(LIFT)} м = ${fm(n * LIFT)} м: этого хватает на ${fm(d)} м.`],
+      over: (x) => `Последней мельнице остаётся поднять воду всего на ${fm(x)} м.`,
+      body: `Около ${fm(LIFT)} м на мельницу — приблизительная цифра: настоящие мельницы отличались.`,
+      sub: (n) => `${ruPlural(n, 'мельница', 'мельницы', 'мельниц')} подряд`, okP: '✅ дошла до канала', shortP: (sh) => `⬇️ не хватает ${fm(sh)} м`,
+    },
+    s: {
+      surge: 'Подъём моря', dike: 'Высота дамбы', go: '🌊 Шторм!', again: '↺ Заново',
+      set: ['Построй дамбу.', 'Задай шторм и высоту дамбы, потом пусти шторм. Найди самую низкую дамбу, при которой польдер останется сухим.'],
+      setBody: 'Волны идут поверх поднятого моря. Они нарисованы как условный запас.',
+      run: ['Шторм нарастает…', 'Смотри на гребни волн.'],
+      flood: ['Через край!', 'Море и волны поднялись выше дамбы. Мельница снова начинает откачивать польдер.'],
+      lowest: (s, h) => ['Сухо, и дамба самая низкая из возможных!', `Верх дамбы должен быть выше поднявшегося моря и волн: ${fm(s)} м + ${fm(h)} м.`],
+      dryHigh: ['Сухо!', 'Но дамба пониже тоже выдержала бы. Попробуй ещё раз пониже.'],
+      afs: ['Афслёйтдейк', 'Дамба длиной 32 км, перегородившая залив Северного моря. За ней лежит спокойное озеро.', 'Верх дамбы примерно на 7,25 м выше уровня моря. Подними шторм и посмотри.'],
+      afsDry: ['Сухо. Дамба выдержала.', 'За ней вода остаётся спокойной.'],
+      readSub: 'верх дамбы над уровнем моря', pillSet: (s) => `Море +${fm(s)} м`, pillRun: '🌊 шторм', pillDry: '✅ сухо', pillWet: '🌊 затоплено',
+    },
+    facts: {
+      p: [
+        { emo: '🌷', text: 'Около четверти Нидерландов (26%) лежит ниже уровня моря, и там живёт около 21% жителей.', src: 'en.wikipedia.org/wiki/Netherlands' },
+        { emo: '🏞️', text: 'Польдер — это низкая земля, обнесённая дамбами. В Нидерландах их около 3000.', src: 'en.wikipedia.org/wiki/Polder' },
+      ],
+      low: [
+        { emo: '🕳️', text: 'В Зёйдпласпольдере земля лежит на 6,76 м ниже уровня моря. Это самая низкая точка Европейского союза (вместе с Ламмефьордом в Дании).', src: 'en.wikipedia.org/wiki/Zuidplaspolder' },
+        { emo: '🏞️', text: 'Озеро на этом месте осушали с 1825 по 1840 год.', src: 'en.wikipedia.org/wiki/Zuidplaspolder' },
+      ],
+      m: [
+        { emo: '🌬️', text: 'В Киндердейке около 1740 года построили 19 ветряных мельниц. С 1997 года эти мельницы входят в список Всемирного наследия.', src: 'en.wikipedia.org/wiki/Kinderdijk' },
+        { emo: '🔗', text: 'Мельницы, стоящие рядом друг с другом, по-голландски называются molengang. Они поднимали воду на бóльшую высоту, и так можно было создавать более глубокие польдеры.', src: 'holland.com/global/tourism/get-inspired/dutch-icons/windmills-in-the-netherlands' },
+        { emo: '⚙️', text: 'В 1868 году в Киндердейке построили насосную станцию, чтобы помогать мельницам в очень сырые периоды. Сегодня работу делают насосные станции с винтовыми насосами на электричестве.', src: 'kinderdijk.nl/en/windmills-pumping-stations' },
+      ],
+      s: [
+        { emo: '🌊', text: 'В ночь с 31 января на 1 февраля 1953 года на Нидерланды обрушилось штормовое наводнение: вода поднялась до 5,6 м над средним уровнем моря. Оно затопило 1365 км² суши, погибло больше 1800 человек.', src: 'en.wikipedia.org/wiki/North_Sea_flood_of_1953' },
+        { emo: '🏗️', text: 'После 1953 года в Нидерландах начали строить «Дельта-работы», чтобы защитить страну от наводнений. Стройка началась в 1958 году и в основном закончилась в конце 1990-х.', src: 'en.wikipedia.org/wiki/Netherlands' },
+      ],
+      afs: [
+        { emo: '🛣️', text: 'Афслёйтдейк имеет длину 32 км. Последний пролом в ней закрыли 28 мая 1932 года.', src: 'en.wikipedia.org/wiki/Afsluitdijk' },
+        { emo: '🏞️', text: 'Она превратила Зёйдерзе, солёный залив Северного моря, в Эйсселмер — пресное озеро. Верх дамбы шириной 90 м.', src: 'en.wikipedia.org/wiki/Afsluitdijk' },
+      ],
+    },
+    secrets: { low: ['Самая низкая точка', 'Самое низкое место страны'], afs: ['Афслёйтдейк', 'Дамба, превратившая залив в озеро'] },
+    low: ['Самое низкое место страны', 'Здесь поле лежит на 6,76 м ниже уровня моря. Канава тоже глубже. Включай и выключай мельницу.'],
+    quiz: [
+      { q: 'Почему польдеры нужно откачивать, даже когда нет дождя?', opts: ['Чтобы поить коров', 'Вода просачивается через землю', 'Откачивать их никогда не нужно'], ok: 1, hint: 'Посмотри на маленькие стрелки в «Насосе».' },
+      { q: 'Старые ветряные мельницы на голландских польдерах в основном нужны были, чтобы…', opts: ['молоть муку', 'вырабатывать электричество', 'поднимать воду из польдера'], ok: 2, hint: 'Посмотри на мельницу в «Насосе».' },
+      { q: 'Если уровень моря поднимается, дамбы…', opts: ['должны быть выше и крепче', 'могут быть ниже', 'не имеют значения'], ok: 0, hint: 'Поиграй с подъёмом моря в «Шторме».' },
+    ],
+  },
+  hu: {
+    name: 'Tengertől nyert föld', title: 'Tengertől nyert föld',
+    lines: [['Egy mező, amely mélyebben van a tengernél.', 'Mégis száraz.'], ['Tippelj,', 'aztán kapcsold be és ki a malmot.'], ['Építs malomláncot,', 'és tartsd vissza a vihart.']],
+    views: { pump: '💧 Pumpa', mills: '🌬️ Malom', storm: '🌊 Ár' },
+    lbl: { sea: 'Tenger', canal: 'Csatorna', polder: 'Polder', seaLvl: 'Tengerszint 0 m', canalLvl: 'Csatorna szintje', lake: 'IJsselmeer', northSea: 'Északi-tenger' },
+    on: 'be', off: 'ki', rainL: 'Eső', millL: 'Malom',
+    p: {
+      t0: 'Hová megy az esővíz?', q: (d) => `Ez a mező ${fm(d)} méterrel mélyebben fekszik a tengerszintnél. Esik rá az eső. Hová megy a víz?`,
+      opts: ['Magától lefolyik a tengerbe', 'Örökre elszivárog a földbe', 'Ott marad, és elönti a mezőt'],
+      lead: 'Tippelj, aztán figyeld meg.',
+      right: ['Így van!', 'A tenger magasabban van, mint a mező, ezért a víz nem tud odafolyni. Ott marad.'],
+      w0: ['Nem egészen.', 'A víz csak lefelé folyik. A tenger magasabban van, mint ez a mező, ezért arra semmi sem folyik. A víz marad.'],
+      w1: ['Nem egészen.', 'A föld itt már tele van vízzel. A víz nem tűnik el: marad.'],
+      next: 'Most kapcsold be a malmot, és nézd a vizet.',
+      reset: '↺ Újra', readSub: 'vízszint az árokban', askSub: (d) => `Mező: ${fm(d)} méterrel a tengerszint alatt`, flooded: '🌊 elöntve', dry: '✅ száraz',
+      fill: ['Az árok megtelik.', 'A víznek nincs hová mennie.'], fillDry: ['Még mindig telik.', 'Eső nincs, de a vízszint csak emelkedik.'],
+      flood: ['A mező víz alatt van.', 'Kapcsold be a malmot.'], pump: ['A malom dolgozik.', 'Lépésről lépésre felemeli a vizet a csatornába.'],
+      ok: ['A mező megint száraz.', 'A malom felemeli a vizet a csatornába. Onnan apálykor kifolyik a tengerbe.'],
+      body: 'A képen csak egy malom van, hogy egyszerűbb legyen.',
+    },
+    m: {
+      t0: 'Hány malom kell egymás után?', q: (d) => `A polder ${fm(d)} méterrel mélyebben van a csatornánál. Látod, mennyit emel egy malom. Hány malom kell egymás után, hogy a víz elérje a csatornát?`,
+      lead: 'Nézd meg a lépcsőfokot, aztán tippelj.',
+      mills: () => 'malom',
+      right: (n) => ['Így van!', `${n} malom: ${n} × ${fm(LIFT)} m = ${fm(n * LIFT)} m. Minden malom egy lépcsőfokkal feljebb emeli a vizet.`],
+      wrong: (n) => ['Nem egészen.', `Számold meg a lépcsőfokokat a poldertől a csatornáig: ${n} malom kell.`],
+      lift: `≈${fm(LIFT)} m`, depthL: 'Mélység a csatorna alatt', add: '➕ Malom', rem: '➖ Malom', clear: '↺ Mind le',
+      zero: ['Még nincs malom.', 'A víz lent marad a polderben.'],
+      part: (n, sh) => [`${n} malom: még ${fm(sh)} m hiányzik.`, 'Tegyél be még egy malmot, hogy feljebb emelje a vizet.'],
+      done: (n, d) => ['A lánc eléri a csatornát!', `${n} × ${fm(LIFT)} m = ${fm(n * LIFT)} m: ez elég a ${fm(d)} m mélységhez.`],
+      over: (x) => `Az utolsó malomnak már csak ennyit kell emelnie: ${fm(x)} m.`,
+      body: `Malmonként kb. ${fm(LIFT)} m durva becslés: a valódi malmok eltértek.`,
+      sub: () => 'malom egymás után', okP: '✅ eléri a csatornát', shortP: (sh) => `⬇️ még ${fm(sh)} m hiányzik`,
+    },
+    s: {
+      surge: 'Viharár', dike: 'Gát magassága', go: '🌊 Vihar!', again: '↺ Újra',
+      set: ['Építsd meg a gátat.', 'Állítsd be a vihart és a gát magasságát, aztán jöhet a vihar. Keresd meg a legalacsonyabb gátat, amely szárazon tartja a poldert.'],
+      setBody: 'A hullámok a megemelkedett tengerre rakódnak. Szemléltető ráhagyásként vannak megrajzolva.',
+      run: ['Erősödik a vihar…', 'Figyeld a hullámok tetejét.'],
+      flood: ['Átcsapott!', 'A tenger és a hullámok magasabbra értek a gátnál. A malom újra kiszivattyúzza a poldert.'],
+      lowest: (s, h) => ['Száraz, és a gát a lehető legalacsonyabb!', `A gát tetejének magasabban kell lennie a megemelkedett tengernél és a hullámoknál: ${fm(s)} m + ${fm(h)} m.`],
+      dryHigh: ['Száraz!', 'De egy alacsonyabb gát is kitartott volna. Próbáld újra alacsonyabbal.'],
+      afs: ['Afsluitdijk', 'Egy 32 km hosszú gát, amely elzárt egy öblöt az Északi-tengerből. Mögötte nyugodt tó van.', 'A teteje a tengerszint felett kb. 7,25 méter magasan van. Emeld a vihart, és nézd meg.'],
+      afsDry: ['Száraz. A gát kitart.', 'Mögötte a víz nyugodt marad.'],
+      readSub: 'gát teteje a tengerszint felett', pillSet: (s) => `Viharár +${fm(s)} m`, pillRun: '🌊 vihar', pillDry: '✅ száraz', pillWet: '🌊 elöntve',
+    },
+    facts: {
+      p: [
+        { emo: '🌷', text: 'Hollandia területének mintegy negyede (26%) a tengerszint alatt fekszik, és a lakosság körülbelül ötöde (21%) ott él.', src: 'en.wikipedia.org/wiki/Netherlands' },
+        { emo: '🏞️', text: 'A polder gátakkal körülvett alacsony terület. Hollandiában körülbelül 3000 van belőlük.', src: 'en.wikipedia.org/wiki/Polder' },
+      ],
+      low: [
+        { emo: '🕳️', text: 'A Zuidplaspolderben a föld 6,76 méterrel a tengerszint alatt fekszik. Ez az Európai Unió legmélyebb pontja (a dániai Lammefjorddal együtt).', src: 'en.wikipedia.org/wiki/Zuidplaspolder' },
+        { emo: '🏞️', text: 'Az ottani tavat 1825 és 1840 között csapolták le.', src: 'en.wikipedia.org/wiki/Zuidplaspolder' },
+      ],
+      m: [
+        { emo: '🌬️', text: 'Kinderdijknél 1740 körül 19 szélmalmot építettek. A malomhálózat 1997 óta a Világörökség része.', src: 'en.wikipedia.org/wiki/Kinderdijk' },
+        { emo: '🔗', text: 'Az egymás mellé épített malmokat hollandul molengangnak hívják. Nagyobb magasságba emelték a vizet, így mélyebb poldereket lehetett létrehozni.', src: 'holland.com/global/tourism/get-inspired/dutch-icons/windmills-in-the-netherlands' },
+        { emo: '⚙️', text: '1868-ban Kinderdijknél szivattyúállomást építettek, hogy segítsen a malmoknak a nagyon csapadékos időszakokban. Ma az árammal hajtott csigaszivattyús állomások végzik a munkát.', src: 'kinderdijk.nl/en/windmills-pumping-stations' },
+      ],
+      s: [
+        { emo: '🌊', text: '1953. január 31. éjszakáján vihar okozta áradás érte Hollandiát: a víz a közepes tengerszint fölé 5,6 méterig emelkedett. 1365 km² földet árasztott el, és több mint 1800 ember halt meg.', src: 'en.wikipedia.org/wiki/North_Sea_flood_of_1953' },
+        { emo: '🏗️', text: '1953 után Hollandia megkezdte a Delta-művek építését, hogy megvédje az országot az áradásoktól. A munka 1958-ban indult, és nagyrészt az 1990-es évek végére fejeződött be.', src: 'en.wikipedia.org/wiki/Netherlands' },
+      ],
+      afs: [
+        { emo: '🛣️', text: 'Az Afsluitdijk 32 km hosszú. Az utolsó rést 1932. május 28-án zárták le.', src: 'en.wikipedia.org/wiki/Afsluitdijk' },
+        { emo: '🏞️', text: 'A Zuiderzeét, az Északi-tenger sós öblét az IJsselmeerré, édesvizű tóvá változtatta. A teteje 90 méter széles.', src: 'en.wikipedia.org/wiki/Afsluitdijk' },
+      ],
+    },
+    secrets: { low: ['Legmélyebb pont', 'Az ország legalacsonyabb helye'], afs: ['Afsluitdijk', 'A gát, amely az öbölből tavat csinált'] },
+    low: ['Az ország legalacsonyabb helye', 'Itt a mező 6,76 méterrel a tengerszint alatt fekszik. Az árok is mélyebb. Kapcsold be és ki a malmot.'],
+    quiz: [
+      { q: 'Miért kell a poldereket szivattyúzni akkor is, ha nem esik?', opts: ['Hogy a teheneknek legyen víz', 'A víz átszivárog a talajon', 'Soha nem kell szivattyúzni'], ok: 1, hint: 'Nézd meg a kis nyilakat a Pumpa nézetben.' },
+      { q: 'A holland polderek régi szélmalmait többnyire arra használták, hogy…', opts: ['lisztet őröljenek', 'áramot termeljenek', 'kiemeljék a vizet a polderből'], ok: 2, hint: 'Figyeld a malmot a Pumpa nézetben.' },
+      { q: 'Ha emelkedik a tenger szintje, a gátaknak…', opts: ['magasabbnak és erősebbnek kell lenniük', 'alacsonyabbak is lehetnek', 'mindegy, milyenek'], ok: 0, hint: 'Próbáld ki a viharárat az Ár nézetben.' },
+    ],
+  },
+};
+const TOPICS = [{ id: 'mt_ZY38c705Ce', en: 'People shaping places', ru: 'Как люди формируют места', hu: 'Az emberek formálják a helyeket' }];
+
+// --- state ---------------------------------------------------------------------------------------------------
+const W = 360, H = 300, CL = -0.5; // design box of the picture; canal water level (m, sea level = 0)
+const fieldOf = () => (S.low ? -6.76 : -4);
+const ditchOf = () => fieldOf() - 0.5;
+const S = {
+  // Pump
+  pPick: null, pTouched: false, rain: true, mill: false, low: false, L1: -4.5, key: '', ro: 0, ang: 0,
+  // Mills
+  mPick: null, mV: false, mD: 4.5, mN: 1, auto: false, autoT: 0,
+  // Storm
+  sg: 4.5, dk: 5, ph: 'set', k: 0, res: null, L3: -4.5, floodT: 0, afs: false,
+};
+const PRED_P = 2; // right answer of the Pump prediction: the field floods (the Mills answer comes from needOf)
+const lab = shell({ key: 'polder', T, topics: TOPICS, views: ['pump', 'mills', 'storm'], onLang: render, onView: render });
+const secret = secretLab('polder', () => ({
+  secrets: [{ emo: '🕳️', title: T[lang].secrets.low[0], desc: T[lang].secrets.low[1] }, { emo: '🛣️', title: T[lang].secrets.afs[0], desc: T[lang].secrets.afs[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = `
+  <div id="vPump">
+    <div id="pAsk"></div>
+    <div id="pRun" hidden><div class="chips" id="pChips" style="margin-top:12px"></div></div>
+  </div>
+  <div id="vMills">
+    <div id="mAsk"></div>
+    <div id="mRun" hidden>
+      <div class="row2"><span class="lbl" id="mDepL"></span><div class="chips" id="mDep"></div></div>
+      <div class="row2"><button class="chip pd-chip" data-act="mrem" id="mRem"></button><button class="chip pd-chip" data-act="madd" id="mAdd"></button><button class="chip pd-chip" data-act="mclr" id="mClr"></button></div>
+    </div>
+  </div>
+  <div id="vStorm">
+    <div class="pd-sl"><span id="svL"></span><b id="svV"></b></div>
+    <input class="big" id="svI" type="range" min="1" max="5.5" step="0.5" value="4.5" style="--track:linear-gradient(90deg,#4aa0c8,#2d4f9a)">
+    <div class="pd-sl"><span id="dkL"></span><b id="dkV"></b></div>
+    <input class="big" id="dkI" type="range" min="2" max="10" step="0.25" value="5" style="--track:linear-gradient(90deg,#8bc36a,#5a8a3c)">
+    <div class="row2"><button class="btn pd-go" data-act="storm" id="sGo"></button></div>
+  </div>
+  <div class="row2" id="secRow"><div class="chips" id="secChips"></div></div>
+  <div class="pd-fine" id="pdFine"></div>`;
+
+// --- helpers for the picture ---------------------------------------------------------------------------------
+const mixHex = (a, b, t) => { const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16), r = (i) => Math.round(lerp((pa >> i) & 255, (pb >> i) & 255, t)); return `rgb(${r(16)},${r(8)},${r(0)})`; };
+const ease = (k) => k * k * (3 - 2 * k);
+function setup(c, w, h) { const s = Math.min(w / W, h / H); c.save(); c.translate((w - W * s) / 2, (h - H * s) / 2); c.scale(s, s); c.lineJoin = 'round'; c.lineCap = 'round'; return s; }
+function tag(c, s, text, x, y, align = 'left') {
+  const fs = 12 / s, px = 7 / s, ph = 20 / s;
+  c.font = `800 ${fs}px Nunito, sans-serif`; c.textBaseline = 'middle'; c.textAlign = 'left';
+  const tw = c.measureText(text).width, bx = align === 'right' ? x - tw - 2 * px : align === 'center' ? x - tw / 2 - px : x;
+  c.fillStyle = 'rgba(10,14,26,.8)'; c.beginPath(); c.roundRect(bx, y - ph / 2, tw + 2 * px, ph, ph / 2); c.fill();
+  c.fillStyle = '#EDEFF7'; c.fillText(text, bx + px, y + 0.5 / s);
+}
+function curve(c, pts) {
+  c.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length - 1; i++) { const [x, y] = pts[i], [nx, ny] = pts[i + 1]; c.quadraticCurveTo(x, y, (x + nx) / 2, (y + ny) / 2); }
+  const l = pts[pts.length - 1]; c.lineTo(l[0], l[1]);
+}
+function cloud(c, x, y, sc, dark) {
+  c.save(); c.translate(x, y); c.scale(sc, sc);
+  c.fillStyle = `rgba(${255 - dark * 120 | 0},${255 - dark * 115 | 0},${255 - dark * 95 | 0},${0.88 - dark * 0.08})`;
+  [[0, 0, 11], [14, -6, 14], [29, -1, 12], [14, 4, 12]].forEach(([a, b, r]) => { c.beginPath(); c.arc(a, b, r, 0, 7); c.fill(); });
+  c.restore();
+}
+function rainDrops(c, t, n, slant, alpha) {
+  c.strokeStyle = `rgba(205,225,255,${alpha})`; c.lineWidth = 1.2; c.beginPath();
+  for (let i = 0; i < n; i++) {
+    const x = ((i * 47.3 + t * slant * 40) % 560) - 100, y = ((i * 61.7 + t * 230) % 330) - 15;
+    c.moveTo(x, y); c.lineTo(x - slant * 2, y + 8);
+  }
+  c.stroke();
+}
+function windmill(c, x, base, sc, ang, alpha = 1) {
+  c.save(); c.translate(x, base); c.scale(sc, sc); c.globalAlpha = alpha;
+  c.fillStyle = 'rgba(0,0,0,.22)'; c.beginPath(); c.ellipse(2, 0, 11, 3, 0, 0, 7); c.fill();
+  const g = c.createLinearGradient(-9, 0, 9, 0); g.addColorStop(0, '#f3e8cb'); g.addColorStop(1, '#bba883');
+  c.fillStyle = g; c.strokeStyle = '#6d5a3d'; c.lineWidth = 1;
+  c.beginPath(); c.moveTo(-9, 0); c.lineTo(-5.5, -30); c.lineTo(5.5, -30); c.lineTo(9, 0); c.closePath(); c.fill(); c.stroke();
+  c.fillStyle = '#6b4a30'; c.beginPath(); c.roundRect(-2.5, -8, 5, 8, [2.5, 2.5, 0, 0]); c.fill();
+  c.fillStyle = '#a94a3a'; c.beginPath(); c.moveTo(-7, -30); c.quadraticCurveTo(0, -41, 7, -30); c.closePath(); c.fill(); c.stroke();
+  c.translate(0, -31); c.rotate(ang);
+  for (let i = 0; i < 4; i++) {
+    c.rotate(Math.PI / 2);
+    c.fillStyle = 'rgba(246,238,218,.93)'; c.strokeStyle = '#5a4630'; c.lineWidth = 1;
+    c.beginPath(); c.rect(1, -24, 6, 17); c.fill(); c.stroke();
+    c.lineWidth = 1.6; c.beginPath(); c.moveTo(0, 0); c.lineTo(0, -25); c.stroke();
+  }
+  c.fillStyle = '#4a3a2a'; c.beginPath(); c.arc(0, 0, 2.4, 0, 7); c.fill();
+  c.restore();
+}
+function cow(c, x, y, sc, dir) {
+  c.save(); c.translate(x, y); c.scale(dir * sc, sc);
+  c.fillStyle = 'rgba(0,0,0,.2)'; c.beginPath(); c.ellipse(0, 0, 10, 2.2, 0, 0, 7); c.fill();
+  c.fillStyle = '#f2efe8'; c.fillRect(-6.5, -6, 2.6, 6); c.fillRect(3.6, -6, 2.6, 6);
+  c.fillStyle = '#3a3a44'; c.fillRect(-6.5, -1.2, 2.6, 1.2); c.fillRect(3.6, -1.2, 2.6, 1.2);
+  const g = c.createLinearGradient(0, -14, 0, -3); g.addColorStop(0, '#ffffff'); g.addColorStop(1, '#d9d4c8');
+  c.fillStyle = g; c.beginPath(); c.ellipse(0, -9, 9.5, 5.5, 0, 0, 7); c.fill();
+  c.fillStyle = '#3a3a44'; c.beginPath(); c.ellipse(-3, -10.5, 3, 2.3, 0.3, 0, 7); c.fill(); c.beginPath(); c.ellipse(3.5, -8, 2.4, 1.9, 0, 0, 7); c.fill();
+  c.fillStyle = '#f2efe8'; c.beginPath(); c.ellipse(10, -12, 3.9, 3.2, -0.2, 0, 7); c.fill();
+  c.fillStyle = '#e9a7a0'; c.beginPath(); c.ellipse(13, -11, 1.9, 1.5, 0, 0, 7); c.fill();
+  c.fillStyle = '#3a3a44'; c.beginPath(); c.arc(10.6, -13, 0.9, 0, 7); c.fill();
+  c.fillStyle = '#fff'; c.beginPath(); c.arc(10.9, -13.3, 0.35, 0, 7); c.fill();
+  c.strokeStyle = '#d9d4c8'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(-9, -10); c.quadraticCurveTo(-12, -8, -11, -4); c.stroke();
+  c.restore();
+}
+function house(c, x, y) {
+  c.save(); c.translate(x, y);
+  c.fillStyle = 'rgba(0,0,0,.22)'; c.beginPath(); c.ellipse(0, 0, 19, 3, 0, 0, 7); c.fill();
+  const g = c.createLinearGradient(-14, 0, 14, 0); g.addColorStop(0, '#f1e5c6'); g.addColorStop(1, '#c9b78f');
+  c.fillStyle = g; c.strokeStyle = '#6d5a3d'; c.lineWidth = 1; c.fillRect(-14, -17, 28, 17); c.strokeRect(-14, -17, 28, 17);
+  c.fillStyle = '#7a4a3a'; c.fillRect(7, -31, 4, 9);
+  const r = c.createLinearGradient(0, -31, 0, -16); r.addColorStop(0, '#c4604a'); r.addColorStop(1, '#8f3f33');
+  c.fillStyle = r; c.beginPath(); c.moveTo(-17, -16); c.lineTo(0, -30); c.lineTo(17, -16); c.closePath(); c.fill(); c.stroke();
+  c.fillStyle = '#6b4a30'; c.beginPath(); c.roundRect(-3, -10, 6, 10, [3, 3, 0, 0]); c.fill();
+  c.fillStyle = '#9ec3da'; c.fillRect(6, -14, 6, 5); c.fillRect(-12, -14, 6, 5);
+  c.strokeStyle = '#fff'; c.lineWidth = 0.8; c.beginPath(); c.moveTo(9, -14); c.lineTo(9, -9); c.moveTo(-9, -14); c.lineTo(-9, -9); c.stroke();
+  c.restore();
+}
+function tulips(c, x0, x1, y, t) {
+  const cols = ['#e3417a', '#f4c542', '#e0602f', '#d84fa0'];
+  for (let x = x0, i = 0; x <= x1; x += 7, i++) {
+    const sw = Math.sin(t * 1.5 + x) * 0.9;
+    c.strokeStyle = '#4c8a3c'; c.lineWidth = 1.3; c.beginPath(); c.moveTo(x, y); c.quadraticCurveTo(x, y - 4, x + sw, y - 8); c.stroke();
+    c.fillStyle = cols[i % 4]; c.beginPath(); c.ellipse(x + sw, y - 9.5, 2.5, 3.3, 0, 0, 7); c.fill();
+  }
+}
+
+// --- the cross-section: sea | dike | canal | polder (Pump and Storm) ---------------------------------------------
+function terrain(DT, FIELD, afs) {
+  if (afs) return [[-400, -5.6], [40, -5.6], [58, -4.4], [84, DT], [160, DT], [186, -4.4], [204, -5.6], [760, -5.6]];
+  const dit = FIELD - 1.2;
+  // sea | sea dike (wide trapezoid) | canal between two low banks | polder dike | ditch and fields
+  return [[-400, -5.6], [40, -5.6], [48, -4.4], [82, DT], [104, DT], [130, 0.5], [138, 0.5], [142, -2], [186, -2], [190, 0.5], [198, 1.5], [212, 1.5], [236, FIELD], [242, FIELD], [246, dit], [260, dit], [264, FIELD], [760, FIELD]];
+}
+function along(pts, u) { // a point at fraction u of a polyline
+  let len = 0; const seg = [];
+  for (let i = 1; i < pts.length; i++) { const d = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); seg.push(d); len += d; }
+  let r = u * len;
+  for (let i = 0; i < seg.length; i++) { if (r <= seg[i] || i === seg.length - 1) { const f = seg[i] ? r / seg[i] : 0; return [lerp(pts[i][0], pts[i + 1][0], f), lerp(pts[i][1], pts[i + 1][1], f)]; } r -= seg[i]; }
+}
+function scene(c, s, t, V) {
+  const { K, Y0 } = V, Y = (m) => Y0 - m * K, X0 = -400, X1 = W + 400, BOT = 760, dark = V.dark || 0, SE = 90; // SE: right edge of the sea water
+  // sky and clouds
+  const sky = c.createLinearGradient(0, -40, 0, Y(0) + 40);
+  sky.addColorStop(0, mixHex('#2c4d80', '#151b2b', dark)); sky.addColorStop(1, mixHex('#9cc0dc', '#4b5568', dark));
+  c.fillStyle = sky; c.fillRect(X0, -400, X1 - X0 + 200, BOT + 400);
+  [[40, 22, 1, 6], [210, 34, 1.3, 4], [320, 14, 0.8, 8]].forEach(([bx, by, sc, sp]) => cloud(c, ((bx + t * sp) % 470) - 55, by, sc, dark));
+  // water bodies, drawn first: the ground covers what lies below the surface
+  const seaTop = (x) => V.seaL + V.hw * (0.5 + 0.5 * Math.sin(x * 0.09 - t * 1.8 + 0.4 * Math.sin(x * 0.031 + t * 0.3)));
+  const sg = c.createLinearGradient(0, Y(V.seaL + V.hw), 0, Y(-6)); sg.addColorStop(0, '#3d9bc0'); sg.addColorStop(1, '#12385c');
+  c.fillStyle = sg; c.beginPath(); c.moveTo(X0, BOT); for (let x = X0; x <= SE; x += 6) c.lineTo(x, Y(seaTop(x))); c.lineTo(SE, Y(seaTop(SE))); c.lineTo(SE, BOT); c.closePath(); c.fill();
+  c.strokeStyle = 'rgba(255,255,255,.45)'; c.lineWidth = 1.6; c.beginPath(); for (let x = X0; x <= SE; x += 6) { const yy = Y(seaTop(x)); if (x === X0) c.moveTo(x, yy); else c.lineTo(x, yy); } c.stroke();
+  const wg = c.createLinearGradient(0, Y(0), 0, Y(-7)); wg.addColorStop(0, '#46a6b8'); wg.addColorStop(1, '#14485f');
+  if (V.afs) { // a calm lake behind the dam
+    c.fillStyle = wg; c.fillRect(150, Y(0), X1 - 150, BOT);
+    c.strokeStyle = 'rgba(255,255,255,.4)'; c.lineWidth = 1.4; c.beginPath(); c.moveTo(150, Y(0)); c.lineTo(X1, Y(0)); c.stroke();
+  } else {
+    const cg = c.createLinearGradient(0, Y(CL), 0, Y(-2)); cg.addColorStop(0, '#4fb0c8'); cg.addColorStop(1, '#1d6a8a');
+    c.fillStyle = cg; c.fillRect(136, Y(CL), 58, BOT);
+    c.strokeStyle = 'rgba(255,255,255,.5)'; c.lineWidth = 1.3; c.beginPath(); c.moveTo(144, Y(CL)); c.lineTo(188, Y(CL)); c.stroke();
+    const pg = c.createLinearGradient(0, Y(V.FIELD), 0, Y(V.FIELD - 3)); pg.addColorStop(0, '#3a97b4'); pg.addColorStop(1, '#14485f');
+    c.fillStyle = pg; c.fillRect(226, Y(Math.min(V.L, V.FIELD)), X1 - 226, BOT);
+    c.strokeStyle = 'rgba(255,255,255,.45)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(247, Y(Math.min(V.L, V.FIELD))); c.lineTo(259, Y(Math.min(V.L, V.FIELD))); c.stroke();
+  }
+  // the dashed 0 m guide: drawn before the ground, so it shows over water and air only, never across land
+  c.strokeStyle = 'rgba(255,255,255,.7)'; c.lineWidth = 1.3; c.setLineDash([5, 4]); c.beginPath(); c.moveTo(2, Y(0)); c.lineTo(W - 4, Y(0)); c.stroke(); c.setLineDash([]);
+  // the ground
+  const pts = terrain(V.DT, V.FIELD, V.afs).map(([x, m]) => [x, Y(m)]);
+  const eg = c.createLinearGradient(0, Y(V.hi), 0, Y(V.lo)); eg.addColorStop(0, '#8a6a43'); eg.addColorStop(1, '#3a2a22');
+  c.fillStyle = eg; c.beginPath(); curve(c, pts); c.lineTo(X1, BOT); c.lineTo(X0, BOT); c.closePath(); c.fill();
+  c.save(); c.beginPath(); c.rect(-1000, -1000, 1056, 3000); c.clip(); c.strokeStyle = '#cbb67c'; c.lineWidth = 3.5; c.beginPath(); curve(c, pts); c.stroke(); c.restore();
+  // grass: a thick soft layer on the dikes, a thinner one elsewhere
+  c.save(); c.beginPath(); c.rect(56, -1000, 2000, 3000); c.clip();
+  c.strokeStyle = '#4f8a3a'; c.lineWidth = 4.5; c.beginPath(); curve(c, pts); c.stroke();
+  c.save(); c.beginPath(); c.rect(56, -1000, V.afs ? 140 : 90, 3000); c.clip(); c.strokeStyle = 'rgba(95,156,69,.95)'; c.lineWidth = 10; c.beginPath(); curve(c, pts); c.stroke(); c.restore();
+  c.strokeStyle = '#5f9c45'; c.lineWidth = 4.5; c.beginPath(); curve(c, pts); c.stroke();
+  c.strokeStyle = 'rgba(190,230,140,.55)'; c.lineWidth = 1.4; c.translate(0, -1.8); c.beginPath(); curve(c, pts); c.stroke(); c.restore();
+  // seepage arrows from below
+  if (V.seep && !V.afs) {
+    for (let i = 0; i < 8; i++) {
+      const ph = (t * 0.7 + i * 0.37) % 1, x = 218 + i * 18, y0 = Y(V.FIELD - 3.4), y = y0 - ph * 26;
+      c.globalAlpha = Math.sin(ph * Math.PI) * 0.9; c.fillStyle = '#a8dcff'; c.strokeStyle = '#a8dcff'; c.lineWidth = 1.6;
+      c.beginPath(); c.moveTo(x, y + 6); c.lineTo(x, y - 2); c.stroke(); c.beginPath(); c.moveTo(x - 3.2, y - 1.5); c.lineTo(x + 3.2, y - 1.5); c.lineTo(x, y - 6.5); c.closePath(); c.fill();
+    }
+    c.globalAlpha = 1;
+  }
+  if (!V.afs) {
+    // sluice through the sea dike: a tube from the canal to the sea with a gate, open when the sea is lower than the canal
+    const lv = -1.0, tOut = (lv + 4.4) / (V.DT + 4.4), xOut = 48 + 34 * tOut, xIn = 141;
+    c.fillStyle = '#1d2835'; c.beginPath(); c.roundRect(xOut, Y(lv + 0.4), xIn - xOut, 0.8 * K, 3); c.fill();
+    const open = V.seaL + V.hw * 0.5 < CL - 0.05, gy = Y(lv + 0.5) - (open ? 0.9 * K : 0);
+    c.fillStyle = '#c9d2dc'; c.fillRect(xOut - 4, Y(lv + 1.4), 2.4, 1.9 * K); c.fillRect(xOut + 2, Y(lv + 1.4), 2.4, 1.9 * K); c.fillRect(xOut - 4, Y(lv + 1.4), 10.4, 2.4);
+    c.fillStyle = '#8f9bab'; c.fillRect(xOut - 1.6, gy, 3.6, 0.9 * K);
+    if (open) { c.strokeStyle = 'rgba(190,230,255,.9)'; c.lineWidth = 1.5; for (let i = 0; i < 3; i++) { const u = (t * 1.2 + i / 3) % 1, yy = Y(lv) + (i - 1) * 3; c.beginPath(); c.moveTo(xOut - 6 - u * 12, yy); c.lineTo(xOut - 11 - u * 12, yy); c.stroke(); } }
+    // the flume that carries water from the ditch up over the polder dike into the canal, and the mill on the dike
+    const F = [[248, Y(V.FIELD - 0.4)], [238, Y(V.FIELD) - 3], [212, Y(1.5) - 3], [198, Y(1.5) - 3], [189, Y(0.15)]];
+    c.lineWidth = 7; c.strokeStyle = '#6e4f30'; c.beginPath(); c.moveTo(...F[0]); F.slice(1).forEach((p) => c.lineTo(...p)); c.stroke();
+    c.lineWidth = 3.5; c.strokeStyle = '#a98254'; c.beginPath(); c.moveTo(...F[0]); F.slice(1).forEach((p) => c.lineTo(...p)); c.stroke();
+    if (V.mill) { c.fillStyle = 'rgba(175,225,255,.95)'; for (let i = 0; i < 8; i++) { const [px, py] = along(F, (t * 0.4 + i / 8) % 1); c.beginPath(); c.arc(px, py - 1.5, 2.1, 0, 7); c.fill(); } }
+    windmill(c, 205, Y(1.5), 0.8, S.ang);
+    tulips(c, 270, 286, Y(V.FIELD), t);
+    cow(c, 304, Y(V.FIELD), 0.9, -1); house(c, 338, Y(V.FIELD));
+    // flood over the field
+    if (V.L > V.FIELD + 0.01) {
+      const fy = Y(V.L), fg = c.createLinearGradient(0, fy, 0, Y(V.FIELD));
+      fg.addColorStop(0, 'rgba(70,160,190,.66)'); fg.addColorStop(1, 'rgba(25,90,130,.78)');
+      c.fillStyle = fg; c.fillRect(232, fy, X1 - 232, Y(V.FIELD) - fy);
+      c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1.4; c.beginPath();
+      for (let x = 232; x <= X1; x += 6) { const yy = fy + Math.sin(x * 0.2 + t * 2) * 0.9; if (x === 232) c.moveTo(x, yy); else c.lineTo(x, yy); } c.stroke();
+    }
+  }
+  // spray over the sea dike
+  if (V.spray) {
+    c.fillStyle = 'rgba(235,248,255,.85)';
+    for (let i = 0; i < 16; i++) {
+      const u = (t * 1.1 + i * 0.173) % 1, x = 82 + u * 44 + (i % 3) * 3, y = Y(V.DT) - Math.sin(u * Math.PI) * 14 + u * u * (Y(0.5) - Y(V.DT)) * 0.8;
+      c.beginPath(); c.arc(x, y, 1.8, 0, 7); c.fill();
+    }
+  }
+  if (V.rain > 0) rainDrops(c, t, 40 + 70 * V.rain | 0, V.rain > 0.5 ? 2.2 : 0.4, 0.5);
+  // the level ruler
+  c.strokeStyle = 'rgba(255,255,255,.7)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(2, Y(V.hi)); c.lineTo(2, Y(V.lo)); c.stroke();
+  for (let m = V.lo; m <= V.hi; m++) { c.beginPath(); c.moveTo(2, Y(m)); c.lineTo(m % 2 === 0 ? 8 : 5, Y(m)); c.stroke(); }
+  for (let m = Math.ceil(V.lo / 2) * 2; m <= V.hi; m += 2) tag(c, s, fm(m), 11, Y(m));
+  const L = T[lang].lbl;
+  tag(c, s, V.afs ? L.northSea : L.sea, 34, Y(-3.2));
+  if (V.afs) tag(c, s, L.lake, 230, Y(-2.2)); else { tag(c, s, L.canal, 134, Y(2.9)); tag(c, s, L.polder, 262, Y(V.FIELD) + 20); }
+  tag(c, s, L.seaLvl, W - 6, Y(0) - 13, 'right');
+}
+
+function drawSection(c, w, h, t) {
+  const s = setup(c, w, h), v = lab.view;
+  let V;
+  if (v === 'pump') {
+    const on = S.pPick !== null;
+    V = { K: 15, Y0: 104, lo: -8, hi: 6, DT: 5, FIELD: fieldOf(), seaL: 0.8 * Math.sin(t * 0.5), hw: 0.25, L: S.L1, mill: on && S.mill, rain: on && S.rain ? 1 : 0, dark: on && S.rain ? 0.35 : 0, seep: on, spray: false, afs: false };
+  } else {
+    const e = ease(S.k), DT = S.afs ? 7.25 : S.dk, hwFull = 0.5 + 0.2 * S.sg, seaL = S.sg * e, hw = 0.3 + (hwFull - 0.3) * e;
+    V = { K: 15, Y0: 190, lo: -6, hi: 10, DT, FIELD: -4, seaL, hw, L: S.L3, mill: true, rain: e > 0.05 ? e : 0, dark: e * 0.8, seep: true, spray: e > 0.05 && seaL + hw > DT + 1e-6, afs: S.afs };
+  }
+  scene(c, s, t, V);
+  c.restore();
+}
+
+// --- the chain of mills ------------------------------------------------------------------------------------------
+function drawChain(c, w, h, t) {
+  const s = setup(c, w, h), K = 24, Y0 = 62, Y = (m) => Y0 - m * K, X0 = -400, X1 = W + 400, BOT = 760;
+  const D = S.mD, need = needOf(D), asking = S.mPick === null, n = asking ? 1 : S.mN, done = n >= need;
+  const lv = (j) => Math.min(-D + LIFT * j, 0), xj = (j) => 46 + j * 42, TW = 28, E = 0.5, TR = 0.9;
+  const sky = c.createLinearGradient(0, -40, 0, Y(0) + 60); sky.addColorStop(0, '#2c4d80'); sky.addColorStop(1, '#a3c6e0');
+  c.fillStyle = sky; c.fillRect(X0, -400, X1 - X0 + 200, BOT + 400);
+  [[30, 20, 1, 5], [180, 30, 1.2, 4]].forEach(([bx, by, sc, sp]) => cloud(c, ((bx + t * sp) % 470) - 55, by, sc, 0));
+  const wg = c.createLinearGradient(0, Y(0), 0, Y(-7)); wg.addColorStop(0, '#46a6b8'); wg.addColorStop(1, '#14485f');
+  c.fillStyle = wg;
+  for (let j = 0; j <= n; j++) { const ex = j === n && done ? 300 : xj(j) + TW; c.fillRect(xj(j), Y(lv(j)), ex - xj(j), BOT); }
+  c.fillRect(300, Y(0), X1 - 300, BOT);
+  c.strokeStyle = 'rgba(255,255,255,.4)'; c.lineWidth = 1.3; c.beginPath();
+  for (let j = 0; j <= n; j++) { const ex = j === n && done ? 300 : xj(j) + TW; c.moveTo(xj(j), Y(lv(j))); c.lineTo(ex, Y(lv(j))); }
+  c.moveTo(300, Y(0)); c.lineTo(X1, Y(0)); c.stroke();
+  // the dashed canal-level guide: drawn before the ground, so it never crosses land
+  c.strokeStyle = 'rgba(255,255,255,.7)'; c.lineWidth = 1.2; c.setLineDash([5, 4]); c.beginPath(); c.moveTo(4, Y(0)); c.lineTo(300, Y(0)); c.stroke(); c.setLineDash([]);
+  // the ground: ledges, troughs and risers
+  const P = [[X0, Y(lv(0) + E)]];
+  for (let j = 0; j <= n; j++) {
+    const e = lv(j) + E;
+    if (j > 0) P.push([xj(j) - 6, Y(lv(j - 1) + E)]);
+    P.push([xj(j) - 6, Y(e)], [xj(j) - 1, Y(e)], [xj(j) + 1, Y(lv(j) - TR)]);
+    if (j === n && done) P.push([299, Y(-TR)], [302, Y(-1.2)], [X1, Y(-1.2)]);
+    else if (j === n) P.push([xj(j) + TW - 1, Y(lv(j) - TR)], [xj(j) + TW + 1, Y(e)], [296, Y(0.5)], [300, Y(0.5)], [302, Y(-1.2)], [X1, Y(-1.2)]);
+    else P.push([xj(j) + TW - 1, Y(lv(j) - TR)], [xj(j) + TW + 1, Y(e)]);
+  }
+  const eg = c.createLinearGradient(0, Y(1), 0, Y(-8)); eg.addColorStop(0, '#85653f'); eg.addColorStop(1, '#3a2a22');
+  c.fillStyle = eg; c.beginPath(); curve(c, P); c.lineTo(X1, BOT); c.lineTo(X0, BOT); c.closePath(); c.fill();
+  c.strokeStyle = '#5f9c45'; c.lineWidth = 4.5; c.beginPath(); curve(c, P); c.stroke();
+  c.strokeStyle = 'rgba(190,230,140,.55)'; c.lineWidth = 1.4; c.save(); c.translate(0, -1.6); c.beginPath(); curve(c, P); c.stroke(); c.restore();
+  // polder side: little farm and tulips on the low ground
+  tulips(c, 8, 36, Y(lv(0) + E), t);
+  // chutes, mills
+  for (let i = 0; i < n; i++) {
+    const A = [xj(i) + 10, Y(lv(i) - 0.3)], B = [xj(i + 1) + 8, Y(lv(i + 1) + 0.15)];
+    c.strokeStyle = '#6e4f30'; c.lineWidth = 6; c.beginPath(); c.moveTo(...A); c.lineTo(...B); c.stroke();
+    c.strokeStyle = '#a98254'; c.lineWidth = 3; c.beginPath(); c.moveTo(...A); c.lineTo(...B); c.stroke();
+    c.fillStyle = 'rgba(175,225,255,.95)';
+    for (let k = 0; k < 4; k++) { const u = (t * 0.6 + k / 4 + i * 0.13) % 1; c.beginPath(); c.arc(lerp(A[0], B[0], u), lerp(A[1], B[1], u) - 1.3, 1.9, 0, 7); c.fill(); }
+  }
+  for (let i = 0; i < n; i++) windmill(c, xj(i) + 32, Y(lv(i) + E), 0.72, S.ang + i * 0.7);
+  if (!asking && !done && n < 5) { // the next place, waiting for a mill
+    const gx = xj(n) + 32, gy = Y(lv(n) + E), pulse = 0.35 + 0.15 * Math.sin(t * 3);
+    windmill(c, gx, gy, 0.72, 0.4, pulse);
+    c.fillStyle = 'rgba(255,255,255,.85)'; c.beginPath(); c.arc(gx, gy - 52, 8, 0, 7); c.fill();
+    c.fillStyle = '#0a0c14'; c.font = `900 ${14}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('+', gx, gy - 51.5);
+  }
+  // levels: depth arrow, one step bracket
+  const dx = 332; c.strokeStyle = '#fff'; c.lineWidth = 1.6; c.beginPath(); c.moveTo(dx, Y(0)); c.lineTo(dx, Y(-D)); c.stroke();
+  [[Y(0), 1], [Y(-D), -1]].forEach(([yy, d]) => { c.fillStyle = '#fff'; c.beginPath(); c.moveTo(dx, yy); c.lineTo(dx - 4, yy + 7 * d); c.lineTo(dx + 4, yy + 7 * d); c.closePath(); c.fill(); });
+  tag(c, s, `${fm(D)} m`, dx - 6, Y(-D / 2), 'right');
+  if (asking) {
+    const bx = 8; c.strokeStyle = '#ffd58a'; c.lineWidth = 1.8; c.beginPath(); c.moveTo(bx, Y(lv(0))); c.lineTo(bx, Y(lv(1))); c.stroke();
+    [[Y(lv(0)), 1], [Y(lv(1)), -1]].forEach(([yy, d]) => { c.fillStyle = '#ffd58a'; c.beginPath(); c.moveTo(bx, yy); c.lineTo(bx - 3.5, yy + 6 * d); c.lineTo(bx + 3.5, yy + 6 * d); c.closePath(); c.fill(); });
+    tag(c, s, T[lang].m.lift, bx + 8, Y(lv(0) + LIFT / 2) - 6);
+  }
+  const L = T[lang].lbl; tag(c, s, L.canal, 304, Y(0) - 16); tag(c, s, L.polder, 6, Y(lv(0) + E) + 20);
+  c.restore();
+}
+
+// --- the clock: water levels, mills, storm -------------------------------------------------------------------------
+function pumpCase() {
+  if (S.pPick === null) return 'ask';
+  if (!S.pTouched) return 'verdict';
+  const flooded = S.L1 > fieldOf() + 0.02;
+  if (S.mill) return S.L1 <= ditchOf() + 0.05 ? 'ok' : 'pump';
+  return flooded ? 'flood' : S.rain ? 'fill' : 'fillDry';
+}
+function tick(dt) {
+  const v = lab.view;
+  S.ang += dt * ((v === 'pump' && S.pPick !== null && S.mill) || v === 'storm' || (v === 'mills' && S.mN > 0) ? 1.6 : 0.2);
+  if (v === 'pump' && S.pPick !== null) {
+    S.L1 = clamp(S.L1 + (0.04 + (S.rain ? 0.14 : 0) - (S.mill ? 0.2 : 0)) * dt, ditchOf(), -0.8);
+    const k = `${S.pPick}|${pumpCase()}`;
+    if (k !== S.key) { S.key = k; render(); }
+  }
+  if (v === 'mills' && S.auto) {
+    S.autoT += dt;
+    if (S.autoT > 0.75) { S.autoT = 0; const need = needOf(S.mD); if (S.mN < need) { S.mN++; sfx.tick(); } if (S.mN >= need) { S.auto = false; sfx.good(); } render(); }
+  }
+  if (v === 'storm') {
+    if (S.ph === 'run') { S.k = Math.min(1, S.k + dt / 4); if (S.k >= 1) finishStorm(); }
+    else if (S.ph === 'set') S.k = Math.max(0, S.k - dt / 1.2);
+    if (!S.afs) {
+      let inflow = 0.04 - 0.2;
+      if (S.floodT > 0) { S.floodT -= dt; inflow += 0.6; }
+      S.L3 = clamp(S.L3 + inflow * dt, -4.5, -1.0);
+    }
+  }
+  if ((S.ro += dt) > 0.12) { S.ro = 0; readout(); }
+}
+const stormCrest = () => { const hw = 0.5 + 0.2 * S.sg; return { hw, crest100: Math.round((S.sg + hw) * 100) }; };
+function finishStorm() {
+  const { hw, crest100 } = stormCrest(), dk100 = Math.round((S.afs ? 7.25 : S.dk) * 100), dry = dk100 >= crest100, need = Math.ceil(crest100 / 25) * 25 / 100;
+  S.ph = 'done'; S.res = { dry, hw, need, exact: dry && dk100 === Math.round(need * 100) };
+  if (!dry) S.floodT = 5;
+  (dry ? sfx.good : sfx.bad)(); render();
+}
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  tick(dt);
+  if (lab.view === 'mills') drawChain(c, w, h, time); else drawSection(c, w, h, time);
+});
+
+// --- controls ------------------------------------------------------------------------------------------------
+const showStage = () => { const r = $('stage').getBoundingClientRect(); if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+const goView = (v) => $('views').querySelector(`[data-view="${v}"]`)?.click();
+function resetPump() { S.L1 = ditchOf(); S.mill = false; S.rain = true; S.pTouched = false; S.key = ''; }
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const a = b.dataset.act;
+  if (a === 'ppick') { if (S.pPick !== null) return; S.pPick = +b.dataset.i; S.pTouched = false; S.key = ''; (S.pPick === PRED_P ? sfx.good : sfx.bad)(); showStage(); }
+  else if (a === 'rain') { S.rain = !S.rain; S.pTouched = true; sfx.click(); }
+  else if (a === 'mill') { S.mill = !S.mill; S.pTouched = true; sfx.click(); }
+  else if (a === 'preset') { resetPump(); S.pTouched = true; sfx.click(); }
+  else if (a === 'mpick') {
+    if (S.mPick !== null) return; S.mPick = +b.dataset.i; S.mV = true; S.mN = 0; S.auto = true; S.autoT = 0.3;
+    (S.mPick === needOf(4.5) ? sfx.good : sfx.bad)(); showStage();
+  } else if (a === 'dep') { S.mD = +b.dataset.d; S.mN = 0; S.auto = false; S.mV = false; sfx.click(); }
+  else if (a === 'madd') { S.auto = false; S.mV = false; if (S.mN < needOf(S.mD)) { S.mN++; sfx.snap(); } }
+  else if (a === 'mrem') { S.auto = false; S.mV = false; if (S.mN > 0) { S.mN--; sfx.tick(); } }
+  else if (a === 'mclr') { S.auto = false; S.mV = false; S.mN = 0; sfx.click(); }
+  else if (a === 'storm') { if (S.ph === 'run') return; S.ph = 'run'; S.k = 0; S.res = null; sfx.push(); showStage(); }
+  else if (a === 'again') { S.ph = 'set'; S.res = null; sfx.click(); }
+  else if (a === 'sec') {
+    const k = b.dataset.k;
+    if (!secret.unlocked()) return secret.open();
+    const target = k === 'low' ? 'pump' : 'storm', here = lab.view === target;
+    if (k === 'low') { S.low = here ? !S.low : true; resetPump(); S.pTouched = S.pPick !== null; }
+    else { S.afs = here ? !S.afs : true; S.ph = 'set'; S.res = null; S.k = 0; S.L3 = -4.5; S.floodT = 0; }
+    sfx.click();
+    if (!here) { goView(target); return; }
+  }
+  render();
+});
+$('svI').addEventListener('input', (ev) => { S.sg = +ev.target.value; if (S.ph !== 'set') { S.ph = 'set'; S.res = null; } render(); });
+$('dkI').addEventListener('input', (ev) => { S.dk = +ev.target.value; if (S.ph !== 'set') { S.ph = 'set'; S.res = null; } render(); });
+
+// --- one render per change ---------------------------------------------------------------------------------------
+const secChips = (t) => ['low', 'afs'].map((k) => {
+  const open = secret.unlocked(), on = k === 'low' ? S.low : S.afs, emo = k === 'low' ? '🕳️' : '🛣️';
+  return `<button class="chip pd-chip secret ${open ? 'open' : ''} ${open && on ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${emo} ${esc(t.secrets[k][0])}` : '🔒 ???'}</button>`;
+}).join('');
+function render() {
+  const t = T[lang], v = lab.view;
+  $('vPump').hidden = v !== 'pump'; $('vMills').hidden = v !== 'mills'; $('vStorm').hidden = v !== 'storm';
+  $('secChips').innerHTML = secChips(t);
+  $('pdFine').textContent = v === 'mills' ? t.m.body : v === 'storm' ? t.s.setBody : '';
+  if (v === 'pump') renderPump(t); else if (v === 'mills') renderMills(t); else renderStorm(t);
+}
+function readout() {
+  const t = T[lang], v = lab.view;
+  if (v === 'pump') {
+    if (S.pPick === null) lab.setReadout('?', t.p.askSub(-fieldOf()), '', '#4ea8d8');
+    else lab.setReadout(`${fm(S.L1)} m`, t.p.readSub, S.L1 > fieldOf() + 0.02 ? t.p.flooded : t.p.dry, '#4ea8d8');
+  } else if (v === 'mills') {
+    const need = needOf(S.mD);
+    if (S.mPick === null) lab.setReadout('?', t.m.sub(2), '', '#e0b050');
+    else lab.setReadout(S.mN, t.m.sub(S.mN), S.mN >= need ? t.m.okP : t.m.shortP(S.mD - S.mN * LIFT), '#e0b050');
+  } else {
+    const dk = S.afs ? 7.25 : S.dk, e = ease(S.k);
+    lab.setReadout(`+${fm(dk)} m`, t.s.readSub, S.ph === 'set' ? t.s.pillSet(S.sg) : S.ph === 'run' ? t.s.pillRun : S.res?.dry ? t.s.pillDry : t.s.pillWet, e > 0.5 ? '#d9825f' : '#6fb36f');
+  }
+}
+function renderPump(t) {
+  const p = t.p, c = pumpCase(), asking = S.pPick === null;
+  lab.setGlow('rgba(78, 168, 216, .28)');
+  const d = -fieldOf();
+  $('pAsk').innerHTML = `<p class="pd-q">${esc(p.q(d))}</p><div class="pd-opts">${p.opts.map((o, i) => `<button class="pd-opt ${!asking && i === PRED_P ? 'good' : !asking && i === S.pPick ? 'bad' : ''}" data-act="ppick" data-i="${i}" ${asking ? '' : 'disabled'}>${esc(o)}</button>`).join('')}</div>`;
+  $('pRun').hidden = asking;
+  $('pChips').innerHTML = `<button class="chip pd-chip ${S.rain ? 'on' : ''}" data-act="rain">🌧️ ${esc(`${t.rainL}: ${S.rain ? t.on : t.off}`)}</button>
+    <button class="chip pd-chip ${S.mill ? 'on' : ''}" data-act="mill">🌬️ ${esc(`${t.millL}: ${S.mill ? t.on : t.off}`)}</button>
+    <button class="chip pd-chip" data-act="preset">${esc(p.reset)}</button>`;
+  let st, body = '';
+  if (c === 'ask') st = { emo: '🤔', title: p.t0, lead: p.lead };
+  else if (c === 'verdict') { const r = S.pPick === PRED_P ? p.right : S.pPick === 0 ? p.w0 : p.w1; st = { emo: S.pPick === PRED_P ? '✅' : '🤔', title: r[0], lead: r[1] }; body = p.next; }
+  else { const e = { fill: '🌧️', fillDry: '⏳', flood: '🌊', pump: '🌬️', ok: '🌷' }[c]; st = { emo: e, title: p[c][0], lead: p[c][1] }; body = p.body; }
+  if (S.low && c !== 'ask') body = `${t.low[1]} ${body}`;
+  lab.setState({ ...st, body, extra: '' });
+  lab.setFacts(asking ? [] : S.low ? t.facts.low : t.facts.p);
+  readout();
+}
+function renderMills(t) {
+  const m = t.m, asking = S.mPick === null, D = S.mD, need = needOf(D), n = S.mN, right = needOf(4.5);
+  lab.setGlow('rgba(224, 176, 80, .26)');
+  $('mAsk').innerHTML = `<p class="pd-q">${esc(m.q(4.5))}</p><div class="pd-nums">${[1, 2, 3, 4].map((i) => `<button class="pd-opt ${!asking && i === right ? 'good' : !asking && i === S.mPick ? 'bad' : ''}" data-act="mpick" data-i="${i}" ${asking ? '' : 'disabled'}>${i}</button>`).join('')}</div>`;
+  $('mRun').hidden = asking;
+  $('mDepL').textContent = m.depthL;
+  $('mDep').innerHTML = [3, 4.5, 6.7].map((d) => `<button class="chip pd-chip ${d === D ? 'on' : ''}" data-act="dep" data-d="${d}">${esc(fm(d))} m</button>`).join('');
+  $('mAdd').textContent = m.add; $('mRem').textContent = m.rem; $('mClr').textContent = m.clear;
+  $('mAdd').disabled = n >= need; $('mRem').disabled = n <= 0; $('mClr').disabled = n <= 0;
+  let st, body = '';
+  if (asking) st = { emo: '🤔', title: m.t0, lead: m.lead };
+  else if (S.mV) { const r = S.mPick === right ? m.right(right) : m.wrong(right); st = { emo: S.mPick === right ? '✅' : '🤔', title: r[0], lead: r[1] }; }
+  else if (n === 0) st = { emo: '🌬️', title: m.zero[0], lead: m.zero[1] };
+  else if (n < need) { const r = m.part(n, D - n * LIFT); st = { emo: '🌬️', title: r[0], lead: r[1] }; }
+  else { const r = m.done(n, D); st = { emo: '🎉', title: r[0], lead: r[1] }; if (n * LIFT > D + 1e-9) body = m.over(D - (n - 1) * LIFT); }
+  lab.setState({ ...st, body, extra: '' });
+  lab.setFacts(asking ? [] : t.facts.m);
+  readout();
+}
+function renderStorm(t) {
+  const s = t.s, afs = S.afs, dk = afs ? 7.25 : S.dk;
+  lab.setGlow('rgba(217, 130, 95, .26)');
+  $('svL').textContent = s.surge; $('svV').textContent = `+${fm(S.sg)} m`; $('dkL').textContent = s.dike; $('dkV').textContent = `+${fm(dk)} m`;
+  $('svI').value = S.sg; $('dkI').value = dk; $('dkI').disabled = afs;
+  $('sGo').textContent = S.ph === 'done' ? s.again : s.go; $('sGo').dataset.act = S.ph === 'done' ? 'again' : 'storm'; $('sGo').disabled = S.ph === 'run';
+  let st, body = '';
+  if (S.ph === 'set') st = afs ? { emo: '🛣️', title: s.afs[0], lead: s.afs[1] } : { emo: '🏗️', title: s.set[0], lead: s.set[1] };
+  else if (S.ph === 'run') st = { emo: '🌊', title: s.run[0], lead: s.run[1] };
+  else if (!S.res.dry) st = { emo: '🌊', title: s.flood[0], lead: s.flood[1] };
+  else if (afs) st = { emo: '🛣️', title: s.afsDry[0], lead: s.afsDry[1] };
+  else { const r = S.res.exact ? s.lowest(S.sg, S.res.hw) : s.dryHigh; st = { emo: S.res.exact ? '🏆' : '✅', title: r[0], lead: r[1] }; }
+  if (afs && S.ph === 'set') body = s.afs[2];
+  lab.setState({ ...st, body, extra: '' });
+  lab.setFacts(afs ? t.facts.afs : t.facts.s);
+  readout();
+}
+render();
+</script>
+</body>
+</html>
