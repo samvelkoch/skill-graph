@@ -1,0 +1,828 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Animal Champions · Skill Graph</title>
+<meta name="description" content="Line up the biggest animals next to a bus, race a car against a cheetah and weigh a tiny bird on a kitchen scale. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  .ar-q { margin: 0 0 8px; font-weight: 800; font-size: 14.5px; color: var(--ink); line-height: 1.3; }
+  .ar-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+  .ar-row:first-child { margin-top: 0; }
+  .ar-opt { min-height: 40px; padding: 8px 16px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    color: var(--ink); font: 800 14px var(--sans); cursor: pointer; }
+  .ar-opt:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .ar-opt.on { background: #fff; color: var(--bg); border-color: #fff; }
+  .ar-opt.good { background: var(--ok); color: #0a1a12; border-color: var(--ok); }
+  .ar-opt.bad { background: var(--wip); color: #241b05; border-color: var(--wip); }
+  .ar-opt:disabled { cursor: default; opacity: .6; }
+  .ar-opt.good:disabled, .ar-opt.bad:disabled { opacity: 1; }
+  .btn:disabled { opacity: .35; cursor: default; }
+  .ar-chip { min-height: 36px; }
+  .chip:disabled { opacity: .4; cursor: default; }
+  .ar-fine { font-size: 12.5px; color: var(--soft); line-height: 1.4; }
+  .ar-fine b { color: #fff; }
+  @media (max-width: 760px) {
+    #stage { height: min(100vw, 440px); }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, ruPlural, lang } from '../lab.js';
+
+// --- numbers (all speeds in km/h, lengths in m, masses in g) -----------------------------------------------
+const KMH = { cheetah: 93, car: 50, horse: 44, child: 15, falcon: 184 }; // cheetah: GPS-collar top speed in the wild; car: a town speed limit; horse: middle of the 40-48 gallop range; child: illustrative; falcon: highest reliably measured dive
+const SPRINT = 300;            // m: the middle of the 200-400 m a cheetah can sprint (illustrative)
+const BUS = 12, CHILD = 1.2;   // m (a city bus is 12 m; the child is about 1.2 m: illustrative)
+const COIN = 2.268;            // g: a small coin (2.268 g)
+const MASS = { male: 1.95, female: 2.6, shrew: 1.8 };      // g
+const LEN = { male: 55, female: 61, shrew: 60 };            // mm drawn: bird 5.5 / 6.1 cm; shrew body about 4 cm plus tail
+const ANI = [
+  { id: 'whale', m: 30, kind: 'l', unit: 'bus', emo: '🐋' },
+  { id: 'giraffe', m: 5.7, kind: 't', unit: 'child', emo: '🦒' },
+  { id: 'elephant', m: 3.96, kind: 't', unit: 'child', emo: '🐘' },
+  { id: 'croc', m: 6.3, kind: 'l', unit: 'bus', emo: '🐊' },
+];
+const REAL = ANI.map((_, i) => i).sort((a, b) => ANI[b].m - ANI[a].m); // indexes, biggest first
+const MS = (k) => k / 3.6;      // km/h -> m/s
+const hv = (n2) => `${Math.floor(n2 / 2) || ''}${n2 % 2 ? '½' : ''}`; // halves: 5 -> 2½
+const nf = (x, d = 1) => { const s = String(+x.toFixed(d)); return lang === 'en' ? s : s.replace('.', ','); };
+const nt = (x) => nf(x, x < 10 ? 1 : 0);
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'Animal Champions', title: 'Animal Champions',
+    lines: [['Put the big animals', 'in order.'], ['Race a car, a horse,', 'a cheetah and a child.'], ['Weigh a tiny animal', 'on a kitchen scale.']],
+    views: { big: '📏 Big', fast: '🏁 Fast', tiny: '⚖️ Tiny' },
+    m: 'm', kmh: 'km/h', g: 'g', s: 's',
+    ani: { whale: ['Blue whale', 'Blue whale'], giraffe: ['Giraffe', 'Giraffe'], elephant: ['Elephant', 'African elephant'], croc: ['Crocodile', 'Saltwater crocodile'] },
+    right: 'Right!', notq: 'Not quite.',
+    big: {
+      ask: 'Longest or tallest first: drag the animals!', title: 'Put them in order',
+      lead: 'Drag the cards, or tap two cards to swap them. The longest or tallest goes first.', body: 'All four cards are the same size on purpose: what do you think?',
+      show: 'Show real sizes', bus: 'bus 12 m', child: 'child', in: { bus: 'in buses', child: 'in children' },
+      size: (m, k) => `up to ${m} m ${k === 'l' ? 'long' : 'tall'}`,
+      allOk: 'All four are in the right place.', some: (k) => `${k} of 4 are in the right place.`, order: (s) => `Real order: ${s}.`,
+      cmp: (u, n2) => u === 'bus' ? (n2 === 1 ? 'About half a bus long.' : `About ${hv(n2)} ${n2 === 2 ? 'bus' : 'buses'} end to end.`)
+        : `As tall as about ${hv(n2)} ${n2 === 2 ? 'child' : 'children'} standing on each other’s shoulders.`,
+      calf: 'Newborn', calfT: 'Tall from day one', calfL: 'A newborn giraffe is 1.7–2 m tall. The child next to it is about 1.2 m.', calfB: 'Taller than the child on its very first day!', calfLbl: 'newborn 1.7–2 m',
+    },
+    fast: {
+      lane: { child: 'Child', horse: 'Horse', car: 'Car', cheetah: 'Cheetah', falcon: 'Falcon' },
+      q1: 'Who reaches the flag first: the car or the cheetah?', q2: 'Now a long race, 1 km. Who wins this time?', car: 'The car', cheetah: 'The cheetah',
+      run: '▶ Run', long: '1 km race', short: '↺ 100 m', again: '↺ Again', falcon: 'Falcon', d100: '100 m', d1000: '1 km',
+      ready: 'Ready…', go: 'Go!', watch: 'Watch the lanes.', note: 'Each one runs at a steady speed: a simplified race.',
+      list: (a) => a.join(' · '), speeds: (c, k, h, ch) => `Speeds: cheetah ${c} km/h (measured in the wild), car ${k} km/h (a town speed limit), horse gallop about ${h} km/h, a running child about ${ch} km/h (illustrative).`,
+      carWins: (t) => `The car wins: ${t} s for 1 km.`, stopped: (d) => `The cheetah ran about ${d} m, then it stopped, exhausted.`,
+      tired: 'A cheetah can sprint only 200 to 400 m, then it must rest. We use 300 m: illustrative.',
+      fT: 'Falcon dive', fL: 'A peregrine falcon in a dive races the cheetah over 100 m. The dive speed is the highest reliably measured: illustrative race.',
+      fR: (a, b) => `Over 100 m: falcon ${a} s, cheetah ${b} s.`, fB: 'A dive is not a flat race, so this is only for fun.',
+    },
+    tiny: {
+      q: 'The bee hummingbird is the smallest bird. It weighs about as much as…', opts: { apple: 'an apple', coin: 'a small coin', rice: 'a grain of rice' },
+      weigh: '⚖️ Put it on the scale', title: 'Guess its weight', lead: 'The scale is empty. Choose one, then weigh the bird.',
+      who: { male: 'Male bird', female: 'Female bird', shrew: 'Shrew' }, name: { male: 'Bee hummingbird, male', female: 'Bee hummingbird, female', shrew: 'Etruscan shrew' },
+      coin: 'small coin', in: 'on the scale', len: { male: 'About 5.5 cm long.', female: 'About 6.1 cm long.', shrew: 'Body 3 to 5.2 cm without the tail.' },
+      lt: 'a little less than', gt: 'a little more than',
+      lead2: (n, m, rel, c) => `${n}: ${m} g. That is ${rel} the small coin (${c} g).`, smallest: { male: 'The smallest bird in the world.', female: 'The smallest bird in the world.', shrew: 'The smallest mammal by mass.' },
+    },
+    facts: {
+      whale: ['The heart of a stranded blue whale weighed 180 kg, the largest heart known in any animal.', 'A newborn blue whale calf gains about 90 kg every day.'],
+      giraffe: ['A newborn giraffe is already 1.7–2 m tall.', 'A giraffe’s neck can be up to 2.4 m long.'],
+      elephant: ['Fully grown males are about 3.2 m tall at the shoulder. The largest well-measured bull was 3.96 m.', 'The African elephant is the largest living land animal.'],
+      croc: ['The largest one confirmed was estimated at 6.3 m, from its dried skin and head.', 'It is the largest living reptile.'],
+      cheetah: ['One stride of a galloping cheetah is 4 to 7 m long, and it takes about 4 strides a second.', 'It can go from 0 to 97 km/h in less than 3 seconds.'],
+      horse: ['A galloping horse averages about 40 to 48 km/h.'],
+      chase: ['In a 2013 study of cheetah hunts, chases averaged 173 m. The longest run measured was 559 m.'],
+      falcon: ['One 2005 recording reported a dive of 389 km/h. The highest speed measured reliably is 184 km/h.', 'Some sources say a peregrine can pass 320 km/h in a dive.'],
+      hummer: ['It beats its wings 80 to 200 times per second.', 'Its eggs are the size of a coffee bean, in a nest about 2.5 cm across.'],
+      shrew: ['Its heart can beat up to 1511 times a minute.', 'Usually it weighs about 1.8 g, between 1.3 and 2.5 g.'],
+    },
+    secrets: { fal: ['Falcon dive', 'A bird in a dive races the cheetah'], calf: ['Newborn giraffe', 'How tall is a giraffe on its first day?'] },
+    quiz: [
+      { q: 'The biggest animal that has ever lived is…', opts: ['the African elephant', 'the blue whale', 'Tyrannosaurus'], ok: 1, hint: 'Look at Big.' },
+      { q: 'A cheetah can run at top speed…', opts: ['only for a short sprint', 'all day long', 'never'], ok: 0, hint: 'Try the long race.' },
+      { q: 'To understand how big a whale is, it helps to…', opts: ['look at its colour', 'count its flippers', 'compare it with a bus'], ok: 2, hint: 'See how the street helped.' },
+    ],
+  },
+  ru: {
+    name: 'Чемпионы среди зверей', title: 'Чемпионы среди зверей',
+    lines: [['Расставь больших зверей', 'по порядку.'], ['Устрой гонку: машина, лошадь,', 'гепард и ребёнок.'], ['Взвесь крошечное животное', 'на кухонных весах.']],
+    views: { big: '📏 Рост', fast: '🏁 Бег', tiny: '⚖️ Малыши' },
+    m: 'м', kmh: 'км/ч', g: 'г', s: 'с',
+    ani: { whale: ['Синий кит', 'Синий кит'], giraffe: ['Жираф', 'Жираф'], elephant: ['Слон', 'Африканский слон'], croc: ['Крокодил', 'Гребнистый крокодил'] },
+    right: 'Верно!', notq: 'Не совсем.',
+    big: {
+      ask: 'Самый длинный или высокий — первым: перетащи зверей!', title: 'Расставь по порядку',
+      lead: 'Перетащи карточки или нажми на две, чтобы поменять их местами. Самый длинный или высокий — первым.', body: 'Все четыре карточки одинакового размера нарочно: как думаешь?',
+      show: 'Показать настоящие размеры', bus: 'автобус 12 м', child: 'ребёнок', in: { bus: 'в автобусах', child: 'в детях' },
+      size: (m, k) => `до ${m} м ${k === 'l' ? 'в длину' : 'в высоту'}`,
+      allOk: 'Все четверо стоят на своих местах.', some: (k) => `На своих местах: ${k} из 4.`, order: (s) => `Настоящий порядок: ${s}.`,
+      cmp: (u, n2) => {
+        const fr = n2 % 2, n = Math.floor(n2 / 2);
+        return u === 'bus' ? (n2 === 1 ? 'Примерно пол-автобуса в длину.' : `Примерно ${hv(n2)} ${fr ? 'автобуса' : ruPlural(n, 'автобус', 'автобуса', 'автобусов')} подряд.`)
+          : `Высота — около ${hv(n2)} ${fr ? 'ребёнка' : ruPlural(n, 'ребёнок', 'ребёнка', 'детей')}, стоящих друг на друге.`;
+      },
+      calf: 'Малыш', calfT: 'Высокий с первого дня', calfL: 'Новорождённый жирафёнок ростом 1,7–2 м. Ребёнок рядом с ним — около 1,2 м.', calfB: 'Выше ребёнка уже в первый день жизни!', calfLbl: 'малыш 1,7–2 м',
+    },
+    fast: {
+      lane: { child: 'Ребёнок', horse: 'Лошадь', car: 'Машина', cheetah: 'Гепард', falcon: 'Сапсан' },
+      q1: 'Кто первым добежит до флажка: машина или гепард?', q2: 'Теперь длинная гонка, 1 км. Кто победит на этот раз?', car: 'Машина', cheetah: 'Гепард',
+      run: '▶ Старт', long: 'Гонка на 1 км', short: '↺ 100 м', again: '↺ Ещё раз', falcon: 'Сапсан', d100: '100 м', d1000: '1 км',
+      ready: 'На старт…', go: 'Вперёд!', watch: 'Следи за дорожками.', note: 'Каждый бежит с постоянной скоростью: гонка упрощена.',
+      list: (a) => a.join(' · '), speeds: (c, k, h, ch) => `Скорости: гепард ${c} км/ч (измерено в природе), машина ${k} км/ч (ограничение скорости в городе), лошадь в галопе около ${h} км/ч, бегущий ребёнок около ${ch} км/ч (для примера).`,
+      carWins: (t) => `Побеждает машина: ${t} с на 1 км.`, stopped: (d) => `Гепард пробежал около ${d} м и остановился без сил.`,
+      tired: 'Гепард может мчаться только 200–400 м, потом ему нужен отдых. Мы взяли 300 м: это для примера.',
+      fT: 'Пике сапсана', fL: 'Сапсан в пикировании соревнуется с гепардом на 100 м. Скорость пике — самая высокая из надёжно измеренных: гонка для примера.',
+      fR: (a, b) => `На 100 м: сапсан ${a} с, гепард ${b} с.`, fB: 'Пике — не гонка по ровной земле, так что это просто для интереса.',
+    },
+    tiny: {
+      q: 'Колибри-пчёлка — самая маленькая птица. Она весит примерно как…', opts: { apple: 'яблоко', coin: 'маленькая монета', rice: 'рисинка' },
+      weigh: '⚖️ Положить на весы', title: 'Угадай вес', lead: 'Весы пусты. Выбери ответ, а потом взвесь птичку.',
+      who: { male: 'Самец', female: 'Самка', shrew: 'Белозубка' }, name: { male: 'Колибри-пчёлка, самец', female: 'Колибри-пчёлка, самка', shrew: 'Карликовая многозубка' },
+      coin: 'маленькая монета', in: 'на весах', len: { male: 'Длина около 5,5 см.', female: 'Длина около 6,1 см.', shrew: 'Тело 3–5,2 см без хвоста.' },
+      lt: 'чуть легче, чем', gt: 'чуть тяжелее, чем',
+      lead2: (n, m, rel, c) => `${n}: ${m} г. Это ${rel} маленькая монета (${c} г).`, smallest: { male: 'Самая маленькая птица в мире.', female: 'Самая маленькая птица в мире.', shrew: 'Самое маленькое млекопитающее по массе.' },
+    },
+    facts: {
+      whale: ['Сердце выбросившегося на берег синего кита весило 180 кг — самое большое сердце среди всех животных.', 'Новорождённый китёнок набирает около 90 кг в день.'],
+      giraffe: ['Новорождённый жирафёнок уже ростом 1,7–2 м.', 'Шея жирафа может быть длиной до 2,4 м.'],
+      elephant: ['Взрослые самцы в холке около 3,2 м. Самый крупный хорошо измеренный самец — 3,96 м.', 'Африканский слон — самое большое из живущих наземных животных.'],
+      croc: ['Самый крупный подтверждённый крокодил, по оценке по высушенной коже и голове, был длиной 6,3 м.', 'Это самая большая из живущих рептилий.'],
+      cheetah: ['Один прыжок мчащегося гепарда — от 4 до 7 м, а за секунду он делает примерно 4 прыжка.', 'Он разгоняется с 0 до 97 км/ч меньше чем за 3 секунды.'],
+      horse: ['Лошадь в галопе в среднем бежит со скоростью 40–48 км/ч.'],
+      chase: ['В исследовании 2013 года погони гепарда за добычей в среднем занимали 173 м. Самая длинная измеренная пробежка — 559 м.'],
+      falcon: ['В одной записи 2005 года сообщалось о пике со скоростью 389 км/ч. Самая высокая надёжно измеренная скорость — 184 км/ч.', 'По некоторым данным, сапсан в пике может превысить 320 км/ч.'],
+      hummer: ['Крыльями она машет 80–200 раз в секунду.', 'Её яйца размером с кофейное зёрнышко, а гнездо — около 2,5 см в поперечнике.'],
+      shrew: ['Её сердце может биться до 1511 раз в минуту.', 'Обычно она весит около 1,8 г, от 1,3 до 2,5 г.'],
+    },
+    secrets: { fal: ['Пике сапсана', 'Птица в пикировании против гепарда'], calf: ['Жирафёнок', 'Какого роста жирафёнок в первый день?'] },
+    quiz: [
+      { q: 'Самое большое животное, которое когда-либо жило на Земле, — это…', opts: ['африканский слон', 'синий кит', 'тираннозавр'], ok: 1, hint: 'Посмотри на вкладку «Рост».' },
+      { q: 'Гепард может бежать с максимальной скоростью…', opts: ['только короткий рывок', 'целый день', 'никогда'], ok: 0, hint: 'Попробуй длинный забег.' },
+      { q: 'Чтобы понять, какой большой кит, полезно…', opts: ['посмотреть на его цвет', 'сосчитать его ласты', 'сравнить его с автобусом'], ok: 2, hint: 'Посмотри, как помогла улица.' },
+    ],
+  },
+  hu: {
+    name: 'Állatbajnokok', title: 'Állatbajnokok',
+    lines: [['Állítsd sorba a nagy', 'állatokat.'], ['Versenyeztess autót, lovat,', 'gepárdot és gyereket.'], ['Mérj meg egy apró állatot', 'a konyhai mérlegen.']],
+    views: { big: '📏 Nagy', fast: '🏁 Gyors', tiny: '⚖️ Pici' },
+    m: 'm', kmh: 'km/h', g: 'g', s: 'mp',
+    ani: { whale: ['Kék bálna', 'Kék bálna'], giraffe: ['Zsiráf', 'Zsiráf'], elephant: ['Elefánt', 'Afrikai elefánt'], croc: ['Krokodil', 'Bordás krokodil'] },
+    right: 'Így van!', notq: 'Nem egészen.',
+    big: {
+      ask: 'A leghosszabb vagy legmagasabb legyen elöl: húzd az állatokat!', title: 'Állítsd sorba őket',
+      lead: 'Húzd a kártyákat, vagy koppints kettőre, hogy helyet cseréljenek. A leghosszabb vagy legmagasabb legyen elöl.', body: 'A négy kártya szándékosan egyforma méretű: mit gondolsz?',
+      show: 'Mutasd a valódi méreteket', bus: 'busz 12 m', child: 'gyerek', in: { bus: 'buszban', child: 'gyerekben' },
+      size: (m, k) => `legfeljebb ${m} m ${k === 'l' ? 'hosszú' : 'magas'}`,
+      allOk: 'Mind a négy a helyén van.', some: (k) => `${k} a 4-ből a helyén van.`, order: (s) => `A valódi sorrend: ${s}.`,
+      cmp: (u, n2) => u === 'bus' ? (n2 === 1 ? 'Körülbelül fél busz hosszú.' : `Körülbelül ${hv(n2)} busz hosszú egymás után.`)
+        : `Annyi magas, mint körülbelül ${hv(n2)} gyerek egymás vállán állva.`,
+      calf: 'Újszülött', calfT: 'Az első naptól magas', calfL: 'Az újszülött zsiráf 1,7–2 m magas. A mellette álló gyerek körülbelül 1,2 m.', calfB: 'Már az első napján magasabb, mint a gyerek!', calfLbl: 'újszülött 1,7–2 m',
+    },
+    fast: {
+      lane: { child: 'Gyerek', horse: 'Ló', car: 'Autó', cheetah: 'Gepárd', falcon: 'Sólyom' },
+      q1: 'Ki ér előbb a zászlóhoz: az autó vagy a gepárd?', q2: 'Most egy hosszú futam, 1 km. Ki nyer ezúttal?', car: 'Az autó', cheetah: 'A gepárd',
+      run: '▶ Rajt', long: 'Futam: 1 km', short: '↺ 100 m', again: '↺ Újra', falcon: 'Sólyom', d100: '100 m', d1000: '1 km',
+      ready: 'Vigyázz…', go: 'Rajt!', watch: 'Figyeld a pályákat.', note: 'Mindenki egyenletes sebességgel fut: ez egyszerűsített verseny.',
+      list: (a) => a.join(' · '), speeds: (c, k, h, ch) => `Sebességek: a gepárd ${c} km/h (a vadonban mérve), az autó ${k} km/h (lakott területi sebességhatár), a ló vágtában körülbelül ${h} km/h, egy futó gyerek körülbelül ${ch} km/h (csak példa).`,
+      carWins: (t) => `Az autó nyer: ${t} mp az 1 km-en.`, stopped: (d) => `A gepárd körülbelül ${d} m-t futott, aztán kimerülten megállt.`,
+      tired: 'A gepárd csak 200–400 m-t tud sprintelni, utána pihennie kell. Mi 300 m-rel számolunk: ez csak példa.',
+      fT: 'Sólyom zuhanórepülése', fL: 'A zuhanó vándorsólyom a gepárddal versenyez 100 m-en. A sebesség a legmagasabb megbízhatóan mért érték: példa-verseny.',
+      fR: (a, b) => `100 m-en: a sólyom ${a} mp, a gepárd ${b} mp.`, fB: 'A zuhanás nem sima futam, ezért ez csak játék.',
+    },
+    tiny: {
+      q: 'A méhkolibri a legkisebb madár. Nagyjából annyit nyom, mint…', opts: { apple: 'egy alma', coin: 'egy kis érme', rice: 'egy rizsszem' },
+      weigh: '⚖️ Mérlegre vele', title: 'Tippeld meg a súlyát', lead: 'A mérleg üres. Válassz egyet, aztán mérd meg a madarat.',
+      who: { male: 'Hím', female: 'Tojó', shrew: 'Cickány' }, name: { male: 'Méhkolibri, hím', female: 'Méhkolibri, tojó', shrew: 'Etruszk cickány' },
+      coin: 'kis érme', in: 'a mérlegen', len: { male: 'Körülbelül 5,5 cm hosszú.', female: 'Körülbelül 6,1 cm hosszú.', shrew: 'Teste 3–5,2 cm a farok nélkül.' },
+      lt: 'egy kicsit könnyebb, mint', gt: 'egy kicsit nehezebb, mint',
+      lead2: (n, m, rel, c) => `${n}: ${m} g. Ez ${rel} a kis érme (${c} g).`, smallest: { male: 'A világ legkisebb madara.', female: 'A világ legkisebb madara.', shrew: 'Tömeg szerint a legkisebb emlős.' },
+    },
+    facts: {
+      whale: ['Egy partra sodródott kék bálna szíve 180 kg volt, ez a legnagyobb szív minden állat közül.', 'Az újszülött bálnaborjú naponta körülbelül 90 kg-ot hízik.'],
+      giraffe: ['Az újszülött zsiráf már 1,7–2 m magas.', 'A zsiráf nyaka akár 2,4 m hosszú is lehet.'],
+      elephant: ['A kifejlett hímek marmagassága körülbelül 3,2 m. A legnagyobb jól megmért bika 3,96 m volt.', 'Az afrikai elefánt a legnagyobb élő szárazföldi állat.'],
+      croc: ['A legnagyobb igazolt példányt a kiszárított bőre és feje alapján 6,3 m-esre becsülték.', 'Ez a legnagyobb élő hüllő.'],
+      cheetah: ['A vágtázó gepárd egy ugrása 4–7 m hosszú, és másodpercenként körülbelül 4 ugrást tesz.', 'Kevesebb mint 3 másodperc alatt gyorsul 0-ról 97 km/h-ra.'],
+      horse: ['A vágtázó ló átlagosan 40–48 km/h sebességgel halad.'],
+      chase: ['Egy 2013-as vizsgálatban a gepárd üldözései átlagosan 173 m-esek voltak. A leghosszabb megmért futás 559 m volt.'],
+      falcon: ['Egy 2005-ös felvétel 389 km/h-s zuhanást jelzett. A legmagasabb megbízhatóan mért sebesség 184 km/h.', 'Egyes források szerint a vándorsólyom zuhanás közben meghaladhatja a 320 km/h-t.'],
+      hummer: ['Másodpercenként 80–200-szor csapkod a szárnyával.', 'A tojásai kávészem nagyságúak, a fészke körülbelül 2,5 cm átmérőjű.'],
+      shrew: ['A szíve percenként akár 1511-et is dobbanhat.', 'Általában körülbelül 1,8 g, 1,3 és 2,5 g között.'],
+    },
+    secrets: { fal: ['Sólyom zuhanórepülése', 'Zuhanó madár a gepárd ellen'], calf: ['Újszülött zsiráf', 'Milyen magas egy zsiráf az első napján?'] },
+    quiz: [
+      { q: 'Az eddig élt legnagyobb állat…', opts: ['az afrikai elefánt', 'a kék bálna', 'a Tyrannosaurus'], ok: 1, hint: 'Nézd meg a „Nagy” fület.' },
+      { q: 'A gepárd csúcssebességgel…', opts: ['csak rövid ideig tud futni', 'egész nap tud futni', 'soha nem fut így'], ok: 0, hint: 'Próbáld ki a hosszú futamot.' },
+      { q: 'Hogy megértsük, mekkora egy bálna, segít, ha…', opts: ['megnézzük a színét', 'megszámoljuk az úszóit', 'egy busszal hasonlítjuk össze'], ok: 2, hint: 'Nézd meg, hogyan segített az utca.' },
+    ],
+  },
+};
+const TOPICS = [{ id: 'mt_goZW_hQUa4', en: 'Animal Record-Holders', ru: 'Животные-рекордсмены', hu: 'Állati rekorderek' }];
+const FACTS = {
+  whale: { emo: '🐋', src: 'en.wikipedia.org/wiki/Blue_whale' }, giraffe: { emo: '🦒', src: 'en.wikipedia.org/wiki/Giraffe' },
+  elephant: { emo: '🐘', src: 'en.wikipedia.org/wiki/African_bush_elephant' }, croc: { emo: '🐊', src: 'en.wikipedia.org/wiki/Saltwater_crocodile' },
+  cheetah: { emo: '🐆', src: 'en.wikipedia.org/wiki/Cheetah' }, horse: { emo: '🐎', src: 'en.wikipedia.org/wiki/Horse_gait' },
+  chase: { emo: '🐆', src: 'en.wikipedia.org/wiki/Cheetah' }, falcon: { emo: '🦅', src: 'en.wikipedia.org/wiki/Peregrine_falcon' },
+  hummer: { emo: '🐦', src: 'en.wikipedia.org/wiki/Bee_hummingbird' }, shrew: { emo: '🐭', src: 'en.wikipedia.org/wiki/Etruscan_shrew' },
+};
+const factOf = (key, i) => ({ emo: FACTS[key].emo, text: T[lang].facts[key][i], src: FACTS[key].src });
+
+// --- state (everything is declared before the shell and the draw loop start) ------------------------------
+const S = { order: [2, 0, 1, 3], pos: [0, 1, 2, 3].map(() => ({ x: -1, y: 0 })), tap: null, drag: null, shown: false, revT: 0, sel: REAL[0], slide: 0, calf: false, calfT: 0, ok: 0 };
+const F = { dist: 100, falcon: false, pick: { 100: null, 1000: null }, done: { 100: false, 1000: false, f: false }, seen: false, running: false, reveal: false, t: 0, ph: 0, lastRo: '' };
+const Z = { pick: null, rev: false, who: 'male', birdT: 0, tilt: 0, swapT: 1 };
+const G = { cards: [], L: null }; // card geometry for pointer hits
+let CW = 300, CH = 300, K = 1;
+const ease = (t) => t * t * (3 - 2 * t);
+const c01 = (x) => Math.min(1, Math.max(0, x));
+const key = () => (F.falcon ? 'f' : F.dist);
+const laneIds = () => (F.falcon ? ['falcon', 'horse', 'car', 'cheetah'] : ['child', 'horse', 'car', 'cheetah']);
+const capOf = (id) => (id === 'cheetah' ? Math.min(F.dist, SPRINT) : F.dist);
+const finishT = (id) => (capOf(id) < F.dist ? Infinity : F.dist / MS(KMH[id]));
+const posOf = (id, t) => Math.min(capOf(id), MS(KMH[id]) * t);
+const TF = () => (F.dist === 100 ? 3 : 25); // simulated seconds per second on screen
+const verdictBig = () => S.order.every((id, i) => id === REAL[i]);
+
+// --- drawing helpers ---------------------------------------------------------------------------------------
+const lg = (c, x0, y0, x1, y1, ...st) => { const g = c.createLinearGradient(x0, y0, x1, y1); st.forEach(([o, col]) => g.addColorStop(o, col)); return g; };
+const eye = (c, x, y, r) => { c.fillStyle = '#12141f'; c.beginPath(); c.arc(x, y, r, 0, 7); c.fill(); c.fillStyle = '#fff'; c.beginPath(); c.arc(x - r * .3, y - r * .35, r * .38, 0, 7); c.fill(); };
+const fillStroke = (c, fill, stroke, px = 1.3) => { c.fillStyle = fill; c.fill(); c.lineWidth = px / K; c.strokeStyle = stroke; c.lineJoin = 'round'; c.stroke(); };
+const at = (c, d, x, y, k, flip = false, ph = 0, o = {}) => { c.save(); c.translate(x, y); c.scale(flip ? -k : k, k); K = k; d.fn(c, ph, o); c.restore(); };
+const leg = (c, x, y, a, col, L = 19, w = 5) => {
+  const a1 = Math.sin(a) * 0.8, a2 = a1 - 0.5 - 0.5 * Math.cos(a);
+  const kx = x + Math.sin(a1) * L, ky = y + Math.cos(a1) * L, fx = kx + Math.sin(a2) * L, fy = ky + Math.cos(a2) * L;
+  c.lineCap = 'round'; c.lineJoin = 'round'; c.strokeStyle = col; c.lineWidth = w;
+  c.beginPath(); c.moveTo(x, y); c.lineTo(kx, ky); c.lineTo(fx, fy); c.stroke();
+};
+function pillText(c, text, cx, top, maxW, o = {}) {
+  const size = o.size || 12.5;
+  c.save(); c.font = `800 ${size}px Nunito, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+  const words = String(text).split(' '), lines = []; let cur = '';
+  for (const wd of words) { const t = cur ? `${cur} ${wd}` : wd; if (c.measureText(t).width > maxW - 20 && cur) { lines.push(cur); cur = wd; } else cur = t; }
+  lines.push(cur);
+  const lh = size + 4, bw = Math.max(...lines.map((l) => c.measureText(l).width)) + 20, bh = lines.length * lh + 8;
+  const x = clamp(o.left ? cx : cx - bw / 2, 6, Math.max(6, CW - bw - 6)), y = clamp(top, 4, Math.max(4, CH - bh - 4));
+  c.beginPath(); c.roundRect(x, y, bw, bh, Math.min(14, bh / 2)); c.fillStyle = o.bg || 'rgba(14,17,28,.82)'; c.fill();
+  c.fillStyle = o.fg || '#fff'; lines.forEach((l, i) => c.fillText(l, x + bw / 2, y + 4 + lh / 2 + i * lh + 1));
+  c.restore();
+  return bh;
+}
+
+// --- the animals, drawn in their own units: y up is negative, the ground is y = 0 --------------------------
+function dWhale(c) {
+  c.beginPath(); c.moveTo(16, -9.3); c.bezierCurveTo(11, -11, 8, -17, 0.5, -20); c.bezierCurveTo(5, -15, 7, -11.5, 9, -9.6);
+  c.bezierCurveTo(7, -7.6, 5, -3, 0.5, -0.5); c.bezierCurveTo(7, -4, 11, -7, 16, -8.8); c.closePath();
+  fillStroke(c, '#3b5875', '#22364b');
+  c.beginPath(); c.moveTo(72, -3); c.bezierCurveTo(68, 1, 62, 3.5, 55, 4); c.bezierCurveTo(61, 0.5, 65, -1.5, 68, -3.5); c.closePath();
+  fillStroke(c, '#3b5875', '#22364b');
+  c.beginPath(); c.moveTo(14, -10); c.bezierCurveTo(26, -12.5, 44, -19, 64, -20); c.bezierCurveTo(82, -21, 95, -17, 100, -10.5);
+  c.bezierCurveTo(98, -4.5, 86, -1.5, 68, -1.2); c.bezierCurveTo(46, -0.8, 28, -6, 14, -8.6); c.closePath();
+  fillStroke(c, lg(c, 0, -21, 0, -1, [0, '#4a6e90'], [.5, '#7ea2bd'], [1, '#c8dae5']), '#22364b');
+  c.save(); c.clip();
+  c.fillStyle = 'rgba(235,245,255,.13)';
+  for (let i = 0; i < 16; i++) { c.beginPath(); c.ellipse(14 + (i * 47) % 80, -19 + (i * 31) % 16, 3 + (i % 4), 1.4 + (i % 3) * .5, 0, 0, 7); c.fill(); }
+  c.strokeStyle = 'rgba(255,255,255,.3)'; c.lineWidth = 0.5;
+  for (let j = 0; j < 6; j++) { c.beginPath(); c.moveTo(62 + j * 5, -1.2); c.quadraticCurveTo(66 + j * 5, -4.6, 72 + j * 4.6, -4.2); c.stroke(); }
+  c.restore();
+  c.beginPath(); c.moveTo(26, -14); c.quadraticCurveTo(30, -18, 32, -15.2); c.closePath(); fillStroke(c, '#4a6e90', '#22364b', 1);
+  eye(c, 90.5, -8.2, 1);
+}
+function dGiraffe(c) {
+  const lgp = (x, w, col) => { c.beginPath(); c.roundRect(x, -46, w, 46, w / 2); c.fillStyle = col; c.fill(); c.fillStyle = '#4a3322'; c.fillRect(x, -3, w, 3); };
+  lgp(36, 4.2, '#c98c3e'); lgp(19, 4.6, '#c98c3e'); lgp(41, 4.2, '#e2b061'); lgp(13.5, 4.6, '#e2b061');
+  c.beginPath(); c.moveTo(12, -54); c.bezierCurveTo(8, -50, 7, -42, 8, -34); c.strokeStyle = '#c58a3f'; c.lineWidth = 1.4; c.stroke();
+  c.beginPath(); c.ellipse(8, -32, 1.6, 3, 0, 0, 7); c.fillStyle = '#3b2616'; c.fill();
+  const body = () => {
+    c.beginPath(); c.moveTo(12, -55); c.bezierCurveTo(18, -61, 28, -66, 36, -65); c.bezierCurveTo(40, -72, 42, -82, 46, -90); c.lineTo(52, -87);
+    c.bezierCurveTo(50, -78, 49, -66, 46, -54); c.bezierCurveTo(40, -44, 24, -41, 15, -45); c.bezierCurveTo(10, -48, 10, -52, 12, -55); c.closePath();
+  };
+  body(); fillStroke(c, lg(c, 0, -90, 0, -42, [0, '#ecc275'], [1, '#d49a45']), '#7a5426');
+  c.save(); body(); c.clip();
+  const sp = [[18, -52, 4.5], [27, -56, 4], [24, -47, 3.4], [34, -58, 3.6], [16, -46, 2.8], [40, -70, 2.8], [43, -77, 2.4], [39, -62, 3], [47, -84, 2], [31, -49, 3], [45, -58, 2.6], [38, -52, 2.8]];
+  c.fillStyle = '#b06a2c'; sp.forEach(([x, y, r], i) => { c.beginPath(); c.ellipse(x, y, r, r * .82, i * .6, 0, 7); c.fill(); });
+  c.restore();
+  c.beginPath(); c.moveTo(37, -66); c.bezierCurveTo(41, -73, 43, -82, 46, -90); c.strokeStyle = '#7a4a22'; c.lineWidth = 1.6; c.stroke();
+  c.save(); c.translate(51, -88); c.rotate(0.45);
+  c.beginPath(); c.ellipse(5, 0, 9, 3.9, 0, 0, 7); fillStroke(c, '#e2b061', '#7a5426', 1);
+  c.beginPath(); c.ellipse(12, 0.8, 3.2, 2.5, 0, 0, 7); c.fillStyle = '#9a6b45'; c.fill();
+  c.beginPath(); c.ellipse(0.5, -3, 3, 1.6, -0.6, 0, 7); c.fillStyle = '#c98c3e'; c.fill();
+  c.strokeStyle = '#7a5426'; c.lineWidth = 1; c.beginPath(); c.moveTo(3, -3.6); c.lineTo(2, -9); c.moveTo(6, -3.6); c.lineTo(6.5, -9); c.stroke();
+  c.fillStyle = '#3b2616'; c.beginPath(); c.arc(2, -9.2, 1.3, 0, 7); c.arc(6.6, -9.2, 1.3, 0, 7); c.fill();
+  eye(c, 4.5, -1.2, 1.3);
+  c.restore();
+}
+function dElephant(c) {
+  const gl = (x, w, col) => { c.beginPath(); c.roundRect(x, -46, w, 46, 5); c.fillStyle = col; c.fill(); c.fillStyle = '#d9d3c5'; c.fillRect(x + 2, -4, w - 4, 4); };
+  gl(20, 15, '#7b8191'); gl(38, 14, '#7b8191'); gl(64, 15, '#8a90a0'); gl(80, 14, '#8a90a0');
+  c.beginPath(); c.moveTo(15, -66); c.bezierCurveTo(8, -60, 7, -50, 9, -40); c.strokeStyle = '#6a7080'; c.lineWidth = 2.2; c.stroke();
+  c.beginPath(); c.moveTo(14, -66); c.bezierCurveTo(12, -90, 36, -98, 60, -97); c.bezierCurveTo(80, -96, 94, -90, 95, -70); c.lineTo(95, -42);
+  c.bezierCurveTo(95, -34, 18, -34, 16, -44); c.closePath();
+  fillStroke(c, lg(c, 0, -98, 0, -34, [0, '#aab0be'], [1, '#757b8c']), '#4f5565');
+  c.beginPath(); c.ellipse(106, -70, 17, 22, 0.1, 0, 7); fillStroke(c, lg(c, 90, -90, 120, -50, [0, '#b2b8c6'], [1, '#7f8596']), '#4f5565');
+  c.beginPath(); c.ellipse(90, -72, 12, 17, 0.15, 0, 7); fillStroke(c, lg(c, 80, -88, 100, -56, [0, '#959bab'], [1, '#6a7081']), '#4f5565');
+  c.beginPath(); c.ellipse(90, -71, 7, 11, 0.15, 0, 7); c.fillStyle = 'rgba(214,160,170,.55)'; c.fill();
+  c.lineCap = 'round'; c.lineJoin = 'round';
+  c.beginPath(); c.moveTo(116, -62); c.bezierCurveTo(125, -52, 129, -32, 122, -16); c.quadraticCurveTo(120, -8, 127, -8); c.strokeStyle = '#7b8191'; c.lineWidth = 11; c.stroke();
+  c.beginPath(); c.moveTo(114.5, -62); c.bezierCurveTo(123, -52, 127, -32, 120.5, -16); c.strokeStyle = 'rgba(255,255,255,.22)'; c.lineWidth = 3; c.stroke();
+  c.beginPath(); c.moveTo(112, -52); c.bezierCurveTo(120, -46, 126, -48, 129, -55); c.strokeStyle = '#f2ead3'; c.lineWidth = 3.2; c.stroke();
+  eye(c, 112, -77, 1.9);
+}
+function dCroc(c) {
+  c.fillStyle = '#3f5c2b';
+  [[58, 5.5], [24, 6.5]].forEach(([x, w]) => { c.beginPath(); c.roundRect(x, -4.5, w, 5, 2); c.fill(); });
+  c.beginPath(); c.moveTo(0, -1.5); c.bezierCurveTo(14, -4, 22, -9, 34, -9.5); c.bezierCurveTo(48, -10, 56, -9.5, 64, -8); c.bezierCurveTo(74, -7.5, 84, -5.5, 100, -5.2);
+  c.lineTo(100, -3.3); c.bezierCurveTo(88, -2.8, 78, -2.2, 66, -1.6); c.bezierCurveTo(50, -0.3, 30, 0, 18, 0); c.bezierCurveTo(10, 0, 4, -0.5, 0, -1.5); c.closePath();
+  fillStroke(c, lg(c, 0, -10, 0, 0, [0, '#4d7030'], [.6, '#6f8f3f'], [1, '#c3c785']), '#2c4220');
+  c.fillStyle = '#2f4a22';
+  for (let i = 0; i < 19; i++) {
+    const x = 6 + i * 3.1, y = x < 34 ? -1.5 - (x / 34) * 8 : -9.6;
+    c.beginPath(); c.moveTo(x - 1.1, y + 0.7); c.lineTo(x, y - 1.7); c.lineTo(x + 1.1, y + 0.7); c.closePath(); c.fill();
+  }
+  c.fillStyle = '#4d7030'; c.beginPath(); c.arc(66, -9.2, 1.8, 0, 7); c.fill(); c.fillStyle = '#e9d44a'; c.beginPath(); c.ellipse(66.2, -9.4, 1, 1.1, 0, 0, 7); c.fill();
+  c.fillStyle = '#10130c'; c.fillRect(65.9, -10.2, 0.6, 1.7);
+  c.fillStyle = '#fff';
+  for (let i = 0; i < 9; i++) { const x = 72 + i * 3; c.beginPath(); c.moveTo(x, -3.4); c.lineTo(x + 1.3, -3.4); c.lineTo(x + 0.65, -1.9); c.closePath(); c.fill(); }
+  c.fillStyle = '#1c2616'; c.beginPath(); c.arc(97.5, -5, 0.6, 0, 7); c.fill();
+}
+function dHorse(c, ph) {
+  c.translate(0, -Math.abs(Math.sin(ph)) * 2);
+  leg(c, 72, -40, ph + 0.9, '#6a3a18', 20, 5); leg(c, 30, -40, ph + 4.1, '#6a3a18', 20, 5);
+  c.beginPath(); c.moveTo(22, -56); c.bezierCurveTo(8, -56, 2, -46, 0, -34); c.strokeStyle = '#2d1a0c'; c.lineWidth = 4.5; c.lineCap = 'round'; c.stroke();
+  c.beginPath(); c.ellipse(52, -52, 32, 14, 0, 0, 7); fillStroke(c, lg(c, 0, -66, 0, -38, [0, '#b8702f'], [1, '#85471d']), '#4a280f');
+  c.beginPath(); c.moveTo(76, -58); c.bezierCurveTo(84, -62, 86, -72, 90, -82); c.lineTo(99, -78); c.bezierCurveTo(96, -70, 94, -58, 90, -46); c.closePath(); fillStroke(c, '#a55f27', '#4a280f');
+  c.beginPath(); c.ellipse(101, -81, 11, 5.5, 0.6, 0, 7); fillStroke(c, '#a55f27', '#4a280f');
+  c.beginPath(); c.moveTo(87, -83); c.quadraticCurveTo(80, -70, 78, -58); c.strokeStyle = '#2d1a0c'; c.lineWidth = 3.4; c.stroke();
+  c.beginPath(); c.moveTo(91, -86); c.lineTo(93, -93); c.lineTo(96, -85); c.closePath(); c.fillStyle = '#85471d'; c.fill();
+  eye(c, 98, -84, 1.6);
+  leg(c, 76, -42, ph, '#85471d', 20, 5.5); leg(c, 28, -42, ph + Math.PI, '#85471d', 20, 5.5);
+}
+function dCheetah(c, ph) {
+  c.translate(0, -Math.abs(Math.sin(ph)) * 2);
+  leg(c, 68, -33, ph + 0.7, '#b57a24', 16, 4); leg(c, 26, -33, ph + 3.9, '#b57a24', 16, 4);
+  c.beginPath(); c.moveTo(18, -37); c.bezierCurveTo(4, -41, -6, -35, -13, -24); c.strokeStyle = '#d9a03c'; c.lineWidth = 3.6; c.lineCap = 'round'; c.stroke();
+  c.strokeStyle = '#2a1d10'; c.lineWidth = 1.6;
+  for (const u of [0.3, 0.55, 0.8]) { const m = 1 - u, x = m * m * m * 18 + 3 * m * m * u * 4 + 3 * m * u * u * -6 + u * u * u * -13, y = m * m * m * -37 + 3 * m * m * u * -41 + 3 * m * u * u * -35 + u * u * u * -24; c.beginPath(); c.moveTo(x - 1, y - 2.2); c.lineTo(x + 1, y + 2.2); c.stroke(); }
+  c.beginPath(); c.ellipse(48, -34, 32, 10.5, 0, 0, 7); fillStroke(c, lg(c, 0, -46, 0, -24, [0, '#efbf5c'], [1, '#cc8f2f']), '#6b4a14');
+  c.save(); c.beginPath(); c.ellipse(48, -34, 32, 10.5, 0, 0, 7); c.clip(); c.fillStyle = '#2a1d10';
+  for (let i = 0; i < 26; i++) { c.beginPath(); c.arc(20 + (i * 23) % 56, -42 + (i * 13) % 17, 1.2 + (i % 3) * .25, 0, 7); c.fill(); }
+  c.restore();
+  c.beginPath(); c.moveTo(72, -38); c.bezierCurveTo(78, -42, 80, -44, 82, -46); c.lineTo(88, -44); c.bezierCurveTo(88, -38, 84, -32, 78, -30); c.closePath(); fillStroke(c, '#e2ac45', '#6b4a14');
+  c.beginPath(); c.arc(88, -45, 7.5, 0, 7); fillStroke(c, '#efbf5c', '#6b4a14');
+  c.beginPath(); c.moveTo(82, -50); c.lineTo(84, -57); c.lineTo(88, -51); c.closePath(); c.fillStyle = '#cc8f2f'; c.fill();
+  c.strokeStyle = '#2a1d10'; c.lineWidth = 1.3; c.beginPath(); c.moveTo(90, -45); c.quadraticCurveTo(89, -41, 91, -38); c.stroke();
+  eye(c, 91, -47, 1.7);
+  c.fillStyle = '#2a1d10'; c.beginPath(); c.arc(95, -44, 1.1, 0, 7); c.fill();
+  leg(c, 70, -34, ph, '#d9a03c', 16, 4.4); leg(c, 28, -34, ph + Math.PI, '#d9a03c', 16, 4.4);
+}
+function dChild(c, ph) {
+  c.translate(0, -Math.abs(Math.sin(ph)) * 2.5);
+  leg(c, -2, -42, ph, '#e9b98e', 21, 7.5); leg(c, 2, -42, ph + Math.PI, '#f2c6a0', 21, 7.5);
+  c.beginPath(); c.moveTo(0, -70); c.lineTo(-Math.sin(ph) * 14 - 1, -70 + Math.cos(ph) * 3 + 18); c.strokeStyle = '#e9b98e'; c.lineWidth = 6; c.lineCap = 'round'; c.stroke();
+  c.beginPath(); c.roundRect(-10, -78, 20, 38, 9); fillStroke(c, lg(c, -10, -78, 10, -40, [0, '#ff8f6b'], [1, '#e8613f']), '#8c3a22', 1.2);
+  c.beginPath(); c.roundRect(-10, -48, 20, 11, 4); fillStroke(c, '#3e6fd0', '#244584', 1.2);
+  c.beginPath(); c.moveTo(0, -70); c.lineTo(Math.sin(ph) * 14 + 1, -70 + Math.cos(ph) * 3 + 18); c.strokeStyle = '#f2c6a0'; c.lineWidth = 6; c.stroke();
+  c.beginPath(); c.arc(1, -90, 12, 0, 7); fillStroke(c, '#f2c6a0', '#a8714a', 1.2);
+  c.beginPath(); c.arc(0, -92, 12.5, Math.PI * 1.02, Math.PI * 1.98); c.lineTo(8, -90); c.quadraticCurveTo(0, -96, -11, -88); c.closePath(); c.fillStyle = '#5b3a24'; c.fill();
+  eye(c, 6, -90, 1.7);
+  c.fillStyle = 'rgba(255,120,120,.45)'; c.beginPath(); c.arc(7, -85, 2.4, 0, 7); c.fill();
+  c.strokeStyle = '#a8423a'; c.lineWidth = 1.1; c.beginPath(); c.arc(5.5, -85.5, 3, 0.3, 1.6); c.stroke();
+}
+function dCar(c, ph) {
+  c.beginPath(); c.moveTo(2, -9); c.bezierCurveTo(2, -15, 6, -17, 14, -18); c.lineTo(28, -19); c.bezierCurveTo(34, -28, 42, -30, 50, -30); c.lineTo(62, -30);
+  c.bezierCurveTo(70, -30, 74, -23, 78, -19); c.lineTo(90, -17.5); c.bezierCurveTo(97, -16, 99, -12, 99, -8); c.lineTo(99, -5); c.lineTo(2, -5); c.closePath();
+  fillStroke(c, lg(c, 0, -30, 0, -5, [0, '#ff6a5c'], [1, '#c92f2f']), '#6e1a1a');
+  c.beginPath(); c.moveTo(32, -19.5); c.bezierCurveTo(36, -26, 42, -28, 48, -28); c.lineTo(52, -28); c.lineTo(52, -19.5); c.closePath(); fillStroke(c, lg(c, 0, -28, 0, -19, [0, '#cfeaff'], [1, '#7fb4dc']), '#3a4c66', 1);
+  c.beginPath(); c.moveTo(55, -28); c.lineTo(62, -28); c.bezierCurveTo(67, -28, 70, -22, 73, -19.5); c.lineTo(55, -19.5); c.closePath(); fillStroke(c, lg(c, 0, -28, 0, -19, [0, '#cfeaff'], [1, '#7fb4dc']), '#3a4c66', 1);
+  c.fillStyle = '#ffe58a'; c.beginPath(); c.ellipse(97, -12, 2, 2.6, 0, 0, 7); c.fill();
+  c.fillStyle = '#ffb4a8'; c.fillRect(2, -13, 3, 4);
+  [22, 78].forEach((x) => {
+    c.fillStyle = '#16182a'; c.beginPath(); c.arc(x, -6.5, 7.2, 0, 7); c.fill();
+    c.fillStyle = '#cfd4df'; c.beginPath(); c.arc(x, -6.5, 3.8, 0, 7); c.fill();
+    c.strokeStyle = '#7b8396'; c.lineWidth = 1 / K * 1.2; c.beginPath();
+    for (let i = 0; i < 3; i++) { const a = ph * 2 + i * 2.094; c.moveTo(x - Math.cos(a) * 3.4, -6.5 - Math.sin(a) * 3.4); c.lineTo(x + Math.cos(a) * 3.4, -6.5 + Math.sin(a) * 3.4); }
+    c.stroke();
+  });
+}
+function dBus(c, ph = 0) {
+  c.beginPath(); c.roundRect(0, -25, 100, 20.5, 3); fillStroke(c, lg(c, 0, -25, 0, -4, [0, '#ffd45c'], [1, '#e2a21b']), '#7a560c');
+  c.fillStyle = 'rgba(60,40,5,.35)'; c.fillRect(1, -12.5, 98, 1.6);
+  for (let i = 0; i < 8; i++) { c.beginPath(); c.roundRect(5 + i * 9.4, -22, 7.6, 7.5, 1.5); fillStroke(c, lg(c, 0, -22, 0, -14, [0, '#d6efff'], [1, '#86bde3']), '#3a4c66', 0.8); }
+  c.beginPath(); c.roundRect(82.5, -22, 6, 16.5, 1.5); fillStroke(c, lg(c, 0, -22, 0, -6, [0, '#d6efff'], [1, '#86bde3']), '#3a4c66', 0.8);
+  c.beginPath(); c.roundRect(92, -21, 6, 8, 1.5); fillStroke(c, '#bfe4ff', '#3a4c66', 0.8);
+  c.fillStyle = '#fff3b0'; c.fillRect(98, -10, 1.8, 3);
+  [17, 78].forEach((x) => { c.fillStyle = '#16182a'; c.beginPath(); c.arc(x, -4.2, 4.3, 0, 7); c.fill(); c.fillStyle = '#cfd4df'; c.beginPath(); c.arc(x, -4.2, 2, 0, 7); c.fill(); });
+}
+function dHummer(c, ph, o = {}) {
+  const wa = Math.sin(ph) * 0.8;
+  const wing = (dir, al) => { c.save(); c.translate(52, -40); c.rotate(-1.2 + wa * dir); c.beginPath(); c.ellipse(16, 0, 20, 4.6, 0, 0, 7); c.fillStyle = `rgba(205,230,255,${al})`; c.fill(); c.restore(); };
+  wing(-1, 0.45);
+  c.beginPath(); c.moveTo(30, -24); c.lineTo(14, -4); c.lineTo(32, -10); c.closePath(); fillStroke(c, '#1f6a55', '#0e3b30', 1);
+  c.save(); c.translate(50, -34); c.rotate(-0.55);
+  c.beginPath(); c.ellipse(0, 0, 26, 12, 0, 0, 7); fillStroke(c, lg(c, 0, -12, 0, 12, [0, '#35b98a'], [.6, '#1f8a66'], [1, '#e8efe0']), '#0e3b30');
+  c.restore();
+  c.beginPath(); c.arc(74, -50, 9, 0, 7); fillStroke(c, '#2aa57c', '#0e3b30');
+  if (!o.female) { c.beginPath(); c.ellipse(76, -43, 6, 4, 0.4, 0, 7); c.fillStyle = '#e03a6a'; c.fill(); }
+  c.beginPath(); c.moveTo(82, -52); c.lineTo(105, -58); c.strokeStyle = '#2a2a34'; c.lineWidth = 1.8; c.lineCap = 'round'; c.stroke();
+  eye(c, 77, -53, 1.9);
+  wing(1, 0.6);
+}
+function dShrew(c) {
+  c.beginPath(); c.moveTo(18, -6); c.bezierCurveTo(8, -6, 4, -12, 0, -16); c.strokeStyle = '#b99a88'; c.lineWidth = 2.2; c.lineCap = 'round'; c.stroke();
+  c.beginPath(); c.moveTo(16, -4); c.bezierCurveTo(14, -18, 34, -26, 54, -22); c.bezierCurveTo(66, -20, 76, -16, 96, -10.5); c.bezierCurveTo(80, -8, 72, -3.5, 58, -2.5); c.bezierCurveTo(40, -1, 24, -1, 16, -4); c.closePath();
+  fillStroke(c, lg(c, 0, -26, 0, -1, [0, '#8a7968'], [1, '#c4b19c']), '#5b4a3a');
+  c.beginPath(); c.ellipse(54, -23, 3.4, 3.8, 0, 0, 7); fillStroke(c, '#d9a8a0', '#5b4a3a', 1);
+  c.fillStyle = '#d98a8a'; c.beginPath(); c.arc(96, -10.5, 1.9, 0, 7); c.fill();
+  c.strokeStyle = 'rgba(70,50,35,.6)'; c.lineWidth = 0.7; c.beginPath(); c.moveTo(88, -11); c.lineTo(76, -17); c.moveTo(88, -10); c.lineTo(78, -9); c.stroke();
+  eye(c, 72, -15, 1.7);
+  c.fillStyle = '#d9a8a0'; c.beginPath(); c.ellipse(34, -1.2, 5, 1.6, 0, 0, 7); c.ellipse(64, -1.2, 4, 1.6, 0, 0, 7); c.fill();
+}
+function dFalcon(c) {
+  c.beginPath(); c.moveTo(62, -14); c.bezierCurveTo(48, -6, 28, 0, 8, 1); c.bezierCurveTo(30, -4, 46, -10, 54, -22); c.closePath(); fillStroke(c, '#2c3550', '#161c2e', 1);
+  c.beginPath(); c.moveTo(100, -21); c.bezierCurveTo(92, -27, 70, -29, 50, -26); c.bezierCurveTo(34, -24, 20, -21, 6, -19); c.lineTo(8, -15);
+  c.bezierCurveTo(22, -14, 36, -13, 52, -13); c.bezierCurveTo(72, -12, 90, -14, 100, -21); c.closePath();
+  fillStroke(c, lg(c, 0, -28, 0, -12, [0, '#4c5a7a'], [.5, '#8d98b0'], [1, '#e9e4d8']), '#161c2e');
+  c.beginPath(); c.moveTo(68, -26); c.bezierCurveTo(52, -38, 30, -48, 4, -52); c.bezierCurveTo(24, -42, 38, -32, 50, -22); c.closePath(); fillStroke(c, lg(c, 0, -52, 0, -22, [0, '#2c3550'], [1, '#4c5a7a']), '#161c2e', 1);
+  c.beginPath(); c.arc(88, -22, 7, 0, 7); fillStroke(c, '#3a4560', '#161c2e', 1);
+  c.beginPath(); c.moveTo(89, -19); c.quadraticCurveTo(88, -14, 92, -11); c.strokeStyle = '#161c2e'; c.lineWidth = 2; c.stroke();
+  c.beginPath(); c.moveTo(98, -23); c.quadraticCurveTo(104, -21, 100, -17); c.closePath(); fillStroke(c, '#e0c15a', '#161c2e', 0.8);
+  eye(c, 92, -24, 1.8);
+}
+const D = {
+  whale: { fn: dWhale, x0: 0, x1: 100, y0: -21, y1: 4 }, giraffe: { fn: dGiraffe, x0: 6, x1: 66, y0: -102, y1: 0 },
+  elephant: { fn: dElephant, x0: 7, x1: 131, y0: -100, y1: 0 }, croc: { fn: dCroc, x0: 0, x1: 100, y0: -11, y1: 0 },
+  horse: { fn: dHorse, x0: -2, x1: 108, y0: -94, y1: 0 }, cheetah: { fn: dCheetah, x0: -14, x1: 96, y0: -58, y1: 0 },
+  child: { fn: dChild, x0: -22, x1: 24, y0: -102, y1: 0 }, car: { fn: dCar, x0: 0, x1: 100, y0: -30, y1: 0 }, bus: { fn: dBus, x0: 0, x1: 100, y0: -25, y1: 0 },
+  hummer: { fn: dHummer, x0: 14, x1: 106, y0: -76, y1: 0 }, shrew: { fn: dShrew, x0: 0, x1: 99, y0: -27, y1: 0 }, falcon: { fn: dFalcon, x0: 2, x1: 104, y0: -52, y1: 2 },
+};
+
+// --- scenes ------------------------------------------------------------------------------------------------
+function cloud(c, x, y, s) {
+  c.fillStyle = 'rgba(255,255,255,.85)'; c.beginPath();
+  c.ellipse(x, y, 26 * s, 9 * s, 0, 0, 7); c.ellipse(x - 16 * s, y + 3 * s, 16 * s, 7 * s, 0, 0, 7); c.ellipse(x + 18 * s, y + 3 * s, 18 * s, 7 * s, 0, 0, 7); c.ellipse(x + 2 * s, y - 7 * s, 15 * s, 8 * s, 0, 0, 7); c.fill();
+}
+const HOUSES = [[.02, .2, .55, '#eab8a0', '#b86a50'], [.19, .16, .42, '#f1dba6', '#c0834a'], [.33, .22, .62, '#b9d3e6', '#58779a'], [.52, .18, .46, '#e6c3d1', '#a8657f'], [.68, .2, .58, '#cfe3b8', '#6f9a58'], [.86, .16, .44, '#f0d2a8', '#b87b45']];
+function bg(c, w, h, gy, time) {
+  c.fillStyle = lg(c, 0, 0, 0, gy, [0, '#86c5ec'], [1, '#e6f4fa']); c.fillRect(0, 0, w, gy);
+  const sg = c.createRadialGradient(w * .87, gy * .22, 2, w * .87, gy * .22, gy * .5);
+  sg.addColorStop(0, 'rgba(255,248,210,.95)'); sg.addColorStop(.3, 'rgba(255,240,170,.5)'); sg.addColorStop(1, 'rgba(255,240,170,0)');
+  c.fillStyle = sg; c.fillRect(0, 0, w, gy);
+  c.fillStyle = '#fff6c8'; c.beginPath(); c.arc(w * .87, gy * .22, Math.max(5, gy * .03), 0, 7); c.fill();
+  cloud(c, ((time * 5 + 60) % (w + 160)) - 80, gy * .2, gy / 320 + .4); cloud(c, ((time * 3 + 240) % (w + 160)) - 80, gy * .36, gy / 400 + .3);
+  HOUSES.forEach(([x, ww, hh, wall, roof]) => {
+    const bw = w * ww, bh = gy * hh * .45, bx = w * x, by = gy - bh;
+    c.fillStyle = lg(c, 0, by, 0, gy, [0, wall], [1, 'rgba(0,0,0,.12)']); c.fillRect(bx, by, bw, bh);
+    c.fillStyle = roof; c.beginPath(); c.moveTo(bx - 3, by); c.lineTo(bx + bw / 2, by - bh * .32); c.lineTo(bx + bw + 3, by); c.closePath(); c.fill();
+    c.fillStyle = 'rgba(255,255,255,.65)';
+    for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) c.fillRect(bx + bw * (.16 + i * .44), by + bh * (.14 + j * .4), bw * .26, bh * .24);
+  });
+  const pv = h * .1;
+  c.fillStyle = lg(c, 0, gy, 0, gy + pv, [0, '#d6d1c5'], [1, '#b9b4a6']); c.fillRect(0, gy, w, pv);
+  c.strokeStyle = 'rgba(80,75,60,.14)'; c.lineWidth = 1; c.beginPath(); for (let x = 20; x < w; x += 36) { c.moveTo(x, gy); c.lineTo(x - 6, gy + pv); } c.stroke();
+  c.fillStyle = '#8d897c'; c.fillRect(0, gy + pv - 3, w, 3);
+  c.fillStyle = lg(c, 0, gy + pv, 0, h, [0, '#5a5f6d'], [1, '#434752']); c.fillRect(0, gy + pv, w, h - gy - pv);
+  c.strokeStyle = 'rgba(236,230,198,.8)'; c.lineWidth = 3; c.setLineDash([22, 18]); c.beginPath(); const ry = gy + pv + (h - gy - pv) * .6; c.moveTo(0, ry); c.lineTo(w, ry); c.stroke(); c.setLineDash([]);
+}
+function shadow(c, x, y, rx, a = .28) { c.fillStyle = `rgba(30,30,40,${a})`; c.beginPath(); c.ellipse(x, y, Math.max(2, rx), Math.max(1.5, rx * .08), 0, 0, 7); c.fill(); }
+
+function cardLayout(w, h) {
+  const pad = 12, gap = 8, cols = w < 520 ? 2 : 4, rows = 4 / cols;
+  const cw = Math.min(150, (w - 2 * pad - (cols - 1) * gap) / cols), ch = Math.min(cw * .78, (h * .7 - 56 - (rows - 1) * gap) / rows);
+  const x0 = (w - (cols * cw + (cols - 1) * gap)) / 2, y0 = Math.max(56, h * .46 - (rows * ch + (rows - 1) * gap) / 2);
+  return { cw, ch, gap, cols, slot: (n) => ({ x: x0 + (n % cols) * (cw + gap), y: y0 + Math.floor(n / cols) * (ch + gap) }) };
+}
+function drawCard(c, id, x, y, cw, ch, lift, sel, alpha, rank) {
+  c.save(); c.globalAlpha = alpha;
+  c.shadowColor = `rgba(20,30,60,${0.28 + lift * 0.2})`; c.shadowBlur = 10 + lift * 14; c.shadowOffsetY = 4 + lift * 8;
+  c.translate(x + cw / 2, y + ch / 2); const sc = 1 + lift * 0.06; c.scale(sc, sc); c.translate(-cw / 2, -ch / 2);
+  c.beginPath(); c.roundRect(0, 0, cw, ch, 14); c.fillStyle = lg(c, 0, 0, 0, ch, [0, '#fffaf0'], [1, '#f1e2c6']); c.fill();
+  c.shadowColor = 'transparent'; c.lineWidth = sel ? 3 : 1.5; c.strokeStyle = sel ? '#ff8a3d' : 'rgba(120,90,50,.45)'; c.stroke();
+  const d = D[ANI[id].id], bw = d.x1 - d.x0, bh = d.y1 - d.y0, rw = cw - 16, rh = ch - 36, k = Math.min(rw / bw, rh / bh);
+  at(c, d, cw / 2 - (d.x0 + bw / 2) * k, 8 + rh / 2 - (d.y0 + bh / 2) * k, k);
+  const name = T[lang].ani[ANI[id].id][0];
+  c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#3a2c18'; c.font = '800 13px Nunito, sans-serif';
+  if (c.measureText(name).width > cw - 8) c.font = '800 12px Nunito, sans-serif';
+  c.fillText(name, cw / 2, ch - 15);
+  c.beginPath(); c.arc(15, 15, 10, 0, 7); c.fillStyle = 'rgba(14,17,28,.85)'; c.fill();
+  c.fillStyle = '#fff'; c.font = '800 12.5px Nunito, sans-serif'; c.fillText(String(rank), 15, 16);
+  c.restore();
+}
+function drawCards(c, w, h, dt, alpha) {
+  const L = cardLayout(w, h), t = T[lang], f = 1 - Math.exp(-dt * 14);
+  G.L = L;
+  for (let i = 0; i < 4; i++) {
+    const id = S.order[i], tg = L.slot(i), p = S.pos[id];
+    if (p.x < 0) { p.x = tg.x; p.y = tg.y; }
+    if (!S.drag || S.drag.id !== id) { p.x = lerp(p.x, tg.x, f); p.y = lerp(p.y, tg.y, f); }
+  }
+  G.cards = [];
+  S.order.forEach((id, i) => { if (!S.drag || S.drag.id !== id) { const p = S.pos[id]; drawCard(c, id, p.x, p.y, L.cw, L.ch, 0, S.tap === id, alpha, i + 1); G.cards.push({ id, x: p.x, y: p.y }); } });
+  if (S.drag) { const x = S.drag.x - S.drag.ox, y = S.drag.y - S.drag.oy; S.pos[S.drag.id] = { x, y }; drawCard(c, S.drag.id, x, y, L.cw, L.ch, 1, true, alpha, S.order.indexOf(S.drag.id) + 1); G.cards.push({ id: S.drag.id, x, y }); }
+  if (alpha > 0.5) pillText(c, t.big.ask, w / 2, 8, w - 16);
+}
+function bracket(c, x0, y0, x1, y1) {
+  c.save(); c.strokeStyle = 'rgba(255,255,255,.9)'; c.lineWidth = 1.5; c.setLineDash([5, 4]); c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke(); c.setLineDash([]);
+  const horiz = Math.abs(y1 - y0) < 1; c.beginPath();
+  if (horiz) { c.moveTo(x0, y0 - 5); c.lineTo(x0, y0 + 5); c.moveTo(x1, y1 - 5); c.lineTo(x1, y1 + 5); } else { c.moveTo(x0 - 5, y0); c.lineTo(x0 + 5, y0); c.moveTo(x1 - 5, y1); c.lineTo(x1 + 5, y1); }
+  c.stroke(); c.restore();
+}
+function drawStreet(c, w, h, dt, gy, alpha, time) {
+  const t = T[lang], a = ANI[S.sel], d = D[a.id], whale = a.id === 'whale', pv = h * .1, fy = gy + pv * .7, by = whale ? fy : gy + pv * .25;
+  S.slide = Math.min(1, S.slide + dt / 0.9);
+  const span = whale ? 33 : 17.2, ppm = whale ? (w - 24) / span : Math.min((w - 24) / span, (fy - 56) / 6.1), X0 = (w - span * ppm) / 2;
+  c.save(); c.globalAlpha = alpha;
+  const kb = ppm * BUS / 100;
+  if (whale) {
+    for (let i = 0; i < 2; i++) { shadow(c, X0 + (i * BUS + BUS / 2) * ppm, by + 2, BUS * ppm / 2); at(c, D.bus, X0 + i * BUS * ppm, by, kb); }
+    c.save(); c.beginPath(); c.rect(0, 0, X0 + 30 * ppm, h); c.clip(); c.globalAlpha = alpha * .55; at(c, D.bus, X0 + 2 * BUS * ppm, by, kb); c.restore();
+  } else { shadow(c, X0 + BUS * ppm / 2, by + 2, BUS * ppm / 2); at(c, D.bus, X0, by, kb); }
+  const chx = X0 + (whale ? 31 : 15.2) * ppm, ck = ppm * CHILD / 100;
+  shadow(c, chx, fy + 1, 0.4 * ppm); at(c, D.child, chx, fy, ck, false, 0.4);
+  const k = ppm * a.m / 100, off = (1 - ease(S.slide)) * w * .8;
+  let tx, ty;
+  if (whale) { tx = X0 + off; ty = fy - 3.3 * ppm - 4; } else { tx = X0 + 14.5 * ppm - d.x1 * k + off; ty = fy; shadow(c, tx + (d.x0 + d.x1) / 2 * k, fy + 1, (d.x1 - d.x0) * k / 2); }
+  at(c, d, tx, ty, k);
+  if (S.slide > .85) { // the measuring bracket
+    if (a.kind === 'l') { const yb = whale ? ty + d.y0 * k - 8 : fy + 14; bracket(c, tx + d.x0 * k, yb, tx + d.x1 * k, yb); }
+    else bracket(c, tx + d.x0 * k - 10, fy, tx + d.x0 * k - 10, fy - a.m * ppm);
+  }
+  c.restore();
+  c.globalAlpha = alpha;
+  pillText(c, `${t.ani[a.id][1]} · ${t.big.size(nf(a.m), a.kind)}`, w / 2, 8, w - 16);
+  if (whale) pillText(c, t.big.bus, X0 + 6 * ppm, by + 8, 160); else pillText(c, t.big.bus, X0 + 5 * ppm, by - 3 * ppm - 28, 160);
+  pillText(c, t.big.child, chx, fy - CHILD * ppm - 26, 120);
+  c.globalAlpha = 1;
+}
+function drawCalf(c, w, h, gy, alpha) {
+  const t = T[lang], pv = h * .1, fy = gy + pv * .7, ppm = Math.min((fy - 76) / 2.1, w / 5), k = ppm * 1.85 / 100;
+  c.save(); c.globalAlpha = alpha;
+  const cx1 = w * .36, cx2 = w * .64;
+  shadow(c, cx1, fy + 1, .5 * ppm); at(c, D.child, cx1, fy, ppm * CHILD / 100, false, 0.4);
+  const d = D.giraffe, tx = cx2 - (d.x0 + d.x1) / 2 * k; shadow(c, cx2, fy + 1, 0.55 * ppm); at(c, d, tx, fy, k);
+  bracket(c, tx + d.x1 * k + 14, fy, tx + d.x1 * k + 14, fy - 1.85 * ppm);
+  c.restore();
+  pillText(c, t.big.calfT, w / 2, 8, w - 16);
+  pillText(c, t.big.child, cx1, fy - CHILD * ppm - 26, 120); pillText(c, t.big.calfLbl, cx2, fy - 1.85 * ppm - 28, 200);
+}
+function drawBig(c, w, h, dt, time) {
+  const gy = h * .74;
+  bg(c, w, h, gy, time);
+  S.revT = S.shown ? Math.min(1, S.revT + dt / .5) : 0;
+  S.calfT = S.calf ? Math.min(1, S.calfT + dt / .5) : Math.max(0, S.calfT - dt / .3);
+  if (S.calfT > 0) { drawCalf(c, w, h, gy, ease(S.calfT)); return; }
+  if (S.revT < 1) drawCards(c, w, h, dt, 1 - ease(S.revT));
+  if (S.revT > .35) drawStreet(c, w, h, dt, gy, ease(c01((S.revT - .35) / .65)), time);
+}
+
+function drawFast(c, w, h, dt, time) {
+  const t = T[lang], ids = laneIds(), top = 54, laneH = Math.min(72, (h - top - 10) / 4), sx = 16, fx = w - 30;
+  bg(c, w, h, top, time);
+  if (F.running) { F.t += dt * TF(); F.ph += dt * 16; }
+  const tEnd = Math.max(...ids.map(finishT).filter(Number.isFinite)), tWin = Math.min(...ids.map(finishT));
+  if (F.running && !F.reveal && F.t >= tWin) { F.reveal = true; const win = ids.reduce((b, id) => (finishT(id) < finishT(b) ? id : b)); (F.falcon || F.pick[F.dist] === win ? sfx.good : sfx.bad)(); render(); }
+  if (F.running && F.t >= tEnd) { F.t = tEnd; F.running = false; F.done[key()] = true; if (F.dist === 100 && !F.falcon) F.seen = true; render(); }
+  const finishedAll = F.done[key()], moving = F.running;
+  ids.forEach((id, i) => {
+    const y = top + i * laneH, sky = id === 'falcon';
+    c.fillStyle = sky ? lg(c, 0, y, 0, y + laneH, [0, '#9ed3f3'], [1, '#d8eefa']) : (i % 2 ? '#454a59' : '#4d5262'); c.fillRect(0, y, w, laneH);
+    c.fillStyle = 'rgba(255,255,255,.35)'; c.fillRect(0, y + laneH - 1.5, w, 1.5);
+  });
+  c.fillStyle = 'rgba(255,255,255,.85)'; c.fillRect(sx - 6, top, 3, laneH * 4);
+  const sq = 7; for (let i = 0; i < Math.ceil(laneH * 4 / sq); i++) for (let j = 0; j < 2; j++) { c.fillStyle = (i + j) % 2 ? '#fff' : '#161822'; c.fillRect(fx + 2 + j * sq, top + i * sq, sq, Math.min(sq, laneH * 4 - i * sq)); }
+  c.fillStyle = '#e8e8ee'; c.fillRect(fx + 2 + 2 * sq + 2, top - 16, 2, 20); c.fillStyle = '#e5484d'; c.beginPath(); c.moveTo(fx + 2 + 2 * sq + 4, top - 16); c.lineTo(fx + 2 + 2 * sq + 22, top - 11); c.lineTo(fx + 2 + 2 * sq + 4, top - 6); c.closePath(); c.fill();
+  ids.forEach((id, i) => {
+    const d = D[id], y = top + i * laneH, p = posOf(id, F.t), frac = p / F.dist;
+    const kk = id === 'child' ? (laneH * .6) / (d.y1 - d.y0) : Math.min(72, w * .19) * (id === 'horse' ? .8 : 1) / (d.x1 - d.x0);
+    const bw = (d.x1 - d.x0) * kk, front = lerp(sx + bw, fx - 4, frac), tx = front - d.x1 * kk, ty = id === 'falcon' ? y + laneH * .78 : y + laneH - 9;
+    const stopped = id === 'cheetah' && F.dist > SPRINT && p >= SPRINT - 0.01 && (F.running || finishedAll);
+    const run = moving && !stopped && p < capOf(id);
+    const label = (F.reveal || finishedAll) ? `${t.fast.lane[id]} · ${KMH[id]} ${t.kmh}` : t.fast.lane[id];
+    pillText(c, label, sx, y + 3, 190, { size: 12, bg: 'rgba(14,17,28,.72)', left: true });
+    if (id !== 'falcon') shadow(c, front - bw / 2, y + laneH - 7, bw / 2, .3);
+    at(c, d, tx, ty, kk, false, run ? F.ph + i : 0.5);
+    if (stopped) { c.fillStyle = 'rgba(255,255,255,.7)'; for (let j = 0; j < 3; j++) { c.beginPath(); c.arc(front + 6 + j * 7, ty - 44 * kk * 1.2 - j * 4 + Math.sin(time * 4 + j) * 2, 2 + j, 0, 7); c.fill(); } }
+    const fin = Number.isFinite(finishT(id)) && F.t >= finishT(id) - 1e-9 && (F.reveal || finishedAll);
+    if (fin) pillText(c, `${nt(finishT(id))} ${t.s}`, Math.max(60, front - bw - 34), y + laneH * .42, 90, { size: 12, bg: 'rgba(61,220,151,.9)', fg: '#06140d' });
+    else if (stopped) pillText(c, `${SPRINT} ${t.m}`, Math.max(70, front - bw - 34), y + laneH * .42, 90, { size: 12, bg: 'rgba(245,200,76,.92)', fg: '#241b05' });
+  });
+  if (!(F.reveal || finishedAll)) pillText(c, F.falcon ? t.fast.fT : (F.dist === 100 ? t.fast.q1 : t.fast.q2), w / 2, 6, w - 16);
+  else pillText(c, `${F.dist === 100 ? t.fast.d100 : t.fast.d1000}${F.falcon ? ' · ' + t.fast.falcon : ''}`, w / 2, 6, w - 16);
+  const ro = F.running || F.reveal || finishedAll ? `${nt(F.t)} ${t.s}` : '';
+  if (F.running && !F.reveal && ro !== F.lastRo) { F.lastRo = ro; lab.setReadout(ro, F.falcon ? t.fast.fT : (F.dist === 100 ? t.fast.d100 : t.fast.d1000), '', '#f5c84c'); }
+}
+
+function drawTiny(c, w, h, dt, time) {
+  const t = T[lang], cy = h * .74, cx = w / 2;
+  c.fillStyle = lg(c, 0, 0, 0, cy, [0, '#fbefd9'], [1, '#efd7b3']); c.fillRect(0, 0, w, cy);
+  c.strokeStyle = 'rgba(160,120,70,.12)'; c.lineWidth = 1; c.beginPath(); for (let x = 0; x < w; x += 44) { c.moveTo(x, 0); c.lineTo(x, cy); } for (let y = 0; y < cy; y += 44) { c.moveTo(0, y); c.lineTo(w, y); } c.stroke();
+  c.fillStyle = lg(c, 0, cy, 0, h, [0, '#c08a55'], [1, '#8e5e35']); c.fillRect(0, cy, w, h - cy);
+  c.fillStyle = 'rgba(255,255,255,.28)'; c.fillRect(0, cy, w, 2);
+  const L = Math.min(w * .32, 130), panW = Math.min(92, w * .24), drop = Math.max(50, h * .2), pvy = h * .26, smm = panW * .8 / 55;
+  Z.birdT = Z.rev ? Math.min(1, Z.birdT + dt / .9) : 0; Z.swapT = Math.min(1, Z.swapT + dt / .35);
+  const mL = Z.who === 'shrew' ? MASS.shrew : MASS[Z.who], target = Z.rev ? .25 * Math.tanh((COIN - mL) / .6) : 0;
+  Z.tilt = lerp(Z.tilt, Z.birdT > .8 ? target : 0, 1 - Math.exp(-dt * 5));
+  // nest
+  const nx = w * .13, ny = cy - 4;
+  c.beginPath(); c.ellipse(nx, ny, 26, 9, 0, 0, 7); c.fillStyle = lg(c, 0, ny - 9, 0, ny + 9, [0, '#a47b4a'], [1, '#6b4a2a']); c.fill();
+  c.strokeStyle = 'rgba(60,40,20,.55)'; c.lineWidth = 1.2; c.beginPath(); for (let i = 0; i < 9; i++) { c.moveTo(nx - 24 + i * 6, ny - 3 + (i % 2) * 3); c.quadraticCurveTo(nx - 18 + i * 6, ny + 6, nx - 10 + i * 6, ny - 2); } c.stroke();
+  c.fillStyle = '#fdf8ee'; c.strokeStyle = '#b9aa8a'; c.lineWidth = 1; [-6, 6].forEach((dx) => { c.beginPath(); c.ellipse(nx + dx, ny - 6, 4, 3, 0.2, 0, 7); c.fill(); c.stroke(); });
+  // balance
+  c.beginPath(); c.ellipse(cx, cy - 3, 48, 8, 0, 0, 7); c.fillStyle = lg(c, 0, cy - 11, 0, cy + 5, [0, '#d5dae6'], [1, '#7f879a']); c.fill();
+  c.beginPath(); c.roundRect(cx - 5, pvy, 10, cy - pvy - 4, 4); c.fillStyle = lg(c, cx - 5, 0, cx + 5, 0, [0, '#9aa2b6'], [.5, '#e6eaf3'], [1, '#8a92a6']); c.fill();
+  const r = Z.tilt, ex = L * Math.cos(r), ey = L * Math.sin(r), pe = [[cx - ex, pvy - ey], [cx + ex, pvy + ey]];
+  c.save(); c.translate(cx, pvy); c.rotate(r); c.beginPath(); c.roundRect(-L - 6, -4, 2 * L + 12, 8, 4); c.fillStyle = lg(c, 0, -4, 0, 4, [0, '#f0d98a'], [1, '#b08f2f']); c.fill(); c.strokeStyle = '#6f5a1a'; c.lineWidth = 1; c.stroke(); c.restore();
+  c.beginPath(); c.arc(cx, pvy, 8, 0, 7); c.fillStyle = lg(c, cx - 8, pvy - 8, cx + 8, pvy + 8, [0, '#fff3b8'], [1, '#a98b2c']); c.fill(); c.strokeStyle = '#6f5a1a'; c.stroke();
+  const pans = pe.map(([x, y]) => [x, y + drop]);
+  pans.forEach(([px, py], i) => {
+    c.strokeStyle = 'rgba(70,70,86,.8)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(pe[i][0], pe[i][1]); c.lineTo(px - panW / 2, py); c.moveTo(pe[i][0], pe[i][1]); c.lineTo(px + panW / 2, py); c.stroke();
+    c.beginPath(); c.moveTo(px - panW / 2, py); c.quadraticCurveTo(px, py + 22, px + panW / 2, py); c.closePath(); c.fillStyle = lg(c, 0, py, 0, py + 14, [0, '#e6eaf3'], [1, '#8a92a6']); c.fill(); c.strokeStyle = '#5b6376'; c.lineWidth = 1.2; c.stroke();
+  });
+  // the weighed animal: hovers by the nest before the reveal, hops onto the left pan after it
+  const who = Z.who, isBird = who !== 'shrew', d = isBird ? D.hummer : D.shrew, k = LEN[who] * smm / (d.x1 - d.x0);
+  const hover = [nx + 14, ny - 10 + Math.sin(time * 2.4) * 3], rest = [pans[0][0] - (d.x0 + (d.x1 - d.x0) / 2) * k, pans[0][1] + 8];
+  const e = ease(Z.birdT), arc = Math.sin(Math.PI * e) * 34;
+  const bx = Z.rev ? lerp(hover[0] - (d.x0 + (d.x1 - d.x0) / 2) * k, rest[0], e) : hover[0] - (d.x0 + (d.x1 - d.x0) / 2) * k, byy = Z.rev ? lerp(hover[1], rest[1], e) - arc : hover[1];
+  c.save(); c.globalAlpha = Z.rev ? c01(Z.swapT) : 1;
+  if (isBird) at(c, d, bx, byy, k, false, time * 38, { female: who === 'female' });
+  else if (Z.rev) at(c, d, bx, byy, k, false, 0);
+  c.restore();
+  if (Z.rev && e > .6) { // the coin on the right pan: drawn to the same scale (17.9 mm across)
+    const rx = 17.91 / 2 * smm, px = pans[1][0], py = pans[1][1];
+    c.globalAlpha = c01((e - .6) / .4);
+    c.beginPath(); c.ellipse(px, py + 1.5, rx, rx * .3, 0, 0, 7); c.fillStyle = '#9aa1b3'; c.fill();
+    c.beginPath(); c.ellipse(px, py - 0.5, rx, rx * .3, 0, 0, 7); c.fillStyle = lg(c, px - rx, 0, px + rx, 0, [0, '#e8ebf2'], [.5, '#fbfcff'], [1, '#b8bfce']); c.fill(); c.strokeStyle = '#7f879a'; c.lineWidth = 1; c.stroke();
+    c.globalAlpha = 1;
+    pillText(c, `${nf(mL, 2)} ${t.g}`, pans[0][0], pans[0][1] + 26, 120, { size: 12.5 });
+    pillText(c, `${nf(COIN, 2)} ${t.g}`, pans[1][0], pans[1][1] + 26, 120, { size: 12.5 });
+    pillText(c, t.tiny.coin, pans[1][0], pans[1][1] + 26 + 30, 120, { size: 12, bg: 'rgba(14,17,28,.6)' });
+  }
+  pillText(c, Z.rev ? t.tiny.name[who] : t.tiny.q, w / 2, 6, w - 16);
+}
+
+// --- shell and controls ------------------------------------------------------------------------------------
+const lab = shell({ key: 'animal-records', T, topics: TOPICS, views: ['big', 'fast', 'tiny'], onLang: render, onView: render });
+const secret = secretLab('animal-records', () => ({
+  secrets: [{ emo: '🦅', title: T[lang].secrets.fal[0], desc: T[lang].secrets.fal[1] }, { emo: '🦒', title: T[lang].secrets.calf[0], desc: T[lang].secrets.calf[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+const cv = $('cv');
+canvasLoop(cv, (c, w, h, dt, time) => {
+  CW = w; CH = h;
+  const v = lab.view;
+  if (v === 'big') drawBig(c, w, h, dt, time); else if (v === 'fast') drawFast(c, w, h, dt, time); else drawTiny(c, w, h, dt, time);
+});
+
+const showStage = () => { const r = $('stage').getBoundingClientRect(); if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+const resetRace = (dist, falcon) => { F.dist = dist; F.falcon = falcon; F.pick[dist] = null; F.done[falcon ? 'f' : dist] = false; F.running = false; F.reveal = false; F.t = 0; F.lastRo = ''; };
+
+// dragging the cards (Big, before the real sizes are shown)
+const hit = (ev) => { const r = cv.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top; return { x, y, card: [...G.cards].reverse().find((q) => x >= q.x && x <= q.x + G.L.cw && y >= q.y && y <= q.y + G.L.ch) }; };
+cv.addEventListener('pointerdown', (ev) => {
+  if (lab.view !== 'big' || S.shown || S.calf || !G.L) return;
+  const p = hit(ev); if (!p.card) return;
+  S.drag = { id: p.card.id, ox: p.x - p.card.x, oy: p.y - p.card.y, x: p.x, y: p.y, sx: p.x, sy: p.y, moved: false };
+  try { cv.setPointerCapture(ev.pointerId); } catch { /* no capture */ }
+  ev.preventDefault();
+});
+cv.addEventListener('pointermove', (ev) => {
+  if (!S.drag) return; const r = cv.getBoundingClientRect(); S.drag.x = ev.clientX - r.left; S.drag.y = ev.clientY - r.top;
+  if (Math.hypot(S.drag.x - S.drag.sx, S.drag.y - S.drag.sy) > 6) S.drag.moved = true;
+});
+const endDrag = (cancel) => {
+  const dr = S.drag; if (!dr) return; S.drag = null;
+  if (cancel) return;
+  if (dr.moved) {
+    const L = G.L, mx = dr.x - dr.ox + L.cw / 2, my = dr.y - dr.oy + L.ch / 2;
+    let slot = 0, best = Infinity;
+    for (let n = 0; n < 4; n++) { const q = L.slot(n), dd = Math.hypot(q.x + L.cw / 2 - mx, q.y + L.ch / 2 - my); if (dd < best) { best = dd; slot = n; } }
+    S.order = S.order.filter((i) => i !== dr.id); S.order.splice(slot, 0, dr.id); S.tap = null; sfx.snap();
+  } else if (S.tap === null) { S.tap = dr.id; sfx.tick(); }
+  else if (S.tap === dr.id) { S.tap = null; sfx.tick(); }
+  else { const a = S.order.indexOf(S.tap), b = S.order.indexOf(dr.id); [S.order[a], S.order[b]] = [S.order[b], S.order[a]]; S.tap = null; sfx.snap(); }
+  render();
+};
+cv.addEventListener('pointerup', () => endDrag(false));
+cv.addEventListener('pointercancel', () => endDrag(true));
+
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const act = b.dataset.act, v = b.dataset.v;
+  if (act === 'show') { S.shown = true; S.slide = 0; S.sel = REAL[0]; S.calf = false; (verdictBig() ? sfx.good : sfx.bad)(); showStage(); }
+  else if (act === 'sel') { S.sel = +v; S.slide = 0; S.calf = false; sfx.click(); }
+  else if (act === 'calf') { if (!secret.unlocked()) return secret.open(); S.calf = !S.calf; sfx.click(); showStage(); }
+  else if (act === 'pick') { F.pick[F.dist] = v; sfx.tick(); }
+  else if (act === 'run') { F.t = 0; F.running = true; F.reveal = false; F.done[key()] = false; F.lastRo = ''; sfx.click(); showStage(); }
+  else if (act === 'long') { resetRace(1000, false); sfx.click(); }
+  else if (act === 'short') { resetRace(100, false); sfx.click(); }
+  else if (act === 'again') { resetRace(F.dist, F.falcon); sfx.click(); }
+  else if (act === 'fal') { if (!secret.unlocked()) return secret.open(); if (!F.seen && !F.falcon) return; if (F.falcon) resetRace(100, false); else resetRace(100, true); sfx.click(); }
+  else if (act === 'tpick') { Z.pick = v; sfx.tick(); }
+  else if (act === 'weigh') { Z.rev = true; Z.birdT = 0; Z.who = 'male'; (Z.pick === 'coin' ? sfx.good : sfx.bad)(); showStage(); }
+  else if (act === 'who') { if (v !== Z.who) { Z.who = v; Z.swapT = 0; sfx.click(); } }
+  render();
+});
+
+// --- one render per change: controls, readout, state card and facts ----------------------------------------
+function secretChip(act, emo, label, on, lock) { const open = secret.unlocked(); return `<button class="chip ar-chip secret ${open ? 'open' : ''} ${on ? 'on' : ''}" data-act="${act}" ${lock ? 'disabled' : ''}>${open ? `${emo} ${esc(label)}` : '🔒 ???'}</button>`; }
+function render() {
+  const v = lab.view, t = T[lang];
+  cv.style.touchAction = v === 'big' && !S.shown && !S.calf ? 'none' : 'pan-y';
+  if (v === 'big') renderBig(t); else if (v === 'fast') renderFast(t); else renderTiny(t);
+}
+function renderBig(t) {
+  lab.setGlow('rgba(78, 168, 255, .26)');
+  const sel = ANI[S.sel];
+  let html;
+  if (!S.shown) html = `<div class="ar-row"><button class="btn" data-act="show">${esc(t.big.show)}</button>${secretChip('calf', '🦒', t.big.calf, S.calf)}</div>`;
+  else html = `<div class="ar-row">${REAL.map((i) => `<button class="chip ar-chip ${i === S.sel && !S.calf ? 'on' : ''}" data-act="sel" data-v="${i}">${ANI[i].emo} ${esc(t.ani[ANI[i].id][0])}</button>`).join('')}</div>
+    <div class="ar-row">${secretChip('calf', '🦒', t.big.calf, S.calf)}</div>`;
+  $('ctrlBody').innerHTML = html;
+  if (S.calf) {
+    lab.setReadout('1.7–2'.replace('.', lang === 'en' ? '.' : ','), t.m, '', '#4ea8ff');
+    lab.setState({ emo: '🦒', title: t.big.calfT, lead: t.big.calfL, body: t.big.calfB });
+    lab.setFacts([factOf('giraffe', 0)]); return;
+  }
+  if (!S.shown) {
+    lab.setReadout('?', '', '', '#4ea8ff');
+    lab.setState({ emo: '🤔', title: t.big.title, lead: t.big.lead, body: t.big.body });
+    lab.setFacts([]); return;
+  }
+  const n2 = Math.max(1, Math.round((sel.unit === 'bus' ? sel.m / BUS : sel.m / CHILD) * 2)), ok = verdictBig(), right = S.order.filter((id, i) => id === REAL[i]).length;
+  const order = REAL.map((i) => `${t.ani[ANI[i].id][0]} ${nf(ANI[i].m)} ${t.m}`).join(', ');
+  lab.setReadout(hv(n2), t.big.in[sel.unit], `${nf(sel.m)} ${t.m}`, '#4ea8ff');
+  lab.setState({ emo: sel.emo, title: t.ani[sel.id][1], lead: `${t.big.size(nf(sel.m), sel.kind)[0].toUpperCase()}${t.big.size(nf(sel.m), sel.kind).slice(1)}.`, body: t.big.cmp(sel.unit, n2),
+    extra: `<div class="ar-fine"><b>${esc(ok ? t.right : t.notq)}</b> ${esc(ok ? t.big.allOk : t.big.some(right))} ${esc(t.big.order(order))}</div>` });
+  lab.setFacts([factOf(sel.id, 0), factOf(sel.id, 1)]);
+}
+function renderFast(t) {
+  lab.setGlow('rgba(245, 200, 76, .24)');
+  const k = key(), dist = F.dist, pick = F.pick[dist], done = F.done[k], busy = F.running, shown = F.reveal || done;
+  const opt = (id) => { const win = id === 'cheetah' ? dist === 100 : dist === 1000; return `<button class="ar-opt ${pick === id && !shown ? 'on' : ''} ${shown ? (win ? 'good' : pick === id ? 'bad' : '') : ''}" data-act="pick" data-v="${id}" ${busy || shown ? 'disabled' : ''}>${esc(t.fast[id])}</button>`; };
+  let html = '';
+  if (!F.falcon) html += `<p class="ar-q">${esc(dist === 100 ? t.fast.q1 : t.fast.q2)}</p><div class="ar-row">${opt('car')}${opt('cheetah')}</div>`;
+  html += `<div class="ar-row">${done ? `<button class="btn" data-act="again">${esc(t.fast.again)}</button>` : `<button class="btn" data-act="run" ${(F.falcon ? false : !pick) || busy ? 'disabled' : ''}>${esc(t.fast.run)}</button>`}
+    ${F.seen && dist === 100 && !F.falcon ? `<button class="chip ar-chip" data-act="long">${esc(t.fast.long)}</button>` : ''}${dist === 1000 && !F.falcon ? `<button class="chip ar-chip" data-act="short">${esc(t.fast.short)}</button>` : ''}
+    ${secretChip('fal', '🦅', t.fast.falcon, F.falcon, secret.unlocked() && !F.seen && !F.falcon)}</div>`;
+  $('ctrlBody').innerHTML = html;
+  const ids = laneIds(), fin = ids.filter((id) => Number.isFinite(finishT(id))).sort((a, b) => finishT(a) - finishT(b));
+  const ro = F.running ? F.lastRo : '';
+  if (!shown) {
+    lab.setReadout(busy ? ro || '0 ' + t.s : (F.falcon ? t.fast.d100 : (dist === 100 ? t.fast.d100 : t.fast.d1000)), busy ? '' : '', '', '#f5c84c');
+    lab.setState({ emo: busy ? '🏁' : '🏃', title: busy ? t.fast.go : t.fast.ready, lead: busy ? t.fast.watch : (F.falcon ? t.fast.fL : (dist === 100 ? t.fast.q1 : t.fast.q2)), body: t.fast.note });
+    lab.setFacts([]); return;
+  }
+  const win = fin[0], tl = finishT(win);
+  lab.setReadout(`${nt(tl)} ${t.s}`, t.fast.lane[win], `${dist === 100 ? t.fast.d100 : t.fast.d1000}`, '#f5c84c');
+  const list = t.fast.list(fin.map((id) => `${t.fast.lane[id]} ${nt(finishT(id))} ${t.s}`));
+  if (F.falcon) {
+    lab.setState({ emo: '🦅', title: t.fast.fT, lead: t.fast.fR(nt(finishT('falcon')), nt(finishT('cheetah'))), body: t.fast.fB });
+    lab.setFacts([factOf('falcon', 0), factOf('falcon', 1)]); return;
+  }
+  if (dist === 100) {
+    lab.setState({ emo: '🐆', title: pick === 'cheetah' ? t.right : t.notq, lead: list, body: t.fast.speeds(KMH.cheetah, KMH.car, KMH.horse, KMH.child) });
+    lab.setFacts([factOf('cheetah', 0), factOf('cheetah', 1), factOf('horse', 0)]);
+  } else {
+    lab.setState({ emo: '🚗', title: pick === 'car' ? t.right : t.notq, lead: `${t.fast.carWins(nt(finishT('car')))} ${t.fast.stopped(SPRINT)}`, body: t.fast.tired });
+    lab.setFacts([factOf('chase', 0), factOf('cheetah', 1), factOf('horse', 0)]);
+  }
+}
+function renderTiny(t) {
+  lab.setGlow('rgba(217, 130, 95, .24)');
+  const o = t.tiny.opts, who = Z.who;
+  let html;
+  if (!Z.rev) html = `<p class="ar-q">${esc(t.tiny.q)}</p><div class="ar-row">${['apple', 'coin', 'rice'].map((k) => `<button class="ar-opt ${Z.pick === k ? 'on' : ''}" data-act="tpick" data-v="${k}">${esc(({ apple: '🍎', coin: '🪙', rice: '🍚' })[k] + ' ' + o[k])}</button>`).join('')}</div>
+    <div class="ar-row"><button class="btn" data-act="weigh" ${Z.pick ? '' : 'disabled'}>${esc(t.tiny.weigh)}</button></div>`;
+  else html = `<div class="ar-row">${['male', 'female', 'shrew'].map((k) => `<button class="chip ar-chip ${who === k ? 'on' : ''}" data-act="who" data-v="${k}">${k === 'shrew' ? '🐭' : '🐦'} ${esc(t.tiny.who[k])}</button>`).join('')}</div>
+    <div class="ar-row">${['apple', 'coin', 'rice'].map((k) => `<span class="ar-opt ${k === 'coin' ? 'good' : Z.pick === k ? 'bad' : ''}" style="display:${k === 'coin' || Z.pick === k ? 'inline-flex' : 'none'};align-items:center;cursor:default">${esc(({ apple: '🍎', coin: '🪙', rice: '🍚' })[k] + ' ' + o[k])}</span>`).join('')}</div>`;
+  $('ctrlBody').innerHTML = html;
+  if (!Z.rev) {
+    lab.setReadout('?', t.g, '', '#d9825f');
+    lab.setState({ emo: '⚖️', title: t.tiny.title, lead: t.tiny.lead, body: '' });
+    lab.setFacts([]); return;
+  }
+  const m = MASS[who], rel = m < COIN ? t.tiny.lt : t.tiny.gt;
+  lab.setReadout(nf(m, 2), t.g, `${t.tiny.coin}: ${nf(COIN, 2)} ${t.g}`, '#d9825f');
+  lab.setState({ emo: who === 'shrew' ? '🐭' : '🐦', title: who === 'male' ? (Z.pick === 'coin' ? t.right : t.notq) : t.tiny.name[who], lead: t.tiny.lead2(t.tiny.name[who], nf(m, 2), rel, nf(COIN, 2)), body: `${t.tiny.smallest[who]} ${t.tiny.len[who]}` });
+  lab.setFacts([factOf(who === 'shrew' ? 'shrew' : 'hummer', 0), factOf(who === 'shrew' ? 'shrew' : 'hummer', 1)]);
+}
+render();
+</script>
+</body>
+</html>
