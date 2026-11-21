@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-21
 
 ### Labs
+- New lab `crossing-chords` “Crossing Chords”: the intersecting chords and tangent–secant theorems (784). (#677)
 - New lab `read-building` “What Does a Building Say?”: reading buildings as messages about power (783). (#676)
 - New lab `compass-ruler` “Compass and Ruler”: compass and straightedge constructions: bisectors and perpendiculars (782). (#675)
 - New lab `moscow-stone` “Moscow in Stone”: Russian architecture and culture of the 16th–17th centuries (781). (#674)
