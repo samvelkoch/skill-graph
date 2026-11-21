@@ -1,0 +1,698 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Calendar Detective · Skill Graph</title>
+<meta name="description" content="Read a calendar like a detective: find the rule hiding in the rows of seven, count the sleeps to a big day and follow a birthday from this year to the next. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  .wk-q { font: 800 15px/1.3 var(--sans); color: #fff; margin: 0 0 10px; text-wrap: balance; }
+  .wk-row { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+  .wk-row button, .wk-opts button { min-height: 42px; padding: 0 2px; border-radius: 14px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 800; font-size: 14px; cursor: pointer; }
+  .wk-row button:hover:not(:disabled), .wk-opts button:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .wk-row button:disabled, .wk-opts button:disabled { cursor: default; opacity: .55; }
+  .wk-row button.good, .wk-opts button.good { background: rgba(61, 220, 151, .22); border-color: var(--ok); opacity: 1; }
+  .wk-row button.bad, .wk-opts button.bad { background: rgba(255, 90, 90, .18); border-color: #ff6b6b; opacity: 1; }
+  .wk-opts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .wk-opts button { padding: 6px 4px; line-height: 1.2; }
+  .wk-cnt { display: flex; align-items: center; justify-content: center; gap: 10px; }
+  .wk-cnt b { min-width: 64px; text-align: center; font-size: 30px; font-weight: 900; }
+  .wk-sb { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1); font-size: 22px; font-weight: 800;
+    line-height: 1; padding: 0; cursor: pointer; }
+  .wk-sb:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .wk-sb:disabled { opacity: .35; cursor: default; }
+  .wk-step { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 8px; }
+  .wk-step .wk-sb { width: 38px; height: 38px; font-size: 18px; }
+  .wk-step span { flex: 1; text-align: center; font-weight: 800; }
+  .wk-rule { margin-top: 10px; padding: 9px 12px; border-radius: 14px; background: rgba(61, 220, 151, .12); border: 1px solid rgba(61, 220, 151, .4); font-weight: 700; }
+  .wk-note { margin-top: 6px; font-size: 12px; color: var(--faint); }
+  .btn:disabled { opacity: .4; cursor: default; }
+  .push { margin-left: auto; }
+  @media (max-width: 760px) {
+    #stage { height: min(125vw, 560px); }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, store, $, esc, clamp, ruPlural, lang } from '../lab.js';
+
+// --- texts -------------------------------------------------------------------------------------------------
+const ordEn = (n) => n + (n % 100 >= 11 && n % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th'));
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+const T = {
+  en: {
+    name: 'Calendar Detective', title: 'Calendar Detective',
+    lines: [['Spot the rule', 'hiding in the rows of seven.'], ['Count the sleeps', 'to a day you are waiting for.'], ['Follow a birthday', 'from this year to the next.']],
+    views: { week: '📅 Week', count: '🔢 Count', year: '🎂 Year' },
+    wd: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+    ws: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+    mo: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
+    mog: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
+    right: 'Right!', yearsApart: (n) => `${n} years apart`,
+    w: {
+      today: (wd, d) => `Today is ${wd} the ${ordEn(d)}.`, newMonth: (wd, d) => `A new month. Today is ${wd} the ${ordEn(d)}.`,
+      q: (d) => `What day of the week is the ${ordEn(d)}?`, ask: 'Tap a weekday. The red marker shows where you are in the calendar.',
+      wrong: (wd) => `Not quite: it is ${wd}.`, tag: 'today', later: (n) => `${n} days later`,
+      arith: (d, a) => { const n = d - a, k = n / 7; return `${d} − ${a} = ${n} days = ${k} ${k === 1 ? 'week' : 'weeks'}: the marker drops ${k} ${k === 1 ? 'row' : 'rows'} and stays in its column.`; },
+      rule: 'The rule: a week has 7 days, so 7 days later is the same weekday. Same column, next row.',
+      next: 'Next date →', month: 'New month →', again: '↻ Again', score: (k, n) => `${k} of ${n} right.`,
+    },
+    c: {
+      q: (ev) => `How many sleeps until ${ev}?`, ev: ['swimming', 'the school trip', 'Grandma’s birthday', 'the holiday', 'the concert'],
+      legend: (emo) => `📍 today → ${emo}`, ask: 'Make a guess, then press Check and watch the jumps.',
+      check: 'Check', hopping: 'Counting…', next: 'Next →', again: '↻ Again', sleeps: 'sleeps', jumps: 'jumps', pillN: (i) => `${i} / 5`,
+      ok: (n) => `${n} ${n === 1 ? 'jump' : 'jumps'} = ${n} ${n === 1 ? 'sleep' : 'sleeps'}. The day you start on is where you stand: it is not a jump.`,
+      wrong: (g, n) => `Not ${g}: it is ${n}.`,
+      plus1: 'You counted today too. Count the jumps, not the squares: the square you start on is not a jump.',
+      minus1: 'You stopped one day early. The jump onto the big day counts.',
+      other: (n) => `Count the jumps from today: there are ${n}.`,
+      cross: (mi, len, m2i, t) => `${t.mo[mi]} has ${len} days, so the jump after ${t.mo[mi]} ${len} lands on ${t.mo[m2i]} 1.`,
+      score: (k) => `${k} of 5 right.`, scoreLead: 'Count the jumps, not the squares.', jlive: 'jumps so far',
+    },
+    y: {
+      q: (wd) => `This year your birthday is on a ${wd}. Next year it will be on…`, any: 'Any day',
+      qShort: 'Next year it will be on…', lookAt: 'The red marker is the birthday.',
+      wrong: (wd) => `Not quite: it is ${wd}.`,
+      line: (span, shift, w0, w1) => `${span} days = 52 weeks + ${shift} ${shift === 1 ? 'day' : 'days'}. The birthday moves ${shift} ${shift === 1 ? 'weekday' : 'weekdays'} later: ${w0} → ${w1}.`,
+      leapT: 'A 29 February is in between.',
+      spin: '↻ Spin the year wheel', leap: '29 February before the birthday', segW: 'Year wheel', segM: 'My birthday',
+      week: (n) => `week ${n}`, plus: (n) => `+${n} ${n === 1 ? 'day' : 'days'}`, ringLbl: (e) => `52 weeks + ${e} ${e === 1 ? 'day' : 'days'}`, bigger: 'extra days drawn bigger',
+      date: (m, d, mo) => `${mo[m]} ${d}`, mine: (date) => `Your birthday: ${date}.`, mineLead: (w0) => `This year it is a ${w0}. Next year it will be on…`,
+      month: 'Month', day: 'Day', daysWord: (n) => `${n} days`, nextYear: 'Next year',
+    },
+    sec: { reuse: ['Same calendar', 'A year’s calendar comes back'], why: ['Why seven?', 'The Moon’s quarter'] },
+    re: { next: 'Next match ›', title: (a, b) => `${a} and ${b}: the same calendar.`, lead: (gap) => `Every date falls on the same weekday. The years are ${gap} years apart.`, pill: (a, b) => `${a} = ${b}` },
+    wy: { names: ['New moon', 'First quarter', 'Full moon', 'Last quarter'], day: (x) => `day ${x}`, arc: (q) => `≈ ${q} days`, week: 'one week: 7 days',
+      title: (n, x) => `${n} · day ${x}`, lead: (q) => `A quarter of the Moon’s cycle is about ${q} days: close to a week. Some scholars think this is how the week began.`,
+      body: (m) => `The whole cycle takes about ${m} days.`, aria: 'Moon phase' },
+    f: {
+      moon: ['🌙', 'In English, Monday means “Moon’s day” and Sunday means “Sun’s day”.', 'en.wikipedia.org/wiki/Names_of_the_days_of_the_week'],
+      mid: ['🇩🇪', 'In German, Wednesday is Mittwoch: “mid-week”. Finnish keskiviikko and Icelandic miðvikudagur mean the same.', 'en.wikipedia.org/wiki/Names_of_the_days_of_the_week'],
+      slav: ['🔤', 'Russian среда and Hungarian szerda are relatives: Hungarian borrowed szerda from a Slavic word, and the old East Slavic середа meant both “middle” and “Wednesday”.', 'en.wiktionary.org: szerda, среда'],
+      h168: ['⏱️', 'A week is exactly seven days: 168 hours.', 'en.wikipedia.org/wiki/Week'],
+      rom: ['🪐', 'The Roman planetary week named its days after the Sun, the Moon and five planets.', 'en.wikipedia.org/wiki/Week'],
+      jew: ['📜', 'The Jewish seven-day cycle goes back to the 6th century BC at the latest.', 'en.wikipedia.org/wiki/Week'],
+      year: ['🎂', 'A year is 52 weeks and 1 day (2 days in a leap year).', 'en.wikipedia.org/wiki/Week'],
+      moonq: ['🌓', 'One idea about where the week comes from: it is about a quarter of the Moon’s cycle. Nobody knows for sure: the origin is debated.', 'en.wikipedia.org/wiki/Week'],
+      lunar: ['🌕', 'The Moon’s cycle of phases lasts 29.53059 days on average.', 'en.wikipedia.org/wiki/Lunar_month'],
+    },
+    quiz: [
+      { q: 'If the 4th is a Friday, the 11th is…', opts: ['Thursday', 'Friday', 'Saturday'], ok: 1, hint: 'Look down one column in Week.' },
+      { q: 'How many sleeps from Monday to Friday of the same week?', opts: ['5', '6', '4'], ok: 2, hint: 'Count the jumps in Count.' },
+      { q: 'Your birthday is on a Sunday this year, and there is no 29 February in between. Next year it will be on…', opts: ['Monday', 'Saturday', 'Sunday'], ok: 0, hint: 'Spin the year wheel.' },
+    ],
+  },
+  ru: {
+    name: 'Календарный сыщик', title: 'Календарный сыщик',
+    lines: [['Найди правило,', 'спрятанное в строках по семь.'], ['Посчитай ночи', 'до дня, которого ждёшь.'], ['Проследи день рождения', 'из этого года в следующий.']],
+    views: { week: '📅 Неделя', count: '🔢 Счёт', year: '🎂 Год' },
+    wd: ['понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота', 'воскресенье'],
+    ws: ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'],
+    mo: ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'],
+    mog: ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'],
+    right: 'Верно!', yearsApart: (n) => `${n} ${ruPlural(n, 'год', 'года', 'лет')} разницы`,
+    w: {
+      today: (wd, d) => `Сегодня ${wd}, ${d}-е число.`, newMonth: (wd, d) => `Новый месяц. Сегодня ${wd}, ${d}-е число.`,
+      q: (d) => `Какой день недели будет ${d}-го числа?`, ask: 'Нажми на день недели. Красный маркер показывает, где ты на календаре.',
+      wrong: (wd) => `Не совсем: это ${wd}.`, tag: 'сегодня', later: (n) => `через ${n} ${ruPlural(n, 'день', 'дня', 'дней')}`,
+      arith: (d, a) => { const n = d - a, k = n / 7; return `${d} − ${a} = ${n} ${ruPlural(n, 'день', 'дня', 'дней')} = ${k} ${ruPlural(k, 'неделя', 'недели', 'недель')}: маркер спускается на ${k} ${ruPlural(k, 'строку', 'строки', 'строк')} вниз и остаётся в своей колонке.`; },
+      rule: 'Правило: в неделе 7 дней, поэтому через 7 дней — тот же день недели. Та же колонка, следующая строка.',
+      next: 'Дальше →', month: 'Новый месяц →', again: '↻ Ещё раз', score: (k, n) => `${k} из ${n} верно.`,
+    },
+    c: {
+      q: (ev) => `Сколько ночей до ${ev}?`, ev: ['бассейна', 'школьной поездки', 'дня рождения бабушки', 'праздника', 'концерта'],
+      legend: (emo) => `📍 сегодня → ${emo}`, ask: 'Загадай число, нажми «Проверить» и следи за прыжками.',
+      check: 'Проверить', hopping: 'Считаю…', next: 'Дальше →', again: '↻ Ещё раз', sleeps: 'ночей', jumps: 'прыжков', pillN: (i) => `${i} / 5`,
+      ok: (n) => `${n} ${ruPlural(n, 'прыжок', 'прыжка', 'прыжков')} = ${n} ${ruPlural(n, 'ночь', 'ночи', 'ночей')}. День, с которого начинаешь, — это место, где ты стоишь, а не прыжок.`,
+      wrong: (g, n) => `Не ${g}, а ${n}.`,
+      plus1: 'Сегодняшний день тоже попал в счёт. Считай прыжки, а не клетки: клетка, с которой начинаешь, — не прыжок.',
+      minus1: 'Счёт остановился на день раньше. Прыжок на сам праздничный день тоже считается.',
+      other: (n) => `Посчитай прыжки от сегодняшнего дня: их ${n}.`,
+      cross: (mi, len, m2i, t) => `${cap(t.mo[mi])}: ${len} ${ruPlural(len, 'день', 'дня', 'дней')}. Прыжок после ${len} ${t.mog[mi]} приводит на 1 ${t.mog[m2i]}.`,
+      score: (k) => `${k} из 5 верно.`, scoreLead: 'Считай прыжки, а не клетки.', jlive: 'прыжков пока',
+    },
+    y: {
+      q: (wd) => `День рождения в этом году: ${wd}. В следующем году это будет:`, any: 'Любой день',
+      qShort: 'В следующем году это будет:', lookAt: 'Красный маркер — день рождения.',
+      wrong: (wd) => `Не совсем: это ${wd}.`,
+      line: (span, shift, w0, w1) => `${span} ${ruPlural(span, 'день', 'дня', 'дней')} = 52 недели + ${shift} ${ruPlural(shift, 'день', 'дня', 'дней')}. День рождения сдвигается на ${shift} ${ruPlural(shift, 'день', 'дня', 'дней')} вперёд по дням недели: ${w0} → ${w1}.`,
+      leapT: 'Между днями рождения есть 29 февраля.',
+      spin: '↻ Крутить колесо года', leap: '29 февраля до дня рождения', segW: 'Колесо года', segM: 'Мой день рождения',
+      week: (n) => `неделя ${n}`, plus: (n) => `+${n} ${ruPlural(n, 'день', 'дня', 'дней')}`, ringLbl: (e) => `52 недели + ${e} ${ruPlural(e, 'день', 'дня', 'дней')}`, bigger: 'лишние дни нарисованы крупнее',
+      date: (m, d, mo, mog) => `${d} ${mog[m]}`, mine: (date) => `Твой день рождения: ${date}.`, mineLead: (w0) => `В этом году это ${w0}. В следующем году это будет:`,
+      month: 'Месяц', day: 'День', daysWord: (n) => `${n} ${ruPlural(n, 'день', 'дня', 'дней')}`, nextYear: 'Следующий год',
+    },
+    sec: { reuse: ['Тот же календарь', 'Календарь года возвращается'], why: ['Почему семь?', 'Четверть Луны'] },
+    re: { next: 'Следующий год ›', title: (a, b) => `${a} и ${b}: один и тот же календарь.`, lead: (gap) => `Каждая дата выпадает на тот же день недели. Между годами ${gap} ${ruPlural(gap, 'год', 'года', 'лет')}.`, pill: (a, b) => `${a} = ${b}` },
+    wy: { names: ['Новолуние', 'Первая четверть', 'Полнолуние', 'Последняя четверть'], day: (x) => `${x} сут.`, arc: (q) => `≈ ${q} сут.`, week: 'одна неделя: 7 дней',
+      title: (n, x) => `${n} · ${x} сут.`, lead: (q) => `Четверть лунного цикла — около ${q} суток, почти неделя. Некоторые учёные думают, что неделя началась так.`,
+      body: (m) => `Весь цикл длится около ${m} суток.`, aria: 'Фаза Луны' },
+    f: {
+      moon: ['🌙', 'По-английски понедельник — Monday, «день Луны», а воскресенье — Sunday, «день Солнца».', 'en.wikipedia.org/wiki/Names_of_the_days_of_the_week'],
+      mid: ['🇩🇪', 'По-немецки среда — Mittwoch, «середина недели». Так же называют этот день по-фински (keskiviikko) и по-исландски (miðvikudagur).', 'en.wikipedia.org/wiki/Names_of_the_days_of_the_week'],
+      slav: ['🔤', 'Русское «среда» и венгерское szerda — родственные слова: венгры взяли szerda из славянского, а в древневосточнославянском «середа» значило и «середина», и «среда».', 'en.wiktionary.org: szerda, среда'],
+      h168: ['⏱️', 'В неделе ровно семь суток — это 168 часов.', 'en.wikipedia.org/wiki/Week'],
+      rom: ['🪐', 'В римской «планетной неделе» дни назвали в честь Солнца, Луны и пяти планет.', 'en.wikipedia.org/wiki/Week'],
+      jew: ['📜', 'Семидневный цикл в еврейской традиции известен не позже VI века до нашей эры.', 'en.wikipedia.org/wiki/Week'],
+      year: ['🎂', 'В году 52 недели и 1 день (в високосном — 2 дня).', 'en.wikipedia.org/wiki/Week'],
+      moonq: ['🌓', 'Одна из версий, откуда взялась неделя: это примерно четверть лунного цикла. Точно никто не знает: происхождение недели спорно.', 'en.wikipedia.org/wiki/Week'],
+      lunar: ['🌕', 'Цикл лунных фаз длится в среднем 29,53059 суток.', 'en.wikipedia.org/wiki/Lunar_month'],
+    },
+    quiz: [
+      { q: 'Если 4-е число — пятница, то 11-е число — это…', opts: ['четверг', 'пятница', 'суббота'], ok: 1, hint: 'Посмотри вниз по одной колонке в «Неделе».' },
+      { q: 'Сколько ночей от понедельника до пятницы одной недели?', opts: ['5', '6', '4'], ok: 2, hint: 'Считай прыжки в «Счёте».' },
+      { q: 'В этом году день рождения в воскресенье, а 29 февраля между ними нет. В следующем году это будет…', opts: ['понедельник', 'суббота', 'воскресенье'], ok: 0, hint: 'Покрути колесо года.' },
+    ],
+  },
+  hu: {
+    name: 'Naptárnyomozó', title: 'Naptárnyomozó',
+    lines: [['Találd meg a szabályt,', 'amely a hetes sorokban rejtőzik.'], ['Számold az alvásokat', 'egy várva várt napig.'], ['Kövess egy születésnapot', 'erről az évről a következőre.']],
+    views: { week: '📅 Hét', count: '🔢 Számolj', year: '🎂 Év' },
+    wd: ['hétfő', 'kedd', 'szerda', 'csütörtök', 'péntek', 'szombat', 'vasárnap'],
+    ws: ['H', 'K', 'Sze', 'Cs', 'P', 'Szo', 'V'],
+    mo: ['január', 'február', 'március', 'április', 'május', 'június', 'július', 'augusztus', 'szeptember', 'október', 'november', 'december'],
+    mog: ['január', 'február', 'március', 'április', 'május', 'június', 'július', 'augusztus', 'szeptember', 'október', 'november', 'december'],
+    right: 'Így van!', yearsApart: (n) => `${n} év különbség`,
+    w: {
+      today: (wd, d) => `Ma ${wd} van, a hónap ${d}. napja.`, newMonth: (wd, d) => `Új hónap. Ma ${wd} van, a hónap ${d}. napja.`,
+      q: (d) => `A hét melyik napja lesz a hónap ${d}. napja?`, ask: 'Koppints a hét egyik napjára. A piros jelölő mutatja, hol tartasz a naptárban.',
+      wrong: (wd) => `Nem egészen: ${wd} lesz.`, tag: 'ma', later: (n) => `${n} nap múlva`,
+      arith: (d, a) => { const n = d - a, k = n / 7; return `${d} − ${a} = ${n} nap = ${k} hét: a jelölő ${k} sort lép lejjebb, és ugyanabban az oszlopban marad.`; },
+      rule: 'A szabály: a héten 7 nap van, ezért 7 nappal később ugyanaz a hét napja. Ugyanaz az oszlop, a következő sor.',
+      next: 'Következő nap →', month: 'Új hónap →', again: '↻ Újra', score: (k, n) => `Eredmény: ${k} / ${n}.`,
+    },
+    c: {
+      q: (ev) => `Hányat kell még aludni ${ev}?`, ev: ['az úszásig', 'az iskolai kirándulásig', 'a nagymama születésnapjáig', 'az ünnepig', 'a koncertig'],
+      legend: (emo) => `📍 ma → ${emo}`, ask: 'Tippelj, aztán nyomd meg az Ellenőrzést, és nézd az ugrásokat.',
+      check: 'Ellenőrzés', hopping: 'Számolom…', next: 'Tovább →', again: '↻ Újra', sleeps: 'alvás', jumps: 'ugrás', pillN: (i) => `${i} / 5`,
+      ok: (n) => `${n} ugrás = ${n} alvás. A nap, ahonnan indulsz, az a hely, ahol állsz: az nem ugrás.`,
+      wrong: (g, n) => `Nem ${g}, hanem ${n}.`,
+      plus1: 'A mai napot is beszámoltad. Az ugrásokat számold, ne a négyzeteket: a kezdőnégyzet nem ugrás.',
+      minus1: 'Egy nappal korábban megálltál. A nagy napra érkező ugrás is számít.',
+      other: (n) => `Számold meg az ugrásokat mától: ${n} van.`,
+      cross: (mi, len, m2i, t) => `${cap(t.mo[mi])}: ${len} nap. ${t.mo[mi]} ${len}. után az ugrás a következő hónap első napjára visz: ${t.mo[m2i]} 1.`,
+      score: (k) => `Eredmény: ${k} / 5.`, scoreLead: 'Az ugrásokat számold, ne a négyzeteket.', jlive: 'ugrás eddig',
+    },
+    y: {
+      q: (wd) => `Idén a születésnapod: ${wd}. Jövőre ez lesz:`, any: 'Bármelyik nap',
+      qShort: 'Jövőre ez lesz:', lookAt: 'A piros jelölő a születésnap.',
+      wrong: (wd) => `Nem egészen: ${wd} lesz.`,
+      line: (span, shift, w0, w1) => `${span} nap = 52 hét + ${shift} nap. A születésnap ${shift} nappal később lesz a héten: ${w0} → ${w1}.`,
+      leapT: 'Közte van február 29.',
+      spin: '↻ Pörgesd az év kerekét', leap: 'február 29. a születésnap előtt', segW: 'Az év kereke', segM: 'Az én születésnapom',
+      week: (n) => `${n}. hét`, plus: (n) => `+${n} nap`, ringLbl: (e) => `52 hét + ${e} nap`, bigger: 'a többletnapok nagyobbra rajzolva',
+      date: (m, d, mo) => `${mo[m]} ${d}.`, mine: (date) => `A születésnapod: ${date}`, mineLead: (w0) => `Idén ${w0}. Jövőre ez lesz:`,
+      month: 'Hónap', day: 'Nap', daysWord: (n) => `${n} nap`, nextYear: 'Jövő év',
+    },
+    sec: { reuse: ['Ugyanaz a naptár', 'Egy év naptára visszatér'], why: ['Miért hét?', 'A Hold negyede'] },
+    re: { next: 'Következő egyezés ›', title: (a, b) => `${a} és ${b}: ugyanaz a naptár.`, lead: (gap) => `Minden dátum a hét ugyanazon napjára esik. A két év között ${gap} év van.`, pill: (a, b) => `${a} = ${b}` },
+    wy: { names: ['Újhold', 'Első negyed', 'Telihold', 'Utolsó negyed'], day: (x) => `${x} nap`, arc: (q) => `≈ ${q} nap`, week: 'egy hét: 7 nap',
+      title: (n, x) => `${n} · ${x} nap`, lead: (q) => `A Hold ciklusának negyede körülbelül ${q} nap: majdnem egy hét. Egyes kutatók szerint innen ered a hét.`,
+      body: (m) => `A teljes ciklus körülbelül ${m} napig tart.`, aria: 'Holdfázis' },
+    f: {
+      moon: ['🌙', 'Angolul a hétfő Monday, vagyis „a Hold napja”, a vasárnap pedig Sunday, „a Nap napja”.', 'en.wikipedia.org/wiki/Names_of_the_days_of_the_week'],
+      mid: ['🇩🇪', 'Németül a szerda Mittwoch, vagyis „a hét közepe”. Finnül (keskiviikko) és izlandiul (miðvikudagur) is ezt jelenti.', 'en.wikipedia.org/wiki/Names_of_the_days_of_the_week'],
+      slav: ['🔤', 'Az orosz среда és a magyar szerda rokon szavak: a magyar a szerdát szláv szóból vette át, a régi keleti szláv середа pedig egyszerre jelentett „közepet” és „szerdát”.', 'en.wiktionary.org: szerda, среда'],
+      h168: ['⏱️', 'A hét pontosan hét nap, vagyis 168 óra.', 'en.wikipedia.org/wiki/Week'],
+      rom: ['🪐', 'A római bolygóhét a napjait a Napról, a Holdról és öt bolygóról nevezte el.', 'en.wikipedia.org/wiki/Week'],
+      jew: ['📜', 'A zsidó hétnapos ciklus legkésőbb az i. e. 6. századra nyúlik vissza.', 'en.wikipedia.org/wiki/Week'],
+      year: ['🎂', 'Egy év 52 hét és 1 nap (szökőévben 2 nap).', 'en.wikipedia.org/wiki/Week'],
+      moonq: ['🌓', 'Az egyik elmélet szerint a hét a Hold ciklusának körülbelül egynegyede. Biztosat senki sem tud: a hét eredete vitatott.', 'en.wikipedia.org/wiki/Week'],
+      lunar: ['🌕', 'A Hold fázisainak ciklusa átlagosan 29,53059 napig tart.', 'en.wikipedia.org/wiki/Lunar_month'],
+    },
+    quiz: [
+      { q: 'Ha a hónap 4. napja péntek, akkor a hónap 11. napja…', opts: ['csütörtök', 'péntek', 'szombat'], ok: 1, hint: 'Nézd meg, mi van egy oszlopban lefelé a „Hét” nézetben.' },
+      { q: 'Hányat kell aludni egy hét hétfőjétől péntekéig?', opts: ['5', '6', '4'], ok: 2, hint: 'Számold az ugrásokat a „Számolj” nézetben.' },
+      { q: 'Idén vasárnap van a születésnapod, és nincs közte február 29. Jövőre ez lesz:', opts: ['hétfő', 'szombat', 'vasárnap'], ok: 0, hint: 'Pörgesd meg az év kerekét.' },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_tVvZVWO5d6', en: 'Using a calendar', ru: 'Пользоваться календарём', hu: 'A naptár használata' },
+];
+
+// --- real dates: everything is computed with local Date objects --------------------------------------------
+const Y = new Date().getFullYear();
+const D = (y, m, d) => new Date(y, m, d);
+const monFirst = (dt) => (dt.getDay() + 6) % 7; // Monday = 0
+const dim = (y, m) => new Date(y, m + 1, 0).getDate();
+const daysBetween = (a, b) => Math.round((b - a) / 864e5);
+const firstCol = (y, m) => monFirst(D(y, m, 1));
+const rowsOf = (y, m, spill = 0) => Math.ceil((firstCol(y, m) + dim(y, m) + spill) / 7);
+const monthWithDay = (day, wd) => { for (let m = 0; m < 12; m++) if (monFirst(D(Y, m, day)) === wd) return m; return 0; };
+const LUNATION = 29.53059; // mean synodic month, days
+const dec = (x) => (lang === 'en' ? x.toFixed(1) : x.toFixed(1).replace('.', ','));
+
+// view 1: the 3rd is a Tuesday in the first month, the 5th a Friday in the second (both found in this year's real calendar)
+const WR = [{ M: monthWithDay(3, 1), a: 3, ds: [10, 17, 24] }, { M: monthWithDay(5, 4), a: 5, ds: [12, 19, 26] }];
+// view 2: five rounds (month, start day, month, holiday day); one crosses into the next month
+const CR = [
+  { m: 2, d1: 3, m2: 2, d2: 8, emo: '🏊', ev: 0 }, { m: 4, d1: 12, m2: 4, d2: 15, emo: '🎂', ev: 2 }, { m: 3, d1: 27, m2: 4, d2: 3, emo: '🚌', ev: 1 },
+  { m: 5, d1: 9, m2: 5, d2: 20, emo: '🎉', ev: 3 }, { m: 8, d1: 21, m2: 8, d2: 23, emo: '🎵', ev: 4 },
+].map((r) => {
+  const cross = r.m2 !== r.m, first = firstCol(Y, r.m), i0 = first + r.d1 - 1, i1 = cross ? first + dim(Y, r.m) + r.d2 - 1 : first + r.d2 - 1;
+  return { ...r, cross, first, i0, i1, spill: cross ? r.d2 : 0, n: daysBetween(D(Y, r.m, r.d1), D(Y, r.m2, r.d2)) };
+});
+// view 3: a Monday birthday with exactly 365 days to the next one; and one with a 29 February in between (366)
+function findMonday(span) {
+  for (let yy = Y; yy < Y + 9; yy++) for (const m of [5, 4, 6, 3, 7, 8, 2, 9, 1, 10, 0, 11]) for (let d = 8; d <= 21; d++) {
+    if (monFirst(D(yy, m, d)) === 0 && daysBetween(D(yy, m, d), D(yy + 1, m, d)) === span) return { y: yy, m, d };
+  }
+  return { y: Y, m: 5, d: 15 };
+}
+const BD = findMonday(365), BL = findMonday(366);
+const isLeap = (y) => dim(y, 1) === 29;
+const sameCal = (a, b) => isLeap(a) === isLeap(b) && monFirst(D(a, 0, 1)) === monFirst(D(b, 0, 1)) && monFirst(D(a, 11, 31)) === monFirst(D(b, 11, 31));
+const MATCH = (() => {
+  const l = []; for (let k = 1; k <= 40; k++) for (const s of [-1, 1]) { const y2 = Y + s * k; if (sameCal(Y, y2)) l.push(y2); }
+  return l.slice(0, 6);
+})();
+const maxDay = (m) => (m === 1 ? 28 : dim(Y, m)); // no 29 February picker: the date would not exist next year
+
+// --- palette, fonts, paper ------------------------------------------------------------------------------
+const SERIF = '"EB Garamond", Georgia, serif', SANS = 'Nunito, system-ui, sans-serif';
+const INK = '#3b3224', MUTE = '#a3977c', RED = '#e0352b', TEAL = '#1f8a9e', GOLD = '#f2c14e';
+const ease = (t) => { const u = clamp(t, 0, 1); return u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2; };
+const FIB = (() => { let s = 7; const r = () => (s = (s * 16807) % 2147483647) / 2147483647; return Array.from({ length: 90 }, () => [r(), r(), r() * 0.05 + 0.01, r() * 6.28]); })();
+
+// --- state -------------------------------------------------------------------------------------------------
+const S = {
+  sec: null, ri: 0, moon: 1,
+  wr: 0, wa: [[], []], wdone: false, wshown: false, mx: 0, my: 0, mxy: false,
+  ci: 0, cg: null, cph: 'guess', ct: 0, cl: 0, cres: [], cflag: false,
+  yg: null, ys: 'wheel', yleap: false, yt: 3.4, ysp: false, mm: new Date().getMonth(), md: 15, mg: null,
+};
+const HOP = 0.42, SPIN = 3.4;
+const lab = shell({ key: 'weekday', T, topics: TOPICS, views: ['week', 'count', 'year'], onLang: render, onView: () => { S.sec = null; render(); } });
+const secret = secretLab('weekday', () => ({
+  secrets: [{ emo: '🗓️', title: T[lang].sec.reuse[0], desc: T[lang].sec.reuse[1] }, { emo: '🌙', title: T[lang].sec.why[0], desc: T[lang].sec.why[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').innerHTML = '<div id="cc"></div><div class="row2" id="secRow"></div>';
+
+// --- drawing helpers -------------------------------------------------------------------------------------
+function pill(c, txt, X, Y2, bg, fg, fs = 12) {
+  c.save(); c.font = `800 ${fs}px ${SANS}`; const tw = c.measureText(txt).width + 14, h = fs + 8;
+  c.fillStyle = bg; c.beginPath(); c.roundRect(X - tw / 2, Y2 - h / 2, tw, h, h / 2); c.fill();
+  c.fillStyle = fg; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(txt, X, Y2 + 0.5); c.restore();
+}
+function sticker(c, X, Y2, r, emo) {
+  c.save(); c.shadowColor = 'rgba(60,40,10,.35)'; c.shadowBlur = 5; c.shadowOffsetY = 2;
+  const g = c.createRadialGradient(X - r * 0.3, Y2 - r * 0.35, r * 0.1, X, Y2, r); g.addColorStop(0, '#ffffff'); g.addColorStop(1, '#f6e7bd');
+  c.fillStyle = g; c.beginPath(); c.arc(X, Y2, Math.max(1, r), 0, 6.283); c.fill(); c.restore();
+  c.save(); c.globalAlpha = 1; c.fillStyle = '#000'; c.font = `${Math.round(r * 1.15)}px sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(emo, X, Y2 + 1); c.restore();
+}
+function marker(c, X, Y2, rx, ry, a = 1, lw = 3) {
+  c.save(); c.globalAlpha = a; c.translate(X, Y2); c.rotate(-0.12); c.lineCap = 'round'; c.lineWidth = lw; c.strokeStyle = RED;
+  c.shadowColor = 'rgba(224,53,43,.35)'; c.shadowBlur = 6;
+  c.beginPath(); c.ellipse(0, 0, Math.max(1, rx), Math.max(1, ry), 0, 0.35, Math.PI * 2 + 0.75); c.stroke();
+  c.beginPath(); c.ellipse(1.2, -0.6, Math.max(1, rx * 0.97), Math.max(1, ry * 1.03), 0, 3.9, 5.1); c.stroke();
+  c.restore();
+}
+function calGeom(w, maxH, rows, mini) {
+  const pad = mini ? 6 : 10, ringH = mini ? 8 : 10, headH = mini ? 26 : 38, dowH = mini ? 18 : 24;
+  const cw = (w - 2 * pad) / 7, fixed = ringH * 0.5 + headH + dowH + pad;
+  const ch = Math.max(15, Math.min((maxH - fixed) / rows, cw * (mini ? 1 : 1.15)));
+  return { pad, ringH, headH, dowH, cw, ch, H: fixed + ch * rows, mini };
+}
+// a crafted paper wall calendar: rings, red header, weekday row, a grid of days; returns a mapper from grid index to pixels
+function drawCal(c, x, y, w, G, o) {
+  const { pad, ringH, headH, dowH, cw, ch, mini } = G, rows = o.rows, t = T[lang];
+  const py = y + ringH * 0.5, ph = G.H - ringH * 0.5, x0 = x + pad, gy = py + headH + dowH;
+  c.save();
+  c.shadowColor = 'rgba(0,0,0,.5)'; c.shadowBlur = 18; c.shadowOffsetY = 7;
+  let g = c.createLinearGradient(0, py, 0, py + ph); g.addColorStop(0, '#fcf7e8'); g.addColorStop(1, '#ecdfc2');
+  c.fillStyle = g; c.beginPath(); c.roundRect(x, py, w, ph, 10); c.fill();
+  c.restore();
+  c.save(); c.beginPath(); c.roundRect(x, py, w, ph, 10); c.clip();
+  c.lineWidth = 1;
+  for (const [fx, fy, a, ang] of FIB) {
+    const X = x + fx * w, Y2 = py + fy * ph, len = 8 + a * 200;
+    c.strokeStyle = `rgba(110,85,50,${a})`; c.beginPath(); c.moveTo(X, Y2); c.lineTo(X + Math.cos(ang) * len, Y2 + Math.sin(ang) * len); c.stroke();
+  }
+  if (o.hl) o.hl.forEach((on, col) => { if (on) { c.fillStyle = 'rgba(229,88,75,.11)'; c.fillRect(x0 + col * cw, py + headH, cw, dowH + ch * rows); } });
+  g = c.createLinearGradient(0, py, 0, py + headH); g.addColorStop(0, '#e9604f'); g.addColorStop(1, '#bd3a2f');
+  c.fillStyle = g; c.fillRect(x, py, w, headH);
+  c.fillStyle = 'rgba(255,255,255,.22)'; c.fillRect(x, py, w, 1.5);
+  c.restore();
+  c.save(); c.fillStyle = '#fff'; c.font = `600 ${mini ? 17 : 24}px ${SERIF}`; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.shadowColor = 'rgba(80,10,5,.4)'; c.shadowBlur = 2; c.shadowOffsetY = 1; c.fillText(o.title, x + w / 2, py + headH / 2 + 2); c.restore();
+  // binding rings
+  const nr = mini ? 3 : 5;
+  for (let i = 1; i <= nr; i++) {
+    const rx = x + (w * i) / (nr + 1);
+    c.fillStyle = 'rgba(40,10,8,.55)'; c.beginPath(); c.ellipse(rx, py + 8, 3.2, 2.4, 0, 0, 6.283); c.fill();
+    const rg = c.createLinearGradient(rx - 3, 0, rx + 3, 0); rg.addColorStop(0, '#9aa0ad'); rg.addColorStop(0.45, '#f4f6fb'); rg.addColorStop(1, '#7c8393');
+    c.fillStyle = rg; c.beginPath(); c.roundRect(rx - 2.6, y - 1, 5.2, 16, 2.6); c.fill();
+    c.strokeStyle = 'rgba(30,35,50,.45)'; c.lineWidth = 0.8; c.stroke();
+  }
+  if (o.blank) {
+    c.save(); c.fillStyle = 'rgba(110,85,50,.35)'; c.font = `800 ${Math.round(Math.min(64, ch * rows * 0.55))}px ${SERIF}`; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillText('?', x + w / 2, py + headH + (ph - headH) / 2); c.restore();
+    return null;
+  }
+  const first = firstCol(o.Y, o.M), len = dim(o.Y, o.M), spill = o.spill || 0;
+  // weekday row: names only where the picture allows it
+  c.font = `800 12px ${SANS}`; c.textAlign = 'center'; c.textBaseline = 'middle';
+  for (let col = 0; col < 7; col++) {
+    const show = o.dow === 'all' || (Array.isArray(o.dow) && o.dow[col]);
+    c.fillStyle = show ? (col >= 5 ? '#b8372d' : '#6b5a3a') : 'rgba(107,90,58,.4)';
+    c.fillText(show ? t.ws[col] : '?', x0 + (col + 0.5) * cw, py + headH + dowH / 2 + 1);
+  }
+  c.strokeStyle = 'rgba(120,95,60,.22)'; c.lineWidth = 1; c.beginPath();
+  for (let r = 0; r <= rows; r++) { c.moveTo(x0, gy + r * ch); c.lineTo(x0 + 7 * cw, gy + r * ch); }
+  for (let col = 0; col <= 7; col++) { c.moveTo(x0 + col * cw, gy - dowH + 2); c.lineTo(x0 + col * cw, gy + rows * ch); }
+  c.stroke();
+  const fs = mini ? 12 : Math.max(13, Math.min(19, Math.min(cw, ch) * 0.36)), stk = o.stickers || [];
+  for (let i = first; i < first + len + spill; i++) {
+    const col = i % 7, row = Math.floor(i / 7), cx = x0 + (col + 0.5) * cw, cy = gy + (row + 0.5) * ch, isSpill = i >= first + len;
+    const d = isSpill ? i - first - len + 1 : i - first + 1, s = stk.find((q) => q.idx === i);
+    c.fillStyle = isSpill ? MUTE : col >= 5 ? '#b8372d' : INK;
+    c.font = `800 ${s && !mini ? 12 : fs}px ${SANS}`;
+    if (s && !mini) { c.textAlign = 'left'; c.textBaseline = 'top'; c.fillText(d, x0 + col * cw + 4, gy + row * ch + 3); sticker(c, cx, cy + ch * 0.1, Math.min(cw, ch) * 0.3, s.emo); }
+    else { c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(d, cx, cy + 1); }
+    if (isSpill && d === 1 && o.nextName && !mini) pill(c, o.nextName, cx, gy + (row + 1) * ch - 11, 'rgba(59,50,36,.78)', '#fff', 12);
+  }
+  return { X: (i) => x0 + ((i % 7) + 0.5) * cw, Y: (i) => gy + (Math.floor(i / 7) + 0.5) * ch, XY: (col, row) => [x0 + (col + 0.5) * cw, gy + (row + 0.5) * ch], cw, ch, first, len };
+}
+const mkR = (geo) => [geo.cw * 0.43, Math.min(geo.ch * 0.42, geo.cw * 0.48)];
+
+// --- view 1: the week ------------------------------------------------------------------------------------
+function drawWeek(c, w, h, dt) {
+  const t = T[lang], r = WR[S.wr], an = S.wa[S.wr], first = firstCol(Y, r.M), rows = rowsOf(Y, r.M);
+  const i0 = first + r.a - 1, idxOf = (d) => first + d - 1, full = an.length >= 3;
+  const cwid = Math.min(w - 16, 520), G = calGeom(cwid, h - 16, rows, false), x = (w - cwid) / 2, y = Math.max(6, (h - G.H) / 2);
+  const known = [0, 1, 2, 3, 4, 5, 6].map(() => false), tint = [0, 1, 2, 3, 4, 5, 6].map((q) => q === i0 % 7);
+  const geo = drawCal(c, x, y, cwid, G, { Y, M: r.M, rows, title: `${cap(t.mo[r.M])} ${Y}`, dow: full ? 'all' : known, hl: an.length > 0 && !full ? tint : null, stickers: [{ idx: i0, emo: '📍' }] });
+  const pos = [i0, ...an.map((_, k) => idxOf(r.ds[k]))], tgt = pos[pos.length - 1], [rx, ry] = mkR(geo);
+  const tc = tgt % 7, tr = Math.floor(tgt / 7);
+  if (!S.mxy) { S.mx = tc; S.my = tr; S.mxy = true; }
+  const k = 1 - Math.exp(-dt * 7); S.mx += (tc - S.mx) * k; S.my += (tr - S.my) * k;
+  c.save(); c.lineWidth = 2;
+  for (let p = 0; p < pos.length - 1; p++) marker(c, geo.X(pos[p]), geo.Y(pos[p]), rx, ry, 0.35, 2);
+  if (!S.wshown && an.length < 3) {
+    const q = idxOf(r.ds[an.length]); c.setLineDash([5, 4]); c.strokeStyle = TEAL; c.lineWidth = 2.2;
+    c.beginPath(); c.ellipse(geo.X(q), geo.Y(q), Math.max(1, rx), Math.max(1, ry), 0, 0, 6.283); c.stroke(); c.setLineDash([]);
+  }
+  c.restore();
+  for (let p = 1; p < pos.length; p++) pill(c, '+7', (geo.X(pos[p - 1]) + geo.X(pos[p])) / 2 + geo.cw * 0.22, (geo.Y(pos[p - 1]) + geo.Y(pos[p])) / 2, 'rgba(31,138,158,.95)', '#fff', 12);
+  const [mx, my] = geo.XY(S.mx, S.my); marker(c, mx, my, rx, ry);
+}
+
+// --- view 2: counting sleeps -----------------------------------------------------------------------------
+function drawCount(c, w, h, dt) {
+  const t = T[lang], r = CR[S.ci], rows = rowsOf(Y, r.m, r.spill);
+  const cwid = Math.min(w - 16, 520), G = calGeom(cwid, h - 16, rows, false), x = (w - cwid) / 2, y = Math.max(6, (h - G.H) / 2);
+  const title = r.cross ? `${cap(t.mo[r.m])} → ${cap(t.mo[r.m2])} ${Y}` : `${cap(t.mo[r.m])} ${Y}`;
+  const geo = drawCal(c, x, y, cwid, G, { Y, M: r.m, rows, spill: r.spill, title, dow: S.wdone ? 'all' : null, nextName: cap(t.mo[r.m2]), stickers: [{ idx: r.i0, emo: '📍' }, { idx: r.i1, emo: r.emo }] });
+  const [rx, ry] = mkR(geo);
+  let k = 0, frac = 0;
+  if (S.cph === 'hop') {
+    S.ct += dt; k = Math.min(r.n, Math.floor(S.ct / HOP)); frac = k >= r.n ? 0 : S.ct / HOP - k;
+    if (k !== S.cl) { S.cl = k; sfx.tick(); lab.setReadout(k, t.c.jlive, '', '#e0b050'); }
+    if (S.ct >= r.n * HOP && !S.cflag) { S.cflag = true; S.cph = 'done'; S.cres[S.ci] = { g: S.cg, ok: S.cg === r.n }; queueMicrotask(render); }
+  } else if (S.cph === 'done') k = r.n;
+  c.save(); c.lineCap = 'round';
+  for (let j = 1; j <= k; j++) {
+    const a = r.i0 + j - 1, b = r.i0 + j, xa = geo.X(a), ya = geo.Y(a), xb = geo.X(b), yb = geo.Y(b);
+    c.strokeStyle = 'rgba(31,138,158,.9)'; c.lineWidth = 2.5; c.beginPath(); c.moveTo(xa, ya - geo.ch * 0.25); c.quadraticCurveTo((xa + xb) / 2, Math.min(ya, yb) - geo.ch * 0.75, xb, yb - geo.ch * 0.3); c.stroke();
+  }
+  c.restore();
+  for (let j = 1; j <= k; j++) {
+    const b = r.i0 + j, bx = geo.X(b) + geo.cw * 0.28, by = geo.Y(b) - geo.ch * 0.3;
+    c.fillStyle = TEAL; c.beginPath(); c.arc(bx, by, 10, 0, 6.283); c.fill(); c.strokeStyle = '#fff'; c.lineWidth = 1.5; c.stroke();
+    c.fillStyle = '#fff'; c.font = `900 12px ${SANS}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(j, bx, by + 0.5);
+  }
+  if (S.cph === 'done') { c.save(); c.strokeStyle = GOLD; c.lineWidth = 3; c.shadowColor = GOLD; c.shadowBlur = 10; c.beginPath(); c.ellipse(geo.X(r.i1), geo.Y(r.i1), rx + 3, ry + 3, 0, 0, 6.283); c.stroke(); c.restore(); }
+  const a = r.i0 + k, b = Math.min(r.i1, a + 1), e = ease(frac), lift = Math.sin(Math.PI * clamp(frac, 0, 1)) * geo.ch * 0.4;
+  marker(c, geo.X(a) + (geo.X(b) - geo.X(a)) * e, geo.Y(a) + (geo.Y(b) - geo.Y(a)) * e - lift, rx, ry);
+}
+
+// --- view 3: the year --------------------------------------------------------------------------------------
+function yData() {
+  const a = S.ys === 'mine' ? { y: Y, m: S.mm, d: S.md } : S.yleap ? BL : BD;
+  const d0 = D(a.y, a.m, a.d), d1 = D(a.y + 1, a.m, a.d), span = daysBetween(d0, d1);
+  return { a, span, shift: span - 364, w0: monFirst(d0), w1: monFirst(d1) };
+}
+const yRevealed = () => (S.ys === 'mine' ? S.mg !== null : S.yg !== null);
+function drawRing(c, cx, cy, R, extra, p, rev) {
+  const t = T[lang], slots = 52 + 2 * extra, step = (Math.PI * 2) / slots, lw = Math.max(9, R * 0.24);
+  c.save(); c.lineCap = 'butt'; c.lineWidth = lw;
+  if (!rev) {
+    c.setLineDash([6, 6]); c.strokeStyle = 'rgba(200,210,240,.35)'; c.beginPath(); c.arc(cx, cy, R, 0, 6.283); c.stroke(); c.setLineDash([]);
+    c.fillStyle = 'rgba(200,210,240,.55)'; c.font = `900 ${Math.round(R * 0.7)}px ${SERIF}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('?', cx, cy + 2);
+    c.restore(); return;
+  }
+  const pos = p * slots;
+  for (let i = 0; i < slots; i++) {
+    const a0 = -Math.PI / 2 + i * step + 0.012, a1 = -Math.PI / 2 + (i + 1) * step - 0.012, wk = i < 52, passed = i + 1 <= pos + 0.001;
+    c.strokeStyle = !wk ? (passed ? '#ff6a4f' : '#c9543f') : passed ? '#3aa6b9' : i % 2 ? '#d9c9a0' : '#cdb987';
+    c.beginPath(); c.arc(cx, cy, R, a0, a1); c.stroke();
+  }
+  const ang = -Math.PI / 2 + p * Math.PI * 2, bx = cx + Math.cos(ang) * R, by = cy + Math.sin(ang) * R;
+  c.shadowColor = 'rgba(0,0,0,.5)'; c.shadowBlur = 6; c.fillStyle = '#fff'; c.beginPath(); c.arc(bx, by, lw * 0.62, 0, 6.283); c.fill(); c.shadowBlur = 0;
+  c.strokeStyle = RED; c.lineWidth = 2.5; c.stroke();
+  const D2 = yData(), inWeek = pos < 52, ex = inWeek ? 0 : Math.min(extra, Math.floor((pos - 52) / 2) + 1), wk = (D2.w0 + ex) % 7;
+  c.fillStyle = '#fff'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.font = `900 ${Math.round(Math.max(15, R * 0.4))}px ${SANS}`; c.fillText(t.ws[wk], cx, cy - 4);
+  c.font = `700 12px ${SANS}`; c.fillStyle = 'rgba(220,226,245,.85)'; c.fillText(inWeek ? t.y.week(Math.min(52, Math.floor(pos) + 1)) : t.y.plus(ex), cx, cy + Math.max(11, R * 0.3));
+  c.font = '16px sans-serif'; c.fillStyle = '#000'; c.fillText('🎂', cx, cy - R - lw * 0.5 - 9);
+  c.restore();
+}
+function drawYear(c, w, h, dt) {
+  const t = T[lang], dd = yData(), a = dd.a, rev = yRevealed();
+  const cwid = Math.min((w - 30) / 2, 250), rows = Math.max(rowsOf(a.y, a.m), rowsOf(a.y + 1, a.m));
+  const G = calGeom(cwid, Math.min(h * 0.5, 260), rows, true), x1 = w / 2 - cwid - 5, x2 = w / 2 + 5, y0 = 6;
+  const mk = (x, yr, blank) => {
+    const bc = (firstCol(yr, a.m) + a.d - 1) % 7, g = drawCal(c, x, y0, cwid, G, { Y: yr, M: a.m, rows, mini: true, title: `${cap(t.mo[a.m])} ${yr}`, dow: S.wdone ? 'all' : [0, 1, 2, 3, 4, 5, 6].map((q) => q === bc), blank });
+    if (g) { const i = g.first + a.d - 1, [rx, ry] = mkR(g); marker(c, g.X(i), g.Y(i), rx + 1, ry + 1, 1, 2.5); }
+  };
+  mk(x1, a.y, false); mk(x2, a.y + 1, !rev);
+  const py = y0 + G.H + 16;
+  pill(c, cap(t.wd[dd.w0]), x1 + cwid / 2, py, 'rgba(14,17,28,.85)', '#fff'); pill(c, rev ? cap(t.wd[dd.w1]) : '?', x2 + cwid / 2, py, 'rgba(14,17,28,.85)', rev ? '#fff' : '#98A0B8');
+  if (S.ysp) { S.yt += dt; if (S.yt >= SPIN) { S.yt = SPIN; S.ysp = false; } }
+  const top = py + 18, rem = h - top - 8, extra = dd.shift, lblH = rem > 130 ? 24 : 0;
+  const R = Math.max(22, Math.min((rem - lblH) / 2 - 16, w * 0.22, 70));
+  const cy = top + (rem - lblH) / 2 + 6;
+  drawRing(c, w / 2, cy, R, extra, ease(S.yt / SPIN), rev);
+  if (rev && lblH) pill(c, `${t.y.ringLbl(extra)} · ${t.y.bigger}`, w / 2, h - 14, 'rgba(14,17,28,.85)', '#d3d9e8');
+}
+
+// --- secrets ---------------------------------------------------------------------------------------------
+function moon(c, X, Y2, r, p) { // p: 0 new moon, .5 full moon
+  c.save();
+  const g = c.createRadialGradient(X - r * 0.3, Y2 - r * 0.3, r * 0.1, X, Y2, r); g.addColorStop(0, '#2c3550'); g.addColorStop(1, '#151b30');
+  c.fillStyle = g; c.beginPath(); c.arc(X, Y2, r, 0, 6.283); c.fill(); c.strokeStyle = 'rgba(200,210,240,.28)'; c.lineWidth = 1; c.stroke();
+  const wax = p <= 0.5, q = wax ? p : 1 - p, k = Math.cos(q * 2 * Math.PI);
+  c.translate(X, Y2); if (!wax) c.scale(-1, 1);
+  const lg = c.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r); lg.addColorStop(0, '#fffbe8'); lg.addColorStop(1, '#e3d9b2');
+  c.fillStyle = lg; c.beginPath(); c.arc(0, 0, r, -Math.PI / 2, Math.PI / 2, false);
+  c.ellipse(0, 0, Math.max(0.01, Math.abs(r * k)), r, 0, Math.PI / 2, k > 0 ? -Math.PI / 2 : Math.PI * 1.5, k > 0); c.fill();
+  c.restore();
+}
+function drawSecret(c, w, h, dt) {
+  const t = T[lang];
+  if (S.sec === 'reuse') {
+    const M = new Date().getMonth(), y2 = MATCH[S.ri % Math.max(1, MATCH.length)] ?? Y, cwid = Math.min((w - 30) / 2, 250), rows = Math.max(rowsOf(Y, M), rowsOf(y2, M));
+    const G = calGeom(cwid, Math.min(h - 50, 320), rows, true), top = Math.max(8, (h - G.H - 34) / 2);
+    drawCal(c, w / 2 - cwid - 5, top, cwid, G, { Y, M, rows, title: `${cap(t.mo[M])} ${Y}`, dow: 'all' });
+    drawCal(c, w / 2 + 5, top, cwid, G, { Y: y2, M, rows, title: `${cap(t.mo[M])} ${y2}`, dow: 'all' });
+    pill(c, t.re.pill(Y, y2), w / 2, top + G.H + 22, 'rgba(14,17,28,.85)', '#fff', 14);
+    return;
+  }
+  const bg = c.createLinearGradient(0, 0, 0, h); bg.addColorStop(0, '#121a38'); bg.addColorStop(1, '#0b1026');
+  c.fillStyle = bg; c.beginPath(); c.roundRect(6, 6, w - 12, h - 12, 18); c.fill();
+  c.fillStyle = '#fff'; for (const [fx, fy, a] of FIB) { c.globalAlpha = 0.15 + a * 8; c.fillRect(8 + fx * (w - 16), 8 + fy * (h - 16), 1.5, 1.5); } c.globalAlpha = 1;
+  const r = Math.min(w * 0.085, 30), q = LUNATION / 4, midY = h * 0.4, xs = [0, 1, 2, 3].map((i) => w * (0.15 + 0.233 * i));
+  c.save(); c.strokeStyle = 'rgba(200,210,240,.5)'; c.lineWidth = 2; c.setLineDash([5, 5]);
+  for (let i = 0; i < 3; i++) { c.beginPath(); c.moveTo(xs[i], midY - r - 4); c.quadraticCurveTo((xs[i] + xs[i + 1]) / 2, midY - r - 46, xs[i + 1], midY - r - 4); c.stroke(); }
+  c.restore();
+  for (let i = 0; i < 3; i++) pill(c, t.wy.arc(dec(q)), (xs[i] + xs[i + 1]) / 2, midY - r - 28, 'rgba(14,17,28,.85)', '#fff');
+  for (let i = 0; i < 4; i++) {
+    if (i === S.moon) { c.save(); c.strokeStyle = GOLD; c.lineWidth = 3; c.shadowColor = GOLD; c.shadowBlur = 12; c.beginPath(); c.arc(xs[i], midY, r + 5, 0, 6.283); c.stroke(); c.restore(); }
+    moon(c, xs[i], midY, r, i / 4);
+    c.fillStyle = '#c6cde0'; c.font = `700 12px ${SANS}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(t.wy.day(dec(i * q)), xs[i], midY + r + 18);
+  }
+  const sw = Math.min(w - 40, 330), cell = sw / 7, sx = (w - sw) / 2, sy = h * 0.68;
+  for (let i = 0; i < 7; i++) {
+    const g = c.createLinearGradient(0, sy, 0, sy + cell); g.addColorStop(0, '#fcf7e8'); g.addColorStop(1, '#ecdfc2');
+    c.fillStyle = g; c.beginPath(); c.roundRect(sx + i * cell + 2, sy, cell - 4, cell - 2, 7); c.fill();
+    c.fillStyle = i >= 5 ? '#b8372d' : INK; c.font = `800 14px ${SANS}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(t.ws[i], sx + (i + 0.5) * cell, sy + cell / 2);
+  }
+  pill(c, t.wy.week, w / 2, sy + cell + 22, 'rgba(14,17,28,.85)', '#fff', 13);
+}
+
+// --- controls and states -----------------------------------------------------------------------------------
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+const wdButtons = (t, dis, cls = {}) => `<div class="wk-row">${t.ws.map((s, i) => `<button type="button" data-act="wd" data-i="${i}" aria-label="${esc(t.wd[i])}" class="${cls[i] || ''}"${dis ? ' disabled' : ''}>${esc(s)}</button>`).join('')}</div>`;
+const totalRight = () => S.wa.reduce((n, a) => n + a.filter((x) => x.ok).length, 0);
+
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const act = b.dataset.act, i = +b.dataset.i;
+  if (act === 'wd') {
+    const r = WR[S.wr], an = S.wa[S.wr]; if (S.wshown || an.length >= 3) return;
+    const ans = monFirst(D(Y, r.M, r.ds[an.length]));
+    an.push({ g: i, ok: i === ans, ans }); S.wshown = true; if (S.wr === 1 && an.length === 3) S.wdone = true; (i === ans ? sfx.good : sfx.bad)(); showStage();
+  } else if (act === 'wnext') {
+    const an = S.wa[S.wr];
+    if (an.length < 3) S.wshown = false;
+    else if (S.wr < 1) { S.wr++; S.wshown = false; S.mxy = false; sfx.click(); }
+    else { S.wa = [[], []]; S.wr = 0; S.wshown = false; S.mxy = false; sfx.click(); }
+  } else if (act === 'cdec') { S.cg = Math.max(0, (S.cg ?? 1) - 1); sfx.tick(); }
+  else if (act === 'cinc') { S.cg = Math.min(30, (S.cg ?? 0) + 1); sfx.tick(); }
+  else if (act === 'cmain') {
+    if (S.cph === 'guess') { if (S.cg === null) return; S.cph = 'hop'; S.ct = 0; S.cl = 0; S.cflag = false; sfx.click(); showStage(); }
+    else if (S.cph === 'done') {
+      if (S.ci < 4) S.ci++; else { S.ci = 0; S.cres = []; }
+      S.cph = 'guess'; S.cg = null; S.cflag = false; sfx.click();
+    }
+  } else if (act === 'ypick') { S.yg = i; S.yt = 0; S.ysp = true; (i === 1 ? sfx.good : sfx.bad)(); showStage(); }
+  else if (act === 'yseg') { S.ys = b.dataset.k; S.yt = SPIN; S.ysp = false; if (S.ys === 'mine' && S.mg !== null) { S.yt = 0; S.ysp = true; } sfx.click(); }
+  else if (act === 'spin') { S.yt = 0; S.ysp = true; sfx.click(); }
+  else if (act === 'leap') { S.yleap = !S.yleap; S.yt = 0; S.ysp = true; sfx.click(); }
+  else if (act === 'mm') { S.mm = (S.mm + (+b.dataset.s) + 12) % 12; S.md = Math.min(S.md, maxDay(S.mm)); S.mg = null; sfx.tick(); }
+  else if (act === 'md') { S.md = clamp(S.md + (+b.dataset.s), 1, maxDay(S.mm)); S.mg = null; sfx.tick(); }
+  else if (act === 'mwd') { S.mg = i; S.yt = 0; S.ysp = true; (i === yData().w1 ? sfx.good : sfx.bad)(); showStage(); }
+  else if (act === 'sec') {
+    const k = b.dataset.k; if (!secret.unlocked()) return secret.open();
+    S.sec = S.sec === k ? null : k; if (k === 'reuse') S.ri = 0; sfx.click();
+  } else if (act === 'rnext') { S.ri = (S.ri + 1) % Math.max(1, MATCH.length); sfx.click(); }
+  else if (act === 'moon') { S.moon = i; sfx.click(); }
+  render();
+});
+
+function render() {
+  const t = T[lang], v = lab.view, open = secret.unlocked();
+  $('secRow').innerHTML = ['reuse', 'why'].map((k, j) => `<button type="button" class="chip secret ${open ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${open ? `${j ? '🌙' : '🗓️'} ${esc(t.sec[k][0])}` : '🔒 ???'}</button>`).join('');
+  if (S.sec) renderSecret(t); else if (v === 'week') renderWeek(t); else if (v === 'count') renderCount(t); else renderYear(t);
+}
+
+function renderWeek(t) {
+  const r = WR[S.wr], an = S.wa[S.wr], full = an.length >= 3, asked = S.wshown ? null : an.length;
+  const wd0 = monFirst(D(Y, r.M, r.a)), dd = asked !== null ? r.ds[asked] : r.ds[an.length - 1], last = an[an.length - 1];
+  lab.setGlow('rgba(229, 88, 75, .22)');
+  const cls = {}; if (S.wshown) { cls[last.ans] = 'good'; if (!last.ok) cls[last.g] = 'bad'; }
+  $('cc').innerHTML = `<div class="wk-q">${esc(t.w.q(dd))}</div>${wdButtons(t, asked === null, cls)}
+    <div class="row2"><button class="btn" data-act="wnext"${S.wshown ? '' : ' hidden'}>${esc(!full ? t.w.next : S.wr < 1 ? t.w.month : t.w.again)}</button></div>`;
+  if (asked !== null) {
+    lab.setReadout(`${t.ws[wd0]} ${r.a}`, t.w.tag, `${asked + 1} / 3`, '#e5584b');
+    const first = an.length === 0;
+    lab.setState({ emo: '🔎', title: t.w.q(dd), lead: first ? (S.wr === 0 ? t.w.today(t.wd[wd0], r.a) : t.w.newMonth(t.wd[wd0], r.a)) : t.w.ask, body: first ? t.w.ask : '', extra: '' });
+  } else {
+    lab.setReadout(`${t.ws[last.ans]} ${dd}`, t.w.later(dd - r.a), `${an.length} / 3`, '#e5584b');
+    const showRule = totalRight() >= 2 || full, score = S.wr === 1 && full ? `<div class="wk-note">${esc(t.w.score(totalRight(), 6))}</div>` : '';
+    lab.setState({ emo: last.ok ? '✅' : '🤔', title: last.ok ? `${t.right} ${cap(t.wd[last.ans])}.` : t.w.wrong(t.wd[last.ans]), lead: t.w.arith(dd, r.a), body: '',
+      extra: (showRule ? `<div class="wk-rule">🔑 ${esc(t.w.rule)}</div>` : '') + score });
+  }
+  lab.setFacts([t.f.moon, t.f.mid, t.f.slav].map(([emo, text, src]) => ({ emo, text, src })));
+}
+
+function renderCount(t) {
+  const r = CR[S.ci], ph = S.cph, k = S.cres.filter((x) => x && x.ok).length, finalDone = S.ci === 4 && ph === 'done';
+  lab.setGlow('rgba(31, 138, 158, .24)');
+  const lbl = ph === 'guess' ? t.c.check : ph === 'hop' ? t.c.hopping : finalDone ? t.c.again : t.c.next;
+  $('cc').innerHTML = `<div class="wk-q">${esc(t.c.q(t.c.ev[r.ev]))}</div>
+    <div class="wk-cnt"><button class="wk-sb" data-act="cdec" aria-label="−"${ph !== 'guess' ? ' disabled' : ''}>−</button><b>${S.cg === null ? '?' : S.cg}</b><button class="wk-sb" data-act="cinc" aria-label="+"${ph !== 'guess' ? ' disabled' : ''}>+</button></div>
+    <div class="row2"><button class="btn push" data-act="cmain"${(ph === 'guess' && S.cg === null) || ph === 'hop' ? ' disabled' : ''}>${esc(lbl)}</button></div>`;
+  const pillTxt = t.c.pillN(S.ci + 1);
+  if (ph === 'guess') {
+    lab.setReadout('?', t.c.sleeps, pillTxt, '#1f8a9e');
+    lab.setState({ emo: '😴', title: t.c.q(t.c.ev[r.ev]), lead: t.c.legend(r.emo), body: t.c.ask, extra: '' });
+  } else if (ph === 'hop') {
+    lab.setReadout(0, t.c.jlive, pillTxt, '#1f8a9e');
+    lab.setState({ emo: '🦘', title: t.c.hopping, lead: t.c.legend(r.emo), body: '', extra: '' });
+  } else {
+    const g = S.cg, n = r.n, ok = g === n;
+    lab.setReadout(n, t.c.sleeps, pillTxt, '#1f8a9e');
+    const lead = ok ? t.c.ok(n) : g === n + 1 ? t.c.plus1 : g === n - 1 ? t.c.minus1 : t.c.other(n);
+    const cross = r.cross ? t.c.cross(r.m, dim(Y, r.m), r.m2, t) : '';
+    lab.setState({ emo: ok ? '✅' : '🤔', title: ok ? t.right : t.c.wrong(g, n), lead, body: cross,
+      extra: finalDone ? `<div class="wk-rule">🏆 ${esc(t.c.score(k))} ${esc(t.c.scoreLead)}</div>` : '' });
+  }
+  lab.setFacts([t.f.h168, t.f.rom].map(([emo, text, src]) => ({ emo, text, src })));
+}
+
+function renderYear(t) {
+  const dd = yData(), a = dd.a, rev = yRevealed(), w0 = cap(t.wd[dd.w0]), w1 = cap(t.wd[dd.w1]), plural = t.y.daysWord;
+  lab.setGlow('rgba(240, 160, 90, .22)');
+  const stage = S.yg === null ? 'pred' : S.ys;
+  let html = '';
+  if (stage === 'pred') {
+    const opts = [dd.w0, dd.w1].map((w) => cap(t.wd[w])).concat([t.y.any]);
+    html = `<div class="wk-q">${esc(t.y.q(t.wd[dd.w0]))}</div><div class="wk-opts">${opts.map((o, j) => `<button type="button" data-act="ypick" data-i="${j}">${esc(o)}</button>`).join('')}</div>`;
+  } else {
+    const seg = `<div class="card seg small" style="margin-bottom:10px">${[['wheel', t.y.segW], ['mine', t.y.segM]].map(([k, l]) => `<button data-act="yseg" data-k="${k}" class="${S.ys === k ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>`;
+    if (S.ys === 'wheel') {
+      html = `${seg}<div class="row2" style="margin-top:0"><button class="chip" data-act="spin">${esc(t.y.spin)}</button><button class="chip ${S.yleap ? 'on' : ''}" data-act="leap">${S.yleap ? '☑' : '☐'} ${esc(t.y.leap)}</button></div>`;
+    } else {
+      const md = t.y.date(S.mm, S.md, t.mo, t.mog);
+      const cls = {}; if (S.mg !== null) { cls[dd.w1] = 'good'; if (S.mg !== dd.w1) cls[S.mg] = 'bad'; }
+      html = `${seg}<div class="wk-q">${esc(t.y.mine(md))} ${esc(t.y.qShort)}</div>
+        <div class="wk-step"><button class="wk-sb" data-act="mm" data-s="-1" aria-label="${esc(t.y.month)} −">‹</button><span>${esc(cap(t.mo[S.mm]))}</span><button class="wk-sb" data-act="mm" data-s="1" aria-label="${esc(t.y.month)} +">›</button>
+        <button class="wk-sb" data-act="md" data-s="-1" aria-label="${esc(t.y.day)} −">‹</button><span>${S.md}</span><button class="wk-sb" data-act="md" data-s="1" aria-label="${esc(t.y.day)} +">›</button></div>
+        <div style="margin-top:10px">${wdButtons({ ...t, ws: t.ws, wd: t.wd }, S.mg !== null, cls).replace(/data-act="wd"/g, 'data-act="mwd"')}</div>`;
+    }
+  }
+  $('cc').innerHTML = html;
+  if (!rev) {
+    lab.setReadout(`${t.ws[dd.w0]} → ?`, t.y.date(a.m, a.d, t.mo, t.mog), '', '#f0a05a');
+    if (stage === 'pred') lab.setState({ emo: '🎂', title: t.y.qShort, lead: t.y.lookAt, body: '', extra: '' });
+    else lab.setState({ emo: '🎂', title: t.y.mine(t.y.date(S.mm, S.md, t.mo, t.mog)), lead: t.y.mineLead(t.wd[dd.w0]), body: '', extra: '' });
+  } else {
+    lab.setReadout(`${t.ws[dd.w0]} → ${t.ws[dd.w1]}`, t.y.plus(dd.shift), plural(dd.span), '#f0a05a');
+    const guessOk = S.ys === 'mine' ? S.mg === dd.w1 : S.yg === 1, line = t.y.line(dd.span, dd.shift, w0, w1);
+    if (S.ys === 'wheel' && S.yleap) lab.setState({ emo: '🗓️', title: t.y.leapT, lead: line, body: '', extra: '' });
+    else if (S.ys === 'mine' && dd.shift === 2) lab.setState({ emo: guessOk ? '✅' : '🤔', title: guessOk ? `${t.right} ${w1}.` : t.y.wrong(w1), lead: line, body: t.y.leapT, extra: '' });
+    else lab.setState({ emo: guessOk ? '✅' : '🤔', title: guessOk ? `${t.right} ${w1}.` : t.y.wrong(w1), lead: line, body: '', extra: '' });
+  }
+  lab.setFacts((rev ? [t.f.year, t.f.jew] : [t.f.jew]).map(([emo, text, src]) => ({ emo, text, src })));
+}
+
+function renderSecret(t) {
+  if (S.sec === 'reuse') {
+    const y2 = MATCH[S.ri % Math.max(1, MATCH.length)] ?? Y, gap = Math.abs(Y - y2);
+    lab.setGlow('rgba(242, 193, 78, .22)');
+    $('cc').innerHTML = `<div class="row2" style="margin-top:0"><button class="chip" data-act="rnext">${esc(t.re.next)}</button></div>`;
+    lab.setReadout(`${Y} = ${y2}`, t.yearsApart(gap), '', '#f2c14e');
+    lab.setState({ emo: '🗓️', title: t.re.title(Y, y2), lead: t.re.lead(gap), body: '', extra: '' });
+    lab.setFacts([]);
+  } else {
+    const q = LUNATION / 4, n = t.wy.names[S.moon];
+    lab.setGlow('rgba(120, 140, 220, .26)');
+    $('cc').innerHTML = `<div class="row2" style="margin-top:0">${['🌑', '🌓', '🌕', '🌗'].map((e, i) => `<button class="chip ${S.moon === i ? 'on' : ''}" data-act="moon" data-i="${i}" aria-label="${esc(t.wy.names[i])}">${e} ${esc(t.wy.names[i])}</button>`).join('')}</div>`;
+    lab.setReadout(`≈ ${dec(q)}`, t.wy.week, '', '#8ea2ee');
+    lab.setState({ emo: ['🌑', '🌓', '🌕', '🌗'][S.moon], title: t.wy.title(n, dec(S.moon * q)), lead: t.wy.lead(dec(q)), body: t.wy.body(dec(LUNATION)), extra: '' });
+    lab.setFacts([t.f.moonq, t.f.lunar].map(([emo, text, src]) => ({ emo, text, src })));
+  }
+}
+
+canvasLoop($('cv'), (c, w, h, dt) => {
+  if (S.sec) drawSecret(c, w, h, dt);
+  else if (lab.view === 'week') drawWeek(c, w, h, dt);
+  else if (lab.view === 'count') drawCount(c, w, h, dt);
+  else drawYear(c, w, h, dt);
+});
+render();
+</script>
+</body>
+</html>
