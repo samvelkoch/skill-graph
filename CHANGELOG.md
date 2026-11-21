@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-21
 
 ### Labs
+- New lab `sign-machine` “The Sign Machine”: the sign rules for multiplying and dividing negative numbers (775). (#668)
 - New lab `polder` “Land from the Sea”: Dutch polders, dikes and windmills: people shaping a place (774). (#667)
 - New lab `insect-count` “Count Every Kind”: why insects have more species than any other animals, and how to help them (773). (#666)
 - New lab `sound-fade` “Can You Still Hear It?”: how sound fades as it spreads out from its source (772). (#665)
