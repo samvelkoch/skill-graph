@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-21
 
 ### Labs
+- New lab `see-through` “The Torch Test”: transparent, translucent and opaque materials (765). (#658)
 - New lab `weekday` “Calendar Detective”: rows of seven in a calendar, counting days between dates, and why birthdays move a weekday (764). (#657)
 - New lab `euclid` “Cut the Biggest Square”: Euclid's algorithm as cutting squares, and the greatest common divisor (763). (#656)
 - New lab `plant-families` “Plant Families”: plant families by flower and fruit: crucifers, legumes, the rose family and conifers (762). (#655)
