@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-21
 
 ### Labs
+- New lab `animal-records` “Animal Champions”: the blue whale, cheetah and bee hummingbird compared with things we know (776). (#669)
 - New lab `sign-machine` “The Sign Machine”: the sign rules for multiplying and dividing negative numbers (775). (#668)
 - New lab `polder` “Land from the Sea”: Dutch polders, dikes and windmills: people shaping a place (774). (#667)
 - New lab `insect-count` “Count Every Kind”: why insects have more species than any other animals, and how to help them (773). (#666)
