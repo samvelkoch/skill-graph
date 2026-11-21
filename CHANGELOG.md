@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-21
 
 ### Labs
+- New lab `one-key` “One Key for Every Door?”: why every account needs its own password, and two-step login (760). (#653)
 - New lab `stem-leaf` “Stems and Leaves”: stem-and-leaf plots: building, reading and comparing (759). (#652)
 
 ## 2026-11-19
