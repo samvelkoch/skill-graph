@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-21
 
 ### Labs
+- New lab `lizard-mouse` “Lizard and Mouse”: warm-blooded and cold-blooded animals and the food they need (767). (#660)
 - New lab `season-sky` “Where Is Orion in Summer?”: why different constellations are seen in different seasons (766). (#659)
 - New lab `see-through` “The Torch Test”: transparent, translucent and opaque materials (765). (#658)
 - New lab `weekday` “Calendar Detective”: rows of seven in a calendar, counting days between dates, and why birthdays move a weekday (764). (#657)
