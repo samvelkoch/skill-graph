@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-21
 
 ### Labs
+- New lab `which-way-down` “Which Way Is Down?”: gravity pulls towards the Earth's centre, so down is different everywhere (777). (#670)
 - New lab `animal-records` “Animal Champions”: the blue whale, cheetah and bee hummingbird compared with things we know (776). (#669)
 - New lab `sign-machine` “The Sign Machine”: the sign rules for multiplying and dividing negative numbers (775). (#668)
 - New lab `polder` “Land from the Sea”: Dutch polders, dikes and windmills: people shaping a place (774). (#667)
