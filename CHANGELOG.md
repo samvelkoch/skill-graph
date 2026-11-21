@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-21
 
 ### Labs
+- New lab `compass-ruler` “Compass and Ruler”: compass and straightedge constructions: bisectors and perpendiculars (782). (#675)
 - New lab `moscow-stone` “Moscow in Stone”: Russian architecture and culture of the 16th–17th centuries (781). (#674)
 - New lab `dot-shapes` “Shapes on Dots”: areas of polygons on dot paper and Pick's rule (780). (#673)
 - New lab `mirror-halves` “Mirror Halves”: planes of symmetry of solids (779). (#672)
