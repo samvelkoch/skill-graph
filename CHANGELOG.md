@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-21
 
 ### Labs
+- New lab `moscow-stone` “Moscow in Stone”: Russian architecture and culture of the 16th–17th centuries (781). (#674)
 - New lab `dot-shapes` “Shapes on Dots”: areas of polygons on dot paper and Pick's rule (780). (#673)
 - New lab `mirror-halves` “Mirror Halves”: planes of symmetry of solids (779). (#672)
 - New lab `forest-fire` “A Model of a Forest Fire”: computer modelling and simulation with a forest-fire model (778). (#671)
