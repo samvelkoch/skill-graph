@@ -12,6 +12,30 @@ Hungarian is on the site: [What's new](https://samvelkoch.github.io/skill-graph/
 
 Counts in brackets are totals after that day.
 
+## 2026-11-22
+
+### Labs
+- New lab `sample-jar` “The Bead Jar”: how random samples vary, and biased samples (808). (#PRNUM)
+- New lab `homes-world` “Homes Around the World”: traditional homes shaped by climate, materials and way of life (807). (#PRNUM)
+- New lab `ai-energy` “How Much Power Does AI Use?”: AI and the environment: electricity per answer and in total (806). (#PRNUM)
+- New lab `frozen-app` “When an App Freezes”: the operating system shares the computer between apps (805). (#PRNUM)
+- New lab `styles` “Styles, Not Spaces”: word processing: alignment, styles, lists and page breaks (804). (#PRNUM)
+- New lab `licence` “Free to Use, Free to Change?”: kinds of software and software licences (803). (#PRNUM)
+- New lab `two-columns` “The Bike Shop’s Books”: a balance sheet and double-entry bookkeeping (802). (#PRNUM)
+- New lab `bank-loans` “Barter, Coins and Credit”: the history and properties of money, and how a loan works (801). (#PRNUM)
+- New lab `hidden-tax` “The Hidden Tax”: types of taxes, VAT inside prices, and who collects what (800). (#PRNUM)
+- New lab `morning-jobs` “Who Made Your Morning?”: the jobs behind everyday things, and why people are paid (799). (#PRNUM)
+- New lab `count-votes` “Count the Votes”: elections: counting rules, the secret ballot and turnout (798). (#PRNUM)
+- New lab `fix-street` “Who Fixes the Street?”: what local councils do and how they are paid for (797). (#PRNUM)
+- New lab `rule-path` “How a Rule Is Made”: who makes rules: a school rule and a law through parliament (HU, RU, UK) (796). (#PRNUM)
+- New lab `dilemma` “Two Good Reasons”: difficult ethical choices between two good values (795). (#PRNUM)
+- New lab `same-rain` “Same Rain, Different Feelings”: feelings have triggers, differ between people and change during a day (794). (#PRNUM)
+- New lab `kind-eyes` “Who Needs a Hand?”: everyday kindness starts with noticing who needs help (793). (#PRNUM)
+- New lab `story-ends` “Once Upon a Time… The End”: a story needs a beginning and an ending (792). (#PRNUM)
+- New lab `research-q` “Start with a Question”: short research projects: the question picks the facts, notes in your own words, sources (791). (#PRNUM)
+- New lab `who-for` “Who Is It For?”: finding a text's intended audience from its words, length, pictures and place (790). (#PRNUM)
+- New lab `eyewitness` “I Was There”: firsthand and secondhand accounts: what a witness can know from where they stood (789). (#PRNUM)
+
 ## 2026-11-21
 
 ### Labs
