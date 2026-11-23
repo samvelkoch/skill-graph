@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-23
 
 ### Labs
+- New lab `dna-tree` “Family Ties in DNA”: grouping species using DNA and the molecular clock (826). (#701)
 - New lab `life-expectancy` “Health and Wealth”: human development: income, life expectancy, schooling and the HDI (825). (#700)
 - New lab `baikal` “Lake Baikal”: Lake Baikal: a rift lake, its depth, age, water and life (824). (#699)
 - New lab `led-way` “Bulb, Buzzer, LED”: why circuit components behave differently (823). (#698)
