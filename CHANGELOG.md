@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-23
 
 ### Labs
+- New lab `medieval-women` “Women of the Middle Ages”: the lives and work of women in the Middle Ages (834). (#709)
 - New lab `republic-falls` “From Republic to Emperor”: the fall of the Roman Republic and the rise of Augustus (833). (#708)
 - New lab `colosseum` “A Day at the Colosseum”: the Colosseum: seating by rank, entrances, and who gladiators were (832). (#707)
 - New lab `ask-ai` “Working with an AI Helper”: using an AI assistant well: clear requests, checking facts, honesty (831). (#706)
