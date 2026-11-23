@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-23
 
 ### Labs
+- New lab `pin-chance` “Point Up or Point Down?”: uniform and non-uniform probability models, and models from trials (818). (#693)
 - New lab `thin-soil` “Where Is the Forest's Food?”: nutrient cycling in thin rainforest soil (817). (#692)
 - New lab `insect-size` “Why Aren't Insects Giant?”: insect anatomy: spiracles, tracheae, compound eyes and mouthparts (816). (#691)
 - New lab `snow-map` “Dots on a Doctor's Map”: how data builds and checks explanations: John Snow's cholera map (815). (#690)
