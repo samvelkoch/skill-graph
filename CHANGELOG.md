@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-23
 
 ### Labs
+- New lab `life-expectancy` “Health and Wealth”: human development: income, life expectancy, schooling and the HDI (825). (#700)
 - New lab `baikal` “Lake Baikal”: Lake Baikal: a rift lake, its depth, age, water and life (824). (#699)
 - New lab `led-way` “Bulb, Buzzer, LED”: why circuit components behave differently (823). (#698)
 - New lab `tangent-quad` “A Circle in a Frame”: quadrilaterals with an inscribed circle (Pitot's theorem) (822). (#697)
