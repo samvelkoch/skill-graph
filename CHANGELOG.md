@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-23
 
 ### Labs
+- New lab `pipe-notes` “Holes and Notes”: how wind instruments make notes: holes and the air column (830). (#705)
 - New lab `patch-it` “Keep the Pests Out”: malware and device protection: updates, careful clicks and backups (829). (#704)
 - New lab `secant-angles` “Where You Stand”: angles formed by chords, secants and tangents (828). (#703)
 - New lab `habitat-makers` “Who Changed This Place?”: how plants and animals change their habitats (827). (#702)
