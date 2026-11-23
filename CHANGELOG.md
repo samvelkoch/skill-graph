@@ -14,6 +14,9 @@ Counts in brackets are totals after that day.
 
 ## 2026-11-23
 
+### Labs
+- New lab `trace-image` “Where Did It Come From?”: deepfakes and misinformation: check the source, not the pixels (839). (#715)
+
 ### Data
 - Existing labs linked to 334 graph topics that repeat their idea (same main idea, overlapping ages): topics with a lab 1,175 → 1,539 of 2,364 (50% → 65%); the map shows a lab on these topics and “Where next” is richer. (#714)
 
