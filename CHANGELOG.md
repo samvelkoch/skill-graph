@@ -12,6 +12,11 @@ Hungarian is on the site: [What's new](https://samvelkoch.github.io/skill-graph/
 
 Counts in brackets are totals after that day.
 
+## 2026-11-23
+
+### Labs
+- New lab `eclipse-safe` “Look After Your Eyes”: protecting eyes from sunlight and watching an eclipse safely (809). (#684)
+
 ## 2026-11-22
 
 ### Labs
