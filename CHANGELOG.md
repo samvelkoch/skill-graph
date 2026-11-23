@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-23
 
 ### Labs
+- New lab `behind-face` “What's Inside?”: hidden and masked feelings, noticing and sharing (840). (#716)
 - New lab `trace-image` “Where Did It Come From?”: deepfakes and misinformation: check the source, not the pixels (839). (#715)
 
 ### Data
