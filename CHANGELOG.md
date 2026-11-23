@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-23
 
 ### Labs
+- New lab `colosseum` “A Day at the Colosseum”: the Colosseum: seating by rank, entrances, and who gladiators were (832). (#707)
 - New lab `ask-ai` “Working with an AI Helper”: using an AI assistant well: clear requests, checking facts, honesty (831). (#706)
 - New lab `pipe-notes` “Holes and Notes”: how wind instruments make notes: holes and the air column (830). (#705)
 - New lab `patch-it` “Keep the Pests Out”: malware and device protection: updates, careful clicks and backups (829). (#704)
