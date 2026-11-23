@@ -14,6 +14,9 @@ Counts in brackets are totals after that day.
 
 ## 2026-11-23
 
+### Data
+- Existing labs linked to 334 graph topics that repeat their idea (same main idea, overlapping ages): topics with a lab 1,175 → 1,539 of 2,364 (50% → 65%); the map shows a lab on these topics and “Where next” is richer. (#714)
+
 ### Labs
 - New lab `crust-elements` “What Is the Ground Made Of?”: the elements of Earth's crust, sea and air, and extracting metals (838). (#713)
 - New lab `persia-tribute` “Gifts for the King of Kings”: Assyria and the Persian Empire: satrapies, tribute and tolerance (837). (#712)
