@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-23
 
 ### Labs
+- New lab `sled-work` “Pull the Sled”: work at an angle and the dot product of vectors (810). (#685)
 - New lab `eclipse-safe` “Look After Your Eyes”: protecting eyes from sunlight and watching an eclipse safely (809). (#684)
 
 ## 2026-11-22
