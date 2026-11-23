@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-23
 
 ### Labs
+- New lab `baikal` “Lake Baikal”: Lake Baikal: a rift lake, its depth, age, water and life (824). (#699)
 - New lab `led-way` “Bulb, Buzzer, LED”: why circuit components behave differently (823). (#698)
 - New lab `tangent-quad` “A Circle in a Frame”: quadrilaterals with an inscribed circle (Pitot's theorem) (822). (#697)
 - New lab `decimal-estimate` “Where Does the Point Go?”: estimating to check decimal multiplication and division (821). (#696)
