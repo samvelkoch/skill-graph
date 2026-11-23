@@ -1,0 +1,926 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>What Is the Ground Made Of? · Skill Graph</title>
+<meta name="description" content="Zoom from a mountain down to the atoms, fill a column with the elements of the crust, the sea and the air, and dig for copper. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { display: none; }
+  .ce-q { font: 500 19px/1.25 var(--serif); color: #fff; margin: 0 0 10px; text-wrap: balance; }
+  .ce-opts { display: flex; gap: 8px; flex-wrap: wrap; }
+  .ce-opt { min-height: 40px; padding: 8px 16px; border-radius: 999px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1);
+    font-weight: 800; cursor: pointer; color: var(--ink); }
+  .ce-opt:hover:not(:disabled) { background: rgba(130, 145, 190, .25); }
+  .ce-opt:disabled { cursor: default; opacity: .9; }
+  .ce-opt.good { border-color: var(--ok); background: rgba(61, 220, 151, .18); }
+  .ce-opt.bad { border-color: var(--red); background: rgba(255, 59, 48, .16); }
+  .ce-lbl { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-weight: 700; margin-right: 2px; }
+  .ce-chips .chip { min-height: 36px; }
+  .ce-el i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .3); }
+  .ce-rng { width: 100%; accent-color: #d9825f; min-height: 36px; }
+  .ce-note { font-size: 13px; color: var(--soft); margin: 0 0 8px; }
+  .ce-fine { font-size: 11px; color: var(--faint); }
+  #stage canvas { touch-action: pan-y; }
+  @media (max-width: 760px) {
+    #stage { height: min(112vw, 520px); }
+  }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, ruPlural, lang } from '../lab.js';
+
+// --- numbers: every percentage below is a sourced figure or is computed from sourced figures -----------------------
+// Atomic weights: Wikipedia "Standard atomic weight" (conventional values). Crust: CRC Handbook figures as given on Wikipedia
+// "Abundance of elements in Earth's crust" (continental crust, ppm by mass / 10 000). Air: Wikipedia "Atmosphere of Earth", dry air, mass %.
+// Seawater: salinity 35 g/kg and the shares of the dissolved ions from Wikipedia "Seawater"; H and O of the water are computed here.
+const AW = { H: 1.0080, C: 12.011, N: 14.007, O: 15.999, Na: 22.98976928, Mg: 24.305, Al: 26.9815384, Si: 28.085, S: 32.06, Cl: 35.45, Ar: 39.95, K: 39.0983, Ca: 40.078, Fe: 55.845 };
+const withRest = (arr) => [...arr, ['rest', Math.max(0, 100 - arr.reduce((a, [, p]) => a + p, 0))]];
+const SEA = (() => {
+  const sal = 35, water = 1000 - sal, mw = 2 * AW.H + AW.O, so4 = sal * 0.077;
+  const H = water * 2 * AW.H / mw, Ow = water - H, S = so4 * AW.S / (AW.S + 4 * AW.O), Os = so4 - S;
+  const g = { O: Ow + Os, H, Cl: sal * 0.55, Na: sal * 0.306, Mg: sal * 0.037, S, Ca: sal * 0.012, K: sal * 0.011 };
+  return withRest(Object.entries(g).sort((a, b) => b[1] - a[1]).map(([k, v]) => [k, v / 10]));
+})();
+const COLS = {
+  crust: withRest([['O', 46.1], ['Si', 28.2], ['Al', 8.23], ['Fe', 5.63], ['Ca', 4.15], ['Na', 2.36], ['Mg', 2.33], ['K', 2.09]]),
+  sea: SEA,
+  air: withRest([['N', 75.52], ['O', 23.14], ['Ar', 1.29]]),
+};
+const pctOf = (col, sym) => { const r = COLS[col].find((x) => x[0] === sym); return r ? r[1] : null; };
+const MIN = { quartz: { f: 'SiO₂', comp: { Si: 1, O: 2 } }, feldspar: { f: 'KAlSi₃O₈', comp: { K: 1, Al: 1, Si: 3, O: 8 } } };
+const massFrac = (m, sym) => { const c = MIN[m].comp; return c[sym] ? c[sym] * AW[sym] / Object.entries(c).reduce((a, [e, n]) => a + n * AW[e], 0) * 100 : 0; };
+const atomsIn = (m) => Object.values(MIN[m].comp).reduce((a, b) => a + b, 0);
+const TYP_GRADE = 0.8;            // % copper, average of porphyry deposits (Wikipedia "Ore")
+const CU_MAX = 300;               // heap capacity, kg of rock drawn
+const E_NEW = 15.37, E_MIN = 6.23, E_REC = E_NEW * 0.05; // kWh per kg of aluminium (Wikipedia "Hall–Héroult process"); recycling needs 5% (Wikipedia "Aluminium recycling")
+const AL_FRAC = 2 * AW.Al / (2 * AW.Al + 3 * AW.O) * 100;   // % aluminium in Al2O3
+const KOLA_KM = 12.262, CRUST_KM = 35;                        // Wikipedia "Kola Superdeep Borehole"
+const GOLD_T = 201296, GOLD_RHO = 19.283;                     // tonnes above ground (2020), g/cm3 (Wikipedia "Gold")
+const GOLD_SIDE = Math.cbrt(GOLD_T * 1e6 / GOLD_RHO / 1e6);   // m: tonnes -> g = ×1e6, cm3 / 1e6 = m3
+const EL = {
+  O: { c: '#ef6a5a', n: { en: 'Oxygen', ru: 'Кислород', hu: 'Oxigén' } },
+  Si: { c: '#79b8c9', n: { en: 'Silicon', ru: 'Кремний', hu: 'Szilícium' } },
+  Al: { c: '#b9bcc6', n: { en: 'Aluminium', ru: 'Алюминий', hu: 'Alumínium' } },
+  Fe: { c: '#b0693a', n: { en: 'Iron', ru: 'Железо', hu: 'Vas' } },
+  Ca: { c: '#e8d28a', n: { en: 'Calcium', ru: 'Кальций', hu: 'Kalcium' } },
+  Na: { c: '#f0a44b', n: { en: 'Sodium', ru: 'Натрий', hu: 'Nátrium' } },
+  Mg: { c: '#5fc59a', n: { en: 'Magnesium', ru: 'Магний', hu: 'Magnézium' } },
+  K: { c: '#b58be0', n: { en: 'Potassium', ru: 'Калий', hu: 'Kálium' } },
+  N: { c: '#6a7be8', n: { en: 'Nitrogen', ru: 'Азот', hu: 'Nitrogén' } },
+  H: { c: '#e9eef7', n: { en: 'Hydrogen', ru: 'Водород', hu: 'Hidrogén' } },
+  Cl: { c: '#a8d84e', n: { en: 'Chlorine', ru: 'Хлор', hu: 'Klór' } },
+  S: { c: '#e6d84a', n: { en: 'Sulfur', ru: 'Сера', hu: 'Kén' } },
+  Ar: { c: '#8d9bb8', n: { en: 'Argon', ru: 'Аргон', hu: 'Argon' } },
+  rest: { c: '#5d6580', n: { en: 'All the rest', ru: 'Всё остальное', hu: 'Minden más' } },
+};
+const ink = (s) => ['O', 'N', 'Fe', 'K', 'rest', 'Ar'].includes(s) ? '#ffffff' : '#0d111c';
+const num = (x, d = 1) => { const s = x.toFixed(d); return lang === 'en' ? s : s.replace('.', ','); };
+const pc = (x, d = 1) => num(x, d) + (lang === 'en' ? '%' : ' %');
+const dp = (p) => (p >= 10 ? 1 : p >= 1 ? 2 : 3);
+const elName = (s) => EL[s].n[lang];
+const U = () => T[lang].u;
+const CRUST_ELEMS = ['O', 'Si', 'Al', 'Fe', 'Ca', 'Na', 'Mg', 'K'];
+const SPH_ELEMS = ['O', 'N', 'H', 'Si', 'Al', 'Fe', 'Cl', 'Na'];
+
+// --- texts -------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'What Is the Ground Made Of?', title: 'What Is the Ground Made Of?',
+    lines: [['Zoom from a mountain', 'down to the atoms.'], ['Fill a column', 'with Earth’s elements.'], ['Dig for copper', 'and see what it costs.']],
+    views: { crust: '🪨 Crust', spheres: '🌍 Spheres', ores: '⛏️ Ores' },
+    right: 'Right!', rest: 'All the rest', lock: '🔒 ???', u: { kg: 'kg', km: 'km', m: 'm', kwh: 'kWh' },
+    zlbl: 'Zoom', mlbl: 'Mineral', elbl: 'Element',
+    zn: ['Mountain', 'Rock', 'Grain', 'Atoms'], mn: { quartz: 'Quartz', feldspar: 'Feldspar' },
+    cr: {
+      colCap: 'Crust · % by mass', sub: 'continental crust · % by mass',
+      q: 'The most common element in Earth’s crust by mass is…', qLead: 'Make a guess. Then the column fills and the rock opens up.',
+      opts: { iron: 'Iron', oxygen: 'Oxygen', silicon: 'Silicon' },
+      title: (ok) => (ok ? 'Right! Oxygen is number one.' : 'Oxygen is number one.'),
+      lead: (g, p, O, Si, sum) => (!g ? '' : `Your guess, ${g}, is ${p} of the crust. `) + `Oxygen is ${O} of the crust by mass and silicon ${Si}: together ${sum}.`,
+      body: 'Oxygen is not floating free in rock: it is bound to silicon and to metals. Tap a layer or a colour to follow an element down to the atoms.',
+      z0: ['A mountain', 'Solid rock. Tap the picture or “Atoms” to zoom in on the small rock in the middle.'],
+      z1: ['A rock', 'A granite-like rock is a patchwork of grains of different minerals.'],
+      z2: (m, f) => [`One grain: ${m}`, m === 'quartz' ? `Quartz has the formula ${f}.` : `This feldspar is orthoclase: ${f}.`],
+      z3: (m, f, O) => ['Atoms', (m === 'quartz' ? 'Each silicon has 4 oxygen neighbours and each oxygen joins 2 silicon: 2 oxygen for every silicon. ' : 'Of every 13 atoms: 8 oxygen, 3 silicon, 1 aluminium and 1 potassium. ') + `By mass, oxygen is ${O} of ${f}.`],
+      zbody: 'A flat sketch: the real structure is three-dimensional. Tap an atom to select its element.',
+      selTitle: (n, p) => `${n}: ${p} of the crust`,
+      inMin: (f, k, tot) => (k ? `In ${f}: ${k} of ${tot} atoms.` : `There is none in ${f}.`),
+    },
+    kola: { chip: 'Kola borehole', desc: 'How deep have we drilled into the crust?', title: (d) => `${d} km deep: the deepest borehole`,
+      lead: (c) => `The Kola Superdeep Borehole reached this in 1989. The continental crust is about ${c} km thick: the drill went about a third of the way.`, sub: 'deepest borehole', cap: 'Crust, about 35 km (estimate)', ground: 'Surface' },
+    sp: {
+      names: { air: 'Air', sea: 'Seawater', crust: 'Crust' }, sub: '% by mass: air · seawater · crust',
+      gate: 'Make your guess in Crust first. The columns here depend on it.', go: 'Go to Crust →',
+      q: 'Which element makes up a large part of all three: air, seawater and crust?', qLead: 'Make a guess. Then the three columns fill.',
+      opts: { N: 'Nitrogen', O: 'Oxygen', H: 'Hydrogen' },
+      title: (ok) => (ok ? 'Right! Oxygen is in all three.' : 'Oxygen is in all three.'),
+      lead: (a, s, c) => `Oxygen by mass: air ${a}, seawater ${s}, crust ${c}.`,
+      body: 'Tap any layer: the same element lights up in the other columns. Air is dry air; its CO₂ and traces are “the rest”.',
+      selLead: (a, s, c) => `Air ${a} · seawater ${s} · crust ${c} (% by mass)`,
+      notes: {
+        O: 'In air it is O₂ gas, in seawater it sits in H₂O and in dissolved salts, in rock it is bound to silicon and metals.',
+        N: 'Almost all of it is in the air, as N₂ gas.', H: 'Hydrogen is mostly in seawater, as part of H₂O. Rock has little.',
+        Si: 'Silicon is a rock element: it is not among the big ones in air or seawater.', Al: 'Third in the crust, locked in minerals.',
+        Fe: 'In the crust, iron comes behind oxygen, silicon and aluminium.', Cl: 'Chlorine with sodium is the main dissolved salt of seawater.', Na: 'Sodium with chlorine is the main dissolved salt of seawater.',
+      },
+    },
+    ore: {
+      cu: 'Copper', al: 'Aluminium', grade: 'Ore grade: copper in the rock', dig: '⛏️ Dig 25 kg', all: 'Dig it all', reset: '↺ Empty',
+      q: 'To get 1 kg of copper from typical copper ore, about how much rock must be dug?', qLead: 'Make a guess. Then dig the rock yourself.',
+      opts: { a: '1 kg', b: '10 kg', c: 'Over 100 kg' },
+      title: (ok, need) => `${ok ? 'Right! ' : ''}About ${need} kg of rock for 1 kg of copper.`,
+      lead: (g, need) => `A typical copper ore (a porphyry deposit) has about ${g} copper: 100 ÷ ${g.replace('%', '')} ≈ ${need} kg of ore.`,
+      body: 'Ore is rock that holds a valuable mineral. Move the grade and dig: a poorer ore means a bigger heap.',
+      digT: (d) => `${d} kg of rock dug`, digL: (cu) => `Copper inside it: ${cu} kg of the 1 kg.`, enough: 'Enough for 1 kg of copper.',
+      sub: 'rock dug', pill: (n) => `${n} kg rock per kg Cu`, ingot: '1 kg of copper', bar: 'the rock', barCu: 'copper in it',
+      aluT: 'Aluminium is locked in an oxide', aluL: (f, k) => `Al₂O₃ is ${f} aluminium by mass: ${k} kg of oxide for each kg of metal.`,
+      aluB: 'To get the metal out, a current is pushed through the oxide dissolved in molten cryolite.',
+      on: '⚡ Switch on', off: '⏸ Switch off', again: '⚡ Run again', mNew: 'New metal', mRec: '♻️ Recycled',
+      runT: 'Making 1 kg of aluminium…', runL: (e) => `Energy so far: ${e} kWh.`,
+      newT: (e) => `About ${e} kWh for 1 kg.`, newL: (m) => `The theoretical minimum is ${m} kWh; real cells use more. The oxygen leaves as CO₂, burning the carbon anodes.`,
+      recT: (e) => `Only about ${e} kWh.`, recL: 'Recycled aluminium is just melted: no electrolysis, about 5% of the energy.',
+      recS: ['Scrap is already metal', 'Melt it and watch the energy meter. Then compare it with new metal.'],
+      alSub: 'for 1 kg of aluminium', alPill: ['new metal', 'recycled'],
+      cell: { anodes: 'Carbon anodes', bath: 'Al₂O₃ in molten cryolite', metal: 'Aluminium', scrap: 'Scrap', min: 'minimum', typ: 'typical cell' },
+      goldChip: 'Gold cube', goldDesc: 'All the gold above ground in one cube', goldT: 'All the gold above ground: one cube',
+      goldL: (t, s) => `About ${t} tonnes exist above ground (2020). As one cube, each side would be about ${s} m.`, goldSub: 'cube side', person: 'a person',
+    },
+    facts: {
+      quartz: { emo: '💎', text: 'Quartz is the second most common mineral group in Earth’s lithosphere: about 12% by mass.', src: 'en.wikipedia.org/wiki/Quartz' },
+      silic: { emo: '🪨', text: 'Silicate minerals make up approximately 90 percent of Earth’s crust.', src: 'en.wikipedia.org/wiki/Silicate_mineral' },
+      air: { emo: '💨', text: 'Dry air is 78.084% nitrogen by volume but 75.52% by mass: the share depends on what you count.', src: 'en.wikipedia.org/wiki/Atmosphere_of_Earth' },
+      sea: { emo: '🌊', text: 'Seawater holds about 35 g of dissolved salt in every kilogram (3.5%).', src: 'en.wikipedia.org/wiki/Seawater' },
+      native: { emo: '🟠', text: 'Copper and gold can occur as pure metal, but valuable minerals are mostly oxides, sulfides or silicates. The main copper ore mineral is chalcopyrite, CuFeS₂.', src: 'en.wikipedia.org/wiki/Ore' },
+      porph: { emo: '⛰️', text: 'Most copper is mined from porphyry deposits, which hold 0.4 to 1.0% copper.', src: 'en.wikipedia.org/wiki/Copper' },
+      cell: { emo: '🔥', text: 'The aluminium cell runs at 940–980 °C, with alumina dissolved in molten cryolite.', src: 'en.wikipedia.org/wiki/Hall–Héroult_process' },
+      recy: { emo: '♻️', text: 'Recycling scrap aluminium needs only about 5% of the energy used to make new aluminium from ore.', src: 'en.wikipedia.org/wiki/Aluminium_recycling' },
+    },
+    quiz: [
+      { q: 'The most common element in Earth’s crust by mass is…', opts: ['Iron', 'Oxygen', 'Silicon'], ok: 1, hint: 'Fill the column in Crust.' },
+      { q: 'Quartz sand is made of…', opts: ['Salt', 'Iron and carbon', 'Silicon and oxygen'], ok: 2, hint: 'Zoom into the grain.' },
+      { q: 'Why does making aluminium use so much electricity?', opts: ['It is pulled out of its oxide by electrolysis', 'It is mined as pure metal', 'It must be cooled'], ok: 0, hint: 'Look at Ores.' },
+    ],
+  },
+  ru: {
+    name: 'Из чего сделана земля под ногами?', title: 'Из чего сделана земля под ногами?',
+    lines: [['Приблизь гору', 'до самых атомов.'], ['Заполни столбик', 'элементами Земли.'], ['Добудь медь', 'и узнай, чего это стоит.']],
+    views: { crust: '🪨 Кора', spheres: '🌍 Сферы', ores: '⛏️ Руды' },
+    right: 'Верно!', rest: 'Всё остальное', lock: '🔒 ???', u: { kg: 'кг', km: 'км', m: 'м', kwh: 'кВт·ч' },
+    zlbl: 'Масштаб', mlbl: 'Минерал', elbl: 'Элемент',
+    zn: ['Гора', 'Порода', 'Зерно', 'Атомы'], mn: { quartz: 'Кварц', feldspar: 'Полевой шпат' },
+    cr: {
+      colCap: 'Кора · % по массе', sub: 'материковая кора · % по массе',
+      q: 'Самый распространённый элемент в земной коре по массе — это…', qLead: 'Сначала угадай. Потом столбик заполнится, а порода раскроется.',
+      opts: { iron: 'Железо', oxygen: 'Кислород', silicon: 'Кремний' },
+      title: (ok) => (ok ? 'Верно! Кислород на первом месте.' : 'Кислород на первом месте.'),
+      lead: (g, p, O, Si, sum) => (!g ? '' : `Твоя догадка, ${g}, — это ${p} коры. `) + `Кислорода в коре по массе ${O}, кремния ${Si}: вместе ${sum}.`,
+      body: 'Кислород в породе не летает свободно: он связан с кремнием и металлами. Нажми на слой или на цвет, чтобы проследить элемент вплоть до атомов.',
+      z0: ['Гора', 'Сплошная порода. Нажми на картинку или на «Атомы», чтобы приблизить камешек посередине.'],
+      z1: ['Порода', 'Порода вроде гранита — мозаика из зёрен разных минералов.'],
+      z2: (m, f) => [`Одно зерно: ${m === 'quartz' ? 'кварц' : 'полевой шпат'}`, m === 'quartz' ? `Формула кварца — ${f}.` : `Это полевой шпат ортоклаз: ${f}.`],
+      z3: (m, f, O) => ['Атомы', (m === 'quartz' ? 'У каждого кремния 4 соседа-кислорода, а каждый кислород соединяет 2 кремния: на один кремний — два кислорода. ' : 'На каждые 13 атомов: 8 кислорода, 3 кремния, 1 алюминия и 1 калия. ') + `По массе кислорода в ${f} — ${O}.`],
+      zbody: 'Это плоский набросок: настоящая структура объёмная. Нажми на атом, чтобы выбрать элемент.',
+      selTitle: (n, p) => `${n}: ${p} коры`,
+      inMin: (f, k, tot) => (k ? `В ${f}: ${k} из ${tot} атомов.` : `В ${f} его нет.`),
+    },
+    kola: { chip: 'Кольская скважина', desc: 'Как глубоко мы пробурили кору?', title: (d) => `${d} км вглубь: самая глубокая скважина`,
+      lead: (c) => `Кольская сверхглубокая скважина дошла досюда в 1989 году. Материковая кора толщиной около ${c} км: бур прошёл примерно треть пути.`, sub: 'самая глубокая скважина', cap: 'Кора, около 35 км (оценка)', ground: 'Поверхность' },
+    sp: {
+      names: { air: 'Воздух', sea: 'Морская вода', crust: 'Кора' }, sub: '% по массе: воздух · море · кора',
+      gate: 'Сначала сделай догадку в «Коре». От неё зависят столбики здесь.', go: 'К «Коре» →',
+      q: 'Какой элемент составляет заметную часть сразу всех трёх: воздуха, морской воды и коры?', qLead: 'Сначала угадай. Потом три столбика заполнятся.',
+      opts: { N: 'Азот', O: 'Кислород', H: 'Водород' },
+      title: (ok) => (ok ? 'Верно! Кислород есть во всех трёх.' : 'Кислород есть во всех трёх.'),
+      lead: (a, s, c) => `Кислород по массе: воздух ${a}, морская вода ${s}, кора ${c}.`,
+      body: 'Нажимай на слои: тот же элемент подсветится в других столбиках. Воздух взят сухой; его CO₂ и следы — «всё остальное».',
+      selLead: (a, s, c) => `Воздух ${a} · море ${s} · кора ${c} (% по массе)`,
+      notes: {
+        O: 'В воздухе это газ O₂, в морской воде он входит в H₂O и в растворённые соли, в породе связан с кремнием и металлами.',
+        N: 'Почти весь он в воздухе, в виде газа N₂.', H: 'Водород в основном в морской воде, в составе H₂O. В породе его мало.',
+        Si: 'Кремний — элемент камня: среди главных в воздухе и морской воде его нет.', Al: 'Третий по массе в коре, заперт в минералах.',
+        Fe: 'В коре железо идёт после кислорода, кремния и алюминия.', Cl: 'Хлор вместе с натрием — главная растворённая соль морской воды.', Na: 'Натрий вместе с хлором — главная растворённая соль морской воды.',
+      },
+    },
+    ore: {
+      cu: 'Медь', al: 'Алюминий', grade: 'Руда: меди в породе', dig: '⛏️ Копать 25 кг', all: 'Выкопать всё', reset: '↺ Очистить',
+      q: 'Чтобы получить 1 кг меди из обычной медной руды, нужно выкопать примерно…', qLead: 'Сначала угадай. Потом покопай породу.',
+      opts: { a: '1 кг породы', b: '10 кг породы', c: 'Больше 100 кг породы' },
+      title: (ok, need) => `${ok ? 'Верно! ' : ''}Около ${need} кг породы на 1 кг меди.`,
+      lead: (g, need) => `В обычной медной руде (порфировое месторождение) около ${g} меди: 100 ÷ ${g.replace(' %', '')} ≈ ${need} кг руды.`,
+      body: 'Руда — это порода с ценным минералом. Двигай содержание и копай: чем беднее руда, тем больше куча.',
+      digT: (d) => `Выкопано породы: ${d} кг`, digL: (cu) => `Меди в ней: ${cu} кг из 1 кг.`, enough: 'Хватит на 1 кг меди.',
+      sub: 'выкопано породы', pill: (n) => `${n} кг породы на кг Cu`, ingot: '1 кг меди', bar: 'порода', barCu: 'меди в ней',
+      aluT: 'Алюминий заперт в оксиде', aluL: (f, k) => `В Al₂O₃ алюминия по массе ${f}: на каждый кг металла — ${k} кг оксида.`,
+      aluB: 'Чтобы достать металл, через оксид, растворённый в расплавленном криолите, пропускают ток.',
+      on: '⚡ Включить', off: '⏸ Выключить', again: '⚡ Ещё раз', mNew: 'Новый металл', mRec: '♻️ Из лома',
+      runT: 'Делаем 1 кг алюминия…', runL: (e) => `Энергии уже: ${e} кВт·ч.`,
+      newT: (e) => `Около ${e} кВт·ч на 1 кг.`, newL: (m) => `Теоретический минимум — ${m} кВт·ч, а в настоящих ваннах уходит больше. Кислород уходит как CO₂, сжигая угольные аноды.`,
+      recT: (e) => `Всего около ${e} кВт·ч.`, recL: 'Алюминий из лома просто переплавляют: без электролиза, примерно 5% энергии.',
+      recS: ['Лом — это уже металл', 'Переплавь его и следи за счётчиком энергии. Потом сравни с новым металлом.'],
+      alSub: 'на 1 кг алюминия', alPill: ['новый металл', 'из лома'],
+      cell: { anodes: 'Угольные аноды', bath: 'Al₂O₃ в расплаве криолита', metal: 'Алюминий', scrap: 'Лом', min: 'минимум', typ: 'обычная ванна' },
+      goldChip: 'Куб золота', goldDesc: 'Всё золото на поверхности в одном кубе', goldT: 'Всё золото на поверхности: один куб',
+      goldL: (t, s) => `Над землёй около ${t} т золота (2020). В одном кубе сторона была бы около ${s} м.`, goldSub: 'сторона куба', person: 'человек',
+    },
+    facts: {
+      quartz: { emo: '💎', text: 'Кварц — вторая по распространённости группа минералов в литосфере Земли: около 12% по массе.', src: 'en.wikipedia.org/wiki/Quartz' },
+      silic: { emo: '🪨', text: 'Силикатные минералы составляют примерно 90 процентов земной коры.', src: 'en.wikipedia.org/wiki/Silicate_mineral' },
+      air: { emo: '💨', text: 'Сухой воздух — это 78,084% азота по объёму, но 75,52% по массе: доля зависит от того, что считать.', src: 'en.wikipedia.org/wiki/Atmosphere_of_Earth' },
+      sea: { emo: '🌊', text: 'В каждом килограмме морской воды около 35 г растворённой соли (3,5%).', src: 'en.wikipedia.org/wiki/Seawater' },
+      native: { emo: '🟠', text: 'Медь и золото бывают и чистым металлом, но ценные минералы чаще оксиды, сульфиды или силикаты. Главный минерал медной руды — халькопирит, CuFeS₂.', src: 'en.wikipedia.org/wiki/Ore' },
+      porph: { emo: '⛰️', text: 'Больше всего меди добывают из порфировых месторождений: в них от 0,4 до 1,0% меди.', src: 'en.wikipedia.org/wiki/Copper' },
+      cell: { emo: '🔥', text: 'Алюминиевая ванна работает при 940–980 °C: глинозём растворён в расплавленном криолите.', src: 'en.wikipedia.org/wiki/Hall–Héroult_process' },
+      recy: { emo: '♻️', text: 'Переработка алюминиевого лома требует лишь около 5% энергии, нужной для нового алюминия из руды.', src: 'en.wikipedia.org/wiki/Aluminium_recycling' },
+    },
+    quiz: [
+      { q: 'Самый распространённый элемент в земной коре по массе — это…', opts: ['Железо', 'Кислород', 'Кремний'], ok: 1, hint: 'Заполни столбик в «Коре».' },
+      { q: 'Кварцевый песок состоит из…', opts: ['Соли', 'Железа и углерода', 'Кремния и кислорода'], ok: 2, hint: 'Приблизь зерно.' },
+      { q: 'Почему на выплавку алюминия уходит столько электричества?', opts: ['Электролизом его вытягивают из оксида', 'Его добывают чистым металлом', 'Его нужно охлаждать'], ok: 0, hint: 'Загляни в «Руды».' },
+    ],
+  },
+  hu: {
+    name: 'Miből van a föld a lábunk alatt?', title: 'Miből van a föld a lábunk alatt?',
+    lines: [['Nagyíts a hegyről', 'egészen az atomokig.'], ['Töltsd meg az oszlopot', 'a Föld elemeivel.'], ['Bányássz rezet,', 'és nézd meg, mibe kerül.']],
+    views: { crust: '🪨 Kéreg', spheres: '🌍 Gömbök', ores: '⛏️ Érc' },
+    right: 'Így van!', rest: 'Minden más', lock: '🔒 ???', u: { kg: 'kg', km: 'km', m: 'm', kwh: 'kWh' },
+    zlbl: 'Nagyítás', mlbl: 'Ásvány', elbl: 'Elem',
+    zn: ['Hegy', 'Kőzet', 'Szem', 'Atomok'], mn: { quartz: 'Kvarc', feldspar: 'Földpát' },
+    cr: {
+      colCap: 'Kéreg · tömeg%', sub: 'kontinentális kéreg · tömeg%',
+      q: 'A Föld kérgének tömeg szerint leggyakoribb eleme a…', qLead: 'Tippelj. Utána megtelik az oszlop, és kinyílik a kőzet.',
+      opts: { iron: 'Vas', oxygen: 'Oxigén', silicon: 'Szilícium' },
+      title: (ok) => (ok ? 'Így van! Az oxigén az első.' : 'Az oxigén az első.'),
+      lead: (g, p, O, Si, sum) => (!g ? '' : `A tipped (${g}) a kéreg tömegének ${p}. `) + `Az oxigén a kéreg tömegének ${O}, a szilícium ${Si}: együtt ${sum}.`,
+      body: 'A kőzetben az oxigén nem szabad gáz: szilíciumhoz és fémekhez kötődik. Koppints egy rétegre vagy egy színre, és kövesd az elemet az atomokig.',
+      z0: ['Egy hegy', 'Tömör kőzet. Koppints a képre vagy az „Atomok” gombra, és nagyítsd ki a kis követ középen.'],
+      z1: ['Egy kőzet', 'A gránithoz hasonló kőzet különböző ásványok szemcséiből áll, mint egy mozaik.'],
+      z2: (m, f) => [`Egy szem: ${m === 'quartz' ? 'kvarc' : 'földpát'}`, m === 'quartz' ? `A kvarc képlete ${f}.` : `Ez a földpát ortoklász: ${f}.`],
+      z3: (m, f, O) => ['Atomok', (m === 'quartz' ? 'Minden szilíciumnak 4 oxigén szomszédja van, és minden oxigén 2 szilíciumot köt össze: egy szilíciumra két oxigén jut. ' : 'Minden 13 atomból 8 oxigén, 3 szilícium, 1 alumínium és 1 kálium. ') + `A ${f} tömegéből az oxigén ${O}.`],
+      zbody: 'Ez egy lapos vázlat: a valódi szerkezet háromdimenziós. Koppints egy atomra, hogy kiválaszd az elemet.',
+      selTitle: (n, p) => `${n}: ${p} a kéregben`,
+      inMin: (f, k, tot) => (k ? `${f}: ${tot} atomból ${k} ilyen.` : `${f}: nincs benne ilyen.`),
+    },
+    kola: { chip: 'Kola-kútfúrás', desc: 'Milyen mélyre fúrtunk a kéregbe?', title: (d) => `${d} km mély: a legmélyebb fúrás`,
+      lead: (c) => `A Kola-szuperfúrás 1989-ben ért ide. A kontinentális kéreg kb. ${c} km vastag: a fúró nagyjából az út harmadáig jutott.`, sub: 'legmélyebb fúrás', cap: 'Kéreg, kb. 35 km (becslés)', ground: 'Felszín' },
+    sp: {
+      names: { air: 'Levegő', sea: 'Tengervíz', crust: 'Kéreg' }, sub: 'tömeg%: levegő · tenger · kéreg',
+      gate: 'Előbb tippelj a Kéreg nézetben. Az itteni oszlopok ettől függnek.', go: 'Irány a Kéreg →',
+      q: 'Melyik elemből van sok mind a háromban: a levegőben, a tengervízben és a kéregben?', qLead: 'Tippelj. Utána megtelik a három oszlop.',
+      opts: { N: 'Nitrogén', O: 'Oxigén', H: 'Hidrogén' },
+      title: (ok) => (ok ? 'Így van! Az oxigén mindháromban ott van.' : 'Az oxigén mindháromban ott van.'),
+      lead: (a, s, c) => `Az oxigén tömeg szerint: levegő ${a}, tengervíz ${s}, kéreg ${c}.`,
+      body: 'Koppints egy rétegre: ugyanaz az elem kigyullad a többi oszlopban is. A levegő száraz levegő; a CO₂ és a nyomok a „minden más”.',
+      selLead: (a, s, c) => `Levegő ${a} · tengervíz ${s} · kéreg ${c} (tömeg%)`,
+      notes: {
+        O: 'A levegőben O₂ gáz, a tengervízben a H₂O-ban és az oldott sókban van, a kőzetben szilíciumhoz és fémekhez kötődik.',
+        N: 'Szinte az egész a levegőben van, N₂ gázként.', H: 'A hidrogén főleg a tengervízben van, a H₂O részeként. A kőzetben kevés.',
+        Si: 'A szilícium kőzetelem: a levegőben és a tengervízben nincs a nagyok között.', Al: 'A kéregben a harmadik, ásványokba zárva.',
+        Fe: 'A kéregben a vas az oxigén, a szilícium és az alumínium után jön.', Cl: 'A klór a nátriummal a tengervíz fő oldott sója.', Na: 'A nátrium a klórral a tengervíz fő oldott sója.',
+      },
+    },
+    ore: {
+      cu: 'Réz', al: 'Alumínium', grade: 'Érc: réz a kőzetben', dig: '⛏️ Ások 25 kg-ot', all: 'Mindet kiásom', reset: '↺ Ürítés',
+      q: '1 kg rézhez a szokásos rézércből nagyjából mennyi kőzetet kell kiásni?', qLead: 'Tippelj. Utána ásd ki a kőzetet magad.',
+      opts: { a: '1 kg kőzet', b: '10 kg kőzet', c: '100 kg-nál több kőzet' },
+      title: (ok, need) => `${ok ? 'Így van! ' : ''}Kb. ${need} kg kőzet kell 1 kg rézhez.`,
+      lead: (g, need) => `A szokásos rézérc (porfíros telep) kb. ${g} rezet tartalmaz: 100 ÷ ${g.replace(' %', '')} ≈ ${need} kg érc.`,
+      body: 'Az érc olyan kőzet, amely értékes ásványt tartalmaz. Állítsd az ércminőséget, és ásd: minél szegényebb az érc, annál nagyobb a kupac.',
+      digT: (d) => `Kiásott kőzet: ${d} kg`, digL: (cu) => `Benne a réz: ${cu} kg az 1 kg-ból.`, enough: 'Ez elég 1 kg rézhez.',
+      sub: 'kiásott kőzet', pill: (n) => `${n} kg kőzet 1 kg rézhez`, ingot: '1 kg réz', bar: 'a kőzet', barCu: 'réz benne',
+      aluT: 'Az alumínium oxidba van zárva', aluL: (f, k) => `Az Al₂O₃ tömegének ${f} alumínium: 1 kg fémhez ${k} kg oxid kell.`,
+      aluB: 'Hogy a fém kijöjjön, áramot vezetnek az olvadt kriolitban oldott oxidon át.',
+      on: '⚡ Bekapcsol', off: '⏸ Kikapcsol', again: '⚡ Még egyszer', mNew: 'Új fém', mRec: '♻️ Újrahasznosított',
+      runT: '1 kg alumínium készül…', runL: (e) => `Eddigi energia: ${e} kWh.`,
+      newT: (e) => `Kb. ${e} kWh 1 kg-hoz.`, newL: (m) => `Az elméleti minimum ${m} kWh; a valódi kádak többet fogyasztanak. Az oxigén CO₂-ként távozik, és elégeti a szénanódokat.`,
+      recT: (e) => `Csak kb. ${e} kWh.`, recL: 'Az újrahasznosított alumíniumot csak megolvasztják: nincs elektrolízis, nagyjából az energia 5%-a.',
+      recS: ['A hulladék már fém', 'Olvaszd meg, és figyeld az energiamérőt. Aztán hasonlítsd az új fémhez.'],
+      alSub: '1 kg alumíniumhoz', alPill: ['új fém', 'újrahasznosított'],
+      cell: { anodes: 'Szénanódok', bath: 'Al₂O₃ olvadt kriolitban', metal: 'Alumínium', scrap: 'Hulladék', min: 'minimum', typ: 'szokásos kád' },
+      goldChip: 'Aranykocka', goldDesc: 'A felszín feletti összes arany egy kockában', goldT: 'A felszín feletti összes arany: egy kocka',
+      goldL: (t, s) => `Kb. ${t} tonna arany van a föld felett (2020). Egy kockába öntve az oldala kb. ${s} m lenne.`, goldSub: 'kocka oldala', person: 'egy ember',
+    },
+    facts: {
+      quartz: { emo: '💎', text: 'A kvarc a Föld litoszférájának második leggyakoribb ásványcsoportja: tömegének kb. 12%-a.', src: 'en.wikipedia.org/wiki/Quartz' },
+      silic: { emo: '🪨', text: 'A szilikátásványok a Föld kérgének nagyjából 90 százalékát adják.', src: 'en.wikipedia.org/wiki/Silicate_mineral' },
+      air: { emo: '💨', text: 'A száraz levegő térfogatának 78,084%-a nitrogén, de tömegének csak 75,52%-a: az arány attól függ, mit számolsz.', src: 'en.wikipedia.org/wiki/Atmosphere_of_Earth' },
+      sea: { emo: '🌊', text: 'A tengervíz minden kilogrammjában kb. 35 g oldott só van (3,5%).', src: 'en.wikipedia.org/wiki/Seawater' },
+      native: { emo: '🟠', text: 'A réz és az arany előfordulhat tiszta fémként is, de az értékes ásványok többnyire oxidok, szulfidok vagy szilikátok. A réz fő ércásványa a kalkopirit, CuFeS₂.', src: 'en.wikipedia.org/wiki/Ore' },
+      porph: { emo: '⛰️', text: 'A rezet leginkább porfíros telepekről bányásszák, ezekben 0,4–1,0% réz van.', src: 'en.wikipedia.org/wiki/Copper' },
+      cell: { emo: '🔥', text: 'Az alumíniumkád 940–980 °C-on működik, a timföld olvadt kriolitban van oldva.', src: 'en.wikipedia.org/wiki/Hall–Héroult_process' },
+      recy: { emo: '♻️', text: 'A hulladék alumínium újrahasznosítása az új, ércből készült alumínium energiájának csak kb. 5%-át igényli.', src: 'en.wikipedia.org/wiki/Aluminium_recycling' },
+    },
+    quiz: [
+      { q: 'A Föld kérgének tömeg szerint leggyakoribb eleme a…', opts: ['Vas', 'Oxigén', 'Szilícium'], ok: 1, hint: 'Töltsd meg az oszlopot a Kéreg nézetben.' },
+      { q: 'A kvarchomok ebből áll:', opts: ['Só', 'Vas és szén', 'Szilícium és oxigén'], ok: 2, hint: 'Nagyítsd ki a szemet.' },
+      { q: 'Miért fogyaszt az alumíniumgyártás ennyi áramot?', opts: ['Az oxidjából elektrolízissel vonják ki', 'Tiszta fémként bányásszák', 'Hűteni kell'], ok: 0, hint: 'Nézd meg az Érc nézetet.' },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'sg_sci_44', en: 'Chemistry of Earth\'s Spheres and Resources', ru: 'Химия геосфер и природных ресурсов', hu: 'A Föld szférái és természeti erőforrásai kémiai szemmel' },
+];
+
+// --- state: ALL of it is declared before shell() and the draw loop --------------------------------------------
+const S = {
+  g1: null, g2: null, g3: null,           // predictions: 'iron'|'oxygen'|'silicon', 'N'|'O'|'H', 'a'|'b'|'c'
+  z: 0, zt: 0, min: 'quartz', sel: null, f1: 0, f2: 0,
+  ore: 'cu', grade: TYP_GRADE, dug: 0, digA: 0,
+  alOn: false, alT: 0, alMode: 'new', alRan: { new: false, rec: false }, alLast: -1,
+  kola: false, kolaT: 0, gold: false, goldT: 0,
+};
+let HITS = [];          // column layers of the current frame {sym, x0, x1, y0, y1}
+let ATOMS = [];         // atoms of the settled atom level {sym, x, y, r}
+const LAY = { panel: { x: 0, y: 0, w: 0, h: 0 } };
+let ZM = { cx: 0, cy: 0 };
+
+// --- drawing helpers -----------------------------------------------------------------------------------------
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+const easeOut = (t) => 1 - Math.pow(1 - clamp01(t), 3);
+const FONT = '800 12px Nunito, ui-sans-serif, system-ui, sans-serif';
+const rng = (seed) => { let s = seed >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); };
+const hexRgb = (h) => { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+const shade = (hex, k) => { const [r, g, b] = hexRgb(hex), f = k < 0 ? 1 + k : 1, a = k > 0 ? k : 0; return `rgb(${Math.round(r * f + (255 - r) * a)},${Math.round(g * f + (255 - g) * a)},${Math.round(b * f + (255 - b) * a)})`; };
+function rr(c, x, y, w, h, r) { r = Math.max(0, Math.min(r, w / 2, h / 2)); c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
+function txt(c, s, x, y, col = '#fff', al = 'center', font = FONT) { c.font = font; c.textAlign = al; c.textBaseline = 'middle'; c.fillStyle = col; c.fillText(s, x, y); }
+function pill(c, s, x, y, W, stroke) {
+  c.font = FONT; const tw = c.measureText(s).width + 16; y = Math.max(13, y);
+  const px = Math.max(4, Math.min(W - tw - 4, x - tw / 2));
+  rr(c, px, y - 11, tw, 22, 11); c.fillStyle = 'rgba(10,12,20,.84)'; c.fill();
+  if (stroke) { c.strokeStyle = stroke; c.lineWidth = 1.5; c.stroke(); }
+  txt(c, s, px + tw / 2, y + 0.5);
+}
+function ball(c, x, y, r, col, a = 1) {
+  r = Math.max(0.5, r);
+  const g = c.createRadialGradient(x - r * 0.35, y - r * 0.4, r * 0.1, x, y, r);
+  g.addColorStop(0, shade(col, 0.55)); g.addColorStop(0.55, col); g.addColorStop(1, shade(col, -0.45));
+  const pa = c.globalAlpha; c.globalAlpha = pa * a; c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill(); c.globalAlpha = pa;
+}
+function poly(c, pts, fill, stroke, lw = 1) {
+  c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.closePath();
+  if (fill) { c.fillStyle = fill; c.fill(); }
+  if (stroke) { c.strokeStyle = stroke; c.lineWidth = lw; c.stroke(); }
+}
+const lin = (c, x0, y0, x1, y1, stops) => { const g = c.createLinearGradient(x0, y0, x1, y1); stops.forEach(([o, col]) => g.addColorStop(o, col)); return g; };
+
+// precomputed texture of the "rock" level and the loose rocks of the copper heap (seeded: the same on every visit)
+const ROCK = (() => {
+  const r = rng(7), out = [];
+  for (let i = 0; i < 430; i++) {
+    const x = (r() - 0.5) * 560, y = (r() - 0.5) * 700;
+    if (Math.hypot(x, y) < 46) continue;
+    const t = r();
+    const col = t < 0.34 ? (r() < 0.5 ? '#d9a58f' : '#e6bfa6') : t < 0.66 ? '#b3bcc8' : t < 0.86 ? '#e9e0cf' : '#26262e';
+    const big = col === '#26262e' ? 3 + r() * 4 : 7 + r() * 14;
+    out.push({ x, y, r: big, e: 0.6 + r() * 0.4, rot: r() * 3.14, col });
+  }
+  return out;
+})();
+const HEAP = (() => {
+  const r = rng(21), out = [];
+  for (let row = 0; out.length < CU_MAX; row++) {
+    const n = Math.max(1, 24 - row);
+    for (let k = 0; k < n && out.length < CU_MAX; k++) {
+      const order = k % 2 ? -(k + 1) / 2 : k / 2; // centre first, then outwards
+      out.push({ row, col: order + (row % 2 ? 0.5 : 0), n, j: [r() - 0.5, r() - 0.5], s: 0.85 + r() * 0.35, sh: Math.floor(r() * 3), rot: r() * 3 });
+    }
+  }
+  return out;
+})();
+
+// --- the zoom: mountain, rock, grain, atoms --------------------------------------------------------------------
+function lvMountain(c, k, time) {
+  c.fillStyle = lin(c, 0, -300, 0, 140, [[0, '#1f2d52'], [0.55, '#6f78a8'], [1, '#f1b98a']]); c.fillRect(-900, -900, 1800, 1800);
+  const sg = c.createRadialGradient(-80, -70, 4, -80, -70, 150);
+  sg.addColorStop(0, 'rgba(255,244,205,.95)'); sg.addColorStop(0.25, 'rgba(255,214,150,.45)'); sg.addColorStop(1, 'rgba(255,200,140,0)');
+  c.fillStyle = sg; c.fillRect(-300, -300, 500, 500);
+  c.fillStyle = '#6a729c'; c.beginPath(); c.moveTo(-900, 60); c.quadraticCurveTo(-250, -60, -120, 20); c.quadraticCurveTo(20, -90, 180, -10); c.quadraticCurveTo(300, -60, 900, 40); c.lineTo(900, 500); c.lineTo(-900, 500); c.fill();
+  // the main mountain: the little rock we zoom into sits at (0, 0)
+  const mt = () => { c.beginPath(); c.moveTo(-520, 500); c.quadraticCurveTo(-300, 60, -120, -110); c.quadraticCurveTo(-80, -165, -45, -150); c.quadraticCurveTo(-10, -140, 20, -80); c.quadraticCurveTo(40, -20, 90, 30); c.quadraticCurveTo(250, 130, 440, 500); c.closePath(); };
+  mt(); c.fillStyle = lin(c, -260, 0, 160, 0, [[0, '#d8ccb8'], [0.5, '#8d8695'], [1, '#3b3b52']]); c.fill();
+  c.save(); mt(); c.clip();
+  c.strokeStyle = 'rgba(20,20,40,.22)'; c.lineWidth = 3;
+  for (const [x0, y0, x1, y1, cx, cy] of [[-60, -140, -150, 120, -120, -20], [-30, -110, 40, 160, 20, 20], [-10, -100, 160, 140, 80, 0], [-90, -80, -260, 200, -200, 40]]) { c.beginPath(); c.moveTo(x0, y0); c.quadraticCurveTo(cx, cy, x1, y1); c.stroke(); }
+  c.restore();
+  c.fillStyle = 'rgba(248,244,236,.96)'; c.beginPath(); c.moveTo(-120, -110); c.quadraticCurveTo(-80, -165, -45, -150); c.quadraticCurveTo(-10, -140, 20, -80); c.quadraticCurveTo(0, -95, -15, -98); c.quadraticCurveTo(-30, -68, -48, -98); c.quadraticCurveTo(-65, -74, -85, -94); c.quadraticCurveTo(-100, -86, -120, -110); c.fill();
+  c.fillStyle = '#151a28'; c.beginPath(); c.moveTo(-900, 120); c.quadraticCurveTo(-300, 70, 0, 150); c.quadraticCurveTo(300, 210, 900, 120); c.lineTo(900, 500); c.lineTo(-900, 500); c.fill();
+  c.beginPath(); c.moveTo(-20, 10); c.quadraticCurveTo(-24, -9, -7, -15); c.quadraticCurveTo(9, -20, 19, -6); c.quadraticCurveTo(24, 7, 12, 13); c.quadraticCurveTo(-6, 17, -20, 10);
+  c.fillStyle = lin(c, -20, -15, 20, 14, [[0, '#d8cdbc'], [1, '#5f5866']]); c.fill(); c.strokeStyle = 'rgba(0,0,0,.4)'; c.lineWidth = 1.2 / k; c.stroke();
+  reticle(c, k, time, 34);
+}
+function reticle(c, k, time, s) {
+  const p = 1 + 0.05 * Math.sin(time * 3); c.save(); c.strokeStyle = '#ffd479'; c.lineWidth = 1.8 / k; c.setLineDash([6 / k, 4 / k]);
+  c.strokeRect(-s * p, -s * p, 2 * s * p, 2 * s * p); c.restore();
+}
+function lvRock(c, k, time) {
+  c.fillStyle = '#8a7f77'; c.fillRect(-900, -900, 1800, 1800);
+  for (const s of ROCK) { c.save(); c.translate(s.x, s.y); c.rotate(s.rot); c.beginPath(); c.ellipse(0, 0, Math.max(0.5, s.r), Math.max(0.5, s.r * s.e), 0, 0, 6.283); c.fillStyle = s.col; c.fill(); c.strokeStyle = 'rgba(0,0,0,.22)'; c.lineWidth = 0.8; c.stroke(); c.restore(); }
+  c.fillStyle = lin(c, -260, -300, 260, 300, [[0, 'rgba(255,255,255,.16)'], [0.5, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,.34)']]); c.fillRect(-300, -400, 600, 800);
+  const q = S.min === 'quartz';
+  c.beginPath(); c.moveTo(-34, 6); c.quadraticCurveTo(-36, -22, -10, -30); c.quadraticCurveTo(22, -38, 33, -8); c.quadraticCurveTo(40, 24, 8, 32); c.quadraticCurveTo(-26, 38, -34, 6);
+  c.fillStyle = q ? lin(c, -30, -30, 30, 30, [[0, '#eef4fa'], [1, '#94a6b8']]) : lin(c, -30, -30, 30, 30, [[0, '#f3cdb9'], [1, '#c58770']]); c.fill();
+  c.strokeStyle = 'rgba(0,0,0,.4)'; c.lineWidth = 1.2 / k; c.stroke();
+  c.beginPath(); c.ellipse(-10, -14, 9, 5, -0.6, 0, 6.283); c.fillStyle = 'rgba(255,255,255,.55)'; c.fill();
+  reticle(c, k, time, 46);
+}
+function lvGrain(c, k, time) {
+  const bg = c.createRadialGradient(0, 0, 10, 0, 0, 260); bg.addColorStop(0, '#1b2740'); bg.addColorStop(1, '#06080f'); c.fillStyle = bg; c.fillRect(-900, -900, 1800, 1800);
+  if (S.min === 'quartz') {
+    poly(c, [[-52, -55], [-26, -62], [-26, 70], [-52, 62]], lin(c, -52, 0, -26, 0, [[0, '#6f8499'], [1, '#aebfd0']]), 'rgba(255,255,255,.35)');
+    poly(c, [[-26, -62], [26, -62], [26, 70], [-26, 70]], lin(c, -26, 0, 26, 0, [[0, '#cfdbe7'], [0.4, '#f6fafd'], [1, '#aebdcd']]), 'rgba(255,255,255,.45)');
+    poly(c, [[26, -62], [52, -55], [52, 62], [26, 70]], lin(c, 26, 0, 52, 0, [[0, '#9aabbd'], [1, '#5f7388']]), 'rgba(255,255,255,.3)');
+    poly(c, [[-52, -55], [-26, -62], [0, -112]], '#e2ecf5', 'rgba(255,255,255,.5)'); poly(c, [[-26, -62], [26, -62], [0, -112]], '#fbfdff', 'rgba(255,255,255,.6)'); poly(c, [[26, -62], [52, -55], [0, -112]], '#aebdcd', 'rgba(255,255,255,.4)');
+    c.fillStyle = 'rgba(255,255,255,.5)'; c.beginPath(); c.moveTo(-16, -50); c.lineTo(-8, -50); c.lineTo(-4, 50); c.lineTo(-12, 50); c.fill();
+    c.fillStyle = lin(c, 0, 40, 0, 90, [[0, 'rgba(6,8,15,0)'], [1, '#06080f']]); c.fillRect(-70, 40, 140, 60);
+  } else {
+    poly(c, [[-50, -40], [30, -40], [30, 50], [-50, 50]], lin(c, -50, -40, 30, 50, [[0, '#f0c4ae'], [1, '#c98f78']]), 'rgba(0,0,0,.3)');
+    poly(c, [[-50, -40], [-20, -62], [60, -62], [30, -40]], '#f7dccd', 'rgba(0,0,0,.25)'); poly(c, [[30, -40], [60, -62], [60, 28], [30, 50]], '#a9705c', 'rgba(0,0,0,.3)');
+    c.strokeStyle = 'rgba(120,60,45,.35)'; c.lineWidth = 1.2; for (const y of [-14, 12, 32]) { c.beginPath(); c.moveTo(-50, y); c.lineTo(30, y); c.stroke(); }
+    c.fillStyle = 'rgba(255,255,255,.4)'; c.beginPath(); c.ellipse(-30, -22, 10, 5, -0.5, 0, 6.283); c.fill();
+  }
+  reticle(c, k, time, 38);
+}
+function lvAtoms(c, k, time) {
+  const bg = c.createRadialGradient(0, 0, 10, 0, 0, 260); bg.addColorStop(0, '#16233f'); bg.addColorStop(1, '#070a12'); c.fillStyle = bg; c.fillRect(-900, -900, 1800, 1800);
+  const sp = 46, sh = sp / 4, P = (i, j) => [(i - 1.5) * sp - sh, (j - 1.5) * sp - sh], feld = S.min === 'feldspar';
+  const tSym = (i, j) => (feld && (i + 2 * j) % 4 === 0 ? 'Al' : 'Si');
+  const R = { O: 11, Si: 10, Al: 10, K: 11.5 };
+  const live = Math.abs(S.z - 3) < 0.05; if (live) ATOMS = [];
+  const list = [];
+  c.lineCap = 'round';
+  // every Si/Al site has an oxygen to its right and one below it (shared with the next site): 2 O per site, as in SiO2
+  for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) {
+    const [x, y] = P(i, j);
+    c.strokeStyle = 'rgba(225,235,255,.5)'; c.lineWidth = 3;
+    c.beginPath(); c.moveTo(x, y); c.lineTo(x + sp / 2, y); c.stroke(); list.push(['O', x + sp / 2, y]);
+    c.beginPath(); c.moveTo(x, y); c.lineTo(x, y + sp / 2); c.stroke(); list.push(['O', x, y + sp / 2]);
+    if (i < 3) { c.beginPath(); c.moveTo(x + sp / 2, y); c.lineTo(x + sp, y); c.stroke(); }
+    if (j < 3) { c.beginPath(); c.moveTo(x, y + sp / 2); c.lineTo(x, y + sp); c.stroke(); }
+    c.strokeStyle = 'rgba(225,235,255,.2)';
+    if (i === 0) { c.beginPath(); c.moveTo(x, y); c.lineTo(x - sp * 0.62, y); c.stroke(); }
+    if (j === 0) { c.beginPath(); c.moveTo(x, y); c.lineTo(x, y - sp * 0.62); c.stroke(); }
+    list.push([tSym(i, j), x, y]);
+  }
+  if (feld) for (const [a, b] of [[1, 0], [0, 1], [2, 1], [1, 2]]) list.push(['K', (a - 1) * sp - sh, (b - 1) * sp - sh]);
+  const order = { K: 0, O: 1, Si: 2, Al: 2 };
+  list.sort((p, q) => order[p[0]] - order[q[0]]);
+  const fs = 12 / k;
+  for (const [sym, x, y] of list) {
+    const dim = S.sel && S.sel !== sym, r = R[sym];
+    if (S.sel === sym) { c.fillStyle = `rgba(255,255,255,${0.16 + 0.1 * Math.sin(time * 4)})`; c.beginPath(); c.arc(x, y, r + 6, 0, 6.283); c.fill(); }
+    ball(c, x, y, r, EL[sym].c, dim ? 0.28 : 1);
+    if (!dim) txt(c, sym, x, y + 0.5 / k, ink(sym), 'center', `800 ${fs}px Nunito, ui-sans-serif, system-ui, sans-serif`);
+    if (live) ATOMS.push({ sym, x: ZM.cx + k * x, y: ZM.cy + k * y, r: k * r });
+  }
+}
+function drawZoom(c, P, time) {
+  const z = S.z, cx = P.x + P.w / 2, cy = P.y + P.h / 2, u = Math.min(P.w / 240, P.h / 300);
+  ZM = { cx, cy }; ATOMS = [];
+  c.save(); rr(c, P.x, P.y, P.w, P.h, 14); c.clip();
+  c.fillStyle = '#0b0e17'; c.fillRect(P.x, P.y, P.w, P.h);
+  const fns = [lvMountain, lvRock, lvGrain, lvAtoms];
+  for (let i = 0; i < 4; i++) {
+    const a = clamp01(1.5 - 2 * Math.abs(z - i)); if (a < 0.01) continue;
+    const kk = u * Math.pow(2.6, z - i);
+    c.save(); c.globalAlpha = a; c.translate(cx, cy); c.scale(kk, kk); fns[i](c, kk, time); c.restore();
+  }
+  c.restore();
+  rr(c, P.x, P.y, P.w, P.h, 14); c.strokeStyle = 'rgba(130,145,190,.35)'; c.lineWidth = 1; c.stroke();
+  const t = T[lang], near = Math.max(0, Math.min(3, Math.round(z)));
+  const nm = near < 2 ? t.zn[near] : `${t.mn[S.min]} · ${MIN[S.min].f}`;
+  pill(c, near === 3 ? `${t.zn[3]} · ${MIN[S.min].f}` : nm, P.x + P.w / 2, P.y + P.h - 18, P.x + P.w);
+}
+
+// --- columns ---------------------------------------------------------------------------------------------------
+function drawColumn(c, key, x, y, cw, ch, fillE, o = {}) {
+  const data = COLS[key];
+  rr(c, x, y, cw, ch, 10); c.fillStyle = 'rgba(8,11,20,.66)'; c.fill();
+  if (o.empty) {
+    c.strokeStyle = 'rgba(130,145,190,.25)'; c.lineWidth = 1; c.setLineDash([4, 5]);
+    for (const f of [0.25, 0.5, 0.75]) { c.beginPath(); c.moveTo(x + 6, y + ch * f); c.lineTo(x + cw - 6, y + ch * f); c.stroke(); }
+    c.setLineDash([]);
+    txt(c, o.lock ? '🔒' : '?', x + cw / 2, y + ch / 2, 'rgba(237,239,247,.75)', 'center', `800 ${o.lock ? 22 : 34}px Nunito, ui-sans-serif, system-ui, sans-serif`);
+  } else {
+    c.save(); rr(c, x, y, cw, ch, 10); c.clip();
+    c.beginPath(); c.rect(x, y + ch * (1 - fillE), cw, ch * fillE + 1); c.clip();
+    let yy = y + ch;
+    for (const [sym, p] of data) {
+      const lh = ch * p / 100, y0 = yy - lh, base = EL[sym].c, dim = o.sel && o.sel !== sym;
+      c.globalAlpha = dim ? 0.3 : 1;
+      c.fillStyle = lin(c, x, 0, x + cw, 0, [[0, shade(base, 0.22)], [0.5, base], [1, shade(base, -0.3)]]);
+      c.fillRect(x, y0, cw, Math.max(lh, 1.2));
+      if (lh > 3) { c.fillStyle = 'rgba(255,255,255,.28)'; c.fillRect(x, y0, cw, 1); c.fillStyle = 'rgba(0,0,0,.22)'; c.fillRect(x, yy - 1, cw, 1); }
+      c.globalAlpha = 1;
+      if (fillE > 0.99) {
+        HITS.push({ sym, x0: x, x1: x + cw, y0, y1: yy });
+        if (o.sel === sym) { c.strokeStyle = '#fff'; c.lineWidth = 2; c.strokeRect(x + 1, y0 + 1, cw - 2, Math.max(lh - 2, 1)); }
+        if (lh >= 15 && sym !== 'rest') txt(c, `${sym} ${num(p, dp(p))}%`, x + cw / 2, y0 + lh / 2 + 0.5, dim ? 'rgba(255,255,255,.5)' : ink(sym));
+      }
+      yy = y0;
+    }
+    c.restore();
+  }
+  rr(c, x, y, cw, ch, 10); c.strokeStyle = 'rgba(160,175,215,.5)'; c.lineWidth = 1.2; c.stroke();
+}
+function selPill(c, key, x, cw, y, ch, W) {
+  if (!S.sel) return;
+  const L = HITS.find((h) => h.sym === S.sel && h.x0 === x); if (!L) return;
+  if (L.y1 - L.y0 >= 15) return;
+  const p = pctOf(key, S.sel);
+  pill(c, `${S.sel} ${num(p, dp(p))}%`, x + cw / 2, (L.y0 + L.y1) / 2, W, '#fff');
+}
+function layerAt(x, y) {
+  let best = null, bd = 1e9;
+  for (const h of HITS) {
+    if (x < h.x0 || x > h.x1 || y < h.y0 - 5 || y > h.y1 + 5) continue;
+    const d = Math.abs(y - (h.y0 + h.y1) / 2); if (d < bd) { bd = d; best = h; }
+  }
+  return best;
+}
+
+// --- views ---------------------------------------------------------------------------------------------------
+function drawCrust(c, w, h, time) {
+  if (S.kola) return drawKola(c, w, h, time);
+  const zw = Math.round(w * 0.6) - 4, P = { x: 6, y: 6, w: zw, h: h - 12 };
+  const cx0 = zw + 24, cw = Math.max(60, Math.min(92, w - cx0 - 40)), top = 40, ch = h - top - 12;
+  LAY.panel = P;
+  drawZoom(c, P, time);
+  txt(c, T[lang].cr.colCap, cx0 + cw / 2 + 16, 20, 'rgba(237,239,247,.85)');
+  if (!S.g1) { drawColumn(c, 'crust', cx0, top, cw, ch, 0, { empty: true }); return; }
+  drawColumn(c, 'crust', cx0, top, cw, ch, easeOut(S.f1), { sel: S.sel });
+  selPill(c, 'crust', cx0, cw, top, ch, w);
+  txt(c, '100%', cx0 + cw + 4, top + 6, 'rgba(160,170,200,.8)', 'left', '700 12px Nunito, ui-sans-serif, system-ui, sans-serif');
+  txt(c, '0', cx0 + cw + 4, top + ch - 6, 'rgba(160,170,200,.8)', 'left', '700 12px Nunito, ui-sans-serif, system-ui, sans-serif');
+}
+function slotBack(c, i, x, y, w, h, time) {
+  c.save(); rr(c, x, y, w, h, 12); c.clip();
+  if (i === 0) {
+    c.fillStyle = lin(c, 0, y, 0, y + h, [[0, '#2f5f9f'], [1, '#a9cdee']]); c.fillRect(x, y, w, h);
+    c.fillStyle = 'rgba(255,255,255,.42)'; for (const [fx, fy, r] of [[0.25, 0.12, 16], [0.7, 0.3, 20], [0.35, 0.62, 18], [0.8, 0.85, 15]]) { c.beginPath(); c.ellipse(x + w * fx + 4 * Math.sin(time * 0.3 + fx * 9), y + h * fy, r * 1.7, r * 0.8, 0, 0, 6.283); c.fill(); }
+  } else if (i === 1) {
+    c.fillStyle = lin(c, 0, y, 0, y + h, [[0, '#2a86b4'], [1, '#08213a']]); c.fillRect(x, y, w, h);
+    c.strokeStyle = 'rgba(255,255,255,.22)'; c.lineWidth = 1.5;
+    for (let k = 0; k < 5; k++) { c.beginPath(); const yy = y + 14 + k * (h / 5); c.moveTo(x, yy); for (let q = 0; q <= 8; q++) c.lineTo(x + (w * q) / 8, yy + 4 * Math.sin(q * 1.3 + time * 1.2 + k)); c.stroke(); }
+  } else {
+    c.fillStyle = lin(c, 0, y, 0, y + h, [[0, '#5a4a3d'], [1, '#1d1612']]); c.fillRect(x, y, w, h);
+    c.strokeStyle = 'rgba(255,255,255,.1)'; c.lineWidth = 3; for (let k = 0; k < 6; k++) { c.beginPath(); c.moveTo(x, y + 20 + k * (h / 6)); c.quadraticCurveTo(x + w / 2, y + 8 + k * (h / 6) + (k % 2 ? 10 : -6), x + w, y + 24 + k * (h / 6)); c.stroke(); }
+  }
+  c.restore(); rr(c, x, y, w, h, 12); c.strokeStyle = 'rgba(130,145,190,.3)'; c.lineWidth = 1; c.stroke();
+}
+function drawSpheres(c, w, h, time) {
+  const pad = 8, gap = 8, sw = (w - 2 * pad - 2 * gap) / 3, top = 32, sh = h - top - 8, t = T[lang].sp;
+  const keys = ['air', 'sea', 'crust'], f = easeOut(S.f2);
+  keys.forEach((key, i) => {
+    const x = pad + i * (sw + gap), cw = sw - 20;
+    slotBack(c, i, x, top, sw, sh, time);
+    txt(c, t.names[key], x + sw / 2, 16, '#fff');
+    const open = S.g1 && S.g2;
+    drawColumn(c, key, x + 10, top + 10, cw, sh - 20, open ? f : 0, { sel: S.sel, empty: !open, lock: !S.g1 });
+    if (open) selPill(c, key, x + 10, cw, top + 10, sh - 20, w);
+  });
+}
+function drawKola(c, w, h, time) {
+  const t = T[lang].kola, top = 44, bot = h - 40, x0 = 44, x1 = w - 12, yOf = (km) => top + (bot - top) * km / CRUST_KM, p = easeOut(S.kolaT);
+  c.fillStyle = lin(c, 0, 0, 0, top, [[0, '#26365e'], [1, '#d7a37a']]); c.fillRect(x0, 8, x1 - x0, top - 8);
+  c.save(); rr(c, x0, top, x1 - x0, bot - top, 6); c.clip();
+  c.fillStyle = lin(c, 0, top, 0, bot, [[0, '#9c7d5f'], [0.4, '#6d5646'], [1, '#2a1d1a']]); c.fillRect(x0, top, x1 - x0, bot - top);
+  c.strokeStyle = 'rgba(255,255,255,.12)'; c.lineWidth = 4;
+  for (let k = 1; k < 9; k++) { const yy = top + (bot - top) * k / 9; c.beginPath(); c.moveTo(x0, yy); c.bezierCurveTo(x0 + (x1 - x0) * 0.3, yy - 10 + (k % 3) * 8, x0 + (x1 - x0) * 0.6, yy + 12 - (k % 2) * 14, x1, yy + 2); c.stroke(); }
+  c.restore();
+  c.fillStyle = '#4f8a45'; rr(c, x0, top - 5, x1 - x0, 7, 3); c.fill();
+  const bx = x0 + (x1 - x0) * 0.42, by = yOf(KOLA_KM * p);
+  c.strokeStyle = '#d8dce8'; c.lineWidth = 2; c.beginPath(); c.moveTo(bx - 14, top - 5); c.lineTo(bx, top - 38); c.lineTo(bx + 14, top - 5); c.moveTo(bx - 8, top - 22); c.lineTo(bx + 8, top - 22); c.stroke();
+  c.fillStyle = '#0a0c12'; c.fillRect(bx - 2.5, top, 5, Math.max(0, by - top));
+  const gl = c.createRadialGradient(bx, by, 1, bx, by, 18); gl.addColorStop(0, 'rgba(255,200,90,.9)'); gl.addColorStop(1, 'rgba(255,160,60,0)'); c.fillStyle = gl; c.beginPath(); c.arc(bx, by, 18, 0, 6.283); c.fill();
+  c.strokeStyle = 'rgba(255,255,255,.45)'; c.setLineDash([6, 5]); c.lineWidth = 1.5; c.beginPath(); c.moveTo(x0, bot); c.lineTo(x1, bot); c.stroke(); c.setLineDash([]);
+  for (const km of [0, 10, 20, 30]) txt(c, `${km}`, x0 - 8, yOf(km) + 1, 'rgba(200,208,230,.9)', 'right');
+  txt(c, U().km, x0 - 8, 22, 'rgba(160,170,200,.9)', 'right');
+  pill(c, `${num(KOLA_KM * p, 1)} ${U().km}`, Math.min(x1 - 40, bx + 64), by, w, '#ffd479');
+  pill(c, t.cap, (x0 + x1) / 2, bot + 20, w);
+}
+function drawOres(c, w, h, time, dt) {
+  if (S.gold) return drawGold(c, w, h, time);
+  if (S.ore === 'cu') drawCopper(c, w, h, time); else drawAlu(c, w, h, time, dt);
+}
+function drawCopper(c, w, h, time) {
+  const t = T[lang].ore, gy = h * 0.8;
+  c.fillStyle = lin(c, 0, 0, 0, gy, [[0, '#1b2236'], [1, '#3b3a52']]); c.fillRect(0, 0, w, gy);
+  c.fillStyle = lin(c, 0, gy, 0, h, [[0, '#6a5441'], [1, '#2b211a']]); c.fillRect(0, gy, w, h - gy);
+  c.fillStyle = 'rgba(255,255,255,.12)'; c.fillRect(0, gy, w, 2);
+  // the 1 kg copper ingot, filling with the copper found in the dug rock
+  const ix = Math.max(52, w * 0.17), iw = 66, ih = 38, iy = gy - 16, fill = clamp01(S.digA * S.grade / 100);
+  c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.ellipse(ix, iy + 6, iw * 0.62, 7, 0, 0, 6.283); c.fill();
+  const ing = () => { c.beginPath(); c.moveTo(ix - iw / 2 + 8, iy - ih); c.lineTo(ix + iw / 2 - 8, iy - ih); c.quadraticCurveTo(ix + iw / 2 + 2, iy - 2, ix + iw / 2, iy); c.lineTo(ix - iw / 2, iy); c.quadraticCurveTo(ix - iw / 2 - 2, iy - 2, ix - iw / 2 + 8, iy - ih); c.closePath(); };
+  ing(); c.fillStyle = 'rgba(180,190,215,.14)'; c.fill();
+  c.save(); ing(); c.clip(); c.fillStyle = lin(c, ix - iw / 2, iy - ih, ix + iw / 2, iy, [[0, '#f0a56b'], [0.5, '#c8733e'], [1, '#7d3d1d']]); c.fillRect(ix - iw / 2 - 4, iy - ih * fill, iw + 8, ih * fill + 2);
+  if (fill > 0.02) { c.fillStyle = 'rgba(255,255,255,.35)'; c.fillRect(ix - iw / 2, iy - ih * fill, iw, 2); }
+  c.restore(); ing(); c.strokeStyle = fill >= 1 ? '#ffd7b0' : 'rgba(220,226,245,.6)'; c.lineWidth = 1.6; c.stroke();
+  pill(c, t.ingot, ix, iy - ih - 18, w);
+  if (!S.g3) { // the ore sample: no hint of the size of the heap
+    const ox = w * 0.62, oy = gy - 4;
+    c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.ellipse(ox, oy + 2, 52, 8, 0, 0, 6.283); c.fill();
+    c.beginPath(); c.moveTo(ox - 50, oy); c.quadraticCurveTo(ox - 56, oy - 44, ox - 20, oy - 58); c.quadraticCurveTo(ox + 14, oy - 72, ox + 44, oy - 44); c.quadraticCurveTo(ox + 62, oy - 18, ox + 48, oy); c.closePath();
+    c.fillStyle = lin(c, ox - 50, oy - 70, ox + 50, oy, [[0, '#b9b2a8'], [1, '#585260']]); c.fill(); c.strokeStyle = 'rgba(0,0,0,.4)'; c.lineWidth = 1.5; c.stroke();
+    const r = rng(5); for (let i = 0; i < 16; i++) { const px = ox - 36 + r() * 70, py = oy - 8 - r() * 44; c.fillStyle = r() < 0.5 ? '#d6a24a' : '#4fae8c'; c.beginPath(); c.arc(px, py, 1.6 + r() * 2, 0, 6.283); c.fill(); }
+    return;
+  }
+  // the heap of rock: each blob is 1 kg of rock; they land one after another
+  const bw = Math.min(11, (w - (ix + 70) - 12) / 25), cxh = ix + 70 + (w - ix - 82) / 2;
+  const blob = (b, i) => {
+    const a = clamp01(S.digA - i); if (a <= 0) return;
+    const x = cxh + b.col * bw + b.j[0] * bw * 0.5, y = gy - b.row * bw * 0.78 - bw * 0.5 + b.j[1] * bw * 0.3 - (1 - easeOut(a)) * 40, r = bw * 0.62 * b.s;
+    c.globalAlpha = a; c.save(); c.translate(x, y); c.rotate(b.rot);
+    c.beginPath(); c.moveTo(-r, r * 0.2); c.quadraticCurveTo(-r * 0.9, -r * 0.9, 0, -r); c.quadraticCurveTo(r, -r * 0.8, r, r * 0.1); c.quadraticCurveTo(r * 0.8, r, -r * 0.1, r); c.quadraticCurveTo(-r, r * 0.9, -r, r * 0.2); c.closePath();
+    c.fillStyle = ['#8f8a86', '#77727a', '#a39b90'][b.sh]; c.fill(); c.strokeStyle = 'rgba(0,0,0,.35)'; c.lineWidth = 0.8; c.stroke();
+    c.fillStyle = 'rgba(255,255,255,.2)'; c.beginPath(); c.ellipse(-r * 0.3, -r * 0.4, r * 0.4, r * 0.2, -0.4, 0, 6.283); c.fill(); c.restore(); c.globalAlpha = 1;
+  };
+  const n = Math.min(CU_MAX, Math.ceil(S.digA));
+  for (let i = 0; i < n; i++) blob(HEAP[i], i);
+  // second picture of the same fact: the rock as a bar with its copper share (to scale, a hair-thin line)
+  const bx0 = ix + 70, bwid = w - bx0 - 14, by0 = 18;
+  pill(c, `${t.bar}: 100%`, bx0 + bwid / 2, by0 - 2, w);
+  rr(c, bx0, by0 + 14, bwid, 14, 5); c.fillStyle = lin(c, 0, 0, bwid, 0, [[0, '#8f8a86'], [1, '#77727a']]); c.fill();
+  c.fillStyle = '#e08a4a'; c.fillRect(bx0, by0 + 14, Math.max(2, bwid * S.grade / 100), 14);
+  rr(c, bx0, by0 + 14, bwid, 14, 5); c.strokeStyle = 'rgba(220,226,245,.5)'; c.lineWidth = 1; c.stroke();
+  txt(c, `${t.barCu}: ${num(S.grade, 1)}%`, bx0, by0 + 44, '#f0b080', 'left');
+}
+function drawAlu(c, w, h, time, dt) {
+  const t = T[lang].ore, rec = S.alMode === 'rec', on = S.alOn, prog = easeOut(S.alT);
+  const g = c.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#171d30'); g.addColorStop(1, '#10131f'); c.fillStyle = g; c.fillRect(0, 0, w, h);
+  const px = w * 0.1, pw = w * 0.8, py = h * 0.27, ph = h * 0.36;
+  if (!rec) {
+    // the cell: steel pot, carbon anodes, molten bath, the metal collecting underneath
+    rr(c, px - 6, py - 6, pw + 12, ph + 12, 14); c.fillStyle = lin(c, 0, py, 0, py + ph, [[0, '#5a6278'], [1, '#2c3142']]); c.fill();
+    rr(c, px, py, pw, ph, 10); c.fillStyle = '#1a1c26'; c.fill();
+    c.save(); rr(c, px, py, pw, ph, 10); c.clip();
+    const glow = on ? 1 : 0.55;
+    c.fillStyle = lin(c, 0, py, 0, py + ph, [[0, `rgba(255,${on ? 190 : 150},70,${glow})`], [1, `rgba(190,70,20,${glow})`]]); c.fillRect(px, py + ph * 0.12, pw, ph);
+    const mh = 4 + 22 * prog; c.fillStyle = lin(c, 0, py + ph - mh, 0, py + ph, [[0, '#e8ecf5'], [1, '#8f98ae']]); c.fillRect(px, py + ph - mh, pw, mh);
+    c.fillStyle = 'rgba(255,255,255,.5)'; c.fillRect(px, py + ph - mh, pw, 1.5);
+    if (on) { c.fillStyle = 'rgba(255,240,200,.7)'; for (let i = 0; i < 16; i++) { const bx = px + pw * (0.2 + 0.6 * ((i * 0.37) % 1)), by = py + ph - mh - ((time * 40 + i * 23) % (ph * 0.8)); c.beginPath(); c.arc(bx, by, 2 + (i % 3), 0, 6.283); c.fill(); } }
+    c.restore();
+    const ax = [0.3, 0.5, 0.7];
+    for (const f of ax) { const x = px + pw * f; rr(c, x - 16, py - 30, 32, 30 + ph * 0.42, 4); c.fillStyle = lin(c, x - 16, 0, x + 16, 0, [[0, '#4b4f5c'], [0.5, '#2a2d37'], [1, '#17181f']]); c.fill(); c.strokeStyle = 'rgba(0,0,0,.5)'; c.stroke(); }
+    c.fillStyle = '#9aa3b8'; c.fillRect(px + pw * 0.2, py - 44, pw * 0.6, 10);
+    if (on) { c.strokeStyle = '#ffd25a'; c.lineWidth = 2.5; c.setLineDash([8, 6]); c.lineDashOffset = -time * 40; for (const f of ax) { c.beginPath(); c.moveTo(px + pw * f, py - 70); c.lineTo(px + pw * f, py - 44); c.stroke(); } c.setLineDash([]); c.lineDashOffset = 0; }
+    pill(c, t.cell.anodes, px + pw * 0.5, py - 84, w);
+    pill(c, t.cell.bath, px + pw * 0.5, py + ph * 0.36, w);
+    if (S.alT > 0.05) pill(c, t.cell.metal, px + pw * 0.5, py + ph - 38, w);
+  } else {
+    // recycling: scrap melts in a crucible, no electrolysis
+    const cx = w / 2, cy = py + ph * 0.55;
+    const fl = c.createRadialGradient(cx, cy + ph * 0.5, 4, cx, cy + ph * 0.5, pw * 0.5); fl.addColorStop(0, `rgba(255,150,50,${0.25 + 0.2 * prog})`); fl.addColorStop(1, 'rgba(255,150,50,0)'); c.fillStyle = fl; c.fillRect(0, py, w, h - py);
+    c.beginPath(); c.moveTo(cx - pw * 0.34, cy - ph * 0.3); c.lineTo(cx + pw * 0.34, cy - ph * 0.3); c.quadraticCurveTo(cx + pw * 0.3, cy + ph * 0.5, cx + pw * 0.2, cy + ph * 0.5); c.lineTo(cx - pw * 0.2, cy + ph * 0.5); c.quadraticCurveTo(cx - pw * 0.3, cy + ph * 0.5, cx - pw * 0.34, cy - ph * 0.3); c.closePath();
+    c.fillStyle = lin(c, cx - pw * 0.34, 0, cx + pw * 0.34, 0, [[0, '#6b7086'], [0.5, '#3d4152'], [1, '#232634']]); c.fill(); c.strokeStyle = 'rgba(0,0,0,.5)'; c.stroke();
+    c.beginPath(); c.ellipse(cx, cy - ph * 0.3, pw * 0.34, 12, 0, 0, 6.283); c.fillStyle = lin(c, cx - pw * 0.3, 0, cx + pw * 0.3, 0, [[0, '#cfd5e4'], [0.5, '#f6f8fc'], [1, '#9aa3b8']]); c.fill();
+    c.fillStyle = `rgba(255,170,70,${0.15 + 0.35 * prog})`; c.beginPath(); c.ellipse(cx, cy - ph * 0.3, pw * 0.34, 12, 0, 0, 6.283); c.fill();
+    const r = rng(11); for (let i = 0; i < 5; i++) { const k = 1 - prog, sx = cx + (r() - 0.5) * pw * 0.5, sy = cy - ph * 0.3 - 20 - k * (30 + r() * 26); if (k > 0.02) { c.save(); c.translate(sx, sy); c.rotate(r() * 2); rr(c, -9, -5, 18, 10, 3); c.fillStyle = '#c8cfdc'; c.fill(); c.strokeStyle = 'rgba(0,0,0,.35)'; c.stroke(); c.restore(); } else r(); }
+    pill(c, t.cell.scrap, cx, py - 20, w); pill(c, t.cell.metal, cx, cy + ph * 0.18, w);
+  }
+  // the energy meter: kWh for 1 kg of aluminium, 0 to 16
+  const mx = w * 0.1, mw = w * 0.8, my = h * 0.8, MAXE = 16, e = (rec ? E_REC : E_NEW) * S.alT;
+  rr(c, mx, my, mw, 16, 8); c.fillStyle = 'rgba(8,11,20,.8)'; c.fill();
+  c.save(); rr(c, mx, my, mw, 16, 8); c.clip(); c.fillStyle = lin(c, mx, 0, mx + mw, 0, [[0, '#ffd25a'], [1, '#ff7a3a']]); c.fillRect(mx, my, mw * e / MAXE, 16); c.restore();
+  rr(c, mx, my, mw, 16, 8); c.strokeStyle = 'rgba(160,175,215,.55)'; c.lineWidth = 1.2; c.stroke();
+  const mxk = mx + mw * E_MIN / MAXE; c.strokeStyle = '#fff'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(mxk, my - 5); c.lineTo(mxk, my + 21); c.stroke();
+  txt(c, `${t.cell.min} ${num(E_MIN, 2)}`, mxk, my + 36, 'rgba(237,239,247,.85)');
+  pill(c, `${num(e, 2)} ${U().kwh}`, mx + Math.max(34, mw * e / MAXE), my - 18, w);
+}
+function drawGold(c, w, h, time) {
+  const t = T[lang].ore, s = Math.min(w * 0.34, h * 0.36), dx = s * 0.866, cx = w * 0.5, cy = h * 0.46, p = easeOut(S.goldT);
+  c.fillStyle = lin(c, 0, 0, 0, h, [[0, '#1b2236'], [1, '#2f2b3a']]); c.fillRect(0, 0, w, h);
+  c.fillStyle = 'rgba(0,0,0,.3)'; c.beginPath(); c.ellipse(cx, cy + s + 6, dx * 1.2, s * 0.28, 0, 0, 6.283); c.fill();
+  c.save(); c.translate(cx, cy + s); c.scale(p, p); c.translate(-cx, -(cy + s));
+  const V = { t: [cx, cy - s], ur: [cx + dx, cy - s / 2], lr: [cx + dx, cy + s / 2], b: [cx, cy + s], ll: [cx - dx, cy + s / 2], ul: [cx - dx, cy - s / 2], m: [cx, cy] };
+  poly(c, [V.t, V.ur, V.m, V.ul], lin(c, cx - dx, cy - s, cx + dx, cy, [[0, '#fff0a8'], [1, '#f2c13a']]), '#8d6a10', 1.5);
+  poly(c, [V.ul, V.m, V.b, V.ll], lin(c, cx - dx, cy, cx, cy + s, [[0, '#e6b32c'], [1, '#b17f12']]), '#8d6a10', 1.5);
+  poly(c, [V.ur, V.lr, V.b, V.m], lin(c, cx, cy, cx + dx, cy + s, [[0, '#c18d16'], [1, '#7a5508']]), '#8d6a10', 1.5);
+  c.fillStyle = 'rgba(255,255,255,.35)'; c.beginPath(); c.ellipse(cx - dx * 0.2, cy - s * 0.55, dx * 0.25, s * 0.07, -0.5, 0, 6.283); c.fill();
+  c.restore();
+  // a person for scale (about 1/13 of the side): drawn small on purpose
+  const ph = Math.max(10, s * 0.078), qx = cx + dx + 22, qy = cy + s / 2 + 4;
+  c.fillStyle = '#e6e8f0'; c.beginPath(); c.arc(qx, qy - ph, ph * 0.16, 0, 6.283); c.fill(); rr(c, qx - ph * 0.16, qy - ph * 0.8, ph * 0.32, ph * 0.8, 2); c.fill();
+  pill(c, t.person, qx, qy + 16, w);
+  pill(c, `≈ ${num(GOLD_SIDE, 0)} ${U().m}`, cx - dx * 0.62, cy - s * 0.1 + 8, w, '#ffd479');
+}
+
+// --- loop ----------------------------------------------------------------------------------------------------
+function frame(c, w, h, dt, time) {
+  HITS = [];
+  S.z += (S.zt - S.z) * (1 - Math.exp(-dt * 5)); if (Math.abs(S.zt - S.z) < 0.002) S.z = S.zt;
+  if (S.g1 && S.f1 < 1) S.f1 = Math.min(1, S.f1 + dt / 1.8);
+  if (S.g2 && S.f2 < 1) S.f2 = Math.min(1, S.f2 + dt / 1.8);
+  S.digA += (S.dug - S.digA) * (1 - Math.exp(-dt * 6)); if (Math.abs(S.dug - S.digA) < 0.02) S.digA = S.dug;
+  if (S.kola && S.kolaT < 1) S.kolaT = Math.min(1, S.kolaT + dt / 3);
+  if (S.gold && S.goldT < 1) S.goldT = Math.min(1, S.goldT + dt / 0.9);
+  if (S.alOn) {
+    S.alT = Math.min(1, S.alT + dt / (S.alMode === 'new' ? 7 : 3.5));
+    if (S.alT >= 1) { S.alOn = false; S.alRan[S.alMode] = true; render(); }
+    else if (Math.floor(S.alT * 50) !== S.alLast) { S.alLast = Math.floor(S.alT * 50); if (lab.view === 'ores') update(true); }
+  }
+  const v = lab.view;
+  if (v === 'crust') drawCrust(c, w, h, time); else if (v === 'spheres') drawSpheres(c, w, h, time); else drawOres(c, w, h, time, dt);
+}
+
+// --- readouts, state card and facts: one function per view ---------------------------------------------------
+const RIGHT = { g1: 'oxygen', g2: 'O', g3: 'c' };
+const GUESS_SYM = { iron: 'Fe', oxygen: 'O', silicon: 'Si' };
+const F = (t, ...keys) => keys.map((k) => t.facts[k]);
+
+function upCrust(t, nf) {
+  const c = t.cr; lab.setGlow('rgba(224,176,80,.24)');
+  if (S.kola) {
+    lab.setReadout(`${num(KOLA_KM, 1)} ${U().km}`, t.kola.sub, '', '#e0b050');
+    lab.setState({ emo: '🕳️', title: t.kola.title(num(KOLA_KM, 1)), lead: t.kola.lead(CRUST_KM), body: '', extra: '' });
+    if (!nf) lab.setFacts([]);
+    return;
+  }
+  if (!S.g1) {
+    lab.setReadout('?', c.sub, '', '#e0b050');
+    lab.setState({ emo: '🤔', title: c.q, lead: c.qLead, body: '', extra: '' });
+    if (!nf) lab.setFacts([]);
+    return;
+  }
+  const O = pctOf('crust', 'O'), Si = pctOf('crust', 'Si'), ok = S.g1 === 'oxygen', near = Math.round(S.zt), m = S.min, f = MIN[m].f;
+  const show = S.sel ? S.sel : 'O', p = pctOf('crust', show);
+  lab.setReadout(pc(p, dp(p)), `${elName(show)} · ${c.sub}`, '', '#e0b050');
+  const zi = near === 0 ? c.z0 : near === 1 ? c.z1 : near === 2 ? c.z2(m, f) : c.z3(m, f, pc(massFrac(m, 'O')));
+  if (S.sel) {
+    lab.setState({ emo: '🔎', title: c.selTitle(elName(S.sel), pc(p, dp(p))), lead: near === 3 ? c.inMin(f, MIN[m].comp[S.sel] || 0, atomsIn(m)) : zi[0], body: zi[1], extra: '' });
+  } else if (near === 0) {
+    const g = ok ? null : elName(GUESS_SYM[S.g1]).toLowerCase(), gp = pctOf('crust', GUESS_SYM[S.g1]);
+    lab.setState({ emo: ok ? '✅' : '💡', title: c.title(ok), lead: c.lead(g, pc(gp, dp(gp)), pc(O), pc(Si), pc(O + Si)), body: c.body, extra: '' });
+  } else {
+    lab.setState({ emo: ['⛰️', '🪨', '🔎', '⚛️'][near], title: zi[0], lead: zi[1], body: near === 3 ? c.zbody : '', extra: '' });
+  }
+  if (!nf) lab.setFacts(F(t, 'quartz', 'silic'));
+}
+function upSpheres(t, nf) {
+  const s = t.sp; lab.setGlow('rgba(95,168,208,.26)');
+  if (!S.g1) {
+    lab.setReadout('?', s.sub, '', '#5fa8d0');
+    lab.setState({ emo: '🔒', title: s.gate, lead: '', body: '', extra: '' });
+    if (!nf) lab.setFacts([]);
+    return;
+  }
+  if (!S.g2) {
+    lab.setReadout('?', s.sub, '', '#5fa8d0');
+    lab.setState({ emo: '🤔', title: s.q, lead: s.qLead, body: '', extra: '' });
+    if (!nf) lab.setFacts([]);
+    return;
+  }
+  const el = S.sel ? S.sel : 'O', ok = S.g2 === 'O';
+  const v = ['air', 'sea', 'crust'].map((k) => { const p = pctOf(k, el); return p === null ? '–' : num(p, dp(p)); });
+  lab.setReadout(`${v[0]} · ${v[1]} · ${v[2]}`, s.sub, '', '#5fa8d0');
+  if (S.sel) lab.setState({ emo: '🔎', title: elName(el), lead: s.selLead(v[0], v[1], v[2]), body: s.notes[el] || '', extra: '' });
+  else lab.setState({ emo: ok ? '✅' : '💡', title: s.title(ok), lead: s.lead(pc(pctOf('air', 'O')), pc(pctOf('sea', 'O')), pc(pctOf('crust', 'O'))), body: s.body, extra: '' });
+  if (!nf) lab.setFacts(F(t, 'air', 'sea'));
+}
+function upOres(t, nf) {
+  const o = t.ore; lab.setGlow('rgba(217,130,95,.26)');
+  if (S.gold) {
+    lab.setReadout(`≈ ${num(GOLD_SIDE, 0)} ${U().m}`, o.goldSub, '', '#e8c050');
+    lab.setState({ emo: '🥇', title: o.goldT, lead: o.goldL(GOLD_T.toLocaleString(lang), num(GOLD_SIDE, 0)), body: '', extra: '' });
+    if (!nf) lab.setFacts([]);
+    return;
+  }
+  if (S.ore === 'cu') {
+    if (!S.g3) {
+      lab.setReadout('?', o.cu, '', '#d9825f');
+      lab.setState({ emo: '🤔', title: o.q, lead: o.qLead, body: '', extra: '' });
+      if (!nf) lab.setFacts([]);
+      return;
+    }
+    const need = Math.round(100 / S.grade), needT = Math.round(100 / TYP_GRADE), cu = S.dug * S.grade / 100, ok = S.g3 === 'c';
+    lab.setReadout(`${S.dug} ${U().kg}`, o.sub, o.pill(need), '#d9825f');
+    if (S.dug === 0) lab.setState({ emo: ok ? '✅' : '💡', title: o.title(ok, needT), lead: o.lead(pc(TYP_GRADE, 1), needT), body: o.body, extra: '' });
+    else lab.setState({ emo: cu >= 1 ? '🟠' : '⛏️', title: cu >= 1 ? o.enough : o.digT(S.dug), lead: cu >= 1 ? o.digT(S.dug) : o.digL(num(cu, 2)), body: '', extra: '' });
+    if (!nf) lab.setFacts(F(t, 'native', 'porph'));
+    return;
+  }
+  const rec = S.alMode === 'rec', e = (rec ? E_REC : E_NEW) * S.alT, done = S.alT >= 1;
+  lab.setReadout(`${num(e, 2)} ${U().kwh}`, o.alSub, o.alPill[rec ? 1 : 0], '#d9825f');
+  if (S.alOn) lab.setState({ emo: '⚡', title: o.runT, lead: o.runL(num(e, 2)), body: '', extra: '' });
+  else if (done) lab.setState(rec ? { emo: '♻️', title: o.recT(num(E_REC, 2)), lead: o.recL, body: '', extra: '' } : { emo: '🔥', title: o.newT(num(E_NEW, 1)), lead: o.newL(num(E_MIN, 2)), body: '', extra: '' });
+  else if (rec) lab.setState({ emo: '♻️', title: o.recS[0], lead: o.recS[1], body: '', extra: '' });
+  else lab.setState({ emo: '🧪', title: o.aluT, lead: o.aluL(pc(AL_FRAC, 1), num(100 / AL_FRAC, 2)), body: o.aluB, extra: '' });
+  if (!nf) lab.setFacts(S.alRan.rec ? F(t, 'cell', 'recy') : F(t, 'cell'));
+}
+function update(fromLoop) {
+  const t = T[lang], v = lab.view, nf = !!fromLoop;
+  if (v === 'crust') upCrust(t, nf); else if (v === 'spheres') upSpheres(t, nf); else upOres(t, nf);
+}
+
+// --- controls -------------------------------------------------------------------------------------------------
+const qBlock = (q, opts, key) => `<div class="ce-q">${esc(q)}</div><div class="ce-opts">${Object.entries(opts).map(([k, l]) => `<button class="ce-opt" data-pick="${key}:${k}">${esc(l)}</button>`).join('')}</div>`;
+const chip = (attrs, label, on) => `<button class="chip ${on ? 'on' : ''}" ${attrs}>${label}</button>`;
+const elChips = (list, t) => `<div class="row2 ce-chips"><span class="ce-lbl">${esc(t.elbl)}</span><div class="chips">${list.map((s) => `<button class="chip ce-el ${S.sel === s ? 'on' : ''}" data-el="${s}" title="${esc(elName(s))}"><i style="background:${EL[s].c}"></i>${s}</button>`).join('')}</div></div>`;
+function secretChip(k, emo, name) {
+  const open = secret.unlocked(), on = S[k];
+  return `<button class="chip secret ${open ? 'open' : ''} ${on ? 'on' : ''}" data-sec="${k}">${open ? `${emo} ${esc(name)}` : esc(T[lang].lock)}</button>`;
+}
+function renderCtrl() {
+  const t = T[lang], v = lab.view; let h = '';
+  if (v === 'crust') {
+    if (S.kola) h = `<div class="row2 ce-chips" style="margin-top:0">${secretChip('kola', '🕳️', t.kola.chip)}</div>`;
+    else if (!S.g1) h = qBlock(t.cr.q, t.cr.opts, 'g1') + `<div class="row2 ce-chips">${secretChip('kola', '🕳️', t.kola.chip)}</div>`;
+    else {
+      h = `<div class="row2 ce-chips" style="margin-top:0"><span class="ce-lbl">${esc(t.zlbl)}</span><div class="chips">${['⛰️', '🪨', '🔎', '⚛️'].map((e, i) => chip(`data-z="${i}"`, `${e} ${esc(t.zn[i])}`, S.zt === i)).join('')}</div></div>
+        <div class="row2 ce-chips"><span class="ce-lbl">${esc(t.mlbl)}</span><div class="chips">${['quartz', 'feldspar'].map((m) => chip(`data-min="${m}"`, esc(t.mn[m]), S.min === m)).join('')}</div></div>
+        ${elChips(CRUST_ELEMS, t)}
+        <div class="row2 ce-chips">${secretChip('kola', '🕳️', t.kola.chip)}</div>`;
+    }
+  } else if (v === 'spheres') {
+    if (!S.g1) h = `<p class="ce-note">${esc(t.sp.gate)}</p><button class="btn" data-go="crust">${esc(t.sp.go)}</button>`;
+    else if (!S.g2) h = qBlock(t.sp.q, t.sp.opts, 'g2');
+    else h = elChips(SPH_ELEMS, t);
+  } else {
+    const sub = `<div class="row2 ce-chips" style="margin-top:0"><div class="chips">${chip('data-ore="cu"', esc(t.ore.cu), S.ore === 'cu' && !S.gold)}${chip('data-ore="al"', esc(t.ore.al), S.ore === 'al' && !S.gold)}${secretChip('gold', '🥇', t.ore.goldChip)}</div></div>`;
+    if (S.gold) h = sub;
+    else if (S.ore === 'cu') {
+      if (!S.g3) h = sub + `<div class="row2" style="display:block">${qBlock(t.ore.q, t.ore.opts, 'g3')}</div>`;
+      else h = sub + `<div class="row2" style="display:block"><div class="ce-lbl">${esc(t.ore.grade)}: <b id="gradeV">${pc(S.grade, 1)}</b></div><input class="ce-rng" id="grade" type="range" min="4" max="10" step="1" value="${Math.round(S.grade * 10)}" aria-label="${esc(t.ore.grade)}"></div>
+        <div class="row2 ce-chips"><button class="btn" data-act="dig">${esc(t.ore.dig)}</button>${chip('data-act="all"', esc(t.ore.all))}${chip('data-act="reset"', esc(t.ore.reset))}</div>`;
+    } else {
+      const done = S.alT >= 1;
+      h = sub + `<div class="row2 ce-chips"><div class="chips">${chip('data-mode="new"', esc(t.ore.mNew), S.alMode === 'new')}${chip('data-mode="rec"', esc(t.ore.mRec), S.alMode === 'rec')}</div></div>
+        <div class="row2 ce-chips"><button class="btn" data-act="power">${esc(S.alOn ? t.ore.off : done ? t.ore.again : t.ore.on)}</button></div>`;
+    }
+  }
+  $('ctrlBody').innerHTML = h;
+}
+function render() { renderCtrl(); update(); }
+const showStage = () => {
+  const r = $('stage').getBoundingClientRect();
+  if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+
+// --- shell, secrets, canvas -----------------------------------------------------------------------------------
+const lab = shell({ key: 'crust-elements', T, topics: TOPICS, views: ['crust', 'spheres', 'ores'], onLang: render, onView: () => { S.sel = null; render(); } });
+const secret = secretLab('crust-elements', () => ({
+  secrets: [{ emo: '🕳️', title: T[lang].kola.chip, desc: T[lang].kola.desc }, { emo: '🥇', title: T[lang].ore.goldChip, desc: T[lang].ore.goldDesc }],
+  questions: T[lang].quiz,
+}), () => render());
+
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  const d = b.dataset;
+  if (d.pick) {
+    const [k, val] = d.pick.split(':'); if (S[k]) return;
+    S[k] = val; (val === RIGHT[k] ? sfx.good : sfx.bad)(); S.sel = null;
+    if (k === 'g1') { S.f1 = 0; S.zt = 0; S.z = 0; }
+    if (k === 'g2') S.f2 = 0;
+    render(); showStage(); return;
+  }
+  if (d.z !== undefined) { S.zt = +d.z; sfx.click(); }
+  else if (d.min) { S.min = d.min; sfx.tick(); }
+  else if (d.el) { S.sel = S.sel === d.el ? null : d.el; sfx.tick(); }
+  else if (d.go) { $('views').querySelector(`[data-view="${d.go}"]`)?.click(); return; }
+  else if (d.ore) { S.ore = d.ore; S.gold = false; sfx.click(); }
+  else if (d.mode) { S.alMode = d.mode; S.alOn = false; S.alT = 0; sfx.click(); }
+  else if (d.sec) {
+    if (!secret.unlocked()) return secret.open();
+    S[d.sec] = !S[d.sec]; if (d.sec === 'kola') S.kolaT = 0; else S.goldT = 0; sfx.click();
+  } else if (d.act === 'dig') { S.dug = Math.min(CU_MAX, S.dug + 25); sfx.push(); }
+  else if (d.act === 'all') { S.dug = Math.min(CU_MAX, Math.ceil(100 / S.grade)); sfx.snap(); }
+  else if (d.act === 'reset') { S.dug = 0; S.digA = 0; sfx.tick(); }
+  else if (d.act === 'power') { if (S.alT >= 1) S.alT = 0; S.alOn = !S.alOn; sfx.click(); }
+  render();
+});
+$('ctrlBody').addEventListener('input', (ev) => {
+  if (ev.target.id !== 'grade') return;
+  S.grade = clamp(+ev.target.value, 4, 10) / 10; const gv = $('gradeV'); if (gv) gv.textContent = pc(S.grade, 1);
+  update();
+});
+$('cv').addEventListener('click', (ev) => {
+  const r = $('cv').getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top, v = lab.view;
+  if (v === 'crust' && !S.kola && S.g1) {
+    let best = null, bd = 1e9;
+    for (const a of ATOMS) { const dd = Math.hypot(x - a.x, y - a.y); if (dd < a.r + 5 && dd < bd) { bd = dd; best = a; } }
+    if (best) { S.sel = S.sel === best.sym ? null : best.sym; sfx.tick(); render(); return; }
+    const P = LAY.panel;
+    if (x > P.x + P.w) { const L = layerAt(x, y); if (L && L.sym !== 'rest') { S.sel = S.sel === L.sym ? null : L.sym; sfx.tick(); render(); } return; }
+    S.zt = (Math.round(S.zt) + 1) % 4; sfx.click(); render();
+  } else if (v === 'spheres' && S.g1 && S.g2) {
+    const L = layerAt(x, y); if (L && L.sym !== 'rest') { S.sel = S.sel === L.sym ? null : L.sym; sfx.tick(); render(); }
+  }
+});
+canvasLoop($('cv'), frame);
+render();
+</script>
+</body>
+</html>

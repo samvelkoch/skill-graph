@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-23
 
 ### Labs
+- New lab `crust-elements` “What Is the Ground Made Of?”: the elements of Earth's crust, sea and air, and extracting metals (838). (#713)
 - New lab `persia-tribute` “Gifts for the King of Kings”: Assyria and the Persian Empire: satrapies, tribute and tolerance (837). (#712)
 - New lab `ideas-1800s` “Three Big Ideas of the 1800s”: liberalism, conservatism and socialism in the 19th century (836). (#711)
 - New lab `egypt-rulers` “The Last Pharaohs”: the end of ancient Egyptian civilisation under foreign rulers (835). (#710)
