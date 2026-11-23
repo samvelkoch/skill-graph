@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-23
 
 ### Labs
+- New lab `shadow-angle` “How Steep Is the Stick?”: projection onto a plane and the angle between a line and a plane (813). (#688)
 - New lab `food-label` “Read the Label”: reading nutrition labels: per 100 g, portions and front-of-pack claims (812). (#687)
 - New lab `punnett` “The Square of Chances”: alleles, dominant and recessive traits and Punnett squares (811). (#686)
 - New lab `sled-work` “Pull the Sled”: work at an angle and the dot product of vectors (810). (#685)
