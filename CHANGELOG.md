@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-23
 
 ### Labs
+- New lab `snow-map` “Dots on a Doctor's Map”: how data builds and checks explanations: John Snow's cholera map (815). (#690)
 - New lab `approx-shapes` “Made of Simple Shapes”: approximating real objects with familiar 2-D and 3-D shapes (814). (#689)
 - New lab `shadow-angle` “How Steep Is the Stick?”: projection onto a plane and the angle between a line and a plane (813). (#688)
 - New lab `food-label` “Read the Label”: reading nutrition labels: per 100 g, portions and front-of-pack claims (812). (#687)
