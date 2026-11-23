@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-23
 
 ### Labs
+- New lab `ideas-1800s` “Three Big Ideas of the 1800s”: liberalism, conservatism and socialism in the 19th century (836). (#711)
 - New lab `egypt-rulers` “The Last Pharaohs”: the end of ancient Egyptian civilisation under foreign rulers (835). (#710)
 - New lab `medieval-women` “Women of the Middle Ages”: the lives and work of women in the Middle Ages (834). (#709)
 - New lab `republic-falls` “From Republic to Emperor”: the fall of the Roman Republic and the rise of Augustus (833). (#708)
