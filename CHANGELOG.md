@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-23
 
 ### Labs
+- New lab `tangent-quad` “A Circle in a Frame”: quadrilaterals with an inscribed circle (Pitot's theorem) (822). (#697)
 - New lab `decimal-estimate` “Where Does the Point Go?”: estimating to check decimal multiplication and division (821). (#696)
 - New lab `hyperbola` “The Curve of k/x”: graphs of y = k/x, asymptotes and shifts, and Boyle's law (820). (#695)
 - New lab `hike-time` “Which Path Is Quicker?”: route planning with distance and climb, and sketch maps (819). (#694)
