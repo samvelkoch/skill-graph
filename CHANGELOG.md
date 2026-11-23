@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-23
 
 ### Labs
+- New lab `secant-angles` “Where You Stand”: angles formed by chords, secants and tangents (828). (#703)
 - New lab `habitat-makers` “Who Changed This Place?”: how plants and animals change their habitats (827). (#702)
 - New lab `dna-tree` “Family Ties in DNA”: grouping species using DNA and the molecular clock (826). (#701)
 - New lab `life-expectancy` “Health and Wealth”: human development: income, life expectancy, schooling and the HDI (825). (#700)
