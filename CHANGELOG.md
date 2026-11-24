@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-24
 
 ### Labs
+- New lab `me-petals` “All About Me”: self-concept: likes, skills, qualities (854). (#733)
 - New lab `good-friend` “What Makes a Friend?”: what makes a good friend; friendships change (853). (#732)
 - New lab `ask-help` “Who Can Help?”: sizing a problem and asking for help clearly (852). (#731)
 - New lab `my-body` “My Body Is Mine”: body safety (PANTS), safe and unsafe secrets, body image (851). (#730)
