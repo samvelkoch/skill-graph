@@ -24,7 +24,7 @@ Counts in brackets are totals after that day.
 - New lab `safe-in-shoal` “Alone or Together?”: why animals live in groups and what it costs (841). (#717)
 
 ### Data
-- Linked the topic “Periods of Music History” (`sg_art_77`) to the lab `growing-orchestra`. (#PRNUM)
+- Linked the topic “Periods of Music History” (`sg_art_77`) to the lab `growing-orchestra`. (#724)
 
 ## 2026-11-23
 
