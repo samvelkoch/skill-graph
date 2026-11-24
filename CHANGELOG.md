@@ -39,6 +39,7 @@ Counts in brackets are totals after that day.
 - New lab `safe-in-shoal` “Alone or Together?”: why animals live in groups and what it costs (841). (#717)
 
 ### Data
+- Linked existing labs to 51 more repeat topics from the remaining list, e.g. the reactivity series, Roman numerals, Robin Hood and King Arthur (coverage 75% → 77%). (#742)
 - Linked existing labs to 189 more repeat topics after a second, stricter review (coverage 66% → 74%). (#726)
 
 ### Lab fixes
