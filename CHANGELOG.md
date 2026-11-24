@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-24
 
 ### Labs
+- New lab `market-stall` “The Market Stall”: selling, simple marketing and teamwork at a stall (857). (#736)
 - New lab `family-roles` “A Family Over Time”: family forms, functions and changing roles (856). (#735)
 - New lab `my-circles` “My Circles”: belonging to many groups; identity and place (855). (#734)
 - New lab `me-petals` “All About Me”: self-concept: likes, skills, qualities (854). (#733)
