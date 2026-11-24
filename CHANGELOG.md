@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-24
 
 ### Labs
+- New lab `rock-story` “Read the Cliff”: reading rock layers: superposition, cross-cutting, gaps in time (845). (#721)
 - New lab `five-solids` “Perfect Solids”: Euler's formula and the five Platonic solids (844). (#720)
 - New lab `wait-trick` “How to Wait”: patience and strategies for delayed gratification (843). (#719)
 - New lab `one-letter` “One Letter Changed”: mutations: silent, missense, nonsense, frameshift; source of variation (842). (#718)
