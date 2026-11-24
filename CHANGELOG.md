@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-24
 
 ### Labs
+- New lab `pitch-it` “One Minute to Pitch”: pitching an idea, social enterprise, a one-page business plan (858). (#737)
 - New lab `market-stall` “The Market Stall”: selling, simple marketing and teamwork at a stall (857). (#736)
 - New lab `family-roles` “A Family Over Time”: family forms, functions and changing roles (856). (#735)
 - New lab `my-circles` “My Circles”: belonging to many groups; identity and place (855). (#734)
