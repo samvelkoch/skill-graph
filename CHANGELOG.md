@@ -24,7 +24,7 @@ Counts in brackets are totals after that day.
 - New lab `safe-in-shoal` “Alone or Together?”: why animals live in groups and what it costs (841). (#717)
 
 ### Data
-- Linked existing labs to 189 more repeat topics after a second, stricter review (coverage 66% → 74%). (#PRNUM)
+- Linked existing labs to 189 more repeat topics after a second, stricter review (coverage 66% → 74%). (#726)
 
 ### Lab fixes
 - `brain-alarm`: the head and brain are redrawn with real proportions and a lateral-view brain. (#725)
