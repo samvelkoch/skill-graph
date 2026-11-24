@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-24
 
 ### Labs
+- New lab `safety-signs` “Signs Without Words”: safety sign shapes and colours (ISO 7010) (848). (#727)
 - New lab `brain-alarm` “The Brain's Alarm”: amygdala fast route vs cortex, fight-or-flight, regulating emotions (847). (#723)
 - New lab `co2-bathtub` “The Carbon Bathtub”: stock and flow of CO2, net zero (846). (#722)
 - New lab `rock-story` “Read the Cliff”: reading rock layers: superposition, cross-cutting, gaps in time (845). (#721)
