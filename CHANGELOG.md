@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-24
 
 ### Labs
+- New lab `my-body` “My Body Is Mine”: body safety (PANTS), safe and unsafe secrets, body image (851). (#730)
 - New lab `no-go-tell` “No, Go, Tell”: early warning signs and the No-Go-Tell safety steps (850). (#729)
 - New lab `bully-or-not` “Is It Bullying?”: what bullying is (on purpose, repeated, power imbalance) and what helps (849). (#728)
 - New lab `safety-signs` “Signs Without Words”: safety sign shapes and colours (ISO 7010) (848). (#727)
