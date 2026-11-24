@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-24
 
 ### Labs
+- New lab `golden-rule` “The Golden Rule”: the Golden Rule across religions and philosophies (862). (#741)
 - New lab `public-services` “From Cradle to Pension”: public services, who pays, e-government (861). (#740)
 - New lab `health-claims` “Miracle Juice?”: judging health messages and claims (860). (#739)
 - New lab `kitchen-snack` “Snack Time”: healthy snacks, bridge and claw knife grips, food hygiene (859). (#738)
