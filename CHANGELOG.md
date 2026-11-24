@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-24
 
 ### Labs
+- New lab `one-letter` “One Letter Changed”: mutations: silent, missense, nonsense, frameshift; source of variation (842). (#718)
 - New lab `safe-in-shoal` “Alone or Together?”: why animals live in groups and what it costs (841). (#717)
 
 ## 2026-11-23
