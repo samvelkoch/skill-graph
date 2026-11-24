@@ -12,6 +12,11 @@ Hungarian is on the site: [What's new](https://samvelkoch.github.io/skill-graph/
 
 Counts in brackets are totals after that day.
 
+## 2026-11-24
+
+### Labs
+- New lab `safe-in-shoal` “Alone or Together?”: why animals live in groups and what it costs (841). (#717)
+
 ## 2026-11-23
 
 ### Labs
