@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-24
 
 ### Labs
+- New lab `kitchen-snack` “Snack Time”: healthy snacks, bridge and claw knife grips, food hygiene (859). (#738)
 - New lab `pitch-it` “One Minute to Pitch”: pitching an idea, social enterprise, a one-page business plan (858). (#737)
 - New lab `market-stall` “The Market Stall”: selling, simple marketing and teamwork at a stall (857). (#736)
 - New lab `family-roles` “A Family Over Time”: family forms, functions and changing roles (856). (#735)
