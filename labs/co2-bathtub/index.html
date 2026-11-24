@@ -1,0 +1,746 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-9G21WHC3NB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-9G21WHC3NB');
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The Carbon Bathtub · Skill Graph</title>
+<meta name="description" content="CO₂ in the air works like water in a bathtub: a tap of emissions, a drain of ocean and forests. Guess what the level does, compare three emission paths, and check them against real data. English, Russian and Hungarian.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Nunito:wght@500;600;700;800;900&display=swap">
+<link rel="stylesheet" href="../lab.css">
+<style>
+  #gauge { visibility: hidden; }
+  .cb-q { font: 500 19px/1.25 var(--serif); color: #fff; margin: 0 0 10px; text-wrap: balance; }
+  .cb-opts { display: flex; flex-wrap: wrap; gap: 8px; }
+  #ctrlBody .chip { min-height: 38px; }
+  .cb-opt { padding: 8px 16px; font-weight: 800; }
+  .cb-lbl { display: block; font-weight: 800; font-size: 13px; color: var(--soft); margin: 0 0 2px; }
+  .cb-note { margin: 8px 0 0; font-size: 12px; color: var(--faint); }
+  .cb-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--mut); margin: 0 0 8px; align-items: center; }
+  .cb-legend span { display: inline-flex; align-items: center; gap: 4px; }
+  .cb-row { display: grid; grid-template-columns: 1fr auto auto auto auto; align-items: center; gap: 6px; margin-top: 6px; }
+  .cb-name { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 800; color: var(--soft); min-width: 0; line-height: 1.15; }
+  .cb-dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+  .cb-sk { width: 48px; height: 40px; border-radius: 12px; border: 1px solid var(--stroke2); background: rgba(130, 145, 190, .1); color: var(--soft);
+    display: grid; place-items: center; cursor: pointer; padding: 0; }
+  .cb-sk:hover { background: rgba(130, 145, 190, .25); }
+  .cb-sk.on { background: #fff; color: var(--bg); border-color: #fff; }
+  .cb-sk.good { box-shadow: 0 0 0 2px var(--ok); }
+  .cb-sk.bad { opacity: .45; }
+  .cb-sk:disabled { cursor: default; }
+  .cb-mark { width: 20px; text-align: center; font-weight: 900; }
+  .cb-bar { display: flex; height: 24px; border-radius: 999px; overflow: hidden; margin: 6px 0 6px; border: 1px solid var(--stroke2); }
+  .cb-bar span { display: grid; place-items: center; font-size: 12px; font-weight: 800; color: #0A0C14; white-space: nowrap; overflow: hidden; }
+  .cb-sub { font-size: 12px; color: var(--mut); line-height: 1.5; margin: 0 0 6px; }
+  .fine { font-size: 11.5px; color: var(--faint); line-height: 1.5; }
+  #stage canvas { touch-action: pan-y; }
+  @media (max-width: 760px) { #stage { height: min(128vw, 560px); } }
+  @media (min-width: 761px) { #stage { min-height: 470px; } }
+</style>
+</head>
+<body>
+<script type="module">
+import { shell, canvasLoop, secretLab, sfx, store, $, esc, clamp, ruPlural, lang } from '../lab.js';
+
+// --- the simple model and its numbers (all from the Global Carbon Budget 2026, Friedlingstein et al., ESSD preprint essd-2026-895) --------
+// 1 ppm = 2.124 GtC and 1 GtC = 3.664 GtCO2  ->  1 ppm = 7.78 GtCO2
+const PPM_GT = 2.124 * 3.664;
+const C_PRE = 278;          // ppm, "around 278 ppm in 1750"
+const C0 = 425.6;           // ppm, global average over 2025
+const E0 = 42.8;            // GtCO2 per year, total anthropogenic emissions 2025 (fossil fuels + land use), "42.8 ± 3.2 GtCO2"
+const SINK_SHARE = 0.49;    // land 22% + ocean 27% of total emissions, decade 2016-2025
+const OCEAN_PART = 27 / 49; // the ocean's part of the sinks
+// drain = K * (level - C_PRE): K is chosen so that at today's level the sinks take 49% of today's emissions
+const K = SINK_SHARE * E0 / (C0 - C_PRE);   // about 0.142 GtCO2 per year per ppm
+const YEARS = 50, YEAR0 = 2025;
+const sinkAt = (C) => K * (C - C_PRE);
+// one simulated year: the level changes by (in - out) / 7.78 ppm
+const stepC = (C, E) => C + (E - sinkAt(C)) / PPM_GT;
+
+// three emission paths, from today's tap
+const PATH_KEYS = ['flat', 'cut2', 'zero'];
+const PATH_E = { flat: () => E0, cut2: (t) => E0 * 0.98 ** t, zero: (t) => E0 * Math.max(0, 1 - t / 25) };
+const PATH_COL = { flat: '#f0a24a', cut2: '#f5d54c', zero: '#3ddc97' };
+const PATH_DASH = { flat: [], cut2: [7, 4], zero: [2, 4] };
+const PATHS = {};
+for (const k of PATH_KEYS) {
+  const E = [], C = [C0];
+  for (let t = 0; t <= YEARS; t++) { E.push(PATH_E[k](t)); if (t < YEARS) C.push(stepC(C[t], E[t])); }
+  const peak = C.indexOf(Math.max(...C));
+  PATHS[k] = { E, C, peak, shape: peak >= YEARS - 2 ? 0 : 1 }; // 0 = keeps rising, 1 = peaks then falls (the sketch buttons: 0, 1, 2 = speeds up)
+}
+const ANS1 = E0 > sinkAt(C0) ? 1 : 0; // tap bigger than the drain -> the level keeps rising
+
+// --- real data (every number fetched; see the fact sources) -----------------------------------------------------------------------
+// CO2 level: NOAA GML, Mauna Loa annual means (gml.noaa.gov/ccgg/trends/data.html -> co2_annmean_mlo.txt)
+// Emissions: fossil CO2, Global Carbon Budget 2026 via Our World in Data (ourworldindata.org/grapher/annual-co2-emissions-per-country), tonnes / 1e9
+const RY = [1960, 1970, 1980, 1990, 2000, 2010, 2020, 2025];
+const RM = [316.91, 325.68, 338.76, 354.45, 369.71, 390.10, 414.21, 427.35];
+const RE = [9.384926, 14.693279, 19.228922, 22.779531, 25.507824, 33.323946, 35.095286, 38.995104];
+const R_RISE = RM.slice(1).map((m, i) => (m - RM[i]) / (RY[i + 1] - RY[i]));  // ppm per year between two listed years
+const E_RATIO = Math.round(RE[7] / RE[0]);                                     // about 4
+const R_RATIO = Math.round(R_RISE[6] / R_RISE[0]);                             // about 3
+const DIP = Math.round((37.060624 - RE[6]) / 37.060624 * 100);                 // 2019 -> 2020 emissions, about 5 %
+const DIP_RISE = 414.21 - 411.65;                                              // Mauna Loa 2019 -> 2020, ppm
+const SHARES = { air: 48, ocean: 27, land: 22 };                               // GCB 2026, decade 2016-2025, % of total emissions
+
+// --- texts -------------------------------------------------------------------------------------------------------------------------
+const T = {
+  en: {
+    name: 'The Carbon Bathtub', title: 'The Carbon Bathtub',
+    lines: [['The air is a bathtub.', 'A tap pours CO₂ in, a drain lets it out.'], ['Guess what the level does,', 'then run the years.'], ['Try three futures', 'and check them against real data.']],
+    views: { tub: '🛁 Tub', paths: '🛤️ Paths', real: '📊 Real' },
+    gt: 'GtCO₂/yr', yr: 'ppm per year', ok: 'Right!', no: 'Not quite.',
+    L: { air: 'the air', tap: 'emissions', drain: 'drain', ocean: 'ocean', forests: 'forests', pre: 'before factories' },
+    tub: {
+      q: 'The tap keeps pouring at today’s rate. Over 50 years the CO₂ level in the air will…', opts: ['stop rising', 'keep rising', 'fall'],
+      askT: 'What will the level do?',
+      askL: (e) => `In 2025 people released ${e} billion tonnes of CO₂ (GtCO₂) from fossil fuels and land use. Over the last decade the ocean and land plants took out about half of what people release.`,
+      askB: 'Make your guess, then watch fifty years go by.',
+      up: 'The tap is bigger than the drain', down: 'The drain is bigger than the tap', hold: 'The level holds still',
+      upL: (i, o, d, r) => `${i} in, ${o} out (GtCO₂ a year). About ${d} Gt a year stays in the air, so the level rises by about ${r} ppm a year.`,
+      downL: (i, o, d, r) => `${i} in, ${o} out (GtCO₂ a year). The drain wins by about ${d} Gt a year, so the level falls by about ${r} ppm a year.`,
+      holdL: (i, o) => `${i} in, ${o} out (GtCO₂ a year): what pours in equals what drains out.`,
+      holdB: 'When the tap equals the drain, the level holds. “Net zero” is built on this idea: what is released is balanced by what is taken out.',
+      holdF: (p) => `This tap is about ${p}% of today’s emissions (simple model).`,
+      moveB: 'Move the tap until the level holds still.', watchB: 'Watch the years go by…',
+      doneB: (c) => `After 50 years the level is ${c} ppm (simple model). Now move the tap: where does the level hold still?`,
+      slider: (e, p) => `Tap: ${e} GtCO₂/yr · ${p}% of today`,
+      run: '▶ Run 50 years', pause: '⏸ Pause', again: '↺ Again', rising: 'rising', holding: 'holding', falling: 'falling',
+      fine: (g) => `Simple model: each year the level changes by (tap − drain) ÷ ${g}, because 1 ppm of CO₂ is about ${g} GtCO₂. The higher the level, the stronger the drain. Emissions and sinks: Global Carbon Budget 2026.`,
+      book: (i, o, d, r) => `In ${i} − out ${o} = ${d} GtCO₂ a year stays in the air = ${r} ppm a year.`,
+      pre: 'About 278 ppm in 1750, before industry. In this model the drain works on the CO₂ above that line: the extra we added.',
+      mit: 'In a study of highly educated adults, graduate students at MIT, most wrongly believed the level could settle while more went in than came out. It is like thinking that a tub that fills faster than it drains will never overflow. (Sterman and Booth Sweeney, 2007)',
+    },
+    paths: {
+      pn: { flat: 'Flat: emissions stay as today', cut2: 'Down 2% every year', zero: 'Straight down to net zero by 2050' },
+      sh: { flat: 'flat', cut2: '−2% a year', zero: 'net zero 2050' },
+      shape: ['keeps rising', 'peaks, then falls', 'speeds up'],
+      q: 'Pick the shape of the CO₂ level for each path.', show: 'Show me', again: '↺ Again',
+      gateT: 'Start in the Tub', gateL: 'Make your guess in the Tub first. These paths come after it.', go: 'Go to the Tub',
+      askT: 'Three paths for emissions', askL: 'Emissions follow each of the three lines. What does the CO₂ level in the air do on each?',
+      askB: 'Pick a shape for every path, then press the button. Tap the graph to read a year.',
+      res: (k) => `${k} of 3 right.`, resL: 'Here is what the simple model does:',
+      lineUp: (c) => `Flat: ${c} ppm in 2075 and still climbing.`,
+      linePeak: (n, y, c) => `${n}: peaks near ${y} at about ${c} ppm, then falls.`,
+      net: 'Here “net zero” means people’s net emissions reach zero: whatever is still released is taken out again.',
+      fine: 'Simple model: the sizes and the timing are the model’s, not a forecast. Warming weakens the real sinks (Global Carbon Budget 2026: by 19% on land and 8% in the ocean, average 2016–2025).',
+    },
+    real: {
+      q: (x) => `Emissions grew about ${x}× since 1960. Did the yearly rise of CO₂ in the air also grow?`, opts: ['Yes, it grew', 'No, about the same', 'No, it shrank'],
+      askT: 'The tap, then and now', askL: (a, b) => `Fossil CO₂ emissions: ${a} GtCO₂ in 1960, ${b} in 2025.`, askB: 'Tap a period to read the emissions, then guess.',
+      resL: (a, b, f, e) => `The yearly rise went from ${a} ppm (1960–70) to ${b} ppm (2020–25): about ${f}× more. Emissions grew about ${e}×.`,
+      resB: (a, b) => `Mauna Loa annual means: ${a} ppm in 1960, ${b} ppm in 2025. A wider tap puts more into the tub each year, so the level rose faster decade after decade.`,
+      goes: 'Where each year’s CO₂ goes', air: 'air', ocean: 'ocean', land: 'land',
+      goesN: (r) => `Average 2016–2025, share of total emissions. The last ${r}% is the budget imbalance: what the data cannot yet explain.`,
+      fine: 'Emissions: fossil CO₂, Global Carbon Budget via Our World in Data. CO₂ level: NOAA, Mauna Loa annual means. Rise = change between two years ÷ years between them.',
+      topT: 'emissions (GtCO₂/yr)', botT: 'rise of CO₂ in the air (ppm/yr)', after: 'after your guess', period: (a, b) => `${a}–${b}`,
+    },
+    sec: { a: ['Bathtub thinking', 'What a famous study found'], b: ['Before factories', 'Where the level started'] },
+    facts: {
+      tub: [
+        { emo: '⚖️', text: (g) => `To compare tonnes with ppm, scientists use: 1 ppm of CO₂ in the whole atmosphere = 2.124 billion tonnes of carbon. In CO₂ that is about ${g} billion tonnes.`, src: 'essd.copernicus.org/preprints/essd-2026-895 (Global Carbon Budget 2026)' },
+        { emo: '⏳', text: () => 'A large share of the CO₂ stays in the air for hundreds of years once it is released.', src: 'ourworldindata.org/co2-emissions' },
+      ],
+      paths: [
+        { emo: '🎯', text: () => 'Net zero does not mean zero emissions: some can go on, as long as they are balanced by removals.', src: 'en.wikipedia.org/wiki/Net_zero_emissions' },
+        { emo: '📉', text: () => 'Total emissions (fossil fuels and land use) grew 0.3% a year in 2016–2025, against 1.7% a year in the decade before.', src: 'essd.copernicus.org/preprints/essd-2026-895 (Global Carbon Budget 2026)' },
+        { emo: '🌱', text: () => 'Taking CO₂ out on purpose is still tiny: the new removal methods offset less than 30 minutes of a year’s fossil CO₂ emissions.', src: 'globalcarbonbudget.org (Key messages, 2026)' },
+      ],
+      real: [
+        { emo: '🌋', text: () => 'In late 2022 the Mauna Loa volcano erupted and measurements there stopped until July 2023. In between, scientists measured at a site about 34 kilometres away.', src: 'gml.noaa.gov/ccgg/trends/data.html' },
+        { emo: '🦠', text: (p, r) => `In 2020 emissions fell by about ${p}%, yet the CO₂ in the air still rose, by ${r} ppm that year (Mauna Loa).`, src: 'ourworldindata.org/grapher/annual-co2-emissions-per-country · gml.noaa.gov/ccgg/trends/data.html' },
+      ],
+    },
+    quiz: [
+      { q: 'The world cuts its emissions by 10% and keeps them there. The CO₂ in the air…', opts: ['falls', 'keeps rising, more slowly', 'stops changing'], ok: 1, hint: 'Lower the tap a little in Tub, then run the years.' },
+      { q: '“Net zero” means…', opts: ['no CO₂ is released at all', 'the CO₂ level in the air becomes zero', 'what is released equals what is taken out'], ok: 2, hint: 'Think about what the tap and the drain do when the level holds still.' },
+      { q: 'About how much of the CO₂ we release each year stays in the air?', opts: ['about half', 'almost all', 'almost none'], ok: 0, hint: 'Read the card in Real.' },
+    ],
+  },
+  ru: {
+    name: 'Ванна углекислого газа', title: 'Ванна углекислого газа',
+    lines: [['Воздух — это ванна.', 'Кран льёт в неё CO₂, а сток его уносит.'], ['Угадай, что будет с уровнем,', 'а потом запусти годы.'], ['Попробуй три будущих', 'и сверь их с настоящими данными.']],
+    views: { tub: '🛁 Ванна', paths: '🛤️ Пути', real: '📊 Данные' },
+    gt: 'Гт CO₂/год', yr: 'ppm в год', ok: 'Верно!', no: 'Не совсем.',
+    L: { air: 'воздух', tap: 'выбросы', drain: 'сток', ocean: 'океан', forests: 'леса', pre: 'до фабрик' },
+    tub: {
+      q: 'Кран льёт, как сегодня. За 50 лет уровень CO₂ в воздухе…', opts: ['перестанет расти', 'продолжит расти', 'упадёт'],
+      askT: 'Что будет с уровнем?',
+      askL: (e) => `В 2025 году люди выбросили ${e} млрд т CO₂ (Гт CO₂): от сжигания топлива, вырубки лесов и других изменений землепользования. За последнее десятилетие океан и наземные растения забирали примерно половину того, что выбрасывают люди.`,
+      askB: 'Сделай предположение и посмотри, что будет за пятьдесят лет.',
+      up: 'Кран больше стока', down: 'Сток больше крана', hold: 'Уровень не меняется',
+      upL: (i, o, d, r) => `Приходит ${i}, уходит ${o} (Гт CO₂ в год). Около ${d} Гт в год остаётся в воздухе, поэтому уровень растёт примерно на ${r} ppm в год.`,
+      downL: (i, o, d, r) => `Приходит ${i}, уходит ${o} (Гт CO₂ в год). Сток побеждает примерно на ${d} Гт в год, поэтому уровень падает примерно на ${r} ppm в год.`,
+      holdL: (i, o) => `Приходит ${i}, уходит ${o} (Гт CO₂ в год): сколько вливается, столько и утекает.`,
+      holdB: 'Когда кран равен стоку, уровень не меняется. На этой идее держатся «нулевые чистые выбросы»: сколько выброшено, столько и убрано.',
+      holdF: (p) => `Такой кран — примерно ${p}% от сегодняшних выбросов (упрощённая модель).`,
+      moveB: 'Двигай кран, пока уровень не перестанет меняться.', watchB: 'Смотри, как идут годы…',
+      doneB: (c) => `Через 50 лет уровень — ${c} ppm (упрощённая модель). Теперь двигай кран: при каком положении уровень замрёт?`,
+      slider: (e, p) => `Кран: ${e} Гт CO₂/год · ${p}% от сегодняшнего`,
+      run: '▶ Запустить 50 лет', pause: '⏸ Пауза', again: '↺ Сначала', rising: 'растёт', holding: 'стоит', falling: 'падает',
+      fine: (g) => `Упрощённая модель: каждый год уровень меняется на (кран − сток) ÷ ${g}, потому что 1 ppm CO₂ — это около ${g} Гт CO₂. Чем выше уровень, тем сильнее сток. Выбросы и стоки: Global Carbon Budget 2026.`,
+      book: (i, o, d, r) => `Приходит ${i} − уходит ${o} = ${d} Гт CO₂ в год остаётся в воздухе = ${r} ppm в год.`,
+      pre: 'Около 278 ppm в 1750 году, до промышленности. В этой модели сток работает с CO₂ сверх этой линии: с тем, что добавили мы.',
+      mit: 'В исследовании высокообразованных взрослых, студентов магистратуры MIT, большинство ошибочно решили, что уровень может установиться, пока вливается больше, чем уходит. Это всё равно что думать, будто ванна, которая наполняется быстрее, чем опустошается, никогда не переполнится. (Стерман и Бут Суини, 2007)',
+    },
+    paths: {
+      pn: { flat: 'Без перемен: выбросы как сегодня', cut2: 'Минус 2% каждый год', zero: 'Прямо вниз до нуля к 2050 году' },
+      sh: { flat: 'без перемен', cut2: '−2% в год', zero: 'ноль к 2050' },
+      shape: ['растёт дальше', 'вершина, потом спад', 'растёт всё быстрее'],
+      q: 'Выбери форму кривой уровня CO₂ для каждого пути.', show: 'Покажи', again: '↺ Сначала',
+      gateT: 'Начни с ванны', gateL: 'Сначала сделай предположение во вкладке «Ванна». Эти пути идут после него.', go: 'К ванне',
+      askT: 'Три пути выбросов', askL: 'Выбросы идут по каждой из трёх линий. Что делает уровень CO₂ в воздухе на каждой?',
+      askB: 'Выбери форму для каждого пути и нажми кнопку. Нажми на график, чтобы прочитать год.',
+      res: (k) => `Верно ${k} из 3.`, resL: 'Вот что делает упрощённая модель:',
+      lineUp: (c) => `Без перемен: ${c} ppm в 2075 году, и рост продолжается.`,
+      linePeak: (n, y, c) => `${n}: вершина около ${y} года, примерно ${c} ppm, потом спад.`,
+      net: 'Здесь «нулевые чистые выбросы» значат: чистые выбросы людей доходят до нуля, всё, что ещё выбрасывается, убирается обратно.',
+      fine: 'Упрощённая модель: величины и сроки здесь — это модель, а не прогноз. Потепление ослабляет настоящие стоки (Global Carbon Budget 2026: на суше на 19%, в океане на 8%, среднее за 2016–2025).',
+    },
+    real: {
+      q: (x) => `С 1960 года выбросы выросли примерно в ${x} ${ruPlural(x, 'раз', 'раза', 'раз')}. Годовой прирост CO₂ в воздухе тоже вырос?`, opts: ['Да, вырос', 'Нет, примерно такой же', 'Нет, уменьшился'],
+      askT: 'Кран тогда и сейчас', askL: (a, b) => `Выбросы CO₂ от топлива: ${a} Гт CO₂ в 1960 году, ${b} в 2025.`, askB: 'Нажимай на периоды, чтобы прочитать выбросы, а потом угадай.',
+      resL: (a, b, f, e) => `Годовой прирост вырос с ${a} ppm (1960–70) до ${b} ppm (2020–25): примерно в ${f} ${ruPlural(f, 'раз', 'раза', 'раз')}. Выбросы выросли примерно в ${e} ${ruPlural(e, 'раз', 'раза', 'раз')}.`,
+      resB: (a, b) => `Среднегодовые значения на Мауна-Лоа: ${a} ppm в 1960 году, ${b} ppm в 2025. Чем шире кран, тем больше остаётся в ванне за год, поэтому уровень рос всё быстрее десятилетие за десятилетием.`,
+      goes: 'Куда девается CO₂ каждого года', air: 'воздух', ocean: 'океан', land: 'суша',
+      goesN: (r) => `Среднее за 2016–2025, доля от всех выбросов. Последние ${r}% — невязка баланса: то, что данные пока не объясняют.`,
+      fine: 'Выбросы: CO₂ от топлива, Global Carbon Budget через Our World in Data. Уровень CO₂: NOAA, среднегодовые значения Мауна-Лоа. Прирост = изменение между двумя годами ÷ число лет между ними.',
+      topT: 'выбросы (Гт CO₂/год)', botT: 'прирост CO₂ в воздухе (ppm/год)', after: 'после твоей догадки', period: (a, b) => `${a}–${b}`,
+    },
+    sec: { a: ['Мышление «ванной»', 'Что показало известное исследование'], b: ['До фабрик', 'С какого уровня всё началось'] },
+    facts: {
+      tub: [
+        { emo: '⚖️', text: (g) => `Чтобы сравнивать тонны и ppm, учёные считают: 1 ppm CO₂ во всей атмосфере — это 2,124 млрд т углерода. В пересчёте на CO₂ это около ${g} млрд т.`, src: 'essd.copernicus.org/preprints/essd-2026-895 (Global Carbon Budget 2026)' },
+        { emo: '⏳', text: () => 'Значительная доля выброшенного CO₂ остаётся в воздухе сотни лет.', src: 'ourworldindata.org/co2-emissions' },
+      ],
+      paths: [
+        { emo: '🎯', text: () => 'Нулевые чистые выбросы — это не «выбросов нет совсем»: что-то может выбрасываться, если столько же убирается.', src: 'en.wikipedia.org/wiki/Net_zero_emissions' },
+        { emo: '📉', text: () => 'Суммарные выбросы (топливо и землепользование) росли на 0,3% в год в 2016–2025 годах, а в предыдущее десятилетие — на 1,7% в год.', src: 'essd.copernicus.org/preprints/essd-2026-895 (Global Carbon Budget 2026)' },
+        { emo: '🌱', text: () => 'Намеренно убирать CO₂ из воздуха пока почти не умеют: новые методы компенсируют меньше 30 минут годовых выбросов CO₂ от топлива.', src: 'globalcarbonbudget.org (Key messages, 2026)' },
+      ],
+      real: [
+        { emo: '🌋', text: () => 'В конце 2022 года на Мауна-Лоа началось извержение, и измерения там прервались до июля 2023-го. Всё это время учёные мерили на площадке примерно в 34 километрах.', src: 'gml.noaa.gov/ccgg/trends/data.html' },
+        { emo: '🦠', text: (p, r) => `В 2020 году выбросы упали примерно на ${p}%, но CO₂ в воздухе всё равно вырос: за тот год на ${r} ppm (Мауна-Лоа).`, src: 'ourworldindata.org/grapher/annual-co2-emissions-per-country · gml.noaa.gov/ccgg/trends/data.html' },
+      ],
+    },
+    quiz: [
+      { q: 'Мир сокращает выбросы на 10% и держит их на этом уровне. Количество CO₂ в воздухе…', opts: ['упадёт', 'продолжит расти, но медленнее', 'перестанет меняться'], ok: 1, hint: 'Чуть прикрути кран во вкладке «Ванна» и запусти годы.' },
+      { q: '«Нулевые чистые выбросы» — это когда…', opts: ['CO₂ не выбрасывают совсем', 'уровень CO₂ в воздухе становится нулевым', 'выбрасывается столько же, сколько убирается'], ok: 2, hint: 'Подумай, что делают кран и сток, когда уровень не меняется.' },
+      { q: 'Какая примерно часть выброшенного за год CO₂ остаётся в воздухе?', opts: ['примерно половина', 'почти всё', 'почти ничего'], ok: 0, hint: 'Посмотри карточку во вкладке «Данные».' },
+    ],
+  },
+  hu: {
+    name: 'A szén-dioxid kádja', title: 'A szén-dioxid kádja',
+    lines: [['A levegő egy fürdőkád.', 'A csap CO₂-t tölt bele, a lefolyó elvezeti.'], ['Tippeld meg, mit csinál a szint,', 'aztán futtasd az éveket.'], ['Próbálj ki három jövőt,', 'és vesd össze a valódi adatokkal.']],
+    views: { tub: '🛁 Kád', paths: '🛤️ Utak', real: '📊 Adatok' },
+    gt: 'GtCO₂/év', yr: 'ppm évente', ok: 'Így van!', no: 'Nem egészen.',
+    L: { air: 'a levegő', tap: 'kibocsátás', drain: 'lefolyó', ocean: 'óceán', forests: 'erdők', pre: 'gyárak előtt' },
+    tub: {
+      q: 'A csap a mai erővel folyik tovább. 50 év alatt a levegő CO₂-szintje…', opts: ['nem emelkedik tovább', 'tovább emelkedik', 'csökken'],
+      askT: 'Mit csinál majd a szint?',
+      askL: (e) => `2025-ben az emberek ${e} milliárd tonna CO₂-t (GtCO₂) bocsátottak ki fosszilis tüzelőanyagokból és földhasználat-változásból. Az elmúlt évtizedben az óceán és a szárazföldi növények nagyjából a felét felvették annak, amit az emberek kibocsátanak.`,
+      askB: 'Tippelj, aztán nézd végig az ötven évet.',
+      up: 'A csap erősebb a lefolyónál', down: 'A lefolyó erősebb a csapnál', hold: 'A szint nem változik',
+      upL: (i, o, d, r) => `Bejön ${i}, kimegy ${o} (GtCO₂ évente). Évente nagyjából ${d} Gt a levegőben marad, ezért a szint emelkedése kb. ${r} ppm évente.`,
+      downL: (i, o, d, r) => `Bejön ${i}, kimegy ${o} (GtCO₂ évente). A lefolyó győz: a különbség évente nagyjából ${d} Gt, ezért a szint csökkenése kb. ${r} ppm évente.`,
+      holdL: (i, o) => `Bejön ${i}, kimegy ${o} (GtCO₂ évente): amennyi befolyik, annyi lefolyik.`,
+      holdB: 'Ha a csap és a lefolyó egyenlő, a szint nem változik. A „nettó zéró” erre az ötletre épül: amennyit kibocsátunk, annyit el is veszünk.',
+      holdF: (p) => `Ez a csap a mai kibocsátás kb. ${p} százaléka (egyszerűsített modell).`,
+      moveB: 'Állítsd a csapot úgy, hogy a szint megálljon.', watchB: 'Nézd, ahogy telnek az évek…',
+      doneB: (c) => `50 év múlva a szint ${c} ppm (egyszerűsített modell). Most állítsd a csapot: hol áll meg a szint?`,
+      slider: (e, p) => `Csap: ${e} GtCO₂/év · ${p} százalék a maihoz képest`,
+      run: '▶ 50 év indítása', pause: '⏸ Szünet', again: '↺ Újra', rising: 'emelkedik', holding: 'áll', falling: 'csökken',
+      fine: (g) => `Egyszerűsített modell: évente a szint változása (csap − lefolyó) ÷ ${g}, mert 1 ppm CO₂ kb. ${g} GtCO₂. Minél magasabb a szint, annál erősebb a lefolyó. Kibocsátás és nyelők: Global Carbon Budget 2026.`,
+      book: (i, o, d, r) => `Be ${i} − ki ${o} = évente ${d} GtCO₂ marad a levegőben = ${r} ppm évente.`,
+      pre: 'Kb. 278 ppm volt 1750-ben, az ipar előtt. Ebben a modellben a lefolyó az e vonal feletti CO₂-n dolgozik: azon, amit mi tettünk hozzá.',
+      mit: 'Egy kutatásban magasan képzett felnőttek, az MIT mesterszakos hallgatói közül a legtöbben tévesen azt hitték, hogy a szint beállhat, miközben több folyik be, mint ki. Ez olyan, mintha azt hinnénk, hogy a kád, amely gyorsabban telik, mint ahogy ürül, soha nem csordul túl. (Sterman és Booth Sweeney, 2007)',
+    },
+    paths: {
+      pn: { flat: 'Változatlan: a kibocsátás marad a mai', cut2: 'Évente 2 százalékkal lejjebb', zero: 'Egyenesen nettó zéróra 2050-ig' },
+      sh: { flat: 'változatlan', cut2: '−2% évente', zero: 'nettó zéró 2050' },
+      shape: ['tovább emelkedik', 'csúcs, aztán csökken', 'egyre gyorsabban emelkedik'],
+      q: 'Válaszd ki a CO₂-szint görbéjének alakját mindegyik úthoz.', show: 'Mutasd', again: '↺ Újra',
+      gateT: 'Kezdd a Kádnál', gateL: 'Előbb tippelj a Kád fülön. Ezek az utak utána jönnek.', go: 'Vissza a Kádhoz',
+      askT: 'A kibocsátás három útja', askL: 'A kibocsátás a három vonal egyikét követi. Mit csinál a levegő CO₂-szintje mindegyiknél?',
+      askB: 'Válassz alakot minden úthoz, aztán nyomd meg a gombot. Koppints a grafikonra, és leolvashatsz egy évet.',
+      res: (k) => `3-ból ${k} jó.`, resL: 'Ezt csinálja az egyszerűsített modell:',
+      lineUp: (c) => `Változatlan: ${c} ppm 2075-ben, és még mindig emelkedik.`,
+      linePeak: (n, y, c) => `${n}: csúcs kb. ${y} körül, nagyjából ${c} ppm, aztán csökken.`,
+      net: 'Itt a „nettó zéró” azt jelenti: az emberek nettó kibocsátása eléri a nullát, ami még kikerül, azt visszavesszük.',
+      fine: 'Egyszerűsített modell: a nagyságok és az időzítés a modell sajátjai, nem előrejelzés. A felmelegedés gyengíti a valódi nyelőket (Global Carbon Budget 2026: a szárazföldön 19, az óceánban 8 százalékkal, 2016–2025 átlaga).',
+    },
+    real: {
+      q: (x) => `1960 óta a kibocsátás nagyjából ${x}× akkora lett. A levegő CO₂-tartalmának éves növekedése is nőtt?`, opts: ['Igen, nőtt', 'Nem, nagyjából ugyanannyi', 'Nem, csökkent'],
+      askT: 'A csap régen és most', askL: (a, b) => `Fosszilis CO₂-kibocsátás: ${a} GtCO₂ 1960-ban, ${b} 2025-ben.`, askB: 'Koppints egy időszakra, hogy leolvasd a kibocsátást, aztán tippelj.',
+      resL: (a, b, f, e) => `Az éves növekedés ${a} ppm-ről (1960–70) ${b} ppm-re (2020–25) nőtt: nagyjából ${f}× akkora. A kibocsátás nagyjából ${e}× akkora lett.`,
+      resB: (a, b) => `Mauna Loa éves átlagok: ${a} ppm 1960-ban, ${b} ppm 2025-ben. Minél erősebb a csap, annál több marad a kádban évente, ezért a szint évtizedről évtizedre gyorsabban emelkedett.`,
+      goes: 'Hová kerül az egyes évek CO₂-ja', air: 'levegő', ocean: 'óceán', land: 'szárazföld',
+      goesN: (r) => `2016–2025 átlaga, az összes kibocsátás részaránya. Az utolsó ${r} százalék az egyenleg eltérése: amit az adatok még nem magyaráznak.`,
+      fine: 'Kibocsátás: fosszilis CO₂, Global Carbon Budget az Our World in Datán át. CO₂-szint: NOAA, Mauna Loa éves átlagok. Növekedés = két év közti változás ÷ a köztük lévő évek száma.',
+      topT: 'kibocsátás (GtCO₂/év)', botT: 'a levegő CO₂-növekedése (ppm/év)', after: 'a tipped után', period: (a, b) => `${a}–${b}`,
+    },
+    sec: { a: ['Kádszemlélet', 'Mit talált egy ismert kutatás'], b: ['A gyárak előtt', 'Honnan indult a szint'] },
+    facts: {
+      tub: [
+        { emo: '⚖️', text: (g) => `A tonna és a ppm összevetéséhez a kutatók ezt használják: 1 ppm CO₂ az egész légkörben 2,124 milliárd tonna szén. CO₂-ban ez kb. ${g} milliárd tonna.`, src: 'essd.copernicus.org/preprints/essd-2026-895 (Global Carbon Budget 2026)' },
+        { emo: '⏳', text: () => 'A kibocsátott CO₂ nagy része több száz évig a levegőben marad.', src: 'ourworldindata.org/co2-emissions' },
+      ],
+      paths: [
+        { emo: '🎯', text: () => 'A nettó zéró nem azt jelenti, hogy nincs kibocsátás: maradhat valamennyi, ha ugyanannyit el is veszünk.', src: 'en.wikipedia.org/wiki/Net_zero_emissions' },
+        { emo: '📉', text: () => 'Az összes kibocsátás (fosszilis és földhasználat) növekedése 2016–2025-ben évente 0,3 százalék volt, az előző évtizedben évente 1,7 százalék.', src: 'essd.copernicus.org/preprints/essd-2026-895 (Global Carbon Budget 2026)' },
+        { emo: '🌱', text: () => 'A szándékos CO₂-eltávolítás még csekély: az új módszerek az éves fosszilis CO₂-kibocsátás kevesebb mint 30 percét ellensúlyozzák.', src: 'globalcarbonbudget.org (Key messages, 2026)' },
+      ],
+      real: [
+        { emo: '🌋', text: () => '2022 végén kitört a Mauna Loa vulkán, és az ottani mérések 2023 júliusáig szüneteltek. Addig a tudósok egy körülbelül 34 kilométerre lévő helyen mértek.', src: 'gml.noaa.gov/ccgg/trends/data.html' },
+        { emo: '🦠', text: (p, r) => `2020-ban a kibocsátás nagyjából ${p} százalékkal esett, a levegő CO₂-ja mégis emelkedett: abban az évben ${r} ppm-et (Mauna Loa).`, src: 'ourworldindata.org/grapher/annual-co2-emissions-per-country · gml.noaa.gov/ccgg/trends/data.html' },
+      ],
+    },
+    quiz: [
+      { q: 'A világ kibocsátása 10 százalékkal csökken, és ott is marad. A levegő CO₂-ja…', opts: ['csökken', 'tovább emelkedik, de lassabban', 'nem változik'], ok: 1, hint: 'Vedd lejjebb egy kicsit a csapot a Kád fülön, aztán futtasd az éveket.' },
+      { q: 'A „nettó zéró” azt jelenti, hogy…', opts: ['egyáltalán nem bocsátunk ki CO₂-t', 'a levegő CO₂-szintje nulla lesz', 'amennyit kibocsátunk, annyit el is veszünk'], ok: 2, hint: 'Gondold végig, mit csinál a csap és a lefolyó, amikor a szint megáll.' },
+      { q: 'A kibocsátott CO₂-nek nagyjából mekkora része marad évente a levegőben?', opts: ['nagyjából a fele', 'szinte az egész', 'szinte semmi'], ok: 0, hint: 'Nézd meg a kártyát az Adatok fülön.' },
+    ],
+  },
+};
+const TOPICS = [
+  { id: 'mt_Wzj1RETm9A', en: 'Net Zero & Energy Transition', ru: 'Нулевые выбросы и энергетический переход', hu: 'Nettó zéró és energiaátmenet' },
+];
+
+// --- helpers -----------------------------------------------------------------------------------------------------------------------
+const n = (x, d = 1) => x.toFixed(d).replace('.', lang === 'en' ? '.' : ',');
+const COL = { tap: '#f0a24a', drain: '#5bb5ea', ink: '#EDEFF7', mut: '#98A0B8' };
+let CW = 0, CH = 0, G = {}; // canvas size and the last frame's plot geometry (for taps)
+
+// --- state -------------------------------------------------------------------------------------------------------------------------
+const S = {
+  g1: null, E: E0, moved: false, running: false, acc: 0, t: 0, C: C0, vis: C0,
+  hE: [E0], hS: [sinkAt(C0)], hC: [C0], sec: null,
+  g2: { flat: null, cut2: null, zero: null }, ran2: false, p2: 0, cur: 25,
+  g3: null, p3: 6,
+};
+const trendOf = () => { const d = S.E - sinkAt(S.C); return Math.abs(d) < 0.65 ? 0 : d > 0 ? 1 : -1; };
+const resetTub = () => { S.t = 0; S.C = C0; S.acc = 0; S.running = false; S.hE = [S.E]; S.hS = [sinkAt(C0)]; S.hC = [C0]; };
+function yearStep() {
+  const out = sinkAt(S.C);
+  S.hE[S.t] = S.E; S.hS[S.t] = out;
+  S.C += (S.E - out) / PPM_GT; S.t++;
+  S.hE[S.t] = S.E; S.hS[S.t] = sinkAt(S.C); S.hC[S.t] = S.C;
+  if (S.t >= YEARS) { S.running = false; S.acc = 0; }
+}
+
+const lab = shell({ key: 'co2-bathtub', T, topics: TOPICS, views: ['tub', 'paths', 'real'], onLang: render, onView: render });
+const secret = secretLab('co2-bathtub', () => ({
+  secrets: [{ emo: '🧠', title: T[lang].sec.a[0], desc: T[lang].sec.a[1] }, { emo: '🕰️', title: T[lang].sec.b[0], desc: T[lang].sec.b[1] }],
+  questions: T[lang].quiz,
+}), () => render());
+
+// --- drawing helpers ---------------------------------------------------------------------------------------------------------------
+function pill(c, text, x, y, o = {}) {
+  c.save(); c.font = '800 12px Nunito, sans-serif';
+  const w = c.measureText(text).width + 14, h = 20;
+  let px = o.al === 'l' ? x : o.al === 'r' ? x - w : x - w / 2;
+  px = clamp(px, 3, Math.max(3, CW - w - 3));
+  const py = clamp(y - h / 2, 3, Math.max(3, CH - h - 3));
+  c.fillStyle = o.bg || 'rgba(10,12,20,.82)'; c.beginPath(); c.roundRect(px, py, w, h, 10); c.fill();
+  if (o.stroke) { c.strokeStyle = o.stroke; c.lineWidth = 1; c.stroke(); }
+  c.fillStyle = o.fg || COL.ink; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(text, px + 7, py + h / 2 + 0.5);
+  c.restore();
+}
+function smooth(c, pts) { // a curve through the points (midpoint quadratic smoothing)
+  if (pts.length < 2) return;
+  c.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length - 1; i++) c.quadraticCurveTo(pts[i][0], pts[i][1], (pts[i][0] + pts[i + 1][0]) / 2, (pts[i][1] + pts[i + 1][1]) / 2);
+  const l = pts[pts.length - 1]; c.lineTo(l[0], l[1]);
+}
+function stroke(c, pts, col, w = 2.5, dash = []) {
+  if (pts.length < 2) return;
+  c.save(); c.beginPath(); smooth(c, pts); c.setLineDash(dash); c.lineWidth = w; c.strokeStyle = col; c.lineCap = 'round'; c.lineJoin = 'round'; c.stroke(); c.restore();
+}
+// a plot panel: dark rounded box, title, y ticks, x labels; returns the scale functions
+function frame(c, r, o) {
+  const pad = { l: 34, r: 10, t: 20, b: 17 };
+  const px = r.x + pad.l, py = r.y + pad.t, pw = r.w - pad.l - pad.r, ph = r.h - pad.t - pad.b;
+  const X = (v) => px + (v - o.x0) / (o.x1 - o.x0) * pw, Y = (v) => py + ph - (v - o.y0) / (o.y1 - o.y0) * ph;
+  c.save();
+  const g = c.createLinearGradient(0, r.y, 0, r.y + r.h); g.addColorStop(0, 'rgba(22,27,44,.85)'); g.addColorStop(1, 'rgba(12,15,26,.85)');
+  c.fillStyle = g; c.beginPath(); c.roundRect(r.x, r.y, r.w, r.h, 12); c.fill();
+  c.strokeStyle = 'rgba(130,145,190,.2)'; c.lineWidth = 1; c.stroke();
+  c.font = '700 12px Nunito, sans-serif'; c.textBaseline = 'middle';
+  c.textAlign = 'right';
+  for (const v of o.yt) { const y = Y(v); c.strokeStyle = 'rgba(130,145,190,.16)'; c.beginPath(); c.moveTo(px, y); c.lineTo(px + pw, y); c.stroke(); c.fillStyle = COL.mut; c.fillText(String(v), px - 5, y); }
+  c.textAlign = 'center'; c.fillStyle = COL.mut;
+  for (const [v, s] of o.xt) c.fillText(s, clamp(X(v), r.x + 14, r.x + r.w - 14), py + ph + 9);
+  c.textAlign = 'left'; c.fillStyle = '#C6CDE0'; c.fillText(o.title, r.x + 10, r.y + 10);
+  c.restore();
+  return { X, Y, px, py, pw, ph };
+}
+const clipPlot = (c, f) => { c.beginPath(); c.rect(f.px - 1, f.py - 2, f.pw + 2, f.ph + 4); c.clip(); };
+
+// --- the tub scene -----------------------------------------------------------------------------------------------------------------
+const DW = 340, DH = 296;
+const yOf = (C) => 190 - (clamp(C, 250, 600) - 250) / 350 * 92;
+function drawScene(c, R, time) {
+  const s = Math.min(R.w / DW, R.h / DH), ox = R.x + (R.w - DW * s) / 2, oy = R.y + (R.h - DH * s) / 2;
+  const P = (x, y) => [ox + x * s, oy + y * s];
+  const E = S.E, out = sinkAt(S.vis), ys = yOf(S.vis);
+  c.save(); c.translate(ox, oy); c.scale(s, s); c.lineJoin = 'round'; c.lineCap = 'round';
+
+  // soft floor shadow under the tub
+  let g = c.createRadialGradient(176, 218, 4, 176, 218, 140); g.addColorStop(0, 'rgba(0,0,0,.38)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+  c.fillStyle = g; c.beginPath(); c.ellipse(176, 218, 140, 14, 0, 0, 7); c.fill();
+
+  // drain pipes (behind the tub): trunk, then a branch to the ocean and a branch to the forests
+  const wT = 1.5 + 17 * out / 60, wO = 1.5 + 17 * out * OCEAN_PART / 60, wL = 1.5 + 17 * out * (1 - OCEAN_PART) / 60;
+  const pipe = (pts, w, wOuter) => {
+    c.beginPath(); c.moveTo(pts[0][0], pts[0][1]); c.quadraticCurveTo(pts[1][0], pts[1][1], pts[2][0], pts[2][1]);
+    c.lineWidth = wOuter + 6; c.strokeStyle = '#59627a'; c.stroke();
+    c.lineWidth = wOuter + 3; c.strokeStyle = '#8f98ae'; c.stroke();
+    c.lineWidth = w; c.strokeStyle = '#4a9fd8'; c.stroke();
+    c.save(); c.setLineDash([5, 9]); c.lineDashOffset = -time * 40; c.lineWidth = Math.max(1, w * 0.4); c.strokeStyle = 'rgba(210,235,255,.7)'; c.stroke(); c.restore();
+  };
+  pipe([[176, 196], [176, 210], [176, 226]], wT, wT);
+  pipe([[176, 224], [176, 246], [128, 254]], wO, Math.max(wO, wL));
+  pipe([[176, 224], [176, 246], [224, 254]], wL, Math.max(wO, wL));
+
+  // ocean (bottom left) and forests (bottom right)
+  g = c.createLinearGradient(0, 250, 0, 292); g.addColorStop(0, '#3d8fd0'); g.addColorStop(1, '#1d4f86');
+  c.fillStyle = g; c.beginPath(); c.moveTo(14, 292); c.lineTo(14, 262);
+  for (let x = 14; x <= 150; x += 6) c.lineTo(x, 258 + Math.sin(x * 0.12 + time * 1.8) * 2.2);
+  c.lineTo(150, 292); c.closePath(); c.fill();
+  c.strokeStyle = 'rgba(200,230,255,.5)'; c.lineWidth = 1.2; c.beginPath();
+  for (let x = 14; x <= 150; x += 6) { const y = 258 + Math.sin(x * 0.12 + time * 1.8) * 2.2; x === 14 ? c.moveTo(x, y) : c.lineTo(x, y); } c.stroke();
+  g = c.createLinearGradient(0, 262, 0, 292); g.addColorStop(0, '#4a9a5c'); g.addColorStop(1, '#25583a');
+  c.fillStyle = g; c.beginPath(); c.moveTo(196, 292); c.quadraticCurveTo(210, 262, 250, 264); c.quadraticCurveTo(300, 262, 326, 292); c.closePath(); c.fill();
+  for (const [tx, ty, tr] of [[222, 266, 9], [250, 260, 12], [284, 266, 10]]) {
+    c.fillStyle = '#6b4a2e'; c.beginPath(); c.roundRect(tx - 2, ty, 4, 12, 2); c.fill();
+    const cg = c.createRadialGradient(tx - tr * 0.3, ty - tr * 0.5, 1, tx, ty - tr * 0.2, tr * 1.3); cg.addColorStop(0, '#8fd18a'); cg.addColorStop(1, '#2f7d46');
+    c.fillStyle = cg; c.beginPath(); c.arc(tx, ty - tr * 0.3, tr, 0, 7); c.fill();
+    c.strokeStyle = 'rgba(15,40,25,.5)'; c.lineWidth = 1; c.stroke();
+  }
+
+  // tub body: porcelain with a gradient, rim and feet
+  for (const fx of [84, 268]) {
+    g = c.createLinearGradient(0, 204, 0, 216); g.addColorStop(0, '#e2c47a'); g.addColorStop(1, '#a07f35');
+    c.fillStyle = g; c.beginPath(); c.roundRect(fx - 10, 202, 20, 13, 5); c.fill(); c.strokeStyle = '#6b5420'; c.lineWidth = 1; c.stroke();
+  }
+  g = c.createLinearGradient(52, 0, 300, 0); g.addColorStop(0, '#f6f2e9'); g.addColorStop(0.45, '#d9dde8'); g.addColorStop(1, '#9ea8c0');
+  c.fillStyle = g; c.beginPath(); c.moveTo(52, 92); c.lineTo(300, 92); c.lineTo(300, 160); c.quadraticCurveTo(300, 206, 256, 206); c.lineTo(96, 206); c.quadraticCurveTo(52, 206, 52, 160); c.closePath(); c.fill();
+  c.strokeStyle = '#6c758d'; c.lineWidth = 1.6; c.stroke();
+  // the inside (a cut-away) and the water
+  const cav = () => { c.beginPath(); c.moveTo(64, 96); c.lineTo(288, 96); c.lineTo(288, 160); c.quadraticCurveTo(288, 192, 256, 192); c.lineTo(96, 192); c.quadraticCurveTo(64, 192, 64, 160); c.closePath(); };
+  cav(); g = c.createLinearGradient(0, 96, 0, 192); g.addColorStop(0, '#1b2236'); g.addColorStop(1, '#0d111f'); c.fillStyle = g; c.fill();
+  c.save(); cav(); c.clip();
+  for (const v of [300, 400, 500]) { const y = yOf(v); c.strokeStyle = 'rgba(255,255,255,.1)'; c.lineWidth = 1; c.setLineDash([3, 5]); c.beginPath(); c.moveTo(64, y); c.lineTo(288, y); c.stroke(); }
+  c.setLineDash([]);
+  g = c.createLinearGradient(0, ys, 0, 192); g.addColorStop(0, 'rgba(140,204,240,.96)'); g.addColorStop(1, 'rgba(38,94,158,.97)');
+  c.fillStyle = g; c.beginPath(); c.moveTo(60, 200); c.lineTo(60, ys);
+  for (let x = 60; x <= 292; x += 5) c.lineTo(x, ys + Math.sin(x * 0.07 + time * 2.2) * 1.8);
+  c.lineTo(292, 200); c.closePath(); c.fill();
+  if (S.sec === 'pre') { // the part below 278 ppm: the level before factories
+    const yp = yOf(C_PRE);
+    c.fillStyle = 'rgba(60,200,170,.38)'; c.fillRect(60, yp, 232, 200 - yp);
+    c.strokeStyle = 'rgba(255,255,255,.85)'; c.lineWidth = 1.5; c.setLineDash([5, 4]); c.beginPath(); c.moveTo(64, yp); c.lineTo(288, yp); c.stroke(); c.setLineDash([]);
+  }
+  const span = Math.max(12, 192 - ys); // bubbles rise to the surface
+  for (let i = 0; i < 12; i++) {
+    const bx = 76 + ((i * 53) % 200), by = 192 - ((time * (9 + (i % 4) * 3) + i * 31) % span), br = 1.6 + (i % 3) * 0.8;
+    c.fillStyle = 'rgba(255,255,255,.22)'; c.beginPath(); c.arc(bx, by, br, 0, 7); c.fill();
+  }
+  c.fillStyle = 'rgba(255,255,255,.07)'; c.fillRect(64, 96, 26, 100); // a soft light from the left
+  if (E > 0.3 && S.vis < 600) { // the stream lands: ripples
+    for (let k = 0; k < 3; k++) { const r = ((time * 16 + k * 9) % 27); c.strokeStyle = `rgba(255,215,160,${0.5 * (1 - r / 27)})`; c.lineWidth = 1.4; c.beginPath(); c.ellipse(118, ys + 1, 4 + r, 1.5 + r * 0.22, 0, 0, 7); c.stroke(); }
+  }
+  c.restore();
+  // drain grate
+  c.fillStyle = '#5b647c'; c.beginPath(); c.ellipse(176, 190, 11, 3, 0, 0, 7); c.fill();
+  // rim
+  g = c.createLinearGradient(0, 86, 0, 100); g.addColorStop(0, '#fffdf7'); g.addColorStop(1, '#c4cada');
+  c.fillStyle = g; c.beginPath(); c.roundRect(46, 86, 260, 12, 6); c.fill(); c.strokeStyle = '#6c758d'; c.lineWidth = 1.2; c.stroke();
+
+  // the tap: pipe, elbow, nozzle, red handle
+  g = c.createLinearGradient(0, 12, 0, 34); g.addColorStop(0, '#d7dce8'); g.addColorStop(0.5, '#9aa3b8'); g.addColorStop(1, '#6b738a');
+  c.fillStyle = g; c.strokeStyle = '#4c546b'; c.lineWidth = 1.2;
+  c.beginPath(); c.roundRect(-6, 14, 124, 18, 6); c.fill(); c.stroke();
+  c.beginPath(); c.roundRect(106, 14, 26, 36, 7); c.fill(); c.stroke();
+  c.beginPath(); c.roundRect(109, 46, 20, 9, 4); c.fill(); c.stroke();
+  c.fillStyle = '#6b738a'; c.fillRect(117, 6, 4, 9);
+  g = c.createRadialGradient(117, 3, 1, 119, 5, 9); g.addColorStop(0, '#ff8a80'); g.addColorStop(1, '#b3261e');
+  c.fillStyle = g; c.beginPath(); c.ellipse(119, 5, 10, 5, 0, 0, 7); c.fill(); c.strokeStyle = '#6e1712'; c.stroke();
+  if (E > 0.3) { // stream: thickness = emissions
+    const w = 1.5 + 17 * E / 60, y0 = 55;
+    g = c.createLinearGradient(0, y0, 0, ys); g.addColorStop(0, '#f8c27a'); g.addColorStop(1, '#d78534');
+    c.fillStyle = g; c.beginPath(); c.moveTo(119 - w * 0.55, y0); c.quadraticCurveTo(119 - w * 0.5, (y0 + ys) / 2, 119 - w * 0.62, ys + 2);
+    c.lineTo(119 + w * 0.62, ys + 2); c.quadraticCurveTo(119 + w * 0.5, (y0 + ys) / 2, 119 + w * 0.55, y0); c.closePath(); c.fill();
+    c.save(); c.setLineDash([6, 10]); c.lineDashOffset = -time * 55; c.lineWidth = Math.max(1, w * 0.3); c.strokeStyle = 'rgba(255,240,215,.75)';
+    c.beginPath(); c.moveTo(119 - w * 0.12, y0); c.lineTo(119 - w * 0.12, ys); c.stroke(); c.restore();
+  }
+  c.restore();
+
+  // labels in screen space (always 12 px)
+  c.save(); c.font = '700 12px Nunito, sans-serif'; c.fillStyle = COL.mut; c.textBaseline = 'middle'; c.textAlign = 'right';
+  for (const v of [300, 400, 500, 600]) { const [lx, ly] = P(42, yOf(v)); c.fillText(String(v), lx, ly); const [x1, y1] = P(44, yOf(v)), [x2] = P(50, yOf(v)); c.strokeStyle = 'rgba(152,160,184,.6)'; c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y1); c.stroke(); }
+  c.textAlign = 'left'; const [ux, uy] = P(6, 82); c.fillText('ppm', ux, uy); c.restore();
+  const t = T[lang];
+  pill(c, `${t.L.tap} ${n(E)} ${t.gt}`, ...P(142, 32), { al: 'l', stroke: 'rgba(240,162,74,.7)' });
+  pill(c, t.L.air, ...P(176, 76), { bg: 'rgba(240,244,255,.92)', fg: '#1a2030' });
+  const [lx, ly] = P(284, ys + 13);
+  pill(c, `${n(S.vis, 0)} ppm`, lx, ly, { al: 'r', bg: 'rgba(8,20,40,.78)' });
+  pill(c, t.L.ocean, ...P(82, 276)); pill(c, t.L.forests, ...P(260, 280));
+  if (S.sec === 'pre') pill(c, `${t.L.pre} · ${C_PRE} ppm`, ...P(176, yOf(C_PRE) + 14), { bg: 'rgba(8,60,56,.85)' });
+  if (S.sec === 'book' && S.g1 !== null) {
+    const d = E - sinkAt(S.C);
+    pill(c, `${n(E)} − ${n(sinkAt(S.C))} = ${d >= 0 ? '+' : ''}${n(d)}`, ...P(176, 132), { bg: 'rgba(10,12,20,.9)', stroke: 'rgba(245,200,76,.8)' });
+  }
+}
+
+// --- the tub's linked graph: tap and drain, level --------------------------------------------------------------------------------
+function drawTubGraph(c, R) {
+  const gap = 8, h = (R.h - gap) / 2, t = T[lang];
+  const A = { x: R.x, y: R.y, w: R.w, h }, B = { x: R.x, y: R.y + h + gap, w: R.w, h };
+  const xt = [[0, '2025'], [25, '2050'], [50, '2075']];
+  const f1 = frame(c, A, { x0: 0, x1: YEARS, y0: 0, y1: 60, yt: [0, 20, 40, 60], xt, title: '' });
+  c.save(); c.font = '800 12px Nunito, sans-serif'; c.textBaseline = 'middle'; c.textAlign = 'left';
+  c.fillStyle = COL.tap; c.fillText(`● ${t.L.tap} (${t.gt})`, A.x + 10, A.y + 10);
+  const lw = c.measureText(`● ${t.L.tap} (${t.gt})`).width;
+  c.fillStyle = COL.drain; c.fillText(`   ● ${t.L.drain}`, A.x + 10 + lw, A.y + 10); c.restore();
+  const m = S.t, E = S.hE, Sk = S.hS;
+  c.save(); clipPlot(c, f1);
+  for (let i = 0; i < m; i++) {
+    const up = (E[i] + E[i + 1]) / 2 > (Sk[i] + Sk[i + 1]) / 2;
+    c.fillStyle = up ? 'rgba(240,162,74,.3)' : 'rgba(91,181,234,.3)';
+    c.beginPath(); c.moveTo(f1.X(i), f1.Y(E[i])); c.lineTo(f1.X(i + 1), f1.Y(E[i + 1])); c.lineTo(f1.X(i + 1), f1.Y(Sk[i + 1])); c.lineTo(f1.X(i), f1.Y(Sk[i])); c.closePath(); c.fill();
+  }
+  c.restore();
+  const pe = [], ps = [];
+  for (let i = 0; i <= m; i++) { pe.push([f1.X(i), f1.Y(E[i])]); ps.push([f1.X(i), f1.Y(Sk[i])]); }
+  if (m === 0) { c.save(); c.lineWidth = 2.5; c.lineCap = 'round'; c.strokeStyle = COL.tap; c.beginPath(); c.arc(pe[0][0], pe[0][1], 3, 0, 7); c.stroke(); c.strokeStyle = COL.drain; c.beginPath(); c.arc(ps[0][0], ps[0][1], 3, 0, 7); c.stroke(); c.restore(); }
+  stroke(c, pe, COL.tap, 2.6); stroke(c, ps, COL.drain, 2.6);
+
+  const f2 = frame(c, B, { x0: 0, x1: YEARS, y0: 280, y1: 600, yt: [300, 400, 500, 600], xt, title: `CO₂ (ppm)` });
+  if (S.sec === 'pre') { c.save(); c.strokeStyle = 'rgba(255,255,255,.55)'; c.setLineDash([4, 4]); c.beginPath(); c.moveTo(f2.px, f2.Y(C_PRE)); c.lineTo(f2.px + f2.pw, f2.Y(C_PRE)); c.stroke(); c.restore(); }
+  const pc = []; for (let i = 0; i <= m; i++) pc.push([f2.X(i), f2.Y(S.hC[i])]);
+  c.save(); clipPlot(c, f2); stroke(c, pc, '#7cc4f0', 3); c.restore();
+  const lastC = pc[pc.length - 1]; c.fillStyle = '#fff'; c.beginPath(); c.arc(lastC[0], lastC[1], 3.5, 0, 7); c.fill();
+}
+
+// --- view 2: the three paths -------------------------------------------------------------------------------------------------------
+function drawPaths(c, R, time) {
+  const gap = 8, h = (R.h - gap) / 2, t = T[lang];
+  const A = { x: R.x, y: R.y, w: R.w, h }, B = { x: R.x, y: R.y + h + gap, w: R.w, h };
+  const xt = [[0, '2025'], [25, '2050'], [50, '2075']];
+  const f1 = frame(c, A, { x0: 0, x1: YEARS, y0: 0, y1: 48, yt: [0, 20, 40], xt, title: `${t.L.tap} (${t.gt})` });
+  const f2 = frame(c, B, { x0: 0, x1: YEARS, y0: 360, y1: 530, yt: [400, 450, 500], xt, title: 'CO₂ (ppm)' });
+  G.p2 = { px: f1.px, pw: f1.pw };
+  const shown = S.ran2 ? Math.min(YEARS, S.p2) : -1;
+  for (const k of PATH_KEYS) {
+    const pe = PATHS[k].E.map((e, i) => [f1.X(i), f1.Y(e)]);
+    stroke(c, pe, PATH_COL[k], 2.6, PATH_DASH[k]);
+    if (shown >= 0) {
+      const m = Math.floor(shown), pts = PATHS[k].C.slice(0, m + 1).map((v, i) => [f2.X(i), f2.Y(v)]);
+      if (shown > m && m < YEARS) pts.push([f2.X(shown), f2.Y(PATHS[k].C[m] + (PATHS[k].C[m + 1] - PATHS[k].C[m]) * (shown - m))]);
+      c.save(); clipPlot(c, f2); stroke(c, pts, PATH_COL[k], 2.8, PATH_DASH[k]); c.restore();
+      const l = pts[pts.length - 1]; c.fillStyle = PATH_COL[k]; c.beginPath(); c.arc(l[0], l[1], 3.5, 0, 7); c.fill();
+    }
+  }
+  // direct labels at the right end of the emission lines
+  const lab_ = { flat: [E0, -12], cut2: [PATHS.cut2.E[YEARS], -19], zero: [0, -11] };
+  for (const k of PATH_KEYS) pill(c, t.paths.sh[k], f1.px + f1.pw - 4, f1.Y(lab_[k][0]) + lab_[k][1], { al: 'r', bg: 'rgba(10,12,20,.8)', fg: PATH_COL[k] });
+  if (shown < 0) pill(c, t.real.after, f2.px + f2.pw / 2, f2.py + f2.ph / 2, { bg: 'rgba(10,12,20,.88)', fg: COL.mut });
+  // the year the child taps
+  const cx = f1.X(S.cur); c.save(); c.strokeStyle = 'rgba(255,255,255,.55)'; c.setLineDash([4, 4]); c.beginPath(); c.moveTo(cx, A.y + 20); c.lineTo(cx, B.y + B.h - 17); c.stroke(); c.restore();
+  for (const k of PATH_KEYS) {
+    c.fillStyle = PATH_COL[k]; c.strokeStyle = '#0A0C14'; c.lineWidth = 1.5;
+    c.beginPath(); c.arc(cx, f1.Y(PATHS[k].E[S.cur]), 4, 0, 7); c.fill(); c.stroke();
+    if (shown >= S.cur) { c.beginPath(); c.arc(cx, f2.Y(PATHS[k].C[S.cur]), 4, 0, 7); c.fill(); c.stroke(); }
+  }
+}
+
+// --- view 3: the real numbers --------------------------------------------------------------------------------------------------------
+function drawReal(c, R) {
+  const gap = 8, h = (R.h - gap) / 2, t = T[lang];
+  const A = { x: R.x, y: R.y, w: R.w, h }, B = { x: R.x, y: R.y + h + gap, w: R.w, h };
+  const xt = RY.map((y, i) => [i + 0.5, String(y).slice(2)]);
+  const f1 = frame(c, A, { x0: 0, x1: 8, y0: 0, y1: 48, yt: [0, 20, 40], xt, title: t.real.topT });
+  const f2 = frame(c, B, { x0: 0, x1: 8, y0: 0, y1: 3.4, yt: [0, 1, 2, 3], xt, title: t.real.botT });
+  G.p3 = { px: f1.px, pw: f1.pw };
+  const bw = f1.pw / 8 * 0.58;
+  RE.forEach((e, i) => {
+    const x = f1.X(i + 0.5), y = f1.Y(e), sel = i === S.p3 || i === S.p3 + 1;
+    const g = c.createLinearGradient(0, y, 0, f1.py + f1.ph); g.addColorStop(0, sel ? '#ffc680' : '#f0a24a'); g.addColorStop(1, '#9c5a1c');
+    c.fillStyle = g; c.beginPath(); c.roundRect(x - bw / 2, y, bw, f1.py + f1.ph - y, [5, 5, 0, 0]); c.fill();
+    if (sel) { c.strokeStyle = '#fff'; c.lineWidth = 1.5; c.stroke(); }
+    c.fillStyle = '#EDEFF7'; c.font = '800 12px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'alphabetic'; c.fillText(n(e), x, Math.max(A.y + 30, y - 4));
+  });
+  if (S.g3 === null) { pill(c, t.real.after, f2.px + f2.pw / 2, f2.py + f2.ph / 2, { bg: 'rgba(10,12,20,.88)', fg: COL.mut }); return; }
+  R_RISE.forEach((r, i) => {
+    const x = f2.X(i + 1), y = f2.Y(r), sel = i === S.p3, w = f2.pw / 8 * 0.7;
+    const g = c.createLinearGradient(0, y, 0, f2.py + f2.ph); g.addColorStop(0, sel ? '#a9dcff' : '#5bb5ea'); g.addColorStop(1, '#1f5f96');
+    c.fillStyle = g; c.beginPath(); c.roundRect(x - w / 2, y, w, f2.py + f2.ph - y, [5, 5, 0, 0]); c.fill();
+    if (sel) { c.strokeStyle = '#fff'; c.lineWidth = 1.5; c.stroke(); }
+    c.fillStyle = '#EDEFF7'; c.font = '800 12px Nunito, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'alphabetic'; c.fillText(n(r, 2), x, Math.max(B.y + 30, y - 4));
+  });
+}
+
+// --- one canvas, three views ---------------------------------------------------------------------------------------------------------
+let lastKey = '';
+canvasLoop($('cv'), (c, w, h, dt, time) => {
+  CW = w; CH = h;
+  const v = lab.view;
+  if (v === 'tub') {
+    if (S.running) { S.acc += dt * 5; while (S.acc >= 1 && S.running) { S.acc -= 1; yearStep(); } }
+    S.hE[S.t] = S.E; S.hS[S.t] = sinkAt(S.C);
+    S.vis += (S.C - S.vis) * (1 - Math.exp(-dt * 7));
+    const wide = w >= 700;
+    if (wide) { const sw = w * 0.5; drawScene(c, { x: 4, y: 6, w: sw - 8, h: h - 12 }, time); drawTubGraph(c, { x: sw + 4, y: 8, w: w - sw - 12, h: h - 16 }); }
+    else { const gh = Math.min(h * 0.44, 200); drawScene(c, { x: 0, y: 2, w, h: h - gh - 4 }, time); drawTubGraph(c, { x: 8, y: h - gh, w: w - 16, h: gh - 6 }); }
+    const key = `${S.t}|${trendOf()}|${S.running}`;
+    if (key !== lastKey) { lastKey = key; update(); }
+  } else if (v === 'paths') {
+    if (S.ran2 && S.p2 < YEARS) { S.p2 = Math.min(YEARS, S.p2 + dt * 7); if (S.p2 >= YEARS) { S.p2 = YEARS; update(); } }
+    drawPaths(c, { x: 8, y: 8, w: w - 16, h: h - 16 }, time);
+  } else drawReal(c, { x: 8, y: 8, w: w - 16, h: h - 16 }, time);
+});
+
+// --- controls ------------------------------------------------------------------------------------------------------------------------
+const icon = (k) => ['M3 19 C12 16 20 10 31 3', 'M3 19 C9 5 17 2 21 6 C26 10 28 15 31 19', 'M3 19 C15 18 24 15 31 3'].map((d) => `<svg viewBox="0 0 34 22" width="32" height="21" aria-hidden="true"><path d="${d}" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>`)[k];
+const secChip = (k, emo) => `<button class="chip secret ${secret.unlocked() ? 'open' : ''} ${S.sec === k ? 'on' : ''}" data-act="sec" data-k="${k}">${secret.unlocked() ? `${emo} ${esc(T[lang].sec[k === 'book' ? 'a' : 'b'][0])}` : '🔒 ???'}</button>`;
+
+function buildCtrl() {
+  const t = T[lang], v = lab.view, cb = $('ctrlBody');
+  if (v === 'tub') {
+    if (S.g1 === null) cb.innerHTML = `<div class="cb-q">${esc(t.tub.q)}</div><div class="cb-opts">${t.tub.opts.map((o, i) => `<button class="chip cb-opt" data-act="g1" data-i="${i}">${esc(o)}</button>`).join('')}</div>`;
+    else cb.innerHTML = `<label class="cb-lbl" id="tapLbl" for="tap"></label>
+      <input id="tap" class="big" type="range" min="0" max="60" step="0.5" value="${S.E}" style="--track: linear-gradient(90deg, #5bb5ea, #f0a24a)">
+      <div class="row2"><button class="btn" id="runB" data-act="run"></button><button class="chip" data-act="again">${esc(t.tub.again)}</button></div>
+      <div class="row2">${secChip('book', '🧠')}${secChip('pre', '🕰️')}</div>`;
+  } else if (v === 'paths') {
+    if (S.g1 === null) cb.innerHTML = `<div class="row2" style="margin-top:0"><button class="btn" data-act="goTub">${esc(t.paths.go)}</button></div>`;
+    else {
+      const done = S.ran2, all = PATH_KEYS.every((k) => S.g2[k] !== null);
+      cb.innerHTML = `<div class="cb-q" style="font-size:17px">${esc(t.paths.q)}</div>
+        <div class="cb-legend">${t.paths.shape.map((s, i) => `<span>${icon(i)} ${esc(s)}</span>`).join('')}</div>
+        ${PATH_KEYS.map((k) => `<div class="cb-row"><div class="cb-name"><i class="cb-dot" style="background:${PATH_COL[k]}"></i><span>${esc(t.paths.pn[k])}</span></div>
+          ${[0, 1, 2].map((i) => `<button class="cb-sk ${S.g2[k] === i ? 'on' : ''} ${done && PATHS[k].shape === i ? 'good' : ''} ${done && S.g2[k] === i && PATHS[k].shape !== i ? 'bad' : ''}" data-act="g2" data-k="${k}" data-i="${i}" aria-label="${esc(t.paths.shape[i])}"${done ? ' disabled' : ''}>${icon(i)}</button>`).join('')}
+          <span class="cb-mark" style="color:${done ? (S.g2[k] === PATHS[k].shape ? 'var(--ok)' : 'var(--wip)') : 'inherit'}">${done ? (S.g2[k] === PATHS[k].shape ? '✓' : '✗') : ''}</span></div>`).join('')}
+        <div class="row2"><button class="btn" data-act="${done ? 'again2' : 'show2'}"${!done && !all ? ' disabled' : ''}>${esc(done ? t.paths.again : t.paths.show)}</button></div>`;
+    }
+  } else {
+    const per = RY.slice(0, 7).map((y, i) => `<button class="chip ${i === S.p3 ? 'on' : ''}" data-act="per" data-i="${i}">${esc(`${String(y).slice(2)}–${String(RY[i + 1]).slice(2)}`)}</button>`).join('');
+    if (S.g1 === null) { cb.innerHTML = `<div class="row2" style="margin-top:0"><button class="btn" data-act="goTub">${esc(t.paths.go)}</button></div>`; return; }
+    cb.innerHTML = (S.g3 === null ? `<div class="cb-q">${esc(t.real.q(E_RATIO))}</div><div class="cb-opts" style="margin-bottom:10px">${t.real.opts.map((o, i) => `<button class="chip cb-opt" data-act="g3" data-i="${i}">${esc(o)}</button>`).join('')}</div>` : '')
+      + `<div class="chips">${per}</div>`;
+  }
+}
+
+function update() {
+  const t = T[lang], v = lab.view, gtxt = n(PPM_GT);
+  if (v === 'tub') {
+    lab.setGlow('rgba(91, 181, 234, .28)');
+    const tr = trendOf(), out = sinkAt(S.C), d = S.E - out, r = d / PPM_GT, pct = Math.round(S.E / E0 * 100);
+    const tl = $('tapLbl'); if (tl) tl.textContent = t.tub.slider(n(S.E), pct);
+    const rb = $('runB'); if (rb) rb.textContent = S.running ? t.tub.pause : t.tub.run;
+    if (S.g1 === null) {
+      lab.setReadout(n(C0), `ppm · ${YEAR0}`, '', '#5bb5ea'); lab.setFacts([]);
+      lab.setState({ emo: '🛁', title: t.tub.askT, lead: t.tub.askL(n(E0)), body: t.tub.askB, extra: `<div class="fine">${esc(t.tub.fine(gtxt))}</div>` });
+      return;
+    }
+    lab.setReadout(n(S.C), `ppm · ${YEAR0 + S.t}`, t.tub[tr === 0 ? 'holding' : tr > 0 ? 'rising' : 'falling'], '#5bb5ea');
+    const i = n(S.E), o = n(out);
+    let st;
+    if (!S.moved) st = { emo: S.g1 === ANS1 ? '✅' : '🤔', title: S.g1 === ANS1 ? t.ok : t.no, lead: t.tub.upL(i, o, n(d), n(r)), body: S.t >= YEARS ? t.tub.doneB(n(S.C, 0)) : t.tub.watchB };
+    else if (tr > 0) st = { emo: '🛁', title: t.tub.up, lead: t.tub.upL(i, o, n(d), n(r)), body: t.tub.moveB };
+    else if (tr < 0) st = { emo: '🛁', title: t.tub.down, lead: t.tub.downL(i, o, n(-d), n(-r)), body: t.tub.moveB };
+    else st = { emo: '🎯', title: t.tub.hold, lead: `${t.tub.holdL(i, o)} ${t.tub.holdF(pct)}`, body: t.tub.holdB };
+    let extra = '';
+    if (S.sec === 'book') extra += `<p class="cb-sub">${esc(t.tub.mit)}</p><p class="cb-sub"><b>${esc(t.tub.book(i, o, n(d), n(r)))}</b></p>`;
+    if (S.sec === 'pre') extra += `<p class="cb-sub">${esc(t.tub.pre)}</p>`;
+    extra += `<div class="fine">${esc(t.tub.fine(gtxt))}</div>`;
+    lab.setState({ ...st, extra });
+    lab.setFacts(t.facts.tub.map((f) => ({ emo: f.emo, text: f.text(gtxt), src: f.src })));
+  } else if (v === 'paths') {
+    lab.setGlow('rgba(245, 213, 76, .22)');
+    const cur = S.cur, yr = YEAR0 + cur, done = S.ran2, fin = done && S.p2 >= YEARS;
+    if (S.g1 === null) {
+      lab.setReadout(String(yr), PATH_KEYS.map((k) => n(PATHS[k].E[cur], 0)).join(' · ') + ` ${t.gt}`, '', '#f5d54c'); lab.setFacts([]);
+      lab.setState({ emo: '🔒', title: t.paths.gateT, lead: t.paths.gateL, body: '', extra: '' });
+      return;
+    }
+    lab.setReadout(String(yr), done && S.p2 >= cur ? PATH_KEYS.map((k) => n(PATHS[k].C[cur], 0)).join(' · ') + ' ppm' : PATH_KEYS.map((k) => n(PATHS[k].E[cur], 0)).join(' · ') + ` ${t.gt}`, '', '#f5d54c');
+    if (!fin) {
+      lab.setState({ emo: '🛤️', title: t.paths.askT, lead: t.paths.askL, body: t.paths.askB, extra: '' }); lab.setFacts([]);
+    } else {
+      const k = PATH_KEYS.filter((q) => S.g2[q] === PATHS[q].shape).length;
+      const lines = PATH_KEYS.map((q) => PATHS[q].shape === 0 ? t.paths.lineUp(n(PATHS[q].C[YEARS], 0)) : t.paths.linePeak(t.paths.sh[q], YEAR0 + PATHS[q].peak, n(PATHS[q].C[PATHS[q].peak], 0)));
+      lab.setState({ emo: k === 3 ? '✅' : '🤔', title: t.paths.res(k), lead: t.paths.resL, body: lines.join(' '), extra: `<p class="cb-sub">${esc(t.paths.net)}</p><div class="fine">${esc(t.paths.fine)}</div>` });
+      lab.setFacts(t.facts.paths.map((f) => ({ emo: f.emo, text: f.text(), src: f.src })));
+    }
+  } else {
+    lab.setGlow('rgba(61, 220, 151, .2)');
+    const p = S.p3, i0 = RY[p], i1 = RY[p + 1];
+    if (S.g1 === null) {
+      lab.setReadout(n(RE[p + 1]), `${t.gt} · ${i1}`, '', '#f0a24a'); lab.setFacts([]);
+      lab.setState({ emo: '🔒', title: t.paths.gateT, lead: t.paths.gateL, body: '', extra: '' });
+    } else if (S.g3 === null) {
+      lab.setReadout(n(RE[p + 1]), `${t.gt} · ${i1}`, '', '#f0a24a'); lab.setFacts([]);
+      lab.setState({ emo: '📊', title: t.real.askT, lead: t.real.askL(n(RE[0]), n(RE[7])), body: t.real.askB, extra: `<div class="fine">${esc(t.real.fine)}</div>` });
+    } else {
+      lab.setReadout(`+${n(R_RISE[p], 2)}`, `${t.yr} · ${i0}–${i1}`, '', '#5bb5ea');
+      const right = S.g3 === 0, rest = 100 - SHARES.air - SHARES.ocean - SHARES.land;
+      const bar = `<div class="cb-sub"><b>${esc(t.real.goes)}</b></div><div class="cb-bar"><span style="width:${SHARES.air}%;background:#5bb5ea"></span><span style="width:${SHARES.ocean}%;background:#3ddc97"></span><span style="width:${SHARES.land}%;background:#f5d54c"></span><span style="width:${rest}%;background:#98A0B8"></span></div><div class="cb-legend"><span><i class="cb-dot" style="background:#5bb5ea"></i>${esc(t.real.air)} ${SHARES.air}%</span><span><i class="cb-dot" style="background:#3ddc97"></i>${esc(t.real.ocean)} ${SHARES.ocean}%</span><span><i class="cb-dot" style="background:#f5d54c"></i>${esc(t.real.land)} ${SHARES.land}%</span></div><p class="cb-sub">${esc(t.real.goesN(rest))}</p>`;
+      lab.setState({ emo: right ? '✅' : '🤔', title: right ? t.ok : t.no, lead: t.real.resL(n(R_RISE[0], 2), n(R_RISE[6], 2), R_RATIO, E_RATIO), body: t.real.resB(n(RM[0], 2), n(RM[7], 2)), extra: `${bar}<div class="fine">${esc(t.real.fine)}</div>` });
+      lab.setFacts(t.facts.real.map((f, j) => ({ emo: f.emo, text: j === 1 ? f.text(DIP, n(DIP_RISE, 2)) : f.text(), src: f.src })));
+    }
+  }
+}
+function render() { buildCtrl(); update(); lastKey = ''; }
+
+const showStage = () => { const r = $('stage').getBoundingClientRect(); if (r.top < 0 || r.bottom > innerHeight) $('stage').scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+const goTab = (v) => $('views').querySelector(`[data-view="${v}"]`)?.click();
+$('ctrlBody').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const a = b.dataset.act, i = +b.dataset.i;
+  if (a === 'g1') { S.g1 = i; S.moved = false; resetTub(); S.running = true; (i === ANS1 ? sfx.good : sfx.bad)(); showStage(); }
+  else if (a === 'run') { if (S.t >= YEARS) resetTub(); S.running = !S.running; sfx.click(); }
+  else if (a === 'again') { resetTub(); S.moved = true; sfx.click(); }
+  else if (a === 'sec') {
+    if (!secret.unlocked()) return secret.open();
+    S.sec = S.sec === b.dataset.k ? null : b.dataset.k; sfx.click();
+  } else if (a === 'goTub') goTab('tub');
+  else if (a === 'g2') { S.g2[b.dataset.k] = i; sfx.tick(); }
+  else if (a === 'show2') { S.ran2 = true; S.p2 = 0; const k = PATH_KEYS.filter((q) => S.g2[q] === PATHS[q].shape).length; (k === 3 ? sfx.good : sfx.click)(); showStage(); }
+  else if (a === 'again2') { S.g2 = { flat: null, cut2: null, zero: null }; S.ran2 = false; S.p2 = 0; sfx.click(); }
+  else if (a === 'g3') { S.g3 = i; (i === 0 ? sfx.good : sfx.bad)(); showStage(); }
+  else if (a === 'per') { S.p3 = i; sfx.tick(); }
+  render();
+});
+$('ctrlBody').addEventListener('input', (ev) => {
+  if (ev.target.id !== 'tap') return;
+  S.E = +ev.target.value; S.moved = true; update();
+});
+$('stExtra').addEventListener('click', (ev) => { if (ev.target.closest('[data-act=goTub]')) goTab('tub'); });
+// tapping the graphs: view 2 reads a year, view 3 picks a period
+let down = false;
+const pick = (ev) => {
+  const r = $('cv').getBoundingClientRect(), x = ev.clientX - r.left;
+  if (lab.view === 'paths' && G.p2) { const y = clamp(Math.round((x - G.p2.px) / G.p2.pw * YEARS), 0, YEARS); if (y !== S.cur) { S.cur = y; update(); } }
+  else if (lab.view === 'real' && G.p3) { const p = clamp(Math.round((x - G.p3.px) / G.p3.pw * 8 - 1), 0, 6); if (p !== S.p3) { S.p3 = p; buildCtrl(); update(); sfx.tick(); } }
+};
+$('cv').addEventListener('pointerdown', (ev) => { down = true; pick(ev); });
+$('cv').addEventListener('pointermove', (ev) => { if (down) pick(ev); });
+addEventListener('pointerup', () => { down = false; });
+addEventListener('pointercancel', () => { down = false; });
+render();
+</script>
+</body>
+</html>
