@@ -668,13 +668,14 @@ function handPaths(type, X, Y, ang, s, aw, hl, lod) {
   const paths = [], lines = [];
   const L2 = (ax, ay, bx, by) => { const [a, b] = T(ax, ay), [c2, d] = T(bx, by); lines.push([a, b, c2, d]); };
   if (type === 'open') {
-    paths.push(tEll(0, hl * 0.32, pw * 0.56, hl * 0.34));
-    if (lod === 0) { paths.push(tEll(0, hl * 0.62, pw * 0.5, hl * 0.3)); return { paths, lines }; }
-    // fingers apart, but only a little: a fan of spikes reads as a fork
-    const fx = [-0.33, -0.11, 0.11, 0.33].map((f) => f * pw * th);
-    const len = [0.86, 1.0, 0.96, 0.8];
-    for (let i = 0; i < 4; i++) paths.push(tCap(fx[i], hl * 0.4, fx[i] * 1.22, hl * len[i], pw * 0.3, pw * 0.26));
-    paths.push(tCap(th * pw * 0.36, hl * 0.28, th * pw * 0.78, hl * 0.5, pw * 0.32, pw * 0.27));
+    // a friendly open hand: a round palm, fingers held together (they touch, no gaps or grooves),
+    // fingertips forming one soft arc, the thumb apart; spread fingers read as gills or a fork
+    paths.push(tEll(0, hl * 0.3, pw * 0.56, hl * 0.33));
+    if (lod === 0) { paths.push(tEll(0, hl * 0.6, pw * 0.5, hl * 0.3)); return { paths, lines }; }
+    const fx = [-0.3, -0.1, 0.1, 0.3].map((f) => f * pw * th);
+    const len = [0.84, 0.93, 0.9, 0.78];
+    for (let i = 0; i < 4; i++) paths.push(tCap(fx[i], hl * 0.36, fx[i] * 1.06, hl * len[i], pw * 0.31, pw * 0.29));
+    paths.push(tCap(th * pw * 0.38, hl * 0.26, th * pw * 0.74, hl * 0.46, pw * 0.32, pw * 0.28));
   } else if (type === 'fist') {
     paths.push(rrT(T, rot, -pw * 0.55, hl * 0.06, pw * 1.1, hl * 0.66, pw * 0.4));
     paths.push(tCap(th * pw * 0.5, hl * 0.2, -th * pw * 0.05, hl * 0.4, pw * 0.3, pw * 0.27));
