@@ -15,7 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-26
 
 ### Labs
-- `my-body`: the children's hair now covers the top of the head (it left a bald patch on the crown). (#PR)
+- `my-body`: the children's hair now covers the top of the head (it left a bald patch on the crown). (#743)
 
 ## 2026-11-24
 
