@@ -15,6 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-26
 
 ### Labs
+- `athens`, `south-america`, `surnames`, `fair-test` and `sled-work` draw their people with the shared `labs/people.js`; costumes and props stay in the labs. (#746)
 - `ballet` “Ballet Studio”: the dancers are drawn by the shared `labs/people.js` (`drawRig`); the lab's own figure code is removed. (#745)
 - Shared people for labs: `labs/people.js` draws picture-book figures with one canvas-2D call: `drawPerson` for standing people (ages, builds, outfits, shoes, hair styles, moods, a rim for dark scenes) and `drawRig` for any pose and turn (front, three-quarter, profile, back). Demo in `labs/people-demo.html`. No lab uses it yet. (#744)
 
