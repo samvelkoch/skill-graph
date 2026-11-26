@@ -12,6 +12,11 @@ Hungarian is on the site: [What's new](https://samvelkoch.github.io/skill-graph/
 
 Counts in brackets are totals after that day.
 
+## 2026-11-26
+
+### Labs
+- `my-body`: the children's hair now covers the top of the head (it left a bald patch on the crown). (#PR)
+
 ## 2026-11-24
 
 ### Labs
