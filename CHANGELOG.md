@@ -12,6 +12,11 @@ Hungarian is on the site: [What's new](https://samvelkoch.github.io/skill-graph/
 
 Counts in brackets are totals after that day.
 
+## 2026-11-26
+
+### Labs
+- Shared people for labs: `labs/people.js` draws picture-book figures with one canvas-2D call: `drawPerson` for standing people (ages, builds, outfits, shoes, hair styles, moods, a rim for dark scenes) and `drawRig` for any pose and turn (front, three-quarter, profile, back). Demo in `labs/people-demo.html`. No lab uses it yet. (#744)
+
 ## 2026-11-24
 
 ### Labs
