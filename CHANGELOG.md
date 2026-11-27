@@ -15,7 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-27
 
 ### Labs (my-body fix)
-- `my-body`: the cousin wears a bob instead of pigtails, and the 'private' zone is a warm halo behind the swimsuit instead of a yellow outline that read as a see-through top.
+- `my-body`: the cousin's pigtails are redrawn as two bunches high on the sides (no strands hanging in front), and the 'private' zone is a warm halo behind the swimsuit instead of a yellow outline that read as a see-through top.
 
 ### Labs
 - `market-stall`, `ask-help`, `good-friend`, `bully-or-not`, `family-roles`, `growing-up`, `no-go-tell`, `boxes` and `my-body` draw their people with the shared `labs/people.js`; props, costumes and the swimsuit highlight stay in the labs. `caricature` keeps its own exaggeration code, restyled to the same look. `labs/people.js` is unchanged. (#743)
