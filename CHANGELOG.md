@@ -14,6 +14,9 @@ Counts in brackets are totals after that day.
 
 ## 2026-11-27
 
+### Labs (my-body fix)
+- `my-body`: the cousin's pigtails are redrawn as two bunches high on the sides (no strands hanging in front), and the 'private' zone is a warm halo behind the swimsuit instead of a yellow outline that read as a see-through top.
+
 ### Labs
 - Ten new labs on thinking for yourself (872): `two-books` “One Bridge, Two Books” (one event told by two invented countries' school books), `frame-it` “Inside the Frame” (cropping, choosing facts, the Kuleshov effect), `see-or-think` “I See, I Think” (observation vs interpretation, ages 6–9), `change-mind` “What's Going On?” (Bayes without formulas: 100 beans over several stories, clue strength, forecast calibration), `think-first` “Think First” (thinking before asking an AI helper), `trick-box` “The Trick Box” (persuasion tricks used symmetrically by two sides), `echo` “Echo” (illusory truth effect, many posts from one source, rumour vs correction), `cafe-queue` “Follow the Queue?” (information cascades, MusicLab), `leading-question` “How Was It Asked?” (leading questions and memory, Loftus & Palmer) and `retell` “Say It Back” (restating the other side, three ethical lenses, judging a speech). All countries, towns and people in them are invented. (#747)
 - `market-stall`, `ask-help`, `good-friend`, `bully-or-not`, `family-roles`, `growing-up`, `no-go-tell`, `boxes` and `my-body` draw their people with the shared `labs/people.js`; props, costumes and the swimsuit highlight stay in the labs. `caricature` keeps its own exaggeration code, restyled to the same look. `labs/people.js` is unchanged. (#743)
