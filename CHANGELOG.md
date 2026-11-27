@@ -18,10 +18,12 @@ Counts in brackets are totals after that day.
 - `my-body`: the cousin's pigtails are redrawn as two bunches high on the sides (no strands hanging in front), and the 'private' zone is a warm halo behind the swimsuit instead of a yellow outline that read as a see-through top.
 
 ### Labs
+- Three more labs (875): `thousand-dreams` “A Thousand Dreamers” (survivorship bias, regression to the mean, what practice changes; Wald, Galton, Kahneman), `dots-stripes` “Dots and Stripes” (minimal groups, a rumour about newcomers in an invented village, contact and shared goals; Tajfel, Allport, Sherif) and `quiet-help` “Quiet Help” (helping in a way that keeps the other person's dignity, no applause needed). (#PR)
 - Ten new labs on thinking for yourself (872): `two-books` “One Bridge, Two Books” (one event told by two invented countries' school books), `frame-it` “Inside the Frame” (cropping, choosing facts, the Kuleshov effect), `see-or-think` “I See, I Think” (observation vs interpretation, ages 6–9), `change-mind` “What's Going On?” (Bayes without formulas: 100 beans over several stories, clue strength, forecast calibration), `think-first` “Think First” (thinking before asking an AI helper), `trick-box` “The Trick Box” (persuasion tricks used symmetrically by two sides), `echo` “Echo” (illusory truth effect, many posts from one source, rumour vs correction), `cafe-queue` “Follow the Queue?” (information cascades, MusicLab), `leading-question` “How Was It Asked?” (leading questions and memory, Loftus & Palmer) and `retell` “Say It Back” (restating the other side, three ethical lenses, judging a speech). All countries, towns and people in them are invented. (#747)
 - `market-stall`, `ask-help`, `good-friend`, `bully-or-not`, `family-roles`, `growing-up`, `no-go-tell`, `boxes` and `my-body` draw their people with the shared `labs/people.js`; props, costumes and the swimsuit highlight stay in the labs. `caricature` keeps its own exaggeration code, restyled to the same look. `labs/people.js` is unchanged. (#743)
 
 ### Data
+- Two extra topics: `sg_mth_30` “Luck, Survivors and Regression to the Mean” and `sg_civ_42` “Us and Them: Groups and Scapegoats”, with RU/HU names and dependencies; layout regenerated. (#PR)
 - Two extra topics for the thinking-for-yourself labs: `ai_09` “Thinking for Yourself with AI” and `sg_civ_41` “Spotting Persuasion Tricks”, with RU/HU names and dependencies; layout regenerated. (#747)
 
 ## 2026-11-26
