@@ -37,6 +37,7 @@ The labs must look crafted, not "made of sticks". The main picture is the most i
 - Depth: soft gradients instead of flat fills on big shapes, light from the top left, a soft shadow under objects, 1–2 px darker outlines on key shapes.
 - A small, harmonious palette per lab (a few hex values), on the dark theme of `lab.css` (its variables `--soft`, `--faint`, `--stroke2`, `--accent`…).
 - Believable proportions; animals, people and objects recognisable at 375 px: rounded shapes, eyes with a white highlight, no stick figures.
+- **People are always drawn with the shared `labs/people.js`** (`drawPerson`, `drawRig`): import it, never copy or change it, and never draw your own heads, faces or bodies. Look at `labs/good-friend` or `labs/market-stall` for usage; use `rim` on dark scenes, vary skin, hair and outfits, avoid hairStyle `long` and `braids`. Builders' specs must say this explicitly.
 - Motion with easing, never linear jumps: settling, a little overshoot, a squash on landing.
 - Canvas text on a dark rounded pill (≈80 % opaque), clamped inside the canvas, at least 12 px.
 - Emoji and objects drawn inside `save()/restore()` with `globalAlpha = 1` and an opaque `fillStyle`, or they look like ghosts.
