@@ -402,6 +402,17 @@ function hair(back, front, st, hx, cy, r, rw, hc, skin, tie, lod) {
     addCap(p, X(1.5), Y(0.3), X(1.4), Y(1.55), r * 0.6, r * 0.14);
     back.push({ p, f: deep });
     if (lod) back.push({ p: ell(X(1.16), Y(0.04), r * 0.13, r * 0.28, -0.9), f: tie, noRim: 1 });
+  } else if (st === 'pigtails') { // two fluffy bunches tied high on the sides: they flare out and curl down
+    for (const s of [-1, 1]) {
+      const bunch = (k) => { const p = new Path2D(), q = 1 - k;
+        addEll(p, X(s * (1.16 - k * 0.02)), Y(-0.36 - k * 0.03), r * 0.27 * q, r * 0.24 * q, 0);
+        addEll(p, X(s * (1.44 - k * 0.03)), Y(-0.1 - k * 0.04), r * 0.36 * q, r * 0.4 * q, s * 0.5);
+        addEll(p, X(s * (1.52 - k * 0.04)), Y(0.34 - k * 0.04), r * 0.3 * q, r * 0.36 * q, s * 0.3);
+        addEll(p, X(s * 1.42), Y(0.68), r * 0.17 * q, r * 0.21 * q, s * -0.3);
+        return p; };
+      back.push({ p: bunch(0), f: deep }, { p: bunch(0.14), f: hc });
+      if (lod) back.push({ p: ell(X(s * 1.4), Y(-0.24), r * 0.13, r * 0.06, s * 0.6), f: light, noRim: 1 });
+    }
   } else if (st === 'bun') back.push({ p: ell(hx, Y(-1.26), r * 0.46, r * 0.4), f: hc });
   else if (st === 'afro') {
     const p = new Path2D(); addEll(p, hx, Y(-0.26), rw * 1.5, r * 1.3);
@@ -427,8 +438,10 @@ function hair(back, front, st, hx, cy, r, rw, hc, skin, tie, lod) {
   } else if (st === 'long') {
     front.push({ p: cap(X(0.9), Y(-0.1), X(1.06), Y(1.95), r * 0.62, r * 0.32), f: hc }, { p: cap(X(-0.9), Y(-0.1), X(-1.06), Y(1.95), r * 0.62, r * 0.32), f: hc });
   } else if (st === 'pigtails') {
-    front.push({ p: cap(X(1.12), Y(0.1), X(1.42), Y(1.0), r * 0.56, r * 0.2), f: hc }, { p: cap(X(-1.12), Y(0.1), X(-1.42), Y(1.0), r * 0.56, r * 0.2), f: hc });
-    if (lod) front.push({ p: ell(X(1.08), Y(0.02), r * 0.14, r * 0.14), f: tie, noRim: 1 }, { p: ell(X(-1.08), Y(0.02), r * 0.14, r * 0.14), f: tie, noRim: 1 });
+    for (const s of [-1, 1]) { // the hair ties where the bunches start, over the edge of the cap
+      front.push({ p: ell(X(s * 1.03), Y(-0.38), r * 0.15, r * 0.17, s * 0.4), f: tow(tie, DARK, 0.25), noRim: 1 });
+      if (lod) front.push({ p: ell(X(s * 1.03), Y(-0.41), r * 0.1, r * 0.11, s * 0.4), f: tie, noRim: 1 });
+    }
   } else if (st === 'braids') {
     const p = new Path2D();
     for (const s of [-1, 1]) for (let i = 0; i < 4; i++) addEll(p, X(s * 1.02), Y(0.3 + i * 0.4), r * (0.25 - i * 0.02), r * 0.27, s * (i % 2 ? 0.4 : -0.4));
