@@ -50,6 +50,7 @@
 </head>
 <body>
 <script type="module">
+import { drawPerson, ARMS } from '../people.js';
 import { shell, canvasLoop, secretLab, sfx, $, esc, clamp, lerp, lang } from '../lab.js';
 
 // --- texts -------------------------------------------------------------------------------------------------
@@ -313,92 +314,60 @@ function wrap2(c, txt, maxW) {
   return [txt];
 }
 
-// --- one figure function for all views: age, skin, hair, clothes ----------------------------------------------
+// --- ages and heights ---------------------------------------------------------------------------------------------
 const SK = ['#f3c9a5', '#e0a878', '#c68642', '#8d5a35', '#5a3825'];
-const HF = (a) => (a <= 0 ? 0.28 : a < 3 ? lerp(0.28, 0.22, a / 3) : a < 8 ? lerp(0.22, 0.19, (a - 3) / 5) : a < 14 ? lerp(0.19, 0.165, (a - 8) / 6) : a < 20 ? lerp(0.165, 0.145, (a - 14) / 6) : 0.143);
 const HT = (a) => (a < 1 ? 30 : a < 3 ? lerp(30, 44, (a - 1) / 2) : a < 8 ? lerp(44, 56, (a - 3) / 5) : a < 14 ? lerp(56, 70, (a - 8) / 6) : a < 19 ? lerp(70, 80, (a - 14) / 5) : 80);
+// --- people: the shared picture-book module, mapped from the lab's own person records ---------------------------
 // p: { skin, hair, style: short|long|bun|curly|pony, shirt, pants?, dress?, glasses?, cane? }
-// o: { age, hf?, sit?, mood: ok|tired|eager, alpha?, armL?, armR? }   x = centre, y = feet, h = height
-function person(c, x, y, h, p, o = {}) {
-  const age = o.age ?? 30, hf = o.hf ?? HF(age), sit = !!o.sit, mood = o.mood || 'ok';
-  const hd = h * hf, r = hd / 2, neck = h * 0.02, rest = h - hd - neck;
-  const torso = sit ? rest * 0.62 : rest * 0.4, legs = rest - torso;
-  const sw = hd * Math.min(2.0, 1.4 + 0.035 * age), hip = sw * 0.86;
-  const yHip = y - legs, yS = yHip - torso, hcy = yS - neck - r;
-  const skin = p.skin, sk2 = shade(skin, 0.14), shirt = p.shirt, pants = p.pants || '#44506a', sh = Math.max(2, h * 0.035);
-  c.save(); c.globalAlpha = o.alpha ?? 1; c.lineJoin = 'round'; c.lineCap = 'round';
-  c.fillStyle = 'rgba(0,0,0,.24)'; c.beginPath(); c.ellipse(x, y + 1, sw * 0.75, Math.max(2, h * 0.035), 0, 0, 7); c.fill();
-  // legs / dress
-  if (sit) {
-    c.fillStyle = skin;
-    for (const s of [-1, 1]) { c.beginPath(); c.ellipse(x + s * hip * 0.3, y - sh * 0.9, hip * 0.2, sh * 1.0, 0, 0, 7); c.fill(); }
-  } else if (p.dress) {
-    const hem = yHip + legs * 0.42;
-    c.fillStyle = sk2;
-    for (const s of [-1, 1]) { rr(c, x + s * hip * 0.2 - hip * 0.1, hem - 2, hip * 0.2, y - sh - hem + 2, 2); c.fill(); c.fillStyle = '#2b2b36'; c.beginPath(); c.ellipse(x + s * hip * 0.2, y - sh * 0.5, hip * 0.17, sh * 0.62, 0, 0, 7); c.fill(); c.fillStyle = sk2; }
-    c.fillStyle = lgr(c, x - hip, 0, x + hip, 0, [[0, tint(shirt, 0.15)], [1, shade(shirt, 0.22)]]);
-    c.beginPath(); c.moveTo(x - sw * 0.38, yHip - torso * 0.2);
-    c.quadraticCurveTo(x - hip * 0.78, hem - 3, x - hip * 0.84, hem); c.quadraticCurveTo(x, hem + h * 0.025, x + hip * 0.84, hem);
-    c.quadraticCurveTo(x + hip * 0.78, hem - 3, x + sw * 0.38, yHip - torso * 0.2); c.closePath(); c.fill();
-  } else {
-    for (const s of [-1, 1]) {
-      const lx = x + s * hip * 0.25, lw = hip * 0.44;
-      c.fillStyle = lgr(c, lx - lw / 2, 0, lx + lw / 2, 0, [[0, tint(pants, 0.15)], [1, shade(pants, 0.2)]]);
-      rr(c, lx - lw / 2, yHip - 2, lw, Math.max(1, legs - sh + 2), lw * 0.35); c.fill();
-      c.fillStyle = '#2b2b36'; c.beginPath(); c.ellipse(lx + s * lw * 0.12, y - sh * 0.55, lw * 0.62, sh * 0.62, 0, 0, 7); c.fill();
-    }
+// o: { age (years), mood: ok|tired|eager, alpha? }   x = centre, y = feet, h = height; returns { top, x, y } (top = crown)
+const ageKind = (a) => (a < 3 ? 'toddler' : a < 14 ? 'child' : a < 20 ? 'teen' : a >= 62 ? 'older' : 'adult');
+const MOOD_OF = { ok: 'smile', tired: 'worried', eager: 'laugh' };
+const hashS = (s) => { let n = 7; for (let i = 0; i < s.length; i++) n = (n * 31 + s.charCodeAt(i)) >>> 0; return n; };
+const PANTS = ['#44506a', '#5a4a3a', '#3a4a5a', '#4a4a58'];
+const SHOE_COL = ['#3a2a22', '#2e3a52', '#a84a3e', '#4a6a4a', '#d8d2c4'];
+function caneHand(x, y, h, a) { // right hand of an older figure, the module's own joint maths (arm [0.3, 0])
+  const r = h / 5.35 / 2, sh = y - h + r * 1.14 + r + 0.24 * r, aw = 0.048 * h, ua = 0.39 * h * 0.46, fa = 0.39 * h * 0.4 + 0.05 * h;
+  const jx = x + 0.12 * h - aw * 0.52, jy = sh + 0.02 * h + aw * 0.5, ex = jx + Math.sin(a[0]) * ua, ey = jy + Math.cos(a[0]) * ua;
+  return [ex + Math.sin(a[0] + a[1]) * fa, ey + Math.cos(a[0] + a[1]) * fa];
+}
+// a sitting baby, lab-side: a round body, a big head, a tuft; a dark shadow shape and a lit copy shifted to the top left
+function baby(c, x, y, h, p, o) {
+  const sh = (col, lit) => (lit ? col : shade(col, 0.2)), dx = -0.025 * h, dy = -0.02 * h;
+  c.save(); c.globalAlpha = o.alpha ?? 1;
+  c.fillStyle = 'rgba(0,0,0,.2)'; c.beginPath(); c.ellipse(x, y, 0.4 * h, 0.06 * h, 0, 0, 7); c.fill();
+  for (const lit of [false, true]) {
+    const ox = lit ? dx : 0, oy = lit ? dy : 0;
+    c.fillStyle = sh(p.shirt, lit); c.beginPath(); c.ellipse(x + ox, y - 0.27 * h + oy, 0.3 * h, 0.27 * h, 0, 0, 7); c.fill();
+    c.fillStyle = sh(p.skin, lit);
+    for (const s of [-1, 1]) { c.beginPath(); c.ellipse(x + s * 0.2 * h + ox, y - 0.07 * h + oy, 0.12 * h, 0.07 * h, 0, 0, 7); c.fill(); }
+    for (const s of [-1, 1]) { c.beginPath(); c.arc(x + s * 0.3 * h + ox, y - 0.3 * h + oy, 0.06 * h, 0, 7); c.fill(); }
+    c.beginPath(); c.arc(x + ox, y - 0.68 * h + oy, 0.3 * h, 0, 7); c.fill();
+    c.fillStyle = sh(p.hair, lit); c.beginPath(); c.arc(x + 0.02 * h + ox, y - 0.98 * h + oy, 0.07 * h, 0, 7); c.fill();
   }
-  // neck, torso
-  c.fillStyle = sk2; rr(c, x - r * 0.3, yS - neck - 2, r * 0.6, neck + 4, 2); c.fill();
-  c.fillStyle = lgr(c, x - sw / 2, yS, x + sw / 2, yS + torso, [[0, tint(shirt, 0.2)], [1, shade(shirt, 0.2)]]);
-  rr(c, x - sw / 2, yS, sw, torso + 1, [sw * 0.4, sw * 0.4, sw * 0.18, sw * 0.18]); c.fill();
-  c.strokeStyle = 'rgba(0,0,0,.16)'; c.lineWidth = 1; c.stroke();
-  // arms: shoulder, elbow, hand
-  const hands = [];
-  const arm = (s, a1, b) => {
-    const sx = x + s * sw * 0.44, sy = yS + sw * 0.14, ua = h * 0.165, fa = h * 0.14, aw = Math.max(2.4, sw * 0.2);
-    const ex = sx + s * Math.sin(a1) * ua, ey = sy + Math.cos(a1) * ua, hx = ex + s * Math.sin(a1 + b) * fa, hy = ey + Math.cos(a1 + b) * fa;
-    c.lineWidth = aw; c.strokeStyle = shade(shirt, 0.08); c.beginPath(); c.moveTo(sx, sy); c.lineTo(ex, ey); c.stroke();
-    c.lineWidth = aw * 0.85; c.strokeStyle = skin; c.beginPath(); c.moveTo(ex, ey); c.lineTo(hx, hy); c.stroke();
-    c.fillStyle = skin; c.beginPath(); c.arc(hx, hy, aw * 0.55, 0, 7); c.fill();
-    hands.push([hx, hy]);
-  };
-  if (sit) { arm(-1, 0.5, 0.3); arm(1, 0.5, 0.3); } else { const L = o.armL || [0.16, 0.1], R = o.armR || (p.cane ? [0.32, 0.04] : [0.16, 0.1]); arm(-1, L[0], L[1]); arm(1, R[0], R[1]); }
-  if (p.cane && !sit) { c.strokeStyle = '#6b4a2b'; c.lineWidth = 1.8; c.beginPath(); c.moveTo(hands[1][0], hands[1][1]); c.lineTo(hands[1][0] + 1, y); c.stroke(); }
-  // hair behind the head
-  const hc = p.hair, tuft = age < 1.2;
-  if (!tuft && p.style === 'long') { c.fillStyle = shade(hc, 0.1); rr(c, x - r * 1.12, hcy - r * 0.85, r * 2.24, r * 2.5, r * 0.9); c.fill(); }
-  if (!tuft && p.style === 'pony') { c.fillStyle = shade(hc, 0.1); c.beginPath(); c.ellipse(x + r * 1.08, hcy + r * 0.1, r * 0.26, r * 0.55, 0.3, 0, 7); c.fill(); }
-  // ears + head
-  c.fillStyle = sk2; for (const s of [-1, 1]) { c.beginPath(); c.arc(x + s * r * 0.97, hcy + r * 0.1, r * 0.2, 0, 7); c.fill(); }
-  const g = c.createRadialGradient(x - r * 0.35, hcy - r * 0.4, r * 0.1, x, hcy, r * 1.1);
-  g.addColorStop(0, tint(skin, 0.22)); g.addColorStop(1, shade(skin, 0.08));
-  c.fillStyle = g; c.beginPath(); c.arc(x, hcy, r, 0, 7); c.fill(); c.strokeStyle = 'rgba(0,0,0,.18)'; c.lineWidth = 1; c.stroke();
-  // hair on top
-  if (tuft) { c.fillStyle = hc; c.beginPath(); c.arc(x, hcy - r * 0.98, r * 0.2, 0, 7); c.fill(); }
-  else {
-    if (p.style === 'curly') { c.fillStyle = hc; for (let i = 0; i < 7; i++) { const a = Math.PI * 1.04 + i * (Math.PI * 0.92 / 6); c.beginPath(); c.arc(x + Math.cos(a) * r * 1.02, hcy + Math.sin(a) * r * 1.02, r * 0.3, 0, 7); c.fill(); } }
-    if (p.style === 'bun') { c.fillStyle = hc; c.beginPath(); c.arc(x, hcy - r * 1.18, r * 0.36, 0, 7); c.fill(); }
-    const a0 = Math.PI * 1.04, sx0 = x + Math.cos(a0) * r * 1.04, sy0 = hcy + Math.sin(a0) * r * 1.04;
-    c.fillStyle = lgr(c, x - r, hcy - r, x + r, hcy, [[0, tint(hc, 0.2)], [1, hc]]);
-    c.beginPath(); c.arc(x, hcy, r * 1.04, a0, Math.PI * 1.96); c.quadraticCurveTo(x, hcy - r * 0.9, sx0, sy0); c.closePath(); c.fill();
-  }
-  // face: eyes at half the head height
-  const er = Math.max(0.9, r * 0.1), ex1 = r * 0.38;
-  c.fillStyle = '#2a1f1a';
-  for (const s of [-1, 1]) { c.beginPath(); c.arc(x + s * ex1, hcy, er, 0, 7); c.fill(); }
-  if (r >= 4.5) { c.fillStyle = '#ffffff'; for (const s of [-1, 1]) { c.beginPath(); c.arc(x + s * ex1 + er * 0.35, hcy - er * 0.35, er * 0.36, 0, 7); c.fill(); } }
-  c.fillStyle = 'rgba(230,110,110,.22)'; for (const s of [-1, 1]) { c.beginPath(); c.arc(x + s * r * 0.6, hcy + r * 0.38, r * 0.14, 0, 7); c.fill(); }
-  c.strokeStyle = '#4a2a24'; c.lineWidth = Math.max(1, r * 0.09);
-  if (mood === 'tired') {
-    c.beginPath(); c.moveTo(x - r * 0.25, hcy + r * 0.5); c.quadraticCurveTo(x, hcy + r * 0.44, x + r * 0.25, hcy + r * 0.52); c.stroke();
-    c.fillStyle = '#7fc4f0'; c.beginPath(); c.moveTo(x + r * 0.95, hcy - r * 0.55); c.quadraticCurveTo(x + r * 1.15, hcy - r * 0.2, x + r * 0.95, hcy - r * 0.1); c.quadraticCurveTo(x + r * 0.75, hcy - r * 0.2, x + r * 0.95, hcy - r * 0.55); c.fill();
-  } else if (mood === 'eager') {
-    c.fillStyle = '#7a2a2a'; c.beginPath(); c.arc(x, hcy + r * 0.34, r * 0.3, 0, Math.PI); c.closePath(); c.fill();
-  } else { c.beginPath(); c.arc(x, hcy + r * 0.22, r * 0.3, Math.PI * 0.18, Math.PI * 0.82); c.stroke(); }
-  if (p.glasses) { c.strokeStyle = '#3b3b44'; c.lineWidth = Math.max(1, r * 0.07); for (const s of [-1, 1]) { c.beginPath(); c.arc(x + s * ex1, hcy, r * 0.28, 0, 7); c.stroke(); } c.beginPath(); c.moveTo(x - ex1 + r * 0.28, hcy); c.lineTo(x + ex1 - r * 0.28, hcy); c.stroke(); }
+  const ey = y - 0.68 * h + dy, er = Math.max(0.9, 0.035 * h);
+  c.fillStyle = '#2a1f1a'; for (const s of [-1, 1]) { c.beginPath(); c.arc(x + s * 0.11 * h + dx, ey, er, 0, 7); c.fill(); }
+  c.strokeStyle = '#4a2a24'; c.lineWidth = Math.max(1, 0.025 * h); c.lineCap = 'round'; c.beginPath(); c.arc(x + dx, ey + 0.05 * h, 0.06 * h, 0.2 * Math.PI, 0.8 * Math.PI); c.stroke();
   c.restore();
-  return { top: hcy - r, x, y };
+  return { top: y - h, x, y };
+}
+function person(c, x, y, h, p, o = {}) {
+  if ((o.age ?? 30) < 1.2) return baby(c, x, y, h, p, o);
+  const age = o.age ?? 30, kind = ageKind(age), hs = hashS(p.shirt + p.hair + p.skin), mood = o.mood || 'ok';
+  const kid = kind === 'toddler' || kind === 'child' || kind === 'teen';
+  const outfit = p.dress ? 'dress' : kind === 'older' ? ['cardigan', 'sweater'][hs % 2] : kid ? ['tee', 'hoodie', 'sweater'][hs % 3] : ['tee', 'jacket', 'sweater', 'hoodie'][hs % 4];
+  const hairStyle = p.style === 'short' ? (hs % 3 === 0 ? 'side' : 'short') : p.style === 'long' ? (hs % 2 ? 'wavy' : 'bob') : p.style;
+  const shoeKind = kid ? ['sneaker', 'hightop', 'sneaker'][hs % 3] : kind === 'older' ? 'loafer' : p.style === 'long' ? 'flat' : ['loafer', 'sneaker', 'boot'][hs % 3];
+  const arms = { l: ARMS.down, r: mood === 'eager' ? ARMS.wave : p.cane ? [0.3, 0] : ARMS.down };
+  c.save(); c.globalAlpha = o.alpha ?? 1;
+  drawPerson(c, x, y, h, { age: kind, skin: p.skin, hair: p.hair, hairStyle, top: p.shirt, bottom: p.pants || PANTS[(hs >> 3) % 4], outfit, sleeves: kind === 'older' ? 'long' : 'short',
+    shoe: { kind: shoeKind, col: SHOE_COL[(hs >> 5) % 5] }, mood: MOOD_OF[mood], glasses: p.glasses ? 'round' : false, arms, look: 0 });
+  if (p.cane && mood !== 'eager') { // a walking stick under the right hand: a dark shadow stroke and a lit one shifted to the top left
+    const [hx, hy] = caneHand(x, y, h, arms.r), w = Math.max(1.6, 0.03 * h);
+    c.lineCap = 'round'; c.lineWidth = w; c.strokeStyle = '#4a3320'; c.beginPath(); c.moveTo(hx, hy); c.lineTo(hx + 0.01 * h, y); c.stroke();
+    c.lineWidth = w * 0.6; c.strokeStyle = '#7a5a38'; c.beginPath(); c.moveTo(hx - 0.3, hy); c.lineTo(hx + 0.01 * h - 0.3, y - 0.5); c.stroke();
+  }
+  c.restore();
+  return { top: y - h, x, y };
 }
 
 // --- state ----------------------------------------------------------------------------------------------------
@@ -575,7 +544,7 @@ function drawPeople(c, tags, revealed) {
   FAM.forEach((_, i) => {
     const R = ROOMS[i], p = famLook(i), fx = R.x + 25, fy = R.y + R.h - 18;
     const mood = revealed ? (n[i] >= 4 ? 'tired' : n[i] === 0 ? 'eager' : 'ok') : 'ok';
-    const res = person(c, fx, fy, p.h, p, { age: p.age, mood, armR: mood === 'eager' ? [2.5, 0.5] : undefined });
+    const res = person(c, fx, fy, p.h, p, { age: p.age, mood });
     pill(c, T[lang].who[i], fx, R.y + R.h - 9, { bg: 'rgba(60,40,24,.78)', size: 12 });
     if (tags) pill(c, T[lang].inst.tags[i], fx, res.top - 13, { bg: 'rgba(255,255,255,.92)', fg: '#2a2f48' });
   });
@@ -681,14 +650,14 @@ function drawYears(c, time) {
   const hairOf = (b, age) => mix(b.hairBase, '#c9c9d1', clamp((age - 42) / 24, 0, 1));
   const parent = (b, x, age) => {
     const base = { skin: b.skin, hair: hairOf(b, age), style: b.style, shirt: b.shirt, glasses: age >= 60 };
-    person(c, x, FY, 80, base, { age: Math.min(age, 60) });
+    person(c, x, FY, 80, base, { age });
   };
   parent(MUM, 52, aP); parent(DAD, 96, aD);
-  const aM = yd, mh = HT(aM), sit = aM < 1.2;
-  const mr = person(c, 178, FY, mh, MIA, { age: aM, sit });
+  const aM = yd, mh = HT(aM);
+  const mr = person(c, 178, FY, mh, MIA, { age: aM });
   const aN = yd - 28;
   let nr = null;
-  if (aN > -1) nr = person(c, 246, FY, HT(Math.max(0, aN)), NOA, { age: Math.max(0, aN), sit: aN < 1.2, alpha: clamp(aN + 1, 0, 1) });
+  if (aN > -1) nr = person(c, 246, FY, HT(Math.max(0, aN)), NOA, { age: Math.max(0, aN), alpha: clamp(aN + 1, 0, 1) });
   // care arrows: heart travels from the carer to the one cared for
   const arrow = (x1, y1, x2, y2, a) => {
     if (a < 0.05) return;

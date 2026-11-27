@@ -12,6 +12,11 @@ Hungarian is on the site: [What's new](https://samvelkoch.github.io/skill-graph/
 
 Counts in brackets are totals after that day.
 
+## 2026-11-27
+
+### Labs
+- `market-stall`, `ask-help`, `good-friend`, `bully-or-not`, `family-roles`, `growing-up`, `no-go-tell`, `boxes` and `my-body` draw their people with the shared `labs/people.js`; props, costumes and the swimsuit highlight stay in the labs. `caricature` keeps its own exaggeration code, restyled to the same look. `labs/people.js` is unchanged. (#743)
+
 ## 2026-11-26
 
 ### Labs
