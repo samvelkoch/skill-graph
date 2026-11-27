@@ -14,7 +14,7 @@ Counts in brackets are totals after that day.
 
 ## 2026-11-27
 
-### People (pigtails)
+### People (pigtails, #753)
 - `people.js` `pigtails`: the bunches are tied high on the head and stick out sideways, flaring at the ends, instead of hanging down beside the cheeks (they read as sidelocks). Affects every lab with pigtails (frame-it, growing-up, trick-box, market-stall and others).
 
 ### Labs (one screen, #752)
