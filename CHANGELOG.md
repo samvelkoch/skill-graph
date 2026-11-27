@@ -14,6 +14,10 @@ Counts in brackets are totals after that day.
 
 ## 2026-11-27
 
+### Labs (pictures fixed)
+- `labs/people.js`: the `pigtails` hairstyle is two fluffy bunches tied high on the sides, with hair ties, instead of two tapering strands that looked like carrots. Used by `frame-it` and `leading-question`.
+- `frame-it`: the dog is redrawn as a sitting golden dog with four paws, both eyes and a friendly face, looking up at the girl (its frame zone updated); the sleeping cat in the third view is redrawn (rounded ears without outlines cutting the face, a tail around the front); the crying girl wipes a tear with one hand instead of crossing her arms into an X.
+
 ### Labs (my-body fix)
 - `my-body`: the cousin's pigtails are redrawn as two bunches high on the sides (no strands hanging in front), and the 'private' zone is a warm halo behind the swimsuit instead of a yellow outline that read as a see-through top.
 
