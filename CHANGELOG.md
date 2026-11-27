@@ -15,7 +15,7 @@ Counts in brackets are totals after that day.
 ## 2026-11-27
 
 ### Labs (people, round 2)
-- Eight more labs draw people with the shared `labs/people.js` (#PR): `medieval-clothes` (dress-up base, garment layers kept), `homeostasis` (runner keeps flushed/pale skin and sweat), `mouse-dragon-me` (three reactions as poses), `stress-curve` (juggler with a two-bone arm aim, judge, bucket kid; hand and catch heights moved up to fit a real body), `thumbs-feet` (adult/child height ratio), `string-phone` (kids hold the cans; table listener seated behind the table), `stop-think` (all kinds and poses; bubble faces clip a full figure), `pitch-it` (judges and vendors behind the desk, presenter). `labs/people.js` unchanged.
+- Eight more labs draw people with the shared `labs/people.js` (#751): `medieval-clothes` (dress-up base, garment layers kept), `homeostasis` (runner keeps flushed/pale skin and sweat), `mouse-dragon-me` (three reactions as poses), `stress-curve` (juggler with a two-bone arm aim, judge, bucket kid; hand and catch heights moved up to fit a real body), `thumbs-feet` (adult/child height ratio), `string-phone` (kids hold the cans; table listener seated behind the table), `stop-think` (all kinds and poses; bubble faces clip a full figure), `pitch-it` (judges and vendors behind the desk, presenter). `labs/people.js` unchanged.
 
 ### Labs (my-body fix)
 - `my-body`: the cousin's pigtails are redrawn as two bunches high on the sides (no strands hanging in front), and the 'private' zone is a warm halo behind the swimsuit instead of a yellow outline that read as a see-through top.
