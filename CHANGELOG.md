@@ -14,7 +14,7 @@ Counts in brackets are totals after that day.
 
 ## 2026-11-27
 
-### Labs (one screen, #PRNUM)
+### Labs (one screen, #752)
 - The ten labs added today fit a laptop or projector screen (1366×768 and 1920×1080, EN/RU/HU) without scrolling, in every view and after answering: the picture takes the height the panel leaves (no fixed heights or forced aspect ratios above 760 px), tall panels are compacted (facts, lines and questions in two columns or rows) and, where a view's panel is tall, it stands beside the picture (`body[data-v]` per view). Desktop-only CSS; phones unchanged.
 - `frame-it`: a proper ice-cream van parked beyond the track, the sports-day banner in the page language, hurdles behind the runners.
 - `think-first`: the skill chart moved to the top right, off the child's face.
