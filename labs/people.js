@@ -33,7 +33,7 @@
 //   arms: { l, r }   arrays [upper angle, forearm relative]; 0 hangs down, + goes outwards; l is the arm on the left of the screen
 //   mood     smile | calm | open | laugh | sad | angry | surprised | worried | thinking | flat
 //   look     -1…1 eye direction        noShadow, lashes, freckles
-//   age      toddler | child | teen | adult | older        build   slim | average
+//   age      toddler | child | teen | adult | older        build   slim | average | round (wider torso, waist, hips; thicker arms and legs)
 //   outfit   tee | hoodie | sweater | jacket | cardigan | uniform | dress      inner, tie: colours
 //   lower    trousers | shorts | skirt       tights: true | colour      sleeves: short | long | none
 //   shoe     { kind: sneaker | hightop | boot | rain | loafer | flat | ballet | sandal, col }
@@ -543,7 +543,7 @@ export function drawPerson(c, x, footY, h, o) {
   o = o || {};
   if (!c || !(h > 0)) return;
   const ageK = AGES[o.age] ? o.age : (o.adult ? 'adult' : 'child'), A = AGES[ageK];
-  const slim = o.build === 'slim';
+  const slim = o.build === 'slim', round = o.build === 'round';
   const k = pxScale(c), u = 1 / k;
   const r = h / A.heads / 2, rpx = r * k, lod = rpx < 6.5 ? 0 : rpx < 15 ? 1 : 2;
 
@@ -560,8 +560,8 @@ export function drawPerson(c, x, footY, h, o) {
 
   // ---- skeleton
   const lean = o.pose === 'straight' ? 0 : (o.lean ? (o.lean > 0 ? 1 : -1) : (seed & 1 ? 1 : -1));
-  const limbK = slim ? 0.88 : 1;
-  const shw = A.shw * h * (slim ? 0.95 : 1), hipw = A.hipw * h * (slim ? 0.93 : 1);
+  const limbK = slim ? 0.88 : round ? 1.14 : 1;
+  const shw = A.shw * h * (slim ? 0.95 : round ? 1.1 : 1), hipw = A.hipw * h * (slim ? 0.93 : round ? 1.22 : 1);
   const aw = A.aw * h * limbK, lw = A.lw * h * limbK;
   const legLen = A.leg * h, slope = A.slope * h;
   const cy = footY - h + r * 1.14, chin = cy + r;
