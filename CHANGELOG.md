@@ -14,7 +14,7 @@ Counts in brackets are totals after that day.
 
 ## 2026-11-28
 
-### Labs (Balaton portraits redrawn, #PR)
+### Labs (Balaton portraits redrawn, #756)
 - `balaton-park`: all nine "Ki vagyok?" portraits redrawn as small scenes with one clean outline per animal or plant, shading and a habitat background (egret in shallow water, otter on a log, root vole in a wet meadow, buffalo in mud, bird's-eye primrose with its mealy rosette, long-eared bat at night, honey buzzard at a dug-out wasp nest, bee orchid spike, winter aconite in snow); closer crops where the animal was small.
 
 ### Labs (Balaton "Who am I?", new slides, #755)
