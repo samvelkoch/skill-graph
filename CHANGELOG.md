@@ -14,6 +14,9 @@ Counts in brackets are totals after that day.
 
 ## 2026-11-28
 
+### Labs (Balaton "Who am I?", new slides, #755)
+- `balaton-park`: "Ki vagyok?" gets four riddles from the new protected species slides: brown long-eared bat, honey buzzard, bee orchid, winter aconite, each with a new SVG portrait and three clues in HU, EN and RU that match the quiz. 9 riddles instead of 5; on a laptop or projector the cards sit in two rows (5 + 4), on phones in a 3 × 3 grid with hyphenated names.
+
 ### Labs (Balaton quiz, new slides, #754)
 - `balaton-park`: the class quiz covers the new protected animals and plants slides of the talk (v3): 10 new questions (brown long-eared bat, honey buzzard, bee orchid, bug orchid, orchids in common, winter aconite, marsh tit, two "animal or plant?" name tricks, what "protected" means) in HU, EN and RU. The pool grows from 20 to 30; a new "30 questions" size; every size now mixes in some of the new questions. The existing 20 questions are unchanged.
 
