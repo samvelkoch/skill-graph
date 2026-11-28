@@ -12,6 +12,11 @@ Hungarian is on the site: [What's new](https://samvelkoch.github.io/skill-graph/
 
 Counts in brackets are totals after that day.
 
+## 2026-11-28
+
+### Labs (Balaton quiz, new slides, #754)
+- `balaton-park`: the class quiz covers the new protected animals and plants slides of the talk (v3): 10 new questions (brown long-eared bat, honey buzzard, bee orchid, bug orchid, orchids in common, winter aconite, marsh tit, two "animal or plant?" name tricks, what "protected" means) in HU, EN and RU. The pool grows from 20 to 30; a new "30 questions" size; every size now mixes in some of the new questions. The existing 20 questions are unchanged.
+
 ## 2026-11-27
 
 ### People (pigtails, #753)
